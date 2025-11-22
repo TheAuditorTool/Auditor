@@ -8,6 +8,7 @@ Signature: context: StandardRuleContext -> List[StandardFinding]
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
+
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -124,7 +125,7 @@ class RuntimePatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Node.js runtime security issues.
 
     This is the main entry point called by the orchestrator.
@@ -150,11 +151,11 @@ class RuntimeAnalyzer:
         """Initialize analyzer with context."""
         self.context = context
         self.patterns = RuntimePatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
-        self.tainted_vars: Dict[str, tuple] = {}  # var_name -> (file, line, source)
+        self.tainted_vars: dict[str, tuple] = {}  # var_name -> (file, line, source)
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete runtime security analysis."""
         if not self._is_javascript_project():
             return self.findings
@@ -195,9 +196,8 @@ class RuntimeAnalyzer:
             # First, identify tainted variables
             self._identify_tainted_variables(cursor)
 
-            # Check direct exec calls with user input
+            # Check direct exec calls with user input (file filtering handled by METADATA)
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
                                order_by="file, line")
             cursor.execute(query)
 
@@ -240,13 +240,16 @@ class RuntimeAnalyzer:
                             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
                         ))
 
-            # Check for template literals with user input
-            query = build_query('assignments', ['file', 'line', 'source_expr'],
-                               where="source_expr LIKE '%`%' AND source_expr LIKE '%$%' AND (file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx')",
+            # Check for template literals with user input (file filtering handled by METADATA)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, expr in cursor.fetchall():
+            for file, line, target, expr in cursor.fetchall():
+                # Check for template literal patterns in Python
+                if not ('`' in expr and '$' in expr):
+                    continue
+
                 # Check if template contains user input
                 has_user_input = False
                 for source in self.patterns.USER_INPUT_SOURCES:
@@ -255,13 +258,16 @@ class RuntimeAnalyzer:
                         break
 
                 if has_user_input:
-                    # Check if used near exec functions
+                    # Check if used near exec functions, filter in Python
                     exec_query = build_query('function_call_args', ['callee_function'],
-                                            where="file = ? AND line BETWEEN ? AND ? AND (callee_function LIKE '%exec%' OR callee_function LIKE '%spawn%')",
-                                            limit=1)
+                                            where="file = ? AND line BETWEEN ? AND ?")
                     cursor.execute(exec_query, (file, line - 5, line + 5))
 
-                    near_exec = cursor.fetchone() is not None
+                    near_exec = False
+                    for (callee,) in cursor.fetchall():
+                        if 'exec' in callee or 'spawn' in callee:
+                            near_exec = True
+                            break
 
                     if near_exec:
                         self.findings.append(StandardFinding(
@@ -286,13 +292,18 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Look for spawn calls
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function LIKE '%spawn%' AND argument_expr LIKE '%shell%'",
+            # Fetch all function calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, args in cursor.fetchall():
+            for file, line, callee, args in cursor.fetchall():
+                # Check for spawn functions in Python
+                if 'spawn' not in callee:
+                    continue
+                # Check for shell argument
+                if 'shell' not in args:
+                    continue
                 # Check if shell:true is present
                 if 'shell' in args and 'true' in args:
                     # Check for user input
@@ -325,9 +336,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check Object.assign with spread
+            # Check Object.assign with spread (file filtering handled by METADATA)
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
                                order_by="file, line")
             cursor.execute(query)
 
@@ -356,9 +366,9 @@ class RuntimeAnalyzer:
                                 ))
                                 break
 
-            # Check for for...in loops without validation
+            # Check for for...in loops without validation (file filtering handled by METADATA)
             query = build_query('symbols', ['path', 'line', 'name'],
-                               where="name IN ('for', 'in') AND (path LIKE '%.js' OR path LIKE '%.jsx' OR path LIKE '%.ts' OR path LIKE '%.tsx')",
+                               where="name IN ('for', 'in')",
                                order_by="path, line")
             cursor.execute(query)
 
@@ -383,13 +393,17 @@ class RuntimeAnalyzer:
                         snippet='for...in without hasOwnProperty check',
                     ))
 
-            # Check recursive merge patterns
+            # Check recursive merge patterns (file filtering handled by METADATA)
             query = build_query('symbols', ['path', 'line', 'name', 'type'],
-                               where="type = 'function' AND (name LIKE '%merge%' OR name LIKE '%extend%') AND (path LIKE '%.js' OR path LIKE '%.jsx' OR path LIKE '%.ts' OR path LIKE '%.tsx')",
+                               where="type = 'function'",
                                order_by="path, line")
             cursor.execute(query)
 
             for file, line, func_name, func_type in cursor.fetchall():
+                # Filter for merge/extend functions in Python
+                func_name_lower = func_name.lower()
+                if 'merge' not in func_name_lower and 'extend' not in func_name_lower:
+                    continue
                 # Check if function has recursive calls
                 rec_query = build_query('function_call_args', ['callee_function'],
                                        where="file = ? AND line > ? AND line < ? AND callee_function = ?",
@@ -430,8 +444,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Fetch all function calls (file filtering handled by METADATA)
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
                                order_by="file, line")
             cursor.execute(query)
 
@@ -486,13 +500,15 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Look for RegExp constructor with user input
+            # Fetch all function calls, filter in Python (file filtering handled by METADATA)
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="(callee_function = 'RegExp' OR callee_function = 'new RegExp' OR callee_function LIKE '%RegExp%') AND (file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx')",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
+                # Check for RegExp functions in Python
+                if func not in ('RegExp', 'new RegExp') and 'RegExp' not in func:
+                    continue
                 if args:
                     # Check for user input
                     has_user_input = False
@@ -532,8 +548,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Fetch all function calls (file filtering handled by METADATA)
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
                                order_by="file, line")
             cursor.execute(query)
 
@@ -581,9 +597,8 @@ class RuntimeAnalyzer:
     def _identify_tainted_variables(self, cursor) -> None:
         """Identify variables assigned from user input sources."""
         try:
-            # Find assignments from user input
+            # Find assignments from user input (file filtering handled by METADATA)
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
                                order_by="file, line")
             cursor.execute(query)
 

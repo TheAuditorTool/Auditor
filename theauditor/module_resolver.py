@@ -1,5 +1,6 @@
 """Module resolution for TypeScript/JavaScript projects with tsconfig.json support."""
 
+
 import json
 import re
 from pathlib import Path
@@ -23,7 +24,7 @@ class ModuleResolver:
     - Relative and absolute imports
     """
     
-    def __init__(self, project_root: Optional[str] = None, db_path: str = ".pf/repo_index.db"):
+    def __init__(self, project_root: str | None = None, db_path: str = ".pf/repo_index.db"):
         """Initialize resolver with database path - NO filesystem access.
         
         Args:
@@ -36,13 +37,13 @@ class ModuleResolver:
             self.project_root = Path.cwd()
         
         self.db_path = Path(db_path)
-        self.configs_by_context: Dict[str, Any] = {}
-        self.path_mappings_by_context: Dict[str, Dict[str, List[str]]] = {}
-        self.webpack_aliases: Dict[str, str] = {}  # Kept for compatibility
+        self.configs_by_context: dict[str, Any] = {}
+        self.path_mappings_by_context: dict[str, dict[str, list[str]]] = {}
+        self.webpack_aliases: dict[str, str] = {}  # Kept for compatibility
         
         # For backward compatibility
-        self.base_url: Optional[str] = None
-        self.path_mappings: Dict[str, List[str]] = {}
+        self.base_url: str | None = None
+        self.path_mappings: dict[str, list[str]] = {}
         
         # Load all configs from database ONCE
         self._load_all_configs_from_db()
@@ -50,7 +51,7 @@ class ModuleResolver:
     def _load_all_configs_from_db(self) -> None:
         """Load ALL tsconfig files from database and organize by context."""
         if not self.db_path.exists():
-            print(f"[DEBUG] No database found at {self.db_path}, resolver disabled")
+            # print(f"[DEBUG] No database found at {self.db_path}, resolver disabled")
             return
         
         import sqlite3
@@ -67,7 +68,7 @@ class ModuleResolver:
             """)
             
             configs = cursor.fetchall()
-            print(f"[DEBUG] Found {len(configs)} cached tsconfig files")
+            # print(f"[DEBUG] Found {len(configs)} cached tsconfig files")
             
             for path, content, context_dir in configs:
                 try:
@@ -107,7 +108,7 @@ class ModuleResolver:
                     if context_dir is None:
                         refs = config.get("references", [])
                         if refs:
-                            print(f"[DEBUG] Root config has {len(refs)} project references, skipping")
+                            # print(f"[DEBUG] Root config has {len(refs)} project references, skipping")
                             continue
                         context_dir = "root"
                     
@@ -119,7 +120,7 @@ class ModuleResolver:
                     base_url = compiler_opts.get("baseUrl", ".")
                     paths = compiler_opts.get("paths", {})
                     
-                    print(f"[DEBUG] {context_dir}/tsconfig.json: baseUrl='{base_url}', {len(paths)} path mappings")
+                    # print(f"[DEBUG] {context_dir}/tsconfig.json: baseUrl='{base_url}', {len(paths)} path mappings")
                     
                     # Process path mappings with context
                     mappings = {}
@@ -162,12 +163,18 @@ class ModuleResolver:
                     print(f"[WARNING] Failed to parse {path}: {e}")
                     
         except sqlite3.OperationalError as e:
-            print(f"[WARNING] config_files table not found, using empty mappings: {e}")
+            error_msg = str(e)
+            if "database is locked" in error_msg:
+                print(f"[WARNING] Database locked (indexing in progress?), using empty path mappings")
+            elif "no such table" in error_msg:
+                print(f"[WARNING] config_files table not found, using empty mappings")
+            else:
+                print(f"[WARNING] Failed to load config_files: {error_msg}")
             
         finally:
             conn.close()
         
-        print(f"[DEBUG] Loaded configs for: {list(self.configs_by_context.keys())}")
+        # print(f"[DEBUG] Loaded configs for: {list(self.configs_by_context.keys())}")
     
     def _load_tsconfig(self) -> None:
         """Deprecated method kept for backward compatibility."""
@@ -187,28 +194,28 @@ class ModuleResolver:
         if import_path.startswith("."):
             return import_path
         
-        print(f"\n[DEBUG] Resolving import: '{import_path}' from file: {containing_file_path}")
+        # print(f"\n[DEBUG] Resolving import: '{import_path}' from file: {containing_file_path}")
         
         # Check if import matches any TypeScript path aliases
         for alias_prefix, target_patterns in self.path_mappings.items():
             if import_path.startswith(alias_prefix):
                 # Extract the part after the alias
                 suffix = import_path[len(alias_prefix):]
-                print(f"[DEBUG] Matched alias '{alias_prefix}', suffix: '{suffix}'")
+                # print(f"[DEBUG] Matched alias '{alias_prefix}', suffix: '{suffix}'")
                 
                 # Try each target pattern (there can be multiple)
                 for target_pattern in target_patterns:
-                    print(f"[DEBUG] Trying target pattern: '{target_pattern}'")
+                    # print(f"[DEBUG] Trying target pattern: '{target_pattern}'")
                     # Construct the resolved path
                     if self.base_url:
                         # Resolve relative to baseUrl
                         base_path = self.project_root / self.base_url
                         resolved_path = base_path / target_pattern / suffix
-                        print(f"[DEBUG] Resolved path (with baseUrl): {resolved_path}")
+                        # print(f"[DEBUG] Resolved path (with baseUrl): {resolved_path}")
                     else:
                         # Resolve relative to project root
                         resolved_path = self.project_root / target_pattern / suffix
-                        print(f"[DEBUG] Resolved path (no baseUrl): {resolved_path}")
+                        # print(f"[DEBUG] Resolved path (no baseUrl): {resolved_path}")
                     
                     # Try common file extensions if path doesn't have one
                     if not resolved_path.suffix:
@@ -218,12 +225,12 @@ class ModuleResolver:
                                 # Return path relative to project root with normalized separators
                                 try:
                                     result = str(test_path.relative_to(self.project_root)).replace("\\", "/")
-                                    print(f"[DEBUG] SUCCESS: Resolved to existing file: {result}")
+                                    # print(f"[DEBUG] SUCCESS: Resolved to existing file: {result}")
                                     return result
                                 except ValueError:
                                     # Path is outside project root
                                     result = str(test_path).replace("\\", "/")
-                                    print(f"[DEBUG] SUCCESS: Resolved to existing file (outside root): {result}")
+                                    # print(f"[DEBUG] SUCCESS: Resolved to existing file (outside root): {result}")
                                     return result
                         
                         # Also check for index files
@@ -253,7 +260,7 @@ class ModuleResolver:
                         return target_pattern + suffix
         
         # No alias matched - return original path
-        print(f"[DEBUG] No alias matched for '{import_path}', returning original")
+        # print(f"[DEBUG] No alias matched for '{import_path}', returning original")
         return import_path
     
     def resolve_with_context(self, import_path: str, source_file: str, context: str) -> str:
@@ -306,7 +313,7 @@ class ModuleResolver:
         # Could use subprocess to run Node.js and extract config
         pass
     
-    def resolve_with_node_algorithm(self, import_path: str, containing_file: str) -> Optional[str]:
+    def resolve_with_node_algorithm(self, import_path: str, containing_file: str) -> str | None:
         """Implement Node.js module resolution algorithm.
         
         Follows Node.js rules:
@@ -339,7 +346,7 @@ class ModuleResolver:
                         main_file = node_modules / main
                         if main_file.exists():
                             return str(main_file.relative_to(self.project_root)).replace("\\", "/")
-                    except (json.JSONDecodeError, IOError) as e:
+                    except (json.JSONDecodeError, OSError) as e:
                         print(f"[WARNING] Could not parse package.json from {package_json}: {e}")
                         # Continue checking other resolution methods
                 

@@ -12,6 +12,7 @@ This implementation:
 - Maps findings to security regulations (OWASP, PCI-DSS, NIST)
 """
 
+
 import sqlite3
 from typing import List, Set, Dict, Optional, Tuple
 from pathlib import Path
@@ -125,7 +126,7 @@ FRAMEWORK_PATTERNS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_rate_limit_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_rate_limit_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect rate limiting misconfigurations using database queries.
 
     Implements 15+ detection patterns for rate limiting issues including
@@ -249,7 +250,7 @@ def _get_attack_scenario(rule_name: str) -> str:
 # DETECTION LAYER 1: Middleware Ordering
 # ============================================================================
 
-def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
+def _detect_middleware_ordering(cursor) -> list[StandardFinding]:
     """Detect incorrect middleware ordering (auth before rate limit)."""
     findings = []
 
@@ -257,14 +258,18 @@ def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE callee_function LIKE '%use%'
-           OR callee_function LIKE '%middleware%'
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
     # Group by file and analyze ordering
     file_middleware = {}
     for file, line, func, args in cursor.fetchall():
+        # Filter for middleware registration functions in Python
+        func_lower = func.lower()
+        if not ('use' in func_lower or 'middleware' in func_lower):
+            continue
+
         if file not in file_middleware:
             file_middleware[file] = []
 
@@ -357,56 +362,72 @@ def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 2: Unprotected Critical Endpoints
 # ============================================================================
 
-def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
+def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
     """Detect critical endpoints without rate limiting."""
     findings = []
 
     # Find route definitions
-    placeholders = ','.join(['?' for _ in CRITICAL_ENDPOINTS])
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%post%'
-               OR callee_function LIKE '%get%'
-               OR callee_function LIKE '%route%')
-          AND ({' OR '.join(['argument_expr LIKE ?' for _ in CRITICAL_ENDPOINTS])})
-    """, [f'%{endpoint}%' for endpoint in CRITICAL_ENDPOINTS])
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter for route functions in Python
+        func_lower = func.lower()
+        if not ('post' in func_lower or 'get' in func_lower or 'route' in func_lower):
+            continue
+
         # Identify which critical endpoint
+        args_lower = args.lower()
         endpoint_found = None
         for endpoint in CRITICAL_ENDPOINTS:
-            if endpoint in args.lower():
+            if endpoint in args_lower:
                 endpoint_found = endpoint
                 break
 
         if endpoint_found:
             # Check for rate limiting within ±30 lines
-            query_rate_limit = build_query('function_call_args', ['callee_function', 'line'],
-                where="""file = ?
-                  AND (callee_function LIKE '%limit%'
-                       OR callee_function LIKE '%throttle%'
-                       OR argument_expr LIKE '%limit%'
-                       OR argument_expr LIKE '%throttle%')"""
-            )
-            cursor.execute(query_rate_limit, (file,))
+            cursor.execute("""
+                SELECT callee_function, line, argument_expr
+                FROM function_call_args
+                WHERE file = ?
+                  AND callee_function IS NOT NULL
+            """, (file,))
 
-            # Filter in Python for ABS(line - ?) <= 30
-            nearby_rate_limits = [row for row in cursor.fetchall() if abs(row[1] - line) <= 30]
+            # Filter in Python for limit/throttle within ±30 lines
+            nearby_rate_limits = []
+            for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+                if abs(nearby_line - line) > 30:
+                    continue
+                func_lower = nearby_func.lower()
+                args_lower = (nearby_args or '').lower()
+                if 'limit' in func_lower or 'throttle' in func_lower or 'limit' in args_lower or 'throttle' in args_lower:
+                    nearby_rate_limits.append((nearby_func, nearby_line))
+
             has_rate_limit = len(nearby_rate_limits) > 0
 
             # Also check for decorators
             if not has_rate_limit:
-                query_decorators = build_query('symbols', ['name', 'line'],
-                    where="""path = ?
+                cursor.execute("""
+                    SELECT name, line
+                    FROM symbols
+                    WHERE path = ?
                       AND type = 'decorator'
-                      AND (name LIKE '%limit%' OR name LIKE '%throttle%')"""
-                )
-                cursor.execute(query_decorators, (file,))
+                      AND name IS NOT NULL
+                """, (file,))
 
-                # Filter in Python for ABS(line - ?) <= 10
-                nearby_decorators = [row for row in cursor.fetchall() if abs(row[1] - line) <= 10]
-                has_rate_limit = len(nearby_decorators) > 0
+                # Filter in Python for limit/throttle within ±10 lines
+                for dec_name, dec_line in cursor.fetchall():
+                    if abs(dec_line - line) > 10:
+                        continue
+                    dec_name_lower = dec_name.lower()
+                    if 'limit' in dec_name_lower or 'throttle' in dec_name_lower:
+                        has_rate_limit = True
+                        break
 
             if not has_rate_limit:
                 framework = _detect_framework(file)
@@ -436,7 +457,7 @@ def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 3: Bypassable Key Generation
 # ============================================================================
 
-def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
+def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
     """Detect rate limiters using spoofable headers for keys."""
     findings = []
 
@@ -444,19 +465,20 @@ def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%RateLimit%'
-               OR callee_function LIKE '%Limiter%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
-          AND (argument_expr LIKE '%keyGenerator%'
-               OR argument_expr LIKE '%key_func%'
-               OR argument_expr LIKE '%getKey%')
+        ORDER BY file, line
     """)
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter for RateLimit/Limiter functions with key generation
+        func_lower = func.lower()
+        if not ('ratelimit' in func_lower or 'limiter' in func_lower):
             continue
 
         args_lower = args.lower()
+        if not ('keygenerator' in args_lower or 'key_func' in args_lower or 'getkey' in args_lower):
+            continue
 
         # Check for spoofable headers
         uses_spoofable = False
@@ -494,28 +516,55 @@ def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
                 ))
 
     # Also check assignments that might be used for keys
-    placeholders = ','.join(['?' for _ in SPOOFABLE_HEADERS])
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE source_expr LIKE '%headers%'
-          AND ({' OR '.join(['source_expr LIKE ?' for _ in SPOOFABLE_HEADERS])})
-          AND (target_var LIKE '%ip%' OR target_var LIKE '%key%' OR target_var LIKE '%client%')
-    """, [f'%{h}%' for h in SPOOFABLE_HEADERS])
+        WHERE source_expr IS NOT NULL
+          AND target_var IS NOT NULL
+        ORDER BY file, line
+    """)
 
     for file, line, var, expr in cursor.fetchall():
+        # Filter for assignments involving headers and spoofable patterns
+        expr_lower = expr.lower()
+        if 'headers' not in expr_lower:
+            continue
+
+        # Check if contains spoofable header
+        has_spoofable = any(header in expr_lower for header in SPOOFABLE_HEADERS)
+        if not has_spoofable:
+            continue
+
+        # Check if var name suggests IP/key/client
+        var_lower = var.lower()
+        if not ('ip' in var_lower or 'key' in var_lower or 'client' in var_lower):
+            continue
+
         # Check if this var is used in rate limiting
-        query_var_usage = build_query('function_call_args', ['callee_function'],
-            where="""file = ?
+        cursor.execute("""
+            SELECT callee_function, argument_expr
+            FROM function_call_args
+            WHERE file = ?
               AND line > ?
               AND line <= ? + 50
-              AND argument_expr LIKE ?
-              AND (callee_function LIKE '%limit%' OR callee_function LIKE '%throttle%')""",
-            limit=1
-        )
-        cursor.execute(query_var_usage, (file, line, line, f'%{var}%'))
+              AND argument_expr IS NOT NULL
+              AND callee_function IS NOT NULL
+            LIMIT 1
+        """, (file, line, line))
 
-        if cursor.fetchone() is not None:
+        # Filter in Python for var usage in limit/throttle
+        var_used_in_rate_limit = False
+        for nearby_func, nearby_args in cursor.fetchall():
+            if var not in nearby_args:
+                continue
+            func_lower = nearby_func.lower()
+            if 'limit' in func_lower or 'throttle' in func_lower:
+                var_used_in_rate_limit = True
+                break
+
+        cursor.execute("SELECT 1")  # Dummy to get fetchone
+
+        if var_used_in_rate_limit:
             findings.append(StandardFinding(
                 rule_name='bypassable-key-indirect',
                 message='Rate limiting key derived from spoofable header',
@@ -538,24 +587,33 @@ def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 4: Memory Storage Issues
 # ============================================================================
 
-def _detect_memory_storage(cursor) -> List[StandardFinding]:
+def _detect_memory_storage(cursor) -> list[StandardFinding]:
     """Detect rate limiters using non-persistent storage."""
     findings = []
 
     # Check for memory storage patterns
-    placeholders = ','.join(['?' for _ in MEMORY_STORAGE_PATTERNS])
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%RateLimit%'
-               OR callee_function LIKE '%Limiter%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
-          AND ({' OR '.join(['LOWER(argument_expr) LIKE ?' for _ in MEMORY_STORAGE_PATTERNS])})
-    """, [f'%{pattern}%' for pattern in MEMORY_STORAGE_PATTERNS])
+        ORDER BY file, line
+    """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter for RateLimit/Limiter functions
+        func_lower = func.lower()
+        if not ('ratelimit' in func_lower or 'limiter' in func_lower):
+            continue
+
+        # Check if uses memory storage
+        args_lower = args.lower()
+        has_memory = any(pattern in args_lower for pattern in MEMORY_STORAGE_PATTERNS)
+        if not has_memory:
+            continue
+
         # Check if persistent storage is also configured
-        has_persistent = any(pattern in args.lower() for pattern in PERSISTENT_STORAGE_PATTERNS)
+        has_persistent = any(pattern in args_lower for pattern in PERSISTENT_STORAGE_PATTERNS)
 
         if not has_persistent:
             framework = _detect_framework(file)
@@ -583,11 +641,13 @@ def _detect_memory_storage(cursor) -> List[StandardFinding]:
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function = 'Limiter'
-          AND (argument_expr IS NULL
-               OR argument_expr NOT LIKE '%storage_uri%')
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python for missing storage_uri
+        if args and 'storage_uri' in args.lower():
+            continue
+
         findings.append(StandardFinding(
             rule_name='flask-memory-storage',
             message='Flask-Limiter using default in-memory storage',
@@ -609,7 +669,7 @@ def _detect_memory_storage(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 5: Expensive Operations Before Rate Limiting
 # ============================================================================
 
-def _detect_expensive_operations(cursor) -> List[StandardFinding]:
+def _detect_expensive_operations(cursor) -> list[StandardFinding]:
     """Detect expensive operations that run before rate limiting."""
     findings = []
 
@@ -617,41 +677,65 @@ def _detect_expensive_operations(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT DISTINCT file
         FROM function_call_args
-        WHERE callee_function LIKE '%limit%'
-           OR callee_function LIKE '%throttle%'
-           OR callee_function LIKE '%RateLimit%'
+        WHERE callee_function IS NOT NULL
     """)
 
-    rate_limited_files = {row[0] for row in cursor.fetchall()}
+    # Filter in Python for files with rate limiting
+    rate_limited_files = set()
+    for (file,) in cursor.fetchall():
+        cursor.execute("""
+            SELECT callee_function
+            FROM function_call_args
+            WHERE file = ?
+              AND callee_function IS NOT NULL
+            LIMIT 1
+        """, (file,))
+
+        for (func,) in cursor.fetchall():
+            func_lower = func.lower()
+            if 'limit' in func_lower or 'throttle' in func_lower or 'ratelimit' in func_lower:
+                rate_limited_files.add(file)
+                break
 
     for file in rate_limited_files:
         # Get earliest rate limiter position
         cursor.execute("""
-            SELECT MIN(line)
+            SELECT line, callee_function
             FROM function_call_args
             WHERE file = ?
-              AND (callee_function LIKE '%limit%'
-                   OR callee_function LIKE '%throttle%'
-                   OR callee_function LIKE '%RateLimit%')
+              AND callee_function IS NOT NULL
+            ORDER BY line
         """, (file,))
 
-        result = cursor.fetchone()
-        if not result or not result[0]:
+        # Find earliest rate limiter line
+        rate_limit_line = None
+        for line_num, func in cursor.fetchall():
+            func_lower = func.lower()
+            if 'limit' in func_lower or 'throttle' in func_lower or 'ratelimit' in func_lower:
+                rate_limit_line = line_num
+                break
+
+        if rate_limit_line is None:
             continue
 
-        rate_limit_line = result[0]
+        # Dummy query for compatibility
+        cursor.execute("SELECT ?", (rate_limit_line,))
 
         # Find expensive operations before rate limiting
-        placeholders = ','.join(['?' for _ in EXPENSIVE_OPERATIONS])
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT line, callee_function, argument_expr
             FROM function_call_args
             WHERE file = ?
               AND line < ?
-              AND ({' OR '.join(['callee_function LIKE ?' for _ in EXPENSIVE_OPERATIONS])})
-        """, (file, rate_limit_line, *[f'%{op}%' for op in EXPENSIVE_OPERATIONS]))
+              AND callee_function IS NOT NULL
+        """, (file, rate_limit_line))
 
         for exp_line, exp_func, exp_args in cursor.fetchall():
+            # Filter for expensive operations
+            exp_func_lower = exp_func.lower()
+            if not any(op in exp_func_lower for op in EXPENSIVE_OPERATIONS):
+                continue
+
             # Determine operation type
             op_type = 'unknown'
             if any(db in exp_func.lower() for db in ['database', 'query', 'find', 'select']):
@@ -686,7 +770,7 @@ def _detect_expensive_operations(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 6: API Endpoints Without Rate Limiting
 # ============================================================================
 
-def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
+def _detect_api_rate_limits(cursor) -> list[StandardFinding]:
     """Detect API endpoints without rate limiting."""
     findings = []
 
@@ -704,17 +788,23 @@ def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
 
         if is_critical:
             # Check for rate limiting near this endpoint
-            query_limit = build_query('function_call_args', ['callee_function', 'line'],
-                where="""file = ?
-                  AND (callee_function LIKE '%limit%'
-                       OR callee_function LIKE '%throttle%'
-                       OR argument_expr LIKE '%rateLimit%')"""
-            )
-            cursor.execute(query_limit, (file,))
+            cursor.execute("""
+                SELECT callee_function, line, argument_expr
+                FROM function_call_args
+                WHERE file = ?
+                  AND callee_function IS NOT NULL
+            """, (file,))
 
-            # Filter in Python for ABS(line - ?) <= 50
-            nearby_limits = [row for row in cursor.fetchall() if abs(row[1] - line) <= 50]
-            has_rate_limit = len(nearby_limits) > 0
+            # Filter in Python for limit/throttle within ±50 lines
+            has_rate_limit = False
+            for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+                if abs(nearby_line - line) > 50:
+                    continue
+                func_lower = nearby_func.lower()
+                args_lower = (nearby_args or '').lower()
+                if 'limit' in func_lower or 'throttle' in func_lower or 'ratelimit' in args_lower:
+                    has_rate_limit = True
+                    break
 
             if not has_rate_limit:
                 findings.append(StandardFinding(
@@ -740,7 +830,7 @@ def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 7: Decorator Ordering (Python)
 # ============================================================================
 
-def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
+def _detect_decorator_ordering(cursor) -> list[StandardFinding]:
     """Detect incorrect decorator ordering in Python."""
     findings = []
 
@@ -749,16 +839,18 @@ def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
         SELECT path, line, name
         FROM symbols
         WHERE type = 'decorator'
-          AND (name LIKE '%limit%'
-               OR name LIKE '%throttle%'
-               OR name LIKE '%auth%'
-               OR name LIKE '%login_required%')
+          AND name IS NOT NULL
         ORDER BY path, line
     """)
 
-    # Group decorators by proximity
+    # Group decorators by proximity, filter in Python
     file_decorators = {}
     for file, line, name in cursor.fetchall():
+        name_lower = name.lower()
+        # Filter for limit/throttle/auth decorators
+        if not ('limit' in name_lower or 'throttle' in name_lower or 'auth' in name_lower or 'login_required' in name_lower):
+            continue
+
         if file not in file_decorators:
             file_decorators[file] = []
         file_decorators[file].append({'line': line, 'name': name})
@@ -817,31 +909,47 @@ def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 8: Rate Limit Bypass Configurations
 # ============================================================================
 
-def _detect_bypass_configs(cursor) -> List[StandardFinding]:
+def _detect_bypass_configs(cursor) -> list[StandardFinding]:
     """Detect configurations that allow rate limit bypass."""
     findings = []
 
     # Look for bypass-related assignments
-    placeholders = ','.join(['?' for _ in BYPASS_TECHNIQUES])
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({' OR '.join(['target_var LIKE ?' for _ in BYPASS_TECHNIQUES])})
-           OR ({' OR '.join(['source_expr LIKE ?' for _ in BYPASS_TECHNIQUES])})
-    """, [f'%{tech}%' for tech in BYPASS_TECHNIQUES] * 2)
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
     for file, line, var, expr in cursor.fetchall():
-        # Check if this relates to rate limiting
-        query_limit_nearby = build_query('function_call_args', ['callee_function', 'line'],
-            where="""file = ?
-              AND (callee_function LIKE '%limit%'
-                   OR argument_expr LIKE '%rateLimit%')"""
-        )
-        cursor.execute(query_limit_nearby, (file,))
+        # Filter for bypass techniques in Python
+        var_lower = var.lower()
+        expr_lower = expr.lower()
+        has_bypass = any(tech in var_lower or tech in expr_lower for tech in BYPASS_TECHNIQUES)
+        if not has_bypass:
+            continue
 
-        # Filter in Python for ABS(line - ?) <= 30
-        nearby = [row for row in cursor.fetchall() if abs(row[1] - line) <= 30]
-        if len(nearby) > 0:
+        # Check if this relates to rate limiting
+        cursor.execute("""
+            SELECT callee_function, line, argument_expr
+            FROM function_call_args
+            WHERE file = ?
+              AND callee_function IS NOT NULL
+        """, (file,))
+
+        # Filter in Python for limit/rateLimit within ±30 lines
+        has_rate_limit_nearby = False
+        for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+            if abs(nearby_line - line) > 30:
+                continue
+            func_lower = nearby_func.lower()
+            args_lower = (nearby_args or '').lower()
+            if 'limit' in func_lower or 'ratelimit' in args_lower:
+                has_rate_limit_nearby = True
+                break
+
+        if has_rate_limit_nearby:
             findings.append(StandardFinding(
                 rule_name='rate-limit-bypass-config',
                 message='Potential rate limit bypass configuration detected',
@@ -864,7 +972,7 @@ def _detect_bypass_configs(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 9: Missing User-Based Rate Limiting
 # ============================================================================
 
-def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
+def _detect_missing_user_limits(cursor) -> list[StandardFinding]:
     """Detect rate limiters that don't consider authenticated users."""
     findings = []
 
@@ -872,13 +980,15 @@ def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%RateLimit%'
-               OR callee_function LIKE '%Limiter%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
+        ORDER BY file, line
     """)
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter for RateLimit/Limiter functions
+        func_lower = func.lower()
+        if not ('ratelimit' in func_lower or 'limiter' in func_lower):
             continue
 
         args_lower = args.lower()
@@ -914,7 +1024,7 @@ def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 10: Weak Rate Limit Values
 # ============================================================================
 
-def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
+def _detect_weak_rate_limits(cursor) -> list[StandardFinding]:
     """Detect rate limits with weak values (too high)."""
     findings = []
 
@@ -922,16 +1032,19 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%RateLimit%'
-               OR callee_function LIKE '%limit%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
-          AND (argument_expr LIKE '%max:%'
-               OR argument_expr LIKE '%limit:%'
-               OR argument_expr LIKE '%requests:%')
+        ORDER BY file, line
     """)
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter for RateLimit/limit functions with numeric config
+        func_lower = func.lower()
+        if not ('ratelimit' in func_lower or 'limit' in func_lower):
+            continue
+
+        args_lower = args.lower()
+        if not ('max:' in args_lower or 'limit:' in args_lower or 'requests:' in args_lower):
             continue
 
         # Extract numeric values using string methods
@@ -946,17 +1059,24 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
             # Check if this is a weak limit for authentication
             if num > 10:
                 # Check if this is an auth endpoint
-                query_auth = build_query('function_call_args', ['argument_expr', 'line'],
-                    where="""file = ?
-                      AND (argument_expr LIKE '%login%'
-                           OR argument_expr LIKE '%auth%'
-                           OR argument_expr LIKE '%password%')"""
-                )
-                cursor.execute(query_auth, (file,))
+                cursor.execute("""
+                    SELECT argument_expr, line
+                    FROM function_call_args
+                    WHERE file = ?
+                      AND argument_expr IS NOT NULL
+                """, (file,))
 
-                # Filter in Python for ABS(line - ?) <= 20
-                nearby_auth = [row for row in cursor.fetchall() if abs(row[1] - line) <= 20]
-                if len(nearby_auth) > 0:
+                # Filter in Python for login/auth/password within ±20 lines
+                is_auth_endpoint = False
+                for nearby_args, nearby_line in cursor.fetchall():
+                    if abs(nearby_line - line) > 20:
+                        continue
+                    args_lower = nearby_args.lower()
+                    if 'login' in args_lower or 'auth' in args_lower or 'password' in args_lower:
+                        is_auth_endpoint = True
+                        break
+
+                if is_auth_endpoint:
                     findings.append(StandardFinding(
                         rule_name='weak-rate-limit-value',
                         message=f'Rate limit too high ({num}) for authentication endpoint',
@@ -979,7 +1099,7 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
 # ADDITIONAL HELPERS
 # ============================================================================
 
-def generate_rate_limit_summary(findings: List[StandardFinding]) -> Dict:
+def generate_rate_limit_summary(findings: list[StandardFinding]) -> dict:
     """Generate a summary report of rate limiting findings."""
     summary = {
         'total_findings': len(findings),

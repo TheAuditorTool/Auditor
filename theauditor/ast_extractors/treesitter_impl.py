@@ -7,11 +7,11 @@ It produces corrupted data (e.g., "anonymous" function names).
 JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
 
+
 from typing import Any, List, Dict, Optional
 
 from .base import (
     find_containing_function_tree_sitter,
-    extract_vars_from_tree_sitter_expr,  # DEPRECATED: Returns [] to enforce AST purity
     sanitize_call_name,
 )
 
@@ -38,7 +38,7 @@ def _check_js_ts_forbidden(language: str) -> None:
         )
 
 
-def extract_treesitter_functions(tree: Dict, parser_self, language: str) -> List[Dict]:
+def extract_treesitter_functions(tree: dict, parser_self, language: str) -> list[dict]:
     """Extract function definitions from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -52,7 +52,7 @@ def extract_treesitter_functions(tree: Dict, parser_self, language: str) -> List
     return _extract_tree_sitter_functions(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
+def _extract_tree_sitter_functions(node: Any, language: str) -> list[dict]:
     """Extract functions from Tree-sitter AST."""
     functions = []
 
@@ -101,7 +101,7 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
     return deduped
 
 
-def extract_treesitter_classes(tree: Dict, parser_self, language: str) -> List[Dict]:
+def extract_treesitter_classes(tree: dict, parser_self, language: str) -> list[dict]:
     """Extract class definitions from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -115,7 +115,7 @@ def extract_treesitter_classes(tree: Dict, parser_self, language: str) -> List[D
     return _extract_tree_sitter_classes(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_classes(node: Any, language: str) -> List[Dict]:
+def _extract_tree_sitter_classes(node: Any, language: str) -> list[dict]:
     """Extract classes from Tree-sitter AST."""
     classes = []
 
@@ -164,7 +164,7 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> List[Dict]:
     return deduped
 
 
-def extract_treesitter_calls(tree: Dict, parser_self, language: str) -> List[Dict]:
+def extract_treesitter_calls(tree: dict, parser_self, language: str) -> list[dict]:
     """Extract function calls from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -178,7 +178,7 @@ def extract_treesitter_calls(tree: Dict, parser_self, language: str) -> List[Dic
     return _extract_tree_sitter_calls(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_calls(node: Any, language: str) -> List[Dict]:
+def _extract_tree_sitter_calls(node: Any, language: str) -> list[dict]:
     """Extract function calls from Tree-sitter AST."""
     calls = []
 
@@ -220,7 +220,7 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> List[Dict]:
     return calls
 
 
-def extract_treesitter_imports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+def extract_treesitter_imports(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
     """Extract import statements from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -234,7 +234,7 @@ def extract_treesitter_imports(tree: Dict, parser_self, language: str) -> List[D
     return _extract_tree_sitter_imports(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any]]:
+def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any]]:
     """Extract imports from Tree-sitter AST with language-specific handling."""
     imports = []
     
@@ -314,7 +314,7 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
     return imports
 
 
-def extract_treesitter_exports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+def extract_treesitter_exports(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
     """Extract export statements from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -328,7 +328,7 @@ def extract_treesitter_exports(tree: Dict, parser_self, language: str) -> List[D
     return _extract_tree_sitter_exports(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_exports(node: Any, language: str) -> List[Dict[str, Any]]:
+def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any]]:
     """Extract exports from Tree-sitter AST."""
     exports = []
     
@@ -380,7 +380,7 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> List[Dict[str, Any
     return exports
 
 
-def extract_treesitter_properties(tree: Dict, parser_self, language: str) -> List[Dict]:
+def extract_treesitter_properties(tree: dict, parser_self, language: str) -> list[dict]:
     """Extract property accesses from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -394,7 +394,7 @@ def extract_treesitter_properties(tree: Dict, parser_self, language: str) -> Lis
     return _extract_tree_sitter_properties(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_properties(node: Any, language: str) -> List[Dict]:
+def _extract_tree_sitter_properties(node: Any, language: str) -> list[dict]:
     """Extract property accesses from Tree-sitter AST."""
     properties = []
     
@@ -430,7 +430,7 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> List[Dict]:
     return properties
 
 
-def extract_treesitter_assignments(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+def extract_treesitter_assignments(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
     """Extract variable assignments from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -446,7 +446,7 @@ def extract_treesitter_assignments(tree: Dict, parser_self, language: str) -> Li
     return _extract_tree_sitter_assignments(actual_tree.root_node, language, content)
 
 
-def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> List[Dict[str, Any]]:
+def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> list[dict[str, Any]]:
     """Extract assignments from Tree-sitter AST."""
     import os
     import sys
@@ -489,11 +489,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                             "source_expr": value_node.text.decode("utf-8", errors="ignore"),
                             "line": child.start_point[0] + 1,
                             "in_function": in_function,
-                            # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                            # Should traverse value_node AST instead of parsing its text
-                            "source_vars": extract_vars_from_tree_sitter_expr(
-                                value_node.text.decode("utf-8", errors="ignore")
-                            )
+                            # AST purity enforced: traverse value_node AST, not text parsing
+                            "source_vars": []
                         })
         
         elif node.type == "assignment_expression":
@@ -505,9 +502,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 target_var = left_node.text.decode("utf-8", errors="ignore")
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore")
-                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                # Should traverse right_node AST instead of parsing its text
-                source_vars = extract_vars_from_tree_sitter_expr(source_expr)
+                # AST purity enforced: traverse right_node AST, not text parsing
+                source_vars = []
         
         elif node.type == "assignment":
             # x = value (Python)
@@ -536,9 +532,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 "source_expr": source_expr,
                 "line": node.start_point[0] + 1,
                 "in_function": in_function or "global",
-                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                # This fallback now returns [] - traverse AST node instead
-                "source_vars": source_vars if source_vars else extract_vars_from_tree_sitter_expr(source_expr)
+                # AST purity enforced: traverse AST node, not text parsing
+                "source_vars": source_vars if source_vars else []
             })
     
     # Recursively search children
@@ -560,7 +555,7 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
     return deduped
 
 
-def extract_treesitter_function_params(tree: Dict, parser_self, language: str) -> Dict[str, List[str]]:
+def extract_treesitter_function_params(tree: dict, parser_self, language: str) -> dict[str, list[str]]:
     """Extract function parameters from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -574,7 +569,7 @@ def extract_treesitter_function_params(tree: Dict, parser_self, language: str) -
     return _extract_tree_sitter_function_params(actual_tree.root_node, language)
 
 
-def _extract_tree_sitter_function_params(node: Any, language: str) -> Dict[str, List[str]]:
+def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, list[str]]:
     """Extract function parameters from Tree-sitter AST."""
     func_params = {}
     
@@ -640,8 +635,8 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> Dict[str, 
 
 
 def extract_treesitter_calls_with_args(
-    tree: Dict, function_params: Dict[str, List[str]], parser_self, language: str
-) -> List[Dict[str, Any]]:
+    tree: dict, function_params: dict[str, list[str]], parser_self, language: str
+) -> list[dict[str, Any]]:
     """Extract function calls with arguments from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -660,8 +655,8 @@ def extract_treesitter_calls_with_args(
 
 
 def _extract_tree_sitter_calls_with_args(
-    node: Any, language: str, content: str, function_params: Dict[str, List[str]]
-) -> List[Dict[str, Any]]:
+    node: Any, language: str, content: str, function_params: dict[str, list[str]]
+) -> list[dict[str, Any]]:
     """Extract function calls with arguments from Tree-sitter AST."""
     calls = []
     
@@ -749,7 +744,7 @@ def _extract_tree_sitter_calls_with_args(
     return calls
 
 
-def extract_treesitter_returns(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+def extract_treesitter_returns(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
     """Extract return statements from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -765,7 +760,7 @@ def extract_treesitter_returns(tree: Dict, parser_self, language: str) -> List[D
     return _extract_tree_sitter_returns(actual_tree.root_node, language, content)
 
 
-def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List[Dict[str, Any]]:
+def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list[dict[str, Any]]:
     """Extract return statements from Tree-sitter AST."""
     returns = []
     
@@ -791,9 +786,8 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
-            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (JS)
-            # Should traverse the return expression AST node instead
-            "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
+            # AST purity enforced: traverse return expression AST node, not text
+            "return_vars": []
         })
 
     elif language == "python" and node.type == "return_statement":
@@ -814,9 +808,8 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
-            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (Python)
-            # Should traverse the return expression AST node instead
-            "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
+            # AST purity enforced: traverse return expression AST node, not text
+            "return_vars": []
         })
 
     # Recursively search children
@@ -837,7 +830,7 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
     return deduped
 
 
-def extract_treesitter_cfg(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+def extract_treesitter_cfg(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
     """Extract control flow graph from tree-sitter AST.
 
     NOTE: CFG extraction not implemented for generic tree-sitter.

@@ -1,11 +1,13 @@
 """Test framework detection for various languages."""
 
+
 import fnmatch
 import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 from theauditor.manifest_parser import ManifestParser
 from theauditor.framework_registry import TEST_FRAMEWORK_REGISTRY
 
@@ -107,10 +109,10 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                 elif name.endswith('.txt'):
                     manifests[name] = parser.parse_requirements_txt(path)
                 elif name in ['Gemfile', 'Gemfile.lock']:
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with open(path, encoding='utf-8') as f:
                         manifests[name] = f.read()
                 elif name.endswith(('.xml', '.gradle', '.kts', '.mod', '.py')):
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with open(path, encoding='utf-8') as f:
                         manifests[name] = f.read()
             except Exception:
                 # Skip files that can't be parsed
@@ -285,7 +287,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                     
                 files_checked += 1
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(file_path, encoding='utf-8', errors='ignore') as f:
                         content = f.read(2000)  # Read first 2000 chars
                         
                     for import_pattern in tf_config["import_patterns"]:

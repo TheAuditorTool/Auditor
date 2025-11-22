@@ -13,6 +13,7 @@ Follows schema contract architecture (v1.1+):
 - Proper confidence levels
 """
 
+
 import sqlite3
 import json
 from typing import List, Set
@@ -132,7 +133,7 @@ class SequelizeAnalyzer:
         self.patterns = SequelizePatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -163,15 +164,16 @@ class SequelizeAnalyzer:
 
     def _check_death_queries(self):
         """Detect death queries with all:true and nested:true."""
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function LIKE '%.findAll'
-                   OR callee_function LIKE '%.findOne'
-                   OR callee_function LIKE '%.findAndCountAll')
-              AND argument_expr IS NOT NULL""",
+                           where="argument_expr IS NOT NULL",
                            order_by="file, line")
         self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for death query methods in Python
+            if not any(method.endswith(f'.{m}') for m in ['findAll', 'findOne', 'findAndCountAll']):
+                continue
             if not args:
                 continue
 
@@ -196,14 +198,17 @@ class SequelizeAnalyzer:
 
     def _check_n_plus_one_patterns(self):
         """Detect potential N+1 query patterns."""
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="callee_function LIKE '%.findAll' OR callee_function LIKE '%.findAndCountAll'",
                            order_by="file, line")
         self.cursor.execute(query)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
+        # Store results before loop (avoid cursor state bug)
         findall_queries = self.cursor.fetchall()
 
         for file, line, method, args in findall_queries:
+            # Check for findAll/findAndCountAll in Python
+            if not (method.endswith('.findAll') or method.endswith('.findAndCountAll')):
+                continue
             # Extract model name
             model = method.split('.')[0] if '.' in method else 'Model'
 
@@ -237,32 +242,36 @@ class SequelizeAnalyzer:
         Returns:
             0 if no associations, 1 if maybe, 2 if definitely
         """
-        # Check for association definitions
+        # Fetch all function_call_args in file, filter in Python
         query = build_query('function_call_args', ['callee_function'],
-                           where="""file = ?
-              AND (callee_function LIKE ? || '.belongsTo'
-                   OR callee_function LIKE ? || '.hasOne'
-                   OR callee_function LIKE ? || '.hasMany'
-                   OR callee_function LIKE ? || '.belongsToMany')""")
-        self.cursor.execute(query, (file, model, model, model, model))
+                           where="file = ?")
+        self.cursor.execute(query, (file,))
 
-        count = len(self.cursor.fetchall())
+        # Check for association methods in Python
+        association_methods = ['.belongsTo', '.hasOne', '.hasMany', '.belongsToMany']
+        count = 0
+        for (callee,) in self.cursor.fetchall():
+            if callee.startswith(f'{model}.') and any(callee.endswith(m) for m in association_methods):
+                count += 1
+
         return 2 if count > 0 else 1
 
     def _check_unbounded_queries(self):
         """Check for queries without limits that could cause memory issues."""
-        for method in self.patterns.UNBOUNDED_METHODS:
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="callee_function LIKE '%.' || ?",
-                               order_by="file, line")
-            self.cursor.execute(query, (method,))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
-            for file, line, func, args in self.cursor.fetchall():
-                # Check if limit/offset/pagination is present
-                has_limit = False
-                if args:
-                    args_str = str(args).lower()
-                    has_limit = any(p in args_str for p in ['limit:', 'limit :', 'take:', 'offset:', 'page:'])
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if any unbounded method is in callee_function
+            if not any(f'.{method}' in func for method in self.patterns.UNBOUNDED_METHODS):
+                continue
+            # Check if limit/offset/pagination is present
+            has_limit = False
+            if args:
+                args_str = str(args).lower()
+                has_limit = any(p in args_str for p in ['limit:', 'limit :', 'take:', 'offset:', 'page:'])
 
                 if not has_limit:
                     self.findings.append(StandardFinding(
@@ -279,19 +288,21 @@ class SequelizeAnalyzer:
 
     def _check_race_conditions(self):
         """Check for race condition vulnerabilities."""
-        for method in self.patterns.RACE_CONDITION_METHODS:
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="callee_function LIKE '%.' || ?",
-                               order_by="file, line")
-            self.cursor.execute(query, (method,))
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            race_condition_calls = self.cursor.fetchall()
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
+        # Store results before nested loop (avoid cursor state bug)
+        all_calls = self.cursor.fetchall()
 
-            for file, line, func, args in race_condition_calls:
-                # Check for transaction nearby
-                has_transaction = self._check_transaction_nearby(file, line)
+        for file, line, func, args in all_calls:
+            # Check if any race condition method is in callee_function
+            if not any(f'.{method}' in func for method in self.patterns.RACE_CONDITION_METHODS):
+                continue
+            # Check for transaction nearby
+            has_transaction = self._check_transaction_nearby(file, line)
 
-                if not has_transaction:
+            if not has_transaction:
                     self.findings.append(StandardFinding(
                         rule_name='sequelize-race-condition',
                         message=f'Race condition risk: {func} without transaction',
@@ -306,39 +317,38 @@ class SequelizeAnalyzer:
 
     def _check_transaction_nearby(self, file: str, line: int) -> bool:
         """Check if there's a transaction nearby."""
-        # Check in function_call_args
+        # Check in function_call_args - fetch and filter in Python
         query = build_query('function_call_args', ['callee_function'],
-                           where="""file = ?
-              AND ABS(line - ?) <= 30
-              AND (callee_function LIKE '%transaction%'
-                   OR callee_function IN ('t.commit', 't.rollback'))""",
-                           limit=1)
+                           where="file = ? AND ABS(line - ?) <= 30")
         self.cursor.execute(query, (file, line))
 
-        if self.cursor.fetchone() is not None:
-            return True
+        for (callee,) in self.cursor.fetchall():
+            if 'transaction' in callee.lower() or callee in ['t.commit', 't.rollback']:
+                return True
 
-        # Check in assignments
-        query = build_query('assignments', ['target_var'],
-                           where="""file = ?
-              AND ABS(line - ?) <= 30
-              AND (target_var LIKE '%transaction%'
-                   OR source_expr LIKE '%transaction%')""",
-                           limit=1)
+        # Check in assignments - fetch and filter in Python
+        query = build_query('assignments', ['target_var', 'source_expr'],
+                           where="file = ? AND ABS(line - ?) <= 30")
         self.cursor.execute(query, (file, line))
 
-        return self.cursor.fetchone() is not None
+        for target, source in self.cursor.fetchall():
+            if 'transaction' in target.lower() or (source and 'transaction' in source.lower()):
+                return True
+
+        return False
 
     def _check_missing_transactions(self):
         """Check for multiple write operations without transactions."""
-        # Get all write operations grouped by file
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           order_by="file, line")
+        self.cursor.execute(query)
+
+        # Filter for write methods in Python
         write_ops = []
-        for method in self.patterns.WRITE_METHODS:
-            query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                               where="callee_function LIKE '%.' || ?",
-                               order_by="file, line")
-            self.cursor.execute(query, (method,))
-            write_ops.extend(self.cursor.fetchall())
+        for file, line, func in self.cursor.fetchall():
+            if any(f'.{method}' in func for method in self.patterns.WRITE_METHODS):
+                write_ops.append((file, line, func))
 
         # Group by file
         file_ops = {}
@@ -381,61 +391,65 @@ class SequelizeAnalyzer:
 
     def _check_transaction_between(self, file: str, start_line: int, end_line: int) -> bool:
         """Check if there's a transaction between two lines."""
+        # Fetch and filter in Python
         query = build_query('function_call_args', ['callee_function'],
-                           where="""file = ?
-              AND line BETWEEN ? AND ?
-              AND (callee_function LIKE '%transaction%'
-                   OR callee_function IN ('t.commit', 't.rollback'))""",
-                           limit=1)
+                           where="file = ? AND line BETWEEN ? AND ?")
         self.cursor.execute(query, (file, start_line - 5, end_line + 5))
 
-        return self.cursor.fetchone() is not None
+        for (callee,) in self.cursor.fetchall():
+            if 'transaction' in callee.lower() or callee in ['t.commit', 't.rollback']:
+                return True
+
+        return False
 
     def _check_sql_injection(self):
         """Check for potential SQL injection vulnerabilities."""
-        for method in self.patterns.RAW_QUERY_METHODS:
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="callee_function LIKE '%' || ? OR callee_function = ?",
-                               order_by="file, line")
-            self.cursor.execute(query, (method, method))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
-            for file, line, func, args in self.cursor.fetchall():
-                if not args:
-                    continue
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if any raw query method is in callee_function
+            func_lower = func.lower()
+            if not any(method.lower() in func_lower for method in self.patterns.RAW_QUERY_METHODS):
+                continue
+            if not args:
+                continue
 
-                args_str = str(args)
+            args_str = str(args)
 
-                # Check for dangerous patterns
-                has_injection = any(pattern in args_str for pattern in self.patterns.SQL_INJECTION_PATTERNS)
+            # Check for dangerous patterns
+            has_injection = any(pattern in args_str for pattern in self.patterns.SQL_INJECTION_PATTERNS)
 
-                # Higher severity for literal() as it's commonly misused
-                is_literal = 'literal' in func.lower()
+            # Higher severity for literal() as it's commonly misused
+            is_literal = 'literal' in func.lower()
 
-                if has_injection:
-                    self.findings.append(StandardFinding(
-                        rule_name='sequelize-sql-injection',
-                        message=f'Potential SQL injection in {func}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL if is_literal else Severity.HIGH,
-                        category='orm-security',
-                        snippet=f'{func} with string concatenation',
-                        confidence=Confidence.HIGH if is_literal else Confidence.MEDIUM,
-                        cwe_id='CWE-89'
-                    ))
+            if has_injection:
+                self.findings.append(StandardFinding(
+                    rule_name='sequelize-sql-injection',
+                    message=f'Potential SQL injection in {func}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL if is_literal else Severity.HIGH,
+                    category='orm-security',
+                    snippet=f'{func} with string concatenation',
+                    confidence=Confidence.HIGH if is_literal else Confidence.MEDIUM,
+                    cwe_id='CWE-89'
+                ))
 
     def _check_excessive_eager_loading(self):
         """Check for excessive eager loading that could cause performance issues."""
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function LIKE '%.findAll'
-                   OR callee_function LIKE '%.findOne'
-                   OR callee_function LIKE '%.findAndCountAll')
-              AND argument_expr LIKE '%include%'""",
                            order_by="file, line")
         self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
-            if not args:
+            # Check for query methods and include keyword
+            if not any(method.endswith(f'.{m}') for m in ['findAll', 'findOne', 'findAndCountAll']):
+                continue
+            if not args or 'include' not in str(args):
                 continue
 
             args_str = str(args)
@@ -474,12 +488,15 @@ class SequelizeAnalyzer:
 
     def _check_hard_deletes(self):
         """Check for hard deletes that bypass soft delete."""
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="callee_function LIKE '%.destroy' OR callee_function LIKE '%.bulkDestroy'",
                            order_by="file, line")
         self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for destroy methods in Python
+            if not (method.endswith('.destroy') or method.endswith('.bulkDestroy')):
+                continue
             if args and 'paranoid: false' in str(args):
                 self.findings.append(StandardFinding(
                     rule_name='sequelize-hard-delete',
@@ -507,16 +524,18 @@ class SequelizeAnalyzer:
 
     def _check_raw_sql_bypass(self):
         """Check for raw SQL that bypasses ORM protections."""
-        # Note: sql_queries uses different column names
+        # Fetch all sql_queries with specified commands, filter file paths in Python
         query = build_query('sql_queries', ['file_path', 'line_number', 'query_text', 'command'],
-                           where="""command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
-              AND file_path NOT LIKE '%migration%'
-              AND file_path NOT LIKE '%seed%'
-              AND file_path LIKE '%.js%'""",
+                           where="command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')",
                            order_by="file_path, line_number")
         self.cursor.execute(query)
 
         for file, line, query, command in self.cursor.fetchall():
+            # Filter file paths in Python (skip migrations, seeds, non-JS files)
+            if 'migration' in file.lower() or 'seed' in file.lower():
+                continue
+            if not file.endswith(('.js', '.mjs', '.cjs', '.ts')):
+                continue
             # Check if it's likely a Sequelize raw query
             query_lower = query.lower()
 
@@ -541,7 +560,7 @@ class SequelizeAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Sequelize ORM anti-patterns and performance issues.
 
     Args:

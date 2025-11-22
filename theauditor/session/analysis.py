@@ -1,0 +1,192 @@
+"""SessionAnalysis - Orchestrate complete session analysis pipeline.
+
+This module orchestrates the 3-layer analysis:
+1. Layer 1 (Execution Capture): Parse session logs, extract diffs
+2. Layer 2 (Deterministic Scoring): Run diffs through SAST pipeline
+3. Layer 3 (Workflow Correlation): Check planning.md compliance
+
+Stores results to session_executions table via SessionExecutionStore.
+"""
+
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+from theauditor.session.parser import Session
+from theauditor.session.diff_scorer import DiffScorer
+from theauditor.session.workflow_checker import WorkflowChecker
+from theauditor.session.store import SessionExecutionStore, SessionExecution
+
+logger = logging.getLogger(__name__)
+
+
+class SessionAnalysis:
+    """Orchestrate complete session analysis pipeline."""
+
+    def __init__(
+        self,
+        db_path: Path = None,
+        project_root: Path = None,
+        workflow_path: Path | None = None
+    ):
+        """Initialize session analysis orchestrator.
+
+        Args:
+            db_path: Path to repo_index.db for SAST scoring (default: .pf/repo_index.db)
+            project_root: Root directory of project (default: current directory)
+            workflow_path: Path to planning.md (optional)
+        """
+        # Default parameters
+        self.project_root = project_root or Path.cwd()
+        self.db_path = db_path or (self.project_root / ".pf" / "repo_index.db")
+        self.workflow_path = workflow_path
+
+        # Initialize components (DiffScorer needs repo_index.db for SAST)
+        self.diff_scorer = DiffScorer(self.db_path, self.project_root)
+        self.workflow_checker = WorkflowChecker(workflow_path)
+
+        # Initialize storage (uses .pf/ml/session_history.db by default)
+        self.store = SessionExecutionStore()
+
+        logger.info("SessionAnalysis orchestrator initialized")
+
+    def analyze_session(self, session: Session) -> SessionExecution:
+        """Analyze complete session: score diffs + check workflow + store.
+
+        Args:
+            session: Session object to analyze
+
+        Returns:
+            SessionExecution object with complete analysis
+        """
+        logger.info(f"Analyzing session: {session.session_id}")
+
+        # Track files read for blind edit detection
+        files_read = set()
+        for call in session.all_tool_calls:
+            if call.tool_name == 'Read':
+                file_path = call.input_params.get('file_path')
+                if file_path:
+                    files_read.add(file_path)
+
+        # Layer 2: Score all diffs (Deterministic Scoring)
+        diff_scores = []
+        for tool_call in session.all_tool_calls:
+            if tool_call.tool_name in ['Edit', 'Write']:
+                score = self.diff_scorer.score_diff(tool_call, files_read)
+                if score:
+                    diff_scores.append(score.to_dict())
+
+        # Calculate aggregate risk score
+        if diff_scores:
+            avg_risk = sum(d['risk_score'] for d in diff_scores) / len(diff_scores)
+        else:
+            avg_risk = 0.0
+
+        # Layer 3: Check workflow compliance
+        compliance = self.workflow_checker.check_compliance(session)
+
+        # Determine outcome (simplified - in reality would check next session)
+        task_completed = True  # Assume completed for now
+        corrections_needed = False
+        rollback = False
+
+        # Extract task description from first user message
+        task_description = ""
+        if session.user_messages:
+            task_description = session.user_messages[0].content[:200]  # First 200 chars
+
+        # Calculate user engagement rate (INVERSE METRIC: lower = better)
+        user_msg_count = len(session.user_messages)
+        tool_call_count = len(session.all_tool_calls)
+        user_engagement_rate = user_msg_count / max(tool_call_count, 1)
+
+        # Get unique files modified
+        files_modified = len(session.files_touched.get('Edit', [])) + len(session.files_touched.get('Write', []))
+
+        # Create execution record
+        execution = SessionExecution(
+            session_id=session.session_id,
+            task_description=task_description,
+            workflow_compliant=compliance.compliant,
+            compliance_score=compliance.score,
+            risk_score=avg_risk,
+            task_completed=task_completed,
+            corrections_needed=corrections_needed,
+            rollback=rollback,
+            timestamp=session.assistant_messages[0].datetime.isoformat() if session.assistant_messages else "",
+            tool_call_count=tool_call_count,
+            files_modified=files_modified,
+            user_message_count=user_msg_count,
+            user_engagement_rate=user_engagement_rate,
+            diffs_scored=diff_scores
+        )
+
+        # Store to DB and JSON (dual-write)
+        self.store.store_execution(execution)
+
+        logger.info(
+            f"Session analysis complete: "
+            f"risk={avg_risk:.2f}, compliance={compliance.score:.2f}, "
+            f"engagement={user_engagement_rate:.2f}"
+        )
+
+        return execution
+
+    def analyze_multiple_sessions(self, sessions: list) -> list:
+        """Analyze multiple sessions in batch.
+
+        Args:
+            sessions: List of Session objects
+
+        Returns:
+            List of SessionExecution objects
+        """
+        logger.info(f"Analyzing {len(sessions)} sessions...")
+
+        executions = []
+        for i, session in enumerate(sessions, 1):
+            try:
+                execution = self.analyze_session(session)
+                executions.append(execution)
+
+                if i % 10 == 0:
+                    logger.info(f"Progress: {i}/{len(sessions)} sessions analyzed")
+            except Exception as e:
+                logger.error(f"Failed to analyze session {session.session_id}: {e}")
+                continue
+
+        logger.info(f"Batch analysis complete: {len(executions)} sessions analyzed")
+        return executions
+
+    def get_correlation_statistics(self) -> dict:
+        """Get correlation statistics (workflow compliance vs outcomes).
+
+        Returns:
+            Dict with statistical summary
+        """
+        stats = self.store.get_statistics()
+
+        if 'compliant' in stats and 'non_compliant' in stats:
+            # Calculate risk reduction
+            compliant_risk = stats['compliant']['avg_risk_score']
+            non_compliant_risk = stats['non_compliant']['avg_risk_score']
+
+            if non_compliant_risk > 0:
+                risk_reduction = (non_compliant_risk - compliant_risk) / non_compliant_risk
+                stats['risk_reduction_pct'] = risk_reduction * 100
+            else:
+                stats['risk_reduction_pct'] = 0
+
+            # Calculate engagement improvement
+            compliant_engagement = stats['compliant']['avg_user_engagement']
+            non_compliant_engagement = stats['non_compliant']['avg_user_engagement']
+
+            if non_compliant_engagement > 0:
+                engagement_improvement = (non_compliant_engagement - compliant_engagement) / non_compliant_engagement
+                stats['engagement_improvement_pct'] = engagement_improvement * 100
+            else:
+                stats['engagement_improvement_pct'] = 0
+
+        return stats

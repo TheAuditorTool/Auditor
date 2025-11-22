@@ -19,6 +19,7 @@ Database Tables Used:
 - Reads: .pf/raw/deps_latest.json (if it exists)
 """
 
+
 import json
 import sqlite3
 from pathlib import Path
@@ -36,7 +37,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect severely outdated dependencies from deps_latest.json.
 
     Reads version comparison data from .pf/raw/deps_latest.json (created by
@@ -58,7 +59,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # Load version comparison data
-        with open(deps_latest_path, 'r', encoding='utf-8') as f:
+        with open(deps_latest_path, encoding='utf-8') as f:
             latest_info = json.load(f)
 
         # Query package_configs to validate packages exist
@@ -130,7 +131,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                     # Can't parse version numbers - skip
                     continue
 
-    except (json.JSONDecodeError, IOError, sqlite3.Error):
+    except (json.JSONDecodeError, OSError, sqlite3.Error):
         # Silently fail - this is an optional enhancement
         pass
 

@@ -13,31 +13,78 @@ import click
 @click.option("--raw-dir", default="./.pf/raw", help="Raw outputs directory")
 @click.option("--out", default="./.pf/raw/audit_summary.json", help="Output path for summary")
 def summary(root, raw_dir, out):
-    """Generate comprehensive audit summary from all analysis phases.
+    """Aggregate statistics from all analysis phases into machine-readable executive summary JSON.
 
-    Aggregates findings from all completed analysis phases (index, lint, taint,
-    patterns, graph, fce, etc.) into a single executive summary JSON file with
-    severity counts, phase statistics, and overall audit status.
+    Post-audit reporting command that consolidates findings from all completed analysis phases
+    into a single JSON summary with severity breakdowns, phase completion status, and overall
+    audit health metrics. Designed for CI/CD integration and programmatic consumption (not human
+    reading - use 'aud report' for AI-optimized markdown).
 
-    DIFFERENCE FROM 'aud report':
-    - 'aud summary' = Aggregate statistics in JSON (machine-readable)
-    - 'aud report' = AI-optimized markdown chunks (LLM-consumable)
+    AI ASSISTANT CONTEXT:
+      Purpose: Aggregate audit statistics for CI/CD and metrics tracking
+      Input: .pf/raw/*.json (all analysis phase outputs)
+      Output: .pf/raw/audit_summary.json (consolidated statistics)
+      Prerequisites: aud full (or multiple analysis commands)
+      Integration: CI/CD pass/fail gates, monitoring dashboards, metrics
+      Performance: ~1-2 seconds (JSON aggregation, no analysis)
 
-    WHEN TO USE:
-    - After 'aud full' to get overall audit status
-    - In CI/CD pipelines for build pass/fail decisions
-    - For metrics tracking and dashboards
-    - Quick status check of latest audit
+    WHAT IT AGGREGATES:
+      Severity Counts:
+        - CRITICAL findings count
+        - HIGH findings count
+        - MEDIUM/LOW findings count
+        - Total findings across all phases
+
+      Phase Completion:
+        - Which analysis phases ran successfully
+        - Phases that failed or skipped
+        - Execution time per phase
+
+      Audit Health Metrics:
+        - Files analyzed count
+        - Overall status (PASS/FAIL/WARNING)
+        - Code coverage percentage (if available)
+        - Dead code percentage
+
+    OUTPUT FORMAT (audit_summary.json):
+      {
+        "overall_status": "FAIL",
+        "total_findings": 45,
+        "severity_breakdown": {
+          "critical": 3,
+          "high": 12,
+          "medium": 20,
+          "low": 10
+        },
+        "phases_completed": {
+          "index": true,
+          "taint": true,
+          "deadcode": true,
+          "fce": false
+        },
+        "metrics": {
+          "files_analyzed": 120,
+          "execution_time_seconds": 45.2
+        }
+      }
 
     EXAMPLES:
-      # Generate summary after full audit
       aud full && aud summary
+      aud summary --out ./build/audit_results.json
+      aud summary && jq '.severity_breakdown.critical' .pf/raw/audit_summary.json
 
-      # Custom output location
-      aud summary --out ./results/summary.json
+    PERFORMANCE: ~1-2 seconds (JSON aggregation only)
 
-      # CI/CD usage
-      aud summary && jq '.overall_status' .pf/raw/audit_summary.json
+    EXIT CODES:
+      0 = Success
+      1 = No analysis output found (run 'aud full' first)
+
+    RELATED COMMANDS:
+      aud full    # Runs all analysis phases
+      aud report  # AI-optimized markdown report
+
+    NOTE: This is for machine consumption (CI/CD). For human-readable reports
+    optimized for LLM context windows, use 'aud report' instead.
 
     OUTPUT:
       .pf/raw/audit_summary.json       # Executive summary

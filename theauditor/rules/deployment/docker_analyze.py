@@ -18,6 +18,7 @@ Detects:
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
+
 import json
 import math
 import re
@@ -96,7 +97,7 @@ SECRET_VALUE_PATTERNS = [
 # MAIN DETECTION FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_docker_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Dockerfile security misconfigurations using indexed data.
 
     Detection Strategy:
@@ -152,7 +153,7 @@ def find_docker_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # SECURITY CHECKS
 # ============================================================================
 
-def _check_root_user(cursor, patterns: DockerfilePatterns) -> List[StandardFinding]:
+def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
     """Detect containers running as root user.
 
     CIS Docker Benchmark: Containers should never run as root.
@@ -197,7 +198,7 @@ def _check_root_user(cursor, patterns: DockerfilePatterns) -> List[StandardFindi
     return findings
 
 
-def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> List[StandardFinding]:
+def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
     """Detect hardcoded secrets in ENV and ARG instructions.
 
     ENV and ARG values are stored in image layers and can be inspected
@@ -317,7 +318,7 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> List[Standar
     return findings
 
 
-def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> List[StandardFinding]:
+def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
     """Detect use of vulnerable or EOL base images.
 
     Checks for:
@@ -426,7 +427,7 @@ def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
     return entropy > threshold
 
 
-def _check_missing_healthcheck(cursor) -> List[StandardFinding]:
+def _check_missing_healthcheck(cursor) -> list[StandardFinding]:
     """Detect containers without HEALTHCHECK instruction.
 
     HEALTHCHECK allows Docker/Kubernetes to monitor container health.
@@ -458,7 +459,7 @@ def _check_missing_healthcheck(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_sensitive_ports(cursor) -> List[StandardFinding]:
+def _check_sensitive_ports(cursor) -> list[StandardFinding]:
     """Detect containers exposing sensitive management ports.
 
     Exposing management ports (SSH, RDP, database ports) in production

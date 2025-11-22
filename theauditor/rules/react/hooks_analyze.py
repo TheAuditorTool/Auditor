@@ -7,6 +7,7 @@ No more broken heuristics - this uses actual parsed dependency arrays,
 cleanup detection, and component boundaries from the database.
 """
 
+
 import sqlite3
 import json
 from typing import List, Dict, Any
@@ -97,7 +98,7 @@ class ReactHooksAnalyzer:
         self.patterns = ReactHooksPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -107,6 +108,7 @@ class ReactHooksAnalyzer:
             return []
 
         conn = sqlite3.connect(self.context.db_path)
+        conn.row_factory = sqlite3.Row
         self.cursor = conn.cursor()
 
         try:
@@ -130,23 +132,30 @@ class ReactHooksAnalyzer:
     def _check_missing_dependencies(self):
         """Check for missing dependencies in hooks - NOW WITH REAL DATA!"""
         self.cursor.execute("""
-            SELECT file, line, hook_name, component_name,
-                   dependency_array, dependency_vars
-            FROM react_hooks
-            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
-              AND dependency_array IS NOT NULL
-              AND dependency_vars IS NOT NULL
+            SELECT rh.file, rh.line, rh.hook_name, rh.component_name,
+                   rh.dependency_array,
+                   GROUP_CONCAT(rhd.dependency_name) as dependency_vars
+            FROM react_hooks rh
+            LEFT JOIN react_hook_dependencies rhd
+                ON rh.file = rhd.hook_file
+                AND rh.line = rhd.hook_line
+                AND rh.component_name = rhd.hook_component
+            WHERE rh.hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND rh.dependency_array IS NOT NULL
+            GROUP BY rh.file, rh.line, rh.hook_name, rh.component_name, rh.dependency_array
         """)
 
         for row in self.cursor.fetchall():
-            file, line, hook_name, component, deps_array_json, deps_vars_json = row
+            file, line, hook_name, component, deps_array_json, deps_vars_concat = row
 
-            # Parse JSON arrays
+            # Parse JSON array for declared deps
             try:
                 declared_deps = json.loads(deps_array_json) if deps_array_json else []
-                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
             except json.JSONDecodeError:
                 continue
+
+            # Parse concatenated dependency names
+            used_vars = deps_vars_concat.split(',') if deps_vars_concat else []
 
             # Skip if empty deps array (handled by exhaustive deps check)
             if declared_deps == []:
@@ -262,22 +271,25 @@ class ReactHooksAnalyzer:
     def _check_exhaustive_deps(self):
         """Check for effects with empty dependencies that should have some."""
         self.cursor.execute("""
-            SELECT file, line, hook_name, component_name,
-                   dependency_array, dependency_vars, callback_body
-            FROM react_hooks
-            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
-              AND dependency_array = '[]'
-              AND dependency_vars IS NOT NULL
+            SELECT rh.file, rh.line, rh.hook_name, rh.component_name,
+                   rh.dependency_array, rh.callback_body,
+                   GROUP_CONCAT(rhd.dependency_name) as dependency_vars
+            FROM react_hooks rh
+            LEFT JOIN react_hook_dependencies rhd
+                ON rh.file = rhd.hook_file
+                AND rh.line = rhd.hook_line
+                AND rh.component_name = rhd.hook_component
+            WHERE rh.hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND rh.dependency_array = '[]'
+            GROUP BY rh.file, rh.line, rh.hook_name, rh.component_name, rh.dependency_array, rh.callback_body
+            HAVING dependency_vars IS NOT NULL
         """)
 
         for row in self.cursor.fetchall():
-            file, line, hook, component, deps_array, deps_vars_json, callback = row
+            file, line, hook, component, deps_array, callback, deps_vars_concat = row
 
-            # Parse variables used
-            try:
-                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
-            except json.JSONDecodeError:
-                continue
+            # Parse concatenated dependency names
+            used_vars = deps_vars_concat.split(',') if deps_vars_concat else []
 
             # Filter out globals and built-ins
             local_vars = [v for v in used_vars
@@ -303,7 +315,7 @@ class ReactHooksAnalyzer:
             SELECT file, line, component_name, callback_body
             FROM react_hooks
             WHERE hook_name = 'useEffect'
-              AND (callback_body LIKE '%async%' OR callback_body LIKE '%await%')
+              AND callback_body IS NOT NULL
         """)
 
         for row in self.cursor.fetchall():
@@ -331,23 +343,24 @@ class ReactHooksAnalyzer:
             FROM react_hooks
             WHERE hook_name = 'useCallback'
               AND dependency_array = '[]'
-              AND callback_body LIKE '%setState%'
+              AND callback_body IS NOT NULL
         """)
 
         for row in self.cursor.fetchall():
             file, line, hook, component, deps, callback = row
 
-            self.findings.append(StandardFinding(
-                rule_name='react-stale-closure',
-                message='useCallback with setState and empty deps may cause stale closures',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react-hooks',
-                snippet='useCallback with setState and []',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-367'
-            ))
+            if 'setState' in (callback or ''):
+                self.findings.append(StandardFinding(
+                    rule_name='react-stale-closure',
+                    message='useCallback with setState and empty deps may cause stale closures',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='react-hooks',
+                    snippet='useCallback with setState and []',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-367'
+                ))
 
     def _check_cleanup_consistency(self):
         """Check for inconsistent cleanup patterns."""
@@ -415,7 +428,7 @@ class ReactHooksAnalyzer:
 
             hooks_order.append((hook, line))
 
-    def _has_order_issue(self, hooks: List[tuple]) -> bool:
+    def _has_order_issue(self, hooks: list[tuple]) -> bool:
         """Check if hooks have order issues."""
         # Simplified check: state hooks should come before effect hooks
         state_seen = False
@@ -433,19 +446,26 @@ class ReactHooksAnalyzer:
 
     def _check_custom_hook_violations(self):
         """Check custom hooks for violations."""
-        self.cursor.execute("""
+        builtin_hooks = [
+            'useState', 'useEffect', 'useContext',
+            'useReducer', 'useCallback', 'useMemo',
+            'useRef', 'useLayoutEffect', 'useImperativeHandle',
+            'useDebugValue', 'useId', 'useTransition',
+            'useDeferredValue', 'useSyncExternalStore'
+        ]
+        placeholders = ",".join("?" for _ in builtin_hooks)
+
+        self.cursor.execute(f"""
             SELECT DISTINCT file, hook_name, component_name, line
             FROM react_hooks
-            WHERE hook_name LIKE 'use%'
-              AND hook_name NOT IN ('useState', 'useEffect', 'useContext',
-                                    'useReducer', 'useCallback', 'useMemo',
-                                    'useRef', 'useLayoutEffect', 'useImperativeHandle',
-                                    'useDebugValue', 'useId', 'useTransition',
-                                    'useDeferredValue', 'useSyncExternalStore')
-        """)
+            WHERE hook_name NOT IN ({placeholders})
+        """, builtin_hooks)
 
         for row in self.cursor.fetchall():
             file, hook, component, line = row
+
+            if not hook or not hook.startswith('use'):
+                continue
 
             # Check if it starts with lowercase after 'use'
             if len(hook) > 3 and hook[3].islower():
@@ -495,7 +515,7 @@ class ReactHooksAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React hooks violations and anti-patterns.
 
     Uses real data from react_hooks, react_components, and variable_usage

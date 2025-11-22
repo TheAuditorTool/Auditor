@@ -1,0 +1,515 @@
+# Sequelize ORM Fixture Verification Spec
+# Tests: ORM model extraction, relationships, hooks, validations, transactions
+# Version: 1.0.0
+
+name: "Sequelize ORM Complete Test Suite"
+description: "Comprehensive Sequelize patterns for production-ready ORM extraction"
+
+# Test 1: User model extraction with relationships
+- name: "User model with comprehensive relationships"
+  type: "orm_model_extraction"
+  description: "Verify User model extracted with 5 relationship types"
+  query: |
+    SELECT
+      s.name as model_name,
+      s.type as symbol_type,
+      COUNT(DISTINCT r.id) as relationship_count
+    FROM symbols s
+    LEFT JOIN orm_relationships r ON (
+      r.source_model = s.name OR r.target_model = s.name
+    )
+    WHERE s.name = 'User'
+      AND s.type = 'class'
+      AND s.file LIKE '%models/User.js'
+    GROUP BY s.name, s.type
+  expect:
+    - model_name: "User"
+      symbol_type: "class"
+      relationship_count: 5  # hasMany(Order), belongsTo(Role), hasOne(Profile), belongsToMany(Group), hasMany(Session)
+
+# Test 2: User model hooks extraction
+- name: "User model lifecycle hooks"
+  type: "orm_hooks_extraction"
+  description: "Verify User model hooks: beforeCreate, beforeUpdate, afterCreate, beforeDestroy"
+  query: |
+    SELECT
+      hook_name,
+      hook_type,
+      model_name
+    FROM python_orm_hooks
+    WHERE model_name = 'User'
+      AND file LIKE '%models/User.js'
+    ORDER BY hook_name
+  expect_count: 4  # beforeCreate, beforeUpdate, afterCreate, beforeDestroy
+
+# Test 3: Order hasMany relationship (one-to-many)
+- name: "User hasMany Orders relationship"
+  type: "orm_relationships"
+  description: "Verify one-to-many relationship from User to Order with CASCADE delete"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key,
+      cascade_delete
+    FROM orm_relationships
+    WHERE source_model = 'User'
+      AND target_model = 'Order'
+      AND relationship_type = 'hasMany'
+  expect:
+    - source_model: "User"
+      target_model: "Order"
+      relationship_type: "hasMany"
+      foreign_key: "userId"
+      cascade_delete: 1  # TRUE
+
+# Test 4: User belongsTo Role relationship (many-to-one)
+- name: "User belongsTo Role relationship"
+  type: "orm_relationships"
+  description: "Verify many-to-one relationship from User to Role with SET NULL"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key,
+      cascade_delete
+    FROM orm_relationships
+    WHERE source_model = 'User'
+      AND target_model = 'Role'
+      AND relationship_type = 'belongsTo'
+  expect:
+    - source_model: "User"
+      target_model: "Role"
+      relationship_type: "belongsTo"
+      foreign_key: "roleId"
+      cascade_delete: 0  # FALSE - SET NULL instead
+
+# Test 5: User hasOne Profile relationship (one-to-one)
+- name: "User hasOne Profile relationship"
+  type: "orm_relationships"
+  description: "Verify one-to-one relationship from User to Profile with CASCADE"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key,
+      cascade_delete
+    FROM orm_relationships
+    WHERE source_model = 'User'
+      AND target_model = 'Profile'
+      AND relationship_type = 'hasOne'
+  expect:
+    - source_model: "User"
+      target_model: "Profile"
+      relationship_type: "hasOne"
+      foreign_key: "userId"
+      cascade_delete: 1  # TRUE
+
+# Test 6: User belongsToMany Groups (many-to-many with junction)
+- name: "User belongsToMany Groups through UserGroup"
+  type: "orm_relationships"
+  description: "Verify many-to-many relationship with junction table"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      through_model,
+      foreign_key,
+      other_key
+    FROM orm_relationships
+    WHERE source_model = 'User'
+      AND target_model = 'Group'
+      AND relationship_type = 'belongsToMany'
+  expect:
+    - source_model: "User"
+      target_model: "Group"
+      relationship_type: "belongsToMany"
+      through_model: "UserGroup"
+      foreign_key: "userId"
+      other_key: "groupId"
+
+# Test 7: Bidirectional relationship verification
+- name: "Bidirectional User-Order relationship"
+  type: "orm_relationships"
+  description: "Verify both sides of User-Order relationship exist"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type
+    FROM orm_relationships
+    WHERE (source_model = 'User' AND target_model = 'Order')
+       OR (source_model = 'Order' AND target_model = 'User')
+    ORDER BY source_model
+  expect_count: 2  # User.hasMany(Order) and Order.belongsTo(User)
+
+# Test 8: Product-Order many-to-many through OrderProduct
+- name: "Product-Order many-to-many relationship"
+  type: "orm_relationships"
+  description: "Verify Product and Order connected through OrderProduct junction"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      through_model,
+      foreign_key,
+      other_key
+    FROM orm_relationships
+    WHERE through_model = 'OrderProduct'
+      AND relationship_type = 'belongsToMany'
+    ORDER BY source_model
+  expect_count: 2  # Order.belongsToMany(Product) and Product.belongsToMany(Order)
+
+# Test 9: Cascade delete relationships
+- name: "All CASCADE delete relationships"
+  type: "orm_relationships"
+  description: "Find all relationships with CASCADE delete enabled"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key
+    FROM orm_relationships
+    WHERE cascade_delete = 1
+    ORDER BY source_model, target_model
+  expect_count_min: 5  # User->Order, User->Profile, User->Session, Order->OrderProduct, Product->OrderProduct
+
+# Test 10: Order model with transaction patterns
+- name: "Order model extraction"
+  type: "orm_model_extraction"
+  description: "Verify Order model with hooks and methods"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'Order'
+      AND type = 'class'
+      AND file LIKE '%models/Order.js'
+  expect:
+    - name: "Order"
+      type: "class"
+
+# Test 11: OrderProduct junction table extraction
+- name: "OrderProduct junction table"
+  type: "orm_model_extraction"
+  description: "Verify OrderProduct junction table with additional fields"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'OrderProduct'
+      AND type = 'class'
+      AND file LIKE '%models/OrderProduct.js'
+  expect:
+    - name: "OrderProduct"
+      type: "class"
+
+# Test 12: Session model with User relationship
+- name: "Session belongsTo User relationship"
+  type: "orm_relationships"
+  description: "Verify Session to User relationship with CASCADE"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key,
+      cascade_delete
+    FROM orm_relationships
+    WHERE source_model = 'Session'
+      AND target_model = 'User'
+      AND relationship_type = 'belongsTo'
+  expect:
+    - source_model: "Session"
+      target_model: "User"
+      relationship_type: "belongsTo"
+      foreign_key: "userId"
+      cascade_delete: 1  # CASCADE
+
+# Test 13: Group-User many-to-many bidirectional
+- name: "Group-User many-to-many bidirectional"
+  type: "orm_relationships"
+  description: "Verify both Group->User and User->Group through UserGroup"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      through_model,
+      relationship_type
+    FROM orm_relationships
+    WHERE through_model = 'UserGroup'
+      AND relationship_type = 'belongsToMany'
+      AND ((source_model = 'User' AND target_model = 'Group')
+           OR (source_model = 'Group' AND target_model = 'User'))
+    ORDER BY source_model
+  expect_count: 2  # Both directions
+
+# Test 14: UserService transaction pattern detection
+- name: "UserService createUserWithProfile transaction"
+  type: "function_extraction"
+  description: "Verify UserService.createUserWithProfile method extracted"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'createUserWithProfile'
+      AND type = 'function'
+      AND file LIKE '%services/user-service.js'
+  expect:
+    - name: "createUserWithProfile"
+      type: "function"
+
+# Test 15: OrderService createOrder transaction
+- name: "OrderService createOrder transaction"
+  type: "function_extraction"
+  description: "Verify OrderService.createOrder with inventory management"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'createOrder'
+      AND type = 'function'
+      AND file LIKE '%services/order-service.js'
+  expect:
+    - name: "createOrder"
+      type: "function"
+
+# Test 16: Taint flow - User password hashing
+- name: "User password taint flow (beforeCreate hook)"
+  type: "taint_tracking"
+  description: "Verify password (user input) -> bcrypt.hash taint flow in beforeCreate hook"
+  query: |
+    SELECT
+      source,
+      sink,
+      flow_type
+    FROM taint_flows
+    WHERE source LIKE '%password%'
+      AND sink LIKE '%bcrypt.hash%'
+      AND file LIKE '%models/User.js'
+  expect_count_min: 1  # At least one password hashing flow
+
+# Test 17: Taint flow - Authentication
+- name: "Authentication password comparison taint"
+  type: "taint_tracking"
+  description: "Verify credentials.password -> bcrypt.compare in UserService"
+  query: |
+    SELECT
+      source,
+      sink,
+      flow_type
+    FROM taint_flows
+    WHERE source LIKE '%credentials.password%'
+      AND sink LIKE '%bcrypt.compare%'
+      AND file LIKE '%services/user-service.js'
+  expect_count_min: 1
+
+# Test 18: All models extracted count
+- name: "Total Sequelize models extracted"
+  type: "orm_model_extraction"
+  description: "Verify all 9 models extracted: User, Role, Order, Product, OrderProduct, Profile, Group, UserGroup, Session"
+  query: |
+    SELECT
+      COUNT(DISTINCT name) as model_count
+    FROM symbols
+    WHERE type = 'class'
+      AND file LIKE '%/models/%.js'
+      AND name IN ('User', 'Role', 'Order', 'Product', 'OrderProduct', 'Profile', 'Group', 'UserGroup', 'Session')
+  expect:
+    - model_count: 9
+
+# Test 19: All relationships count
+- name: "Total ORM relationships extracted"
+  type: "orm_relationships"
+  description: "Verify comprehensive relationship extraction across all models"
+  query: |
+    SELECT
+      COUNT(*) as relationship_count
+    FROM orm_relationships
+    WHERE file LIKE '%/models/%.js'
+  expect_count_min: 15  # Multiple relationships across 9 models
+
+# Test 20: Migration files extracted
+- name: "Migration files extraction"
+  type: "file_extraction"
+  description: "Verify migration files are indexed"
+  query: |
+    SELECT
+      COUNT(*) as migration_count
+    FROM files
+    WHERE file LIKE '%/migrations/%.js'
+  expect_count_min: 3  # At least 3 migration files
+
+# Test 21: Service layer extraction
+- name: "Service layer classes"
+  type: "class_extraction"
+  description: "Verify UserService and OrderService classes extracted"
+  query: |
+    SELECT
+      name,
+      file
+    FROM symbols
+    WHERE type = 'class'
+      AND file LIKE '%/services/%.js'
+      AND name IN ('UserService', 'OrderService')
+    ORDER BY name
+  expect_count: 2
+
+# Test 22: Complex query patterns - getUserDashboard
+- name: "getUserDashboard complex query method"
+  type: "function_extraction"
+  description: "Verify complex multi-JOIN query method extraction"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'getUserDashboard'
+      AND type = 'function'
+      AND file LIKE '%services/user-service.js'
+  expect:
+    - name: "getUserDashboard"
+      type: "function"
+
+# Test 23: Bulk operations - bulkUpdateUsers
+- name: "bulkUpdateUsers transaction method"
+  type: "function_extraction"
+  description: "Verify bulk update transaction method"
+  query: |
+    SELECT
+      name,
+      type,
+      file
+    FROM symbols
+    WHERE name = 'bulkUpdateUsers'
+      AND type = 'function'
+      AND file LIKE '%services/user-service.js'
+  expect:
+    - name: "bulkUpdateUsers"
+      type: "function"
+
+# Test 24: Profile one-to-one inverse relationship
+- name: "Profile belongsTo User (one-to-one inverse)"
+  type: "orm_relationships"
+  description: "Verify inverse side of one-to-one relationship"
+  query: |
+    SELECT
+      source_model,
+      target_model,
+      relationship_type,
+      foreign_key,
+      cascade_delete
+    FROM orm_relationships
+    WHERE source_model = 'Profile'
+      AND target_model = 'User'
+      AND relationship_type = 'belongsTo'
+  expect:
+    - source_model: "Profile"
+      target_model: "User"
+      relationship_type: "belongsTo"
+      foreign_key: "userId"
+      cascade_delete: 1  # CASCADE
+
+# Test 25: Virtual fields extraction (if supported)
+- name: "Virtual fields in User model"
+  type: "orm_field_extraction"
+  description: "Verify virtual fields like fullName are extracted"
+  query: |
+    SELECT
+      field_name,
+      field_type,
+      model_name
+    FROM python_orm_fields
+    WHERE model_name = 'User'
+      AND field_type = 'VIRTUAL'
+      AND file LIKE '%models/User.js'
+  expect_count_min: 1  # At least fullName virtual field
+
+downstream_impact:
+  blueprint:
+    - "aud blueprint will show 'Sequelize ORM: 9 models with 15+ relationships'"
+    - "ORM relationship graph will visualize User->Order->Product flow"
+    - "Cascade delete chains will be identified for security analysis"
+
+  planning:
+    - "aud planning can migrate Sequelize models to other ORMs"
+    - "Relationship mapping enables schema evolution planning"
+    - "Junction table patterns guide migration strategies"
+
+  taint_analyze:
+    - "Password flows through bcrypt.hash tracked in beforeCreate hooks"
+    - "User credentials in authenticateAndCreateSession tracked to bcrypt.compare"
+    - "Order creation taint from user input to database INSERT"
+
+  context:
+    - "Business logic queries can traverse User->Order->Product relationships"
+    - "Transaction boundaries identified for atomic operation validation"
+    - "Service layer patterns show proper separation of concerns"
+
+  detect_patterns:
+    - "SQL injection risks in raw query patterns (if any)"
+    - "Missing CASCADE deletes causing orphaned records"
+    - "Weak validation patterns in model hooks"
+    - "Race conditions in stock management without locking"
+
+patterns_tested:
+  orm_patterns:
+    - "Model definition with validations"
+    - "One-to-many relationships (hasMany)"
+    - "Many-to-one relationships (belongsTo)"
+    - "One-to-one relationships (hasOne)"
+    - "Many-to-many relationships (belongsToMany)"
+    - "Junction tables with additional fields"
+    - "Cascade delete behavior"
+    - "Virtual fields and getters"
+    - "Instance methods"
+    - "Class methods (static)"
+    - "Lifecycle hooks (beforeCreate, afterUpdate, etc.)"
+
+  transaction_patterns:
+    - "Multi-table transactions with rollback"
+    - "Row-level locking (LOCK.UPDATE)"
+    - "Atomic operations across relationships"
+    - "Error handling with transaction cleanup"
+    - "Cascading updates within transactions"
+
+  query_patterns:
+    - "Complex JOINs with include"
+    - "Aggregations (COUNT, SUM, AVG, MAX, MIN)"
+    - "GROUP BY with HAVING"
+    - "Pagination with findAndCountAll"
+    - "Text search with iLike"
+    - "Date range filtering"
+    - "Bulk operations"
+
+  security_patterns:
+    - "Password hashing in hooks"
+    - "Session token generation"
+    - "Input validation in model validators"
+    - "Parameterized queries (Sequelize handles)"
+    - "JSONB field validation"
+
+real_world_coverage:
+  production_projects:
+    - "plant: Uses Sequelize for User, Product, Order models"
+    - "PlantFlow: Uses Sequelize for workflow entities"
+
+  frameworks_simulated:
+    - "Sequelize 6.x with PostgreSQL dialect"
+    - "Bcrypt for password hashing"
+    - "Crypto for session tokens"
+    - "JSONB fields for metadata"

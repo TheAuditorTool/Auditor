@@ -14,6 +14,7 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
 """
 
+
 import sqlite3
 import logging
 from typing import List, Set
@@ -35,7 +36,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """
     Detect TypeScript type safety issues using semantic type data from TypeScript compiler.
 
@@ -140,7 +141,7 @@ def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFindin
     return findings
 
 
-def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_explicit_any_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find explicit 'any' type annotations using semantic type data."""
     findings = []
 
@@ -175,10 +176,14 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
             SELECT a.file, a.line, a.target_var, a.source_expr
             FROM assignments a
             WHERE a.file IN ({placeholders})
-              AND a.source_expr LIKE '%as any%'
+              AND a.source_expr IS NOT NULL
         """, list(ts_files))
 
-    any_assertions = cursor.fetchall()
+    any_assertions = []
+    for file, line, var, expr in cursor.fetchall():
+        # Filter in Python for 'as any'
+        if 'as any' in expr:
+            any_assertions.append((file, line, var, expr))
 
     for file, line, var, expr in any_assertions:
             findings.append(StandardFinding(
@@ -196,7 +201,7 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_return_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find functions without explicit return types using semantic type data."""
     findings = []
 
@@ -238,7 +243,7 @@ def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find function parameters without type annotations."""
     findings = []
 
@@ -248,15 +253,20 @@ def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFi
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.file IN ({placeholders})
-          AND f.callee_function LIKE '%function%'
+          AND f.callee_function IS NOT NULL
+          AND f.argument_expr IS NOT NULL
     """, list(ts_files))
 
-    function_calls = cursor.fetchall()
+    function_calls = []
+    for file, line, func, args in cursor.fetchall():
+        # Filter in Python for function keyword
+        if 'function' in func.lower():
+            function_calls.append((file, line, func, args))
 
     for file, line, func, args in function_calls:
         if args and 'function(' in args.lower():
             # Check if parameters have types
-            if not ':' in args and '(' in args and ')' in args:
+            if ':' not in args and '(' in args and ')' in args:
                 findings.append(StandardFinding(
                     rule_name='typescript-untyped-parameters',
                     message='Function parameters without type annotations',
@@ -272,7 +282,7 @@ def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFi
     return findings
 
 
-def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unsafe_type_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe type assertions (as any, as unknown)."""
     findings = []
 
@@ -282,13 +292,14 @@ def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFin
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
         WHERE a.file IN ({placeholders})
-          AND (a.source_expr LIKE '%as any%'
-               OR a.source_expr LIKE '%as unknown%'
-               OR a.source_expr LIKE '%as Function%'
-               OR a.source_expr LIKE '%<any>%')
+          AND a.source_expr IS NOT NULL
     """, list(ts_files))
 
-    type_assertions = cursor.fetchall()
+    # Filter in Python for unsafe assertions
+    type_assertions = []
+    for file, line, var, expr in cursor.fetchall():
+        if any(pattern in expr for pattern in ['as any', 'as unknown', 'as Function', '<any>']):
+            type_assertions.append((file, line, var, expr))
 
     for file, line, var, expr in type_assertions:
         severity = Severity.HIGH if 'as any' in expr else Severity.MEDIUM
@@ -308,7 +319,7 @@ def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_non_null_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find non-null assertions (!) that bypass null checks."""
     findings = []
 
@@ -318,12 +329,14 @@ def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFindin
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
         WHERE a.file IN ({placeholders})
-          AND (a.source_expr LIKE '%!.%'
-               OR a.source_expr LIKE '%!)%'
-               OR a.source_expr LIKE '%!;%')
+          AND a.source_expr IS NOT NULL
     """, list(ts_files))
 
-    non_null_assertions = cursor.fetchall()
+    # Filter in Python for ! patterns
+    non_null_assertions = []
+    for file, line, expr in cursor.fetchall():
+        if any(pattern in expr for pattern in ['!.', '!)', '!;']):
+            non_null_assertions.append((file, line, expr))
 
     for file, line, expr in non_null_assertions:
         findings.append(StandardFinding(
@@ -341,7 +354,7 @@ def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_dangerous_type_patterns(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find dangerous type patterns like Function, Object, {} using semantic type data."""
     findings = []
 
@@ -356,30 +369,31 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
             SELECT file, line, symbol_name, type_annotation
             FROM type_annotations
             WHERE file IN ({placeholders})
-              AND (type_annotation = ?
-                   OR type_annotation LIKE ?
-                   OR type_annotation LIKE ?)
-        """, list(ts_files) + [dangerous_type, f'{dangerous_type}[]', f'%<{dangerous_type}>%'])
+              AND type_annotation IS NOT NULL
+        """, list(ts_files))
 
-        dangerous_types_found = cursor.fetchall()
-
-        for file, line, name, type_ann in dangerous_types_found:
-            findings.append(StandardFinding(
-                rule_name=f'typescript-dangerous-type-{dangerous_type.lower().replace("{", "").replace("}", "empty")}',
-                message=f"Dangerous type '{dangerous_type}' used in {name}",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.HIGH,
-                category='type-safety',
-                snippet=f'{name}: {type_ann}' if type_ann else f': {dangerous_type}',
-                cwe_id='CWE-843'
-            ))
+        # Filter in Python for dangerous type patterns
+        for file, line, name, type_ann in cursor.fetchall():
+            # Check for exact match or array/generic patterns
+            if (type_ann == dangerous_type or
+                type_ann == f'{dangerous_type}[]' or
+                f'<{dangerous_type}>' in type_ann):
+                findings.append(StandardFinding(
+                    rule_name=f'typescript-dangerous-type-{dangerous_type.lower().replace("{", "").replace("}", "empty")}',
+                    message=f"Dangerous type '{dangerous_type}' used in {name}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    confidence=Confidence.HIGH,
+                    category='type-safety',
+                    snippet=f'{name}: {type_ann}' if type_ann else f': {dangerous_type}',
+                    cwe_id='CWE-843'
+                ))
 
     return findings
 
 
-def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_json_parse(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find JSON.parse without type validation."""
     findings = []
 
@@ -388,27 +402,32 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.file IN ({placeholders})
-          AND f.callee_function LIKE '%JSON.parse%'
+          AND f.callee_function IS NOT NULL
     """, list(ts_files))
 
-    json_parses = cursor.fetchall()
+    # Filter in Python for JSON.parse
+    json_parses = []
+    for file, line, func, args in cursor.fetchall():
+        if 'JSON.parse' in func:
+            json_parses.append((file, line, func, args))
 
     for file, line, func, args in json_parses:
-        has_validation = False
-
         # Check if result is typed (look for type assertion or validation nearby)
         cursor.execute("""
-                SELECT COUNT(*)
+                SELECT source_expr
                 FROM assignments a
                 WHERE a.file = ?
                   AND a.line BETWEEN ? AND ?
-                  AND (a.source_expr LIKE '%as %'
-                       OR a.source_expr LIKE '%zod%'
-                       OR a.source_expr LIKE '%joi%'
-                       OR a.source_expr LIKE '%validate%')
+                  AND a.source_expr IS NOT NULL
         """, (file, line, line + 5))
 
-        has_validation = cursor.fetchone()[0] > 0
+        # Filter in Python for validation patterns
+        validation_count = 0
+        for (source_expr,) in cursor.fetchall():
+            if any(pattern in source_expr for pattern in ['as ', 'zod', 'joi', 'validate']):
+                validation_count += 1
+
+        has_validation = validation_count > 0
 
         if not has_validation:
             findings.append(StandardFinding(
@@ -426,7 +445,7 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find API calls without typed responses."""
     findings = []
 
@@ -434,31 +453,35 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFind
     api_patterns = frozenset(['fetch', 'axios', 'request', 'http.get', 'http.post', 'ajax'])
 
     placeholders = ','.join(['?' for _ in ts_files])
-    for pattern in api_patterns:
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.callee_function
-            FROM function_call_args f
-            WHERE f.file IN ({placeholders})
-              AND f.callee_function LIKE ?
-        """, list(ts_files) + [f'%{pattern}%'])
+    cursor.execute(f"""
+        SELECT f.file, f.line, f.callee_function
+        FROM function_call_args f
+        WHERE f.file IN ({placeholders})
+          AND f.callee_function IS NOT NULL
+    """, list(ts_files))
 
-        api_calls = cursor.fetchall()
+    # Filter in Python for API patterns
+    all_calls = cursor.fetchall()
+    for pattern in api_patterns:
+        api_calls = [(file, line, func) for file, line, func in all_calls if pattern in func]
 
         for file, line, func in api_calls:
-            has_typing = False
-
             # Check if response is typed
             cursor.execute("""
-                    SELECT COUNT(*)
+                    SELECT target_var, source_expr
                     FROM assignments a
                     WHERE a.file = ?
                       AND a.line BETWEEN ? AND ?
-                      AND (a.target_var LIKE '%: %'
-                           OR a.source_expr LIKE '%as %'
-                           OR a.source_expr LIKE '%<%.%>%')
+                      AND (a.target_var IS NOT NULL OR a.source_expr IS NOT NULL)
             """, (file, line - 2, line + 10))
 
-            has_typing = cursor.fetchone()[0] > 0
+            # Filter in Python for typing patterns
+            typing_count = 0
+            for target_var, source_expr in cursor.fetchall():
+                if (target_var and ': ' in target_var) or (source_expr and ('as ' in source_expr or '<' in source_expr and '>' in source_expr)):
+                    typing_count += 1
+
+            has_typing = typing_count > 0
 
             if not has_typing:
                 findings.append(StandardFinding(
@@ -476,7 +499,7 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_interfaces(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find objects that should have interface definitions."""
     findings = []
 
@@ -486,12 +509,16 @@ def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
         WHERE a.file IN ({placeholders})
-          AND a.source_expr LIKE '%{{%}}%'
+          AND a.source_expr IS NOT NULL
+          AND a.target_var IS NOT NULL
           AND LENGTH(a.source_expr) > 50
-          AND a.target_var NOT LIKE '%: %'
     """, list(ts_files))
 
-    complex_objects = cursor.fetchall()
+    # Filter in Python for object literals without types
+    complex_objects = []
+    for file, line, var, expr in cursor.fetchall():
+        if '{' in expr and '}' in expr and ': ' not in var:
+            complex_objects.append((file, line, var, expr))
 
     for file, line, var, expr in complex_objects:
         # Check if it's a complex object (has multiple properties)
@@ -511,7 +538,7 @@ def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_type_suppression_comments(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find @ts-ignore, @ts-nocheck, and @ts-expect-error comments."""
     findings = []
 
@@ -523,17 +550,20 @@ def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[Standard
     )
 
     placeholders = ','.join(['?' for _ in ts_files])
-    for suppression, severity, confidence, description in suppressions:
-        # FIXED: Use proper parameterized query for LIKE pattern
-        cursor.execute(f"""
-            SELECT s.path AS file, s.line, s.name
-            FROM symbols s
-            WHERE s.path IN ({placeholders})
-              AND s.type = 'comment'
-              AND s.name LIKE ?
-        """, list(ts_files) + [f'%{suppression}%'])
+    cursor.execute(f"""
+        SELECT s.path AS file, s.line, s.name
+        FROM symbols s
+        WHERE s.path IN ({placeholders})
+          AND s.type = 'comment'
+          AND s.name IS NOT NULL
+    """, list(ts_files))
 
-        suppression_comments = cursor.fetchall()
+    # Fetch all comments once
+    all_comments = cursor.fetchall()
+
+    for suppression, severity, confidence, description in suppressions:
+        # Filter in Python for suppression patterns
+        suppression_comments = [(file, line, comment) for file, line, comment in all_comments if suppression in comment]
 
         for file, line, comment in suppression_comments:
             findings.append(StandardFinding(
@@ -551,7 +581,7 @@ def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[Standard
     return findings
 
 
-def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_catch_blocks(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find catch blocks without typed errors."""
     findings = []
 
@@ -584,7 +614,7 @@ def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_generic_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find usage of generic types without type parameters using semantic type data."""
     findings = []
 
@@ -621,7 +651,7 @@ def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_event_handlers(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find event handlers without proper typing."""
     findings = []
 
@@ -629,15 +659,18 @@ def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFin
     event_patterns = frozenset(['onClick', 'onChange', 'onSubmit', 'addEventListener', 'on('])
 
     placeholders = ','.join(['?' for _ in ts_files])
-    for pattern in event_patterns:
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.file IN ({placeholders})
-              AND (f.callee_function LIKE ? OR f.argument_expr LIKE ?)
-        """, list(ts_files) + [f'%{pattern}%', f'%{pattern}%'])
+    cursor.execute(f"""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.file IN ({placeholders})
+          AND (f.callee_function IS NOT NULL OR f.argument_expr IS NOT NULL)
+    """, list(ts_files))
 
-        event_handlers = cursor.fetchall()
+    # Filter in Python for event patterns
+    all_calls = cursor.fetchall()
+    for pattern in event_patterns:
+        event_handlers = [(file, line, func, args) for file, line, func, args in all_calls
+                         if (func and pattern in func) or (args and pattern in args)]
 
         for file, line, func, args in event_handlers:
             if args and 'event' in args.lower() and ':' not in args:
@@ -656,7 +689,7 @@ def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_type_mismatches(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find potential type mismatches in assignments."""
     findings = []
 
@@ -666,12 +699,23 @@ def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
         WHERE a.file IN ({placeholders})
-          AND ((a.target_var LIKE '%string%' AND a.source_expr LIKE '%number%')
-               OR (a.target_var LIKE '%number%' AND a.source_expr LIKE '%string%')
-               OR (a.target_var LIKE '%boolean%' AND a.source_expr NOT LIKE '%true%' AND a.source_expr NOT LIKE '%false%'))
+          AND a.target_var IS NOT NULL
+          AND a.source_expr IS NOT NULL
     """, list(ts_files))
 
-    mismatches = cursor.fetchall()
+    # Filter in Python for type mismatches
+    mismatches = []
+    for file, line, var, expr in cursor.fetchall():
+        var_lower = var.lower()
+        expr_lower = expr.lower()
+
+        # String/number mismatch
+        if ('string' in var_lower and 'number' in expr_lower) or \
+           ('number' in var_lower and 'string' in expr_lower):
+            mismatches.append((file, line, var, expr))
+        # Boolean mismatch
+        elif 'boolean' in var_lower and 'true' not in expr_lower and 'false' not in expr_lower:
+            mismatches.append((file, line, var, expr))
 
     for file, line, var, expr in mismatches:
         findings.append(StandardFinding(
@@ -689,23 +733,24 @@ def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unsafe_property_access(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe property access patterns."""
     findings = []
 
     # Look for bracket notation without guards
-    # NOTE: property_access is not a column in symbols table
-    # This detection would require parsing the name field or using a different approach
-    # Commenting out for now to prevent SQL errors
     placeholders = ','.join(['?' for _ in ts_files])
     cursor.execute(f"""
         SELECT s.path AS file, s.line, s.name
         FROM symbols s
         WHERE s.path IN ({placeholders})
-          AND s.name LIKE '%[%]%'
+          AND s.name IS NOT NULL
     """, list(ts_files))
 
-    bracket_accesses = cursor.fetchall()
+    # Filter in Python for bracket notation
+    bracket_accesses = []
+    for file, line, name in cursor.fetchall():
+        if '[' in name and ']' in name:
+            bracket_accesses.append((file, line, name))
 
     for file, line, name in bracket_accesses:
         prop_access = name  # Use name as the property access pattern
@@ -726,7 +771,7 @@ def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_unknown_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unknown_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find 'unknown' types requiring type narrowing using semantic type data."""
     findings = []
 

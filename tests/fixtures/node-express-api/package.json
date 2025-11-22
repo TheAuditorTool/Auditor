@@ -1,0 +1,17 @@
+{
+  "name": "node-express-api-fixture",
+  "version": "1.0.0",
+  "description": "Express REST API fixture for testing middleware chains, auth controls, and SQL taint flows",
+  "main": "app.js",
+  "dependencies": {
+    "express": "5.1.0",
+    "jsonwebtoken": "9.0.2",
+    "pg": "8.16.3",
+    "bcrypt": "6.0.0",
+    "cors": "2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.5",
+    "@types/node": "24.10.1"
+  }
+}

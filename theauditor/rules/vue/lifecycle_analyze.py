@@ -10,6 +10,7 @@ Follows v1.1+ gold standard patterns:
 - Proper confidence levels via Confidence enum
 """
 
+
 import sqlite3
 from typing import List, Dict, Set
 from pathlib import Path
@@ -95,7 +96,7 @@ SIDE_EFFECTS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_lifecycle_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue lifecycle hook misuse and anti-patterns.
 
     Detects:
@@ -150,7 +151,7 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -160,13 +161,15 @@ def _get_vue_files(cursor) -> Set[str]:
 
     # Check files table by extension
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, ext
         FROM files
-        WHERE path LIKE '%.vue'
-           OR (path LIKE '%.js' AND path LIKE '%component%')
-           OR (path LIKE '%.ts' AND path LIKE '%component%')
+        WHERE ext IN ('.vue', '.js', '.ts')
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue files
+    for path, ext in cursor.fetchall():
+        if ext == '.vue' or (ext in ('.js', '.ts') and 'component' in path.lower()):
+            vue_files.add(path)
 
     # Find files with lifecycle hooks
     all_hooks = list(VUE2_LIFECYCLE | VUE3_LIFECYCLE | COMPOSITION_LIFECYCLE)
@@ -186,7 +189,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_dom_before_mount(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_dom_before_mount(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find DOM operations in hooks that run before mounting."""
     findings = []
 
@@ -225,7 +228,7 @@ def _find_dom_before_mount(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_cleanup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find resources created without cleanup."""
     findings = []
 
@@ -273,7 +276,7 @@ def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_wrong_data_fetch(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_wrong_data_fetch(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find data fetching in wrong lifecycle hooks."""
     findings = []
 
@@ -319,7 +322,7 @@ def _find_wrong_data_fetch(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_infinite_updates(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_infinite_updates(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find potential infinite update loops."""
     findings = []
 
@@ -337,13 +340,14 @@ def _find_infinite_updates(cursor, vue_files: Set[str]) -> List[StandardFinding]
               AND f.callee_function = ?
               AND ABS(a.line - f.line) <= 20
               AND a.line > f.line
-              AND (a.target_var LIKE 'this.%'
-                   OR a.target_var LIKE 'data.%'
-                   OR a.target_var LIKE 'state.%')
+              AND a.target_var IS NOT NULL
             ORDER BY a.file, a.line
         """, list(vue_files) + [hook])
 
+        # Filter in Python for reactive data modifications
         for file, line, var in cursor.fetchall():
+            if not (var.startswith('this.') or var.startswith('data.') or var.startswith('state.')):
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-infinite-update',
                 message=f'Modifying {var} in {hook} - causes infinite update loop',
@@ -358,7 +362,7 @@ def _find_infinite_updates(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_timer_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_timer_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find timers without cleanup."""
     findings = []
 
@@ -370,18 +374,29 @@ def _find_timer_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         FROM function_call_args f
         WHERE f.file IN ({file_placeholders})
           AND f.callee_function IN ('setInterval', 'setTimeout')
-          AND NOT EXISTS (
-              SELECT 1 FROM assignments a
-              WHERE a.file = f.file
-                AND a.line = f.line
-                AND (a.target_var LIKE '%timer%'
-                     OR a.target_var LIKE '%interval%'
-                     OR a.target_var LIKE '%timeout%')
-          )
         ORDER BY f.file, f.line
     """, list(vue_files))
 
+    # Filter in Python for timers without storage
     for file, line, timer_func in cursor.fetchall():
+        # Check for timer variable at same line
+        cursor.execute("""
+            SELECT target_var
+            FROM assignments
+            WHERE file = ?
+              AND line = ?
+              AND target_var IS NOT NULL
+        """, (file, line))
+
+        has_timer_var = False
+        for (target_var,) in cursor.fetchall():
+            target_lower = target_var.lower()
+            if 'timer' in target_lower or 'interval' in target_lower or 'timeout' in target_lower:
+                has_timer_var = True
+                break
+
+        if has_timer_var:
+            continue
         findings.append(StandardFinding(
             rule_name='vue-timer-leak',
             message=f'{timer_func} not stored for cleanup',
@@ -396,7 +411,7 @@ def _find_timer_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_computed_side_effects(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_computed_side_effects(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find side effects in computed properties."""
     findings = []
 
@@ -406,18 +421,21 @@ def _find_computed_side_effects(cursor, vue_files: Set[str]) -> List[StandardFin
 
     # Find side effects in computed properties
     cursor.execute(f"""
-        SELECT DISTINCT s.path, s.line, f.callee_function
+        SELECT DISTINCT s.path, s.line, s.name, f.callee_function, f.line AS f_line
         FROM symbols s
         JOIN function_call_args f ON s.path = f.file
         WHERE s.path IN ({file_placeholders})
-          AND s.name LIKE '%computed%'
+          AND s.name IS NOT NULL
           AND f.callee_function IN ({effect_placeholders})
           AND ABS(f.line - s.line) <= 10
           AND f.line > s.line
         ORDER BY s.path, s.line
     """, list(vue_files) + side_effects)
 
-    for file, line, effect in cursor.fetchall():
+    # Filter in Python for computed properties
+    for file, line, name, effect, f_line in cursor.fetchall():
+        if 'computed' not in name.lower():
+            continue
         findings.append(StandardFinding(
             rule_name='vue-computed-side-effect',
             message=f'Side effect {effect} in computed property',
@@ -432,7 +450,7 @@ def _find_computed_side_effects(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find incorrect lifecycle hook ordering."""
     findings = []
 
@@ -463,7 +481,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     """, list(vue_files) + all_hooks)
 
     # Group by file and check order
-    file_hooks: Dict[str, List[tuple]] = {}
+    file_hooks: dict[str, list[tuple]] = {}
     for file, line, hook in cursor.fetchall():
         if file not in file_hooks:
             file_hooks[file] = []
@@ -488,7 +506,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_unhandled_async(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unhandled_async(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find async operations without error handling in lifecycle hooks."""
     findings = []
 
@@ -536,7 +554,7 @@ def _find_unhandled_async(cursor, vue_files: Set[str]) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

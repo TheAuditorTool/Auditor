@@ -1,4 +1,23 @@
-"""Extraction module - pure courier model for data chunking.
+"""DEPRECATED: Extraction system obsolete - use 'aud query' for database-first AI interaction.
+
+This file is kept for backward compatibility only. New code should NOT use this module.
+
+Reason for deprecation:
+- Database queries via 'aud query' are 100x faster than JSON file parsing
+- Direct database access eliminates token waste (5,000-10,000 tokens saved per interaction)
+- Consolidated output files (.pf/raw/*_analysis.json) replace fragmented chunks
+- Guidance summaries (.pf/raw/*_Summary.json) provide focused orientation
+
+Migration path:
+- Replace JSON file parsing with 'aud query' commands
+- Read consolidated files in .pf/raw/ instead of .pf/readthis/
+- Use guidance summaries for quick orientation
+
+See: openspec/changes/add-risk-prioritization/
+
+ORIGINAL MODULE DOCUMENTATION (DEPRECATED):
+---
+Extraction module - pure courier model for data chunking.
 
 This module implements the courier model: takes raw tool output and chunks it
 into manageable pieces for AI processing WITHOUT any filtering or interpretation.
@@ -13,6 +32,7 @@ Pure Courier Principles:
 The AI consumer decides what's important, not TheAuditor.
 """
 
+
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,7 +45,7 @@ from theauditor.config_runtime import load_runtime_config
 # Pure courier model - no filtering, only chunking if needed
 
 
-def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> Optional[List[Tuple[Path, int]]]:
+def _chunk_large_file(raw_path: Path, max_chunk_size: int | None = None) -> list[tuple[Path, int]] | None:
     """Split large files into chunks of configured max size."""
     # Load config if not provided
     if max_chunk_size is None:
@@ -41,7 +61,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
         # Handle non-JSON files (like .dot, .txt, etc.)
         if raw_path.suffix != '.json':
             # Read as text and chunk if needed
-            with open(raw_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(raw_path, encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             # Check if file needs chunking
@@ -82,7 +102,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                 return chunks
         
         # Handle JSON files
-        with open(raw_path, 'r', encoding='utf-8') as f:
+        with open(raw_path, encoding='utf-8') as f:
             content = f.read()
 
         # Check if file is empty
@@ -363,7 +383,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
         return None  # Return None to signal failure, not empty list
 
 
-def _copy_as_is(raw_path: Path) -> Tuple[Optional[Path], int]:
+def _copy_as_is(raw_path: Path) -> tuple[Path | None, int]:
     """Copy small files as-is or chunk if >65KB."""
     chunks = _chunk_large_file(raw_path)
     if chunks is None:

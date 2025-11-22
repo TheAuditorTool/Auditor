@@ -10,6 +10,7 @@ Follows schema contract architecture (v1.1+):
 - Proper confidence levels
 """
 
+
 import json
 import sqlite3
 from typing import List, Dict, Any, Set, Optional
@@ -102,7 +103,7 @@ class FlaskPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Flask security misconfigurations.
 
     Analyzes database for:
@@ -140,13 +141,13 @@ class FlaskAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = FlaskPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track Flask-specific data
-        self.flask_files: List[str] = []
+        self.flask_files: list[str] = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete Flask analysis."""
         # Load Flask data from database
         if not self._load_flask_data():
@@ -261,12 +262,17 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function LIKE '%.run' AND argument_expr LIKE '%debug%True%'",
+            # Fetch all function calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, args in cursor.fetchall():
+            for file, line, callee, args in cursor.fetchall():
+                # Filter for .run methods with debug=True
+                if not callee.endswith('.run'):
+                    continue
+                if 'debug' not in args or 'True' not in args:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-debug-mode-enabled',
                     message='Flask debug mode enabled - exposes interactive debugger',
@@ -290,19 +296,22 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Build WHERE clause for secret variables using schema-compliant approach
-            secret_conditions = " OR ".join([f"target_var LIKE '%{var}%'" for var in self.patterns.SECRET_VARS])
-            where_clause = f"""({secret_conditions})
-                  AND source_expr LIKE '"%"'
-                  AND source_expr NOT LIKE '%environ%'
-                  AND source_expr NOT LIKE '%getenv%'"""
-
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where=where_clause,
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, var_name, secret_value in cursor.fetchall():
+                # Filter for secret variable names in Python
+                var_name_upper = var_name.upper()
+                if not any(secret in var_name_upper for secret in self.patterns.SECRET_VARS):
+                    continue
+
+                # Filter for hardcoded strings (not env vars)
+                if not ('"' in secret_value or "'" in secret_value):
+                    continue
+                if 'environ' in secret_value or 'getenv' in secret_value:
+                    continue
                 # Check secret strength
                 clean_secret = secret_value.strip('"\'')
                 if len(clean_secret) < 32:
@@ -329,27 +338,51 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Complex EXISTS/NOT EXISTS correlated subquery - use raw SQL for DISTINCT
-            cursor.execute("""
-                SELECT DISTINCT file, line
-                FROM function_call_args
-                WHERE callee_function LIKE '%.save'
-                  AND EXISTS (
-                      SELECT 1 FROM function_call_args f2
-                      WHERE f2.file = function_call_args.file
-                        AND f2.line BETWEEN function_call_args.line - 10 AND function_call_args.line
-                        AND f2.argument_expr LIKE '%request.files%'
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM function_call_args f3
-                      WHERE f3.file = function_call_args.file
-                        AND f3.line BETWEEN function_call_args.line - 10 AND function_call_args.line + 10
-                        AND f3.callee_function IN ('secure_filename', 'validate', 'allowed')
-                  )
-                ORDER BY file, line
-            """)
+            # Fetch all function calls, build relationships in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               order_by="file, line")
+            cursor.execute(query)
 
-            for file, line in cursor.fetchall():
+            all_calls = cursor.fetchall()
+            save_calls = []
+            file_validators = {}
+
+            # First pass: identify .save calls and validators
+            for file, line, callee, arg_expr in all_calls:
+                if callee.endswith('.save'):
+                    save_calls.append((file, line, callee, arg_expr))
+                if callee in self.patterns.FILE_VALIDATORS:
+                    if file not in file_validators:
+                        file_validators[file] = []
+                    file_validators[file].append(line)
+
+            # Second pass: check for request.files nearby without validation
+            seen = set()
+            for save_file, save_line, save_callee, save_arg in save_calls:
+                # Check if request.files is used nearby (within 10 lines before)
+                has_file_input = False
+                for file, line, callee, arg_expr in all_calls:
+                    if file == save_file and abs(line - save_line) <= 10:
+                        if 'request.files' in arg_expr:
+                            has_file_input = True
+                            break
+
+                if not has_file_input:
+                    continue
+
+                # Check if validators are present nearby
+                has_validation = False
+                if save_file in file_validators:
+                    for val_line in file_validators[save_file]:
+                        if abs(val_line - save_line) <= 10:
+                            has_validation = True
+                            break
+
+                if not has_validation:
+                    key = (save_file, save_line)
+                    if key not in seen:
+                        seen.add(key)
+                        file, line = key
                 self.findings.append(StandardFinding(
                     rule_name='flask-unsafe-file-upload',
                     message='File upload without validation - malicious file upload risk',
@@ -373,16 +406,17 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Query sql_queries table with schema-compliant query
+            # Fetch all SQL queries, filter in Python
             query = build_query('sql_queries', ['file_path', 'line_number', 'query_text'],
-                               where="""(query_text LIKE '%' || '%' || '%'
-                                        OR query_text LIKE '%.format(%'
-                                        OR query_text LIKE '%f"%'
-                                        OR query_text LIKE "%f'%")""",
                                order_by="file_path, line_number")
             cursor.execute(query)
 
             for file, line, query_text in cursor.fetchall():
+                # Check for string formatting patterns in Python
+                if not ('%' in query_text and '%' in query_text[query_text.index('%')+1:]):
+                    if '.format(' not in query_text:
+                        if 'f"' not in query_text and "f'" not in query_text:
+                            continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-sql-injection-risk',
                     message='String formatting in SQL query - SQL injection vulnerability',
@@ -406,15 +440,18 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="""callee_function = 'redirect'
-                                        AND (argument_expr LIKE '%request.args.get%'
-                                             OR argument_expr LIKE '%request.values.get%'
-                                             OR argument_expr LIKE '%request.form.get%')""",
+            # Fetch redirect calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function = 'redirect'",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, redirect_arg in cursor.fetchall():
+            for file, line, callee, redirect_arg in cursor.fetchall():
+                # Check for user input patterns in Python
+                if not ('request.args.get' in redirect_arg or
+                        'request.values.get' in redirect_arg or
+                        'request.form.get' in redirect_arg):
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-unsafe-redirect',
                     message='Unvalidated redirect from user input - open redirect vulnerability',
@@ -438,12 +475,16 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function = 'eval' AND argument_expr LIKE '%request.%'",
+            # Fetch eval calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function = 'eval'",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, eval_arg in cursor.fetchall():
+            for file, line, callee, eval_arg in cursor.fetchall():
+                # Check for request input in Python
+                if 'request.' not in eval_arg:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-eval-usage',
                     message='Use of eval with user input - code injection vulnerability',
@@ -467,15 +508,19 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check assignments
-            query = build_query('assignments', ['file', 'line', 'source_expr'],
-                               where="""(target_var LIKE '%CORS%'
-                                        OR target_var LIKE '%Access-Control-Allow-Origin%')
-                                      AND source_expr LIKE '%*%'""",
+            # Check assignments - fetch all, filter in Python
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, cors_config in cursor.fetchall():
+            for file, line, target_var, cors_config in cursor.fetchall():
+                # Filter for CORS variables in Python
+                target_upper = target_var.upper()
+                if 'CORS' not in target_upper and 'ACCESS-CONTROL-ALLOW-ORIGIN' not in target_upper:
+                    continue
+                if '*' not in cors_config:
+                    continue
+
                 self.findings.append(StandardFinding(
                     rule_name='flask-cors-wildcard',
                     message='CORS with wildcard origin - allows any domain access',
@@ -488,13 +533,15 @@ class FlaskAnalyzer:
                     cwe_id='CWE-346'  # Origin Validation Error
                 ))
 
-            # Check function calls
-            query2 = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                                where="callee_function = 'CORS' AND argument_expr LIKE '%*%'",
+            # Check function calls - fetch CORS calls, filter in Python
+            query2 = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                                where="callee_function = 'CORS'",
                                 order_by="file, line")
             cursor.execute(query2)
 
-            for file, line, cors_arg in cursor.fetchall():
+            for file, line, callee, cors_arg in cursor.fetchall():
+                if '*' not in cors_arg:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-cors-wildcard',
                     message='CORS with wildcard origin - allows any domain access',
@@ -518,13 +565,16 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="""callee_function IN ('pickle.loads', 'loads', 'pickle.load', 'load')
-                                        AND argument_expr LIKE '%request.%'""",
+            # Fetch pickle calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function IN ('pickle.loads', 'loads', 'pickle.load', 'load')",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, pickle_arg in cursor.fetchall():
+            for file, line, callee, pickle_arg in cursor.fetchall():
+                # Check for request input in Python
+                if 'request.' not in pickle_arg:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-unsafe-deserialization',
                     message='Pickle deserialization of user input - Remote Code Execution risk',
@@ -548,12 +598,15 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="target_var = 'WERKZEUG_DEBUG_PIN' OR source_expr LIKE '%use_debugger%True%'",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, var, value in cursor.fetchall():
+                # Check for debugger patterns in Python
+                if var != 'WERKZEUG_DEBUG_PIN' and not ('use_debugger' in value and 'True' in value):
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-werkzeug-debugger',
                     message='Werkzeug debugger exposed - allows arbitrary code execution',
@@ -618,16 +671,17 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Build WHERE clause for session configs using schema-compliant approach
-            config_conditions = " OR ".join([f"target_var LIKE '%{config}%'" for config in self.patterns.SESSION_CONFIGS])
-            where_clause = f"({config_conditions}) AND source_expr = 'False'"
-
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where=where_clause,
+                               where="source_expr = 'False'",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, var, config in cursor.fetchall():
+                # Filter for session config variables in Python
+                var_upper = var.upper()
+                if not any(session_config in var_upper for session_config in self.patterns.SESSION_CONFIGS):
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='flask-insecure-session',
                     message=f'Insecure session cookie configuration: {var} = False',

@@ -6,6 +6,7 @@ Inlines parsing logic (no separate parser class).
 Populates prisma_models table for use by rules/orm/prisma_analyze.py.
 """
 
+
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -20,7 +21,7 @@ class PrismaExtractor(BaseExtractor):
     Direct database writes via self.db_manager.add_prisma_model().
     """
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports.
 
         Prisma schemas don't have a specific extension, match by filename.
@@ -39,8 +40,8 @@ class PrismaExtractor(BaseExtractor):
         file_name_lower = Path(file_path).name.lower()
         return file_name_lower == 'schema.prisma'
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract Prisma models directly to database.
 
         Parses schema.prisma content inline (regex-based).
@@ -77,7 +78,7 @@ class PrismaExtractor(BaseExtractor):
         # Return minimal dict for indexer compatibility
         return {}
 
-    def _parse_schema(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_schema(self, content: str) -> list[dict[str, Any]]:
         """Parse Prisma schema content to extract models.
 
         Inline parsing logic (copied from prisma_schema_parser.py).
@@ -110,7 +111,7 @@ class PrismaExtractor(BaseExtractor):
 
         return models
 
-    def _parse_fields(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_fields(self, content: str) -> list[dict[str, Any]]:
         """Parse fields within a model block.
 
         Args:

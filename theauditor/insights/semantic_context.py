@@ -17,6 +17,7 @@ provides the infrastructure, but YOU define what's obsolete, current, or transit
 in YOUR codebase.
 """
 
+
 import re
 import json
 from dataclasses import dataclass, field
@@ -51,10 +52,10 @@ class ContextPattern:
     pattern: str
     reason: str
     category: str  # 'obsolete', 'current', 'transitional'
-    severity: Optional[str] = None  # 'critical', 'high', 'medium', 'low'
-    replacement: Optional[str] = None
-    scope: Optional[Dict[str, List[str]]] = None
-    expires: Optional[str] = None  # ISO date YYYY-MM-DD
+    severity: str | None = None  # 'critical', 'high', 'medium', 'low'
+    replacement: str | None = None
+    scope: dict[str, list[str]] | None = None
+    expires: str | None = None  # ISO date YYYY-MM-DD
     compiled_regex: re.Pattern = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -78,7 +79,7 @@ class ContextPattern:
         if self.category == 'transitional' and not self.expires:
             raise ValueError(f"Transitional pattern '{self.id}' must have an 'expires' date")
 
-    def matches(self, finding: Dict[str, Any]) -> bool:
+    def matches(self, finding: dict[str, Any]) -> bool:
         """Check if a finding matches this pattern.
 
         Matches against both the finding's 'rule' and 'message' fields.
@@ -163,14 +164,14 @@ class ClassificationResult:
         summary: Statistics about the classification
     """
 
-    obsolete: List[Dict[str, Any]]
-    current: List[Dict[str, Any]]
-    transitional: List[Dict[str, Any]]
-    unclassified: List[Dict[str, Any]]
-    mixed_files: Dict[str, Dict[str, int]]
-    summary: Dict[str, Any]
+    obsolete: list[dict[str, Any]]
+    current: list[dict[str, Any]]
+    transitional: list[dict[str, Any]]
+    unclassified: list[dict[str, Any]]
+    mixed_files: dict[str, dict[str, int]]
+    summary: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
         return {
             'obsolete': self.obsolete,
@@ -181,7 +182,7 @@ class ClassificationResult:
             'summary': self.summary
         }
 
-    def get_high_priority_files(self) -> List[str]:
+    def get_high_priority_files(self) -> list[str]:
         """Get files with critical or high severity obsolete patterns.
 
         Returns:
@@ -193,24 +194,24 @@ class ClassificationResult:
                 high_priority.add(item['finding']['file'])
         return sorted(high_priority)
 
-    def get_migration_progress(self) -> Dict[str, Any]:
+    def get_migration_progress(self) -> dict[str, Any]:
         """Calculate migration progress statistics.
 
         Returns:
             Dictionary with migration progress metrics
         """
-        total_files = len(set(
+        total_files = len({
             item['finding']['file'] for item in
             self.obsolete + self.current + self.transitional
-        ))
+        })
 
-        files_with_obsolete = len(set(
+        files_with_obsolete = len({
             item['finding']['file'] for item in self.obsolete
-        ))
+        })
 
-        files_fully_current = len(set(
+        files_fully_current = len({
             item['finding']['file'] for item in self.current
-        )) - len(self.mixed_files)
+        }) - len(self.mixed_files)
 
         return {
             'total_files': total_files,
@@ -257,14 +258,14 @@ class SemanticContext:
         self.context_name: str = ""
         self.description: str = ""
         self.version: str = ""
-        self.obsolete_patterns: List[ContextPattern] = []
-        self.current_patterns: List[ContextPattern] = []
-        self.transitional_patterns: List[ContextPattern] = []
-        self.relationships: List[Dict[str, Any]] = []
-        self.metadata: Dict[str, Any] = {}
+        self.obsolete_patterns: list["ContextPattern"] = []
+        self.current_patterns: list["ContextPattern"] = []
+        self.transitional_patterns: list["ContextPattern"] = []
+        self.relationships: list[dict[str, Any]] = []
+        self.metadata: dict[str, Any] = {}
 
     @classmethod
-    def load(cls, yaml_path: Path) -> 'SemanticContext':
+    def load(cls, yaml_path: Path) -> "SemanticContext":
         """Load semantic context from YAML file.
 
         Args:
@@ -281,7 +282,7 @@ class SemanticContext:
         if not yaml_path.exists():
             raise FileNotFoundError(f"Semantic context file not found: {yaml_path}")
 
-        with open(yaml_path, 'r', encoding='utf-8') as f:
+        with open(yaml_path, encoding='utf-8') as f:
             try:
                 data = yaml.safe_load(f)
             except yaml.YAMLError as e:
@@ -358,7 +359,7 @@ class SemanticContext:
 
         return instance
 
-    def classify_findings(self, findings: List[Dict[str, Any]]) -> ClassificationResult:
+    def classify_findings(self, findings: list[dict[str, Any]]) -> "ClassificationResult":
         """Apply semantic context to findings.
 
         This is the core algorithm that applies your business logic to TheAuditor's
@@ -370,13 +371,13 @@ class SemanticContext:
         Returns:
             ClassificationResult with categorized findings
         """
-        obsolete_matches: List[Dict[str, Any]] = []
-        current_matches: List[Dict[str, Any]] = []
-        transitional_matches: List[Dict[str, Any]] = []
-        classified_finding_ids: Set[int] = set()
+        obsolete_matches: list[dict[str, Any]] = []
+        current_matches: list[dict[str, Any]] = []
+        transitional_matches: list[dict[str, Any]] = []
+        classified_finding_ids: set[int] = set()
 
         # Track file statistics for mixed file detection
-        file_stats: Dict[str, Dict[str, int]] = {}
+        file_stats: dict[str, dict[str, int]] = {}
 
         # Classify each finding
         for finding_idx, finding in enumerate(findings):
@@ -610,7 +611,7 @@ class SemanticContext:
 
         return "\n".join(lines)
 
-    def suggest_migrations(self, result: ClassificationResult) -> List[Dict[str, Any]]:
+    def suggest_migrations(self, result: ClassificationResult) -> list[dict[str, Any]]:
         """Generate actionable migration suggestions.
 
         Args:
@@ -622,7 +623,7 @@ class SemanticContext:
         suggestions = []
 
         # Group obsolete findings by file
-        files_with_obsolete: Dict[str, List[Dict]] = {}
+        files_with_obsolete: dict[str, list[dict]] = {}
         for item in result.obsolete:
             file_path = item['finding']['file']
             if file_path not in files_with_obsolete:
@@ -700,9 +701,9 @@ class SemanticContext:
 
 def _generate_file_recommendation(
     file_path: str,
-    obsolete_items: List[Dict],
+    obsolete_items: list[dict],
     is_mixed: bool,
-    patterns: Dict
+    patterns: dict
 ) -> str:
     """Generate specific recommendation for a file."""
     if is_mixed:
@@ -719,7 +720,7 @@ def _generate_file_recommendation(
             return f"Update {pattern_count} obsolete patterns (see details)"
 
 
-def load_semantic_context(yaml_path: Path) -> SemanticContext:
+def load_semantic_context(yaml_path: Path) -> "SemanticContext":
     """Helper function to load semantic context.
 
     Args:

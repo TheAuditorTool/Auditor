@@ -6,6 +6,7 @@ react_hooks, variable_usage, and assignments tables.
 Focuses on state complexity, prop drilling, and state management best practices.
 """
 
+
 import sqlite3
 import json
 from typing import List, Dict, Any
@@ -95,7 +96,7 @@ class ReactStateAnalyzer:
         self.patterns = ReactStatePatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -187,12 +188,13 @@ class ReactStateAnalyzer:
 
     def _check_state_naming(self):
         """Check for poor state variable naming."""
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT a.file, a.line, a.target_var, a.source_expr
             FROM assignments a
-            WHERE a.source_expr LIKE '%useState%'
+            WHERE a.source_expr IS NOT NULL
               AND a.target_var IS NOT NULL
-            LIMIT 100
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
@@ -201,8 +203,13 @@ class ReactStateAnalyzer:
             if not var_name:
                 continue
 
+            # Check if source contains useState
+            source_str = str(source) if source else ''
+            if 'useState' not in source_str:
+                continue
+
             # Check for boolean state without proper prefix
-            if 'true' in source.lower() or 'false' in source.lower():
+            if 'true' in source_str.lower() or 'false' in source_str.lower():
                 if not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES):
                     self.findings.append(StandardFinding(
                         rule_name='react-state-naming',
@@ -218,48 +225,69 @@ class ReactStateAnalyzer:
 
     def _check_multiple_state_updates(self):
         """Check for multiple state updates in single function."""
+        # Fetch all function_call_args, group in Python
         self.cursor.execute("""
-            SELECT file, caller_function,
-                   COUNT(*) as update_count,
-                   GROUP_CONCAT(callee_function) as setters
+            SELECT file, caller_function, callee_function
             FROM function_call_args
-            WHERE callee_function LIKE 'set%'
-            GROUP BY file, caller_function
-            HAVING update_count > ?
+            WHERE callee_function IS NOT NULL
+              AND caller_function IS NOT NULL
               AND caller_function != 'global'
-            LIMIT 50
-        """, (self.patterns.MAX_STATE_UPDATES_PER_FUNCTION,))
+            LIMIT 1000
+        """)
 
-        for row in self.cursor.fetchall():
-            file, function, count, setters = row
+        # Group by file and caller_function
+        updates_by_function = {}
+        for file, caller, callee in self.cursor.fetchall():
+            # Check if callee starts with 'set'
+            if not (callee and callee.startswith('set')):
+                continue
 
-            if setters and all('set' in s.lower() for s in setters.split(',')):
-                self.findings.append(StandardFinding(
-                    rule_name='react-multiple-updates',
-                    message=f'Function {function} updates state {count} times',
-                    file_path=file,
-                    line=1,
-                    severity=Severity.LOW,
-                    category='react-state',
-                    snippet=f'{count} setState calls',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-1050'
-                ))
+            key = (file, caller)
+            if key not in updates_by_function:
+                updates_by_function[key] = []
+            updates_by_function[key].append(callee)
+
+        # Check for excessive updates
+        for (file, function), setters in updates_by_function.items():
+            count = len(setters)
+            if count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION:
+                if all('set' in s.lower() for s in setters):
+                    self.findings.append(StandardFinding(
+                        rule_name='react-multiple-updates',
+                        message=f'Function {function} updates state {count} times',
+                        file_path=file,
+                        line=1,
+                        severity=Severity.LOW,
+                        category='react-state',
+                        snippet=f'{count} setState calls',
+                        confidence=Confidence.LOW,
+                        cwe_id='CWE-1050'
+                    ))
 
     def _check_prop_drilling(self):
         """Check for potential prop drilling patterns."""
-        for prop in self.patterns.DRILL_PROPS:
-            self.cursor.execute("""
-                SELECT file, COUNT(DISTINCT name) as component_count
-                FROM react_components
-                WHERE props_type LIKE '%' || ? || '%'
-                GROUP BY file
-                HAVING component_count > 2
-            """, (prop,))
+        # Fetch all react_components, filter in Python
+        self.cursor.execute("""
+            SELECT file, name, props_type
+            FROM react_components
+            WHERE props_type IS NOT NULL
+        """)
 
-            for row in self.cursor.fetchall():
-                file, count = row
+        # Group by file and prop
+        prop_usage = {}
+        for file, component, props_type in self.cursor.fetchall():
+            props_str = str(props_type) if props_type else ''
+            for prop in self.patterns.DRILL_PROPS:
+                if prop in props_str:
+                    key = (file, prop)
+                    if key not in prop_usage:
+                        prop_usage[key] = set()
+                    prop_usage[key].add(component)
 
+        # Check for drilling (prop used in >2 components in same file)
+        for (file, prop), components in prop_usage.items():
+            count = len(components)
+            if count > 2:
                 self.findings.append(StandardFinding(
                     rule_name='react-prop-drilling',
                     message=f'{count} components receive "{prop}" prop - possible prop drilling',
@@ -274,23 +302,31 @@ class ReactStateAnalyzer:
 
     def _check_global_state_candidates(self):
         """Check for state that should be global."""
-        for pattern in self.patterns.CONTEXT_PATTERNS:
-            self.cursor.execute("""
-                SELECT variable_name,
-                       COUNT(DISTINCT in_component) as used_in,
-                       GROUP_CONCAT(DISTINCT in_component) as components
-                FROM variable_usage
-                WHERE variable_name LIKE '%' || ? || '%'
-                  AND in_component != ''
-                GROUP BY variable_name
-                HAVING used_in > 3
-                LIMIT 20
-            """, (pattern,))
+        # Fetch all variable_usage, filter in Python
+        self.cursor.execute("""
+            SELECT variable_name, in_component
+            FROM variable_usage
+            WHERE variable_name IS NOT NULL
+              AND in_component != ''
+            LIMIT 1000
+        """)
 
-            for row in self.cursor.fetchall():
-                var, count, components = row
-                comp_list = components.split(',')[:3] if components else []
+        # Group by variable_name and pattern
+        var_usage = {}
+        for var_name, component in self.cursor.fetchall():
+            # Check if var_name contains any context pattern
+            for pattern in self.patterns.CONTEXT_PATTERNS:
+                if pattern in var_name:
+                    if var_name not in var_usage:
+                        var_usage[var_name] = set()
+                    var_usage[var_name].add(component)
+                    break
 
+        # Check for variables used in >3 components
+        for var, components in var_usage.items():
+            count = len(components)
+            if count > 3:
+                comp_list = list(components)[:3]
                 self.findings.append(StandardFinding(
                     rule_name='react-global-state',
                     message=f'Variable {var} used in {count} components - candidate for global state',
@@ -339,22 +375,28 @@ class ReactStateAnalyzer:
 
     def _check_state_initialization(self):
         """Check for expensive state initialization."""
+        # Fetch all useState hooks, filter in Python
         self.cursor.execute("""
             SELECT file, line, hook_name, callback_body
             FROM react_hooks
             WHERE hook_name = 'useState'
               AND callback_body IS NOT NULL
-              AND (callback_body LIKE '%fetch%'
-                   OR callback_body LIKE '%localStorage%'
-                   OR callback_body LIKE '%sessionStorage%'
-                   OR callback_body LIKE '%JSON.parse%')
-            LIMIT 50
+            LIMIT 200
         """)
+
+        expensive_patterns = ['fetch', 'localStorage', 'sessionStorage', 'JSON.parse']
 
         for row in self.cursor.fetchall():
             file, line, hook, callback = row
 
-            if callback and len(callback) > 50:
+            if not callback or len(callback) <= 50:
+                continue
+
+            # Check for expensive operations
+            callback_str = str(callback)
+            has_expensive = any(pattern in callback_str for pattern in expensive_patterns)
+
+            if has_expensive:
                 self.findings.append(StandardFinding(
                     rule_name='react-expensive-init',
                     message='Expensive operation in useState initialization',
@@ -369,20 +411,26 @@ class ReactStateAnalyzer:
 
     def _check_complex_state_objects(self):
         """Check for overly complex state objects."""
+        # Fetch all useState hooks, filter in Python
         self.cursor.execute("""
             SELECT file, line, component_name, callback_body
             FROM react_hooks
             WHERE hook_name = 'useState'
-              AND callback_body LIKE '%{%'
-              AND LENGTH(callback_body) > 200
-            LIMIT 50
+              AND callback_body IS NOT NULL
+            LIMIT 200
         """)
 
         for row in self.cursor.fetchall():
             file, line, component, callback = row
 
+            callback_str = str(callback) if callback else ''
+
+            # Check if callback contains object literal and is long
+            if '{' not in callback_str or len(callback_str) <= 200:
+                continue
+
             # Count approximate number of properties
-            prop_count = callback.count(':') if callback else 0
+            prop_count = callback_str.count(':')
 
             if prop_count > 5:
                 self.findings.append(StandardFinding(
@@ -399,39 +447,60 @@ class ReactStateAnalyzer:
 
     def _check_state_batching(self):
         """Check for state updates that should be batched."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
-            SELECT f1.file, f1.line, f1.callee_function,
-                   f2.callee_function as next_setter
-            FROM function_call_args f1
-            JOIN function_call_args f2 ON f1.file = f2.file
-            WHERE f1.callee_function LIKE 'set%'
-              AND f2.callee_function LIKE 'set%'
-              AND f2.line = f1.line + 1
-              AND f1.caller_function = f2.caller_function
-            LIMIT 50
+            SELECT file, line, callee_function, caller_function
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND caller_function IS NOT NULL
+            LIMIT 1000
         """)
 
-        for row in self.cursor.fetchall():
-            file, line, setter1, setter2 = row
+        # Build map of file -> line -> calls
+        calls_by_location = {}
+        for file, line, callee, caller in self.cursor.fetchall():
+            # Check if callee starts with 'set'
+            if not (callee and callee.startswith('set')):
+                continue
 
-            self.findings.append(StandardFinding(
-                rule_name='react-unbatched-updates',
-                message=f'Consecutive state updates: {setter1}, {setter2}',
-                file_path=file,
-                line=line,
-                severity=Severity.LOW,
-                category='react-state',
-                snippet=f'{setter1}(); {setter2}()',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-1050'
-            ))
+            key = file
+            if key not in calls_by_location:
+                calls_by_location[key] = {}
+
+            line_key = (line, caller)
+            if line_key not in calls_by_location[key]:
+                calls_by_location[key][line_key] = []
+            calls_by_location[key][line_key].append(callee)
+
+        # Check for consecutive lines with setters in same function
+        for file, line_data in calls_by_location.items():
+            sorted_lines = sorted(line_data.keys())
+            for i in range(len(sorted_lines) - 1):
+                (line1, caller1), (line2, caller2) = sorted_lines[i], sorted_lines[i + 1]
+
+                # Check if consecutive lines in same function
+                if line2 == line1 + 1 and caller1 == caller2:
+                    setter1 = line_data[(line1, caller1)][0]
+                    setter2 = line_data[(line2, caller2)][0]
+
+                    self.findings.append(StandardFinding(
+                        rule_name='react-unbatched-updates',
+                        message=f'Consecutive state updates: {setter1}, {setter2}',
+                        file_path=file,
+                        line=line1,
+                        severity=Severity.LOW,
+                        category='react-state',
+                        snippet=f'{setter1}(); {setter2}()',
+                        confidence=Confidence.MEDIUM,
+                        cwe_id='CWE-1050'
+                    ))
 
 
 # ============================================================================
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React state management issues and anti-patterns.
 
     Uses data from react_hooks and related tables to identify state

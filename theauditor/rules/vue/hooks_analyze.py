@@ -10,6 +10,7 @@ Follows v1.1+ gold standard patterns:
 - Proper confidence levels via Confidence enum
 """
 
+
 import sqlite3
 from typing import List, Set
 from pathlib import Path
@@ -85,7 +86,7 @@ MEMORY_LEAK_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_hooks_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue Composition API hooks misuse and issues.
 
     Detects:
@@ -139,7 +140,7 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_composition_api_files(cursor) -> Set[str]:
+def _get_composition_api_files(cursor) -> set[str]:
     """Get all files using Vue Composition API.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -149,16 +150,16 @@ def _get_composition_api_files(cursor) -> Set[str]:
 
     # Find files with Composition API imports from symbols table
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, name
         FROM symbols
-        WHERE name LIKE '%vue%'
-           AND (name LIKE '%ref%'
-                OR name LIKE '%reactive%'
-                OR name LIKE '%computed%'
-                OR name LIKE '%watch%'
-                OR name LIKE '%setup%')
+        WHERE name IS NOT NULL
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue Composition API patterns
+    for path, name in cursor.fetchall():
+        name_lower = name.lower()
+        if 'vue' in name_lower and any(pattern in name_lower for pattern in ['ref', 'reactive', 'computed', 'watch', 'setup']):
+            vue_files.add(path)
 
     # Find files with Composition API function calls
     comp_api_funcs = list(COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS)
@@ -178,7 +179,7 @@ def _get_composition_api_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_hooks_outside_setup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_hooks_outside_setup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find Composition API hooks called outside setup()."""
     findings = []
 
@@ -191,13 +192,16 @@ def _find_hooks_outside_setup(cursor, vue_files: Set[str]) -> List[StandardFindi
         FROM function_call_args
         WHERE file IN ({file_placeholders})
           AND callee_function IN ({func_placeholders})
-          AND (caller_function IS NULL
-               OR (caller_function NOT LIKE '%setup%'
-                   AND caller_function NOT LIKE '%Setup%'))
         ORDER BY file, line
     """, list(vue_files) + setup_only)
 
+    # Filter in Python for hooks outside setup
+    hooks_outside_setup = []
     for file, line, hook, context in cursor.fetchall():
+        if not context or ('setup' not in context.lower()):
+            hooks_outside_setup.append((file, line, hook, context))
+
+    for file, line, hook, context in hooks_outside_setup:
         if hook in COMPOSITION_LIFECYCLE:
             message = f'Lifecycle hook {hook} must be called in setup()'
             severity = Severity.HIGH
@@ -219,7 +223,7 @@ def _find_hooks_outside_setup(cursor, vue_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_cleanup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find lifecycle hooks with missing cleanup."""
     findings = []
 
@@ -263,7 +267,7 @@ def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_watch_issues(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_watch_issues(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find watch/watchEffect issues."""
     findings = []
 
@@ -277,26 +281,37 @@ def _find_watch_issues(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         FROM function_call_args f
         WHERE f.file IN ({file_placeholders})
           AND f.callee_function IN ({watch_placeholders})
-          AND NOT EXISTS (
-              SELECT 1 FROM assignments a
-              WHERE a.file = f.file
-                AND a.line = f.line
-                AND a.target_var LIKE '%stop%'
-          )
         ORDER BY f.file, f.line
     """, list(vue_files) + watch_funcs)
 
+    # Filter in Python for watches without stop
     for file, line, watch_func in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-watch-no-stop',
-            message=f'{watch_func} without cleanup - memory leak risk',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-memory-leak',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-401'
-        ))
+        # Check for stop assignment at same line
+        cursor.execute("""
+            SELECT target_var
+            FROM assignments
+            WHERE file = ?
+              AND line = ?
+              AND target_var IS NOT NULL
+        """, (file, line))
+
+        has_stop = False
+        for (target_var,) in cursor.fetchall():
+            if 'stop' in target_var:
+                has_stop = True
+                break
+
+        if not has_stop:
+            findings.append(StandardFinding(
+                rule_name='vue-watch-no-stop',
+                message=f'{watch_func} without cleanup - memory leak risk',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='vue-memory-leak',
+                confidence=Confidence.LOW,
+                cwe_id='CWE-401'
+            ))
 
     # Find deep watchers
     cursor.execute(f"""
@@ -304,26 +319,28 @@ def _find_watch_issues(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         FROM function_call_args
         WHERE file IN ({file_placeholders})
           AND callee_function IN ({watch_placeholders})
-          AND argument_expr LIKE '%deep: true%'
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """, list(vue_files) + watch_funcs)
 
+    # Filter in Python for deep watchers
     for file, line, func, args in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-deep-watch',
-            message=f'Deep watcher in {func} - performance impact',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-performance',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-1050'
-        ))
+        if 'deep: true' in args:
+            findings.append(StandardFinding(
+                rule_name='vue-deep-watch',
+                message=f'Deep watcher in {func} - performance impact',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='vue-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1050'
+            ))
 
     return findings
 
 
-def _find_memory_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_memory_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find potential memory leaks from refs/reactive."""
     findings = []
 
@@ -357,16 +374,36 @@ def _find_memory_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         FROM function_call_args f
         WHERE f.file IN ({file_placeholders})
           AND f.callee_function IN ('ref', 'reactive')
-          AND EXISTS (
-              SELECT 1 FROM cfg_blocks c
-              WHERE c.file = f.file
-                AND c.block_type LIKE '%loop%'
-                AND f.line BETWEEN c.start_line AND c.end_line
-          )
         ORDER BY f.file, f.line
     """, list(vue_files))
 
-    for file, line, func in cursor.fetchall():
+    # Store ref calls
+    ref_calls = cursor.fetchall()
+
+    # Get all loop blocks
+    cursor.execute(f"""
+        SELECT file, block_type, start_line, end_line
+        FROM cfg_blocks
+        WHERE file IN ({file_placeholders})
+          AND block_type IS NOT NULL
+    """, list(vue_files))
+
+    # Filter in Python for loops
+    loop_blocks = []
+    for file, block_type, start, end in cursor.fetchall():
+        if 'loop' in block_type.lower():
+            loop_blocks.append((file, start, end))
+
+    # Check if refs are in loops
+    for file, line, func in ref_calls:
+        in_loop = False
+        for loop_file, start, end in loop_blocks:
+            if loop_file == file and start <= line <= end:
+                in_loop = True
+                break
+
+        if not in_loop:
+            continue
         findings.append(StandardFinding(
             rule_name='vue-ref-in-loop',
             message=f'Creating {func} in loop - memory leak risk',
@@ -381,7 +418,7 @@ def _find_memory_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find incorrect lifecycle hook ordering."""
     findings = []
 
@@ -434,7 +471,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_excessive_reactivity(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_excessive_reactivity(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find excessive use of reactivity (performance issue)."""
     findings = []
 
@@ -465,7 +502,7 @@ def _find_excessive_reactivity(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_missing_error_boundaries(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_error_boundaries(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find missing error handling in hooks."""
     findings = []
 
@@ -505,7 +542,7 @@ def _find_missing_error_boundaries(cursor, vue_files: Set[str]) -> List[Standard
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

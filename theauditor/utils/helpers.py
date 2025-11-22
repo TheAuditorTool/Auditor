@@ -1,5 +1,6 @@
 """Helper utility functions for TheAuditor."""
 
+
 import hashlib
 import json
 from pathlib import Path

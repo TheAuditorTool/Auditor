@@ -254,7 +254,10 @@ function extractCFG(sourceFile, ts) {
             }
             else if (kind === 'TryStatement') {
                 const tryId = getNextBlockId();
-                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1, statements: [{type: 'try', line: line + 1, text: 'try'}]});
+                // FIX: Use try block's actual end position (not just try keyword line)
+                const tryEndPos = node.tryBlock ? node.tryBlock.getEnd() : node.getEnd();
+                const tryEndLine = sourceFile.getLineAndCharacterOfPosition(tryEndPos).line + 1;
+                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: tryEndLine, statements: [{type: 'try', line: line + 1, text: 'try'}]});
                 edges.push({source: currentId, target: tryId, type: 'normal'});
 
                 let tryBodyExitId = tryId;
@@ -275,7 +278,12 @@ function extractCFG(sourceFile, ts) {
 
                 if (node.catchClause) {
                     const catchId = getNextBlockId();
-                    blocks.push({id: catchId, type: 'except', start_line: line + 1, end_line: line + 1, statements: [{type: 'catch', line: line + 1, text: 'catch'}]});
+                    // FIX: Use catch clause's actual start and end positions
+                    const catchStartPos = node.catchClause.getStart(sourceFile);
+                    const catchStartLine = sourceFile.getLineAndCharacterOfPosition(catchStartPos).line + 1;
+                    const catchEndPos = node.catchClause.block ? node.catchClause.block.getEnd() : node.catchClause.getEnd();
+                    const catchEndLine = sourceFile.getLineAndCharacterOfPosition(catchEndPos).line + 1;
+                    blocks.push({id: catchId, type: 'except', start_line: catchStartLine, end_line: catchEndLine, statements: [{type: 'catch', line: catchStartLine, text: 'catch'}]});
                     edges.push({source: tryId, target: catchId, type: 'exception'});
 
                     let catchBodyExitId = catchId;
@@ -294,7 +302,10 @@ function extractCFG(sourceFile, ts) {
                 // Finally block executes after try/catch merge
                 if (node.finallyBlock) {
                     const finallyId = getNextBlockId();
-                    blocks.push({id: finallyId, type: 'finally', start_line: line + 1, end_line: line + 1, statements: []});
+                    // FIX: Use finally block's actual end position
+                    const finallyEndPos = node.finallyBlock.getEnd();
+                    const finallyEndLine = sourceFile.getLineAndCharacterOfPosition(finallyEndPos).line + 1;
+                    blocks.push({id: finallyId, type: 'finally', start_line: line + 1, end_line: finallyEndLine, statements: []});
                     edges.push({source: mergeId, target: finallyId, type: 'normal'});
 
                     let finallyBodyExitId = finallyId;

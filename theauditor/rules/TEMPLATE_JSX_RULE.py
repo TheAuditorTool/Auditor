@@ -4,6 +4,18 @@
 RULE TEMPLATE DOCUMENTATION
 ================================================================================
 
+⚠️ CRITICAL: FUNCTION NAMING REQUIREMENT
+--------------------------------------------------------------------------------
+Your rule function MUST start with 'find_' prefix:
+  ✅ def find_jsx_injection(context: StandardRuleContext)
+  ✅ def find_react_xss(context: StandardRuleContext)
+  ❌ def analyze(context: StandardRuleContext)  # WRONG - Won't be discovered!
+  ❌ def detect_xss(context: StandardRuleContext)  # WRONG - Must start with find_
+
+The orchestrator ONLY discovers functions starting with 'find_'. Any other
+name will be silently ignored and your rule will never run.
+--------------------------------------------------------------------------------
+
 ⚠️ CRITICAL: StandardFinding PARAMETER NAMES
 --------------------------------------------------------------------------------
 ALWAYS use these EXACT parameter names when creating findings:
@@ -12,7 +24,7 @@ ALWAYS use these EXACT parameter names when creating findings:
   ✅ cwe_id=        (NOT cwe=)
   ✅ severity=Severity.CRITICAL (NOT severity='CRITICAL')
 
-Using wrong names will cause RUNTIME CRASHES. See examples at line 280+.
+Using wrong names will cause RUNTIME CRASHES. See examples at line 297+.
 --------------------------------------------------------------------------------
 
 This template is for JSX-SPECIFIC RULES that analyze React/Vue components and
@@ -69,6 +81,7 @@ TEMPLATE BASED ON: react_xss_analyze.py (Production Rule)
 RULE METADATA: JSX-specific with framework detection
 ================================================================================
 """
+
 
 import sqlite3
 from typing import List
@@ -163,9 +176,10 @@ class JSXSecurityPatterns:
 # MAIN DETECTION FUNCTION - JSX-SPECIFIC
 # ============================================================================
 # This queries *_jsx tables, NOT standard tables.
+# Function name MUST start with 'find_' (orchestrator requirement).
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect JSX-specific security issues using preserved JSX data.
 
     CRITICAL: This rule queries JSX-SPECIFIC TABLES:
@@ -205,15 +219,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         if not _is_react_or_vue_app(conn):
             return findings  # Skip if not React/Vue
 
-        # Check if JSX tables exist (graceful degradation)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_jsx'")
-        jsx_tables = {row[0] for row in cursor.fetchall()}
-
-        if not jsx_tables:
-            # No JSX tables - indexer didn't run JSX pass
-            return findings
-
+        # NO TABLE CHECKS - Database MUST have JSX tables (ZERO FALLBACK POLICY)
+        # If JSX tables missing, database is wrong and SHOULD crash
         # Run JSX-specific detection
         findings.extend(_check_jsx_element_injection(conn, patterns))
         findings.extend(_check_jsx_attribute_injection(conn, patterns))
@@ -235,7 +242,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 # These query *_jsx tables to access preserved JSX syntax.
 # ============================================================================
 
-def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Detect dynamic JSX element injection: <{UserComponent} />
 
     This pattern is LOST in transformed AST (becomes createElement call).
@@ -250,11 +257,15 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[St
         FROM symbols_jsx
         WHERE type = 'JSXElement'
           AND jsx_mode = 'preserved'
-          AND name LIKE '%{%'
+          AND name IS NOT NULL
         ORDER BY path, line
     """)
 
     for file, element_name, line, jsx_mode in cursor.fetchall():
+        # Filter in Python: Check if element name contains dynamic variable
+        if '{' not in element_name:
+            continue
+
         # Check if element name is dynamic (contains variable)
         if '{' in element_name and '}' in element_name:
             # Extract variable name
@@ -299,7 +310,7 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[St
     return findings
 
 
-def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Detect JSX spread operator injection: <div {...userProps} />
 
     Spread operator can inject arbitrary props including dangerous ones.
@@ -313,11 +324,15 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[
         FROM symbols_jsx
         WHERE type = 'JSXElement'
           AND jsx_mode = 'preserved'
-          AND name LIKE '%...%'
+          AND name IS NOT NULL
         ORDER BY path, line
     """)
 
     for file, element_name, line in cursor.fetchall():
+        # Filter in Python: Check for spread operator
+        if '...' not in element_name:
+            continue
+
         if '...' in element_name:
             # Extract spread variable name
             import re
@@ -345,7 +360,7 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[
     return findings
 
 
-def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Check for dangerous props like dangerouslySetInnerHTML with user input."""
     findings = []
     cursor = conn.cursor()
@@ -355,12 +370,14 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[Stan
         SELECT file, line, target_var, source_expr
         FROM assignments_jsx
         WHERE jsx_mode = 'preserved'
-          AND (target_var LIKE '%dangerouslySetInnerHTML%'
-               OR target_var LIKE '%__html%')
+          AND target_var IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check for dangerous prop patterns
+        if 'dangerouslySetInnerHTML' not in target and '__html' not in target:
+            continue
         # Check for user input in source
         has_user_input = any(src in source for src in patterns.REACT_INPUT_SOURCES)
 
@@ -382,7 +399,7 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[Stan
     return findings
 
 
-def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Check Vue v-html directive with user input (Vue-specific)."""
     findings = []
     cursor = conn.cursor()
@@ -480,10 +497,10 @@ def _is_vue_app(conn) -> bool:
 #               print('JSX tables:', [r[0] for r in c.fetchall()])"
 #
 # 2. Test on plant project:
-#    python -c "from theauditor.rules.your_jsx_rule import analyze;
+#    python -c "from theauditor.rules.your_jsx_rule import find_your_jsx_vulnerability;
 #               from theauditor.rules.base import StandardRuleContext;
 #               ctx = StandardRuleContext(db_path='plant/.pf/repo_index.db');
-#               findings = analyze(ctx);
+#               findings = find_your_jsx_vulnerability(ctx);
 #               print(f'Found {len(findings)} JSX issues');
 #               [print(f'  {f.file_path}:{f.line} - {f.message}') for f in findings[:5]]"
 #

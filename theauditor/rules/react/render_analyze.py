@@ -6,6 +6,7 @@ react_components, function_call_args, and symbols tables.
 Focuses on render optimization and performance bottlenecks.
 """
 
+
 import sqlite3
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -98,7 +99,7 @@ class ReactRenderAnalyzer:
         self.patterns = ReactRenderPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -130,22 +131,33 @@ class ReactRenderAnalyzer:
 
     def _check_expensive_operations(self):
         """Check for expensive operations in render methods."""
-        for operation in self.patterns.EXPENSIVE_OPERATIONS:
-            self.cursor.execute("""
-                SELECT DISTINCT f.file, f.line, f.callee_function,
-                       f.caller_function, c.name
-                FROM function_call_args f
-                JOIN react_components c ON f.file = c.file
-                WHERE f.callee_function LIKE '%.' || ?
-                  AND f.line BETWEEN c.start_line AND c.end_line
-                  AND f.caller_function NOT LIKE '%useMemo%'
-                  AND f.caller_function NOT LIKE '%useCallback%'
-                LIMIT 100
-            """, (operation,))
+        from theauditor.indexer.schema import build_query
 
-            for row in self.cursor.fetchall():
-                file, line, callee, caller, component = row
+        # Fetch all function_call_args with components, filter in Python
+        self.cursor.execute("""
+            SELECT DISTINCT f.file, f.line, f.callee_function,
+                   f.caller_function, c.name
+            FROM function_call_args f
+            JOIN react_components c ON f.file = c.file
+            WHERE f.line BETWEEN c.start_line AND c.end_line
+            LIMIT 1000
+        """)
 
+        for row in self.cursor.fetchall():
+            file, line, callee, caller, component = row
+
+            # Skip if in useMemo or useCallback
+            if caller and ('useMemo' in caller or 'useCallback' in caller):
+                continue
+
+            # Check if callee contains expensive operation
+            operation = None
+            for op in self.patterns.EXPENSIVE_OPERATIONS:
+                if f'.{op}' in callee:
+                    operation = op
+                    break
+
+            if operation:
                 self.findings.append(StandardFinding(
                     rule_name='react-expensive-operation',
                     message=f'Expensive {operation} operation in render path',
@@ -160,49 +172,71 @@ class ReactRenderAnalyzer:
 
     def _check_array_mutations(self):
         """Check for direct array/object mutations."""
-        for method in self.patterns.MUTATING_METHODS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE '%.' || ?
-                  AND (argument_expr LIKE '%state%'
-                       OR argument_expr LIKE '%props%')
-                LIMIT 50
-            """, (method,))
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE argument_expr IS NOT NULL
+            LIMIT 500
+        """)
 
-            for row in self.cursor.fetchall():
-                file, line, callee, args = row
+        for row in self.cursor.fetchall():
+            file, line, callee, args = row
 
+            # Check if args contains state or props
+            args_str = str(args) if args else ''
+            if not ('state' in args_str or 'props' in args_str):
+                continue
+
+            # Check if callee ends with mutating method
+            method_found = None
+            for method in self.patterns.MUTATING_METHODS:
+                if callee and f'.{method}' in callee:
+                    method_found = method
+                    break
+
+            if method_found:
                 self.findings.append(StandardFinding(
                     rule_name='react-direct-mutation',
-                    message=f'Direct state/props mutation using {method}',
+                    message=f'Direct state/props mutation using {method_found}',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category='react-state',
                     snippet=f'{callee}',
-                    confidence=Confidence.HIGH if 'state' in str(args) else Confidence.MEDIUM,
+                    confidence=Confidence.HIGH if 'state' in args_str else Confidence.MEDIUM,
                     cwe_id='CWE-682'
                 ))
 
     def _check_inline_functions(self):
         """Check for inline arrow functions in render."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, argument_expr, callee_function
             FROM function_call_args
-            WHERE (argument_expr LIKE '%() =>%'
-                   OR argument_expr LIKE '%function()%'
-                   OR argument_expr LIKE '%function (%'
-                   OR argument_expr LIKE '%.bind(%')
-              AND callee_function NOT LIKE 'use%'
-            LIMIT 100
+            WHERE argument_expr IS NOT NULL
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
             file, line, args, callee = row
 
-            # Check if it's likely in a render context
-            if any(handler in str(args) for handler in self.patterns.EVENT_HANDLERS):
+            # Skip use% hooks
+            if callee and callee.startswith('use'):
+                continue
+
+            # Check for inline function patterns
+            args_str = str(args) if args else ''
+            has_inline = ('() =>' in args_str or
+                         'function()' in args_str or
+                         'function (' in args_str or
+                         '.bind(' in args_str)
+
+            if not has_inline:
+                continue
+
+            # Check if it's likely in a render context (has event handlers)
+            if any(handler in args_str for handler in self.patterns.EVENT_HANDLERS):
                 self.findings.append(StandardFinding(
                     rule_name='react-inline-function',
                     message='Inline function in render will cause re-renders',
@@ -217,17 +251,24 @@ class ReactRenderAnalyzer:
 
     def _check_missing_keys(self):
         """Check for missing key props in lists."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function LIKE '%.map'
-              AND (argument_expr NOT LIKE '%key%'
-                   OR argument_expr IS NULL)
-            LIMIT 50
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
             file, line, callee, args = row
+
+            # Check if callee ends with .map
+            if not (callee and '.map' in callee):
+                continue
+
+            # Check if args missing 'key' prop
+            args_str = str(args) if args else ''
+            if args_str and 'key' in args_str:
+                continue
 
             self.findings.append(StandardFinding(
                 rule_name='react-missing-key',
@@ -243,109 +284,150 @@ class ReactRenderAnalyzer:
 
     def _check_object_creation(self):
         """Check for object/array creation in render."""
-        for creator in self.patterns.OBJECT_CREATORS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function
-                FROM function_call_args
-                WHERE callee_function = ?
-                LIMIT 50
-            """, (creator,))
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
+            SELECT file, line, callee_function
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+            LIMIT 500
+        """)
 
-            for row in self.cursor.fetchall():
-                file, line, callee = row
+        for row in self.cursor.fetchall():
+            file, line, callee = row
 
-                # Skip if it's in a hook
-                if 'use' not in callee.lower():
-                    self.findings.append(StandardFinding(
-                        rule_name='react-object-creation',
-                        message=f'Creating new {creator} in render path',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.LOW,
-                        category='react-performance',
-                        snippet=f'{creator}',
-                        confidence=Confidence.LOW,
-                        cwe_id='CWE-1050'
-                    ))
+            # Skip if it's in a hook
+            if callee and 'use' in callee.lower():
+                continue
+
+            # Check if callee matches any object creator
+            if callee in self.patterns.OBJECT_CREATORS:
+                self.findings.append(StandardFinding(
+                    rule_name='react-object-creation',
+                    message=f'Creating new {callee} in render path',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category='react-performance',
+                    snippet=f'{callee}',
+                    confidence=Confidence.LOW,
+                    cwe_id='CWE-1050'
+                ))
 
     def _check_index_as_key(self):
         """Check for using array index as key."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
-            SELECT file, line, argument_expr
+            SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function LIKE '%.map'
-              AND (argument_expr LIKE '%key={index}%'
-                   OR argument_expr LIKE '%key={i}%'
-                   OR argument_expr LIKE '%key={idx}%')
-            LIMIT 50
+            WHERE argument_expr IS NOT NULL
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
-            file, line, args = row
+            file, line, callee, args = row
 
-            self.findings.append(StandardFinding(
-                rule_name='react-index-key',
-                message='Using array index as key prop can cause issues',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react-performance',
-                snippet='key={index}',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-1050'
-            ))
+            # Check if callee ends with .map
+            if not (callee and '.map' in callee):
+                continue
+
+            # Check if args contains index as key
+            args_str = str(args) if args else ''
+            has_index_key = ('key={index}' in args_str or
+                           'key={i}' in args_str or
+                           'key={idx}' in args_str)
+
+            if has_index_key:
+                self.findings.append(StandardFinding(
+                    rule_name='react-index-key',
+                    message='Using array index as key prop can cause issues',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='react-performance',
+                    snippet='key={index}',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-1050'
+                ))
 
     def _check_derived_state(self):
         """Check for unnecessary derived state."""
+        # Fetch all useState hooks
         self.cursor.execute("""
-            SELECT h1.file, h1.line, h1.component_name
-            FROM react_hooks h1
-            WHERE h1.hook_name = 'useState'
-              AND EXISTS (
-                  SELECT 1 FROM react_hooks h2
-                  WHERE h2.file = h1.file
-                    AND h2.component_name = h1.component_name
-                    AND h2.hook_name = 'useEffect'
-                    AND h2.dependency_array LIKE '%props%'
-                    AND h2.line > h1.line
-                    AND h2.line < h1.line + 10
-              )
-            LIMIT 50
+            SELECT file, line, component_name
+            FROM react_hooks
+            WHERE hook_name = 'useState'
+            LIMIT 200
         """)
+        use_states = self.cursor.fetchall()
 
-        for row in self.cursor.fetchall():
-            file, line, component = row
+        # Fetch all useEffect hooks with dependency arrays
+        self.cursor.execute("""
+            SELECT file, line, component_name, dependency_array
+            FROM react_hooks
+            WHERE hook_name = 'useEffect'
+              AND dependency_array IS NOT NULL
+            LIMIT 200
+        """)
+        use_effects = self.cursor.fetchall()
 
-            self.findings.append(StandardFinding(
-                rule_name='react-derived-state',
-                message='Possible unnecessary derived state from props',
-                file_path=file,
-                line=line,
-                severity=Severity.LOW,
-                category='react-state',
-                snippet=f'useState followed by useEffect with props dependency',
-                confidence=Confidence.LOW,
-                cwe_id='CWE-1066'
-            ))
+        # Build map of component -> useEffects
+        effects_by_component = {}
+        for file, line, component, deps in use_effects:
+            key = (file, component)
+            if key not in effects_by_component:
+                effects_by_component[key] = []
+            effects_by_component[key].append((line, deps))
+
+        # Check each useState for nearby useEffect with props
+        for file, line, component in use_states:
+            key = (file, component)
+            if key not in effects_by_component:
+                continue
+
+            for effect_line, deps in effects_by_component[key]:
+                # Check if useEffect is within 10 lines after useState
+                if effect_line > line and effect_line < line + 10:
+                    # Check if dependency array contains 'props'
+                    deps_str = str(deps) if deps else ''
+                    if 'props' in deps_str:
+                        self.findings.append(StandardFinding(
+                            rule_name='react-derived-state',
+                            message='Possible unnecessary derived state from props',
+                            file_path=file,
+                            line=line,
+                            severity=Severity.LOW,
+                            category='react-state',
+                            snippet=f'useState followed by useEffect with props dependency',
+                            confidence=Confidence.LOW,
+                            cwe_id='CWE-1066'
+                        ))
+                        break
 
     def _check_anonymous_functions_in_props(self):
         """Check for anonymous functions passed as props."""
+        # Fetch all function_call_args with components, filter in Python
         self.cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr, c.name
+            SELECT f.file, f.line, f.argument_expr, f.callee_function, c.name
             FROM function_call_args f
             JOIN react_components c ON f.file = c.file
             WHERE c.has_jsx = 1
               AND f.line BETWEEN c.start_line AND c.end_line
-              AND (f.argument_expr LIKE '%=>%'
-                   OR f.argument_expr LIKE '%function%')
-              AND f.callee_function NOT LIKE 'use%'
-            LIMIT 50
+              AND f.argument_expr IS NOT NULL
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
-            file, line, args, component = row
+            file, line, args, callee, component = row
 
-            if len(str(args)) < 50:  # Short inline functions
+            # Skip use% hooks
+            if callee and callee.startswith('use'):
+                continue
+
+            # Check for anonymous functions
+            args_str = str(args) if args else ''
+            has_anonymous = '=>' in args_str or 'function' in args_str
+
+            if has_anonymous and len(args_str) < 50:  # Short inline functions
                 self.findings.append(StandardFinding(
                     rule_name='react-anonymous-prop',
                     message=f'Anonymous function in props causes re-renders',
@@ -386,35 +468,40 @@ class ReactRenderAnalyzer:
 
     def _check_style_objects(self):
         """Check for inline style objects."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, argument_expr
             FROM function_call_args
-            WHERE argument_expr LIKE '%style={{%'
-               OR argument_expr LIKE '%style={ {%'
-            LIMIT 50
+            WHERE argument_expr IS NOT NULL
+            LIMIT 500
         """)
 
         for row in self.cursor.fetchall():
             file, line, args = row
 
-            self.findings.append(StandardFinding(
-                rule_name='react-inline-style',
-                message='Inline style object causes unnecessary re-renders',
-                file_path=file,
-                line=line,
-                severity=Severity.LOW,
-                category='react-performance',
-                snippet='style={{ ... }}',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-1050'
-            ))
+            # Check for inline style objects
+            args_str = str(args) if args else ''
+            has_inline_style = 'style={{' in args_str or 'style={ {' in args_str
+
+            if has_inline_style:
+                self.findings.append(StandardFinding(
+                    rule_name='react-inline-style',
+                    message='Inline style object causes unnecessary re-renders',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category='react-performance',
+                    snippet='style={{ ... }}',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-1050'
+                ))
 
 
 # ============================================================================
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React rendering performance issues and anti-patterns.
 
     Uses data from function_call_args and react tables to identify

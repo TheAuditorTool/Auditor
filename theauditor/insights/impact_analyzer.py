@@ -1,5 +1,6 @@
 """Impact analysis engine for tracing code dependencies and change blast radius."""
 
+
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple
@@ -10,7 +11,7 @@ def analyze_impact(
     target_file: str,
     target_line: int,
     trace_to_backend: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze the impact of changing code at a specific file and line.
     
@@ -181,7 +182,7 @@ def find_upstream_dependencies(
     target_file: str,
     target_name: str,
     target_type: str
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Find all symbols that call the target symbol (upstream dependencies).
     
@@ -256,7 +257,7 @@ def find_downstream_dependencies(
     target_file: str,
     target_line: int,
     target_name: str
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Find all symbols called by the target symbol (downstream dependencies).
     
@@ -348,11 +349,11 @@ def find_downstream_dependencies(
 
 def calculate_transitive_impact(
     cursor: sqlite3.Cursor,
-    direct_deps: List[Dict[str, Any]],
+    direct_deps: list[dict[str, Any]],
     direction: str,
     max_depth: int = 2,
-    visited: Optional[Set[Tuple[str, str]]] = None
-) -> List[Dict[str, Any]]:
+    visited: set[tuple[str, str]] | None = None
+) -> list[dict[str, Any]]:
     """
     Calculate transitive dependencies up to max_depth.
     
@@ -413,7 +414,7 @@ def trace_frontend_to_backend(
     cursor: sqlite3.Cursor,
     target_file: str,
     target_line: int
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Trace a frontend API call to its corresponding backend endpoint.
 
@@ -561,7 +562,7 @@ def trace_frontend_to_backend(
     }
 
 
-def format_impact_report(impact_data: Dict[str, Any]) -> str:
+def format_impact_report(impact_data: dict[str, Any]) -> str:
     """
     Format impact analysis results into a human-readable report.
     

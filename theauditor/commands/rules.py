@@ -24,10 +24,18 @@ from theauditor.utils.exit_codes import ExitCodes
 def rules_command(summary: bool) -> None:
     """Inspect and summarize TheAuditor's detection rules and patterns.
 
-    This command generates a comprehensive inventory of all security rules,
-    vulnerability patterns, and code quality checks that TheAuditor can detect.
-    It scans both YAML pattern files and Python AST rules to create a complete
-    capability report.
+    Generates a comprehensive inventory of all security rules, vulnerability
+    patterns, and code quality checks built into TheAuditor. Scans YAML pattern
+    files and Python AST rules to create a complete capability report for
+    documentation, compliance, and customization planning.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Document TheAuditor's detection capabilities
+      Input: theauditor/patterns/*.yml, theauditor/rules/*.py (pattern definitions)
+      Output: .pf/auditor_capabilities.md (comprehensive report)
+      Prerequisites: None (reads pattern files, no indexing required)
+      Integration: Security documentation, compliance reporting, custom pattern development
+      Performance: ~1-2 seconds (file scanning only)
 
     WHY USE THIS:
     - Understand what vulnerabilities TheAuditor can detect

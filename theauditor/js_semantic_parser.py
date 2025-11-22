@@ -5,6 +5,7 @@ using the TypeScript compiler, enabling accurate type analysis, symbol resolutio
 and cross-file understanding for JavaScript and TypeScript projects.
 """
 
+
 import json
 import os
 import platform
@@ -74,7 +75,25 @@ class JSSemanticParser:
         
         # CRITICAL FIX: Find the sandboxed node executable (like linters do)
         # Platform-agnostic: Check multiple possible locations
-        sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools"
+        # Look for .auditor_venv by traversing up from project_root
+        search_dir = self.project_root
+        sandbox_base = None
+
+        # Search up the directory tree for .auditor_venv
+        for _ in range(10):  # Limit search depth to avoid infinite loop
+            potential_venv = search_dir / ".auditor_venv" / ".theauditor_tools"
+            if potential_venv.exists():
+                sandbox_base = potential_venv
+                break
+            parent = search_dir.parent
+            if parent == search_dir:  # Reached root of filesystem
+                break
+            search_dir = parent
+
+        # Fallback to project_root if not found
+        if sandbox_base is None:
+            sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools"
+
         node_runtime = sandbox_base / "node-runtime"
         
         # Check all possible node locations (Windows or Unix layout)
@@ -109,14 +128,14 @@ class JSSemanticParser:
         try:
             package_json_path = self.project_root / "package.json"
             if package_json_path.exists():
-                with open(package_json_path, 'r', encoding='utf-8') as f:
+                with open(package_json_path, encoding='utf-8') as f:
                     package_data = json.load(f)
                     module_type = package_data.get("type", "commonjs")
                     if module_type == "module":
                         return "module"
             # Default to CommonJS (Node.js default)
             return "commonjs"
-        except (json.JSONDecodeError, IOError, OSError) as e:
+        except (json.JSONDecodeError, OSError) as e:
             # On any error, default to CommonJS
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Could not detect module type: {e}. Defaulting to CommonJS.")
@@ -142,13 +161,29 @@ class JSSemanticParser:
         
     def _check_tsc_availability(self) -> bool:
         """Check if TypeScript compiler is available in our sandbox.
-        
+
         CRITICAL: We ONLY use our own sandboxed TypeScript installation.
         We do not check or use any user-installed versions.
         """
         # Check our sandbox location ONLY - no invasive checking of user's environment
-        # CRITICAL: Use absolute path from project root to avoid finding wrong sandboxes
-        sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools" / "node_modules"
+        # CRITICAL: Search up the directory tree for .auditor_venv
+        search_dir = self.project_root
+        sandbox_base = None
+
+        # Search up the directory tree for .auditor_venv
+        for _ in range(10):  # Limit search depth
+            potential_venv = search_dir / ".auditor_venv" / ".theauditor_tools" / "node_modules"
+            if potential_venv.exists():
+                sandbox_base = potential_venv
+                break
+            parent = search_dir.parent
+            if parent == search_dir:  # Reached root
+                break
+            search_dir = parent
+
+        # Fallback to project_root if not found
+        if sandbox_base is None:
+            sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools" / "node_modules"
         
         # Check if sandbox exists at the absolute location
         sandbox_locations = [sandbox_base]
@@ -204,9 +239,9 @@ class JSSemanticParser:
                             shell=False  # Never use shell when we have full path
                         )
                         
-                        with open(stdout_path, 'r', encoding='utf-8') as f:
+                        with open(stdout_path, encoding='utf-8') as f:
                             result.stdout = f.read()
-                        with open(stderr_path, 'r', encoding='utf-8') as f:
+                        with open(stderr_path, encoding='utf-8') as f:
                             result.stderr = f.read()
                         
                     os.unlink(stdout_path)
@@ -259,10 +294,10 @@ class JSSemanticParser:
     
     def get_semantic_ast_batch(
         self,
-        file_paths: List[str],
+        file_paths: list[str],
         jsx_mode: str = 'transformed',
-        tsconfig_map: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Dict[str, Any]]:
+        tsconfig_map: dict[str, str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
 
         This dramatically improves performance by reusing the TypeScript program
@@ -284,7 +319,7 @@ class JSSemanticParser:
         results = {}
         valid_files = []
         
-        normalized_tsconfig_map: Dict[str, str] = {}
+        normalized_tsconfig_map: dict[str, str] = {}
         tsconfig_map = tsconfig_map or {}
 
         for file_path in file_paths:
@@ -400,7 +435,7 @@ class JSSemanticParser:
 
                     # Read batch results
                     if Path(output_path).exists():
-                        with open(output_path, 'r', encoding='utf-8') as f:
+                        with open(output_path, encoding='utf-8') as f:
                             batch_results = json.load(f)
 
                         # Build normalized lookup to handle path separator differences
@@ -413,7 +448,7 @@ class JSSemanticParser:
                             except OSError:
                                 return normalized
 
-                        normalized_results: Dict[str, Dict[str, Any]] = {}
+                        normalized_results: dict[str, dict[str, Any]] = {}
                         for key, value in batch_results.items():
                             candidates = {
                                 key,
@@ -486,8 +521,8 @@ class JSSemanticParser:
         self,
         file_path: str,
         jsx_mode: str = 'transformed',
-        tsconfig_path: Optional[str] = None
-    ) -> Dict[str, Any]:
+        tsconfig_path: str | None = None
+    ) -> dict[str, Any]:
         """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
 
         CRITICAL JSX HANDLING:
@@ -675,7 +710,7 @@ class JSSemanticParser:
                         }
                     
                     try:
-                        with open(tmp_output_path, 'r', encoding='utf-8') as f:
+                        with open(tmp_output_path, encoding='utf-8') as f:
                             ast_data = json.load(f)
                         
                         # Add jsx_mode to the response
@@ -726,7 +761,7 @@ class JSSemanticParser:
             }
     
     
-    def resolve_imports(self, ast_data: Dict[str, Any], current_file: str) -> Dict[str, str]:
+    def resolve_imports(self, ast_data: dict[str, Any], current_file: str) -> dict[str, str]:
         """Resolve import statements in the AST using ModuleResolver.
         
         Args:
@@ -790,7 +825,7 @@ class JSSemanticParser:
         
         return resolved_imports
     
-    def extract_type_issues(self, ast_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def extract_type_issues(self, ast_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Extract type-related issues from the semantic AST.
         
         Args:
@@ -882,8 +917,8 @@ def get_semantic_ast(
     file_path: str,
     project_root: str = None,
     jsx_mode: str = 'transformed',
-    tsconfig_path: Optional[str] = None
-) -> Dict[str, Any]:
+    tsconfig_path: str | None = None
+) -> dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
 
     This is a convenience function that creates or reuses a cached parser instance
@@ -914,11 +949,11 @@ def get_semantic_ast(
 
 
 def get_semantic_ast_batch(
-    file_paths: List[str],
+    file_paths: list[str],
     project_root: str = None,
     jsx_mode: str = 'transformed',
-    tsconfig_map: Optional[Dict[str, str]] = None
-) -> Dict[str, Dict[str, Any]]:
+    tsconfig_map: dict[str, str] | None = None
+) -> dict[str, dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
 
     This is a convenience function that creates or reuses a cached parser instance

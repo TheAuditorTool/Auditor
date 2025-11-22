@@ -7,6 +7,7 @@ rule orchestrator. This wrapper now delegates to that rule and preserves the
 legacy TerraformFinding format plus database dual-writes.
 """
 
+
 import json
 import sqlite3
 from pathlib import Path
@@ -27,14 +28,14 @@ class TerraformFinding:
 
     finding_id: str
     file_path: str
-    resource_id: Optional[str]
+    resource_id: str | None
     category: str
     severity: str
     title: str
     description: str
-    line: Optional[int]
+    line: int | None
     remediation: str = ""
-    graph_context_json: Optional[str] = None
+    graph_context_json: str | None = None
 
 
 class TerraformAnalyzer:
@@ -55,7 +56,7 @@ class TerraformAnalyzer:
             'all': 999,
         }
 
-    def analyze(self) -> List[TerraformFinding]:
+    def analyze(self) -> list[TerraformFinding]:
         """Run standardized Terraform rule and return converted findings."""
         context = self._build_rule_context()
         standard_findings = find_terraform_issues(context)
@@ -80,8 +81,8 @@ class TerraformAnalyzer:
             db_path=str(self.db_path),
         )
 
-    def _convert_findings(self, standard_findings) -> List[TerraformFinding]:
-        terraform_findings: List[TerraformFinding] = []
+    def _convert_findings(self, standard_findings) -> list[TerraformFinding]:
+        terraform_findings: list["TerraformFinding"] = []
 
         for finding in standard_findings:
             additional = getattr(finding, 'additional_info', None) or {}
@@ -115,7 +116,7 @@ class TerraformAnalyzer:
             return severity_value.value
         return str(severity_value).lower()
 
-    def _filter_by_severity(self, findings: List[TerraformFinding]) -> List[TerraformFinding]:
+    def _filter_by_severity(self, findings: list["TerraformFinding"]) -> list[TerraformFinding]:
         if self.severity_filter == 'all':
             return findings
 
@@ -125,7 +126,7 @@ class TerraformAnalyzer:
             if self.severity_order.get(f.severity, 999) <= min_severity
         ]
 
-    def _write_findings(self, findings: List[TerraformFinding]):
+    def _write_findings(self, findings: list["TerraformFinding"]):
         """Write findings to both terraform_findings and consolidated tables."""
         if not findings:
             return

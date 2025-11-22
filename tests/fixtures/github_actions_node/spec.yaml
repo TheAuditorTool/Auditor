@@ -1,0 +1,222 @@
+name: github_actions_node_ecosystem
+description: |
+  Node.js/npm-specific GitHub Actions security test fixtures.
+
+  Complements general github_actions/ fixture with Node ecosystem patterns:
+  - npm publish workflows with NPM_TOKEN exposure
+  - package.json metadata injection in run scripts
+  - actions/setup-node versioning issues
+  - npm artifact poisoning (untrusted build → publish)
+
+  Tests Node-specific workflow patterns that don't apply to Python projects.
+
+verification_rules:
+  - name: node_workflows_extracted
+    description: Verify Node.js workflows are extracted
+    query: |
+      SELECT workflow_name, trigger_events, file
+      FROM github_workflows
+      WHERE file LIKE '%github_actions_node%'
+      ORDER BY workflow_name
+    expected_minimum: 4
+
+  - name: node_jobs_extracted
+    description: Verify workflow jobs are extracted
+    query: |
+      SELECT job_id, job_name, workflow_file
+      FROM github_jobs
+      WHERE workflow_file LIKE '%github_actions_node%'
+      ORDER BY workflow_file, job_id
+    expected_minimum: 6
+
+  - name: setup_node_steps
+    description: Find actions/setup-node steps
+    query: |
+      SELECT
+        uses_action,
+        uses_version,
+        step_name,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions_node%'
+        AND uses_action LIKE '%setup-node%'
+      ORDER BY job_id
+    expected_minimum: 3
+
+  - name: npm_publish_steps
+    description: Find npm publish steps
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions_node%'
+        AND (
+          run_script LIKE '%npm publish%'
+          OR step_name LIKE '%publish%'
+        )
+      ORDER BY job_id
+    expected_minimum: 2
+
+  - name: npm_token_usage
+    description: Find NPM_TOKEN secret references
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions_node%'
+        AND (
+          run_script LIKE '%NPM_TOKEN%'
+          OR step_name LIKE '%NPM_TOKEN%'
+        )
+      ORDER BY job_id
+    expected_minimum: 2
+
+  - name: package_json_in_scripts
+    description: Find run scripts referencing package.json metadata (injection risk)
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions_node%'
+        AND run_script LIKE '%package.json%'
+      ORDER BY job_id
+    expected_minimum: 1
+
+  - name: pull_request_target_with_npm
+    description: Find pull_request_target workflows with npm operations
+    query: |
+      SELECT
+        gw.workflow_name,
+        gs.step_name,
+        gs.run_script
+      FROM github_workflows gw
+      JOIN github_jobs gj ON gw.file = gj.workflow_file
+      JOIN github_steps gs ON gj.job_id = gs.job_id
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND gw.file LIKE '%github_actions_node%'
+        AND (
+          gs.run_script LIKE '%npm%'
+          OR gs.uses_action LIKE '%setup-node%'
+        )
+      ORDER BY gw.workflow_name
+    expected_minimum: 2
+
+security_patterns:
+  - pattern: npm_token_in_pull_request_target
+    severity: CRITICAL
+    description: |
+      NPM_TOKEN exposed in pull_request_target workflow.
+      Attacker PR can publish malicious package to npm registry.
+    query: |
+      SELECT
+        gw.workflow_name,
+        gs.step_name,
+        gw.file
+      FROM github_workflows gw
+      JOIN github_jobs gj ON gw.file = gj.workflow_file
+      JOIN github_steps gs ON gj.job_id = gs.job_id
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND (
+          gs.run_script LIKE '%NPM_TOKEN%'
+          OR gs.step_name LIKE '%secrets.NPM_TOKEN%'
+        )
+
+  - pattern: package_json_metadata_injection
+    severity: HIGH
+    description: |
+      package.json metadata (name, version, description) used in run scripts.
+      Attacker can craft malicious package.json in PR to inject commands.
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE run_script LIKE '%package.json%'
+        AND run_script LIKE '%$%'
+      ORDER BY job_id
+
+  - pattern: unpinned_setup_node_with_publish
+    severity: MEDIUM
+    description: |
+      actions/setup-node pinned to mutable ref (v3, v4) in workflow
+      that publishes to npm. Supply chain attack vector.
+    query: |
+      SELECT
+        gs1.uses_action,
+        gs1.uses_version,
+        gs2.step_name AS publish_step
+      FROM github_steps gs1
+      JOIN github_steps gs2
+        ON gs1.job_id = gs2.job_id
+      WHERE gs1.uses_action LIKE '%setup-node%'
+        AND gs1.uses_version LIKE 'v%'
+        AND gs2.run_script LIKE '%npm publish%'
+
+  - pattern: artifact_poisoning_npm_publish
+    severity: HIGH
+    description: |
+      Workflow builds npm package in untrusted context (pull_request_target),
+      then publishes artifact in trusted context. Attacker can inject
+      malicious code into published package.
+    query: |
+      SELECT
+        gw.workflow_name,
+        gj.job_name,
+        gs.step_name
+      FROM github_workflows gw
+      JOIN github_jobs gj ON gw.file = gj.workflow_file
+      JOIN github_steps gs ON gj.job_id = gs.job_id
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND (
+          gs.run_script LIKE '%npm pack%'
+          OR gs.run_script LIKE '%npm publish%'
+          OR gs.uses_action LIKE '%upload-artifact%'
+        )
+
+expected_findings:
+  npm-publish-vulnerable.yml:
+    - vulnerability: NPM_TOKEN in pull_request_target
+      severity: CRITICAL
+      description: Attacker PR can publish to npm with repo credentials
+
+  node-script-injection.yml:
+    - vulnerability: package.json metadata in run script
+      severity: HIGH
+      description: Command injection via package.json fields
+
+  unpinned-setup-node.yml:
+    - vulnerability: actions/setup-node@v3 with npm publish
+      severity: MEDIUM
+      description: Supply chain attack if setup-node is compromised
+
+  artifact-poisoning-npm.yml:
+    - vulnerability: npm pack in PR context + publish in trusted context
+      severity: HIGH
+      description: Attacker-controlled package published to registry
+
+  safe-node-ci.yml:
+    - expected: NO VULNERABILITIES
+      description: Control workflow with proper security controls
+
+node_specific_patterns:
+  - NPM_TOKEN secret management
+  - package.json parsing for metadata extraction
+  - npm publish permission requirements
+  - actions/setup-node version pinning
+  - Node.js version matrix testing
+  - npm cache handling
+
+coverage_summary:
+  total_workflows: 5 (4 vulnerable + 1 safe)
+  vulnerability_patterns: 4
+  severity_breakdown:
+    CRITICAL: 1 (NPM_TOKEN exposure)
+    HIGH: 2 (metadata injection, artifact poisoning)
+    MEDIUM: 1 (unpinned setup-node)

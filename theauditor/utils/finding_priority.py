@@ -6,6 +6,7 @@ This is NOT severity mapping for tools, but internal organization
 for optimal AI context utilization.
 """
 
+
 # Priority order for internal organization (lower = higher priority)
 # This is our SINGLE SOURCE OF TRUTH for severity ranking
 PRIORITY_ORDER = {

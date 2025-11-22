@@ -19,6 +19,7 @@ See indexer/__init__.py:948-962 for object literal storage example:
 This separation ensures single source of truth for file paths.
 """
 
+
 from typing import Dict, Any, List, Optional
 import os
 
@@ -29,12 +30,12 @@ from .sql import parse_sql_query
 class JavaScriptExtractor(BaseExtractor):
     """Extractor for JavaScript and TypeScript files."""
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all JavaScript/TypeScript information.
 
         Args:
@@ -55,6 +56,7 @@ class JavaScriptExtractor(BaseExtractor):
             'returns': [],
             'variable_usage': [],
             'cfg': [],
+            'frontend_api_calls': [],  # CRITICAL: Cross-boundary taint tracking
             # Security patterns
             'sql_queries': [],  # CRITICAL: SQL injection detection
             'jwt_patterns': [],  # CRITICAL: JWT secret detection
@@ -72,7 +74,22 @@ class JavaScriptExtractor(BaseExtractor):
             'object_literals': [],  # PHASE 3: Object literal parsing for dynamic dispatch
             'class_properties': [],  # Class property declarations (TypeScript/JavaScript ES2022+)
             'env_var_usage': [],  # Environment variable usage (process.env.X)
-            'orm_relationships': []  # ORM relationship declarations (hasMany, belongsTo, etc.)
+            'orm_relationships': [],  # ORM relationship declarations (hasMany, belongsTo, etc.)
+            'cdk_constructs': [],  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
+            # Sequelize ORM
+            'sequelize_models': [],
+            'sequelize_associations': [],
+            # BullMQ Job Queues
+            'bullmq_queues': [],
+            'bullmq_workers': [],
+            # Angular Framework
+            'angular_components': [],
+            'angular_services': [],
+            'angular_modules': [],
+            'angular_guards': [],
+            'di_injections': [],
+            # Express framework
+            'express_middleware_chains': []  # PHASE 5: Middleware execution chains
         }
 
         # No AST = no extraction
@@ -127,7 +144,9 @@ class JavaScriptExtractor(BaseExtractor):
                     'vue_provide_inject': 'vue_provide_inject',
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
+                    'express_middleware_chains': 'express_middleware_chains',  # PHASE 5: Middleware execution chains
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
+                    'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
                 }
 
                 for js_key, python_key in KEY_MAPPINGS.items():
@@ -171,6 +190,7 @@ class JavaScriptExtractor(BaseExtractor):
                                 'column': func.get('col', func.get('column', 0)),
                                 'symbol_name': func.get('name', ''),
                                 'symbol_kind': 'function',
+                                'language': 'typescript',
                                 'type_annotation': func.get('type_annotation'),
                                 'is_any': func.get('is_any', False),
                                 'is_unknown': func.get('is_unknown', False),
@@ -209,6 +229,27 @@ class JavaScriptExtractor(BaseExtractor):
                 # Use pre-extracted classes for symbols table
                 if 'classes' in extracted_data:
                     for cls in extracted_data['classes']:
+                        # Handle type annotations (create type_annotations record)
+                        # OPTION 3 (2025-11-09): Store class type info in type_annotations table
+                        # Same pattern as functions (lines 184-200) for consistency
+                        if cls.get('type_annotation') or cls.get('extends_type') or cls.get('type_params'):
+                            result['type_annotations'].append({
+                                'line': cls.get('line', 0),
+                                'column': cls.get('col', cls.get('column', 0)),
+                                'symbol_name': cls.get('name', ''),
+                                'symbol_kind': 'class',
+                                'language': 'typescript',
+                                'type_annotation': cls.get('type_annotation'),
+                                'is_any': cls.get('is_any', False),
+                                'is_unknown': cls.get('is_unknown', False),
+                                'is_generic': cls.get('is_generic', False),
+                                'has_type_params': cls.get('has_type_params', False),
+                                'type_params': cls.get('type_params'),
+                                'return_type': None,  # Classes don't have return types
+                                'extends_type': cls.get('extends_type')
+                            })
+
+                        # Add to symbols table (basic identity only)
                         symbol_entry = {
                             'name': cls.get('name', ''),
                             'type': 'class',
@@ -216,11 +257,53 @@ class JavaScriptExtractor(BaseExtractor):
                             'col': cls.get('col', cls.get('column', 0)),
                             'column': cls.get('column', cls.get('col', 0)),
                         }
-                        # Preserve type metadata in symbols
-                        for key in ('type_annotation', 'extends_type', 'type_params', 'has_type_params'):
-                            if key in cls:
-                                symbol_entry[key] = cls[key]
+                        # NOTE: Type metadata now stored in type_annotations table
+                        # Removed from symbols to maintain separation of concerns
                         result['symbols'].append(symbol_entry)
+
+                # Extract Sequelize ORM data
+                sequelize_models = extracted_data.get('sequelize_models', [])
+                if sequelize_models:
+                    result['sequelize_models'].extend(sequelize_models)
+
+                sequelize_associations = extracted_data.get('sequelize_associations', [])
+                if sequelize_associations:
+                    result['sequelize_associations'].extend(sequelize_associations)
+
+                # Extract BullMQ Job Queue data
+                bullmq_queues = extracted_data.get('bullmq_queues', [])
+                if bullmq_queues:
+                    result['bullmq_queues'].extend(bullmq_queues)
+
+                bullmq_workers = extracted_data.get('bullmq_workers', [])
+                if bullmq_workers:
+                    result['bullmq_workers'].extend(bullmq_workers)
+
+                # Extract Angular Framework data
+                angular_components = extracted_data.get('angular_components', [])
+                if angular_components:
+                    result['angular_components'].extend(angular_components)
+
+                angular_services = extracted_data.get('angular_services', [])
+                if angular_services:
+                    result['angular_services'].extend(angular_services)
+
+                angular_modules = extracted_data.get('angular_modules', [])
+                if angular_modules:
+                    result['angular_modules'].extend(angular_modules)
+
+                angular_guards = extracted_data.get('angular_guards', [])
+                if angular_guards:
+                    result['angular_guards'].extend(angular_guards)
+
+                di_injections = extracted_data.get('di_injections', [])
+                if di_injections:
+                    result['di_injections'].extend(di_injections)
+
+                # Extract Frontend API calls (cross-boundary flow support)
+                frontend_api_calls = extracted_data.get('frontend_api_calls', [])
+                if frontend_api_calls:
+                    result['frontend_api_calls'] = frontend_api_calls
 
                 # Phase 5 data loaded - Python extractors wrapped in conditional below
 
@@ -434,6 +517,13 @@ class JavaScriptExtractor(BaseExtractor):
         # Extract routes from AST function calls (Express/Fastify patterns)
         # This provides complete metadata: line, auth middleware, handler names
         result['routes'] = self._extract_routes_from_ast(
+            result.get('function_calls', []),
+            file_info.get('path', '')
+        )
+
+        # Extract router mount points from router.use() calls
+        # ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+        result['router_mounts'] = self._extract_router_mounts(
             result.get('function_calls', []),
             file_info.get('path', '')
         )
@@ -714,7 +804,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return result
 
-    def _analyze_import_styles(self, imports: List[Dict], file_path: str) -> List[Dict]:
+    def _analyze_import_styles(self, imports: list[dict], file_path: str) -> list[dict]:
         """Analyze import statements to determine import style.
 
         Classifies imports into categories for tree-shaking analysis:
@@ -817,7 +907,7 @@ class JavaScriptExtractor(BaseExtractor):
         # Default: direct database execution in code (highest risk)
         return 'code_execute'
 
-    def _extract_sql_from_function_calls(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_sql_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract SQL queries from database execution method calls.
 
         Uses already-extracted function_calls data to find SQL execution calls
@@ -895,7 +985,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return queries
 
-    def _extract_jwt_from_function_calls(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_jwt_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract JWT patterns from function calls using AST data.
 
         NO REGEX. This uses function_calls data from the AST parser.
@@ -1048,7 +1138,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return patterns
 
-    def _extract_routes_from_ast(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_routes_from_ast(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract API route definitions from Express/Fastify function calls.
 
         Detects patterns like:
@@ -1154,6 +1244,285 @@ class JavaScriptExtractor(BaseExtractor):
                 routes.append(route)
 
         return routes
+
+    def _extract_router_mounts(self, function_calls: list[dict], file_path: str) -> list[dict]:
+        """Extract router.use() mount statements from function calls.
+
+        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+
+        Detects patterns like:
+        - router.use('/areas', areaRoutes)
+        - router.use(API_PREFIX, protectedRouter)
+        - protectedRouter.use(`${API_PREFIX}/auth`, authRoutes)
+
+        Args:
+            function_calls: List of function call dictionaries from AST parser
+            file_path: Path to the file being analyzed
+
+        Returns:
+            List of mount dictionaries with router_mounts table fields
+        """
+        mounts = []
+
+        # Track mounts by line to collect both arguments
+        mounts_by_line = {}
+
+        for call in function_calls:
+            callee = call.get('callee_function', '')
+
+            # Match router.use() or Router().use() patterns
+            if not callee.endswith('.use'):
+                continue
+
+            line = call.get('line', 0)
+
+            # Initialize mount entry if not exists
+            if line not in mounts_by_line:
+                mounts_by_line[line] = {
+                    'file': file_path,
+                    'line': line,
+                    'mount_path_expr': None,
+                    'router_variable': None,
+                    'is_literal': False,
+                }
+
+            mount_entry = mounts_by_line[line]
+
+            # Extract mount path from first argument (index 0)
+            if call.get('argument_index') == 0:
+                arg_expr = call.get('argument_expr', '')
+
+                if not arg_expr:
+                    continue
+
+                # Determine if literal or identifier
+                # Static string: '/areas' or "/areas"
+                if arg_expr.startswith('"') or arg_expr.startswith("'"):
+                    mount_entry['mount_path_expr'] = arg_expr.strip('"\'')
+                    mount_entry['is_literal'] = True
+                # Template literal: `${API_PREFIX}/auth` or `/api/v1`
+                elif arg_expr.startswith('`'):
+                    mount_entry['mount_path_expr'] = arg_expr  # Keep template as-is
+                    mount_entry['is_literal'] = False  # Will need resolution
+                # Identifier: API_PREFIX
+                else:
+                    mount_entry['mount_path_expr'] = arg_expr
+                    mount_entry['is_literal'] = False  # Will need resolution
+
+            # Extract router variable from second argument (index 1)
+            elif call.get('argument_index') == 1:
+                arg_expr = call.get('argument_expr', '')
+                if arg_expr:
+                    mount_entry['router_variable'] = arg_expr
+
+        # Convert mounts_by_line to list
+        for mount in mounts_by_line.values():
+            # Only include mounts with both path and router variable
+            if mount['mount_path_expr'] and mount['router_variable']:
+                mounts.append(mount)
+
+        return mounts
+
+    @staticmethod
+    def resolve_router_mount_hierarchy(db_path: str):
+        """Resolve router mount hierarchy to populate api_endpoints.full_path.
+
+        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+
+        Algorithm:
+        1. Load router_mounts table (router.use() statements from AST)
+        2. Resolve mount path expressions (API_PREFIX → '/api/v1')
+        3. Resolve router variables to file paths (areaRoutes → './area.routes' → 'backend/src/routes/area.routes.ts')
+        4. Build 2-level mount hierarchy
+        5. Update api_endpoints.full_path = mount_path + pattern
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        import sqlite3
+        import os
+        import re
+
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # PHASE 1: Load all mount statements
+        cursor.execute("""
+            SELECT file, line, mount_path_expr, router_variable, is_literal
+            FROM router_mounts
+            ORDER BY file, line
+        """)
+        raw_mounts = cursor.fetchall()
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(raw_mounts)} mount statements")
+
+        if not raw_mounts:
+            conn.close()
+            return
+
+        # PHASE 2: Build constant lookup (API_PREFIX → '/api/v1')
+        cursor.execute("""
+            SELECT file, target_var, source_expr
+            FROM assignments
+            WHERE target_var LIKE '%PREFIX%' OR target_var LIKE '%prefix%'
+        """)
+
+        constants = {}
+        for file, var_name, value in cursor.fetchall():
+            # Store with file scope
+            key = f"{file}::{var_name}"
+            # Clean value: '/api/v1' or "/api/v1" → /api/v1
+            cleaned_value = value.strip().strip('"\'')
+            constants[key] = cleaned_value
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(constants)} constant definitions")
+
+        # PHASE 3: Build import lookup (areaRoutes → 'backend/src/routes/area.routes.ts')
+        cursor.execute("""
+            SELECT file, package, alias_name
+            FROM import_styles
+            WHERE alias_name IS NOT NULL
+        """)
+
+        imports = {}
+        for file, package, alias_name in cursor.fetchall():
+            if not alias_name:
+                continue
+
+            # Resolve relative import path to absolute
+            # file: 'backend/src/routes/index.ts'
+            # package: './area.routes'
+            # → 'backend/src/routes/area.routes.ts'
+
+            if package.startswith('.'):
+                # Get directory of importing file
+                file_dir = '/'.join(file.split('/')[:-1])
+                # Resolve relative path
+                if package == '.':
+                    resolved = file_dir
+                elif package.startswith('./'):
+                    resolved = f"{file_dir}/{package[2:]}"
+                elif package.startswith('../'):
+                    # Go up one level
+                    parent_dir = '/'.join(file_dir.split('/')[:-1])
+                    resolved = f"{parent_dir}/{package[3:]}"
+                else:
+                    resolved = package
+
+                # Add .ts extension if not present
+                if not resolved.endswith(('.ts', '.js', '.tsx', '.jsx')):
+                    resolved = f"{resolved}.ts"
+
+                # Store: file::alias_name → resolved_path
+                key = f"{file}::{alias_name}"
+                imports[key] = resolved
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(imports)} import mappings")
+
+        # PHASE 4: Resolve mount paths and build file → mount mapping
+        mount_map = {}  # file_path → mount_path
+
+        # First pass: resolve direct mounts (no nested hierarchy)
+        for file, line, mount_expr, router_var, is_literal in raw_mounts:
+            resolved_mount = None
+
+            # Resolve mount path expression
+            if is_literal:
+                # Already a string literal: '/areas'
+                resolved_mount = mount_expr
+            else:
+                # Need to resolve: API_PREFIX or `${API_PREFIX}/auth`
+                if mount_expr.startswith('`'):
+                    # Template literal: `${API_PREFIX}/auth`
+                    # Extract variable names
+                    var_pattern = r'\$\{([^}]+)\}'
+                    matches = re.findall(var_pattern, mount_expr)
+
+                    resolved_template = mount_expr.strip('`')
+                    for var_name in matches:
+                        # Look up constant value
+                        const_key = f"{file}::{var_name}"
+                        if const_key in constants:
+                            var_value = constants[const_key]
+                            resolved_template = resolved_template.replace(f'${{{var_name}}}', var_value)
+                        else:
+                            # Constant not found - hard fail (set NULL)
+                            resolved_template = None
+                            break
+
+                    resolved_mount = resolved_template
+                else:
+                    # Identifier: API_PREFIX
+                    const_key = f"{file}::{mount_expr}"
+                    resolved_mount = constants.get(const_key)
+
+            if not resolved_mount:
+                # Failed to resolve mount path - skip (hard fail, no fallback)
+                if debug:
+                    print(f"[MOUNT RESOLUTION] Failed to resolve mount: {file}:{line} - {mount_expr}")
+                continue
+
+            # Resolve router variable to file path
+            import_key = f"{file}::{router_var}"
+            router_file = imports.get(import_key)
+
+            # If not found in imports, check if it's a local router (defined in same file)
+            if not router_file:
+                # Check if this router variable has mounts in the same file
+                # (e.g., protectedRouter is local to index.ts)
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM router_mounts
+                    WHERE file = ? AND router_variable = ?
+                """, (file, router_var))
+                if cursor.fetchone()[0] > 0:
+                    # Local router - use same file
+                    router_file = file
+                    if debug:
+                        print(f"[MOUNT RESOLUTION] {router_var} is local to {file}")
+
+            if router_file:
+                mount_map[router_file] = resolved_mount
+                if debug:
+                    print(f"[MOUNT RESOLUTION] {router_file} → {resolved_mount}")
+
+        # PHASE 5: Update api_endpoints.full_path
+        updated_count = 0
+        for file_path, mount_path in mount_map.items():
+            # Get all routes from this file
+            cursor.execute("""
+                SELECT rowid, pattern
+                FROM api_endpoints
+                WHERE file = ?
+            """, (file_path,))
+
+            for rowid, pattern in cursor.fetchall():
+                # Combine mount + pattern
+                # mount='/api/v1/areas', pattern='/' → '/api/v1/areas/'
+                # mount='/api/v1/areas', pattern='/:id' → '/api/v1/areas/:id'
+                if pattern and pattern.startswith('/'):
+                    full_path = mount_path + pattern
+                else:
+                    full_path = mount_path + '/' + (pattern or '')
+
+                # Update the row
+                cursor.execute("""
+                    UPDATE api_endpoints
+                    SET full_path = ?
+                    WHERE rowid = ?
+                """, (full_path, rowid))
+                updated_count += 1
+
+        conn.commit()
+        conn.close()
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Updated {updated_count} endpoint paths from {len(mount_map)} mount mappings")
 
     @staticmethod
     def resolve_cross_file_parameters(db_path: str):
@@ -1265,7 +1634,14 @@ class JavaScriptExtractor(BaseExtractor):
 
                 # Check if argument_index is within bounds
                 if arg_index is not None and arg_index < len(params):
-                    actual_param_name = params[arg_index]
+                    param_value = params[arg_index]
+                    # CRITICAL FIX: params array may contain {name: "param"} dicts (architectural contract)
+                    # Extract .name field if it's a dict, otherwise use as-is (for legacy string params)
+                    if isinstance(param_value, dict):
+                        actual_param_name = param_value.get('name', f'arg{arg_index}')
+                    else:
+                        actual_param_name = param_value
+
                     updates.append((actual_param_name, rowid))
                     resolved_count += 1
 

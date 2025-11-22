@@ -1,0 +1,34 @@
+name: python-marshmallow-schemas
+description: Marshmallow schema extraction test fixture
+language: python
+
+tables:
+  python_marshmallow_schemas:
+    min_rows: 3  # UserSchema, AddressSchema, OrderSchema
+    queries:
+      - name: verify_user_schema
+        sql: SELECT * FROM python_marshmallow_schemas WHERE schema_class_name = 'UserSchema'
+        expect_rows: 1
+
+      - name: verify_schemas_with_meta
+        sql: SELECT * FROM python_marshmallow_schemas WHERE has_meta = 1
+        expect_rows: 2  # UserSchema and OrderSchema have Meta
+
+      - name: verify_address_schema
+        sql: SELECT * FROM python_marshmallow_schemas WHERE schema_class_name = 'AddressSchema' AND has_meta = 0
+        expect_rows: 1
+
+  python_marshmallow_fields:
+    min_rows: 13  # 5 from UserSchema, 5 from AddressSchema, 5 from OrderSchema
+    queries:
+      - name: verify_required_fields
+        sql: SELECT * FROM python_marshmallow_fields WHERE is_required = 1
+        expect_rows_min: 4  # username, email, street, city, user, total
+
+      - name: verify_email_field
+        sql: SELECT * FROM python_marshmallow_fields WHERE field_name = 'email' AND field_type = 'Email'
+        expect_rows: 1
+
+      - name: verify_fields_with_validators
+        sql: SELECT * FROM python_marshmallow_fields WHERE validators IS NOT NULL
+        expect_rows_min: 5  # username, email, age, state, zip_code, status

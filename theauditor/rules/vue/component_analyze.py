@@ -10,6 +10,7 @@ Follows v1.1+ gold standard patterns:
 - Proper confidence levels via Confidence enum
 """
 
+
 import sqlite3
 from typing import List, Set
 from pathlib import Path
@@ -85,7 +86,7 @@ COMPONENT_REGISTRATION = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_component_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue component anti-patterns and performance issues.
 
     Detects:
@@ -139,7 +140,7 @@ def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -161,7 +162,7 @@ def _get_vue_files(cursor) -> Set[str]:
     cursor.execute("""
         SELECT DISTINCT path
         FROM files
-        WHERE path LIKE '%.vue'
+        WHERE ext = '.vue'
     """)
     vue_files.update(row[0] for row in cursor.fetchall())
 
@@ -169,11 +170,17 @@ def _get_vue_files(cursor) -> Set[str]:
     cursor.execute("""
         SELECT DISTINCT path
         FROM symbols
-        WHERE name LIKE '%Vue%'
-           OR name LIKE '%defineComponent%'
-           OR name LIKE '%createApp%'
+        WHERE name IS NOT NULL
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue patterns
+    for (path,) in cursor.fetchall():
+        # Get symbols for this file
+        cursor.execute("SELECT name FROM symbols WHERE path = ?", (path,))
+        for (name,) in cursor.fetchall():
+            if name and any(pattern in name for pattern in ['Vue', 'defineComponent', 'createApp']):
+                vue_files.add(path)
+                break
 
     return vue_files
 
@@ -182,7 +189,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find direct props mutations (anti-pattern in Vue)."""
     findings = []
 
@@ -194,16 +201,17 @@ def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE file IN ({placeholders})
-          AND (
-              target_var LIKE 'props.%'
-              OR target_var LIKE 'this.props.%'
-              OR target_var LIKE 'this.$props.%'
-              OR target_var LIKE '%.props.%'
-          )
+          AND target_var IS NOT NULL
         ORDER BY file, line
     """, list(vue_files))
 
+    # Filter in Python for props mutations
+    props_mutations = []
     for file, line, target, source in cursor.fetchall():
+        if any(pattern in target for pattern in IMMUTABLE_PROPS):
+            props_mutations.append((file, line, target, source))
+
+    for file, line, target, source in props_mutations:
         findings.append(StandardFinding(
             rule_name='vue-props-mutation',
             message=f'Direct mutation of prop "{target}" - props should be immutable',
@@ -218,7 +226,7 @@ def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_vfor_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-for loops without :key attribute.
 
     Uses BOTH vue_directives (authoritative) and symbols (heuristic) to
@@ -261,35 +269,43 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
         SELECT s1.path, s1.line, s1.name
         FROM symbols s1
         WHERE s1.path IN ({placeholders})
-          AND s1.name LIKE '%v-for%'
-          AND NOT EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = s1.path
-                AND ABS(s2.line - s1.line) <= 2
-                AND (s2.name LIKE '%:key%' OR s2.name LIKE '%v-bind:key%')
-          )
+          AND s1.name IS NOT NULL
         ORDER BY s1.path, s1.line
     """, list(vue_files))
 
-    for file, line, directive in cursor.fetchall():
-        location = (file, line)
-        if location not in found_locations:  # Deduplicate
-            found_locations.add(location)
-            findings.append(StandardFinding(
-                rule_name='vue-missing-vfor-key-heuristic',
-                message='v-for without :key detected via heuristic - verify manually',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='vue-performance',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-704'
-            ))
+    # Filter in Python for v-for without keys
+    all_symbols = cursor.fetchall()
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for adjacent :key symbols within 2 lines
+        has_key = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and abs(line2 - line) <= 2:
+                if ':key' in name2 or 'v-bind:key' in name2:
+                    has_key = True
+                    break
+
+        if not has_key:
+            location = (file, line)
+            if location not in found_locations:  # Deduplicate
+                found_locations.add(location)
+                findings.append(StandardFinding(
+                    rule_name='vue-missing-vfor-key-heuristic',
+                    message='v-for without :key detected via heuristic - verify manually',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='vue-performance',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-704'
+                ))
 
     return findings
 
 
-def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_components(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find components with excessive complexity."""
     findings = []
 
@@ -297,55 +313,69 @@ def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFindin
 
     # Count methods per component
     cursor.execute(f"""
-        SELECT path AS file, COUNT(DISTINCT name) as method_count
+        SELECT path AS file, name
         FROM symbols
         WHERE path IN ({placeholders})
           AND type = 'function'
-          AND name NOT LIKE 'on%'
-          AND name NOT LIKE 'handle%'
-        GROUP BY path
-        HAVING method_count > 15
+          AND name IS NOT NULL
     """, list(vue_files))
 
-    for file, method_count in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-complex-component',
-            message=f'Component has {method_count} methods - consider splitting',
-            file_path=file,
-            line=1,
-            severity=Severity.MEDIUM,
-            category='vue-maintainability',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1061'
-        ))
+    # Filter in Python for non-event-handler methods
+    file_methods = {}
+    for file, name in cursor.fetchall():
+        if not name.startswith('on') and not name.startswith('handle'):
+            if file not in file_methods:
+                file_methods[file] = set()
+            file_methods[file].add(name)
+
+    for file, methods in file_methods.items():
+        method_count = len(methods)
+        if method_count > 15:
+            findings.append(StandardFinding(
+                rule_name='vue-complex-component',
+                message=f'Component has {method_count} methods - consider splitting',
+                file_path=file,
+                line=1,
+                severity=Severity.MEDIUM,
+                category='vue-maintainability',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-1061'
+            ))
 
     # Count data properties
     cursor.execute(f"""
-        SELECT path AS file, COUNT(*) as data_count
+        SELECT path AS file, name
         FROM symbols
         WHERE path IN ({placeholders})
           AND type IN ('property', 'variable')
-          AND (name LIKE 'data.%' OR name LIKE 'state.%')
-        GROUP BY path
-        HAVING data_count > 20
+          AND name IS NOT NULL
     """, list(vue_files))
 
-    for file, data_count in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-excessive-data',
-            message=f'Component has {data_count} data properties - consider composition',
-            file_path=file,
-            line=1,
-            severity=Severity.LOW,
-            category='vue-maintainability',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-1061'
-        ))
+    # Filter in Python for data/state properties
+    file_data = {}
+    for file, name in cursor.fetchall():
+        if name.startswith('data.') or name.startswith('state.'):
+            if file not in file_data:
+                file_data[file] = 0
+            file_data[file] += 1
+
+    for file, data_count in file_data.items():
+        if data_count > 20:
+            findings.append(StandardFinding(
+                rule_name='vue-excessive-data',
+                message=f'Component has {data_count} data properties - consider composition',
+                file_path=file,
+                line=1,
+                severity=Severity.LOW,
+                category='vue-maintainability',
+                confidence=Confidence.LOW,
+                cwe_id='CWE-1061'
+            ))
 
     return findings
 
 
-def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find unnecessary re-render triggers."""
     findings = []
 
@@ -383,7 +413,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_missing_component_names(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_component_names(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find components without explicit names (harder to debug)."""
     findings = []
 
@@ -394,30 +424,43 @@ def _find_missing_component_names(cursor, vue_files: Set[str]) -> List[StandardF
         SELECT DISTINCT f.path
         FROM files f
         WHERE f.path IN ({placeholders})
-          AND f.path LIKE '%.vue'
-          AND NOT EXISTS (
-              SELECT 1 FROM symbols s
-              WHERE s.path = f.path
-                AND (s.name = 'name' OR s.name LIKE 'name:' OR s.name LIKE '"name"')
-          )
+          AND f.ext = '.vue'
     """, list(vue_files))
 
-    for file, in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-name',
-            message='Component missing explicit name - harder to debug',
-            file_path=file,
-            line=1,
-            severity=Severity.LOW,
-            category='vue-maintainability',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-1061'
-        ))
+    # Filter in Python for components without name
+    vue_component_files = [row[0] for row in cursor.fetchall()]
+
+    for file in vue_component_files:
+        # Check for name property in symbols
+        cursor.execute("""
+            SELECT name
+            FROM symbols
+            WHERE path = ?
+              AND name IS NOT NULL
+        """, (file,))
+
+        has_name = False
+        for (name,) in cursor.fetchall():
+            if name == 'name' or name.startswith('name:') or name.startswith('"name"'):
+                has_name = True
+                break
+
+        if not has_name:
+            findings.append(StandardFinding(
+                rule_name='vue-missing-name',
+                message='Component missing explicit name - harder to debug',
+                file_path=file,
+                line=1,
+                severity=Severity.LOW,
+                category='vue-maintainability',
+                confidence=Confidence.LOW,
+                cwe_id='CWE-1061'
+            ))
 
     return findings
 
 
-def _find_inefficient_computed(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_inefficient_computed(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find inefficient computed properties."""
     findings = []
 
@@ -431,12 +474,17 @@ def _find_inefficient_computed(cursor, vue_files: Set[str]) -> List[StandardFind
         FROM function_call_args f
         WHERE f.file IN ({file_placeholders})
           AND f.callee_function IN ({ops_placeholders})
-          AND (f.caller_function LIKE '%computed%'
-               OR f.caller_function LIKE '%get %')
+          AND f.caller_function IS NOT NULL
         ORDER BY f.file, f.line
     """, list(vue_files) + expensive_ops)
 
+    # Filter in Python for computed properties
+    expensive_computed = []
     for file, line, operation, computed_name in cursor.fetchall():
+        if 'computed' in computed_name or 'get ' in computed_name:
+            expensive_computed.append((file, line, operation, computed_name))
+
+    for file, line, operation, computed_name in expensive_computed:
         findings.append(StandardFinding(
             rule_name='vue-expensive-computed',
             message=f'Expensive operation {operation} in computed property',
@@ -451,7 +499,7 @@ def _find_inefficient_computed(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_complex_template_expressions(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_template_expressions(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find overly complex expressions in templates."""
     findings = []
 
@@ -489,7 +537,7 @@ def _find_complex_template_expressions(cursor, vue_files: Set[str]) -> List[Stan
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

@@ -5,11 +5,14 @@ including full tracebacks, while presenting clean error messages to users.
 All detailed debugging information is logged to .pf/error.log.
 """
 
+
 import click
 import traceback
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
+
+from collections.abc import Callable
 
 from .constants import PF_DIR, ERROR_LOG_FILE
 

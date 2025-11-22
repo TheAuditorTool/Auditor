@@ -23,6 +23,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--pattern", help="Search symbols by pattern (supports % wildcards like 'auth%')")
 @click.option("--category", help="Search by security category (jwt, oauth, password, sql, xss, auth)")
 @click.option("--search", help="Cross-table exploratory search (finds term across all tables)")
+@click.option("--list", "list_mode", help="List all symbols in file (symbols, functions, classes, imports, all)")
 @click.option("--show-callers", is_flag=True, help="Show who calls this symbol (control flow incoming)")
 @click.option("--show-callees", is_flag=True, help="Show what this symbol calls (control flow outgoing)")
 @click.option("--show-dependencies", is_flag=True, help="Show what this file imports (outgoing dependencies)")
@@ -41,7 +42,7 @@ from theauditor.utils.error_handler import handle_exceptions
               help="Output format: text (human), json (AI), tree (visual)")
 @click.option("--save", type=click.Path(), help="Save output to file (auto-creates parent dirs)")
 @handle_exceptions
-def query(symbol, file, api, component, variable, pattern, category, search,
+def query(symbol, file, api, component, variable, pattern, category, search, list_mode,
           show_callers, show_callees, show_dependencies, show_dependents,
           show_tree, show_hooks, show_data_deps, show_flow, show_taint_flow,
           show_api_coverage, type_filter, include_tables,
@@ -74,6 +75,16 @@ def query(symbol, file, api, component, variable, pattern, category, search,
             --file PATH        → Find in edges table (7.3k rows)
             --api ROUTE        → Find in api_endpoints table (185 rows)
             --component NAME   → Find in react_components table (1k rows)
+
+        Symbol canonicalization (CRITICAL - read this before screaming "no results"):
+            - ALL class/instance methods are indexed as ClassName.methodName
+              (e.g., AccountController.handleRequest). Property-assigned functions
+              and wrapped handlers follow the same Class.property pattern.
+            - Free functions keep their literal name, but still require an exact
+              match (case-sensitive).
+            - Command returns nothing if you pass a bare method name. Run
+              aud query --symbol handleRequest           # shows canonical spellings
+              then reuse the exact Name field in subsequent queries.
 
         Query Actions (what to show):
             --show-callers     → Who calls this? (function_call_args table)
@@ -334,6 +345,96 @@ def query(symbol, file, api, component, variable, pattern, category, search,
             # Backend: Find service calls
             aud query --symbol UserService.getById --show-callees
 
+    COMMON TASKS (FOR AI ASSISTANTS):
+
+        Task 1: List All Functions in a File
+            # Use --list mode with --file to enumerate symbols
+            aud query --file python_impl.py --list functions
+
+            # List all symbol types
+            aud query --file storage.py --list all
+
+            # List only classes
+            aud query --file auth.py --list classes
+
+            # Alternative: Direct SQL if --list unavailable
+            python -c "
+            import sqlite3
+            conn = sqlite3.connect('.pf/repo_index.db')
+            c = conn.cursor()
+            c.execute(\"SELECT name, type, line FROM symbols WHERE file LIKE '%python_impl.py%' ORDER BY line\")
+            for row in c.fetchall():
+                print(f'{row[0]} ({row[1]}) at line {row[2]}')
+            conn.close()
+            "
+
+        Task 2: Check If File Is Deprecated (Deadcode Analysis)
+            # First check if file is actively used
+            aud deadcode 2>&1 | grep python_impl.py
+
+            # If flagged, verify with import count
+            python -c "
+            import sqlite3
+            conn = sqlite3.connect('.pf/repo_index.db')
+            c = conn.cursor()
+            c.execute(\"SELECT COUNT(*) FROM edges WHERE target_file LIKE '%python_impl.py%'\")
+            print(f'Import count: {c.fetchone()[0]}')
+            conn.close()
+            "
+
+        Task 3: Find All Callers for Refactoring
+            # Step 1: Get exact symbol name (AI often guesses wrong)
+            aud query --pattern "extract_python%" --format json | jq '.[].name'
+
+            # Step 2: Use exact name to find callers
+            aud query --symbol "PythonExtractor.extract_functions" --show-callers
+
+        Task 4: Understand File Dependencies Before Moving
+            # What does this file import? (outgoing)
+            aud query --file src/utils/helper.ts --show-dependencies
+
+            # Who imports this file? (incoming)
+            aud query --file src/utils/helper.ts --show-dependents
+
+        Task 5: Trace Variable Data Flow
+            # Trace userToken through 3 levels of assignments
+            aud query --variable userToken --show-flow --depth 3
+
+            # Trace in specific file only
+            aud query --variable app --file backend/src/app.ts --show-flow
+
+        Task 6: Security Audit - Find Unprotected API Endpoints
+            # Show all endpoints with auth controls
+            aud query --show-api-coverage
+
+            # Filter to specific route
+            aud query --api "/users" --show-api-coverage
+
+            # Find unprotected endpoints (grep for OPEN)
+            aud query --show-api-coverage | grep "\[OPEN\]"
+
+        Task 7: Cross-Function Taint Analysis
+            # Find where validateUser's returns flow to
+            aud query --symbol validateUser --show-taint-flow
+
+            # See what variables a function reads/writes
+            aud query --symbol createApp --show-data-deps
+
+        Task 8: Pattern Search for Similar Symbols
+            # Find all auth-related functions
+            aud query --pattern "auth%" --type-filter function
+
+            # Find all validation functions
+            aud query --pattern "%validate%" --format json
+
+        Key Principle for AI:
+            - ALWAYS run `aud query --help` FIRST before using the tool
+            - DO NOT guess command syntax - read help to see actual options
+            - DO NOT hallucinate flags like --show-functions (doesn't exist)
+            - USE --list mode for enumeration (list all X in file Y)
+            - USE --show-callers/--show-callees for relationships (who calls X)
+            - FALLBACK to direct SQL if CLI doesn't support your use case
+
     OUTPUT FORMATS:
 
         TEXT FORMAT (default):
@@ -388,8 +489,8 @@ def query(symbol, file, api, component, variable, pattern, category, search,
     TROUBLESHOOTING:
 
         ERROR: "No .pf directory found"
-        CAUSE: Haven't run aud index yet
-        FIX: Run: aud index
+        CAUSE: Haven't run aud full yet
+        FIX: Run: aud full
         EXPLANATION: Query engine needs indexed database to work
 
         ERROR: "Graph database not found"
@@ -402,6 +503,8 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         FIX: Try: aud query --symbol foo (shows symbol info if exists)
         CAUSE 2: Database stale (code changed since last index)
         FIX: Run: aud index (regenerates database)
+        CAUSE 3: Provided unqualified method name (index stores ClassName.methodName)
+        FIX: Run: aud query --symbol handleRequest → copy exact Name field (e.g. AccountController.handleRequest)
 
         SYMPTOM: Slow queries (>50ms)
         CAUSE: Large project (100k+ LOC) + high depth (>3)
@@ -857,7 +960,7 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         click.echo("="*60, err=True)
         click.echo("\nContext queries require indexed data.", err=True)
         click.echo("\nPlease run:", err=True)
-        click.echo("    aud index", err=True)
+        click.echo("    aud full", err=True)
         click.echo("\nThen try again:", err=True)
         if symbol:
             click.echo(f"    aud query --symbol {symbol} --show-callers\n", err=True)
@@ -866,7 +969,7 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         raise click.Abort()
 
     # Validate at least one query target provided
-    if not any([symbol, file, api, component, variable, pattern, category, search, show_api_coverage]):
+    if not any([symbol, file, api, component, variable, pattern, category, search, show_api_coverage, list_mode]):
         click.echo("\n" + "="*60, err=True)
         click.echo("ERROR: No query target specified", err=True)
         click.echo("="*60, err=True)
@@ -879,6 +982,7 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         click.echo("    --pattern PATTERN   (search symbols by pattern)", err=True)
         click.echo("    --category CATEGORY (search by security category)", err=True)
         click.echo("    --search TERM       (cross-table exploratory search)", err=True)
+        click.echo("    --list TYPE         (list symbols: functions, classes, imports, all)", err=True)
         click.echo("    --show-api-coverage (query all API security coverage)", err=True)
         click.echo("\nExamples:", err=True)
         click.echo("    aud query --symbol authenticateUser --show-callers", err=True)
@@ -889,6 +993,7 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         click.echo("    aud query --pattern 'auth%' --type-filter function", err=True)
         click.echo("    aud query --category jwt --format json", err=True)
         click.echo("    aud query --search payment --include-tables symbols,findings", err=True)
+        click.echo("    aud query --file python_impl.py --list functions", err=True)
         click.echo("    aud query --show-api-coverage\n", err=True)
         raise click.Abort()
 
@@ -933,6 +1038,79 @@ def query(symbol, file, api, component, variable, pattern, category, search,
                 symbols = engine.find_symbol(symbol)
                 callers = engine.get_callers(symbol, depth=1)
                 results = {'symbol': symbols, 'callers': callers}
+
+        elif list_mode:
+            # NEW: List symbols in file (enumeration mode)
+            if not file:
+                click.echo("\nERROR: --list requires --file to be specified", err=True)
+                click.echo("Example: aud query --file python_impl.py --list functions\n", err=True)
+                raise click.Abort()
+
+            # Directly query symbols table for enumeration
+            db_path = Path.cwd() / ".pf" / "repo_index.db"
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Build query based on list_mode type
+            list_type = list_mode.lower()
+            if list_type == "all":
+                query = """
+                    SELECT name, type, line
+                    FROM symbols
+                    WHERE file LIKE ?
+                    ORDER BY line
+                """
+                cursor.execute(query, (f"%{file}%",))
+            elif list_type in ("functions", "function"):
+                query = """
+                    SELECT name, type, line
+                    FROM symbols
+                    WHERE file LIKE ? AND type = 'function'
+                    ORDER BY line
+                """
+                cursor.execute(query, (f"%{file}%",))
+            elif list_type in ("classes", "class"):
+                query = """
+                    SELECT name, type, line
+                    FROM symbols
+                    WHERE file LIKE ? AND type = 'class'
+                    ORDER BY line
+                """
+                cursor.execute(query, (f"%{file}%",))
+            elif list_type in ("imports", "import"):
+                query = """
+                    SELECT module_name, style, line
+                    FROM imports
+                    WHERE file LIKE ?
+                    ORDER BY line
+                """
+                cursor.execute(query, (f"%{file}%",))
+            else:
+                conn.close()
+                click.echo(f"\nERROR: Unknown list type: {list_type}", err=True)
+                click.echo("Valid types: functions, classes, imports, all\n", err=True)
+                raise click.Abort()
+
+            rows = cursor.fetchall()
+            conn.close()
+
+            # Format results
+            if list_type in ("imports", "import"):
+                results = {
+                    'type': 'list',
+                    'list_mode': list_type,
+                    'file': file,
+                    'count': len(rows),
+                    'items': [{'module': row[0], 'style': row[1], 'line': row[2]} for row in rows]
+                }
+            else:
+                results = {
+                    'type': 'list',
+                    'list_mode': list_type,
+                    'file': file,
+                    'count': len(rows),
+                    'items': [{'name': row[0], 'type': row[1], 'line': row[2]} for row in rows]
+                }
 
         elif file:
             # File dependency queries

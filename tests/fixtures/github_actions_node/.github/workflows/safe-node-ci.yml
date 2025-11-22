@@ -1,0 +1,47 @@
+name: Safe Node CI
+
+# SAFE: Using pull_request trigger (not pull_request_target)
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+# SAFE: Minimal read-only permissions
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SAFE: Pinned to specific SHA
+      - uses: actions/setup-node@5e33196f251b895df6f2a2e8e2d68e2c74b49e6e  # v4.0.1
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      # SAFE: No secrets in PR context
+      - run: npm test
+
+      - run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@5e33196f251b895df6f2a2e8e2d68e2c74b49e6e  # v4.0.1
+        with:
+          node-version: '20'
+
+      - run: npm ci
+      - run: npm run build
+
+      # SAFE: Artifact used only for verification, not deployment
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: dist/

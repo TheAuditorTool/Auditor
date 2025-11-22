@@ -16,6 +16,7 @@ Database Tables Used:
 - package_configs: Declared dependencies from package files
 """
 
+
 import sqlite3
 import json
 from typing import List, Set
@@ -87,7 +88,7 @@ ALL_STDLIB = PYTHON_STDLIB | NODEJS_STDLIB
 # MAIN DETECTION FUNCTION
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect packages imported in code but not declared in package files.
 
     Args:
@@ -133,7 +134,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_declared_dependencies(cursor) -> Set[str]:
+def _get_declared_dependencies(cursor) -> set[str]:
     """Extract all declared package names from package_configs table.
 
     Queries package_configs and parses JSON dependency fields.
@@ -236,8 +237,8 @@ def _normalize_package_name(package: str) -> str:
 def _find_ghost_dependencies(
     cursor,
     imported_packages: dict,
-    declared_deps: Set[str]
-) -> List[StandardFinding]:
+    declared_deps: set[str]
+) -> list[StandardFinding]:
     """Find packages that are imported but not declared.
 
     Args:

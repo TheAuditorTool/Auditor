@@ -1,0 +1,17 @@
+{
+  "name": "node-vue-app-fixture",
+  "version": "1.0.0",
+  "description": "Vue 3 SPA fixture for testing Composition API, reactive patterns, computed properties, and taint flows",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "3.5.24",
+    "axios": "1.13.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.2",
+    "vite": "7.2.2"
+  }
+}

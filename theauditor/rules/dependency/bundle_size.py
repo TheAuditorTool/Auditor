@@ -18,6 +18,7 @@ Database Tables Used:
 - package_configs: Installed dependencies
 """
 
+
 import sqlite3
 from typing import List, Dict, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
@@ -61,7 +62,7 @@ FULL_IMPORT_PATTERNS = frozenset([
 ])
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect full-package imports of large libraries in frontend code.
 
     Checks import_styles table for full imports of known large packages that
@@ -98,7 +99,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                            where=f"package IN ({placeholders})")
         cursor.execute(query, list(LARGE_PACKAGES))
 
-        seen_issues: Set[str] = set()  # Deduplicate findings
+        seen_issues: set[str] = set()  # Deduplicate findings
 
         for file_path, line, package, import_style in cursor.fetchall():
             # Check if this is a full-package import

@@ -28,11 +28,46 @@ Usage:
     deps = engine.get_file_dependencies("src/auth.ts")
 """
 
+
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, asdict
 from collections import deque
+
+
+# Comprehensive whitelist of valid tables to prevent SQL injection
+# This includes all tables that might be queried dynamically
+VALID_TABLES = {
+    # Core tables
+    'symbols', 'function_call_args', 'assignments', 'api_endpoints',
+    'findings_consolidated', 'refs', 'function_calls',
+    # Pattern tables
+    'jwt_patterns', 'oauth_patterns', 'password_patterns', 'session_patterns',
+    'sql_queries', 'orm_queries',
+    # Component tables
+    'react_components', 'python_routes', 'js_routes',
+    # Add more as needed from the 250 tables in TABLES registry
+}
+
+
+def validate_table_name(table: str) -> str:
+    """Validate table name against whitelist to prevent SQL injection.
+
+    Args:
+        table: Table name to validate
+
+    Returns:
+        The validated table name
+
+    Raises:
+        ValueError: If table name is not whitelisted
+    """
+    if table not in VALID_TABLES:
+        # For dynamic queries, we need to be extra careful
+        # Tables should only come from internal sources
+        raise ValueError(f"Invalid table name: {table}")
+    return table
 
 
 @dataclass
@@ -54,9 +89,9 @@ class SymbolInfo:
     file: str  # CRITICAL: maps from symbols.path column!
     line: int
     end_line: int
-    signature: Optional[str] = None
-    is_exported: Optional[bool] = False
-    framework_type: Optional[str] = None
+    signature: str | None = None
+    is_exported: bool | None = False
+    framework_type: str | None = None
 
 
 @dataclass
@@ -72,9 +107,9 @@ class CallSite:
     """
     caller_file: str
     caller_line: int
-    caller_function: Optional[str]
+    caller_function: str | None
     callee_function: str
-    arguments: List[str]
+    arguments: list[str]
 
 
 @dataclass
@@ -92,7 +127,7 @@ class Dependency:
     target_file: str
     import_type: str
     line: int
-    symbols: Optional[List[str]] = None
+    symbols: list[str] | None = None
 
 
 class CodeQueryEngine:
@@ -140,7 +175,7 @@ class CodeQueryEngine:
         if not repo_db_path.exists():
             raise FileNotFoundError(
                 f"Database not found: {repo_db_path}\n"
-                "Run 'aud index' first to build the database."
+                "Run 'aud full' first to build the database."
             )
 
         # Connect to repo_index.db (required)
@@ -155,7 +190,7 @@ class CodeQueryEngine:
         else:
             self.graph_db = None  # Graph commands not run yet
 
-    def find_symbol(self, name: str, type_filter: Optional[str] = None) -> List[SymbolInfo]:
+    def find_symbol(self, name: str, type_filter: str | None = None) -> list[SymbolInfo]:
         """Find symbol definitions by exact name match.
 
         Queries both symbols and symbols_jsx tables for React/JSX support.
@@ -209,7 +244,7 @@ class CodeQueryEngine:
 
         return results
 
-    def get_callers(self, symbol_name: str, depth: int = 1) -> List[CallSite]:
+    def get_callers(self, symbol_name: str, depth: int = 1) -> list[CallSite]:
         """Find who calls a symbol (with optional transitive search).
 
         Direct query on function_call_args table.
@@ -291,7 +326,7 @@ class CodeQueryEngine:
 
         return all_callers
 
-    def get_callees(self, symbol_name: str) -> List[CallSite]:
+    def get_callees(self, symbol_name: str) -> list[CallSite]:
         """Find what a symbol calls.
 
         Query function_call_args WHERE caller_function matches.
@@ -342,7 +377,7 @@ class CodeQueryEngine:
         self,
         file_path: str,
         direction: str = 'both'
-    ) -> Dict[str, List[Dependency]]:
+    ) -> dict[str, list[Dependency]]:
         """Get import dependencies for a file.
 
         Uses graphs.db edges table with graph_type='import'.
@@ -409,7 +444,7 @@ class CodeQueryEngine:
 
         return result
 
-    def get_api_handlers(self, route_pattern: str) -> List[Dict]:
+    def get_api_handlers(self, route_pattern: str) -> list[dict]:
         """Find API endpoint handlers.
 
         Direct query on api_endpoints table.
@@ -453,7 +488,7 @@ class CodeQueryEngine:
             results.append(row_dict)
         return results
 
-    def get_component_tree(self, component_name: str) -> Dict:
+    def get_component_tree(self, component_name: str) -> dict:
         """Get React component hierarchy.
 
         Uses:
@@ -515,7 +550,7 @@ class CodeQueryEngine:
         except sqlite3.OperationalError:
             return {'error': 'react_components table not found. Project may not use React.'}
 
-    def get_data_dependencies(self, symbol_name: str) -> Dict[str, List[Dict]]:
+    def get_data_dependencies(self, symbol_name: str) -> dict[str, list[dict]]:
         """Get data dependencies (reads/writes) for a function.
 
         Uses assignments table (HAS in_function column).
@@ -597,7 +632,7 @@ class CodeQueryEngine:
         var_name: str,
         from_file: str,
         depth: int = 3
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Trace variable through def-use chains using assignment_sources.
 
         Uses BFS traversal through assignment_sources junction table to find
@@ -692,7 +727,7 @@ class CodeQueryEngine:
                 }]
             raise  # Re-raise unexpected errors
 
-    def get_cross_function_taint(self, function_name: str) -> List[Dict]:
+    def get_cross_function_taint(self, function_name: str) -> list[dict]:
         """Track variables returned from function and assigned elsewhere.
 
         This is ADVANCED DATA FLOW: combines function_return_sources with assignment_sources
@@ -766,7 +801,7 @@ class CodeQueryEngine:
                 }]
             raise  # Re-raise unexpected errors
 
-    def get_api_security_coverage(self, route_pattern: Optional[str] = None) -> List[Dict]:
+    def get_api_security_coverage(self, route_pattern: str | None = None) -> list[dict]:
         """Find API endpoints and their authentication controls via junction table.
 
         Uses api_endpoint_controls junction table to show which auth mechanisms
@@ -860,12 +895,12 @@ class CodeQueryEngine:
 
     def get_findings(
         self,
-        file_path: Optional[str] = None,
-        tool: Optional[str] = None,
-        severity: Optional[str] = None,
-        rule: Optional[str] = None,
-        category: Optional[str] = None
-    ) -> List[Dict]:
+        file_path: str | None = None,
+        tool: str | None = None,
+        severity: str | None = None,
+        rule: str | None = None,
+        category: str | None = None
+    ) -> list[dict]:
         """Query findings from findings_consolidated table.
 
         Direct SQL query on findings table instead of reading chunked JSON files.
@@ -976,9 +1011,9 @@ class CodeQueryEngine:
     def pattern_search(
         self,
         pattern: str,
-        type_filter: Optional[str] = None,
+        type_filter: str | None = None,
         limit: int = 100
-    ) -> List[SymbolInfo]:
+    ) -> list[SymbolInfo]:
         """Search symbols by pattern (LIKE query).
 
         Faster than Compass's vector similarity (no ML, no CUDA).
@@ -1038,7 +1073,7 @@ class CodeQueryEngine:
 
         return results[:limit]  # Ensure total limit
 
-    def category_search(self, category: str, limit: int = 200) -> Dict[str, List[Dict]]:
+    def category_search(self, category: str, limit: int = 200) -> dict[str, list[dict]]:
         """Search across pattern tables by security category.
 
         NO embeddings, NO inference - direct queries on indexed pattern tables.
@@ -1078,12 +1113,14 @@ class CodeQueryEngine:
 
         for table in tables:
             try:
-                cursor.execute(f"SELECT * FROM {table} LIMIT {limit}")
+                # Validate table name to prevent SQL injection
+                validated_table = validate_table_name(table)
+                cursor.execute(f"SELECT * FROM {validated_table} LIMIT {limit}")
                 rows = cursor.fetchall()
                 if rows:
                     results[table] = [dict(row) for row in rows]
-            except sqlite3.OperationalError:
-                # Table doesn't exist, skip
+            except (sqlite3.OperationalError, ValueError):
+                # Table doesn't exist or invalid table name, skip
                 continue
 
         # Also search findings by category
@@ -1108,9 +1145,9 @@ class CodeQueryEngine:
     def cross_table_search(
         self,
         search_term: str,
-        include_tables: Optional[List[str]] = None,
+        include_tables: list[str] | None = None,
         limit: int = 50
-    ) -> Dict[str, List[Dict]]:
+    ) -> dict[str, list[dict]]:
         """Search across multiple tables (exploratory analysis).
 
         Better than Compass's "semantic search" because we return EXACT matches
@@ -1152,8 +1189,11 @@ class CodeQueryEngine:
         # Search each table
         for table in include_tables:
             try:
+                # Validate table name to prevent SQL injection
+                validated_table = validate_table_name(table)
+
                 # Get table columns
-                cursor.execute(f"PRAGMA table_info({table})")
+                cursor.execute(f"PRAGMA table_info({validated_table})")
                 columns = [row[1] for row in cursor.fetchall()]
 
                 # Find searchable text columns
@@ -1171,15 +1211,15 @@ class CodeQueryEngine:
                 params = [f"%{search_term}%"] * len(text_columns)
 
                 # Execute query
-                query = f"SELECT * FROM {table} WHERE {where_clause} LIMIT {limit}"
+                query = f"SELECT * FROM {validated_table} WHERE {where_clause} LIMIT {limit}"
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
 
                 if rows:
                     results[table] = [dict(row) for row in rows]
 
-            except sqlite3.OperationalError as e:
-                # Table doesn't exist or query error, skip
+            except (sqlite3.OperationalError, ValueError) as e:
+                # Table doesn't exist, invalid table name, or query error, skip
                 continue
 
         return results

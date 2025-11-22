@@ -10,6 +10,7 @@ Follows schema contract architecture (v1.1+):
 - Proper confidence levels
 """
 
+
 import sqlite3
 from typing import List, Set
 from dataclasses import dataclass
@@ -146,7 +147,7 @@ class AsyncConcurrencyAnalyzer:
         self.patterns = ConcurrencyPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -190,7 +191,7 @@ class AsyncConcurrencyAnalyzer:
             # This will raise ValueError if table doesn't exist
             get_table_schema(table_name)
 
-    def _validate_columns(self, table_name: str, columns: List[str]):
+    def _validate_columns(self, table_name: str, columns: list[str]):
         """Validate columns exist in table schema.
 
         Args:
@@ -276,17 +277,16 @@ class AsyncConcurrencyAnalyzer:
         # Validate columns used in query
         self._validate_columns('assignments', ['file', 'line', 'target_var', 'in_function', 'source_expr'])
 
-        # Find assignments to class/instance variables
-        self.cursor.execute("""
-            SELECT DISTINCT a.file, a.line, a.target_var, a.in_function
-            FROM assignments a
-            WHERE (a.target_var LIKE 'self.%'
-                   OR a.target_var LIKE 'cls.%'
-                   OR a.target_var LIKE '__class__.%')
-            ORDER BY a.file, a.line
-        """)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        shared_state_assignments = self.cursor.fetchall()
+        # Find assignments to class/instance variables - fetch all, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'in_function'],
+                           order_by="file, line")
+        self.cursor.execute(query)
+
+        # Filter for class/instance variables in Python
+        shared_state_assignments = []
+        for file, line, var, function in self.cursor.fetchall():
+            if var.startswith('self.') or var.startswith('cls.') or var.startswith('__class__.'):
+                shared_state_assignments.append((file, line, var, function))
 
         for file, line, var, function in shared_state_assignments:
             # Check for lock protection
@@ -307,19 +307,20 @@ class AsyncConcurrencyAnalyzer:
                     cwe_id='CWE-362'
                 ))
 
-        # Check for counter operations
-        self.cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE (a.source_expr LIKE '%+= 1%'
-                   OR a.source_expr LIKE '%-= 1%'
-                   OR a.source_expr LIKE '%+= %'
-                   OR a.source_expr LIKE '%-= %')
-              AND (a.target_var LIKE 'self.%'
-                   OR a.target_var LIKE 'cls.%')
-        """)
+        # Check for counter operations - fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+        self.cursor.execute(query)
+
+        # Counter operation patterns
+        counter_ops = frozenset(['+= 1', '-= 1', '+= ', '-= '])
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check for counter operations in Python
+            if not expr or not any(op in expr for op in counter_ops):
+                continue
+            # Check for shared state variables
+            if not (var.startswith('self.') or var.startswith('cls.')):
+                continue
             self.findings.append(StandardFinding(
                 rule_name='python-unprotected-increment',
                 message=f'Unprotected counter operation on "{var}"',
@@ -366,31 +367,37 @@ class AsyncConcurrencyAnalyzer:
         # Validate columns used in query
         self._validate_columns('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_expr'])
 
-        # First find functions that use await (likely async functions)
-        self.cursor.execute("""
-            SELECT DISTINCT caller_function
-            FROM function_call_args
-            WHERE argument_expr LIKE '%await%'
-               OR callee_function LIKE '%await%'
-        """)
-        async_functions = {row[0] for row in self.cursor.fetchall() if row[0]}
+        # Find functions that use await (likely async functions) - fetch all, filter in Python
+        query = build_query('function_call_args', ['caller_function', 'argument_expr', 'callee_function'])
+        self.cursor.execute(query)
+
+        # Filter for await patterns in Python
+        async_functions = set()
+        for caller, arg_expr, callee in self.cursor.fetchall():
+            if caller and ((arg_expr and 'await' in arg_expr) or 'await' in callee):
+                async_functions.add(caller)
 
         if not async_functions:
             return
 
-        # Check calls to async functions without await
-        placeholders = ','.join('?' * len(async_functions))
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, caller_function
-            FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-              AND argument_expr NOT LIKE '%await%'
-              AND callee_function NOT IN ('asyncio.create_task', 'asyncio.ensure_future',
-                                          'create_task', 'ensure_future', 'loop.create_task')
-            ORDER BY file, line
-        """, list(async_functions))
+        # Check calls to async functions without await - fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
-        for file, line, func, caller in self.cursor.fetchall():
+        # Async task creation functions (don't need await)
+        task_creators = frozenset(['asyncio.create_task', 'asyncio.ensure_future', 'create_task', 'ensure_future', 'loop.create_task'])
+
+        for file, line, func, caller, arg_expr in self.cursor.fetchall():
+            # Check if calling an async function
+            if func not in async_functions:
+                continue
+            # Check if missing await
+            if arg_expr and 'await' in arg_expr:
+                continue  # Has await, skip
+            # Skip task creators
+            if func in task_creators:
+                continue
             # Only flag if caller is also async
             if caller in async_functions:
                 self.findings.append(StandardFinding(
@@ -581,27 +588,36 @@ class AsyncConcurrencyAnalyzer:
         self._validate_columns('cfg_blocks', ['file', 'block_type', 'start_line', 'end_line'])
         self._validate_columns('assignments', ['file', 'line', 'target_var', 'source_expr'])
 
-        # Find loops with retry variables
-        retry_placeholders = ','.join('?' * len(self.patterns.RETRY_VARIABLES))
+        # Find loops with retry variables - fetch loops and assignments separately, join in Python
+        # Get all loops
+        query = build_query('cfg_blocks', ['file', 'start_line', 'end_line'],
+                           where="block_type IN ('loop', 'while_loop', 'for_loop')")
+        self.cursor.execute(query)
+        all_loops = self.cursor.fetchall()
 
-        self.cursor.execute(f"""
-            SELECT DISTINCT cb.file, cb.start_line, cb.end_line
-            FROM cfg_blocks cb
-            WHERE cb.block_type IN ('loop', 'while_loop', 'for_loop')
-              AND EXISTS (
-                  SELECT 1 FROM assignments a
-                  WHERE a.file = cb.file
-                    AND a.line >= cb.start_line
-                    AND a.line <= cb.end_line
-                    AND (
-                        a.target_var IN ({retry_placeholders})
-                        OR a.source_expr LIKE '%retry%'
-                        OR a.source_expr LIKE '%attempt%'
-                    )
-              )
-        """, list(self.patterns.RETRY_VARIABLES))
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        retry_loops = self.cursor.fetchall()
+        # Get all assignments
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+        self.cursor.execute(query)
+        all_assignments = self.cursor.fetchall()
+
+        # Find loops with retry patterns in Python
+        retry_loops = []
+        for file, start_line, end_line in all_loops:
+            has_retry = False
+            for assign_file, assign_line, target_var, source_expr in all_assignments:
+                if assign_file != file or not (start_line <= assign_line <= end_line):
+                    continue
+
+                # Check for retry patterns
+                if target_var in self.patterns.RETRY_VARIABLES:
+                    has_retry = True
+                    break
+                if source_expr and ('retry' in source_expr.lower() or 'attempt' in source_expr.lower()):
+                    has_retry = True
+                    break
+
+            if has_retry:
+                retry_loops.append((file, start_line, end_line))
 
         for file, start_line, end_line in retry_loops:
             # Check for backoff patterns
@@ -628,19 +644,19 @@ class AsyncConcurrencyAnalyzer:
 
         Schema: assignments(file, line, target_var, source_expr, source_vars, in_function)
         """
-        # Check for backoff patterns in assignments
-        for pattern in self.patterns.BACKOFF_PATTERNS:
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM assignments
-                WHERE file = ?
-                  AND line >= ?
-                  AND line <= ?
-                  AND source_expr LIKE ?
-                LIMIT 1
-            """, [file, start, end, f'%{pattern}%'])
+        # Fetch assignments in range, filter in Python
+        query = build_query('assignments', ['source_expr'],
+                           where="file = ? AND line >= ? AND line <= ?")
+        self.cursor.execute(query, (file, start, end))
 
-            if self.cursor.fetchone()[0] > 0:
-                return True
+        # Check for backoff patterns in Python
+        for (source_expr,) in self.cursor.fetchall():
+            if not source_expr:
+                continue
+            source_lower = source_expr.lower()
+            for pattern in self.patterns.BACKOFF_PATTERNS:
+                if pattern.lower() in source_lower:
+                    return True
 
         return False
 
@@ -674,20 +690,21 @@ class AsyncConcurrencyAnalyzer:
         self._validate_columns('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_expr'])
         self._validate_columns('assignments', ['file', 'line', 'target_var'])
 
-        # Check lock without timeout
-        lock_placeholders = ','.join('?' * len(self.patterns.LOCK_METHODS))
+        # Check lock without timeout - fetch lock method calls, filter in Python
+        lock_methods_list = list(self.patterns.LOCK_METHODS)
+        lock_placeholders = ','.join('?' * len(lock_methods_list))
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({lock_placeholders})
-              AND (argument_expr IS NULL
-                   OR (argument_expr NOT LIKE '%timeout%'
-                       AND argument_expr NOT LIKE '%blocking%'))
-            ORDER BY file, line
-        """, list(self.patterns.LOCK_METHODS))
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"callee_function IN ({lock_placeholders})",
+                           order_by="file, line")
+        self.cursor.execute(query, lock_methods_list)
 
         for file, line, lock_func, args in self.cursor.fetchall():
+            # Check for timeout/blocking keywords in Python
+            if args:
+                args_lower = args.lower()
+                if 'timeout' in args_lower or 'blocking' in args_lower:
+                    continue  # Has timeout config, skip
             if lock_func in ['acquire', 'Lock', 'RLock', 'Semaphore']:
                 self.findings.append(StandardFinding(
                     rule_name='python-lock-no-timeout',
@@ -754,7 +771,7 @@ class AsyncConcurrencyAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python async and concurrency issues.
 
     Args:

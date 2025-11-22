@@ -4,6 +4,7 @@ This module orchestrates all XSS analyzers based on detected frameworks.
 Dramatically reduces false positives by understanding framework context.
 """
 
+
 import sqlite3
 from typing import List
 from pathlib import Path
@@ -19,7 +20,7 @@ from .dom_xss_analyze import find_dom_xss
 from .template_xss_analyze import find_template_injection
 
 
-def find_all_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_all_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Run all XSS analyzers based on detected frameworks.
 
     This is the main entry point for XSS detection.

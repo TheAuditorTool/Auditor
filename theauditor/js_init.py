@@ -1,5 +1,6 @@
 """JavaScript/TypeScript project initialization."""
 
+
 import json
 from pathlib import Path
 
@@ -101,7 +102,7 @@ def add_auditor_hooks(path: str) -> dict[str, str]:
     
     try:
         # Read existing package.json
-        with open(package_path, 'r') as f:
+        with open(package_path) as f:
             package_data = json.load(f)
         
         # Ensure scripts object exists

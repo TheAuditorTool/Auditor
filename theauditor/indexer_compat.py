@@ -7,6 +7,7 @@ IMPORTANT: New code should import from theauditor.indexer package directly:
     from theauditor.indexer import IndexerOrchestrator
 """
 
+
 import json
 import sqlite3
 import time
@@ -38,7 +39,7 @@ __all__ = [
 ]
 
 
-def extract_imports(content: str, file_ext: str) -> List[tuple]:
+def extract_imports(content: str, file_ext: str) -> list[tuple]:
     """Extract import statements - DEPRECATED backward compatibility wrapper.
 
     WARNING: This function is deprecated and returns empty results.
@@ -55,7 +56,7 @@ def extract_imports(content: str, file_ext: str) -> List[tuple]:
     return []
 
 
-def extract_routes(content: str) -> List[tuple]:
+def extract_routes(content: str) -> list[tuple]:
     """Extract route definitions - backward compatibility wrapper."""
     routes = []
     for pattern in ROUTE_PATTERNS:
@@ -70,7 +71,7 @@ def extract_routes(content: str) -> List[tuple]:
     return routes
 
 
-def extract_sql_objects(content: str) -> List[tuple]:
+def extract_sql_objects(content: str) -> list[tuple]:
     """Extract SQL object definitions - backward compatibility wrapper."""
     objects = []
     for pattern in SQL_PATTERNS:
@@ -96,7 +97,7 @@ def extract_sql_objects(content: str) -> List[tuple]:
     return objects
 
 
-def extract_sql_queries(content: str) -> List[dict]:
+def extract_sql_queries(content: str) -> list[dict]:
     """Extract SQL queries - DEPRECATED backward compatibility wrapper.
 
     WARNING: This function is deprecated and returns empty results.
@@ -118,8 +119,8 @@ def extract_sql_queries(content: str) -> List[dict]:
 def walk_directory(
     root_path: Path, 
     follow_symlinks: bool = False, 
-    exclude_patterns: Optional[List[str]] = None
-) -> tuple[List[dict], Dict[str, Any]]:
+    exclude_patterns: list[str] | None = None
+) -> tuple[list[dict], dict[str, Any]]:
     """Walk directory and collect file information - backward compatibility wrapper.
     
     Args:
@@ -137,10 +138,10 @@ def walk_directory(
 
 def populate_database(
     conn: sqlite3.Connection,
-    files: List[dict],
+    files: list[dict],
     root_path: Path,
     batch_size: int = DEFAULT_BATCH_SIZE
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Populate SQLite database - backward compatibility wrapper.
     
     Args:
@@ -171,8 +172,8 @@ def build_index(
     print_stats: bool = False,
     dry_run: bool = False,
     follow_symlinks: bool = False,
-    exclude_patterns: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    exclude_patterns: list[str] | None = None,
+) -> dict[str, Any]:
     """Build repository index - main entry point for backward compatibility.
     
     Args:

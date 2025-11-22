@@ -6,9 +6,14 @@ JavaScript modules from the javascript/ directory and assembling them into
 complete batch processing scripts.
 
 Architecture (Phase 5 - Extraction-First, Domain-Separated):
-- javascript/core_ast_extractors.js: Foundation extractors (imports, functions, classes, etc.)
+- javascript/core_language.js: Language structure extractors (functions, classes, scope)
+- javascript/data_flow.js: Data flow extractors (assignments, calls, returns, taint)
+- javascript/module_framework.js: Module/framework extractors (imports, env vars, ORM)
 - javascript/security_extractors.js: Security pattern detection (ORM, API endpoints, etc.)
-- javascript/framework_extractors.js: Framework patterns (React components, hooks, etc.)
+- javascript/framework_extractors.js: Framework patterns (React components, hooks, Vue)
+- javascript/sequelize_extractors.js: Sequelize ORM model extraction
+- javascript/bullmq_extractors.js: BullMQ job queue extraction
+- javascript/angular_extractors.js: Angular framework extraction
 - javascript/cfg_extractor.js: Control flow graph extraction
 - javascript/batch_templates.js: ES Module and CommonJS batch scaffolding
 
@@ -18,7 +23,7 @@ the batch templates via simple string concatenation (no f-string placeholders).
 Workflow:
 1. Python calls get_batch_helper(module_type)
 2. Orchestrator reads javascript/*.js files from disk
-3. Concatenates: core → security → framework → cfg → batch_template
+3. Concatenates: core → security → framework → sequelize → bullmq → angular → cfg → batch_template
 4. Returns complete JavaScript program as string
 5. Python writes to temp file and executes via Node.js subprocess
 
@@ -26,15 +31,21 @@ This replaces the old Phase 4 architecture where all JavaScript was embedded as
 Python string constants with f-string injection points.
 """
 
+
 from pathlib import Path
 from typing import Literal
 
 
 # Module-level cache for JavaScript file contents (loaded once on first use)
 _JS_CACHE = {
-    'core_ast_extractors': None,
+    'core_language': None,
+    'data_flow': None,
+    'module_framework': None,
     'security_extractors': None,
     'framework_extractors': None,
+    'sequelize_extractors': None,
+    'bullmq_extractors': None,
+    'angular_extractors': None,
     'cfg_extractor': None,
     'batch_es_module': None,
     'batch_commonjs': None
@@ -70,11 +81,23 @@ def _load_javascript_modules():
             f"  {js_dir}/batch_templates.js"
         )
 
-    # Load core AST extractors (foundation layer)
-    core_path = js_dir / 'core_ast_extractors.js'
-    if not core_path.exists():
-        raise FileNotFoundError(f"Missing core AST extractors: {core_path}")
-    _JS_CACHE['core_ast_extractors'] = core_path.read_text(encoding='utf-8')
+    # Load core language extractors (language structure layer)
+    core_lang_path = js_dir / 'core_language.js'
+    if not core_lang_path.exists():
+        raise FileNotFoundError(f"Missing core language extractors: {core_lang_path}")
+    _JS_CACHE['core_language'] = core_lang_path.read_text(encoding='utf-8')
+
+    # Load data flow extractors (data flow & taint layer)
+    data_flow_path = js_dir / 'data_flow.js'
+    if not data_flow_path.exists():
+        raise FileNotFoundError(f"Missing data flow extractors: {data_flow_path}")
+    _JS_CACHE['data_flow'] = data_flow_path.read_text(encoding='utf-8')
+
+    # Load module/framework extractors (integration layer)
+    module_fw_path = js_dir / 'module_framework.js'
+    if not module_fw_path.exists():
+        raise FileNotFoundError(f"Missing module/framework extractors: {module_fw_path}")
+    _JS_CACHE['module_framework'] = module_fw_path.read_text(encoding='utf-8')
 
     # Load security extractors (SAST patterns)
     security_path = js_dir / 'security_extractors.js'
@@ -82,11 +105,29 @@ def _load_javascript_modules():
         raise FileNotFoundError(f"Missing security extractors: {security_path}")
     _JS_CACHE['security_extractors'] = security_path.read_text(encoding='utf-8')
 
-    # Load framework extractors (React, TypeScript, etc.)
+    # Load framework extractors (React, Vue, TypeScript, etc.)
     framework_path = js_dir / 'framework_extractors.js'
     if not framework_path.exists():
         raise FileNotFoundError(f"Missing framework extractors: {framework_path}")
     _JS_CACHE['framework_extractors'] = framework_path.read_text(encoding='utf-8')
+
+    # Load Sequelize ORM extractors
+    sequelize_path = js_dir / 'sequelize_extractors.js'
+    if not sequelize_path.exists():
+        raise FileNotFoundError(f"Missing Sequelize extractors: {sequelize_path}")
+    _JS_CACHE['sequelize_extractors'] = sequelize_path.read_text(encoding='utf-8')
+
+    # Load BullMQ job queue extractors
+    bullmq_path = js_dir / 'bullmq_extractors.js'
+    if not bullmq_path.exists():
+        raise FileNotFoundError(f"Missing BullMQ extractors: {bullmq_path}")
+    _JS_CACHE['bullmq_extractors'] = bullmq_path.read_text(encoding='utf-8')
+
+    # Load Angular framework extractors
+    angular_path = js_dir / 'angular_extractors.js'
+    if not angular_path.exists():
+        raise FileNotFoundError(f"Missing Angular extractors: {angular_path}")
+    _JS_CACHE['angular_extractors'] = angular_path.read_text(encoding='utf-8')
 
     # Load CFG extractor
     cfg_path = js_dir / 'cfg_extractor.js'
@@ -136,9 +177,12 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
     Assembles a complete JavaScript batch processing script by combining:
     1. Core AST extractors (foundation - imports, functions, classes, etc.)
     2. Security extractors (SAST patterns - ORM queries, API endpoints, etc.)
-    3. Framework extractors (React components, hooks, etc.)
-    4. CFG extraction function (extractCFG)
-    5. Batch template scaffold (main function, error handling, etc.)
+    3. Framework extractors (React components, hooks, Vue)
+    4. Sequelize extractors (ORM models and relationships)
+    5. BullMQ extractors (job queues and workers)
+    6. Angular extractors (components, services, modules)
+    7. CFG extraction function (extractCFG)
+    8. Batch template scaffold (main function, error handling, etc.)
 
     The assembly is done via simple string concatenation - the JavaScript files
     are loaded from disk and prepended to the batch template. No f-string
@@ -147,6 +191,7 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
     Assembly order is important:
     - Core must come first (foundation layer)
     - Security/Framework depend on core extractors
+    - Sequelize/BullMQ/Angular depend on core extractors
     - CFG extraction is independent
     - Batch template orchestrates everything
 
@@ -168,7 +213,7 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
         >>> subprocess.run(['node', str(temp_path), ...])
     """
     # Load JavaScript modules from disk (cached after first call)
-    if _JS_CACHE['core_ast_extractors'] is None:
+    if _JS_CACHE['core_language'] is None:
         _load_javascript_modules()
 
     # Select the appropriate batch template
@@ -180,14 +225,24 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
         raise ValueError(f"Invalid module_type: {module_type}. Expected 'module' or 'commonjs'")
 
     # Assemble the complete script via string concatenation
-    # Order: core → security → framework → cfg → batch_template
+    # Order: core → security → framework → sequelize → bullmq → angular → cfg → batch_template
     # This ensures all functions are defined before the main() function tries to call them
     assembled_script = (
-        _JS_CACHE['core_ast_extractors'] +
+        _JS_CACHE['core_language'] +
+        '\n\n' +
+        _JS_CACHE['data_flow'] +
+        '\n\n' +
+        _JS_CACHE['module_framework'] +
         '\n\n' +
         _JS_CACHE['security_extractors'] +
         '\n\n' +
         _JS_CACHE['framework_extractors'] +
+        '\n\n' +
+        _JS_CACHE['sequelize_extractors'] +
+        '\n\n' +
+        _JS_CACHE['bullmq_extractors'] +
+        '\n\n' +
+        _JS_CACHE['angular_extractors'] +
         '\n\n' +
         _JS_CACHE['cfg_extractor'] +
         '\n\n' +

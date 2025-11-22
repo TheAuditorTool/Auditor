@@ -13,6 +13,7 @@ Database Tables Used:
 - package_configs: Dependency version specifications
 """
 
+
 import sqlite3
 import json
 from typing import List
@@ -30,7 +31,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect dependencies with suspicious version specifications.
 
     Args:
@@ -66,7 +67,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_versions(file_path: str, deps_json: str, is_dev: bool) -> List[StandardFinding]:
+def _check_versions(file_path: str, deps_json: str, is_dev: bool) -> list[StandardFinding]:
     """Check dependency versions for suspicious patterns.
 
     Args:

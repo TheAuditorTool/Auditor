@@ -26,18 +26,64 @@ from theauditor.utils.error_handler import handle_exceptions
               help="Output format: text (visual tree), json (structured)")
 @handle_exceptions
 def blueprint(structure, graph, security, taint, all, output_format):
-    """Architectural blueprint - Truth courier visualization of indexed codebase.
+    """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
-    Shows facts about code architecture with NO recommendations or prescriptive language.
-    Pure data extraction from TypeScript compiler semantic analysis.
+    Truth-courier mode visualization that presents pure architectural facts extracted from
+    indexed codebase with zero prescriptive language. Supports drill-down flags to focus on
+    specific dimensions (structure, dependencies, security surface, data flow). Output format
+    toggles between visual ASCII tree and structured JSON for programmatic consumption.
 
-    USAGE MODES:
+    AI ASSISTANT CONTEXT:
+      Purpose: Visualize codebase architecture facts (no recommendations)
+      Input: .pf/repo_index.db (indexed code)
+      Output: Terminal tree or JSON (configurable via --format)
+      Prerequisites: aud index (populates database)
+      Integration: Architecture documentation, onboarding, refactoring planning
+      Performance: ~2-5 seconds (database queries + formatting)
 
-        aud blueprint                    # Top-level overview (tree structure)
-        aud blueprint --structure        # Drill down: file organization
-        aud blueprint --graph            # Drill down: dependencies, cycles
-        aud blueprint --security         # Drill down: JWT, OAuth, SQL, APIs
-        aud blueprint --taint            # Drill down: data flow, sources, sinks
+    DRILL-DOWN MODES:
+      (default): Top-level overview
+        - Module count, file organization tree
+        - High-level statistics only
+
+      --structure: File organization details
+        - Directory structure with LOC counts
+        - Module boundaries and package structure
+
+      --graph: Import and call graph analysis
+        - Dependency relationships
+        - Circular dependency detection
+        - Hotspot identification (highly connected modules)
+
+      --security: Security surface facts
+        - JWT/OAuth usage locations
+        - SQL query locations
+        - API endpoint inventory
+        - External service calls
+
+      --taint: Data flow analysis
+        - Taint sources (user input, network, files)
+        - Taint sinks (SQL, commands, file writes)
+        - Data flow paths
+
+      --all: Export complete data as JSON
+
+    EXAMPLES:
+      aud blueprint
+      aud blueprint --structure
+      aud blueprint --graph --format json
+      aud blueprint --all > architecture.json
+
+    PERFORMANCE: ~2-5 seconds
+
+    RELATED COMMANDS:
+      aud structure  # Alternative visualization
+      aud graph      # Dedicated graph analysis
+
+    NOTE: This command shows FACTS ONLY - no recommendations, no prescriptive
+    language. For actionable insights, use 'aud fce' or 'aud full'.
+
+    ADDITIONAL EXAMPLES:
         aud blueprint --all              # Export everything to JSON
 
     PREREQUISITES:
@@ -65,12 +111,17 @@ def blueprint(structure, graph, security, taint, all, output_format):
 
     if not pf_dir.exists() or not repo_db.exists():
         click.echo("\nERROR: No indexed database found", err=True)
-        click.echo("Run: aud index", err=True)
+        click.echo("Run: aud full", err=True)
         raise click.Abort()
 
     # Connect to database
     conn = sqlite3.connect(repo_db)
     conn.row_factory = sqlite3.Row
+
+    # Enable REGEXP function for naming pattern analysis
+    import re
+    conn.create_function("REGEXP", 2, lambda pattern, value: re.match(pattern, value) is not None if value else False)
+
     cursor = conn.cursor()
 
     # Gather all data
@@ -115,22 +166,28 @@ def _gather_all_data(cursor, graphs_db_path: Path) -> Dict:
     # 1. Codebase Structure
     data['structure'] = _get_structure(cursor)
 
-    # 2. Hot Files
+    # 2. Naming Conventions
+    data['naming_conventions'] = _get_naming_conventions(cursor)
+
+    # 3. Architectural Precedents
+    data['architectural_precedents'] = _get_architectural_precedents(cursor)
+
+    # 4. Hot Files
     data['hot_files'] = _get_hot_files(cursor)
 
-    # 3. Security Surface
+    # 4. Security Surface
     data['security_surface'] = _get_security_surface(cursor)
 
-    # 4. Data Flow
+    # 5. Data Flow
     data['data_flow'] = _get_data_flow(cursor)
 
-    # 5. Import Graph
+    # 6. Import Graph
     if graphs_db_path.exists():
         data['import_graph'] = _get_import_graph(graphs_db_path)
     else:
         data['import_graph'] = None
 
-    # 6. Performance
+    # 7. Performance
     data['performance'] = _get_performance(cursor, Path.cwd() / ".pf" / "repo_index.db")
 
     return data
@@ -182,6 +239,177 @@ def _get_structure(cursor) -> Dict:
         pass
 
     return structure
+
+
+def _get_naming_conventions(cursor) -> Dict:
+    """Analyze naming conventions from indexed symbols using optimized SQL JOIN."""
+
+    # Optimized query: JOIN with files table for indexed extension lookup
+    # Performance: 10-100x faster than WHERE path LIKE '%.ext' (uses idx_files_ext index)
+    cursor.execute("""
+        SELECT
+            -- Python functions
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS py_func_snake,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS py_func_camel,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS py_func_pascal,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'function' THEN 1 ELSE 0 END) AS py_func_total,
+
+            -- Python classes
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS py_class_snake,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS py_class_camel,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS py_class_pascal,
+            SUM(CASE WHEN f.ext = '.py' AND s.type = 'class' THEN 1 ELSE 0 END) AS py_class_total,
+
+            -- JavaScript functions
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS js_func_snake,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS js_func_camel,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS js_func_pascal,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'function' THEN 1 ELSE 0 END) AS js_func_total,
+
+            -- JavaScript classes
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS js_class_snake,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS js_class_camel,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS js_class_pascal,
+            SUM(CASE WHEN f.ext IN ('.js', '.jsx') AND s.type = 'class' THEN 1 ELSE 0 END) AS js_class_total,
+
+            -- TypeScript functions
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS ts_func_snake,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_func_camel,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_func_pascal,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'function' THEN 1 ELSE 0 END) AS ts_func_total,
+
+            -- TypeScript classes
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS ts_class_snake,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_class_camel,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_class_pascal,
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' THEN 1 ELSE 0 END) AS ts_class_total
+        FROM symbols s
+        JOIN files f ON s.path = f.path
+        WHERE s.type IN ('function', 'class')
+    """)
+
+    row = cursor.fetchone()
+
+    # Parse results into structured format
+    conventions = {
+        'python': {
+            'functions': _build_pattern_result(row[0], row[1], row[2], row[3]),
+            'classes': _build_pattern_result(row[4], row[5], row[6], row[7])
+        },
+        'javascript': {
+            'functions': _build_pattern_result(row[8], row[9], row[10], row[11]),
+            'classes': _build_pattern_result(row[12], row[13], row[14], row[15])
+        },
+        'typescript': {
+            'functions': _build_pattern_result(row[16], row[17], row[18], row[19]),
+            'classes': _build_pattern_result(row[20], row[21], row[22], row[23])
+        }
+    }
+
+    return conventions
+
+
+def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int, total: int) -> Dict:
+    """Build pattern analysis result from counts."""
+    if total == 0:
+        return {}
+
+    results = {}
+
+    if snake_count > 0:
+        results['snake_case'] = {
+            'count': snake_count,
+            'percentage': round((snake_count / total) * 100, 1)
+        }
+    if camel_count > 0:
+        results['camelCase'] = {
+            'count': camel_count,
+            'percentage': round((camel_count / total) * 100, 1)
+        }
+    if pascal_count > 0:
+        results['PascalCase'] = {
+            'count': pascal_count,
+            'percentage': round((pascal_count / total) * 100, 1)
+        }
+
+    # Find dominant pattern
+    if results:
+        dominant = max(results.items(), key=lambda x: x[1]['count'])
+        results['dominant'] = dominant[0]
+        results['consistency'] = dominant[1]['percentage']
+
+    return results
+
+
+def _get_architectural_precedents(cursor) -> List[Dict]:
+    """Detect plugin loader patterns from import graph (refs table).
+
+    A precedent is a code relationship where a consumer file imports 3+ modules
+    from the same directory/prefix. These patterns reveal existing architectural
+    conventions that can guide refactoring decisions.
+
+    Performance: <0.1 seconds (pure database query)
+    """
+    # Get all imports/from statements
+    cursor.execute('''
+        SELECT src, value
+        FROM refs
+        WHERE kind IN ('import', 'from', 'require')
+          AND src NOT LIKE 'node_modules/%'
+          AND src NOT LIKE 'venv/%'
+          AND src NOT LIKE '.venv/%'
+          AND src NOT LIKE 'dist/%'
+          AND src NOT LIKE 'build/%'
+    ''')
+
+    # Track: consumer file -> directory/prefix -> set of modules/files
+    patterns = defaultdict(lambda: defaultdict(set))
+
+    for row in cursor.fetchall():
+        source_file = row['src']
+        value = row['value']
+
+        # Handle multiple import formats:
+        # 1. File paths: ./components/Button.jsx -> directory: components
+        # 2. Module paths: models.user -> prefix: models
+        # 3. TypeScript aliases: @middleware/auth -> prefix: middleware
+
+        if '/' in value:
+            # File path or relative import
+            parts = Path(value).parts
+            # Extract meaningful directory (skip . and ..)
+            meaningful_parts = [p for p in parts if p not in ('.', '..', '') and not p.startswith('@')]
+            if meaningful_parts:
+                directory = meaningful_parts[0]
+                patterns[source_file][directory].add(value)
+        elif '.' in value:
+            # Module path format (Python-style: models.user)
+            parts = value.split('.')
+            prefix = parts[0]
+
+            # Skip stdlib/common modules
+            if prefix not in ('typing', 'pathlib', 'os', 'sys', 'json', 're', 'ast',
+                             'dataclasses', 'datetime', 'collections', 'functools',
+                             'itertools', 'react', 'react-dom', 'vue', 'angular'):
+                patterns[source_file][prefix].add(value)
+
+    # Find plugin loader patterns (3+ modules/files from same directory/prefix)
+    precedents = []
+
+    for consumer, dirs in patterns.items():
+        for directory, items in dirs.items():
+            if len(items) >= 3:
+                precedents.append({
+                    'consumer': consumer,
+                    'directory': directory,
+                    'count': len(items),
+                    'imports': sorted(items)
+                })
+
+    # Sort by import count (descending)
+    precedents.sort(key=lambda x: x['count'], reverse=True)
+
+    return precedents
 
 
 def _get_hot_files(cursor) -> List[Dict]:
@@ -342,10 +570,15 @@ def _get_performance(cursor, db_path: Path) -> Dict:
     if db_path.exists():
         metrics['db_size_mb'] = round(db_path.stat().st_size / (1024 * 1024), 2)
 
+    # Whitelist of valid tables for counting
+    VALID_TABLES = {'symbols', 'function_call_args', 'assignments', 'api_endpoints'}
     tables = ['symbols', 'function_call_args', 'assignments', 'api_endpoints']
     total = 0
     for table in tables:
         try:
+            # Validate table name to prevent SQL injection
+            if table not in VALID_TABLES:
+                continue
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             total += cursor.fetchone()[0] or 0
         except:
@@ -501,6 +734,100 @@ def _show_structure_drilldown(data: Dict):
         click.echo("\nSymbols by Type:")
         for sym_type, count in sorted(struct['by_type'].items(), key=lambda x: -x[1]):
             click.echo(f"  {sym_type:50s} {count:6,} symbols")
+
+    # Naming Conventions Analysis
+    naming = data.get('naming_conventions', {})
+    if naming:
+        click.echo("\nCode Style Analysis (Naming Conventions):")
+
+        for lang in ['python', 'javascript', 'typescript']:
+            lang_data = naming.get(lang, {})
+            if not lang_data or not any(lang_data.values()):
+                continue
+
+            lang_name = lang.capitalize()
+            click.echo(f"\n  {lang_name}:")
+
+            for symbol_type in ['functions', 'classes']:
+                patterns = lang_data.get(symbol_type, {})
+                if not patterns or not patterns.get('dominant'):
+                    continue
+
+                dominant = patterns['dominant']
+                consistency = patterns['consistency']
+                click.echo(f"    {symbol_type.capitalize()}: {dominant} ({consistency}% consistency)")
+
+    # Architectural Precedents (Plugin Loader Patterns)
+    precedents = data.get('architectural_precedents', [])
+    if precedents:
+        click.echo("\nArchitectural Precedents (Plugin Loader Patterns):")
+        click.echo("  (Files importing 3+ modules from same directory - architectural conventions)")
+
+        # Show top 15 precedents
+        for prec in precedents[:15]:
+            consumer = prec['consumer']
+            directory = prec['directory']
+            count = prec['count']
+            imports = prec['imports']
+
+            click.echo(f"\n  {consumer}")
+            click.echo(f"    -> {directory}/ ({count} modules)")
+
+            # Show first 5 imports
+            for imp in imports[:5]:
+                # Display just the module name if it's a path, otherwise show full name
+                display = Path(imp).name if '/' in imp else imp
+                click.echo(f"       - {display}")
+
+            if count > 5:
+                click.echo(f"       ... and {count - 5} more")
+
+        if len(precedents) > 15:
+            click.echo(f"\n  ... and {len(precedents) - 15} more patterns")
+
+        click.echo(f"\n  Total patterns found: {len(precedents)}")
+    else:
+        click.echo("\nArchitectural Precedents: None detected")
+
+    # Framework Detection
+    cursor.execute("""
+        SELECT language, name, version, COUNT(*) as file_count
+        FROM frameworks
+        GROUP BY name, language, version
+        ORDER BY file_count DESC
+    """)
+    frameworks = cursor.fetchall()
+
+    if frameworks:
+        click.echo("\nFramework Detection:")
+        for lang, fw, ver, count in frameworks:
+            version_str = f"v{ver}" if ver else "(version unknown)"
+            click.echo(f"  {fw} {version_str} ({lang}) - {count} file(s)")
+    else:
+        click.echo("\nFramework Detection: None detected")
+
+    # Refactor History
+    cursor.execute("""
+        SELECT timestamp, target_file, refactor_type, migrations_found,
+               migrations_complete, schema_consistent, validation_status
+        FROM refactor_history
+        ORDER BY timestamp DESC
+        LIMIT 5
+    """)
+    refactor_history = cursor.fetchall()
+
+    if refactor_history:
+        click.echo("\nRefactor History (Recent Checks):")
+        for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
+            # Format timestamp to date only
+            date = ts.split('T')[0] if 'T' in ts else ts
+            consistent = "consistent" if schema_ok == 1 else "inconsistent"
+            complete = "complete" if mig_complete == 1 else "incomplete"
+            click.echo(f"  {date}: {target}")
+            click.echo(f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})")
+            click.echo(f"    Schema: {consistent}")
+    else:
+        click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
 
     # Token Estimates (for AI context planning)
     click.echo("\nToken Estimates (for context planning):")

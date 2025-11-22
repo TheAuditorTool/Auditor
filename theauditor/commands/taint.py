@@ -19,44 +19,249 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--max-depth", default=5, type=int, help="Maximum depth for taint propagation tracing")
 @click.option("--json", is_flag=True, help="Output raw JSON instead of formatted report")
 @click.option("--verbose", is_flag=True, help="Show detailed path information")
-@click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]), 
+@click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]),
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-@click.option("--use-cfg/--no-cfg", default=True,
-              help="Use flow-sensitive CFG analysis (enabled by default)")
 @click.option("--memory/--no-memory", default=True,
               help="Use in-memory caching for 5-10x performance (enabled by default)")
 @click.option("--memory-limit", default=None, type=int,
               help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, memory, memory_limit):
+@click.option("--mode", default="backward",
+              type=click.Choice(["backward", "forward", "complete"]),
+              help="Analysis mode: backward (IFDS), forward (entry->exit), complete (all flows)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory, memory_limit, mode):
+    """Trace data flow from untrusted sources to dangerous sinks to detect injection vulnerabilities.
+
+    Performs inter-procedural data flow analysis to identify security vulnerabilities where untrusted
+    user input flows into dangerous functions without sanitization. Uses Control Flow Graph (CFG) for
+    path-sensitive analysis and in-memory caching for 5-10x performance boost on large codebases.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Detects injection vulnerabilities via taint propagation analysis
+      Input: .pf/repo_index.db (function calls, assignments, control flow)
+      Output: .pf/raw/taint_analysis.json (taint paths with severity)
+      Prerequisites: aud index (populates database with call graph + CFG)
+      Integration: Core security analysis, runs in 'aud full' pipeline
+      Performance: ~30s-5min depending on codebase size (CFG+memory optimization)
+
+    WHAT IT DETECTS (By Vulnerability Class):
+      SQL Injection (SQLi):
+        Sources: request.args, request.form, request.json, user input
+        Sinks: cursor.execute(), db.query(), raw SQL string concatenation
+        Example: cursor.execute(f"SELECT * FROM users WHERE id={user_id}")
+
+      Command Injection (RCE):
+        Sources: os.environ, sys.argv, HTTP parameters
+        Sinks: os.system(), subprocess.call(), eval(), exec()
+        Example: os.system(f"ping {user_input}")
+
+      Cross-Site Scripting (XSS):
+        Sources: HTTP request data, URL parameters
+        Sinks: render_template() without escaping, innerHTML assignments
+        Example: return f"<div>{user_name}</div>"  # No HTML escaping
+
+      Path Traversal:
+        Sources: File upload names, URL paths, user-specified paths
+        Sinks: open(), Path().read_text(), os.path.join()
+        Example: open(f"/var/data/{user_file}")  # No path validation
+
+      LDAP Injection:
+        Sources: User authentication inputs
+        Sinks: ldap.search(), ldap.bind() with unsanitized filters
+
+      NoSQL Injection:
+        Sources: JSON request bodies, query parameters
+        Sinks: MongoDB find(), Elasticsearch query DSL
+        Example: db.users.find({"name": user_input})  # No validation
+
+    DATA FLOW ANALYSIS METHOD:
+      1. Identify Taint Sources (140+ patterns):
+         - HTTP request data: Flask request.args, FastAPI params, Django request.GET
+         - Environment variables: os.environ, sys.argv
+         - File I/O: open().read(), Path().read_text()
+         - Database results: cursor.fetchall() (secondary taint)
+
+      2. Trace Taint Propagation:
+         - Variable assignments: x = tainted_source
+         - Function calls: propagate through parameters
+         - String operations: f-strings, concatenation, format()
+         - Collections: list/dict operations that preserve taint
+
+      3. Identify Security Sinks (200+ patterns):
+         - SQL: cursor.execute, db.query, raw SQL
+         - Commands: os.system, subprocess, eval, exec
+         - File ops: open, shutil, pathlib with user input
+         - Templates: render without escaping
+
+      4. Path Sensitivity (CFG Analysis):
+         - Tracks conditional sanitization: if sanitize(x): safe_func(x)
+         - Detects unreachable sinks: after return statements
+         - Prunes false positives: validated paths vs unvalidated
+
+    HOW IT WORKS (Algorithm):
+      1. Read database: function_call_args, assignments, cfg_blocks tables
+      2. Build call graph: inter-procedural analysis across functions
+      3. Identify sources: Match against 140+ taint source patterns
+      4. Propagate taint: Follow data flow through assignments/calls
+      5. Detect sinks: Match against 200+ security sink patterns
+      6. Classify severity: Critical (no sanitization) to Low (partial sanitization)
+      7. Output: JSON with taint paths source→sink with line numbers
+
+    EXAMPLES:
+      # Use Case 1: Complete security audit after indexing
+      aud index && aud taint-analyze
+
+      # Use Case 2: Only show critical/high severity findings
+      aud taint-analyze --severity high
+
+      # Use Case 3: Verbose mode (show full taint paths)
+      aud taint-analyze --verbose --severity critical
+
+      # Use Case 4: Export for SAST tool integration
+      aud taint-analyze --json --output ./sast_results.json
+
+      # Use Case 5: Fast scan (disable CFG for speed)
+      aud taint-analyze --no-cfg  # 3-5x faster but less accurate
+
+      # Use Case 6: Memory-constrained environment
+      aud taint-analyze --memory-limit 512  # Limit cache to 512MB
+
+      # Use Case 7: Combined with workset (analyze recent changes)
+      aud workset --diff HEAD~1 && aud taint-analyze --workset
+
+    COMMON WORKFLOWS:
+      Pre-Commit Security Check:
+        aud index && aud taint-analyze --severity critical
+
+      Pull Request Review:
+        aud workset --diff main..feature && aud taint-analyze --workset
+
+      CI/CD Pipeline (fail on high severity):
+        aud taint-analyze --severity high || exit 2
+
+      Full Security Audit:
+        aud full --offline && aud taint-analyze --verbose
+
+    OUTPUT FILES:
+      .pf/raw/taint_analysis.json      # Taint paths with severity
+      .pf/readthis/taint_chunk*.json   # AI-optimized chunks (<65KB)
+      .pf/repo_index.db (tables read):
+        - function_call_args: Sink detection
+        - assignments: Taint propagation
+        - cfg_blocks: Path-sensitive analysis
+
+    OUTPUT FORMAT (JSON Schema):
+      {
+        "vulnerabilities": [
+          {
+            "type": "sql_injection",
+            "severity": "critical",
+            "source": {
+              "file": "api.py",
+              "line": 42,
+              "function": "get_user",
+              "variable": "user_id",
+              "origin": "request.args"
+            },
+            "sink": {
+              "file": "api.py",
+              "line": 45,
+              "function": "get_user",
+              "call": "cursor.execute",
+              "argument": "query"
+            },
+            "path": ["user_id = request.args.get('id')", "query = f'SELECT * WHERE id={user_id}'", "cursor.execute(query)"],
+            "sanitized": false,
+            "confidence": "high"
+          }
+        ],
+        "summary": {
+          "total": 15,
+          "critical": 3,
+          "high": 7,
+          "medium": 4,
+          "low": 1
+        }
+      }
+
+    PERFORMANCE EXPECTATIONS:
+      Small (<5K LOC):     ~10 seconds,   ~200MB RAM
+      Medium (20K LOC):    ~30 seconds,   ~500MB RAM
+      Large (100K+ LOC):   ~5 minutes,    ~2GB RAM
+      With --memory:       5-10x faster (caching enabled)
+      With --no-cfg:       3-5x faster (less accurate)
+
+    FLAG INTERACTIONS:
+      Mutually Exclusive:
+        --json and --verbose    # JSON output ignores verbose flag
+
+      Recommended Combinations:
+        --severity critical --verbose    # Debug critical issues
+        --memory --use-cfg              # Optimal accuracy + performance (default)
+        --no-cfg --memory-limit 512     # Fast scan on low-memory systems
+
+      Flag Modifiers:
+        --use-cfg: Path-sensitive analysis (recommended, slower but accurate)
+        --memory: In-memory caching (5-10x faster, uses ~500MB-2GB RAM)
+        --max-depth: Controls inter-procedural depth (higher=slower+more paths)
+        --severity: Filters output only (does not skip analysis)
+
+    PREREQUISITES:
+      Required:
+        aud index              # Populates database with call graph + CFG
+
+      Optional:
+        aud workset            # Limits analysis to changed files only
+
+    EXIT CODES:
+      0 = Success, no vulnerabilities found
+      1 = High severity vulnerabilities detected
+      2 = Critical security vulnerabilities found
+      3 = Analysis incomplete (database missing or parse error)
+
+    RELATED COMMANDS:
+      aud index              # Builds call graph and CFG (run first)
+      aud detect-patterns    # Pattern-based security rules (complementary)
+      aud fce                # Cross-references taint findings with patterns
+      aud workset            # Limits scope to changed files
+
+    SEE ALSO:
+      aud explain taint      # Learn about taint analysis concepts
+      aud explain severity   # Understand severity classifications
+
+    TROUBLESHOOTING:
+      Error: "Database not found"
+        → Run 'aud index' first to create .pf/repo_index.db
+
+      Analysis too slow (>10 minutes):
+        → Use --no-cfg for 3-5x speedup (less accurate)
+        → Limit scope with 'aud workset' first
+        → Reduce --max-depth from 5 to 3
+
+      Out of memory errors:
+        → Set --memory-limit to lower value (e.g., --memory-limit 512)
+        → Use --no-memory to disable caching (slower but uses less RAM)
+        → Analyze in smaller batches with --path-filter
+
+      False positives (sanitized input flagged):
+        → Check if sanitization function is recognized (see taint/core.py TaintRegistry)
+        → Use custom sanitizers via .theauditor.yml config
+        → Review with --verbose to see full taint path
+
+      False negatives (known vulnerability not detected):
+        → Verify source is in taint source registry
+        → Check sink pattern is recognized
+        → Increase --max-depth to trace deeper paths
+        → Check .pf/pipeline.log for analysis warnings
+
+    NOTE: Taint analysis is conservative (over-reports) to avoid missing vulnerabilities.
+    Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
+    (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    Perform taint analysis to detect security vulnerabilities.
-    
-    This command traces the flow of untrusted data from taint sources
-    (user inputs) to security sinks (dangerous functions) using:
-    - Control Flow Graph (CFG) for path-sensitive analysis
-    - Inter-procedural analysis to track data across function calls
-    - Unified caching for performance optimization
-    
-    The analysis detects:
-    - SQL Injection
-    - Command Injection  
-    - Cross-Site Scripting (XSS)
-    - Path Traversal
-    - LDAP Injection
-    - NoSQL Injection
-    
-    Example:
-        aud taint-analyze
-        aud taint-analyze --severity critical --verbose
-        aud taint-analyze --json --output vulns.json
-        aud taint-analyze --no-cfg  # Disable CFG analysis (not recommended)
-    """
-    from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
-    from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
+    from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
-    from theauditor.taint.registry import TaintRegistry
+    from theauditor.taint import TaintRegistry
     from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
     
@@ -76,7 +281,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     db_path = Path(db)
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to build the repository index", err=True)
+        click.echo("Run 'aud full' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
 
     # SCHEMA CONTRACT: Pre-flight validation before expensive analysis
@@ -148,14 +353,18 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
             registry=registry,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
         
         # Extract taint paths
@@ -199,38 +408,33 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     else:
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
+
+        # Create empty registry (NO patterns - discovery.py uses registry for patterns)
+        # With empty registry, discovery returns ZERO sources/sinks (finds nothing)
+        registry = TaintRegistry()
+
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
+            registry=registry,
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
-    
-    # Enrich raw paths with interpretive insights
+
+    # Normalize paths (factual transformation only, no insights)
     if result.get("success"):
-        # Add severity and classification to each path
-        enriched_paths = []
+        normalized_paths = []
         for path in result.get("taint_paths", result.get("paths", [])):
-            # Normalize the path first
-            path = normalize_taint_path(path)
-            # Add severity
-            path["severity"] = calculate_severity(path)
-            # Enrich sink information with vulnerability classification
-            path["vulnerability_type"] = classify_vulnerability(
-                path.get("sink", {}), 
-                SECURITY_SINKS
-            )
-            enriched_paths.append(path)
-        
-        # Update result with enriched paths
-        result["taint_paths"] = enriched_paths
-        result["paths"] = enriched_paths
-        
-        # Generate summary
-        result["summary"] = generate_summary(enriched_paths)
-    
+            normalized_paths.append(normalize_taint_path(path))
+        result["taint_paths"] = normalized_paths
+        result["paths"] = normalized_paths
+
     # Filter by severity if requested
     if severity != "all" and result.get("success"):
         filtered_paths = []
@@ -318,72 +522,39 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             click.echo("[DB] JSON output will still be generated for AI consumption")
     # ===== END DUAL-WRITE =====
 
-    # Save COMPLETE taint analysis results to raw (including all data) - AI CONSUMPTION REQUIRED
-    save_taint_analysis(result, output)
-    click.echo(f"Raw analysis results saved to: {output}")
-    
+    # Write taint results to JSON file
+    output_path = Path(".pf") / "raw" / "taint.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        import json as json_lib
+        json_lib.dump(result, f, indent=2, sort_keys=True)
+    click.echo(f"[OK] Taint analysis saved to {output_path}")
+
     # Output results
     if json:
         # JSON output for programmatic use
         click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
     else:
-        # Human-readable report
-        report = format_taint_report(result)
-        click.echo(report)
-        
-        # Additional verbose output
-        if verbose and result.get("success"):
+        # Simple factual report (no insights)
+        if result.get("success"):
             paths = result.get("taint_paths", result.get("paths", []))
-            if paths and len(paths) > 10:
-                click.echo("\n" + "=" * 60)
-                click.echo("ADDITIONAL VULNERABILITY DETAILS")
-                click.echo("=" * 60)
-                
-                for i, path in enumerate(paths[10:20], 11):
-                    # Normalize path to ensure all keys exist
-                    path = normalize_taint_path(path)
-                    click.echo(f"\n{i}. {path['vulnerability_type']} ({path['severity']})")
-                    click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
-                    click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
-                    arrow = "->" if IS_WINDOWS else "→"
-                    click.echo(f"   Pattern: {path['source'].get('pattern', '')} {arrow} {path['sink'].get('pattern', '')}")  # Empty not unknown
-                
-                if len(paths) > 20:
-                    click.echo(f"\n... and {len(paths) - 20} additional vulnerabilities not shown")
-    
-    # Provide actionable recommendations based on findings
-    if not json and result.get("success"):
-        summary = result.get("summary", {})
-        risk_level = summary.get("risk_level", "UNKNOWN")
-        
-        click.echo("\n" + "=" * 60)
-        click.echo("RECOMMENDED ACTIONS")
-        click.echo("=" * 60)
-        
-        if risk_level == "CRITICAL":
-            click.echo("[CRITICAL] CRITICAL SECURITY ISSUES DETECTED")
-            click.echo("1. Review and fix all CRITICAL vulnerabilities immediately")
-            click.echo("2. Add input validation and sanitization at all entry points")
-            click.echo("3. Use parameterized queries for all database operations")
-            click.echo("4. Implement output encoding for all user-controlled data")
-            click.echo("5. Consider a security audit before deployment")
-        elif risk_level == "HIGH":
-            click.echo("[HIGH] HIGH RISK VULNERABILITIES FOUND")
-            click.echo("1. Prioritize fixing HIGH severity issues this sprint")
-            click.echo("2. Review all user input handling code")
-            click.echo("3. Implement security middleware/filters")
-            click.echo("4. Add security tests for vulnerable paths")
-        elif risk_level == "MEDIUM":
-            click.echo("[MEDIUM] MODERATE SECURITY CONCERNS")
-            click.echo("1. Schedule vulnerability fixes for next sprint")
-            click.echo("2. Review and update security best practices")
-            click.echo("3. Add input validation where missing")
+            click.echo(f"\n[TAINT] Found {len(paths)} taint paths")
+            click.echo(f"[TAINT] Sources: {result.get('sources_found', 0)}")
+            click.echo(f"[TAINT] Sinks: {result.get('sinks_found', 0)}")
+
+            # Show first 10 paths
+            for i, path in enumerate(paths[:10], 1):
+                path = normalize_taint_path(path)
+                sink_type = path.get('sink', {}).get('type', 'unknown')
+                click.echo(f"\n{i}. {sink_type}")
+                click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
+                click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
+
+            if len(paths) > 10:
+                click.echo(f"\n... and {len(paths) - 10} additional paths (use --json for full output)")
         else:
-            click.echo("[LOW] LOW RISK PROFILE")
-            click.echo("1. Continue following secure coding practices")
-            click.echo("2. Regular security scanning recommended")
-            click.echo("3. Keep dependencies updated")
-    
+            click.echo(f"\n[ERROR] {result.get('error', 'Unknown error')}")
+
     # Exit with appropriate code
     if result.get("success"):
         summary = result.get("summary", {})

@@ -10,6 +10,7 @@ Follows v1.1+ gold standard patterns:
 - Proper confidence levels via Confidence enum
 """
 
+
 import sqlite3
 from typing import List, Set
 from pathlib import Path
@@ -87,7 +88,7 @@ EVENT_HANDLERS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_render_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_render_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue rendering anti-patterns and performance issues.
 
     Detects:
@@ -142,7 +143,7 @@ def find_vue_render_issues(context: StandardRuleContext) -> List[StandardFinding
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -152,24 +153,28 @@ def _get_vue_files(cursor) -> Set[str]:
 
     # Check files table by extension
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, ext
         FROM files
-        WHERE path LIKE '%.vue'
-           OR (path LIKE '%.js%' AND path LIKE '%vue%')
-           OR (path LIKE '%.ts%' AND path LIKE '%vue%')
+        WHERE ext IN ('.vue', '.js', '.ts')
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue files
+    for path, ext in cursor.fetchall():
+        path_lower = path.lower()
+        if ext == '.vue' or (ext in ('.js', '.ts') and 'vue' in path_lower):
+            vue_files.add(path)
 
     # Also check for Vue patterns in symbols
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, name
         FROM symbols
-        WHERE name LIKE '%Vue%'
-           OR name LIKE '%v-for%'
-           OR name LIKE '%v-if%'
-           OR name LIKE '%template%'
+        WHERE name IS NOT NULL
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue patterns
+    for path, name in cursor.fetchall():
+        if any(pattern in name for pattern in ['Vue', 'v-for', 'v-if', 'template']):
+            vue_files.add(path)
 
     return vue_files
 
@@ -178,7 +183,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_vif_with_vfor(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-if used with v-for (performance anti-pattern)."""
     findings = []
 
@@ -189,17 +194,29 @@ def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         SELECT s1.path, s1.line, s1.name
         FROM symbols s1
         WHERE s1.path IN ({file_placeholders})
-          AND s1.name LIKE '%v-for%'
-          AND EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = s1.path
-                AND ABS(s2.line - s1.line) <= 1
-                AND s2.name LIKE '%v-if%'
-          )
+          AND s1.name IS NOT NULL
         ORDER BY s1.path, s1.line
     """, list(vue_files))
 
-    for file, line, _ in cursor.fetchall():
+    # Filter in Python for v-for with adjacent v-if
+    all_symbols = cursor.fetchall()
+    vfor_with_vif = []
+
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for v-if within 1 line
+        has_vif = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and abs(line2 - line) <= 1 and 'v-if' in name2:
+                has_vif = True
+                break
+
+        if has_vif:
+            vfor_with_vif.append((file, line))
+
+    for file, line in vfor_with_vif:
         findings.append(StandardFinding(
             rule_name='vue-vif-with-vfor',
             message='v-if with v-for on same element - use computed property instead',
@@ -214,7 +231,7 @@ def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_list_keys(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_list_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-for without proper keys."""
     findings = []
 
@@ -225,57 +242,57 @@ def _find_missing_list_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
         SELECT path, line, name
         FROM symbols
         WHERE path IN ({file_placeholders})
-          AND name LIKE '%v-for%'
-          AND NOT EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = path
-                AND ABS(s2.line - line) <= 2
-                AND (s2.name LIKE '%:key%'
-                     OR s2.name LIKE '%v-bind:key%'
-                     OR s2.name LIKE '%key=%')
-          )
+          AND name IS NOT NULL
         ORDER BY path, line
     """, list(vue_files))
 
-    for file, line, directive in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-key',
-            message='v-for without unique :key - causes rendering issues',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
+    # Store all symbols
+    all_symbols = cursor.fetchall()
+
+    # Filter in Python for v-for without keys
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for adjacent :key within 2 lines
+        has_key = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and abs(line2 - line) <= 2:
+                if ':key' in name2 or 'v-bind:key' in name2 or 'key=' in name2:
+                    has_key = True
+                    break
+
+        if not has_key:
+            findings.append(StandardFinding(
+                rule_name='vue-missing-key',
+                message='v-for without unique :key - causes rendering issues',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-1050'
+            ))
 
     # Check for index as key
-    cursor.execute(f"""
-        SELECT path, line, name
-        FROM symbols
-        WHERE path IN ({file_placeholders})
-          AND (name LIKE '%:key="index"%'
-               OR name LIKE '%:key="i"%'
-               OR name LIKE '%:key="idx"%')
-        ORDER BY path, line
-    """, list(vue_files))
-
-    for file, line, key_usage in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-index-as-key',
-            message='Using array index as :key - causes issues when list changes',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-performance',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-1050'
-        ))
+    for file, line, name in all_symbols:
+        # Filter in Python for index key patterns
+        if ':key="index"' in name or ':key="i"' in name or ':key="idx"' in name:
+            findings.append(StandardFinding(
+                rule_name='vue-index-as-key',
+                message='Using array index as :key - causes issues when list changes',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='vue-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1050'
+            ))
 
     return findings
 
 
-def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find unnecessary re-render triggers."""
     findings = []
 
@@ -313,7 +330,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_unoptimized_lists(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unoptimized_lists(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find large lists without virtualization."""
     findings = []
 
@@ -324,43 +341,45 @@ def _find_unoptimized_lists(cursor, vue_files: Set[str]) -> List[StandardFinding
         SELECT s1.path, s1.line, s1.name
         FROM symbols s1
         WHERE s1.path IN ({file_placeholders})
-          AND s1.name LIKE '%v-for%'
-          AND (s1.name LIKE '%1000%'
-               OR s1.name LIKE '%10000%'
-               OR s1.name LIKE '%.length > 100%'
-               OR s1.name LIKE '%.length > 500%')
+          AND s1.name IS NOT NULL
         ORDER BY s1.path, s1.line
     """, list(vue_files))
 
-    for file, line, vfor in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-large-list',
-            message='Large list without virtual scrolling - performance impact',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-performance',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-1050'
-        ))
+    # Store all symbols
+    all_symbols = cursor.fetchall()
+
+    # Filter in Python for v-for with large datasets
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for large list patterns
+        if any(pattern in name for pattern in ['1000', '10000', '.length > 100', '.length > 500']):
+            findings.append(StandardFinding(
+                rule_name='vue-large-list',
+                message='Large list without virtual scrolling - performance impact',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.LOW,
+                cwe_id='CWE-1050'
+            ))
 
     # Check for nested v-for
-    cursor.execute(f"""
-        SELECT s1.path, s1.line
-        FROM symbols s1
-        WHERE s1.path IN ({file_placeholders})
-          AND s1.name LIKE '%v-for%'
-          AND EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = s1.path
-                AND s2.line > s1.line
-                AND s2.line < s1.line + 10
-                AND s2.name LIKE '%v-for%'
-          )
-        ORDER BY s1.path, s1.line
-    """, list(vue_files))
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
 
-    for file, line in cursor.fetchall():
+        # Check for nested v-for within 10 lines
+        has_nested = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and line2 > line and line2 < line + 10 and 'v-for' in name2:
+                has_nested = True
+                break
+
+        if not has_nested:
+            continue
         findings.append(StandardFinding(
             rule_name='vue-nested-vfor',
             message='Nested v-for loops - O(n²) complexity',
@@ -375,7 +394,7 @@ def _find_unoptimized_lists(cursor, vue_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_complex_render_functions(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_render_functions(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find overly complex render functions."""
     findings = []
 
@@ -409,7 +428,7 @@ def _find_complex_render_functions(cursor, vue_files: Set[str]) -> List[Standard
     return findings
 
 
-def _find_direct_dom_manipulation(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_direct_dom_manipulation(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find direct DOM manipulation (anti-pattern in Vue)."""
     findings = []
 
@@ -421,13 +440,15 @@ def _find_direct_dom_manipulation(cursor, vue_files: Set[str]) -> List[StandardF
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE file IN ({file_placeholders})
-          AND (callee_function IN ({ops_placeholders})
-               OR callee_function LIKE 'document.%'
-               OR callee_function LIKE 'window.%')
+          AND callee_function IS NOT NULL
         ORDER BY file, line
-    """, list(vue_files) + dom_ops)
+    """, list(vue_files))
 
+    # Filter in Python for DOM operations
     for file, line, operation in cursor.fetchall():
+        # Check if it's in expensive DOM ops or starts with document./window.
+        if operation not in dom_ops and not operation.startswith('document.') and not operation.startswith('window.'):
+            continue
         if operation in ['innerHTML', 'document.write']:
             severity = Severity.HIGH
             message = f'Direct DOM manipulation with {operation} - security risk'
@@ -449,7 +470,7 @@ def _find_direct_dom_manipulation(cursor, vue_files: Set[str]) -> List[StandardF
     return findings
 
 
-def _find_inefficient_event_handlers(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_inefficient_event_handlers(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find inefficient event handler patterns."""
     findings = []
 
@@ -460,51 +481,51 @@ def _find_inefficient_event_handlers(cursor, vue_files: Set[str]) -> List[Standa
         SELECT file, line, source_expr
         FROM assignments
         WHERE file IN ({file_placeholders})
-          AND (source_expr LIKE '%@click="() =>%'
-               OR source_expr LIKE '%@input="() =>%'
-               OR source_expr LIKE '%@change="() =>%'
-               OR source_expr LIKE '%v-on:%')
+          AND source_expr IS NOT NULL
         ORDER BY file, line
     """, list(vue_files))
 
+    # Filter in Python for inline event handlers
     for file, line, handler in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-inline-handler',
-            message='Inline arrow function in template - recreated on each render',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
+        if any(pattern in handler for pattern in ['@click="() =>', '@input="() =>', '@change="() =>', 'v-on:']):
+            findings.append(StandardFinding(
+                rule_name='vue-inline-handler',
+                message='Inline arrow function in template - recreated on each render',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='vue-performance',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-1050'
+            ))
 
     # Find event handlers without modifiers
     cursor.execute(f"""
         SELECT path, line, name
         FROM symbols
         WHERE path IN ({file_placeholders})
-          AND name LIKE '@submit'
-          AND name NOT LIKE '%.prevent%'
+          AND name IS NOT NULL
         ORDER BY path, line
     """, list(vue_files))
 
-    for file, line, _ in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-prevent',
-            message='Form submit without .prevent modifier',
-            file_path=file,
-            line=line,
-            severity=Severity.LOW,
-            category='vue-bestpractice',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-1061'
-        ))
+    # Filter in Python for @submit without .prevent
+    for file, line, name in cursor.fetchall():
+        if '@submit' in name and '.prevent' not in name:
+            findings.append(StandardFinding(
+                rule_name='vue-missing-prevent',
+                message='Form submit without .prevent modifier',
+                file_path=file,
+                line=line,
+                severity=Severity.LOW,
+                category='vue-bestpractice',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1061'
+            ))
 
     return findings
 
 
-def _find_missing_optimizations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_optimizations(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find missing render optimizations."""
     findings = []
 
@@ -517,51 +538,58 @@ def _find_missing_optimizations(cursor, vue_files: Set[str]) -> List[StandardFin
         WHERE path IN ({file_placeholders})
           AND type = 'template'
           AND LENGTH(name) > 200
-          AND name NOT LIKE '%{{%'
-          AND name NOT LIKE '%v-once%'
-          AND name NOT LIKE '%v-pre%'
+          AND name IS NOT NULL
         ORDER BY path, line
         LIMIT 10
     """, list(vue_files))
 
-    for file, line, _ in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-static-content',
-            message='Large static content without v-once directive',
-            file_path=file,
-            line=line,
-            severity=Severity.LOW,
-            category='vue-performance',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-1050'
-        ))
+    # Filter in Python for static content
+    for file, line, name in cursor.fetchall():
+        if '{{' not in name and 'v-once' not in name and 'v-pre' not in name:
+            findings.append(StandardFinding(
+                rule_name='vue-static-content',
+                message='Large static content without v-once directive',
+                file_path=file,
+                line=line,
+                severity=Severity.LOW,
+                category='vue-performance',
+                confidence=Confidence.LOW,
+                cwe_id='CWE-1050'
+            ))
 
     # Find computed without caching
     cursor.execute(f"""
         SELECT s.path, s.line, s.name
         FROM symbols s
         WHERE s.path IN ({file_placeholders})
-          AND s.name LIKE '%computed%'
-          AND EXISTS (
-              SELECT 1 FROM function_call_args f
-              WHERE f.file = s.path
-                AND ABS(f.line - s.line) <= 5
-                AND f.callee_function IN ('Math.random', 'Date.now', 'performance.now')
-          )
+          AND s.name IS NOT NULL
         ORDER BY s.path, s.line
     """, list(vue_files))
 
-    for file, line, _ in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-computed-side-effects',
-            message='Computed property with non-deterministic value',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-antipattern',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1061'
-        ))
+    # Filter in Python for computed properties
+    computed_symbols = [(file, line, name) for file, line, name in cursor.fetchall() if 'computed' in name]
+
+    for file, line, name in computed_symbols:
+        # Check for non-deterministic functions nearby
+        cursor.execute("""
+            SELECT callee_function
+            FROM function_call_args
+            WHERE file = ?
+              AND ABS(line - ?) <= 5
+              AND callee_function IN ('Math.random', 'Date.now', 'performance.now')
+        """, (file, line))
+
+        if cursor.fetchone():
+            findings.append(StandardFinding(
+                rule_name='vue-computed-side-effects',
+                message='Computed property with non-deterministic value',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-antipattern',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-1061'
+            ))
 
     return findings
 
@@ -570,7 +598,7 @@ def _find_missing_optimizations(cursor, vue_files: Set[str]) -> List[StandardFin
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

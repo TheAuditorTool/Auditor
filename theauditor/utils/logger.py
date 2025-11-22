@@ -1,5 +1,6 @@
 """Simple logger module for TheAuditor."""
 
+
 import logging
 import sys
 

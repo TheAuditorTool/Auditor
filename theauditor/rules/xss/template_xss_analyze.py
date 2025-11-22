@@ -2,12 +2,25 @@
 
 This module detects template injection vulnerabilities across various template engines.
 Covers both server-side and client-side template injection.
+
+REFACTORED (2025-11-22):
+- Constants moved to constants.py (Single Source of Truth)
+- Context manager + sqlite3.Row for name-based access
+- Memory proximity fix: Query render functions ONCE, not inside loop
 """
 
+
 import sqlite3
-from typing import List, Dict, FrozenSet
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+# Single Source of Truth - all Template XSS constants from constants.py
+from theauditor.rules.xss.constants import (
+    TEMPLATE_ENGINES,
+    TEMPLATE_COMPILE_FUNCTIONS,
+    COMMON_INPUT_SOURCES,
+    TEMPLATE_TARGET_EXTENSIONS,
+)
 
 
 # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
@@ -19,89 +32,17 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="template_injection",
     category="xss",
-    target_extensions=['.py', '.js', '.ts', '.html', '.ejs', '.pug', '.vue', '.jinja2'],
+    target_extensions=TEMPLATE_TARGET_EXTENSIONS,
     exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.js'],
     requires_jsx_pass=False,
     execution_scope='database'  # Run once globally, not per-file
 )
 
 
-# Template engines and their unsafe patterns
-TEMPLATE_ENGINES: Dict[str, Dict[str, FrozenSet[str]]] = {
-    # Python template engines
-    'jinja2': {
-        'safe': frozenset(['{{}}', '{%%}']),
-        'unsafe': frozenset(['|safe', 'autoescape off', 'Markup(', 'render_template_string'])
-    },
-    'django': {
-        'safe': frozenset(['{{}}', '{%%}']),
-        'unsafe': frozenset(['|safe', 'autoescape off', 'mark_safe', 'format_html'])
-    },
-    'mako': {
-        'safe': frozenset(['${}']),
-        'unsafe': frozenset(['|n', '|h', 'disable_unicode=True'])  # Explicit filter patterns only
-    },
-
-    # JavaScript template engines
-    'ejs': {
-        'safe': frozenset(['<%= %>']),
-        'unsafe': frozenset(['<%- %>', 'unescape'])
-    },
-    'pug': {
-        'safe': frozenset(['#{}']),
-        'unsafe': frozenset(['!{}', '!{-}', '|'])
-    },
-    'handlebars': {
-        'safe': frozenset(['{{}}']),
-        'unsafe': frozenset(['{{{', '}}}', 'SafeString'])
-    },
-    'mustache': {
-        'safe': frozenset(['{{}}']),
-        'unsafe': frozenset(['{{{', '}}}', '&'])
-    },
-    'nunjucks': {
-        'safe': frozenset(['{{}}']),
-        'unsafe': frozenset(['|safe', 'autoescape false'])
-    },
-    'doT': {
-        'safe': frozenset(['{{!}}']),
-        'unsafe': frozenset(['{{=}}', '{{#}}'])
-    },
-    'lodash': {
-        'safe': frozenset(['<%- %>']),
-        'unsafe': frozenset(['<%= %>', '<%'])
-    },
-
-    # PHP template engines
-    'twig': {
-        'safe': frozenset(['{{}}']),
-        'unsafe': frozenset(['|raw', 'autoescape false'])
-    },
-    'blade': {
-        'safe': frozenset(['{{}}']),
-        'unsafe': frozenset(['{!!', '!!}', '@php'])
-    }
-}
-
-# Template compilation/rendering functions
-TEMPLATE_COMPILE_FUNCTIONS = frozenset([
-    'compile', 'render', 'render_template', 'render_template_string',
-    'Template', 'from_string', 'compileToFunctions',
-    'Handlebars.compile', 'ejs.compile', 'pug.compile',
-    'nunjucks.renderString', 'doT.template', '_.template'
-])
-
-# User input sources
-TEMPLATE_INPUT_SOURCES = frozenset([
-    'request.', 'req.', 'params.', 'query.', 'body.',
-    'user.', 'input.', 'data.', 'form.',
-    'GET[', 'POST[', 'REQUEST[', 'COOKIE[',
-    'location.', 'window.', 'document.'
-])
-
-
-def find_template_injection(context: StandardRuleContext) -> List[StandardFinding]:
+def find_template_injection(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect template injection and XSS vulnerabilities.
+
+    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
 
     Returns:
         List of template-related XSS findings
@@ -111,28 +52,24 @@ def find_template_injection(context: StandardRuleContext) -> List[StandardFindin
     if not context.db_path:
         return findings
 
-    conn = sqlite3.connect(context.db_path)
-
-    try:
+    # Phase 4: Context Manager & Row Factory
+    with sqlite3.connect(context.db_path) as conn:
+        conn.row_factory = sqlite3.Row  # Access columns by name!
         cursor = conn.cursor()
 
-        findings.extend(_check_template_string_injection(conn))
-        findings.extend(_check_unsafe_template_syntax(conn))
-        findings.extend(_check_dynamic_template_compilation(conn))
-        findings.extend(_check_template_autoescape_disabled(conn))
-        findings.extend(_check_custom_template_helpers(conn))
-        findings.extend(_check_server_side_template_injection(conn))
-
-    finally:
-        conn.close()
+        findings.extend(_check_template_string_injection(cursor))
+        findings.extend(_check_unsafe_template_syntax(cursor))
+        findings.extend(_check_dynamic_template_compilation(cursor))
+        findings.extend(_check_template_autoescape_disabled(cursor))
+        findings.extend(_check_custom_template_helpers(cursor))
+        findings.extend(_check_server_side_template_injection(cursor))
 
     return findings
 
 
-def _check_template_string_injection(conn) -> List[StandardFinding]:
+def _check_template_string_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for template string injection with user input."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for render_template_string and similar with user input
     cursor.execute("""
@@ -147,7 +84,7 @@ def _check_template_string_injection(conn) -> List[StandardFinding]:
 
     for file, line, func, template_arg in cursor.fetchall():
         # Check for user input in template
-        has_user_input = any(src in (template_arg or '') for src in TEMPLATE_INPUT_SOURCES)
+        has_user_input = any(src in (template_arg or '') for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -177,45 +114,40 @@ def _check_template_string_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
+def _check_unsafe_template_syntax(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for unsafe template syntax usage."""
     findings = []
-    cursor = conn.cursor()
 
-    # Check assignments for unsafe template patterns (optimized with WHERE filters)
+    # Patterns to check (removed from WHERE clause)
+    unsafe_patterns = [
+        '|safe', '|raw', '|n', '|h', '{{{', '}}}',
+        '<%-%', '!{', 'Markup(', 'mark_safe', 'SafeString',
+        'autoescape', 'unescape', 'format_html', '{!!',
+        '@php', 'disable_unicode', '{{=', '{{#'
+    ]
+
+    # Fetch all assignments, filter in Python
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
         WHERE a.source_expr IS NOT NULL
-          AND (a.source_expr LIKE '%|safe%'
-               OR a.source_expr LIKE '%|raw%'
-               OR a.source_expr LIKE '%|n%'
-               OR a.source_expr LIKE '%|h%'
-               OR a.source_expr LIKE '%{{{%'
-               OR a.source_expr LIKE '%}}}%'
-               OR a.source_expr LIKE '%<%-%'
-               OR a.source_expr LIKE '%!{%'
-               OR a.source_expr LIKE '%Markup(%'
-               OR a.source_expr LIKE '%mark_safe%'
-               OR a.source_expr LIKE '%SafeString%'
-               OR a.source_expr LIKE '%autoescape%'
-               OR a.source_expr LIKE '%unescape%'
-               OR a.source_expr LIKE '%format_html%'
-               OR a.source_expr LIKE '%{!!%'
-               OR a.source_expr LIKE '%@php%'
-               OR a.source_expr LIKE '%disable_unicode%'
-               OR a.source_expr LIKE '%{{=%'
-               OR a.source_expr LIKE '%{{#%')
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
+        # Filter in Python: Check if source contains any unsafe pattern
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        has_unsafe_pattern = any(pattern in source for pattern in unsafe_patterns)
+        if not has_unsafe_pattern:
+            continue
+
         # Check each template engine's unsafe patterns
         for engine, patterns in TEMPLATE_ENGINES.items():
             for unsafe_pattern in patterns.get('unsafe', []):
                 if unsafe_pattern in (source or ''):
                     # Check if user input is involved
-                    has_user_input = any(src in source for src in TEMPLATE_INPUT_SOURCES)
+                    has_user_input = any(src in source for src in COMMON_INPUT_SOURCES)
 
                     if has_user_input:
                         normalized = (source or '').replace(' ', '')
@@ -238,17 +170,28 @@ def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
                         ))
 
     # Specific check for triple mustache in Handlebars/Mustache
+    # Patterns for complete unescaped output syntax
+    unescaped_patterns = ['{{{', '}}}', '<%-%>%', '!{', '}']
+
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
-        WHERE (a.source_expr LIKE '%{{{%}}}%'
-               OR a.source_expr LIKE '%<%-%>%'
-               OR a.source_expr LIKE '%!{%}%')
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
-        has_user_input = any(src in (source or '') for src in TEMPLATE_INPUT_SOURCES)
+        # Filter in Python: Check for complete unescaped syntax
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        has_unescaped = ('{{{' in source and '}}}' in source) or \
+                       ('<%-%' in source and '%>' in source) or \
+                       ('!{' in source and '}' in source)
+
+        if not has_unescaped:
+            continue
+
+        has_user_input = any(src in (source or '') for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -265,60 +208,64 @@ def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_dynamic_template_compilation(conn) -> List[StandardFinding]:
+def _check_dynamic_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for dynamic template compilation."""
     findings = []
-    cursor = conn.cursor()
 
-    # Check template compilation functions
-    for compile_func in TEMPLATE_COMPILE_FUNCTIONS:
-        cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'%{compile_func}%'])
+    # Fetch all function calls with argument index 0
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND f.callee_function IS NOT NULL
+        ORDER BY f.file, f.line
+    """)
 
-        for file, line, template_source in cursor.fetchall():
-            # Check if template comes from user input
-            has_user_input = any(src in (template_source or '') for src in TEMPLATE_INPUT_SOURCES)
+    for file, line, callee, template_source in cursor.fetchall():
+        # Filter in Python: Check if function name matches any compile function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        is_compile_func = any(compile_func in callee for compile_func in TEMPLATE_COMPILE_FUNCTIONS)
+        if not is_compile_func:
+            continue
 
-            # Check if template is loaded from database or external source
-            has_external = any(ext in (template_source or '') for ext in [
-                'database', 'fetch', 'ajax', 'xhr', 'readFile', 'localStorage'
-            ])
+        # Check if template comes from user input
+        has_user_input = any(src in (template_source or '') for src in COMMON_INPUT_SOURCES)
 
-            if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='template-compile-user-input',
-                    message=f'Template Injection: {compile_func} with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    snippet=f'{compile_func}(userTemplate)',
-                    cwe_id='CWE-94'
-                ))
-            elif has_external:
-                findings.append(StandardFinding(
-                    rule_name='template-compile-external',
-                    message=f'Template Injection: {compile_func} with external source',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category='injection',
-                    snippet=f'{compile_func}(fetchedTemplate)',
-                    cwe_id='CWE-94'
-                ))
+        # Check if template is loaded from database or external source
+        has_external = any(ext in (template_source or '') for ext in [
+            'database', 'fetch', 'ajax', 'xhr', 'readFile', 'localStorage'
+        ])
+
+        if has_user_input:
+            findings.append(StandardFinding(
+                rule_name='template-compile-user-input',
+                message=f'Template Injection: {callee} with user input',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='injection',
+                snippet=f'{callee}(userTemplate)',
+                cwe_id='CWE-94'
+            ))
+        elif has_external:
+            findings.append(StandardFinding(
+                rule_name='template-compile-external',
+                message=f'Template Injection: {callee} with external source',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='injection',
+                snippet=f'{callee}(fetchedTemplate)',
+                cwe_id='CWE-94'
+            ))
 
     return findings
 
 
-def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
+def _check_template_autoescape_disabled(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for disabled auto-escaping in templates."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for autoescape disabled patterns
     autoescape_patterns = [
@@ -327,15 +274,23 @@ def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
         'AUTOESCAPE = False', 'config.autoescape = false'
     ]
 
-    for pattern in autoescape_patterns:
-        cursor.execute("""
-            SELECT a.file, a.line, a.source_expr
-            FROM assignments a
-            WHERE a.source_expr LIKE ?
-            ORDER BY a.file, a.line
-        """, [f'%{pattern}%'])
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
+        SELECT a.file, a.line, a.source_expr
+        FROM assignments a
+        WHERE a.source_expr IS NOT NULL
+        ORDER BY a.file, a.line
+    """)
 
-        for file, line, source in cursor.fetchall():
+    for file, line, source in cursor.fetchall():
+        # Filter in Python: Check if source contains any autoescape disabled pattern
+        matched_pattern = None
+        for pattern in autoescape_patterns:
+            if pattern in source:
+                matched_pattern = pattern
+                break
+
+        if matched_pattern:
             findings.append(StandardFinding(
                 rule_name='template-autoescape-disabled',
                 message='XSS: Template auto-escaping disabled',
@@ -343,7 +298,7 @@ def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
                 line=line,
                 severity=Severity.HIGH,
                 category='configuration',
-                snippet=pattern,
+                snippet=matched_pattern,
                 cwe_id='CWE-79'
             ))
 
@@ -351,12 +306,21 @@ def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function LIKE '%Environment%'
-          AND f.argument_expr LIKE '%autoescape%'
+        WHERE f.callee_function IS NOT NULL
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check for Environment with autoescape
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        is_environment = 'Environment' in func
+        has_autoescape = 'autoescape' in (args or '')
+
+        if not (is_environment and has_autoescape):
+            continue
+
         if 'False' in (args or '') or 'false' in (args or ''):
             findings.append(StandardFinding(
                 rule_name='jinja2-autoescape-disabled',
@@ -372,22 +336,26 @@ def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_custom_template_helpers(conn) -> List[StandardFinding]:
+def _check_custom_template_helpers(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for unsafe custom template helpers/filters."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for custom Jinja2 filters
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function LIKE '%.filters[%'
-           OR f.callee_function LIKE 'app.jinja_env.filters%'
-           OR f.callee_function = 'register.filter'
+        WHERE f.callee_function IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, filter_def in cursor.fetchall():
+        # Filter in Python: Check if function is a filter registration
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        is_filter = '.filters[' in func or 'app.jinja_env.filters' in func or func == 'register.filter'
+        if not is_filter:
+            continue
+
         # Check if filter returns Markup or mark_safe
         if 'Markup' in (filter_def or '') or 'mark_safe' in (filter_def or ''):
             findings.append(StandardFinding(
@@ -426,7 +394,7 @@ def _check_custom_template_helpers(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_server_side_template_injection(conn) -> List[StandardFinding]:
+def _check_server_side_template_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     r"""Check for server-side template injection (SSTI).
 
     BUG FIXES (2025-10-17):
@@ -435,7 +403,6 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
     3. Deduplication: Use DISTINCT to avoid duplicate findings from duplicate DB rows
     """
     findings = []
-    cursor = conn.cursor()
 
     # Check for eval-like patterns in templates
     dangerous_template_patterns = [
@@ -455,53 +422,85 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
         'compile', 'Template'
     ])
 
-    for pattern in dangerous_template_patterns:
-        # FIX 1: Escape underscores for SQL LIKE (prevents ${__ matching ${xy})
-        escaped_pattern = pattern.replace('_', '\\_')
+    # Fetch all assignments for pattern checking
+    cursor.execute("""
+        SELECT DISTINCT a.file, a.line, a.source_expr
+        FROM assignments a
+        WHERE a.source_expr IS NOT NULL
+        ORDER BY a.file, a.line
+    """)
 
+    all_assignments = cursor.fetchall()
+
+    # PERFORMANCE FIX: Query render functions ONCE at start, not inside loop
+    # This was the O(N x M) bug - now we do O(N + M) instead
+    cursor.execute("""
+        SELECT DISTINCT f.file, f.line, f.callee_function
+        FROM function_call_args f
+        WHERE f.callee_function IS NOT NULL
+    """)
+    render_funcs = cursor.fetchall()
+
+    for pattern in dangerous_template_patterns:
         # FIX 2: Context-aware detection for 'config.' pattern
         # Only check proximity to render functions for broad patterns
         needs_proximity_check = pattern in ['config.', 'self.']
 
         if needs_proximity_check:
-            # Only flag if near template rendering functions
-            cursor.execute("""
-                SELECT DISTINCT a.file, a.line, a.source_expr
-                FROM assignments a
-                WHERE a.source_expr LIKE ? ESCAPE '\\'
-                AND EXISTS (
-                    SELECT 1 FROM function_call_args f
-                    WHERE f.file = a.file
-                    AND ABS(f.line - a.line) <= 20
-                    AND (
-                        f.callee_function IN ('render_template_string', 'render', 'compile',
-                                             'ejs.render', 'ejs.compile', 'Handlebars.compile')
-                        OR f.callee_function LIKE '%render%'
-                        OR f.callee_function LIKE '%compile%'
-                    )
-                )
-                ORDER BY a.file, a.line
-            """, [f'%{escaped_pattern}%'])
-        else:
-            # FIX 3: Use DISTINCT to avoid duplicate findings from duplicate DB rows
-            cursor.execute("""
-                SELECT DISTINCT a.file, a.line, a.source_expr
-                FROM assignments a
-                WHERE a.source_expr LIKE ? ESCAPE '\\'
-                ORDER BY a.file, a.line
-            """, [f'%{escaped_pattern}%'])
+            # Use cached render_funcs (queried ONCE above, not inside loop)
+            # Filter in Python: Check assignments near render functions
+            for row in all_assignments:
+                file, line, source = row['file'], row['line'], row['source_expr']
+                if pattern not in source:
+                    continue
 
-        for file, line, source in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='ssti-dangerous-pattern',
-                message=f'SSTI: Dangerous template pattern "{pattern}"',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='injection',
-                snippet=source[:80] if len(source or '') > 80 else source,
-                cwe_id='CWE-94'
-            ))
+                # Check if near any render function (using cached render_funcs)
+                has_nearby_render = False
+                for rf_row in render_funcs:
+                    rf_file, rf_line, rf_func = rf_row['file'], rf_row['line'], rf_row['callee_function']
+                    if rf_file != file:
+                        continue
+
+                    is_render_func = (
+                        rf_func in ('render_template_string', 'render', 'compile',
+                                   'ejs.render', 'ejs.compile', 'Handlebars.compile') or
+                        'render' in rf_func or 'compile' in rf_func
+                    )
+
+                    if is_render_func and abs(rf_line - line) <= 20:
+                        has_nearby_render = True
+                        break
+
+                if not has_nearby_render:
+                    continue
+
+                findings.append(StandardFinding(
+                    rule_name='ssti-dangerous-pattern',
+                    message=f'SSTI: Dangerous template pattern "{pattern}"',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='injection',
+                    snippet=source[:80] if len(source or '') > 80 else source,
+                    cwe_id='CWE-94'
+                ))
+        else:
+            # Filter in Python: Check all assignments for pattern
+            for row in all_assignments:
+                file, line, source = row['file'], row['line'], row['source_expr']
+                if pattern not in source:
+                    continue
+
+                findings.append(StandardFinding(
+                    rule_name='ssti-dangerous-pattern',
+                    message=f'SSTI: Dangerous template pattern "{pattern}"',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='injection',
+                    snippet=source[:80] if len(source or '') > 80 else source,
+                    cwe_id='CWE-94'
+                ))
 
     # Check for user-controlled template names
     cursor.execute("""
@@ -514,7 +513,7 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
 
     for file, line, func, template_name in cursor.fetchall():
         # Check if template name comes from user input
-        has_user_input = any(src in (template_name or '') for src in TEMPLATE_INPUT_SOURCES)
+        has_user_input = any(src in (template_name or '') for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -529,19 +528,29 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
             ))
 
     # Check for template includes with user input
+    template_directives = ['{% include', '{% extends', '{% import']
+    user_input_indicators = ['request.', 'params.', 'user.']
+
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
-        WHERE (a.source_expr LIKE '%{% include%'
-               OR a.source_expr LIKE '%{% extends%'
-               OR a.source_expr LIKE '%{% import%')
-          AND (a.source_expr LIKE '%request.%'
-               OR a.source_expr LIKE '%params.%'
-               OR a.source_expr LIKE '%user.%')
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
+        # Filter in Python: Check for template directives
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        has_directive = any(directive in source for directive in template_directives)
+        if not has_directive:
+            continue
+
+        # Filter in Python: Check for user input
+        has_user_input = any(indicator in source for indicator in user_input_indicators)
+        if not has_user_input:
+            continue
+
         findings.append(StandardFinding(
             rule_name='ssti-dynamic-include',
             message='SSTI: Dynamic template include/extend with user input',
@@ -554,3 +563,16 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
         ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_template_injection(context)

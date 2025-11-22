@@ -18,6 +18,7 @@ Detects:
 - XML entity expansion
 """
 
+
 import sqlite3
 from typing import List, Set
 from dataclasses import dataclass
@@ -151,7 +152,7 @@ class DeserializationAnalyzer:
         self.patterns = DeserializationPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -328,18 +329,17 @@ class DeserializationAnalyzer:
 
     def _check_django_flask_sessions(self):
         """Detect unsafe session deserialization in web frameworks."""
-        # Check Django PickleSerializer
-        django_placeholders = ','.join('?' * len(self.patterns.DJANGO_SESSION))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({django_placeholders})
-               OR argument_expr LIKE '%PickleSerializer%'
-            ORDER BY file, line
-        """, list(self.patterns.DJANGO_SESSION))
+        # Check Django PickleSerializer - fetch all, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for Django session patterns
+            if method not in self.patterns.DJANGO_SESSION and not (args and 'PickleSerializer' in args):
+                continue
             self.findings.append(StandardFinding(
                 rule_name='python-django-pickle-session',
                 message='Django PickleSerializer for sessions is unsafe',
@@ -403,25 +403,33 @@ class DeserializationAnalyzer:
 
     def _check_base64_pickle_combo(self):
         """Detect base64-encoded pickle (common attack pattern)."""
-        # Look for base64 decode followed by pickle loads
-        base64_placeholders = ','.join('?' * len(self.patterns.BASE64_PATTERNS))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT DISTINCT f1.file, f1.line, f1.callee_function
-            FROM function_call_args f1
-            WHERE f1.callee_function IN ({base64_placeholders})
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.line >= f1.line
-                    AND f2.line <= f1.line + 5
-                    AND (f2.callee_function LIKE '%pickle.load%'
-                         OR f2.callee_function LIKE '%loads%')
-              )
-            ORDER BY f1.file, f1.line
-        """, list(self.patterns.BASE64_PATTERNS))
+        # Get all base64 calls
+        base64_list = list(self.patterns.BASE64_PATTERNS)
+        base64_placeholders = ','.join('?' * len(base64_list))
 
-        for file, line, method in self.cursor.fetchall():
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where=f"callee_function IN ({base64_placeholders})",
+                           order_by="file, line")
+        self.cursor.execute(query, base64_list)
+        base64_calls = self.cursor.fetchall()
+
+        # Get all function calls
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+        self.cursor.execute(query)
+        all_calls = self.cursor.fetchall()
+
+        # Find base64 followed by pickle in Python
+        findings_set = set()
+        for b64_file, b64_line, b64_method in base64_calls:
+            for call_file, call_line, call_method in all_calls:
+                if call_file == b64_file and b64_line <= call_line <= b64_line + 5:
+                    call_lower = call_method.lower()
+                    if 'pickle.load' in call_lower or call_method.endswith('loads'):
+                        findings_set.add((b64_file, b64_line, b64_method))
+
+        for file, line, method in findings_set:
             self.findings.append(StandardFinding(
                 rule_name='python-base64-pickle',
                 message='Base64-encoded pickle detected - common attack vector',
@@ -471,28 +479,35 @@ class DeserializationAnalyzer:
 
     def _check_imports_context(self):
         """Check if dangerous modules are imported."""
-        # Check for pickle imports
-        self.cursor.execute("""
-            SELECT src, line FROM refs
-            WHERE value IN ('pickle', 'cPickle', 'dill', 'cloudpickle')
-               OR value LIKE 'from pickle import%'
-               OR value LIKE 'import pickle%'
-            ORDER BY src, line
-        """)
+        from theauditor.indexer.schema import build_query
 
-        pickle_imports = self.cursor.fetchall()
+        # Check for pickle imports - fetch all refs, filter in Python
+        query = build_query('refs', ['src', 'line', 'value'])
+        self.cursor.execute(query)
+
+        pickle_imports = []
+        for src, line, value in self.cursor.fetchall():
+            if not value:
+                continue
+            if value in ('pickle', 'cPickle', 'dill', 'cloudpickle'):
+                pickle_imports.append((src, line))
+            elif value.startswith('from pickle import') or value.startswith('import pickle'):
+                pickle_imports.append((src, line))
 
         if pickle_imports:
             # Check if pickle is actually used
             for file, line in pickle_imports:
-                # Check if there are no pickle calls (just import)
-                self.cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND callee_function LIKE '%pickle%'
-                """, [file])
+                # Get all function calls in file, filter for pickle in Python
+                query = build_query('function_call_args', ['callee_function'], where="file = ?")
+                self.cursor.execute(query, (file,))
 
-                if self.cursor.fetchone()[0] == 0:
+                has_pickle_usage = False
+                for (callee,) in self.cursor.fetchall():
+                    if 'pickle' in callee.lower():
+                        has_pickle_usage = True
+                        break
+
+                if not has_pickle_usage:
                     self.findings.append(StandardFinding(
                         rule_name='python-pickle-import',
                         message='Pickle module imported - consider safer alternatives',
@@ -538,7 +553,7 @@ FLAGGED: Missing database features for better deserialization detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python deserialization vulnerabilities.
 
     Args:

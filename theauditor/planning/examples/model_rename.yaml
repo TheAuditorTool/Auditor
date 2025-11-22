@@ -1,0 +1,101 @@
+# Database Model Rename Example
+# This spec verifies that a database model has been completely renamed across
+# the codebase, including all references, queries, and relationships.
+
+refactor_name: Rename User to Account Model
+description: Rename User model to Account throughout the application
+version: 1.0
+
+rules:
+  - id: remove-old-model-name
+    description: Remove references to old User model class
+    severity: critical
+    match:
+      identifiers: [class User, model User, UserModel]
+    expect:
+      identifiers: []
+    # Old model name should not exist
+
+  - id: new-model-name-present
+    description: Verify new Account model exists
+    severity: critical
+    match:
+      identifiers: [class Account, model Account, AccountModel]
+    expect:
+      identifiers: [class Account, AccountModel]
+
+  - id: update-orm-queries
+    description: Update ORM queries to use Account
+    severity: high
+    match:
+      identifiers: [User.query, User.find, User.findOne]
+    expect:
+      identifiers: []
+    # Old query patterns should be gone
+
+  - id: new-orm-queries-present
+    description: Verify new Account queries exist
+    severity: high
+    match:
+      identifiers: [Account.query, Account.find, Account.findOne]
+    expect:
+      identifiers: [Account.query, Account.find]
+
+  - id: update-table-name
+    description: Database table name should be updated
+    severity: critical
+    match:
+      identifiers: [__tablename__, tableName]
+    expect:
+      identifiers: [accounts, account]
+    # Table should be renamed to accounts (plural convention)
+
+  - id: update-relationships
+    description: Foreign key relationships should use Account
+    severity: high
+    match:
+      identifiers: [user_id, userId]
+    expect:
+      identifiers: [account_id, accountId]
+
+  - id: update-api-routes
+    description: API routes should use /accounts instead of /users
+    severity: medium
+    match:
+      api_routes: ['/api/users', '/users']
+    expect:
+      identifiers: []
+
+  - id: new-api-routes-present
+    description: Verify new /accounts routes exist
+    severity: medium
+    match:
+      api_routes: ['/api/accounts', '/accounts']
+    expect:
+      api_routes: ['/api/accounts']
+
+# Python-specific checks
+  - id: python-model-import
+    description: Python imports should reference Account
+    severity: high
+    match:
+      identifiers: [from models import User, from .models import User]
+    expect:
+      identifiers: []
+
+  - id: python-new-import
+    description: Verify new Python Account import
+    severity: high
+    match:
+      identifiers: [from models import Account]
+    expect:
+      identifiers: [from models import Account]
+
+# Usage:
+# 1. Create plan: aud planning init --name "User to Account Refactor"
+# 2. Add task: aud planning add-task 1 --title "Rename model" --spec model_rename.yaml
+# 3. Run search-replace across codebase
+# 4. Verify: aud full --offline && aud planning verify-task 1 1 --verbose
+# 5. Check violations and fix any missed references
+# 6. Re-verify until 0 violations
+# 7. Archive: aud planning archive 1 --notes "Model rename complete, database migrated"

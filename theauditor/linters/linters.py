@@ -19,6 +19,7 @@ ARCHITECT APPROVED: 2025-10-10
 AUDIT FIXES APPLIED: 2025-10-10
 """
 
+
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
@@ -77,7 +78,7 @@ class LinterOrchestrator:
 
         logger.info(f"LinterOrchestrator initialized: root={self.root}, toolbox={self.toolbox}")
 
-    def run_all_linters(self, workset_files: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def run_all_linters(self, workset_files: list[str] | None = None) -> list[dict[str, Any]]:
         """Run all available linters on appropriate files.
 
         Args:
@@ -128,7 +129,7 @@ class LinterOrchestrator:
 
         return findings
 
-    def _get_source_files(self, extensions: List[str]) -> List[str]:
+    def _get_source_files(self, extensions: list[str]) -> list[str]:
         """Query database for source files with given extensions.
 
         Args:
@@ -182,7 +183,7 @@ class LinterOrchestrator:
 
         return binary
 
-    def _run_eslint(self, files: List[str]) -> List[Dict[str, Any]]:
+    def _run_eslint(self, files: list[str]) -> list[dict[str, Any]]:
         """Run ESLint with our config and parse output.
 
         Uses batching to avoid command-line length limits (Windows 8191 chars, Linux ~2MB).
@@ -220,7 +221,7 @@ class LinterOrchestrator:
         logger.info(f"ESLint found {len(all_findings)} issues across {len(files)} files")
         return all_findings
 
-    def _run_eslint_batch(self, files: List[str], eslint_bin: Path, config_path: Path, batch_num: int) -> List[Dict[str, Any]]:
+    def _run_eslint_batch(self, files: list[str], eslint_bin: Path, config_path: Path, batch_num: int) -> list[dict[str, Any]]:
         """Run ESLint on a single batch of files.
 
         Args:
@@ -293,7 +294,7 @@ class LinterOrchestrator:
 
         return findings
 
-    def _run_ruff(self, files: List[str]) -> List[Dict[str, Any]]:
+    def _run_ruff(self, files: list[str]) -> list[dict[str, Any]]:
         """Run Ruff with our config and parse output.
 
         Uses batching to avoid command-line length limits.
@@ -327,7 +328,7 @@ class LinterOrchestrator:
         logger.info(f"Ruff found {len(all_findings)} issues across {len(files)} files")
         return all_findings
 
-    def _run_ruff_batch(self, files: List[str], ruff_bin: Path, config_path: Path, batch_num: int) -> List[Dict[str, Any]]:
+    def _run_ruff_batch(self, files: list[str], ruff_bin: Path, config_path: Path, batch_num: int) -> list[dict[str, Any]]:
         """Run Ruff on a single batch of files.
 
         Args:
@@ -416,7 +417,7 @@ class LinterOrchestrator:
 
         return findings
 
-    def _run_mypy(self, files: List[str]) -> List[Dict[str, Any]]:
+    def _run_mypy(self, files: list[str]) -> list[dict[str, Any]]:
         """Run Mypy with our config and parse output.
 
         Uses batching to avoid command-line length limits.
@@ -450,7 +451,7 @@ class LinterOrchestrator:
         logger.info(f"Mypy found {len(all_findings)} issues across {len(files)} files")
         return all_findings
 
-    def _run_mypy_batch(self, files: List[str], mypy_bin: Path, config_path: Path, batch_num: int) -> List[Dict[str, Any]]:
+    def _run_mypy_batch(self, files: list[str], mypy_bin: Path, config_path: Path, batch_num: int) -> list[dict[str, Any]]:
         """Run Mypy on a single batch of files.
 
         Args:
@@ -606,7 +607,7 @@ class LinterOrchestrator:
 
         return path
 
-    def _write_json_output(self, findings: List[Dict[str, Any]]):
+    def _write_json_output(self, findings: list[dict[str, Any]]):
         """Write findings to JSON file for AI consumption.
 
         Args:
@@ -621,7 +622,7 @@ class LinterOrchestrator:
             output_file.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             logger.error(f"Failed to create output directory: {e}")
-            raise IOError(f"Cannot create {output_file.parent}: {e}") from e
+            raise OSError(f"Cannot create {output_file.parent}: {e}") from e
 
         # Sort for determinism
         sorted_findings = sorted(findings, key=lambda f: (f["file"], f["line"], f["rule"]))
@@ -630,14 +631,14 @@ class LinterOrchestrator:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(sorted_findings, f, indent=2, sort_keys=True)
             logger.info(f"Wrote {len(findings)} findings to {output_file}")
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Failed to write lint.json (disk full? permissions?): {e}")
             raise  # Don't silently fail - this is critical for AI consumption
         except Exception as e:
             logger.error(f"Unexpected error writing lint.json: {e}")
-            raise IOError(f"Failed to write {output_file}: {e}") from e
+            raise OSError(f"Failed to write {output_file}: {e}") from e
 
-    def _run_clippy(self) -> List[Dict[str, Any]]:
+    def _run_clippy(self) -> list[dict[str, Any]]:
         """Run Cargo Clippy on Rust project and parse output.
 
         Clippy runs at the workspace level, not per-file. It analyzes the entire

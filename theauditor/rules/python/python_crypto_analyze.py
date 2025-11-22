@@ -19,6 +19,7 @@ Detects:
 - Small key sizes
 """
 
+
 import sqlite3
 from typing import List, Set
 from dataclasses import dataclass
@@ -155,7 +156,7 @@ class CryptoAnalyzer:
         self.patterns = CryptoPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -186,18 +187,20 @@ class CryptoAnalyzer:
 
     def _check_weak_hashes(self):
         """Detect weak hash algorithm usage."""
-        weak_placeholders = ','.join('?' * len(self.patterns.WEAK_HASHES))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({weak_placeholders})
-               OR callee_function LIKE '%.md5%'
-               OR callee_function LIKE '%.sha1%'
-            ORDER BY file, line
-        """, list(self.patterns.WEAK_HASHES))
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        weak_hash_usages = self.cursor.fetchall()
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
+
+        # Filter for weak hashes in Python
+        weak_hash_usages = []
+        for file, line, method, args in self.cursor.fetchall():
+            method_lower = method.lower()
+            # Check if callee contains weak hash patterns
+            if method in self.patterns.WEAK_HASHES or '.md5' in method_lower or '.sha1' in method_lower:
+                weak_hash_usages.append((file, line, method, args))
 
         for file, line, method, args in weak_hash_usages:
             # Determine if it's used for security (vs checksums)
@@ -225,20 +228,19 @@ class CryptoAnalyzer:
 
     def _check_broken_crypto(self):
         """Detect broken cryptographic algorithms."""
-        broken_placeholders = ','.join('?' * len(self.patterns.BROKEN_CRYPTO))
+        from theauditor.indexer.schema import build_query
 
-        # Check in function calls
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE '%DES%'
-               OR callee_function LIKE '%RC4%'
-               OR callee_function LIKE '%RC2%'
-               OR argument_expr IN ({broken_placeholders})
-            ORDER BY file, line
-        """, list(self.patterns.BROKEN_CRYPTO))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for broken crypto in method name or args
+            method_upper = method.upper()
+            if not ('DES' in method_upper or 'RC4' in method_upper or 'RC2' in method_upper):
+                if not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO)):
+                    continue
             algo = 'DES' if 'DES' in method else 'RC4' if 'RC4' in method else 'broken algorithm'
 
             self.findings.append(StandardFinding(
@@ -254,18 +256,22 @@ class CryptoAnalyzer:
 
     def _check_ecb_mode(self):
         """Detect ECB mode usage (insecure)."""
-        ecb_placeholders = ','.join('?' * len(self.patterns.ECB_MODE))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE argument_expr IN ({ecb_placeholders})
-               OR argument_expr LIKE '%MODE_ECB%'
-               OR callee_function LIKE '%ECB%'
-            ORDER BY file, line
-        """, list(self.patterns.ECB_MODE))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for ECB patterns in args or method
+            has_ecb = False
+            if args and (any(ecb in args for ecb in self.patterns.ECB_MODE) or 'MODE_ECB' in args):
+                has_ecb = True
+            if 'ECB' in method.upper():
+                has_ecb = True
+            if not has_ecb:
+                continue
             self.findings.append(StandardFinding(
                 rule_name='python-ecb-mode',
                 message='ECB mode encryption is insecure - patterns are preserved',
@@ -312,20 +318,18 @@ class CryptoAnalyzer:
 
     def _check_hardcoded_keys(self):
         """Detect hardcoded cryptographic keys."""
-        key_placeholders = ','.join('?' * len(self.patterns.KEY_VARIABLES))
+        from theauditor.indexer.schema import build_query
 
-        # Look for hardcoded key assignments
-        self.cursor.execute(f"""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE target_var IN ({key_placeholders})
-               OR target_var LIKE '%_key'
-               OR target_var LIKE '%_secret'
-               OR target_var LIKE '%_password'
-            ORDER BY file, line
-        """, list(self.patterns.KEY_VARIABLES))
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if var is a key variable
+            var_lower = var.lower()
+            if var not in self.patterns.KEY_VARIABLES and not (var.endswith('_key') or var.endswith('_secret') or var.endswith('_password')):
+                continue
             # Check if it's a literal string (hardcoded)
             if expr and (expr.startswith('"') or expr.startswith("'") or expr.startswith('b"') or expr.startswith("b'")):
                 # Check length to avoid false positives on placeholders
@@ -343,18 +347,18 @@ class CryptoAnalyzer:
 
     def _check_weak_kdf(self):
         """Detect weak key derivation functions."""
-        kdf_placeholders = ','.join('?' * len(self.patterns.KDF_METHODS))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({kdf_placeholders})
-               OR callee_function LIKE '%pbkdf2%'
-               OR callee_function LIKE '%scrypt%'
-            ORDER BY file, line
-        """, list(self.patterns.KDF_METHODS))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for KDF methods
+            method_lower = method.lower()
+            if method not in self.patterns.KDF_METHODS and 'pbkdf2' not in method_lower and 'scrypt' not in method_lower:
+                continue
             if not args:
                 continue
 
@@ -388,18 +392,19 @@ class CryptoAnalyzer:
 
     def _check_jwt_issues(self):
         """Detect JWT/token security issues."""
-        jwt_placeholders = ','.join('?' * len(self.patterns.JWT_PATTERNS))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({jwt_placeholders})
-               OR callee_function LIKE '%jwt.%'
-               OR argument_expr LIKE '%algorithm%'
-            ORDER BY file, line
-        """, list(self.patterns.JWT_PATTERNS))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for JWT patterns
+            method_lower = method.lower()
+            if method not in self.patterns.JWT_PATTERNS and 'jwt.' not in method_lower:
+                if not (args and 'algorithm' in args.lower()):
+                    continue
             if not args:
                 continue
 
@@ -431,19 +436,20 @@ class CryptoAnalyzer:
 
     def _check_ssl_issues(self):
         """Detect SSL/TLS misconfigurations."""
-        ssl_placeholders = ','.join('?' * len(self.patterns.SSL_PATTERNS))
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({ssl_placeholders})
-               OR argument_expr IN ({ssl_placeholders})
-               OR argument_expr LIKE '%verify=False%'
-               OR argument_expr LIKE '%CERT_NONE%'
-            ORDER BY file, line
-        """, list(self.patterns.SSL_PATTERNS) + list(self.patterns.SSL_PATTERNS))
+        # Fetch all function_call_args, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
 
         for file, line, method, args in self.cursor.fetchall():
+            # Check for SSL patterns in method or args
+            has_ssl_pattern = (method in self.patterns.SSL_PATTERNS or
+                              (args and (any(pattern in args for pattern in self.patterns.SSL_PATTERNS) or
+                                        'verify=False' in args or 'CERT_NONE' in args)))
+            if not has_ssl_pattern:
+                continue
             if 'verify=False' in str(args) or 'CERT_NONE' in str(args):
                 self.findings.append(StandardFinding(
                     rule_name='python-ssl-no-verify',
@@ -470,17 +476,23 @@ class CryptoAnalyzer:
 
     def _check_key_reuse(self):
         """Detect key reuse across different contexts."""
-        # Find all key assignments
-        self.cursor.execute("""
-            SELECT file, target_var, COUNT(*) as usage_count
-            FROM assignments
-            WHERE target_var LIKE '%key%'
-               OR target_var LIKE '%secret%'
-            GROUP BY file, target_var
-            HAVING COUNT(*) > 1
-        """)
+        from theauditor.indexer.schema import build_query
 
-        for file, var, count in self.cursor.fetchall():
+        # Fetch all assignments, filter and group in Python
+        query = build_query('assignments', ['file', 'target_var'])
+        self.cursor.execute(query)
+
+        # Group by file and var
+        key_counts = {}
+        for file, var in self.cursor.fetchall():
+            var_lower = var.lower()
+            if 'key' not in var_lower and 'secret' not in var_lower:
+                continue
+            key = (file, var)
+            key_counts[key] = key_counts.get(key, 0) + 1
+
+        # Find reused keys
+        for (file, var), count in key_counts.items():
             if count > 2:
                 self.findings.append(StandardFinding(
                     rule_name='python-key-reuse',
@@ -495,20 +507,23 @@ class CryptoAnalyzer:
 
     def _check_security_context(self, file: str, line: int) -> bool:
         """Check if code is in security-sensitive context."""
+        from theauditor.indexer.schema import build_query
+
         # Look for auth/password/token/session nearby
         security_keywords = ['auth', 'password', 'token', 'session', 'login', 'user', 'secret']
 
-        for keyword in security_keywords:
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 10
-                  AND (callee_function LIKE ? OR argument_expr LIKE ?)
-                LIMIT 1
-            """, [file, line, f'%{keyword}%', f'%{keyword}%'])
+        # Fetch nearby function calls, filter in Python
+        query = build_query('function_call_args', ['callee_function', 'argument_expr'],
+                           where="file = ? AND ABS(line - ?) <= 10")
+        self.cursor.execute(query, (file, line))
 
-            if self.cursor.fetchone()[0] > 0:
-                return True
+        for callee, arg_expr in self.cursor.fetchall():
+            callee_lower = callee.lower() if callee else ''
+            arg_lower = arg_expr.lower() if arg_expr else ''
+
+            for keyword in security_keywords:
+                if keyword in callee_lower or keyword in arg_lower:
+                    return True
 
         return False
 
@@ -518,18 +533,18 @@ class CryptoAnalyzer:
         if caller and any(c in caller.lower() for c in ['key', 'token', 'nonce', 'salt', 'iv', 'crypto', 'encrypt']):
             return True
 
-        # Check for crypto library usage nearby
-        crypto_placeholders = ','.join('?' * len(self.patterns.CRYPTO_LIBS))
+        # Check for crypto library usage nearby - fetch and filter in Python
+        from theauditor.indexer.schema import build_query
 
-        self.cursor.execute(f"""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
-              AND ABS(line - ?) <= 20
-              AND callee_function LIKE '%crypt%'
-            LIMIT 1
-        """, [file, line])
+        query = build_query('function_call_args', ['callee_function'],
+                           where="file = ? AND ABS(line - ?) <= 20")
+        self.cursor.execute(query, (file, line))
 
-        return self.cursor.fetchone()[0] > 0
+        for (callee,) in self.cursor.fetchall():
+            if 'crypt' in callee.lower():
+                return True
+
+        return False
 
 
 # ============================================================================
@@ -565,7 +580,7 @@ FLAGGED: Missing database features for better crypto detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python cryptography vulnerabilities.
 
     Args:

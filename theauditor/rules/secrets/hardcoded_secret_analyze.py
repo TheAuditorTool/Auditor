@@ -5,13 +5,20 @@ This rule demonstrates a JUSTIFIED HYBRID approach because:
 2. Base64 decoding and verification requires runtime processing
 3. Pattern matching for secret formats needs regex evaluation
 4. Sequential/keyboard pattern detection is algorithmic
+5. Normalized assignment metadata distinguishes literal secrets from dynamic sources
 
 Follows gold standard patterns (v1.1+ schema contract compliance):
 - Frozensets for O(1) pattern matching
 - Direct database queries (assumes all tables exist per schema contract)
 - Proper Severity and Confidence enums
 - Standardized finding generation with correct parameter names
+
+False positive fixes (2025-11-22):
+- Credit: Technique adapted from external contributor @dev-corelift (PR #20)
+- Adds literal string extraction to avoid flagging dynamic values like request.headers.get()
+- Properly handles f-strings, template literals, and function calls
 """
+
 
 import sqlite3
 import re
@@ -117,6 +124,13 @@ DB_PROTOCOLS = frozenset([
     'cassandra://', 'couchdb://', 'elasticsearch://'
 ])
 
+# Regex for detecting string literals (supports Python & JS styles)
+# Credit: @dev-corelift (PR #20) - Prevents false positives on dynamic values
+STRING_LITERAL_RE = re.compile(
+    r'^(?P<prefix>[rubfRUBF]*)(?P<quote>"""|\'\'\'|"|\'|`)(?P<body>.*)(?P=quote)$',
+    re.DOTALL
+)
+
 # High-confidence secret patterns (provider-specific)
 HIGH_CONFIDENCE_PATTERNS = frozenset([
     (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
@@ -167,7 +181,7 @@ KEYBOARD_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding]:
+def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect hardcoded secrets using hybrid approach.
 
     Detects:
@@ -239,30 +253,85 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding
 # DATABASE-BASED DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_secret_assignments(cursor) -> List[StandardFinding]:
+def _extract_string_literal(expr: str) -> Optional[str]:
+    """Extract the inner value of a string literal expression.
+
+    Supports Python prefixes (r/u/b/f) and JavaScript/TypeScript string forms.
+    Returns None when the expression is not a static literal (e.g. function
+    calls, template strings, or f-strings).
+
+    Credit: @dev-corelift (PR #20) - Prevents flagging dynamic sources
+
+    Examples:
+        >>> _extract_string_literal('"hardcoded_secret"')
+        'hardcoded_secret'
+        >>> _extract_string_literal('request.headers.get("X-API-Key")')
+        None  # Not a literal
+        >>> _extract_string_literal('f"secret_{user_id}"')
+        None  # F-string with interpolation
+        >>> _extract_string_literal('`secret_${value}`')
+        None  # Template literal with interpolation
+    """
+    if not expr:
+        return None
+
+    expr = expr.strip()
+    match = STRING_LITERAL_RE.match(expr)
+    if not match:
+        return None
+
+    prefix = match.group('prefix') or ''
+    quote = match.group('quote')
+    body = match.group('body')
+
+    # F-strings interpolate runtime data; they are not static literals
+    if any(ch.lower() == 'f' for ch in prefix):
+        return None
+
+    # Skip template literals with interpolation
+    if quote == '`' and '${' in body:
+        return None
+
+    return body
+
+
+def _find_secret_assignments(cursor) -> list[StandardFinding]:
     """Find variable assignments that look like secrets."""
     findings = []
 
-    # Build parameterized query for security keywords
-    keywords_list = list(SECRET_KEYWORDS)
-    placeholders = ' OR '.join(['target_var LIKE ?' for _ in keywords_list])
-    params = [f'%{kw}%' for kw in keywords_list]
-
-    cursor.execute(f"""
+    # Fetch all assignments with long source expressions, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({placeholders})
-          AND source_expr NOT LIKE '%process.env%'
-          AND source_expr NOT LIKE '%import.meta.env%'
-          AND source_expr NOT LIKE '%os.environ%'
-          AND source_expr NOT LIKE '%getenv%'
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
           AND LENGTH(source_expr) > 10
         ORDER BY file, line
-    """, params)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     for file, line, var, value in cursor.fetchall():
-        # Clean the value
-        clean_value = value.strip().strip('\'"')
+        # Check if variable name contains secret keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in SECRET_KEYWORDS):
+            continue
+
+        # Skip env variable sources
+        if ('process.env' in value or
+            'import.meta.env' in value or
+            'os.environ' in value or
+            'getenv' in value):
+            continue
+
+        # Extract literal value (skip dynamic expressions)
+        # Credit: @dev-corelift (PR #20) - Prevents flagging request.headers.get(), etc.
+        literal_value = _extract_string_literal(value)
+        if literal_value is None:
+            continue  # Not a static literal, skip
+
+        clean_value = literal_value.strip()
 
         # Check for weak passwords first
         if var.lower() in ['password', 'passwd', 'pwd'] and clean_value.lower() in WEAK_PASSWORDS:
@@ -301,24 +370,31 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_connection_strings(cursor) -> List[StandardFinding]:
+def _find_connection_strings(cursor) -> list[StandardFinding]:
     """Find database connection strings with embedded passwords."""
     findings = []
 
-    # Build query for DB protocols
-    protocols_list = list(DB_PROTOCOLS)
-    protocol_conditions = ' OR '.join([f'source_expr LIKE ?' for _ in protocols_list])
-    protocol_params = [f'%{proto}%' for proto in protocols_list]
-
-    cursor.execute(f"""
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({protocol_conditions})
-          AND source_expr LIKE '%@%'
+        WHERE source_expr IS NOT NULL
         ORDER BY file, line
-    """, protocol_params)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     for file, line, var, conn_str in cursor.fetchall():
+        # Check if source contains DB protocol
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        has_protocol = any(proto in conn_str for proto in DB_PROTOCOLS)
+        if not has_protocol:
+            continue
+
+        # Check if contains @ (user@host pattern)
+        if '@' not in conn_str:
+            continue
+
         # Check if connection string has password
         # Pattern: protocol://user:password@host
         if re.search(r'://[^:]+:[^@]+@', conn_str):
@@ -342,28 +418,35 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_env_fallbacks(cursor) -> List[StandardFinding]:
+def _find_env_fallbacks(cursor) -> list[StandardFinding]:
     """Find environment variable fallbacks with hardcoded secrets."""
     findings = []
 
-    # Find patterns like: process.env.SECRET || "hardcoded"
+    # Fetch all assignments, filter in Python
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE (source_expr LIKE '%process.env%||%'
-               OR source_expr LIKE '%os.environ.get%'
-               OR source_expr LIKE '%getenv%||%'
-               OR source_expr LIKE '%??%'
-               OR source_expr LIKE '%or %')
-          AND (target_var LIKE '%secret%'
-               OR target_var LIKE '%key%'
-               OR target_var LIKE '%token%'
-               OR target_var LIKE '%password%'
-               OR target_var LIKE '%credential%')
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
+
+    fallback_patterns = ['process.env', 'os.environ.get', 'getenv', '||', '??', ' or ']
+    secret_keywords_lower = ['secret', 'key', 'token', 'password', 'credential']
 
     for file, line, var, expr in cursor.fetchall():
+        # Check if target_var contains secret keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in secret_keywords_lower):
+            continue
+
+        # Check if source_expr contains env fallback patterns
+        if not any(pattern in expr for pattern in fallback_patterns):
+            continue
+
         # Extract the fallback value
         fallback_match = (re.search(r'\|\|\s*["\']([^"\']+)["\']', expr) or
                          re.search(r'\?\?\s*["\']([^"\']+)["\']', expr) or
@@ -387,24 +470,31 @@ def _find_env_fallbacks(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_dict_secrets(cursor) -> List[StandardFinding]:
+def _find_dict_secrets(cursor) -> list[StandardFinding]:
     """Find secrets in dictionary/object literals."""
     findings = []
 
-    # Look for patterns like {"password": "...", "api_key": "..."}
-    keywords_list = list(SECRET_KEYWORDS)
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
+        SELECT file, line, source_expr
+        FROM assignments
+        WHERE source_expr IS NOT NULL
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
-    for keyword in keywords_list:
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE (source_expr LIKE ? OR source_expr LIKE ?)
-              AND source_expr NOT LIKE '%process.env%'
-              AND source_expr NOT LIKE '%os.environ%'
-            LIMIT 100
-        """, (f'%"{keyword}":%', f"%'{keyword}':%"))
+    for file, line, expr in cursor.fetchall():
+        # Skip env variable sources
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        if 'process.env' in expr or 'os.environ' in expr:
+            continue
 
-        for file, line, expr in cursor.fetchall():
+        # Check if expression contains any secret keyword as a key
+        for keyword in SECRET_KEYWORDS:
+            # Check if keyword appears in dict-like pattern
+            if (f'"{keyword}":' not in expr and f"'{keyword}':" not in expr):
+                continue
+
             # Extract the value for this key
             pattern = rf'["\']?{keyword}["\']?\s*:\s*["\']([^"\']+)["\']'
             match = re.search(pattern, expr, re.IGNORECASE)
@@ -426,27 +516,34 @@ def _find_dict_secrets(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
+def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
     """Find API keys embedded in URLs."""
     findings = []
 
-    # Find URL constructions with API keys
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function IN ('fetch', 'axios', 'request', 'get', 'post')
-               OR callee_function LIKE '%.get'
-               OR callee_function LIKE '%.post')
-          AND (argument_expr LIKE '%api_key=%'
-               OR argument_expr LIKE '%apikey=%'
-               OR argument_expr LIKE '%token=%'
-               OR argument_expr LIKE '%key=%'
-               OR argument_expr LIKE '%secret=%'
-               OR argument_expr LIKE '%password=%')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
+
+    http_functions = frozenset(['fetch', 'axios', 'request', 'get', 'post'])
+    api_key_params = ['api_key=', 'apikey=', 'token=', 'key=', 'secret=', 'password=']
 
     for file, line, func, args in cursor.fetchall():
+        # Check if function is HTTP-related
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        if func not in http_functions and not (func.endswith('.get') or func.endswith('.post')):
+            continue
+
+        # Check if arguments contain API key parameters
+        if not any(param in args for param in api_key_params):
+            continue
+
         # Check if the key looks hardcoded
         key_match = re.search(r'(api_key|apikey|token|key|secret|password)=([^&\s]+)', args, re.IGNORECASE)
         if key_match:
@@ -475,41 +572,60 @@ def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_suspicious_files(cursor) -> List[str]:
+def _get_suspicious_files(cursor) -> list[str]:
     """Get list of files likely to contain secrets."""
     suspicious_files = []
 
-    # Find files with many secret-related symbols
+    # Fetch all symbols, filter in Python
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT path, name
         FROM symbols
-        WHERE name LIKE '%secret%'
-           OR name LIKE '%token%'
-           OR name LIKE '%password%'
-           OR name LIKE '%api_key%'
-           OR name LIKE '%credential%'
-           OR name LIKE '%private_key%'
-        GROUP BY path
-        HAVING COUNT(*) > 3
-        LIMIT 50
-    """)
+        WHERE name IS NOT NULL
+          AND path IS NOT NULL
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
-    suspicious_files.extend([row[0] for row in cursor.fetchall()])
+    secret_keywords_lower = ['secret', 'token', 'password', 'api_key', 'credential', 'private_key']
 
-    # Find config/settings files
+    # Count symbols with secret keywords per file
+    file_secret_counts = {}
+    for path, name in cursor.fetchall():
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in secret_keywords_lower):
+            file_secret_counts[path] = file_secret_counts.get(path, 0) + 1
+
+    # Add files with >3 secret-related symbols
+    for path, count in file_secret_counts.items():
+        if count > 3:
+            suspicious_files.append(path)
+            if len(suspicious_files) >= 50:
+                break
+
+    # Fetch all files, filter for config/settings files in Python
     cursor.execute("""
         SELECT path
         FROM files
-        WHERE (path LIKE '%config%'
-               OR path LIKE '%settings%'
-               OR path LIKE '%env.%'
-               OR path LIKE '%.env%')
-          AND path NOT LIKE '%.env.example'
-          AND path NOT LIKE '%.env.template'
-        LIMIT 20
-    """)
+        WHERE path IS NOT NULL
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
-    suspicious_files.extend([row[0] for row in cursor.fetchall()])
+    config_patterns = ['config', 'settings', 'env.', '.env']
+    exclude_patterns = ['.env.example', '.env.template']
+
+    for (path,) in cursor.fetchall():
+        # Check if path contains config patterns
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
+        if not any(pattern in path for pattern in config_patterns):
+            continue
+
+        # Exclude example/template files
+        if any(pattern in path for pattern in exclude_patterns):
+            continue
+
+        suspicious_files.append(path)
+        if len(suspicious_files) >= 70:
+            break
 
     # Return unique files
     return list(set(suspicious_files))
@@ -660,7 +776,7 @@ def _is_base64_secret(value: str) -> bool:
         return False
 
 
-def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFinding]:
+def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFinding]:
     """Scan file content for secret patterns.
 
     This is justified file I/O because:
@@ -671,7 +787,7 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFin
     findings = []
 
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
 
         # Limit to first 5000 lines for performance

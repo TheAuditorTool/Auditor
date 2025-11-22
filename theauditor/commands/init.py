@@ -1,120 +1,151 @@
-"""Initialize TheAuditor for first-time use."""
+"""[DEPRECATED] Init command - now redirects to 'aud full' for data fidelity."""
 
-from pathlib import Path
+import time
 import click
 
 
 @click.command()
-@click.option("--offline", is_flag=True, help="Skip network operations (deps check, docs fetch)")
-@click.option("--skip-docs", is_flag=True, help="Skip documentation fetching")
-@click.option("--skip-deps", is_flag=True, help="Skip dependency checking")
-def init(offline, skip_docs, skip_deps):
-    """Initialize TheAuditor and create analysis infrastructure.
+@click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
+@click.option("--quiet", is_flag=True, help="Minimal output")
+@click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
+@click.pass_context
+def init(ctx, offline, quiet, exclude_self):
+    """[DEPRECATED] This command now runs 'aud full' for data fidelity.
 
-    Sets up the complete TheAuditor environment in your project. This is
-    typically the first command you run in a new project. It creates the
-    .pf/ directory structure and performs initial analysis.
+    ════════════════════════════════════════════════════════════════════════════════
+    DEPRECATION NOTICE: 'aud init' is DEPRECATED
+    ════════════════════════════════════════════════════════════════════════════════
 
-    Creates Directory Structure:
-      .pf/
-      ├── raw/                # Immutable tool outputs
-      │   ├── *.json         # Tool results in JSON format
-      │   └── *.ndjson       # Streaming outputs
-      ├── readthis/          # AI-optimized chunks
-      │   ├── *_chunk*.json  # Findings split into <65KB chunks
-      │   └── summary.json   # Executive summary
-      ├── .ast_cache/        # Cached AST trees for performance
-      ├── repo_index.db      # SQLite database with all symbols
-      ├── manifest.json      # File inventory
-      ├── workset.json       # Target file list
-      └── pipeline.log       # Execution trace
+    The 'aud init' command no longer provides sufficient initialization for modern
+    TheAuditor analysis. It now automatically runs the complete 'aud full' pipeline
+    (20 phases) which handles all initialization internally.
 
-    Operations Performed:
-      1. Index repository - Build symbol database
-      2. Create workset - Identify all source files
-      3. Check dependencies - Inventory packages (unless --skip-deps)
-      4. Fetch documentation - Download API docs (unless --skip-docs)
+    WHY THIS CHANGE:
+      • 'aud init' originally ran: index → workset → deps → docs (4 steps)
+      • Modern analysis requires: frameworks, graphs, CFGs, taint, patterns, etc.
+      • Running partial initialization leads to incomplete analysis context
+      • 'aud full' auto-creates .pf/ directory and handles all setup automatically
 
-    Examples:
-      aud init                    # Full initialization
-      aud init --offline          # Skip network operations
-      aud init --skip-docs        # Skip documentation fetch
-      aud init --skip-deps        # Skip dependency check
+    WHAT HAPPENS NOW:
+      Running 'aud init' will execute 'aud full' which includes:
+        ✓ Automatic .pf/ directory creation (no separate init needed)
+        ✓ Repository indexing (AST parsing)
+        ✓ Framework detection (Django, Flask, React, etc.)
+        ✓ Dependency analysis and vulnerability scanning
+        ✓ Workset creation (file filtering)
+        ✓ Security pattern detection (200+ patterns)
+        ✓ Taint analysis (cross-file data flow)
+        ✓ Graph analysis (hotspots, cycles)
+        ✓ Control flow graphs (complexity analysis)
+        ✓ Factual Correlation Engine (finding aggregation)
+        ✓ Report generation (AI-optimized chunks)
 
-    After init, typical next steps:
-      aud full                    # Run complete audit
-      aud taint-analyze           # Check for vulnerabilities
-      aud lint                    # Run code quality checks
+    MIGRATION GUIDE:
+      OLD Workflow:
+        aud init                     # Setup only (4 steps)
+        aud taint-analyze            # Separate analysis
+        aud deadcode                 # Separate analysis
 
-    Note: Safe to run multiple times - won't overwrite existing data."""
-    from theauditor.init import initialize_project
-    
-    click.echo("[INIT] Initializing TheAuditor...\n")
-    click.echo("This will run all setup steps:")
-    click.echo("  1. Index repository")
-    click.echo("  2. Create workset")
-    click.echo("  3. Check dependencies")
-    click.echo("  4. Fetch documentation")
-    click.echo("\n" + "="*60 + "\n")
-    
-    # Call the refactored initialization logic with progress callback
-    result = initialize_project(
+      NEW Workflow:
+        aud full                     # One command does everything
+        aud full --offline           # Air-gapped (skips network operations)
+        aud full --quiet             # Minimal output for CI/CD
+
+    BACKWARD COMPATIBILITY:
+      This command will continue to work to maintain CI/CD compatibility, but will
+      run the full audit pipeline. Update your workflows:
+
+      CI/CD Pipelines:
+        OLD: aud init --offline && aud taint-analyze
+        NEW: aud full --offline --quiet
+
+      Development Workflow:
+        OLD: aud init && aud full
+        NEW: aud full  # (init happens automatically)
+
+      Fresh Project Setup:
+        OLD: cd project && aud init
+        NEW: cd project && aud full
+
+    UNSUPPORTED FLAGS (removed in deprecation):
+      The following flags from the old 'aud init' are NOT supported:
+        --skip-docs, --skip-deps   → Use 'aud full --offline' to skip network I/O
+
+      Supported flags (mapped to 'aud full'):
+        --offline                  → Skips network operations (deps, docs)
+        --quiet                    → Minimal output for automation
+        --exclude-self             → Excludes TheAuditor's own files
+
+    PERFORMANCE:
+      OLD 'aud init': ~10-30 seconds (4 setup steps only)
+      NEW redirect:   ~10-60 minutes (complete 20-phase pipeline)
+
+      This is INTENTIONAL - first-time setup should run complete audit.
+      The .pf/ directory is created automatically, no separate init needed.
+
+    AUTO-INITIALIZATION:
+      'aud full' automatically detects if .pf/ doesn't exist and creates it.
+      No separate initialization command is needed in modern workflows.
+
+    TIMELINE:
+      This deprecation warning will be removed in v2.0 when 'aud init' is fully
+      retired. Update your scripts and pipelines now to avoid future issues.
+
+    For more information:
+      aud full --help              # See complete pipeline documentation
+      aud explain workset          # Learn about incremental analysis
+
+    ════════════════════════════════════════════════════════════════════════════════
+    """
+    # Print prominent deprecation warning (unless --quiet)
+    if not quiet:
+        click.echo("")
+        click.echo("=" * 80)
+        click.echo(" " * 28 + "DEPRECATION WARNING")
+        click.echo("=" * 80)
+        click.echo("")
+        click.echo("  The 'aud init' command is DEPRECATED and now runs 'aud full' instead.")
+        click.echo("")
+        click.echo("  WHY: 'aud init' alone no longer provides sufficient initialization")
+        click.echo("       for modern TheAuditor analysis. 'aud full' auto-creates .pf/")
+        click.echo("       directory and handles all setup + analysis in one command.")
+        click.echo("")
+        click.echo("  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)")
+        click.echo("          instead of just 4-step initialization (~10-30 seconds).")
+        click.echo("")
+        click.echo("  ACTION REQUIRED:")
+        click.echo("    • Replace 'aud init && aud full' with just 'aud full'")
+        click.echo("    • Update CI/CD pipelines to use 'aud full' directly")
+        click.echo("    • Use 'aud full --offline' for air-gapped environments")
+        click.echo("    • Use 'aud full --quiet' for minimal output in automation")
+        click.echo("")
+        click.echo("  NOTE: .pf/ directory is created automatically by 'aud full'.")
+        click.echo("        No separate initialization step is needed.")
+        click.echo("")
+        click.echo("  This warning will be removed in v2.0 when 'aud init' is fully retired.")
+        click.echo("")
+        click.echo("=" * 80)
+        click.echo("")
+        click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
+        click.echo("")
+
+        # Give users time to cancel if they didn't expect this
+        try:
+            time.sleep(3)
+        except KeyboardInterrupt:
+            click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
+            ctx.exit(0)
+
+    # Import full command here to avoid circular dependency
+    from theauditor.commands.full import full
+
+    # Call aud full with mapped parameters
+    ctx.invoke(
+        full,
+        root=".",
+        quiet=quiet,
+        exclude_self=exclude_self,
         offline=offline,
-        skip_docs=skip_docs,
-        skip_deps=skip_deps,
-        progress_callback=click.echo
+        subprocess_taint=False,  # Default
+        wipecache=False  # Default
     )
-    
-    stats = result["stats"]
-    has_failures = result["has_failures"]
-    next_steps = result["next_steps"]
-    
-    # Results have already been displayed via progress callback
-    
-    # Summary
-    click.echo("\n" + "="*60)
-    
-    if has_failures:
-        click.echo("\n[WARN]  Initialization Partially Complete\n")
-    else:
-        click.echo("\n[SUCCESS] Initialization Complete!\n")
-    
-    # Show summary
-    click.echo("[STATS] Summary:")
-    if stats.get("index", {}).get("success"):
-        click.echo(f"  * Indexed: {stats['index']['text_files']} files")
-    else:
-        click.echo("  * Indexing: [FAILED] Failed")
-    
-    if stats.get("workset", {}).get("success"):
-        click.echo(f"  * Workset: {stats['workset']['files']} files")
-    elif stats.get("workset", {}).get("files") == 0:
-        click.echo("  * Workset: [WARN]  No files found")
-    else:
-        click.echo("  * Workset: [FAILED] Failed")
-    
-    if stats.get("deps", {}).get("success"):
-        click.echo(f"  * Dependencies: {stats['deps'].get('total', 0)} total, {stats['deps'].get('outdated', 0)} outdated")
-    elif stats.get("deps", {}).get("skipped"):
-        click.echo("  * Dependencies: [SKIPPED]  Skipped")
-    
-    if stats.get("docs", {}).get("success"):
-        fetched = stats['docs'].get('fetched', 0)
-        cached = stats['docs'].get('cached', 0)
-        capsules = stats['docs'].get('capsules', 0)
-        if cached > 0:
-            click.echo(f"  * Documentation: {fetched} fetched, {cached} cached, {capsules} capsules")
-        else:
-            click.echo(f"  * Documentation: {fetched} fetched, {capsules} capsules")
-    elif stats.get("docs", {}).get("skipped"):
-        click.echo("  * Documentation: [SKIPPED]  Skipped")
-    
-    # Next steps - only show if we have files to work with
-    if next_steps:
-        click.echo("\n[TARGET] Next steps:")
-        for i, step in enumerate(next_steps, 1):
-            click.echo(f"  {i}. Run: {step}")
-        click.echo("\nOr run all at once:")
-        click.echo(f"  {' && '.join(next_steps)}")
-    else:
-        click.echo("\n[WARN]  No files found to audit. Check that you're in the right directory.")
