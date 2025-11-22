@@ -44,6 +44,35 @@ and comprehensive test fixture expansion. 132 commits, 839 files changed,
 - Field-sensitive tracking prevents cross-object false positives
 - Complete provenance: all flows recorded with hop chains
 
+ **New Analysis Subsystems**
+- **IFDS Taint Analysis**: Field-sensitive taint tracking with access paths
+- **Boundary Analysis**: Security control distance measurement
+- **Session Analysis**: AI agent session behavior analysis
+- **Planning System**: Spec-based task management with code verification
+- **GraphQL Analysis**: Complete schema analysis and resolver mapping
+- **AWS CDK Analysis**: Infrastructure-as-Code security scanning
+
+---
+
+## Framework Support Added
+
+### Python Frameworks
+- **Django**: Models, views, forms, signals, middleware, admin (11 tables)
+- **Flask**: Blueprints, extensions, hooks, websockets, CLI (9 tables)
+- **FastAPI**: Routes, dependencies, auth decorators
+- **SQLAlchemy**: Models, relationships, cascade detection
+- **Pydantic**: Validators (field/root), model fields
+- **Celery**: Tasks, task calls, beat schedules
+- **Marshmallow**: Schemas, fields, validators
+- **DRF**: Serializers, serializer fields
+- **WTForms**: Forms, field validators
+
+### JavaScript/TypeScript
+- **Angular**: Components, services, decorators
+- **BullMQ**: Job queues, workers
+- **Sequelize**: ORM models, associations
+- **GraphQL**: Schema, resolvers, execution edges
+
 ---
 
 ### 📊 Indexer & Schema - Modular Architecture

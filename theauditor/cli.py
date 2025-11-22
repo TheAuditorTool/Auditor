@@ -12,7 +12,8 @@ from theauditor import __version__
 if platform.system() == "Windows":
     try:
         # Set console code page to UTF-8
-        subprocess.run(["chcp", "65001"], shell=True, capture_output=True, timeout=1)
+        # Use cmd /c to run chcp without shell=True (more secure)
+        subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
         # Also configure Python's stdout/stderr
         import codecs
         sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')

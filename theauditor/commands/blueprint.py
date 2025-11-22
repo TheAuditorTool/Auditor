@@ -570,10 +570,15 @@ def _get_performance(cursor, db_path: Path) -> Dict:
     if db_path.exists():
         metrics['db_size_mb'] = round(db_path.stat().st_size / (1024 * 1024), 2)
 
+    # Whitelist of valid tables for counting
+    VALID_TABLES = {'symbols', 'function_call_args', 'assignments', 'api_endpoints'}
     tables = ['symbols', 'function_call_args', 'assignments', 'api_endpoints']
     total = 0
     for table in tables:
         try:
+            # Validate table name to prevent SQL injection
+            if table not in VALID_TABLES:
+                continue
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             total += cursor.fetchone()[0] or 0
         except:

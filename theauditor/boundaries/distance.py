@@ -256,9 +256,9 @@ def find_all_paths_to_controls(
                 if is_control:
                     # Find definition line
                     cursor.execute("""
-                        SELECT start_line
+                        SELECT line
                         FROM symbols
-                        WHERE file = ?
+                        WHERE path = ?
                           AND name = ?
                           AND type IN ('function', 'method', 'arrow_function')
                         LIMIT 1
