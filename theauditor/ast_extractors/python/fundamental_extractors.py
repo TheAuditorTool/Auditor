@@ -123,23 +123,6 @@ def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     return 'global'
 
 
-def _build_function_ranges(tree: ast.AST) -> list:
-    """Build list of function ranges for context tracking.
-
-    Returns:
-        List of (name, start_line, end_line) tuples
-    """
-    function_ranges = []
-    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
-        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-            function_ranges.append((
-                node.name,
-                node.lineno,
-                node.end_lineno or node.lineno
-            ))
-    return function_ranges
-
-
 def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: list,
                              all_nodes: list[ast.AST]) -> list[str]:
     """Detect variables captured from outer scope in lambda.

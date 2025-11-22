@@ -22,6 +22,23 @@ from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE
 from ..schema import TABLES, get_table_schema
 
 
+def validate_table_name(table: str) -> str:
+    """Validate table name against schema to prevent SQL injection.
+
+    Args:
+        table: Table name to validate
+
+    Returns:
+        The validated table name
+
+    Raises:
+        ValueError: If table name is not in TABLES registry
+    """
+    if table not in TABLES:
+        raise ValueError(f"Invalid table name: {table}. Must be one of the schema-defined tables.")
+    return table
+
+
 class BaseDatabaseManager:
     """Base database manager providing core infrastructure.
 
@@ -165,7 +182,9 @@ class BaseDatabaseManager:
         try:
             # Clear all tables defined in schema
             for table_name in TABLES.keys():
-                cursor.execute(f"DELETE FROM {table_name}")
+                # Validate table name to prevent SQL injection (should never fail for TABLES)
+                validated_table = validate_table_name(table_name)
+                cursor.execute(f"DELETE FROM {validated_table}")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
