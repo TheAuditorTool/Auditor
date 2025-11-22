@@ -719,41 +719,48 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
         download_filename = "osv-scanner_linux_amd64"
 
     binary_path = osv_dir / binary_name
+    db_dir = osv_dir / "db"
+    db_dir.mkdir(exist_ok=True)
 
-    # Check if already installed
-    if binary_path.exists():
-        check_mark = "[OK]"
-        print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
-        return binary_path
-
-    # Download from GitHub releases (latest)
-    # FACT: Release page at https://github.com/google/osv-scanner/releases
-    url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
-    print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
-    print(f"    URL: {url}")
-
+    # Architect approved: dont early return, databases may need downloading
+    # Binary download is conditional, but database download always runs
+    check_mark = "[OK]"
     temp_files: list[Path] = []
 
+    if binary_path.exists():
+        print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
+    else:
+        # Download from GitHub releases (latest)
+        # FACT: Release page at https://github.com/google/osv-scanner/releases
+        url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
+        print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
+        print(f"    URL: {url}")
+
+        try:
+            # Download binary
+            urllib.request.urlretrieve(url, str(binary_path))
+
+            # Make executable on Unix systems
+            if system != "Windows":
+                import stat
+                st = binary_path.stat()
+                binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+            print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
+        except urllib.error.URLError as e:
+            print(f"    [WARN] Network error downloading OSV-Scanner: {e}")
+            print(f"    [WARN] You can manually download from: https://github.com/google/osv-scanner/releases")
+            return None
+        except Exception as e:
+            print(f"    [WARN] Failed to install OSV-Scanner: {e}")
+            if binary_path.exists():
+                binary_path.unlink()
+            return None
+
+    print(f"    {check_mark} Database cache directory: {db_dir}")
+
+    # Always run database download section (even if binary already existed)
     try:
-        # Download binary
-        urllib.request.urlretrieve(url, str(binary_path))
-
-        # Make executable on Unix systems
-        if system != "Windows":
-            import stat
-            st = binary_path.stat()
-            binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-        check_mark = "[OK]"
-        print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
-
-        # Create offline database directory
-        # FACT from offline-mode.md: Database structure is {local_db_dir}/osv-scanner/{ecosystem}/all.zip
-        db_dir = osv_dir / "db"
-        db_dir.mkdir(exist_ok=True)
-
-        print(f"    {check_mark} OSV-Scanner installed at {osv_dir}")
-        print(f"    {check_mark} Database cache directory: {db_dir}")
 
         # Download offline vulnerability databases (NOT optional - required for offline mode)
         print(f"")
@@ -786,6 +793,13 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
                         break
                 if 'npm' in lockfiles:
                     break
+
+            # If package.json exists but no lockfile, user hasn't run npm install
+            # OSV-Scanner requires lockfiles - skip npm database download
+            if 'npm' not in lockfiles:
+                pkg_json = target_dir / 'package.json'
+                if pkg_json.exists():
+                    print("    ℹ package.json found but no package-lock.json (npm install not run) - skipping npm database")
 
             # Python requirements - check in order of preference
             for name in ['requirements.txt', 'Pipfile.lock', 'poetry.lock']:
@@ -822,10 +836,10 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             for ecosystem, lockfile in lockfiles.items():
                 cmd.extend(["-L", str(lockfile)])
 
-            # If NO lockfiles, scan directory recursively
+            # If NO lockfiles at all, skip scan
             if not lockfiles:
-                print("    ⚠ No lockfiles found, scanning directory for dependencies")
-                cmd.extend(["-r", str(target_dir)])
+                print("    ℹ No lockfiles found - skipping vulnerability database download")
+                return binary_path
             else:
                 ecosystems = ', '.join(lockfiles.keys())
                 print(f"    Found lockfiles for: {ecosystems}")
@@ -881,7 +895,6 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
                 npm_size = npm_db.stat().st_size / (1024 * 1024)  # MB
                 print(f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)")
             else:
-                # Check if npm lockfile was found
                 if 'npm' in lockfiles:
                     print(f"    ⚠ npm database download failed - online mode will use API")
                 else:

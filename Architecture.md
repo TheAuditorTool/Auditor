@@ -1,17 +1,16 @@
 # TheAuditor Architecture
 
-**Version 1.6.4-dev1** | Complete System Architecture | **AUDITED 2025-11-22**
+**Version 1.6.4-dev1** | Complete System Architecture | **Python >=3.14 Required**
 
 > Database-driven SAST platform with 4-layer pipeline, 250-table schema, and zero-fallback design
 
-**Codebase Statistics (2025-11-22 Comprehensive Audit):**
-- **Files**: 357 Python files
-- **LOC**: 158,638 lines (51,000 in core theauditor module)
-- **Tables**: 255 database tables (251 in repo_index.db, 4 in graphs.db)
-- **Rules**: 200+ security rules across 18 categories (only 6% have tests)
-- **CLI Commands**: 42 registered commands
-- **Test Coverage**: ~15-20% (critical gaps identified)
-- **Documentation Coverage**: ~65% (missing CWE IDs in rules)
+**Codebase Statistics:**
+- **Tables**: 250 database tables across 9 schema domains
+- **Schema Domains**: Core (24), Python (59), Node/JS (26), Infrastructure (18), GraphQL (8), Security (7), Frameworks (5), Planning (9), Graphs (4)
+- **Python Extractors**: 28 specialized modules with 236+ extraction functions
+- **Security Rules**: 200+ across 23 categories
+- **CLI Commands**: 43 registered commands
+- **Taint Engine**: IFDS-based with field-sensitive tracking
 
 ---
 
@@ -43,11 +42,11 @@ graph TB
         B[Layer 1: Orchestrator<br/>File Discovery & AST Parsing]
         C[Layer 2: Extractors<br/>12 Language-Specific]
         D[Layer 3: Storage<br/>Handler Dispatch]
-        E[Layer 4: Database<br/>108 Tables in SQLite]
+        E[Layer 4: Database<br/>250 Tables in SQLite]
     end
 
     subgraph "Analysis Layer"
-        F[Rule Engine<br/>52 Rules]
+        F[Rule Engine<br/>200+ Rules]
         G[Taint Analysis<br/>Cross-File Tracking]
         H[Graph Analysis<br/>Hotspots & Cycles]
         I[ML Insights<br/>Risk Prediction]
@@ -298,13 +297,13 @@ def flush_generic_batches(self):
 
 ```mermaid
 graph TB
-    subgraph "repo_index.db (181MB)"
-        A[Raw Facts from AST<br/>Generated fresh on aud index]
-        B[251 Normalized Tables<br/>8 Schema Domains]
+    subgraph "repo_index.db (~180MB)"
+        A[Raw Facts from AST<br/>Generated fresh on aud full]
+        B[250 Normalized Tables<br/>9 Schema Domains]
         C[Used by ALL analysis<br/>Rules, Taint, FCE, ML]
     end
 
-    subgraph "graphs.db (126MB, optional)"
+    subgraph "graphs.db (~130MB, optional)"
         D[Pre-computed Graphs<br/>Built from repo_index.db]
         E[4 Polymorphic Tables<br/>nodes, edges, analysis, metadata]
         F[Used by graph commands ONLY<br/>query, viz, analyze]
@@ -330,7 +329,7 @@ graph TB
 - **Different query patterns**: repo_index = point lookups; graphs.db = traversal
 - **Performance**: Merging would make indexing 53% slower to build graphs most users never use
 
-### Schema Organization (251 Tables)
+### Schema Organization (250 Tables)
 
 ```mermaid
 graph TB
@@ -802,7 +801,7 @@ def detect_cycles(graph: dict[str, Any]) -> list[dict[str, Any]]:
 
 ## CLI & Command Structure
 
-### Command Organization (42 Commands)
+### Command Organization (43 Commands)
 
 ```mermaid
 graph TB
@@ -1006,7 +1005,7 @@ AND fca.callee_function NOT IN (
 | **Graph Engine** | EXCELLENT | Missing aggregate index | 9/10 performance |
 | **Context Query** | GOOD | No workset filtering | <50ms queries |
 | **FCE** | FUNCTIONAL | 8 separate DB connections | Needs optimization |
-| **CLI System** | WELL-DESIGNED | Emojis crash Windows | 42 commands |
+| **CLI System** | WELL-DESIGNED | Emojis crash Windows | 43 commands |
 
 ### Critical Security Findings
 
