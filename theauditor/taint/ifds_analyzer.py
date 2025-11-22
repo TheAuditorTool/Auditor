@@ -220,10 +220,10 @@ class IFDSTaintAnalyzer:
                     'line': 0,  # Will be filled from hop_chain
                     'name': current_ap.node_id
                 }
-                # ALWAYS print source match (not just debug mode)
-                print(f"[IFDS] *** TRUE ENTRY POINT REACHED at depth={depth}: {current_ap.node_id}", file=sys.stderr)
-                print(f"[IFDS]     Current hop_chain length: {len(hop_chain)}", file=sys.stderr)
-                print(f"[IFDS]     -> Continuing to explore predecessors (Goal B)", file=sys.stderr)
+                # DEBUG: print source match (commented out for clean merge)
+                # print(f"[IFDS] *** TRUE ENTRY POINT REACHED at depth={depth}: {current_ap.node_id}", file=sys.stderr)
+                # print(f"[IFDS]     Current hop_chain length: {len(hop_chain)}", file=sys.stderr)
+                # print(f"[IFDS]     -> Continuing to explore predecessors (Goal B)", file=sys.stderr)
             else:
                 # Legacy pattern matching (keeping for backward compatibility, but less reliable)
                 for source_dict, source_ap in source_aps:
@@ -231,9 +231,9 @@ class IFDSTaintAnalyzer:
                         # TRUST DISCOVERY: If it matched a source pattern, it IS a source.
                         # Do not filter by filename.
                         current_matched_source = source_dict
-                        print(f"[IFDS] *** SOURCE MATCHED at depth={depth}: {current_ap.node_id}", file=sys.stderr)
-                        print(f"[IFDS]     Pattern: {source_dict.get('pattern')}", file=sys.stderr)
-                        print(f"[IFDS]     -> Continuing to explore predecessors (Goal B)", file=sys.stderr)
+                        # print(f"[IFDS] *** SOURCE MATCHED at depth={depth}: {current_ap.node_id}", file=sys.stderr)
+                        # print(f"[IFDS]     Pattern: {source_dict.get('pattern')}", file=sys.stderr)
+                        # print(f"[IFDS]     -> Continuing to explore predecessors (Goal B)", file=sys.stderr)
                         break
 
             # PHASE 6.1: Check termination conditions (ONLY place where paths are recorded)
@@ -263,9 +263,9 @@ class IFDSTaintAnalyzer:
             # Get predecessors from graphs.db
             predecessors = self._get_predecessors(current_ap)
 
-            # ALWAYS log predecessor count at depth 0-3 (critical early exploration)
-            if depth <= 3:
-                print(f"[IFDS] *** Depth={depth}, node={current_ap.node_id[:80]}, found {len(predecessors)} predecessors", file=sys.stderr)
+            # DEBUG: log predecessor count at depth 0-3 (commented out for clean merge)
+            # if depth <= 3:
+            #     print(f"[IFDS] *** Depth={depth}, node={current_ap.node_id[:80]}, found {len(predecessors)} predecessors", file=sys.stderr)
 
             # PHASE 6.1: Natural termination - no more predecessors
             if not predecessors:
@@ -384,8 +384,9 @@ class IFDSTaintAnalyzer:
                 if self.debug:
                     print(f"[IFDS] Edge (Parse OK): {source_id} -> {ap.node_id} ({edge_type})", file=sys.stderr)
             else:
-                # CRITICAL: Log the source_id that failed to parse
-                print(f"[IFDS] !! PARSE FAILED: Failed to parse source_id '{source_id}'", file=sys.stderr)
+                # CRITICAL: Log the source_id that failed to parse (commented out for clean merge)
+                # print(f"[IFDS] !! PARSE FAILED: Failed to parse source_id '{source_id}'", file=sys.stderr)
+                pass
 
         # Log if no predecessors found (natural termination point)
         if not predecessors and self.debug:

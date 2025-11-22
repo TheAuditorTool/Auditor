@@ -549,9 +549,9 @@ class BaseDatabaseManager:
             import os, sys
             for table_name, insert_mode in flush_order:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
-                    print(f"[DEBUG] flush_batch: About to flush {table_name} with mode {insert_mode}, batch size {len(self.generic_batches[table_name])}", file=sys.stderr)
+                    # print(f"[DEBUG] flush_batch: About to flush {table_name} with mode {insert_mode}, batch size {len(self.generic_batches[table_name])}", file=sys.stderr)
                     self.flush_generic_batch(table_name, insert_mode)
-                    print(f"[DEBUG] flush_batch: {table_name} flushed successfully", file=sys.stderr)
+                    # print(f"[DEBUG] flush_batch: {table_name} flushed successfully", file=sys.stderr)
 
         except sqlite3.Error as e:
             # DEBUG: Enhanced error reporting for constraint failures
@@ -564,25 +564,26 @@ class BaseDatabaseManager:
                         print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
 
             if "UNIQUE constraint failed" in str(e):
-                print(f"\n[DEBUG] UNIQUE constraint violation: {e}", file=sys.stderr)
+                # print(f"\n[DEBUG] UNIQUE constraint violation: {e}", file=sys.stderr)
                 # Report which table had the violation
-                for table_name, batch in self.generic_batches.items():
-                    if batch:
-                        print(f"[DEBUG] Table '{table_name}' has {len(batch)} pending records", file=sys.stderr)
+                # for table_name, batch in self.generic_batches.items():
+                #     if batch:
+                #         print(f"[DEBUG] Table '{table_name}' has {len(batch)} pending records", file=sys.stderr)
 
                 # If cdk_constructs failure, show actual construct_ids
-                if "cdk_constructs.construct_id" in str(e):
-                    if 'cdk_constructs' in self.generic_batches:
-                        print(f"[DEBUG] CDK construct_ids in batch:", file=sys.stderr)
-                        from collections import Counter
-                        construct_ids = [record[0] for record in self.generic_batches['cdk_constructs']]
-                        duplicates = {k: v for k, v in Counter(construct_ids).items() if v > 1}
-                        for construct_id in sorted(set(construct_ids)):
-                            count = construct_ids.count(construct_id)
-                            if count > 1:
-                                print(f"[DEBUG]   DUPLICATE (x{count}): {construct_id}", file=sys.stderr)
-                            else:
-                                print(f"[DEBUG]   {construct_id}", file=sys.stderr)
+                # if "cdk_constructs.construct_id" in str(e):
+                #     if 'cdk_constructs' in self.generic_batches:
+                #         print(f"[DEBUG] CDK construct_ids in batch:", file=sys.stderr)
+                #         from collections import Counter
+                #         construct_ids = [record[0] for record in self.generic_batches['cdk_constructs']]
+                #         duplicates = {k: v for k, v in Counter(construct_ids).items() if v > 1}
+                #         for construct_id in sorted(set(construct_ids)):
+                #             count = construct_ids.count(construct_id)
+                #             if count > 1:
+                #                 print(f"[DEBUG]   DUPLICATE (x{count}): {construct_id}", file=sys.stderr)
+                #             else:
+                #                 print(f"[DEBUG]   {construct_id}", file=sys.stderr)
+                pass
 
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}")

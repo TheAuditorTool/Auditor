@@ -76,10 +76,10 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         Dictionary containing all extracted data, organized by table name
     """
     import sys
-    print(f"[PYTHON_IMPL ENTRY] extract_all_python_data() called", file=sys.stderr)
-    print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
-    print(f"[PYTHON_IMPL ENTRY] Context.tree: {type(context.tree) if hasattr(context, 'tree') else 'NO TREE'}", file=sys.stderr)
-    print(f"[PYTHON_IMPL ENTRY] Context.file_path: {context.file_path if hasattr(context, 'file_path') else 'NO PATH'}", file=sys.stderr)
+    # print(f"[PYTHON_IMPL ENTRY] extract_all_python_data() called", file=sys.stderr)
+    # print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
+    # print(f"[PYTHON_IMPL ENTRY] Context.tree: {type(context.tree) if hasattr(context, 'tree') else 'NO TREE'}", file=sys.stderr)
+    # print(f"[PYTHON_IMPL ENTRY] Context.file_path: {context.file_path if hasattr(context, 'file_path') else 'NO PATH'}", file=sys.stderr)
 
     result = {
         # Core language features
@@ -1016,19 +1016,19 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
                 unique_symbols.append(sym)
 
         if duplicates:
-            print(f"\n[PYTHON_IMPL DEDUP] Found {len(duplicates)} duplicate symbols:", file=sys.stderr)
-            for dup in duplicates[:5]:  # Show first 5
-                print(f"  DUPLICATE: {dup.get('name')} ({dup.get('type')}) line {dup.get('line')} col {dup.get('col')}", file=sys.stderr)
+            # print(f"\n[PYTHON_IMPL DEDUP] Found {len(duplicates)} duplicate symbols:", file=sys.stderr)
+            # for dup in duplicates[:5]:  # Show first 5
+            #     print(f"  DUPLICATE: {dup.get('name')} ({dup.get('type')}) line {dup.get('line')} col {dup.get('col')}", file=sys.stderr)
             result['symbols'] = unique_symbols
-            print(f"[PYTHON_IMPL DEDUP] Deduplicated: {len(symbols)} -> {len(unique_symbols)}", file=sys.stderr)
+            # print(f"[PYTHON_IMPL DEDUP] Deduplicated: {len(symbols)} -> {len(unique_symbols)}", file=sys.stderr)
 
-    # DEBUG: Log result summary
-    print(f"\n[PYTHON_IMPL EXIT] Extraction complete:", file=sys.stderr)
-    print(f"  Symbols: {len(result.get('symbols', []))}", file=sys.stderr)
-    print(f"  Imports: {len(result.get('imports', []))}", file=sys.stderr)
-    print(f"  Assignments: {len(result.get('assignments', []))}", file=sys.stderr)
-    print(f"  Function calls: {len(result.get('function_calls', []))}", file=sys.stderr)
-    print(f"  Python routes: {len(result.get('python_routes', []))}", file=sys.stderr)
-    print(f"  Python ORM models: {len(result.get('python_orm_models', []))}", file=sys.stderr)
+    # DEBUG: Log result summary (commented out for clean merge)
+    # print(f"\n[PYTHON_IMPL EXIT] Extraction complete:", file=sys.stderr)
+    # print(f"  Symbols: {len(result.get('symbols', []))}", file=sys.stderr)
+    # print(f"  Imports: {len(result.get('imports', []))}", file=sys.stderr)
+    # print(f"  Assignments: {len(result.get('assignments', []))}", file=sys.stderr)
+    # print(f"  Function calls: {len(result.get('function_calls', []))}", file=sys.stderr)
+    # print(f"  Python routes: {len(result.get('python_routes', []))}", file=sys.stderr)
+    # print(f"  Python ORM models: {len(result.get('python_orm_models', []))}", file=sys.stderr)
 
     return result
