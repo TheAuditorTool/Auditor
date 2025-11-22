@@ -13,6 +13,7 @@ Usage:
     log_validation("L3-TAINT", "Checking sanitizer", {"source_line": 10, "sink_line": 60})
 """
 
+
 import os
 import sys
 import json

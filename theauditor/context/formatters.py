@@ -16,6 +16,7 @@ Usage:
     json_str = format_output(results, format='json')
 """
 
+
 import json
 from typing import Any, List, Dict
 from dataclasses import asdict, is_dataclass

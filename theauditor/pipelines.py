@@ -1,5 +1,6 @@
 """Pipeline execution module for TheAuditor."""
 
+
 import json
 import os
 import platform
@@ -13,7 +14,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Tuple
+from typing import Any, List, Tuple
+
+from collections.abc import Callable
 
 # Import our custom temp manager to avoid WSL2/Windows issues
 try:
@@ -41,13 +44,12 @@ COMMAND_TIMEOUTS = {
     "taint": 36000,             # 10 hours - Alias for taint-analyze
     "fce": 1800,                # 30 minutes - Correlation analysis
     "report": 600,              # 10 minutes - Report generation
-    "summary": 300,             # 5 minutes - Quick summary generation
 }
 
 # Allow environment variable override for all timeouts
 DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '1800'))  # Default 30 minutes
 
-def get_command_timeout(cmd: List[str]) -> int:
+def get_command_timeout(cmd: list[str]) -> int:
     """
     Determine appropriate timeout for a command based on its name.
     
@@ -145,7 +147,7 @@ def run_subprocess_with_interrupt(cmd, stdout_fp, stderr_fp, cwd, shell=False, t
     return result
 
 
-def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_name: str) -> dict:
+def run_command_chain(commands: list[tuple[str, list[str]]], root: str, chain_name: str) -> dict:
     """
     Execute a chain of commands sequentially and capture their output.
     Used for parallel execution of independent command tracks.
@@ -234,10 +236,10 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
                     timeout=cmd_timeout  # Adaptive timeout based on command type
                 )
             
-            # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
+            # Read outputs (use errors='replace' for Windows CP1252 compatibility)
+            with open(stdout_file, encoding='utf-8', errors='replace') as f:
                 stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
+            with open(stderr_file, encoding='utf-8', errors='replace') as f:
                 stderr = f.read()
             
             # Clean up temp files
@@ -250,7 +252,15 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
             elapsed = time.time() - start_time
             
             # Check for special exit codes (findings commands)
-            is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+            # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+            cmd_str = " ".join(str(c) for c in cmd)
+            is_findings_command = (
+                "taint-analyze" in cmd_str or
+                ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                "cdk" in cmd_str or
+                "terraform" in cmd_str or
+                "workflows" in cmd_str
+            )
             if is_findings_command:
                 success = result.returncode in [0, 1, 2]
             else:
@@ -350,7 +360,20 @@ def run_full_pipeline(
         print(f"[WARNING] Could not import archive command: {e}", file=sys.stderr)
     except Exception as e:
         print(f"[WARNING] Archive operation failed: {e}", file=sys.stderr)
-    
+
+    # CRITICAL: Initialize journal writer for ML training data
+    # Journal tracks fine-grained events (file touches, findings, patches)
+    # Complements pipeline.log (macro timing) and raw/*.json (ground truth)
+    journal = None
+    try:
+        from theauditor.journal import get_journal_writer
+        journal = get_journal_writer(run_type="full")
+        print("[INFO] Journal writer initialized for ML training", file=sys.stderr)
+    except ImportError as e:
+        print(f"[WARNING] Could not import journal module: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"[WARNING] Journal initialization failed: {e}", file=sys.stderr)
+
     # Track all created files throughout execution
     all_created_files = []
     
@@ -420,7 +443,6 @@ def run_full_pipeline(
         ("deps", ["--vuln-scan"]),  # Phase 1: Offline vulnerability scanning (Track B)
         ("deps", ["--check-latest"]),  # Phase 2: Network version checks (Track C)
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
-        ("docs", ["summarize"]),
         ("workset", ["--all"]),
         ("lint", ["--workset"]),
         ("detect-patterns", []),
@@ -428,6 +450,8 @@ def run_full_pipeline(
         ("graph", ["build-dfg"]),  # DFG builder - MUST run after graph build
         ("terraform", ["provision"]),  # Terraform provisioning graph - MUST run after graph build-dfg
         ("terraform", ["analyze"]),  # Terraform security analysis (database-first)
+        ("cdk", ["analyze"]),  # AWS CDK security analysis (database-first)
+        ("workflows", ["analyze"]),  # GitHub Actions workflow security analysis (database-first)
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -437,8 +461,8 @@ def run_full_pipeline(
         ("metadata", ["churn"]),  # Collect git history (temporal dimension)
         ("taint-analyze", []),
         ("fce", []),
+        ("session", ["analyze"]),  # Tier 5: AI agent behavior analysis
         ("report", []),
-        ("summary", []),
     ]
     
     # Build command list from available commands in the defined order
@@ -447,7 +471,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands) or (cmd_name == "workflows" and "workflows" in available_commands) or (cmd_name == "session" and "session" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -466,8 +490,6 @@ def run_full_pipeline(
                 description = f"{phase_num}. Check dependency versions (network)"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
-            elif cmd_name == "docs" and "summarize" in extra_args:
-                description = f"{phase_num}. Summarize documentation"
             elif cmd_name == "workset":
                 description = f"{phase_num}. Create workset (all files)"
             elif cmd_name == "lint":
@@ -485,6 +507,10 @@ def run_full_pipeline(
                 description = f"{phase_num}. Build Terraform provisioning graph"
             elif cmd_name == "terraform" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze Terraform security"
+            elif cmd_name == "cdk" and "analyze" in extra_args:
+                description = f"{phase_num}. Analyze AWS CDK security"
+            elif cmd_name == "workflows" and "analyze" in extra_args:
+                description = f"{phase_num}. Analyze GitHub Actions workflows"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:
@@ -509,10 +535,10 @@ def run_full_pipeline(
                 description = f"{phase_num}. Taint analysis"
             elif cmd_name == "fce":
                 description = f"{phase_num}. Factual correlation engine"
+            elif cmd_name == "session":
+                description = f"{phase_num}. Analyze AI agent sessions (Tier 5)"
             elif cmd_name == "report":
                 description = f"{phase_num}. Generate report"
-            elif cmd_name == "summary":
-                description = f"{phase_num}. Generate audit summary"
             else:
                 # Generic description for any new commands
                 description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
@@ -599,6 +625,9 @@ def run_full_pipeline(
         elif "graph build-dfg" in cmd_str:
             # DFG builder must run AFTER graph build (needs repo_index.db)
             data_prep_commands.append((phase_name, cmd))
+        elif "graphql build" in cmd_str:
+            # GraphQL resolver correlation must run AFTER graph build (needs repo_index.db + call graph)
+            data_prep_commands.append((phase_name, cmd))
         elif "terraform provision" in cmd_str:
             # Terraform provisioning graph must run AFTER graph build-dfg
             data_prep_commands.append((phase_name, cmd))
@@ -641,9 +670,9 @@ def run_full_pipeline(
         # Stage 4: Final aggregation (must run last)
         elif "fce" in cmd_str:
             final_commands.append((phase_name, cmd))
-        elif "report" in cmd_str:
+        elif "session" in cmd_str:
             final_commands.append((phase_name, cmd))
-        elif "summary" in cmd_str:
+        elif "report" in cmd_str:
             final_commands.append((phase_name, cmd))
         else:
             # Default to final commands for safety
@@ -658,50 +687,107 @@ def run_full_pipeline(
         current_phase += 1
         log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
         start_time = time.time()
-        
-        try:
-            # Execute foundation command
-            if TempManager:
-                stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
-                    root, f"foundation_{phase_name.replace(' ', '_')}"
-                )
-            else:
-                # Fallback to regular tempfile
-                with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-                     tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-                    stdout_file = out_tmp.name
-                    stderr_file = err_tmp.name
-            
-            with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
-                 open(stderr_file, 'w+', encoding='utf-8') as err_fp:
-                
-                # Determine appropriate timeout for this command
-                cmd_timeout = get_command_timeout(cmd)
-                
-                result = run_subprocess_with_interrupt(
-                    cmd,
-                    stdout_fp=out_fp,
-                    stderr_fp=err_fp,
-                    cwd=root,
-                    shell=IS_WINDOWS,  # Windows compatibility fix
-                    timeout=cmd_timeout  # Adaptive timeout based on command type
-                )
-            
-            # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
-                result.stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
-                result.stderr = f.read()
-            
-            # Clean up temp files
+
+        # Record phase start in journal
+        if journal:
             try:
-                os.unlink(stdout_file)
-                os.unlink(stderr_file)
-            except (OSError, PermissionError):
-                pass
+                journal.phase_start(phase_name, " ".join(cmd), current_phase)
+            except Exception:
+                pass  # Don't fail pipeline if journal fails
+
+        try:
+            # CRITICAL FIX: Phase 1 (index) must call build_index() directly
+            # to avoid infinite recursion (index.py now redirects to 'full')
+            if "index" in " ".join(cmd):
+                log_output(f"[INDEX] Running build_index() directly (avoiding recursion)")
+                from theauditor.indexer_compat import build_index
+                from theauditor.utils.helpers import get_self_exclusion_patterns
+
+                # Get exclusion patterns if --exclude-self flag present
+                exclude_patterns = None
+                if exclude_self:
+                    exclude_patterns = get_self_exclusion_patterns(True)
+                    log_output(f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns")
+
+                # Call build_index() directly (no subprocess)
+                try:
+                    db_path = os.path.join(root, ".pf", "repo_index.db")
+                    manifest_path = os.path.join(root, ".pf", "manifest.json")
+
+                    result_dict = build_index(
+                        root_path=root,
+                        db_path=db_path,
+                        manifest_path=manifest_path,
+                        print_stats=True,
+                        exclude_patterns=exclude_patterns
+                    )
+
+                    # Create mock result object
+                    class MockResult:
+                        returncode = 0 if result_dict.get("success") else 1
+                        stdout = "[INDEX] Repository indexed successfully\n"
+                        stderr = result_dict.get("error", "") if not result_dict.get("success") else ""
+                    result = MockResult()
+                except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
+                    class MockResult:
+                        returncode = 1
+                        stdout = ""
+                        stderr = f"[INDEX ERROR] {str(e)}\n{tb}\n"
+                    result = MockResult()
+            else:
+                # All other commands run as subprocesses (normal path)
+                if TempManager:
+                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                        root, f"foundation_{phase_name.replace(' ', '_')}"
+                    )
+                else:
+                    # Fallback to regular tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                        stdout_file = out_tmp.name
+                        stderr_file = err_tmp.name
+
+                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+
+                    result = run_subprocess_with_interrupt(
+                        cmd,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
+                        cwd=root,
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
+                    )
+            
+            # Read outputs (only for subprocess path)
+            if "index" not in " ".join(cmd):
+                with open(stdout_file, encoding='utf-8') as f:
+                    result.stdout = f.read()
+                with open(stderr_file, encoding='utf-8') as f:
+                    result.stderr = f.read()
+
+                # Clean up temp files
+                try:
+                    os.unlink(stdout_file)
+                    os.unlink(stderr_file)
+                except (OSError, PermissionError):
+                    pass
             
             elapsed = time.time() - start_time
-            
+
+            # Record phase end in journal
+            if journal:
+                try:
+                    journal.phase_end(phase_name, success=(result.returncode == 0),
+                                    elapsed=elapsed, exit_code=result.returncode)
+                except Exception:
+                    pass  # Don't fail pipeline if journal fails
+
             if result.returncode == 0:
                 log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
                 if result.stdout:
@@ -718,19 +804,11 @@ def run_full_pipeline(
                         # Check if this looks like table output (has header separator)
                         has_table = any("---" in line for line in lines[:5])
                         if has_table:
-                            # Show more lines for table output to include actual data
-                            display_lines = []
-                            for i, line in enumerate(lines):
-                                if i < 6 or (i == 0):  # Show first line (path info) + table header + first few data rows
-                                    display_lines.append(line)
-                                    if log_callback and not quiet:
-                                        log_callback(f"  {line}", False)
-                                    log_lines.append(f"  {line}")
-                            if len(lines) > 6:
-                                truncate_msg = f"  ... ({len(lines) - 6} more lines)"
+                            # Show ALL lines for framework table - users want to see all detected frameworks
+                            for line in lines:
                                 if log_callback and not quiet:
-                                    log_callback(truncate_msg, False)
-                                log_lines.append(truncate_msg)
+                                    log_callback(f"  {line}", False)
+                                log_lines.append(f"  {line}")
                         else:
                             # Regular truncation for non-table output
                             for line in lines[:3]:
@@ -789,7 +867,14 @@ def run_full_pipeline(
             current_phase += 1
             log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
             start_time = time.time()
-            
+
+            # Record phase start in journal
+            if journal:
+                try:
+                    journal.phase_start(phase_name, " ".join(cmd), current_phase)
+                except Exception:
+                    pass
+
             try:
                 # Execute data preparation command
                 if TempManager:
@@ -819,9 +904,9 @@ def run_full_pipeline(
                     )
                 
                 # Read outputs
-                with open(stdout_file, 'r', encoding='utf-8') as f:
+                with open(stdout_file, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
+                with open(stderr_file, encoding='utf-8') as f:
                     result.stderr = f.read()
                 
                 # Clean up temp files
@@ -832,7 +917,15 @@ def run_full_pipeline(
                     pass
                 
                 elapsed = time.time() - start_time
-                
+
+                # Record phase end in journal
+                if journal:
+                    try:
+                        journal.phase_end(phase_name, success=(result.returncode == 0),
+                                        elapsed=elapsed, exit_code=result.returncode)
+                    except Exception:
+                        pass
+
                 if result.returncode == 0:
                     log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
                     if result.stdout:
@@ -908,9 +1001,8 @@ def run_full_pipeline(
                     def run_taint_direct():
                         """Run taint analysis directly in-process WITH rules orchestrator."""
                         try:
-                            from theauditor.taint import trace_taint, save_taint_analysis
+                            from theauditor.taint import trace_taint, save_taint_analysis, TaintRegistry
                             from theauditor.utils.memory import get_recommended_memory_limit
-                            from theauditor.taint.registry import TaintRegistry
                             from theauditor.rules.orchestrator import RulesOrchestrator
 
                             # Log start
@@ -947,19 +1039,32 @@ def run_full_pipeline(
 
                             # STAGE 4: Run enriched taint analysis with registry
                             print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
-                            print(f"[TAINT]   Using Stage 3 (CFG multi-hop)", file=sys.stderr)
+                            # ARCHITECTURAL FIX: Use "complete" mode to run BOTH engines
+                            # - FlowResolver (forward): Resolves ALL flows (100k+) to populate resolved_flow_audit
+                            # - IFDS (backward): Finds vulnerabilities using pattern-driven analysis
+                            graph_db_path = Path(root) / ".pf" / "graphs.db"
                             result = trace_taint(
                                 db_path=str(db_path),
-                                max_depth=5,
-                                registry=None,  # TEMPORARILY DISABLED FOR FAST DEBUG
-                                use_cfg=True,  # Stage 3 (CFG multi-hop)
+                                max_depth=10,  # IFDS supports deeper analysis
+                                registry=registry,  # FIXED: Re-enabled - feeds XSS/NoSQL/LDAP patterns from 200 rules
                                 use_memory_cache=True,
-                                memory_limit_mb=memory_limit
+                                memory_limit_mb=memory_limit,
+                                graph_db_path=str(graph_db_path),  # Required for complete mode
+                                mode="complete"  # ARCHITECTURAL FIX: Run BOTH FlowResolver + IFDS
                             )
                             
-                            # Extract taint paths
+                            # Extract taint paths (IFDS results)
                             taint_paths = result.get("taint_paths", result.get("paths", []))
-                            print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
+
+                            # ARCHITECTURAL FIX: Report results from BOTH engines
+                            if result.get("mode") == "complete":
+                                print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+                                print(f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths", file=sys.stderr)
+                                print(f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows", file=sys.stderr)
+                                print(f"[TAINT]   Database audit table: {result.get('flow_resolver_vulnerable', 0)} vulnerable, {result.get('flow_resolver_sanitized', 0)} sanitized", file=sys.stderr)
+                            else:
+                                # Backward mode only
+                                print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
 
                             # STAGE 5: Run taint-dependent rules
                             print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
@@ -1069,12 +1174,24 @@ def run_full_pipeline(
                                 f"  Framework patterns: {len(discovery_findings)}",
                                 f"  Taint sources: {result.get('sources_found', 0)}",
                                 f"  Security sinks: {result.get('sinks_found', 0)}",
-                                f"  Taint paths: {len(taint_paths)}",
+                                f"  Taint paths (IFDS): {len(taint_paths)}",
                                 f"  Advanced security issues: {len(advanced_findings)}",
+                            ]
+
+                            # ARCHITECTURAL FIX: Add complete mode stats if available
+                            if result.get("mode") == "complete":
+                                output_lines.extend([
+                                    f"  --- COMPLETE MODE (Both Engines) ---",
+                                    f"  FlowResolver flows: {result.get('total_flows_resolved', 0)}",
+                                    f"  Audit table vulnerable: {result.get('flow_resolver_vulnerable', 0)}",
+                                    f"  Audit table sanitized: {result.get('flow_resolver_sanitized', 0)}",
+                                ])
+
+                            output_lines.extend([
                                 f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
                                 f"  Results saved to .pf/raw/taint_analysis.json",
                                 f"  Wrote {db_findings_count} findings to database for FCE"
-                            ]
+                            ])
                             
                             print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)
                             
@@ -1174,7 +1291,7 @@ def run_full_pipeline(
                             log_output(f"[DEBUG] No status files found in {status_dir}")
                         for status_file in status_files:
                             try:
-                                with open(status_file, 'r', encoding='utf-8') as f:
+                                with open(status_file, encoding='utf-8') as f:
                                     status_data = json.loads(f.read().strip())
                                     track = status_data.get("track", "Unknown")
                                     completed = status_data.get("completed", 0)
@@ -1237,7 +1354,14 @@ def run_full_pipeline(
             current_phase += 1
             log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
             start_time = time.time()
-            
+
+            # Record phase start in journal
+            if journal:
+                try:
+                    journal.phase_start(phase_name, " ".join(cmd), current_phase)
+                except Exception:
+                    pass
+
             try:
                 # Check if this is the FCE command
                 is_fce = "factual correlation" in phase_name.lower() or "fce" in " ".join(cmd)
@@ -1299,9 +1423,9 @@ def run_full_pipeline(
                         )
                     
                     # Read outputs
-                    with open(stdout_file, 'r', encoding='utf-8') as f:
+                    with open(stdout_file, encoding='utf-8') as f:
                         result.stdout = f.read()
-                    with open(stderr_file, 'r', encoding='utf-8') as f:
+                    with open(stderr_file, encoding='utf-8') as f:
                         result.stderr = f.read()
                     
                     # Clean up temp files
@@ -1312,14 +1436,30 @@ def run_full_pipeline(
                         pass
                 
                 elapsed = time.time() - start_time
-                
+
                 # Handle special exit codes for findings commands
-                is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+                # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+                cmd_str = " ".join(str(c) for c in cmd)
+                is_findings_command = (
+                    "taint-analyze" in cmd_str or
+                    ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                    "cdk" in cmd_str or
+                    "terraform" in cmd_str or
+                    "workflows" in cmd_str
+                )
                 if is_findings_command:
                     success = result.returncode in [0, 1, 2]
                 else:
                     success = result.returncode == 0
-                
+
+                # Record phase end in journal
+                if journal:
+                    try:
+                        journal.phase_end(phase_name, success=success,
+                                        elapsed=elapsed, exit_code=result.returncode)
+                    except Exception:
+                        pass
+
                 if success:
                     if result.returncode == 2 and is_findings_command:
                         log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings")
@@ -1342,19 +1482,11 @@ def run_full_pipeline(
                             # Check if this looks like table output (has header separator)
                             has_table = any("---" in line for line in lines[:5])
                             if has_table:
-                                # Show more lines for table output to include actual data
-                                display_lines = []
-                                for i, line in enumerate(lines):
-                                    if i < 6 or (i == 0):  # Show first line (path info) + table header + first few data rows
-                                        display_lines.append(line)
-                                        if log_callback and not quiet:
-                                            log_callback(f"  {line}", False)
-                                        log_lines.append(f"  {line}")
-                                if len(lines) > 6:
-                                    truncate_msg = f"  ... ({len(lines) - 6} more lines)"
+                                # Show ALL lines for framework table - users want to see all detected frameworks
+                                for line in lines:
                                     if log_callback and not quiet:
-                                        log_callback(truncate_msg, False)
-                                    log_lines.append(truncate_msg)
+                                        log_callback(f"  {line}", False)
+                                    log_lines.append(f"  {line}")
                             else:
                                 # Regular truncation for non-table output
                                 for line in lines[:3]:
@@ -1393,34 +1525,7 @@ def run_full_pipeline(
                         if log_callback and not quiet:
                             log_callback(error_msg, True)
                         log_lines.append(error_msg)
-                
-                # CRITICAL: Run extraction AFTER FCE and BEFORE report
-                if "factual correlation" in phase_name.lower():
-                    try:
-                        from theauditor.extraction import extract_all_to_readthis
-                        
-                        log_output("\n" + "="*60)
-                        log_output("[EXTRACTION] Creating AI-consumable chunks from raw data")
-                        log_output("="*60)
-                        
-                        extraction_start = time.time()
-                        extraction_success = extract_all_to_readthis(root)
-                        extraction_elapsed = time.time() - extraction_start
-                        
-                        if extraction_success:
-                            log_output(f"[OK] Chunk extraction completed in {extraction_elapsed:.1f}s")
-                            log_output("[INFO] AI-readable chunks available in .pf/readthis/")
-                        else:
-                            log_output(f"[WARNING] Chunk extraction completed with errors in {extraction_elapsed:.1f}s", is_error=True)
-                            log_output("[WARNING] Some chunks may be incomplete", is_error=True)
-                            
-                    except ImportError as e:
-                        log_output(f"[ERROR] Could not import extraction module: {e}", is_error=True)
-                        log_output("[ERROR] Chunks will not be generated", is_error=True)
-                    except Exception as e:
-                        log_output(f"[ERROR] Ticket extraction failed: {e}", is_error=True)
-                        log_output("[ERROR] Raw data preserved in .pf/raw/ but no chunks created", is_error=True)
-                
+
             except Exception as e:
                 failed_phases += 1
                 log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
@@ -1636,7 +1741,23 @@ def run_full_pipeline(
         except Exception as e:
             print(f"[WARNING] Could not read pattern results from {patterns_path}: {e}", file=sys.stderr)
             # Non-critical - continue without pattern stats
-    
+
+    # Close journal and copy to history for ML training
+    if journal:
+        try:
+            journal.pipeline_summary(
+                total_phases=total_phases,
+                failed_phases=failed_phases,
+                total_files=len(all_created_files),
+                total_findings=total_vulnerabilities,
+                elapsed=pipeline_elapsed,
+                status='complete' if failed_phases == 0 else 'partial'
+            )
+            journal.close(copy_to_history=True)
+            print("[INFO] Journal closed and copied to history for ML training", file=sys.stderr)
+        except Exception as e:
+            print(f"[WARNING] Journal close failed: {e}", file=sys.stderr)
+
     return {
         "success": failed_phases == 0 and phases_with_warnings == 0,
         "failed_phases": failed_phases,

@@ -1,0 +1,17 @@
+# Intentionally vulnerable dependencies for testing
+# Each has known CVEs with multi-CWE classifications
+
+# Django 2.2.0 - CVE-2022-28346 (CWE-89, CWE-1321)
+Django==2.2.0
+
+# Pillow 6.0.0 - CVE-2020-35653 (CWE-400)
+Pillow==6.0.0
+
+# PyYAML 5.1 - CVE-2020-14343 (CWE-20, CWE-94)
+PyYAML==5.1
+
+# requests 2.20.0 - CVE-2018-18074 (CWE-601)
+requests==2.20.0
+
+# Flask 0.12.2 - CVE-2019-1010083 (CWE-20)
+Flask==0.12.2

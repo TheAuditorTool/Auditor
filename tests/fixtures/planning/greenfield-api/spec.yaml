@@ -1,0 +1,197 @@
+refactor_name: Greenfield API Implementation
+description: Verify complete Flask API with ORM, authentication, and SQL queries
+version: 2.0
+
+# This spec tests advanced capabilities via SQL JOIN queries
+# Tests junction tables: orm_relationships, api_endpoint_controls, sql_queries, assignment_sources
+
+rules:
+  # Test 1: ORM Models Extracted
+  - id: orm-models-extracted
+    description: All 5 ORM models must be extracted (Role, User, Product, Order, OrderItem)
+    severity: critical
+    query: |
+      SELECT COUNT(DISTINCT model_name) AS model_count
+      FROM python_orm_models
+    expect:
+      - model_count: 5
+
+  # Test 2: ORM Relationships with Cascades
+  - id: orm-relationships-exist
+    description: All bidirectional ORM relationships must be extracted with cascade flags
+    severity: critical
+    query: |
+      SELECT
+        source_model,
+        as_name,
+        target_model,
+        relationship_type,
+        cascade_delete
+      FROM orm_relationships
+      WHERE cascade_delete = 1
+      ORDER BY source_model, as_name
+    expect:
+      - source_model: "Order"
+        as_name: "items"
+        target_model: "OrderItem"
+        cascade_delete: 1
+      - source_model: "Order"
+        as_name: "user"
+        target_model: "User"
+        cascade_delete: 1
+      - source_model: "User"
+        as_name: "orders"
+        target_model: "Order"
+        cascade_delete: 1
+
+  # Test 3: Foreign Key Relationships
+  - id: foreign-keys-extracted
+    description: Foreign key fields must be properly extracted
+    severity: high
+    query: |
+      SELECT
+        model_name,
+        field_name,
+        foreign_key_target
+      FROM python_orm_fields
+      WHERE is_foreign_key = 1
+      ORDER BY model_name, field_name
+    expect:
+      - model_name: "Order"
+        field_name: "user_id"
+        foreign_key_target: "users.id"
+      - model_name: "OrderItem"
+        field_name: "order_id"
+        foreign_key_target: "orders.id"
+      - model_name: "OrderItem"
+        field_name: "product_id"
+        foreign_key_target: "products.id"
+      - model_name: "User"
+        field_name: "role_id"
+        foreign_key_target: "roles.id"
+
+  # Test 4: API Endpoints with Controls
+  - id: api-endpoints-with-controls
+    description: API endpoints must have authentication/authorization controls tracked
+    severity: critical
+    query: |
+      SELECT
+        pr.pattern,
+        pr.method,
+        pr.handler_function,
+        GROUP_CONCAT(aec.control_name, ',') AS controls
+      FROM python_routes pr
+      LEFT JOIN api_endpoint_controls aec
+        ON pr.file = aec.endpoint_file AND pr.line = aec.endpoint_line
+      GROUP BY pr.file, pr.line
+      HAVING controls IS NOT NULL
+      ORDER BY pr.line
+    expect_min_rows: 5
+
+  # Test 5: Protected Endpoints (with require_role or require_permission)
+  - id: admin-protected-endpoints
+    description: Admin-only endpoints must have require_role control
+    severity: high
+    query: |
+      SELECT
+        pr.pattern,
+        pr.handler_function,
+        aec.control_name
+      FROM python_routes pr
+      JOIN api_endpoint_controls aec
+        ON pr.file = aec.endpoint_file AND pr.line = aec.endpoint_line
+      WHERE aec.control_name = 'require_role'
+      ORDER BY pr.pattern
+    expect_min_rows: 3
+
+  # Test 6: SQL Queries Extracted
+  - id: sql-queries-extracted
+    description: Raw SQL queries must be extracted from service layer
+    severity: high
+    query: |
+      SELECT
+        file_path,
+        line_number
+      FROM sql_queries
+      WHERE file_path LIKE '%user_service.py'
+      ORDER BY line_number
+    expect_min_rows: 5
+
+  # Test 7: Assignment Sources (Multi-Source Taint Tracking)
+  - id: multi-source-assignments
+    description: Assignments with multiple sources must be tracked
+    severity: high
+    query: |
+      SELECT
+        a.file,
+        a.line,
+        a.target_var,
+        COUNT(asrc.source_var_name) AS source_count
+      FROM assignments a
+      JOIN assignment_sources asrc
+        ON a.file = asrc.assignment_file
+        AND a.line = asrc.assignment_line
+        AND a.target_var = asrc.assignment_target
+      WHERE a.file LIKE '%products.py'
+      GROUP BY a.file, a.line, a.target_var
+      HAVING source_count > 1
+      ORDER BY source_count DESC
+    expect_min_rows: 2
+
+  # Test 8: Function Return Sources (Cross-Function Taint)
+  - id: function-return-sources
+    description: Function returns with source variables must be tracked
+    severity: medium
+    query: |
+      SELECT
+        return_file,
+        return_function,
+        COUNT(DISTINCT return_var_name) AS returned_vars
+      FROM function_return_sources
+      WHERE return_file LIKE '%user_service.py'
+      GROUP BY return_file, return_function
+      HAVING returned_vars > 0
+      ORDER BY returned_vars DESC
+    expect_min_rows: 3
+
+  # Test 9: User Model Completeness
+  - id: user-model-fields
+    description: User model must have all required fields (id, username, email, password_hash, role_id)
+    severity: critical
+    query: |
+      SELECT field_name, field_type, is_primary_key, is_foreign_key
+      FROM python_orm_fields
+      WHERE model_name = 'User'
+        AND field_name IN ('id', 'username', 'email', 'password_hash', 'role_id')
+      ORDER BY field_name
+    expect:
+      - field_name: "email"
+        field_type: "db.String(200)"
+      - field_name: "id"
+        is_primary_key: 1
+      - field_name: "password_hash"
+        field_type: "db.String(255)"
+      - field_name: "role_id"
+        is_foreign_key: 1
+      - field_name: "username"
+        field_type: "db.String(100)"
+
+  # Test 10: All CRUD Operations Present
+  - id: crud-operations-complete
+    description: All CRUD operations must be present (GET, POST, PUT, DELETE)
+    severity: critical
+    query: |
+      SELECT method, COUNT(*) AS endpoint_count
+      FROM python_routes
+      WHERE pattern LIKE '/api/products%'
+      GROUP BY method
+      ORDER BY method
+    expect:
+      - method: "DELETE"
+        endpoint_count: 1
+      - method: "GET"
+        endpoint_count: 3
+      - method: "POST"
+        endpoint_count: 1
+      - method: "PUT"
+        endpoint_count: 1

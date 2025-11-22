@@ -5,11 +5,12 @@ to provide additional factual dimensions for the FCE correlation engine.
 Maintains Truth Courier principles - reports only facts, no interpretation.
 """
 
+
 import json
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 
 class MetadataCollector:
@@ -23,7 +24,7 @@ class MetadataCollector:
         """
         self.root_path = Path(root_path).resolve()
     
-    def collect_churn(self, days: int = 90, output_path: Optional[str] = None) -> Dict[str, Any]:
+    def collect_churn(self, days: int = 90, output_path: str | None = None) -> dict[str, Any]:
         """Collect git churn metrics for all files.
         
         Returns pure facts:
@@ -113,7 +114,7 @@ class MetadataCollector:
                 )
         
         # Convert to final format with pure facts only
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         files = []
         
         for path, stats in file_stats.items():
@@ -133,7 +134,7 @@ class MetadataCollector:
         files.sort(key=lambda x: x['commits_90d'], reverse=True)
         
         result = {
-            'analysis_date': datetime.now(timezone.utc).isoformat(),
+            'analysis_date': datetime.now(UTC).isoformat(),
             'days_analyzed': days,
             'total_files_analyzed': len(files),
             'files': files
@@ -173,8 +174,8 @@ class MetadataCollector:
 
         return result
     
-    def collect_coverage(self, coverage_file: Optional[str] = None, 
-                        output_path: Optional[str] = None) -> Dict[str, Any]:
+    def collect_coverage(self, coverage_file: str | None = None, 
+                        output_path: str | None = None) -> dict[str, Any]:
         """Parse Python or Node.js coverage reports into pure facts.
         
         Detects format automatically:
@@ -224,7 +225,7 @@ class MetadataCollector:
                 }
         
         try:
-            with open(coverage_path, 'r', encoding='utf-8') as f:
+            with open(coverage_path, encoding='utf-8') as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
             return {
@@ -318,7 +319,7 @@ class MetadataCollector:
         
         result = {
             'format_detected': format_detected,
-            'analysis_date': datetime.now(timezone.utc).isoformat(),
+            'analysis_date': datetime.now(UTC).isoformat(),
             'total_files_analyzed': len(files),
             'average_coverage': round(
                 sum(f['line_coverage_percent'] for f in files) / len(files), 2

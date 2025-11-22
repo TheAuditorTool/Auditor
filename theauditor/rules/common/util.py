@@ -16,6 +16,7 @@ Module Type: Utility Library (no rule interface required)
 Status: No refactor needed - correct as-is
 """
 
+
 import base64
 import binascii
 import math
@@ -82,7 +83,7 @@ class KeyboardPatterns:
     ])
     
     @classmethod
-    def get_all_patterns(cls) -> Set[str]:
+    def get_all_patterns(cls) -> set[str]:
         """Get all keyboard walk patterns including reverses."""
         patterns = set()
         
@@ -143,15 +144,15 @@ class EntropyCalculator:
         return entropy
     
     @staticmethod
-    def _get_character_frequencies(text: str) -> Dict[str, int]:
+    def _get_character_frequencies(text: str) -> dict[str, int]:
         """Get frequency count of each character."""
-        frequencies: Dict[str, int] = {}
+        frequencies: dict[str, int] = {}
         for char in text:
             frequencies[char] = frequencies.get(char, 0) + 1
         return frequencies
     
     @staticmethod
-    def classify_entropy(entropy: float) -> EntropyLevel:
+    def classify_entropy(entropy: float) -> "EntropyLevel":
         """Classify entropy into meaningful categories."""
         if entropy < EntropyLevel.VERY_LOW.value:
             return EntropyLevel.VERY_LOW
@@ -303,7 +304,7 @@ class Base64Validator:
         return Base64Validator._is_secret_like(decoded_content)
     
     @staticmethod
-    def _decode_base64(value: str) -> Optional[str | bytes]:
+    def _decode_base64(value: str) -> str | bytes | None:
         """Attempt to decode Base64 string.
         
         Returns:

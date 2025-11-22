@@ -17,6 +17,7 @@ Detects:
 - API key authentication issues
 """
 
+
 import sqlite3
 import json
 from typing import List, Set
@@ -33,7 +34,8 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=['.py', '.js', '.ts'],
     exclude_patterns=['test/', 'spec.', '__tests__'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
 
 # ============================================================================
@@ -182,7 +184,7 @@ class ApiAuthAnalyzer:
         self.patterns = ApiAuthPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -213,22 +215,31 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            # Parse controls
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+            # Parse controls from concatenated string
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            controls = controls_str.split('|') if controls_str else []
 
             # Convert to lowercase for matching
-            controls_lower = [str(c).lower() for c in controls]
+            controls_lower = [str(c).lower() for c in controls if c]
             pattern_lower = pattern.lower() if pattern else ''
 
             # Check if this is explicitly a public endpoint
@@ -263,88 +274,145 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        for sensitive in sensitive_patterns_lower:
-            self.cursor.execute("""
-                SELECT file, line, method, pattern, controls
-                FROM api_endpoints
-                WHERE LOWER(pattern) LIKE ?
-                ORDER BY file, pattern
-            """, [f'%{sensitive}%'])
+        # JOIN with api_endpoint_controls to get controls for each endpoint
+        self.cursor.execute("""
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE ae.pattern IS NOT NULL
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
+        """)
 
-            for file, line, method, pattern, controls_json in self.cursor.fetchall():
-                # Parse controls
-                try:
-                    controls = json.loads(controls_json) if controls_json else []
-                except (json.JSONDecodeError, TypeError):
-                    controls = []
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+            # Check if pattern contains any sensitive operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            pattern_lower = pattern.lower() if pattern else ''
+            if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
+                continue
 
-                controls_lower = [str(c).lower() for c in controls]
+            # Parse controls from concatenated string
+            controls = controls_str.split('|') if controls_str else []
+            controls_lower = [str(c).lower() for c in controls if c]
 
-                # Check for authentication
-                has_auth = any(
-                    any(auth in control for auth in auth_patterns_lower)
-                    for control in controls_lower
-                )
+            # Check for authentication
+            has_auth = any(
+                any(auth in control for auth in auth_patterns_lower)
+                for control in controls_lower
+            )
 
-                if not has_auth:
-                    self.findings.append(StandardFinding(
-                        rule_name='api-sensitive-no-auth',
-                        message=f'Sensitive endpoint "{pattern}" lacks authentication',
-                        file_path=file,
-                        line=line or 1,
-                        severity=Severity.CRITICAL,
-                        category='authentication',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-306'
-                    ))
+            if not has_auth:
+                self.findings.append(StandardFinding(
+                    rule_name='api-sensitive-no-auth',
+                    message=f'Sensitive endpoint "{pattern}" lacks authentication',
+                    file_path=file,
+                    line=line or 1,
+                    severity=Severity.CRITICAL,
+                    category='authentication',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-306'
+                ))
 
     def _check_graphql_mutations(self):
-        """Check GraphQL mutations for authentication."""
-        # Look for GraphQL resolvers
-        graphql_patterns = ','.join('?' * len(self.patterns.GRAPHQL_PATTERNS))
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({graphql_patterns})
-               OR callee_function LIKE '%resolver%'
-               OR callee_function LIKE '%Mutation%'
-            ORDER BY file, line
-        """, list(self.patterns.GRAPHQL_PATTERNS))
+        """Check GraphQL mutations for authentication using database queries.
 
-        for file, line, func, args in self.cursor.fetchall():
-            if 'mutation' in func.lower() or 'Mutation' in func:
-                # Check if there's auth nearby
-                has_auth = self._check_auth_nearby(file, line)
+        Replaces regex-based heuristics with direct database queries against:
+        - graphql_types (to find Mutation type)
+        - graphql_fields (to get mutation fields)
+        - graphql_resolver_mappings (to find resolver implementations)
+        """
+        # Check if GraphQL tables exist (may not be in all databases)
+        self.cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='graphql_resolver_mappings'
+        """)
+        if not self.cursor.fetchone():
+            return  # No GraphQL data indexed, skip
 
-                if not has_auth:
-                    self.findings.append(StandardFinding(
-                        rule_name='graphql-mutation-no-auth',
-                        message=f'GraphQL mutation "{func}" lacks authentication',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='authentication',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-306'
-                    ))
+        # Find all Mutation fields with their resolver paths
+        self.cursor.execute("""
+            SELECT
+                f.field_name,
+                f.line AS field_line,
+                t.schema_path,
+                rm.resolver_path,
+                rm.resolver_line,
+                f.directives_json
+            FROM graphql_types t
+            JOIN graphql_fields f ON f.type_id = t.type_id
+            LEFT JOIN graphql_resolver_mappings rm ON rm.field_id = f.field_id
+            WHERE t.type_name = 'Mutation'
+            ORDER BY f.field_name
+        """)
+
+        for field_name, field_line, schema_path, resolver_path, resolver_line, directives_json in self.cursor.fetchall():
+            # Check for @auth directive on field
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            has_auth_directive = False
+            if directives_json:
+                import json
+                try:
+                    directives = json.loads(directives_json)
+                    for directive in directives:
+                        if any(auth in directive.get('name', '') for auth in ['@auth', '@authenticated', '@requireAuth', '@authorize']):
+                            has_auth_directive = True
+                            break
+                except json.JSONDecodeError:
+                    pass
+
+            if has_auth_directive:
+                continue  # Has auth directive, skip
+
+            # Check if resolver exists and has auth nearby
+            if resolver_path and resolver_line:
+                has_auth = self._check_auth_nearby(resolver_path, resolver_line)
+                if has_auth:
+                    continue  # Has auth check, skip
+
+            # No authentication found - report finding
+            self.findings.append(StandardFinding(
+                rule_name='graphql-mutation-no-auth',
+                message=f'GraphQL mutation "{field_name}" lacks authentication directive or resolver protection',
+                file_path=schema_path if schema_path else resolver_path if resolver_path else 'unknown',
+                line=field_line if field_line else resolver_line if resolver_line else 0,
+                severity=Severity.HIGH,
+                category='authentication',
+                confidence=Confidence.HIGH,  # Upgraded from MEDIUM since database-based detection is more accurate
+                cwe_id='CWE-306'
+            ))
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-        # Look for basic auth or weak patterns
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE controls IS NOT NULL
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            HAVING controls_str IS NOT NULL
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
-
-            controls_str = ' '.join(str(c).lower() for c in controls)
+        for file, line, method, pattern, controls_concat in self.cursor.fetchall():
+            # Parse controls from concatenated string
+            controls = controls_concat.split('|') if controls_concat else []
+            controls_str = ' '.join(str(c).lower() for c in controls if c)
 
             # Check for basic auth (weak)
             if 'basic' in controls_str and 'auth' in controls_str:
@@ -376,26 +444,33 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        # Only check for web applications (not pure APIs)
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-              AND (pattern NOT LIKE '/api/%' OR pattern IS NULL)
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Skip if this looks like a pure API endpoint
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
                 continue
 
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
-
-            controls_lower = [str(c).lower() for c in controls]
+            # Parse controls from concatenated string
+            controls = controls_str.split('|') if controls_str else []
+            controls_lower = [str(c).lower() for c in controls if c]
 
             # Check for CSRF protection
             has_csrf = any(
@@ -513,7 +588,7 @@ FLAGGED: Missing database features for better API auth detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_apiauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect API authentication security issues.
 
     Args:
@@ -544,7 +619,7 @@ def register_taint_patterns(taint_registry):
 
     # Register auth middleware as sanitizers (they clean/validate)
     for pattern in patterns.AUTH_MIDDLEWARE:
-        taint_registry.register_sanitizer(pattern, "auth_validation", "api")
+        taint_registry.register_sanitizer(pattern, "api")
 
     # Register public patterns as sources (untrusted)
     for pattern in patterns.PUBLIC_ENDPOINT_PATTERNS:

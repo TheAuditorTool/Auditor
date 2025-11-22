@@ -19,6 +19,7 @@ CRITICAL: This extractor ONLY extracts facts from .tf files.
 Graph relationships (variable → resource → output) are built in Phase 4 by graph builder.
 """
 
+
 import json
 import re
 from pathlib import Path
@@ -33,16 +34,16 @@ logger = setup_logger(__name__)
 class TerraformExtractor(BaseExtractor):
     """Extractor for Terraform/HCL files."""
 
-    def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
+    def __init__(self, root_path: Path, ast_parser: Any | None = None):
         """Initialize Terraform extractor."""
         super().__init__(root_path, ast_parser)
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.tf', '.tfvars', '.tf.json']
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all relevant information from a Terraform file.
 
         Args:
@@ -128,7 +129,7 @@ class TerraformExtractor(BaseExtractor):
             logger.error(f"Failed to extract Terraform from {file_path}: {e}")
             return {}
 
-    def _build_file_record(self, file_path: str, parsed: Dict) -> Dict[str, Any]:
+    def _build_file_record(self, file_path: str, parsed: dict) -> dict[str, Any]:
         """Build terraform_files table record.
 
         Args:
@@ -166,7 +167,7 @@ class TerraformExtractor(BaseExtractor):
             'module_source': None,  # Populated for module {} blocks in Phase 7
         }
 
-    def _detect_backend_type(self, parsed: Dict) -> Optional[str]:
+    def _detect_backend_type(self, parsed: dict) -> str | None:
         """Detect Terraform backend type from terraform {} blocks.
 
         Args:
@@ -189,7 +190,7 @@ class TerraformExtractor(BaseExtractor):
                     return backend_types[0]
         return None
 
-    def _convert_ts_resources(self, ts_resources: List[Dict]) -> List[Dict]:
+    def _convert_ts_resources(self, ts_resources: list[dict]) -> list[dict]:
         """Convert tree-sitter resource format to TerraformParser format.
 
         Args:
@@ -216,52 +217,87 @@ class TerraformExtractor(BaseExtractor):
 
         return converted
 
-    def _convert_ts_variables(self, ts_variables: List[Dict]) -> List[Dict]:
+    def _convert_ts_variables(self, ts_variables: list[dict]) -> list[dict]:
         """Convert tree-sitter variable format to TerraformParser format.
 
         Args:
-            ts_variables: Variables from hcl_impl (with line/column)
+            ts_variables: Variables from hcl_impl (with line/column and attributes)
 
         Returns:
             Variables in TerraformParser format matching database schema
         """
-        return [
-            {
+        converted = []
+        for v in ts_variables:
+            attrs = v.get('attributes', {})
+
+            # Parse sensitive flag
+            sensitive_value = attrs.get('sensitive', 'false')
+            is_sensitive = str(sensitive_value).lower() == 'true'
+
+            # Parse variable type
+            var_type = attrs.get('type')
+            if var_type:
+                var_type = str(var_type).strip('"')
+
+            # Parse description
+            description = attrs.get('description', '')
+            if description:
+                description = str(description).strip('"')
+
+            # Parse default value
+            default_value = attrs.get('default')
+
+            converted.append({
                 'variable_id': f"{v['file_path']}::{v['variable_name']}",
                 'file_path': v['file_path'],
                 'variable_name': v['variable_name'],
-                'variable_type': None,  # TODO: Extract from tree-sitter
-                'default': None,
-                'is_sensitive': False,
-                'description': '',
-                'line': v['line'],  # Tree-sitter advantage: precise line numbers!
-            }
-            for v in ts_variables
-        ]
+                'variable_type': var_type,
+                'default': default_value,
+                'is_sensitive': is_sensitive,
+                'description': description,
+                'line': v['line'],
+            })
 
-    def _convert_ts_outputs(self, ts_outputs: List[Dict]) -> List[Dict]:
+        return converted
+
+    def _convert_ts_outputs(self, ts_outputs: list[dict]) -> list[dict]:
         """Convert tree-sitter output format to TerraformParser format.
 
         Args:
-            ts_outputs: Outputs from hcl_impl (with line/column)
+            ts_outputs: Outputs from hcl_impl (with line/column and attributes)
 
         Returns:
             Outputs in TerraformParser format matching database schema
         """
-        return [
-            {
+        converted = []
+        for o in ts_outputs:
+            attrs = o.get('attributes', {})
+
+            # Parse sensitive flag
+            sensitive_value = attrs.get('sensitive', 'false')
+            is_sensitive = str(sensitive_value).lower() == 'true'
+
+            # Parse value expression
+            value = attrs.get('value')
+
+            # Parse description
+            description = attrs.get('description', '')
+            if description:
+                description = str(description).strip('"')
+
+            converted.append({
                 'output_id': f"{o['file_path']}::{o['output_name']}",
                 'file_path': o['file_path'],
                 'output_name': o['output_name'],
-                'value': None,  # TODO: Extract from tree-sitter
-                'is_sensitive': False,
-                'description': '',
-                'line': o['line'],  # Tree-sitter advantage: precise line numbers!
-            }
-            for o in ts_outputs
-        ]
+                'value': value,
+                'is_sensitive': is_sensitive,
+                'description': description,
+                'line': o['line'],
+            })
 
-    def _convert_ts_data(self, ts_data: List[Dict]) -> List[Dict]:
+        return converted
+
+    def _convert_ts_data(self, ts_data: list[dict]) -> list[dict]:
         """Convert tree-sitter data source format to TerraformParser format.
 
         Args:
@@ -282,8 +318,8 @@ class TerraformExtractor(BaseExtractor):
             for d in ts_data
         ]
 
-    def _normalize_hcl_attributes(self, attributes: Dict[str, Any]) -> Dict[str, Any]:
-        normalized: Dict[str, Any] = {}
+    def _normalize_hcl_attributes(self, attributes: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
         for key, raw_value in attributes.items():
             if key == 'depends_on':
                 normalized[key] = self._parse_depends_on(raw_value)
@@ -326,7 +362,7 @@ class TerraformExtractor(BaseExtractor):
 
         return text
 
-    def _parse_depends_on(self, value: Any) -> List[str]:
+    def _parse_depends_on(self, value: Any) -> list[str]:
         if isinstance(value, list):
             return [str(item).strip().strip('"') for item in value if str(item).strip()]
 
@@ -360,13 +396,13 @@ class TerraformExtractor(BaseExtractor):
             i += 1
         return ''.join(result).rstrip()
 
-    def _detect_heredoc_marker(self, text: str) -> Optional[str]:
+    def _detect_heredoc_marker(self, text: str) -> str | None:
         match = re.match(r"<<-?\s*\"?([A-Za-z0-9_]+)\"?", text)
         if match:
             return match.group(1)
         return None
 
-    def _brace_delta(self, text: Optional[str]) -> int:
+    def _brace_delta(self, text: str | None) -> int:
         if not text:
             return 0
         delta = 0
@@ -386,18 +422,18 @@ class TerraformExtractor(BaseExtractor):
         return delta
 
     def _extract_tfvars(self, file_path: str, content: str,
-                        tree: Optional[Any]) -> Dict[str, Any]:
+                        tree: Any | None) -> dict[str, Any]:
         """Extract variable assignments from .tfvars files without hcl2."""
         if content is None:
             try:
-                with open(file_path, 'r', encoding='utf-8') as handle:
+                with open(file_path, encoding='utf-8') as handle:
                     content = handle.read()
             except Exception as exc:
                 logger.error(f"Failed to read .tfvars file {file_path}: {exc}")
                 return {}
 
         lines = content.splitlines()
-        variable_values: List[Dict[str, Any]] = []
+        variable_values: list[dict[str, Any]] = []
         idx = 0
 
         while idx < len(lines):
@@ -421,7 +457,7 @@ class TerraformExtractor(BaseExtractor):
             start_line = idx + 1
             remainder = self._strip_inline_comment(remainder).strip()
             heredoc_marker = self._detect_heredoc_marker(remainder)
-            value_lines: List[str] = []
+            value_lines: list[str] = []
 
             idx += 1
 
@@ -493,7 +529,7 @@ class TerraformExtractor(BaseExtractor):
 
         return False
 
-    def _identify_sensitive_properties(self, properties: Dict[str, Any]) -> List[str]:
+    def _identify_sensitive_properties(self, properties: dict[str, Any]) -> list[str]:
         sensitive = []
         keywords = ('password', 'secret', 'key', 'token', 'credential', 'private')
         for prop_name in properties.keys():

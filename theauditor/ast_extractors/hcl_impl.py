@@ -9,10 +9,11 @@ Architecture:
 - Line precision: Uses tree-sitter node.start_point for exact locations
 """
 
+
 from typing import List, Dict, Any, Optional
 
 
-def _get_body_node(block_node: Any) -> Optional[Any]:
+def _get_body_node(block_node: Any) -> Any | None:
     """Return the body child node for a block if present."""
     for child in getattr(block_node, 'children', []) or []:
         if child.type == "body":
@@ -20,7 +21,7 @@ def _get_body_node(block_node: Any) -> Optional[Any]:
     return None
 
 
-def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
+def extract_hcl_blocks(node: Any, language: str = "hcl") -> list[dict]:
     """Extract HCL blocks (resources, variables, outputs) from tree-sitter AST.
 
     HCL AST Structure:
@@ -51,8 +52,8 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
         block_name = None
 
         # Extract block components from children
-        # Skip block_start, block_end, body nodes - just get identifiers and string_lits
-        children = [c for c in node.children if c.type not in ["block_start", "block_end", "body"]]
+        # Skip block_start, block_end, body, comment nodes - just get identifiers and string_lits
+        children = [c for c in node.children if c.type not in ["block_start", "block_end", "body", "comment"]]
 
         if len(children) >= 1:
             # First child is always the identifier (resource/variable/output/data/etc)
@@ -90,7 +91,7 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
     return blocks
 
 
-def extract_hcl_attributes(node: Any, block_type: str) -> Dict[str, Any]:
+def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
     """Extract attributes from an HCL block body.
 
     Args:
@@ -125,7 +126,7 @@ def extract_hcl_attributes(node: Any, block_type: str) -> Dict[str, Any]:
     return attributes
 
 
-def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_resources(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform resources with line numbers.
 
     Args:
@@ -157,8 +158,8 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
     return resources
 
 
-def extract_hcl_variables(tree, content: str, file_path: str) -> List[Dict]:
-    """Extract Terraform variables with line numbers.
+def extract_hcl_variables(tree, content: str, file_path: str) -> list[dict]:
+    """Extract Terraform variables with line numbers and attributes.
 
     Args:
         tree: tree-sitter parse tree (with .root_node)
@@ -166,25 +167,30 @@ def extract_hcl_variables(tree, content: str, file_path: str) -> List[Dict]:
         file_path: Path to source file
 
     Returns:
-        List of variable dicts with name, line
+        List of variable dicts with name, line, and attributes (type, sensitive, default, description)
     """
     all_blocks = extract_hcl_blocks(tree.root_node)
     variables = []
 
     for block in all_blocks:
         if block["identifier"] == "variable":
+            # Extract attributes from variable body
+            body_node = block.get("body")
+            attributes = extract_hcl_attributes(body_node, "variable") if body_node else {}
+
             variables.append({
                 "variable_name": block["name"],
                 "line": block["line"],
                 "column": block["column"],
-                "file_path": file_path
+                "file_path": file_path,
+                "attributes": attributes
             })
 
     return variables
 
 
-def extract_hcl_outputs(tree, content: str, file_path: str) -> List[Dict]:
-    """Extract Terraform outputs with line numbers.
+def extract_hcl_outputs(tree, content: str, file_path: str) -> list[dict]:
+    """Extract Terraform outputs with line numbers and attributes.
 
     Args:
         tree: tree-sitter parse tree (with .root_node)
@@ -192,24 +198,29 @@ def extract_hcl_outputs(tree, content: str, file_path: str) -> List[Dict]:
         file_path: Path to source file
 
     Returns:
-        List of output dicts with name, line
+        List of output dicts with name, line, and attributes (value, sensitive, description)
     """
     all_blocks = extract_hcl_blocks(tree.root_node)
     outputs = []
 
     for block in all_blocks:
         if block["identifier"] == "output":
+            # Extract attributes from output body
+            body_node = block.get("body")
+            attributes = extract_hcl_attributes(body_node, "output") if body_node else {}
+
             outputs.append({
                 "output_name": block["name"],
                 "line": block["line"],
                 "column": block["column"],
-                "file_path": file_path
+                "file_path": file_path,
+                "attributes": attributes
             })
 
     return outputs
 
 
-def extract_hcl_data_sources(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_data_sources(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform data sources with line numbers.
 
     Args:

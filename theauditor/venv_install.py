@@ -1,5 +1,6 @@
 """Pure Python venv creation and TheAuditor installation."""
 
+
 import json
 import os
 import platform
@@ -40,14 +41,14 @@ NODE_CHECKSUMS = {
 }
 
 
-def _extract_pyproject_dependencies(pyproject_path: Path) -> List[str]:
+def _extract_pyproject_dependencies(pyproject_path: Path) -> list[str]:
     """Extract dependency strings from pyproject.toml for offline vulnerability DB seeding."""
     try:
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     except Exception:
         return []
 
-    dependencies: List[str] = []
+    dependencies: list[str] = []
 
     # PEP 621 project dependencies
     project = data.get("project")
@@ -96,10 +97,65 @@ def _extract_pyproject_dependencies(pyproject_path: Path) -> List[str]:
     return unique_deps
 
 
+def _get_runtime_packages(pyproject_path: Path, package_names: list[str]) -> list[str]:
+    """
+    Extract specific package version specs from pyproject.toml optional dependencies.
+
+    Single source of truth for package versions - reads from pyproject.toml instead of hardcoding.
+    Searches both 'runtime' and 'dev' sections.
+
+    Args:
+        pyproject_path: Path to pyproject.toml
+        package_names: List of package names to extract (e.g., ['tree-sitter', 'ruff'])
+
+    Returns:
+        List of package specs in pip format (e.g., ['tree-sitter==0.25.2', 'ruff==0.14.5'])
+        Falls back to package names without versions if parsing fails.
+    """
+    try:
+        data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+        project = data.get("project", {})
+        optional_deps = project.get("optional-dependencies", {})
+
+        # Combine runtime and dev dependencies
+        all_deps = []
+        all_deps.extend(optional_deps.get("runtime", []))
+        all_deps.extend(optional_deps.get("dev", []))
+
+        # Build a map of package name -> version spec
+        package_map = {}
+        for dep in all_deps:
+            dep_str = str(dep).strip()
+            # Handle both "package==1.2.3" and "package>=1.2.3" formats
+            for sep in ["==", ">=", "<=", "~=", ">", "<"]:
+                if sep in dep_str:
+                    pkg_name = dep_str.split(sep)[0].strip().lower()
+                    package_map[pkg_name] = dep_str
+                    break
+            else:
+                # No version specifier, just package name
+                package_map[dep_str.lower()] = dep_str
+
+        # Extract requested packages
+        result = []
+        for pkg_name in package_names:
+            pkg_lower = pkg_name.lower()
+            if pkg_lower in package_map:
+                result.append(package_map[pkg_lower])
+            else:
+                # Fallback: return package name without version
+                result.append(pkg_name)
+
+        return result
+    except Exception:
+        # Fallback: return package names without versions
+        return list(package_names)
+
+
 def find_theauditor_root() -> Path:
     """Find TheAuditor project root by walking up from __file__ to pyproject.toml."""
     current = Path(__file__).resolve().parent
-    
+
     # Walk up the directory tree
     while current != current.parent:
         if (current / "pyproject.toml").exists():
@@ -108,11 +164,66 @@ def find_theauditor_root() -> Path:
             if "theauditor" in content.lower():
                 return current
         current = current.parent
-    
+
     raise RuntimeError("Could not find TheAuditor project root (pyproject.toml)")
 
 
-def get_venv_paths(venv_path: Path) -> Tuple[Path, Path]:
+def _inject_agents_md(target_dir: Path) -> None:
+    """
+    Inject TheAuditor agent trigger block into AGENTS.md in target project root.
+
+    Creates AGENTS.md if it doesn't exist, or injects trigger block if not already present.
+    This tells AI assistants where to find specialized agent workflows.
+    """
+    TRIGGER_START = "<!-- THEAUDITOR:START -->"
+    TRIGGER_END = "<!-- THEAUDITOR:END -->"
+
+    TRIGGER_BLOCK = f"""{TRIGGER_START}
+# TheAuditor Planning Agent System
+
+When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
+
+**Agent Triggers:**
+- "refactor", "split", "extract", "merge", "modularize" => @/.auditor_venv/.theauditor_tools/agents/refactor.md
+- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.auditor_venv/.theauditor_tools/agents/security.md
+- "plan", "architecture", "design", "organize", "structure", "approach" => @/.auditor_venv/.theauditor_tools/agents/planning.md
+- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.auditor_venv/.theauditor_tools/agents/dataflow.md
+
+**Agent Purpose:**
+These agents enforce query-driven workflows using TheAuditor's database:
+- NO file reading - use `aud query`, `aud blueprint`, `aud context`
+- NO guessing patterns - follow detected precedents from blueprint
+- NO assuming conventions - match detected naming/frameworks
+- MANDATORY sequence: blueprint => query => synthesis
+- ALL recommendations cite database query results
+
+**Agent Files Location:**
+Agents are located at .auditor_venv/.theauditor_tools/agents/
+Copied during `aud setup-ai` from TheAuditor source.
+
+{TRIGGER_END}
+"""
+
+    agents_md = target_dir / "AGENTS.md"
+    check_mark = "[OK]" if IS_WINDOWS else "✓"
+
+    if not agents_md.exists():
+        # Create new AGENTS.md with trigger block
+        agents_md.write_text(TRIGGER_BLOCK + "\n", encoding="utf-8")
+        print(f"    {check_mark} Created AGENTS.md with agent triggers")
+    else:
+        # Check if trigger already exists
+        content = agents_md.read_text(encoding="utf-8")
+        if TRIGGER_START in content:
+            print(f"    {check_mark} AGENTS.md already has agent triggers")
+        else:
+            # Inject at beginning of file
+            new_content = TRIGGER_BLOCK + "\n" + content
+            agents_md.write_text(new_content, encoding="utf-8")
+            print(f"    {check_mark} Injected agent triggers into AGENTS.md")
+
+
+def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
     """
     Get platform-specific paths for venv Python and aud executables.
     
@@ -179,7 +290,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
     return venv_path
 
 
-def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path] = None) -> bool:
+def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = None) -> bool:
     """
     Install TheAuditor in editable mode into the venv.
     
@@ -219,9 +330,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                 timeout=30
             )
         
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
         
         # Clean up temp files
@@ -247,7 +358,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
         "-m", "pip",
         "install",
         "--no-cache-dir",
-        f"-e", f"{theauditor_root}[dev]"
+        # Install with [all] extra to get BOTH runtime AND dev dependencies
+        # This ensures the sandbox has everything needed for analysis + development
+        f"-e", f"{theauditor_root}[all]"
     ]
     
     try:
@@ -267,9 +380,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                 cwd=str(venv_path.parent)
             )
         
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
         
         # Clean up temp files
@@ -308,9 +421,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                     timeout=10
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 verify_result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 verify_result.stderr = f.read()
             
             # Clean up temp files
@@ -352,7 +465,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
     """
     try:
         # Read current package.json
-        with open(package_json_path, 'r') as f:
+        with open(package_json_path) as f:
             data = json.load(f)
         
         updated_count = 0
@@ -563,7 +676,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         raise RuntimeError(f"Failed to install Node.js: {e}")
 
 
-def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
+def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
     """
     Download and install OSV-Scanner binary for vulnerability detection.
 
@@ -606,41 +719,48 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
         download_filename = "osv-scanner_linux_amd64"
 
     binary_path = osv_dir / binary_name
+    db_dir = osv_dir / "db"
+    db_dir.mkdir(exist_ok=True)
 
-    # Check if already installed
+    # Architect approved: dont early return, databases may need downloading
+    # Binary download is conditional, but database download always runs
+    check_mark = "[OK]"
+    temp_files: list[Path] = []
+
     if binary_path.exists():
-        check_mark = "[OK]"
         print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
-        return binary_path
+    else:
+        # Download from GitHub releases (latest)
+        # FACT: Release page at https://github.com/google/osv-scanner/releases
+        url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
+        print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
+        print(f"    URL: {url}")
 
-    # Download from GitHub releases (latest)
-    # FACT: Release page at https://github.com/google/osv-scanner/releases
-    url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
-    print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
-    print(f"    URL: {url}")
+        try:
+            # Download binary
+            urllib.request.urlretrieve(url, str(binary_path))
 
-    temp_files: List[Path] = []
+            # Make executable on Unix systems
+            if system != "Windows":
+                import stat
+                st = binary_path.stat()
+                binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
+            print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
+        except urllib.error.URLError as e:
+            print(f"    [WARN] Network error downloading OSV-Scanner: {e}")
+            print(f"    [WARN] You can manually download from: https://github.com/google/osv-scanner/releases")
+            return None
+        except Exception as e:
+            print(f"    [WARN] Failed to install OSV-Scanner: {e}")
+            if binary_path.exists():
+                binary_path.unlink()
+            return None
+
+    print(f"    {check_mark} Database cache directory: {db_dir}")
+
+    # Always run database download section (even if binary already existed)
     try:
-        # Download binary
-        urllib.request.urlretrieve(url, str(binary_path))
-
-        # Make executable on Unix systems
-        if system != "Windows":
-            import stat
-            st = binary_path.stat()
-            binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-        check_mark = "[OK]"
-        print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
-
-        # Create offline database directory
-        # FACT from offline-mode.md: Database structure is {local_db_dir}/osv-scanner/{ecosystem}/all.zip
-        db_dir = osv_dir / "db"
-        db_dir.mkdir(exist_ok=True)
-
-        print(f"    {check_mark} OSV-Scanner installed at {osv_dir}")
-        print(f"    {check_mark} Database cache directory: {db_dir}")
 
         # Download offline vulnerability databases (NOT optional - required for offline mode)
         print(f"")
@@ -673,6 +793,13 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
                         break
                 if 'npm' in lockfiles:
                     break
+
+            # If package.json exists but no lockfile, user hasn't run npm install
+            # OSV-Scanner requires lockfiles - skip npm database download
+            if 'npm' not in lockfiles:
+                pkg_json = target_dir / 'package.json'
+                if pkg_json.exists():
+                    print("    ℹ package.json found but no package-lock.json (npm install not run) - skipping npm database")
 
             # Python requirements - check in order of preference
             for name in ['requirements.txt', 'Pipfile.lock', 'poetry.lock']:
@@ -709,10 +836,10 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
             for ecosystem, lockfile in lockfiles.items():
                 cmd.extend(["-L", str(lockfile)])
 
-            # If NO lockfiles, scan directory recursively
+            # If NO lockfiles at all, skip scan
             if not lockfiles:
-                print("    ⚠ No lockfiles found, scanning directory for dependencies")
-                cmd.extend(["-r", str(target_dir)])
+                print("    ℹ No lockfiles found - skipping vulnerability database download")
+                return binary_path
             else:
                 ecosystems = ', '.join(lockfiles.keys())
                 print(f"    Found lockfiles for: {ecosystems}")
@@ -768,7 +895,6 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
                 npm_size = npm_db.stat().st_size / (1024 * 1024)  # MB
                 print(f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)")
             else:
-                # Check if npm lockfile was found
                 if 'npm' in lockfiles:
                     print(f"    ⚠ npm database download failed - online mode will use API")
                 else:
@@ -822,7 +948,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
         return None
 
 
-def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, bool]:
+def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, bool]:
     """
     Complete venv setup: create and install TheAuditor + ALL linting tools.
     
@@ -875,9 +1001,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                         timeout=300  # Increased to 5 minutes for checking many dependencies
                     )
                 
-                with open(stdout_path, 'r', encoding='utf-8') as f:
+                with open(stdout_path, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_path, 'r', encoding='utf-8') as f:
+                with open(stderr_path, encoding='utf-8') as f:
                     result.stderr = f.read()
                 
                 # Clean up temp files
@@ -898,16 +1024,12 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         try:
             print("  Installing linters and AST tools from pyproject.toml...", flush=True)
 
-            # Install linters first
-            linter_packages = [
-                "ruff==0.13.2",
-                "mypy==1.18.2",
-                "black==25.9.0",
-                "bandit==1.8.6",
-                "pylint==3.3.8",
-                "sqlparse==0.5.3",
-                "dockerfile-parse==2.0.1"
-            ]
+            # Read package versions from pyproject.toml (single source of truth)
+            pyproject_path = theauditor_root / "pyproject.toml"
+            linter_packages = _get_runtime_packages(
+                pyproject_path,
+                ["ruff", "mypy", "black", "bandit", "pylint", "sqlparse", "dockerfile-parse"]
+            )
 
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "pip_linters"
@@ -925,9 +1047,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     timeout=300  # Increased to 5 minutes for slower systems
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
             
             # Clean up temp files
@@ -943,10 +1065,11 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
 
                 # Now install tree-sitter packages separately
                 print("  Installing tree-sitter AST tools...", flush=True)
-                ast_packages = [
-                    "tree-sitter==0.23.2",  # Must match tree-sitter-language-pack requirement
-                    "tree-sitter-language-pack==0.9.1"
-                ]
+                # Read versions from pyproject.toml (single source of truth)
+                ast_packages = _get_runtime_packages(
+                    pyproject_path,
+                    ["tree-sitter", "tree-sitter-language-pack"]
+                )
 
                 stdout_path2, stderr_path2 = TempManager.create_temp_files_for_subprocess(
                     str(target_dir), "pip_ast"
@@ -963,9 +1086,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                         timeout=300
                     )
 
-                with open(stdout_path2, 'r', encoding='utf-8') as f:
+                with open(stdout_path2, encoding='utf-8') as f:
                     result2.stdout = f.read()
-                with open(stderr_path2, 'r', encoding='utf-8') as f:
+                with open(stderr_path2, encoding='utf-8') as f:
                     result2.stderr = f.read()
 
                 # Clean up temp files
@@ -1050,6 +1173,32 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             print(f"    {check_mark} Python linter config (pyproject.toml) copied to sandbox")
         else:
             print(f"    ⚠ Python config not found at {python_config_source}")
+
+        # Copy planning agents from TheAuditor source
+        agents_source = theauditor_root / "agents"
+        agents_dest = sandbox_dir / "agents"
+
+        if agents_source.exists() and agents_source.is_dir():
+            # Create agents directory in sandbox
+            agents_dest.mkdir(exist_ok=True)
+
+            # Copy all agent .md files
+            agent_files = list(agents_source.glob("*.md"))
+            if agent_files:
+                for agent_file in agent_files:
+                    dest_file = agents_dest / agent_file.name
+                    shutil.copy2(str(agent_file), str(dest_file))
+
+                check_mark = "[OK]"
+                print(f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)")
+                print(f"        → {agents_dest}")
+
+                # Auto-inject AGENTS.md trigger in target project root
+                _inject_agents_md(target_dir)
+            else:
+                print(f"    ⚠ No agent files found in {agents_source}")
+        else:
+            print(f"    ⚠ Agents directory not found at {agents_source}")
 
         # Create strict TypeScript configuration for sandboxed tools
         tsconfig = sandbox_dir / "tsconfig.json"
@@ -1154,9 +1303,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     shell=False  # No shell needed with absolute paths!
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
             
             # Clean up temp files
@@ -1199,22 +1348,5 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         else:
             print("⚠ OSV-Scanner setup failed - vulnerability detection may be limited")
 
-        # Rust toolchain setup (rust-analyzer for Rust projects)
-        print("\nDetecting Rust projects...", flush=True)
-        from theauditor.toolboxes.rust import RustToolbox
-
-        rust_toolbox = RustToolbox()
-        if rust_toolbox.detect_project(target_dir):
-            print("  Rust project detected (Cargo.toml found)")
-            result = rust_toolbox.install()
-
-            if result['status'] in ['success', 'cached']:
-                check_mark = "[OK]"
-                print(f"    {check_mark} rust-analyzer installed: {result['path']}")
-                print(f"    {check_mark} Version: {result['version']}")
-            else:
-                print(f"    ⚠ rust-analyzer installation failed: {result.get('message', 'Unknown error')}")
-        else:
-            print("  No Rust project detected (Cargo.toml not found)")
 
     return venv_path, success

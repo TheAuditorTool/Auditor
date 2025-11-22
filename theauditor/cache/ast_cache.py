@@ -4,6 +4,7 @@ This module provides persistent caching for Abstract Syntax Trees,
 avoiding repeated parsing of unchanged files.
 """
 
+
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -32,7 +33,7 @@ class ASTCache:
             "errors": 0
         }
     
-    def get(self, key: str, context: Dict[str, Any] = None) -> Optional[Dict]:
+    def get(self, key: str, context: dict[str, Any] = None) -> dict | None:
         """Get cached AST for a file by its hash.
         
         Args:
@@ -45,7 +46,7 @@ class ASTCache:
         cache_file = self.cache_dir / f"{key}.json"
         if cache_file.exists():
             try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
+                with open(cache_file, encoding='utf-8') as f:
                     self._stats["hits"] += 1
                     return json.load(f)
             except (json.JSONDecodeError, OSError):
@@ -56,7 +57,7 @@ class ASTCache:
         self._stats["misses"] += 1
         return None
     
-    def set(self, key: str, value: Dict, context: Dict[str, Any] = None) -> None:
+    def set(self, key: str, value: dict, context: dict[str, Any] = None) -> None:
         """Store an AST tree in the cache.
         
         Args:
@@ -102,7 +103,7 @@ class ASTCache:
         except OSError:
             pass
     
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get cache statistics.
         
         Returns:

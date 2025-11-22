@@ -1,0 +1,15 @@
+{
+  "name": "@theauditor/test-fixtures-node",
+  "version": "1.0.0",
+  "description": "Node test fixture for GitHub Actions security testing",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Test placeholder\"",
+    "lint": "echo \"Lint placeholder\"",
+    "build": "echo \"Build placeholder\"",
+    "deploy": "echo \"Deploy placeholder\"",
+    "process": "echo \"Process placeholder\""
+  },
+  "keywords": ["test", "fixture", "github-actions"],
+  "license": "MIT"
+}

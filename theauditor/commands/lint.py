@@ -57,7 +57,7 @@ def lint_command(
     if not db_path.exists():
         return {
             "success": False,
-            "error": f"Database not found: {db_path}. Run 'aud index' first."
+            "error": f"Database not found: {db_path}. Run 'aud full' first."
         }
 
     try:

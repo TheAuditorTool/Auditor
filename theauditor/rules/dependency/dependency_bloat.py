@@ -13,6 +13,7 @@ Database Tables Used:
 - package_configs: Dependency declarations
 """
 
+
 import sqlite3
 import json
 from typing import List
@@ -30,7 +31,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect excessive dependency counts in package files.
 
     Args:

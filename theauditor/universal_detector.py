@@ -6,6 +6,7 @@ This module coordinates pattern detection across the codebase:
 - Acts as a thin coordination layer, not a detection engine itself
 """
 
+
 import json
 import os
 import sqlite3
@@ -69,7 +70,7 @@ class UniversalPatternDetector:
         """
         self.project_path = Path(project_path).resolve()
         self.pattern_loader = pattern_loader or PatternLoader()
-        self.findings: list[Finding] = []
+        self.findings: list["Finding"] = []
         self.exclude_patterns = exclude_patterns or []
         
         # Create orchestrator ONCE at initialization
@@ -105,7 +106,7 @@ class UniversalPatternDetector:
         # Check database exists
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud index' first.")
+            print("Error: Database not found. Run 'aud full' first.")
             return []
         
         # Query files from database
@@ -148,9 +149,9 @@ class UniversalPatternDetector:
     
     def detect_patterns_for_files(
         self, 
-        file_list: List[str], 
-        categories: List[str] = None
-    ) -> List[Finding]:
+        file_list: list[str], 
+        categories: list[str] = None
+    ) -> list[Finding]:
         """Targeted pattern detection for specific files.
         
         Args:
@@ -177,7 +178,7 @@ class UniversalPatternDetector:
         # Query database for file info
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud index' first.")
+            print("Error: Database not found. Run 'aud full' first.")
             return []
         
         # Get file info from database
@@ -202,7 +203,7 @@ class UniversalPatternDetector:
         
         return self.findings
     
-    def _query_files(self, db_path: Path, file_filter: str = None) -> List[tuple]:
+    def _query_files(self, db_path: Path, file_filter: str = None) -> list[tuple]:
         """Query files from database.
         
         Returns:
@@ -233,7 +234,7 @@ class UniversalPatternDetector:
         
         return files
     
-    def _query_specific_files(self, db_path: Path, file_list: List[Path]) -> List[tuple]:
+    def _query_specific_files(self, db_path: Path, file_list: list[Path]) -> list[tuple]:
         """Query specific files from database.
         
         Returns:
@@ -266,7 +267,7 @@ class UniversalPatternDetector:
         
         return files
     
-    def _process_ast_files(self, files: List[tuple]):
+    def _process_ast_files(self, files: list[tuple]):
         """Process AST-parseable files through orchestrator.
         
         Args:
@@ -282,7 +283,7 @@ class UniversalPatternDetector:
             
             try:
                 # Read file content
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                 
                 # Determine language
@@ -346,7 +347,7 @@ class UniversalPatternDetector:
                     if os.environ.get("THEAUDITOR_DEBUG"):
                         print(f"Worker error: {e}")
     
-    def _process_regex_files(self, files: List[tuple], categories: List[str] = None):
+    def _process_regex_files(self, files: list[tuple], categories: list[str] = None):
         """Process non-AST files with regex patterns.
         
         Args:
@@ -361,7 +362,7 @@ class UniversalPatternDetector:
         
         for file_path, ext, _ in files:
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, encoding='utf-8', errors='ignore') as f:
                     content = f.read()
                     lines = content.splitlines()
                 
@@ -400,7 +401,7 @@ class UniversalPatternDetector:
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"Error processing {file_path}: {e}")
     
-    def _run_database_rules(self) -> List[Finding]:
+    def _run_database_rules(self) -> list[Finding]:
         """Run database-level rules through orchestrator.
         
         Returns:

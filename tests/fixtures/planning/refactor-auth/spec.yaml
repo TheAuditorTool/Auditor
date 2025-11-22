@@ -1,0 +1,36 @@
+refactor_name: Auth0 to AWS Cognito Migration
+description: Migrate authentication from Auth0 to AWS Cognito
+version: 1.0
+
+rules:
+  - id: remove-auth0-imports
+    description: Remove Auth0 SDK imports
+    severity: critical
+    match:
+      identifiers: [auth0, Auth0Client]
+    expect:
+      identifiers: []
+
+  - id: add-cognito-imports
+    description: Add AWS Cognito imports
+    severity: critical
+    match:
+      identifiers: [aws_cognito, CognitoIdentityClient]
+    expect:
+      identifiers: [CognitoIdentityClient]
+
+  - id: remove-auth0-env-vars
+    description: Remove Auth0 environment variable references
+    severity: high
+    match:
+      identifiers: [AUTH0_DOMAIN, AUTH0_CLIENT_ID]
+    expect:
+      identifiers: []
+
+  - id: add-cognito-env-vars
+    description: Add Cognito environment variable references
+    severity: high
+    match:
+      identifiers: [COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID]
+    expect:
+      identifiers: [COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID]

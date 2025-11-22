@@ -1,5 +1,6 @@
 """Configuration management for TheAuditor."""
 
+
 import tomllib
 from pathlib import Path
 

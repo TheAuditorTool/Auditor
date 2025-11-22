@@ -11,6 +11,7 @@ Visual encoding strategy:
 - Node shape: Type (box=module, ellipse=function)
 """
 
+
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Set, Optional
@@ -51,9 +52,9 @@ class GraphVisualizer:
         
     def generate_dot(
         self,
-        graph: Dict[str, Any],
-        analysis: Optional[Dict[str, Any]] = None,
-        options: Optional[Dict[str, Any]] = None,
+        graph: dict[str, Any],
+        analysis: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate DOT format with visual intelligence encoding.
@@ -91,8 +92,8 @@ class GraphVisualizer:
     
     def _process_analysis(
         self,
-        graph: Dict[str, Any],
-        analysis: Dict[str, Any]
+        graph: dict[str, Any],
+        analysis: dict[str, Any]
     ) -> None:
         """Pre-process analysis data for quick lookup."""
         # Calculate node degrees
@@ -122,7 +123,7 @@ class GraphVisualizer:
                 target = cycle_nodes[(i + 1) % len(cycle_nodes)]
                 self.cycle_edges.add((source, target))
     
-    def _generate_graph_attrs(self, options: Dict[str, Any]) -> List[str]:
+    def _generate_graph_attrs(self, options: dict[str, Any]) -> list[str]:
         """Generate global graph attributes."""
         attrs = []
         attrs.append('  rankdir=LR;')  # Left to right layout
@@ -147,10 +148,10 @@ class GraphVisualizer:
     
     def _generate_nodes(
         self,
-        graph: Dict[str, Any],
-        analysis: Dict[str, Any],
-        options: Dict[str, Any]
-    ) -> List[str]:
+        graph: dict[str, Any],
+        analysis: dict[str, Any],
+        options: dict[str, Any]
+    ) -> list[str]:
         """Generate nodes with visual encoding."""
         node_lines = []
         nodes = graph.get('nodes', [])
@@ -241,10 +242,10 @@ class GraphVisualizer:
     
     def _generate_edges(
         self,
-        graph: Dict[str, Any],
-        analysis: Dict[str, Any],
-        options: Dict[str, Any]
-    ) -> List[str]:
+        graph: dict[str, Any],
+        analysis: dict[str, Any],
+        options: dict[str, Any]
+    ) -> list[str]:
         """Generate edges with visual encoding."""
         edge_lines = []
         edges = graph.get('edges', [])
@@ -362,10 +363,10 @@ class GraphVisualizer:
     
     def generate_dot_with_layers(
         self,
-        graph: Dict[str, Any],
-        layers: Dict[int, List[str]],
-        analysis: Optional[Dict[str, Any]] = None,
-        options: Optional[Dict[str, Any]] = None,
+        graph: dict[str, Any],
+        layers: dict[int, list[str]],
+        analysis: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate DOT format with architectural layers as subgraphs.
@@ -500,9 +501,9 @@ class GraphVisualizer:
     
     def generate_impact_visualization(
         self,
-        graph: Dict[str, Any],
-        impact: Dict[str, Any],
-        options: Optional[Dict[str, Any]] = None,
+        graph: dict[str, Any],
+        impact: dict[str, Any],
+        options: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate DOT highlighting impact analysis results.
@@ -682,9 +683,9 @@ class GraphVisualizer:
     
     def generate_cycles_only_view(
         self,
-        graph: Dict[str, Any],
-        cycles: List[Dict[str, Any]],
-        options: Optional[Dict[str, Any]] = None,
+        graph: dict[str, Any],
+        cycles: list[dict[str, Any]],
+        options: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate DOT format showing only nodes and edges involved in cycles.
@@ -794,9 +795,9 @@ class GraphVisualizer:
     
     def generate_hotspots_only_view(
         self,
-        graph: Dict[str, Any],
-        hotspots: List[Dict[str, Any]],
-        options: Optional[Dict[str, Any]] = None,
+        graph: dict[str, Any],
+        hotspots: list[dict[str, Any]],
+        options: dict[str, Any] | None = None,
         top_n: int = 10,
     ) -> str:
         """

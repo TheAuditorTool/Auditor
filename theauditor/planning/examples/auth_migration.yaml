@@ -1,0 +1,66 @@
+# OAuth Provider Migration Example
+# This spec verifies migration from Auth0 to AWS Cognito across the codebase.
+
+refactor_name: Auth0 to AWS Cognito Migration
+description: Replace Auth0 authentication with AWS Cognito
+version: 1.0
+
+rules:
+  - id: remove-auth0-imports
+    description: Remove Auth0 SDK imports
+    severity: high
+    match:
+      identifiers: [auth0, Auth0Client, Auth0Lock]
+    expect:
+      identifiers: []
+    # Empty expect means these identifiers should be completely removed
+
+  - id: cognito-imports-present
+    description: Verify Cognito SDK imports exist
+    severity: critical
+    match:
+      identifiers: [CognitoIdentityClient, CognitoUserPool]
+    expect:
+      # At least one file should have Cognito imports
+      identifiers: [CognitoIdentityClient]
+
+  - id: update-login-endpoints
+    description: Login routes should use Cognito
+    severity: critical
+    match:
+      api_routes: ['/auth/login', '/api/auth/login']
+    expect:
+      identifiers: [cognitoLogin, authenticateWithCognito]
+
+  - id: update-callback-endpoints
+    description: OAuth callback should handle Cognito response
+    severity: high
+    match:
+      api_routes: ['/auth/callback', '/api/auth/callback']
+    expect:
+      identifiers: [handleCognitoCallback, processCognitoToken]
+
+  - id: remove-auth0-config
+    description: Remove Auth0 configuration references
+    severity: medium
+    match:
+      identifiers: [AUTH0_DOMAIN, AUTH0_CLIENT_ID]
+    expect:
+      identifiers: []
+
+  - id: cognito-config-present
+    description: Verify Cognito configuration exists
+    severity: critical
+    match:
+      identifiers: [COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID]
+    expect:
+      identifiers: [COGNITO_USER_POOL_ID]
+
+# Usage:
+# 1. Create plan: aud planning init --name "Auth0 to Cognito Migration"
+# 2. Add multiple tasks for different components:
+#    aud planning add-task 1 --title "Backend auth routes" --spec auth_migration.yaml
+#    aud planning add-task 2 --title "Frontend login components"
+# 3. Implement changes incrementally
+# 4. Verify each task: aud full --offline && aud planning verify-task 1 N --verbose
+# 5. Archive when complete: aud planning archive 1 --notes "Auth migration deployed"

@@ -201,8 +201,26 @@ async function main() {
             throw new Error("projectRoot not provided in batch request");
         }
 
-        // Load TypeScript
-        const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        // Load TypeScript - search up the directory tree for .auditor_venv
+        let tsPath = null;
+        let searchDir = projectRoot;
+
+        // Search up the directory tree for .auditor_venv (max 10 levels)
+        for (let i = 0; i < 10; i++) {
+            const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+            if (fs.existsSync(potentialPath)) {
+                tsPath = potentialPath;
+                break;
+            }
+            const parent = path.dirname(searchDir);
+            if (parent === searchDir) break;  // Reached root
+            searchDir = parent;
+        }
+
+        // Fallback to project root if not found
+        if (!tsPath) {
+            tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        }
 
         if (!fs.existsSync(tsPath)) {
             throw new Error(`TypeScript not found at: ${tsPath}`);
@@ -409,9 +427,23 @@ async function main() {
                     const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                     const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-                    const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                    const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                    const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
+                    // OPTION C (2025-11-09): Split validation extraction into two concerns
+                    const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
+                    const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
                     const sqlQueries = extractSQLQueries(functionCallArgs);
+                    const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
+                    const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                    // DEBUG (2025-11-09): Log sequelize extraction results
+                    if (process.env.THEAUDITOR_DEBUG === '1' && fileInfo.original.includes('model')) {
+                        console.error(`[BATCH] ${fileInfo.original}: sequelizeData =`, JSON.stringify(sequelizeData));
+                    }
+                    const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                    const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                    const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                     let vueComponents = [];
                     let vueHooks = [];
@@ -432,17 +464,14 @@ async function main() {
                         vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
                     }
 
-                    // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                    // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
-                    // The 'preserved' batch is for JSX-specific symbol extraction only
-                    let cfg = [];
-                    if (jsxMode !== 'preserved') {
-                        console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
-                        cfg = extractCFG(sourceFile, ts);
-                        console.error(`[DEBUG JS BATCH] Extracted ${cfg.length} CFGs from ${fileInfo.original}`);
-                    } else {
-                        console.error(`[DEBUG JS BATCH] Skipping CFG for ${fileInfo.original} (jsxMode=preserved, CFG already extracted in first batch)`);
-                    }
+                    // Step 4: Extract CFG (handles BOTH jsx modes)
+                    // CRITICAL: Extract CFG for BOTH transform and preserved modes
+                    // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+                    // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+                    // Storage layer (Python) routes based on jsx_pass flag
+                    console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
+                    const cfg = extractCFG(sourceFile, ts);
+                    console.error(`[DEBUG JS BATCH] Extracted ${cfg.length} CFGs from ${fileInfo.original}`);
 
                     // Count nodes for complexity metrics
                     const nodeCount = countNodes(sourceFile, ts);
@@ -477,8 +506,20 @@ async function main() {
                             react_hooks: reactHooks,
                             orm_queries: ormQueries,
                             routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                            express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
+                            cdk_constructs: cdkConstructs,
+                            sequelize_models: sequelizeData.sequelize_models || [],
+                            sequelize_associations: sequelizeData.sequelize_associations || [],
+                            bullmq_queues: bullmqData.bullmq_queues || [],
+                            bullmq_workers: bullmqData.bullmq_workers || [],
+                            angular_components: angularData.components || [],
+                            angular_services: angularData.services || [],
+                            angular_modules: angularData.modules || [],
+                            angular_guards: angularData.guards || [],
+                            di_injections: angularData.di_injections || [],
+                            frontend_api_calls: frontendApiCalls,
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -702,8 +743,26 @@ try {
         throw new Error("projectRoot not provided in batch request");
     }
 
-    // Load TypeScript
-    const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+    // Load TypeScript - search up the directory tree for .auditor_venv
+    let tsPath = null;
+    let searchDir = projectRoot;
+
+    // Search up the directory tree for .auditor_venv (max 10 levels)
+    for (let i = 0; i < 10; i++) {
+        const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        if (fs.existsSync(potentialPath)) {
+            tsPath = potentialPath;
+            break;
+        }
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;  // Reached root
+        searchDir = parent;
+    }
+
+    // Fallback to project root if not found
+    if (!tsPath) {
+        tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+    }
 
     if (!fs.existsSync(tsPath)) {
         throw new Error(`TypeScript not found at: ${tsPath}`);
@@ -900,9 +959,19 @@ try {
                 const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                 const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                 const ormQueries = extractORMQueries(functionCallArgs);
-                const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-                const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
+                // OPTION C (2025-11-09): Split validation extraction into two concerns
+                const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
+                const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
                 const sqlQueries = extractSQLQueries(functionCallArgs);
+                const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
+                const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                 let vueComponents = [];
                 let vueHooks = [];
@@ -923,16 +992,12 @@ try {
                     vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
                 }
 
-                // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
-                // The 'preserved' batch is for JSX-specific symbol extraction only
-                let cfg = [];
-                if (jsxMode !== 'preserved') {
-                    cfg = extractCFG(sourceFile, ts);
-                } else {
-                    // CFG already extracted in first batch, skip to avoid duplicates
-                    cfg = [];
-                }
+                // Step 4: Extract CFG (handles BOTH jsx modes)
+                // CRITICAL: Extract CFG for BOTH transform and preserved modes
+                // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+                // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+                // Storage layer (Python) routes based on jsx_pass flag
+                const cfg = extractCFG(sourceFile, ts);
 
                 // Count nodes for complexity metrics
                 const nodeCount = countNodes(sourceFile, ts);
@@ -967,8 +1032,20 @@ try {
                         react_hooks: reactHooks,
                         orm_queries: ormQueries,
                         routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                        express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
+                        cdk_constructs: cdkConstructs,
+                        sequelize_models: sequelizeModels.sequelize_models || [],
+                        sequelize_associations: sequelizeModels.sequelize_associations || [],
+                        bullmq_queues: bullmqJobs.bullmq_queues || [],
+                        bullmq_workers: bullmqJobs.bullmq_workers || [],
+                        angular_components: angularData.components,
+                        angular_services: angularData.services,
+                        angular_modules: angularData.modules,
+                        angular_guards: angularData.guards,
+                        di_injections: angularData.di_injections || [],
+                        frontend_api_calls: frontendApiCalls,
                         vue_components: vueComponents,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,

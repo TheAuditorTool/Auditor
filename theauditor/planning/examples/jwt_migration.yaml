@@ -1,0 +1,41 @@
+# JWT Security Migration Example
+# This spec verifies that all JWT signing operations use secure environment variables
+# instead of hardcoded secrets.
+
+refactor_name: Secure JWT Implementation
+description: Migrate JWT signing from hardcoded secrets to environment variables
+version: 1.0
+
+rules:
+  - id: jwt-sign-secret-env
+    description: All jwt.sign calls must use process.env.JWT_SECRET
+    severity: critical
+    match:
+      identifiers: [jwt.sign, jsonwebtoken.sign]
+    expect:
+      identifiers: [process.env.JWT_SECRET, process.env.JWT_PRIVATE_KEY]
+
+  - id: remove-hardcoded-secrets
+    description: Remove hardcoded secret strings
+    severity: critical
+    match:
+      identifiers: [jwt.sign]
+      # Looks for jwt.sign with string literals as second argument
+    expect_not:
+      # Should not find patterns like jwt.sign(payload, "mysecret")
+      identifiers: ['"', "'"]
+
+  - id: jwt-verify-secret-env
+    description: JWT verification must also use env vars
+    severity: high
+    match:
+      identifiers: [jwt.verify, jsonwebtoken.verify]
+    expect:
+      identifiers: [process.env.JWT_SECRET, process.env.JWT_PUBLIC_KEY]
+
+# Usage:
+# 1. Create plan: aud planning init --name "JWT Security Migration"
+# 2. Add task: aud planning add-task 1 --title "Secure JWT" --spec jwt_migration.yaml
+# 3. Make changes to replace hardcoded secrets with env vars
+# 4. Verify: aud full --offline && aud planning verify-task 1 1 --verbose
+# 5. Archive: aud planning archive 1 --notes "JWT secrets migrated to env vars"

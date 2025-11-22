@@ -14,6 +14,7 @@ CRITICAL:
 - JS/TS MUST use semantic parser - silent fallbacks produce "anonymous" function names
 """
 
+
 import ast
 import hashlib
 import json
@@ -38,7 +39,7 @@ class ASTMatch:
     end_line: int
     start_col: int
     snippet: str
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
 
 class ASTParser(ASTPatternMixin, ASTExtractorMixin):
@@ -58,7 +59,12 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             self.has_tree_sitter = True
             self._init_tree_sitter_parsers()
         except ImportError:
-            print("Warning: Tree-sitter not available. Install with: pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-typescript")
+            print("\n[WARNING] AST parsing dependencies not fully installed.")
+            print("  - Python analysis: ✓ Will work (uses built-in ast module)")
+            print("  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)")
+            print("  - Terraform/HCL analysis: ✗ Limited functionality")
+            print("\nTo enable full analysis capabilities, run:")
+            print("  aud setup-ai --target .\n")
 
     def _init_tree_sitter_parsers(self):
         """Initialize Tree-sitter language parsers with proper bindings."""
@@ -328,7 +334,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         }
         return ext_map.get(file_path.suffix.lower(), "")  # Empty not unknown
 
-    def _parse_python_builtin(self, content: str) -> Optional[ast.AST]:
+    def _parse_python_builtin(self, content: str) -> ast.AST | None:
         """Parse Python code using built-in ast module."""
         try:
             return ast.parse(content)
@@ -336,7 +342,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             return None
     
     @lru_cache(maxsize=10000)
-    def _parse_python_cached(self, content_hash: str, content: str) -> Optional[ast.AST]:
+    def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
         """Parse Python code with caching based on content hash.
         
         Args:
@@ -475,7 +481,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         
         return None
 
-    def parse_files_batch(self, file_paths: List[Path], root_path: str = None, jsx_mode: str = 'transformed') -> Dict[str, Any]:
+    def parse_files_batch(self, file_paths: list[Path], root_path: str = None, jsx_mode: str = 'transformed') -> dict[str, Any]:
         """Parse multiple files into ASTs in batch for performance.
 
         This method dramatically improves performance for JavaScript/TypeScript projects
@@ -511,7 +517,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             try:
                 # Convert paths to strings for the semantic parser with normalized separators
                 js_ts_paths = []
-                tsconfig_map: Dict[str, str] = {}
+                tsconfig_map: dict[str, str] = {}
                 for f in js_ts_files:
                     normalized_path = str(f).replace("\\", "/")
                     js_ts_paths.append(normalized_path)
@@ -591,7 +597,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
 
         return results
 
-    def get_supported_languages(self) -> List[str]:
+    def get_supported_languages(self) -> list[str]:
         """Get list of supported languages.
 
         Returns:
@@ -610,7 +616,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
 
         return sorted(set(languages))
 
-    def _find_tsconfig_for_file(self, file_path: Path, root_path: Optional[str]) -> Optional[Path]:
+    def _find_tsconfig_for_file(self, file_path: Path, root_path: str | None) -> Path | None:
         """Locate the nearest tsconfig.json for a given file within the project root."""
         try:
             resolved_file = file_path.resolve()

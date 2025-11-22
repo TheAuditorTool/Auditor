@@ -1,0 +1,53 @@
+name: python-celery-tasks
+description: Celery task extraction test fixture
+language: python
+
+tables:
+  python_celery_tasks:
+    min_rows: 4  # add, send_email, process_data, custom_named_task
+    queries:
+      - name: verify_simple_task
+        sql: SELECT * FROM python_celery_tasks WHERE task_name = 'add'
+        expect_rows: 1
+
+      - name: verify_bind_task
+        sql: SELECT * FROM python_celery_tasks WHERE task_name = 'send_email' AND bind = 1
+        expect_rows: 1
+
+      - name: verify_max_retries
+        sql: SELECT * FROM python_celery_tasks WHERE max_retries = 3
+        expect_rows: 1  # send_email has max_retries=3
+
+      - name: verify_rate_limit
+        sql: SELECT * FROM python_celery_tasks WHERE rate_limit = '10/m'
+        expect_rows: 1  # process_data has rate_limit
+
+  python_celery_task_calls:
+    min_rows: 4  # 4 task invocations in trigger_tasks()
+    queries:
+      - name: verify_delay_calls
+        sql: SELECT * FROM python_celery_task_calls WHERE call_type = 'delay'
+        expect_rows: 2  # add.delay and process_data.delay
+
+      - name: verify_apply_async_calls
+        sql: SELECT * FROM python_celery_task_calls WHERE call_type = 'apply_async'
+        expect_rows: 2  # send_email and custom_named_task
+
+      - name: verify_task_arguments
+        sql: SELECT * FROM python_celery_task_calls WHERE arguments IS NOT NULL
+        expect_rows_min: 3  # Most calls have arguments
+
+  python_celery_beat_schedules:
+    min_rows: 3  # add-every-30-seconds, send-report-monday-morning, process-hourly
+    queries:
+      - name: verify_add_schedule
+        sql: SELECT * FROM python_celery_beat_schedules WHERE schedule_name = 'add-every-30-seconds'
+        expect_rows: 1
+
+      - name: verify_crontab_schedules
+        sql: SELECT * FROM python_celery_beat_schedules WHERE crontab IS NOT NULL
+        expect_rows: 2  # send-report and process-hourly use crontab
+
+      - name: verify_interval_schedule
+        sql: SELECT * FROM python_celery_beat_schedules WHERE interval IS NOT NULL
+        expect_rows: 1  # add-every-30-seconds uses interval

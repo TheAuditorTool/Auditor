@@ -1,54 +1,78 @@
 ## Why
-- TheAuditor produces **insanely good results** across 7-8 domains (graph analysis, taint paths, lint, security rules, dependencies, CFG, DFG, etc.), but the output is drowning in files.
-- **The chunking disaster**: Current extraction chunks raw outputs into `.pf/readthis/`, resulting in **24-27 JSON files** (2-3 chunks per original file). Nobody reads 24-27 files.
-- **Lost summaries**: The original architecture had focused summaries per domain (`summary_graph.json`, `summary_taint.json`, etc.) that gave humans a quick overview. These disappeared as chunking took over.
-- **No "full overview" output**: There's no single file that says "here are the top problems across ALL domains" - you have to read 24-27 chunked files OR query the database directly.
-- **AI consumption shift**: Moving to `aud blueprint` / `aud query` for structured queries, but humans still need readable summaries, and AI agents need a lightweight "sync point" without parsing 24-27 files.
-- **FCE does correlation, not summarization**: FCE's job is factual correlation (detecting when multiple tools flag the same location), NOT creating human-readable summaries of what each domain found.
+- TheAuditor has **database-first query commands** (`aud query`, `aud context`, `aud planning`) that enable AI assistants to interact directly with indexed code data.
+- **The chunking system is obsolete**: The current `.pf/readthis/` extraction system generates 24-27 chunked JSON files by parsing `/raw/` outputs, but direct database queries are 100x faster and eliminate token waste.
+- **Chunking provides no value**: With database queries available, chunking raw outputs into smaller files is redundant and creates maintenance burden.
+- **Missing guidance layer**: TheAuditor produces excellent ground truth in `/raw/` but lacks **5 focused summary documents** in `/readthis/` that highlight FCE correlations and provide quick orientation.
+- **AI interaction shift**: AIs should **query the database directly** (repo_index.db + graphs.db) instead of parsing JSON files. The `/readthis/` directory should contain summaries that guide what to query, not chunks of raw data.
 
 ## What Changes
-- **Restore per-domain summaries** (these used to exist): Bring back focused summary outputs for each analyzer domain:
-  - `summary_graph.json` - Cycles, hotspots, impact metrics + top 20 findings (≤50 KB)
-  - `summary_taint.json` - High-confidence taint paths + source/sink breakdown (≤50 KB)
-  - `summary_lint.json` - Lint findings by severity + file hotspots (≤50 KB)
-  - `summary_rules.json` - Security rules grouped by category + critical issues (≤50 KB)
-  - `summary_dependencies.json` - Vulnerable packages + outdated deps (≤50 KB)
-  - `summary_fce.json` - Correlated findings + meta-findings (≤50 KB)
-  - Each summary: Top N findings + key metrics + references to `.pf/raw/` for full data
-  - Each summary mentions: "This domain can also be queried with: aud query --{domain}"
+- **Deprecate extraction.py chunking system**: Remove the code that generates 24-27 chunk files by parsing `/raw/` outputs.
+- **Keep ALL `/raw/` files unchanged**: Do NOT consolidate tool outputs. Each analyzer (patterns, taint, cfg, graph, etc.) continues writing to its own separate JSON file in `/raw/`.
+  - ✅ `patterns.json` - Output from detect-patterns
+  - ✅ `taint.json` - Output from taint-analyze
+  - ✅ `cfg.json` - Output from cfg analyze
+  - ✅ `deadcode.json` - Output from deadcode
+  - ✅ `frameworks.json` - Output from detect-frameworks
+  - ✅ `graph_analysis.json` - Output from graph analyze
+  - ✅ `fce.json` - Output from fce
+  - ✅ All other 20+ tool outputs remain separate
+  - **Rationale**: Raw tool outputs are "our only value" - consolidation breaks the pipeline and loses ground truth fidelity.
 
-- **Add "The Auditor Summary"**: Create a single `The_Auditor_Summary.json` that combines insights from ALL domains:
-  - Lists top 20-30 findings across ALL analyzers (severity-sorted)
-  - Shows which domains found issues (e.g., "taint + rules both flag auth.py:45")
-  - Provides metrics per domain (X graph cycles, Y taint paths, Z lint issues)
-  - Cross-links to per-domain summaries for drill-down
-  - Output location: `.pf/raw/The_Auditor_Summary.json` (any size, can be chunked by extraction)
+- **Add 5 intelligent summaries to `/readthis/`** (replaces chunks):
+  - **`SAST_Summary.json`** - Security findings overview
+    - Reads from: patterns.json, taint.json, docker_findings.json, github_workflows.json
+    - Shows: Total findings count, FCE-correlated security hotspots, files with multiple tools flagging issues
+    - Truth courier format: "X patterns detected, Y taint paths found, Z in FCE hotspots" (NO recommendations)
 
-- **Reorganize `.pf/readthis/` structure**: Replace 24-27 chunked files with ~7-8 focused summaries:
-  - **Before**: 24-27 chunked JSONs (2-3 per file) - nobody reads this
-  - **After**: 7-8 summary files (6-7 per-domain + 1 master summary) - human-readable
-  - Raw data files stay in `.pf/raw/` only (NOT copied to /readthis/)
-  - Summaries stored in `.pf/raw/` first, then extraction chunks them to `.pf/readthis/` if needed
+  - **`SCA_Summary.json`** - Dependency issues overview
+    - Reads from: deps.json, frameworks.json
+    - Shows: Outdated packages count, detected frameworks, dependency tree depth
+    - Truth courier format: "X packages analyzed, Y frameworks detected, Z outdated" (NO recommendations)
 
-- **Modify extraction behavior**: Update `extraction.py` to ONLY chunk summary files:
-  - Raw files (taint_analysis.json, graph_analysis.json, etc.) → stay in /raw/ only
-  - Summary files (summary_*.json, The_Auditor_Summary.json) → chunked to /readthis/ if >65KB
-  - Users read summaries in /readthis/, query database via `aud blueprint` / `aud query` for details
+  - **`Intelligence_Summary.json`** - Code intelligence overview
+    - Reads from: graph_analysis.json, cfg.json, fce.json
+    - Shows: Hotspot count, cycle count, complex function count, FCE meta-findings
+    - Truth courier format: "X hotspots, Y cycles, Z complex functions, W FCE correlations" (NO recommendations)
 
-- **Keep FCE as-is**: FCE continues doing factual correlation (detecting when multiple tools flag the same location). This change is about SUMMARIZATION, not correlation.
+  - **`Quick_Start.json`** - Critical issues across all domains
+    - Reads from: All /raw/ files + fce.json for FCE correlations
+    - Shows: Top issues guided by FCE (architectural risks, complexity risks, churn risks, etc.)
+    - Truth courier format: Lists FCE findings (ARCHITECTURAL_RISK_ESCALATION, COMPLEXITY_RISK_CORRELATION, etc.) with file:line locations
 
-- **Update documentation**: Clarify consumption model - humans read summaries, AI uses `aud blueprint` / `aud query`, `.pf/raw/` is for archival/deep dives.
+  - **`Query_Guide.json`** - Database query reference
+    - Static reference document
+    - Shows: Example `aud query` and `aud context` commands for each analysis domain
+    - Guides AIs on how to query database instead of parsing JSON
+
+- **Summaries are truth couriers ONLY** (NO interpretation):
+  - Show counts, file locations, and FCE correlations
+  - Present findings exactly as FCE identified them
+  - **Never use "severity" filtering** - show what FCE found, not what we think is important
+  - **Never recommend fixes** - just present facts: "X found in Y locations, Z correlated by FCE"
+  - Let AI consumer decide what's important using database queries
+
+- **Update pipeline**:
+  - Remove extraction trigger (no more chunking to /readthis/)
+  - Add `aud summarize` call after FCE phase
+  - Rename `extraction.py` to `extraction.py.bak` (preserve but deprecate)
+
+- **Update documentation**:
+  - Make clear: **AIs should query database via `aud query`**, NOT read JSON files
+  - Summaries are for **quick orientation only** - database queries provide full detail
+  - Raw `/raw/` files are **immutable ground truth** - never modified or consolidated
 
 ## Impact
-- **Fixes information overload**: Replace 24-27 chunked files with 7-8 focused summaries (50 KB each) - actually human-readable
-- **Restores old functionality**: Per-domain summaries used to exist, bringing them back gives operators the overview they need
-- **Enables quick sync**: Humans can read `The_Auditor_Summary.json` (≤100 KB) to understand "what matters" across ALL domains in 30 seconds
-- **Better AI integration**: AI agents get a lightweight sync point (`The_Auditor_Summary.json`) without parsing 24-27 files, PLUS structured queries via `aud blueprint` / `aud query`
-- **Preserves full fidelity**: `.pf/raw/` still has everything for archival/debugging, chunking system still works, nothing breaks
-- **FCE unchanged**: FCE continues doing correlation (its actual job), summaries are a separate concern
-- **Backward compatible**: Legacy `aud summary` still generates `audit_summary.json`, new flow enabled by `--generate-domain-summaries` flag
+- **Eliminates /readthis/ bloat**: 24-27 chunked files → 5 summaries (82% reduction)
+- **Preserves raw outputs**: ALL 20+ /raw/ files unchanged (ground truth fidelity maintained)
+- **Adds guidance layer**: 5 summaries provide FCE-guided quick orientation
+- **Enables database-first workflow**: AIs query directly with `aud query` (100x faster)
+- **Maintains backward compatibility**: audit_summary.json still generated, /raw/ structure unchanged
+- **Reduces complexity**: No consolidation logic needed, analyzers unchanged
+- **Follows truth courier model**: Summaries present facts and FCE correlations, never interpret
 
 ## Verification Alignment
 - Hypotheses, evidence, and discrepancies captured in `openspec/changes/add-risk-prioritization/verification.md` per SOP v4.20.
-- Task list focuses on summary generation, extraction modification, and pipeline integration.
-- Implementation details in `implementation.md` with line-by-line changes anchored in actual code.
+- **Critical correction applied**: Previous proposal wanted to consolidate /raw/ files - this was WRONG and broke the pipeline.
+- **Correct architecture verified**: Keep all /raw/ files separate, add summaries to /readthis/, deprecate chunking.
+- Task list focuses on summary generation and extraction deprecation only - NO changes to analyzer outputs.
+- Implementation details in `design.md` with line-by-line changes for summarize command creation.

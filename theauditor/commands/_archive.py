@@ -37,7 +37,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     history_dir = pf_dir / "history"
 
     # Define cache directories that should be preserved by default
-    CACHE_DIRS = {".cache", "context"}
+    CACHE_DIRS = {".cache", "context", "ml"}  # ml contains models + session history
 
     # Check if there's a previous run to archive (by checking if .pf exists and has files)
     if not pf_dir.exists() or not any(pf_dir.iterdir()):

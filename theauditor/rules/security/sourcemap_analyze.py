@@ -14,6 +14,7 @@ Follows v1.1+ schema contract compliance for database queries:
 - Minimal file I/O (last 5KB only for build artifacts)
 """
 
+
 import sqlite3
 import json
 from pathlib import Path
@@ -121,7 +122,7 @@ class SourcemapAnalyzer:
         self.findings = []
         self.seen_files = set()  # Deduplication
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point using hybrid approach.
 
         Returns:
@@ -165,13 +166,20 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE target_var LIKE '%devtool%'
-              AND (file LIKE '%webpack%' OR file LIKE '%config%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for devtool in webpack/config files
         for file, line, var, expr in self.cursor.fetchall():
-            if not expr:
+            # Check if variable is devtool
+            if 'devtool' not in var.lower():
+                continue
+
+            # Check if file is webpack or config file
+            file_lower = file.lower()
+            if not ('webpack' in file_lower or 'config' in file_lower):
                 continue
 
             expr_lower = expr.lower().strip().strip('"\'')
@@ -218,14 +226,24 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%sourceMap%' OR target_var LIKE '%inlineSourceMap%')
-              AND file LIKE '%tsconfig%'
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for sourceMap in tsconfig files
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable is sourceMap or inlineSourceMap
+            var_lower = var.lower()
+            if not ('sourcemap' in var_lower or 'inlinesourcemap' in var_lower):
+                continue
+
+            # Check if file is tsconfig
+            if 'tsconfig' not in file.lower():
+                continue
+
             if expr and 'true' in expr.lower():
-                is_inline = 'inline' in var.lower()
+                is_inline = 'inline' in var_lower
 
                 self.findings.append(StandardFinding(
                     rule_name='typescript-sourcemap-enabled',
@@ -245,12 +263,22 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE target_var LIKE '%sourcemap%'
-              AND (file LIKE '%vite%' OR file LIKE '%rollup%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for sourcemap in vite/rollup files
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable is sourcemap
+            if 'sourcemap' not in var.lower():
+                continue
+
+            # Check if file is vite or rollup config
+            file_lower = file.lower()
+            if not ('vite' in file_lower or 'rollup' in file_lower):
+                continue
+
             if expr and any(val in expr.lower() for val in ['true', 'inline', 'hidden']):
                 self.findings.append(StandardFinding(
                     rule_name='build-tool-sourcemap',
@@ -269,14 +297,22 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE (callee_function LIKE '%SourceMapDevToolPlugin%'
-                   OR callee_function LIKE '%SourceMapPlugin%'
-                   OR callee_function LIKE '%sourceMaps%')
-              AND file LIKE '%webpack%'
+            WHERE callee_function IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for source map plugins in webpack files
+        plugin_patterns = frozenset(['SourceMapDevToolPlugin', 'SourceMapPlugin', 'sourceMaps'])
+
         for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a source map plugin
+            if not any(plugin in func for plugin in plugin_patterns):
+                continue
+
+            # Check if file is webpack config
+            if 'webpack' not in file.lower():
+                continue
+
             self.findings.append(StandardFinding(
                 rule_name='sourcemap-plugin-used',
                 message=f'Source map plugin {func} detected',
@@ -294,13 +330,18 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE (callee_function LIKE '%express.static%'
-                   OR callee_function LIKE '%serve-static%'
-                   OR callee_function LIKE '%koa-static%')
+            WHERE callee_function IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for static serving functions
+        static_patterns = frozenset(['express.static', 'serve-static', 'koa-static'])
+
         for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a static serving function
+            if not any(pattern in func for pattern in static_patterns):
+                continue
+
             # Check if there's filtering to exclude .map files
             if args and '.map' not in str(args) and 'filter' not in str(args):
                 self.findings.append(StandardFinding(
@@ -320,16 +361,24 @@ class SourcemapAnalyzer:
         self.cursor.execute("""
             SELECT path, line, name
             FROM symbols
-            WHERE (name LIKE '%generateSourceMap%'
-                   OR name LIKE '%createSourceMap%'
-                   OR name LIKE '%writeSourceMap%'
-                   OR name LIKE '%sourceMappingURL%')
-              AND path NOT LIKE '%test%'
-              AND path NOT LIKE '%spec%'
+            WHERE name IS NOT NULL
             ORDER BY path, line
         """)
 
+        # Filter in Python for source map generation functions, excluding test files
+        generation_patterns = frozenset(['generateSourceMap', 'createSourceMap', 'writeSourceMap', 'sourceMappingURL'])
+        test_patterns = frozenset(['test', 'spec'])
+
         for file, line, name in self.cursor.fetchall():
+            # Check if name contains source map generation pattern
+            if not any(pattern in name for pattern in generation_patterns):
+                continue
+
+            # Exclude test/spec files
+            file_lower = file.lower()
+            if any(test_pattern in file_lower for test_pattern in test_patterns):
+                continue
+
             if 'sourceMappingURL' in name:
                 confidence = Confidence.MEDIUM
                 message = 'Source map URL generation detected'
@@ -373,7 +422,7 @@ class SourcemapAnalyzer:
             # 2. Check JavaScript files for source map references
             self._scan_javascript_files(build_dir, project_root)
 
-    def _find_build_directories(self, project_root: Path) -> List[Path]:
+    def _find_build_directories(self, project_root: Path) -> list[Path]:
         """Find production build directories."""
         build_dirs = []
 
@@ -434,7 +483,7 @@ class SourcemapAnalyzer:
                     # Check if it's a JavaScript source map by reading first line
                     is_js_map = False
                     try:
-                        with open(map_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        with open(map_file, encoding='utf-8', errors='ignore') as f:
                             first_line = f.read(200)  # Read first 200 chars
                             if '"sources"' in first_line or '"mappings"' in first_line:
                                 is_js_map = True
@@ -570,7 +619,7 @@ class SourcemapAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_sourcemap_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_sourcemap_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect source map exposure vulnerabilities.
 
     Uses hybrid approach:

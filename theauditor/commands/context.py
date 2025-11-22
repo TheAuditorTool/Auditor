@@ -25,33 +25,157 @@ from theauditor.utils.error_handler import handle_exceptions
               help="Show detailed findings in report")
 @handle_exceptions
 def context(context_file: str, output: Optional[str], verbose: bool):
-    """Apply semantic business logic to findings (YAML-based classification).
+    """Apply user-defined semantic rules to classify findings based on business logic and refactoring context.
 
-    This command classifies findings from analysis tools based on YOUR
-    business logic defined in a YAML file. It tells you which findings
-    are obsolete (need fixing), current (correct), or transitional (OK for now).
+    Enables project-specific interpretation of analysis findings through YAML rules that classify
+    issues as obsolete (needs immediate fix), current (correct pattern), or transitional (acceptable
+    during migration). Essential for refactoring workflows where temporary inconsistencies are expected
+    (e.g., OAuth migration makes JWT findings obsolete, but old endpoints still exist during transition).
 
-    Prerequisites:
-        You must run analysis first:
-          aud full        (recommended)
-          OR
-          aud index && aud detect-patterns    (minimal)
+    AI ASSISTANT CONTEXT:
+      Purpose: Semantic classification of findings based on business context
+      Input: context.yaml (rules), .pf/raw/*.json (analysis findings)
+      Output: .pf/raw/context_report.json (classified findings)
+      Prerequisites: aud full or aud detect-patterns (populates findings)
+      Integration: Refactoring workflows, technical debt tracking, migration planning
+      Performance: ~1-3 seconds (YAML parsing + finding classification)
 
-    Examples:
-        # Basic usage
-        aud context --file semantic_rules/my_refactor.yaml
+    WHAT IT CLASSIFIES:
+      Finding States:
+        - obsolete: Code using deprecated patterns (must fix)
+        - current: Code following current standards (correct)
+        - transitional: Temporary inconsistency during migration (acceptable)
 
-        # Verbose output
-        aud context -f my_refactor.yaml --verbose
+      Use Cases:
+        - OAuth Migration: Mark JWT findings as obsolete, OAuth2 as current
+        - API Refactoring: Flag old endpoints as transitional during cutover
+        - Framework Upgrade: Classify deprecated API usage as obsolete
+        - Database Migration: Mark old table references as obsolete
 
-        # Export to custom location
-        aud context -f my_refactor.yaml -o report.json
+    HOW IT WORKS (Semantic Classification):
+      1. Load Context YAML:
+         - Parses user-defined classification rules
+         - Rules specify patterns (file paths, finding types) and their states
 
-    Output locations:
-        .pf/raw/semantic_context_<name>.json        (raw results)
-        .pf/readthis/semantic_context_<name>_*.json (chunked for AI)
+      2. Load Analysis Findings:
+         - Reads findings from .pf/raw/*.json
+         - Includes detect-patterns, taint-analyze, deadcode, etc.
 
-    See: theauditor/insights/semantic_rules/templates_instructions.md
+      3. Apply Classification Rules:
+         - Matches findings against YAML patterns
+         - Assigns state (obsolete/current/transitional)
+         - Unmatched findings default to "current"
+
+      4. Generate Report:
+         - Groups findings by state
+         - Calculates counts per classification
+         - Outputs to .pf/raw/context_report.json
+
+    YAML RULE FORMAT:
+      refactor_context:
+        name: "OAuth2 Migration"
+        rules:
+          - pattern: "jwt.sign"
+            state: "obsolete"
+            reason: "JWT auth deprecated, use OAuth2"
+            files: ["api/auth/*.py"]
+
+          - pattern: "oauth2.authorize"
+            state: "current"
+            reason: "New OAuth2 standard"
+
+          - pattern: "legacy_api_key"
+            state: "transitional"
+            reason: "Allowed during 30-day migration period"
+
+    EXAMPLES:
+      # Use Case 1: Classify findings during OAuth migration
+      aud full && aud context --file ./oauth_migration.yaml
+
+      # Use Case 2: Verbose output (show all classified findings)
+      aud context -f refactor_rules.yaml --verbose
+
+      # Use Case 3: Export classification report
+      aud context -f rules.yaml --output ./classification_report.json
+
+    COMMON WORKFLOWS:
+      Pre-Merge Refactoring Check:
+        aud full && aud context -f refactor_context.yaml
+
+      Migration Progress Tracking:
+        aud context -f migration.yaml --verbose | grep obsolete
+
+      Technical Debt Prioritization:
+        aud context -f debt_rules.yaml -o debt_report.json
+
+    OUTPUT FORMAT (context_report.json Schema):
+      {
+        "context_name": "OAuth2 Migration",
+        "classified_findings": {
+          "obsolete": [
+            {
+              "file": "api/auth.py",
+              "line": 45,
+              "finding": "jwt.sign() usage",
+              "reason": "JWT deprecated, use OAuth2"
+            }
+          ],
+          "current": [...],
+          "transitional": [...]
+        },
+        "summary": {
+          "obsolete_count": 15,
+          "current_count": 120,
+          "transitional_count": 8
+        }
+      }
+
+    PERFORMANCE EXPECTATIONS:
+      All cases: ~1-3 seconds (YAML parsing + classification logic)
+
+    FLAG INTERACTIONS:
+      --file: YAML rules file (REQUIRED)
+      --output: Custom output path (default: .pf/raw/context_report.json)
+      --verbose: Shows detailed findings in console output
+
+    PREREQUISITES:
+      Required:
+        aud full                   # Or aud detect-patterns (populates findings)
+        context.yaml               # User-defined classification rules
+
+    EXIT CODES:
+      0 = Success, findings classified
+      1 = YAML parse error or file not found
+      2 = No findings to classify (run analysis first)
+
+    RELATED COMMANDS:
+      aud full               # Populates findings for classification
+      aud detect-patterns    # Minimal analysis for findings
+      aud refactor           # Detects schema-code mismatches
+
+    SEE ALSO:
+      aud full --help        # Understand full analysis pipeline
+      aud explain workset    # Learn about targeted analysis
+
+    TROUBLESHOOTING:
+      Error: "YAML parse error":
+        -> Validate YAML syntax: cat context.yaml | yaml lint
+        -> Check indentation (YAML is whitespace-sensitive)
+        -> Verify required fields (refactor_context, rules)
+
+      No findings classified:
+        -> Run 'aud full' or 'aud detect-patterns' first
+        -> Check .pf/raw/*.json files exist and have content
+        -> Verify YAML patterns match actual finding types
+
+      All findings marked "current" (no obsolete):
+        -> YAML patterns may not match finding format
+        -> Check pattern field names match finding structure
+        -> Use --verbose to see classification logic
+
+    NOTE: Context classification is for human workflow management, not security
+    enforcement. "Transitional" findings are still real issues that must be fixed
+    eventually - classification just provides temporary exception tracking.
     """
     from theauditor.insights import SemanticContext
 
@@ -68,9 +192,6 @@ def context(context_file: str, output: Optional[str], verbose: bool):
         click.echo("\nPlease run ONE of these first:", err=True)
         click.echo("\n  Option A (Recommended):", err=True)
         click.echo("    aud full", err=True)
-        click.echo("\n  Option B (Minimal):", err=True)
-        click.echo("    aud index", err=True)
-        click.echo("    aud detect-patterns", err=True)
         click.echo("\nThen try again:", err=True)
         click.echo(f"    aud context --file {context_file}\n", err=True)
         raise click.Abort()

@@ -6,6 +6,7 @@ indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 This replaces fastapi_analyzer.py with a faster, cleaner implementation.
 """
 
+
 import sqlite3
 from typing import List
 from pathlib import Path
@@ -58,7 +59,7 @@ FILE_OPERATIONS = frozenset([
 ])
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect FastAPI security vulnerabilities using indexed data.
 
     Detects (from database):
@@ -144,12 +145,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: Direct Database Access Without Dependency Injection
         # ========================================================
+        # Fetch all function calls in route files, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""(callee_function LIKE '%.query%'
-                                    OR callee_function LIKE '%.execute%'
-                                    OR callee_function LIKE 'db.%'
-                                    OR callee_function LIKE 'session.%')
-                             AND EXISTS (
+                           where="""EXISTS (
                                  SELECT 1 FROM api_endpoints e
                                  WHERE e.file = function_call_args.file
                              )
@@ -160,8 +158,18 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file, line")
         cursor.execute(query)
-        # Deduplicate in Python
-        db_access_results = list(set(cursor.fetchall()))
+
+        # Filter for database operations in Python
+        db_access_results = []
+        seen = set()
+        for file, line, callee in cursor.fetchall():
+            # Check for database patterns
+            if ('.query' in callee or '.execute' in callee or
+                callee.startswith('db.') or callee.startswith('session.')):
+                key = (file, line, callee)
+                if key not in seen:
+                    seen.add(key)
+                    db_access_results.append((file, line, callee))
 
         for file, line, db_call in db_access_results:
             findings.append(StandardFinding(
@@ -293,18 +301,34 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: WebSocket Endpoints Without Authentication
         # ========================================================
-        query = build_query('api_endpoints', ['file', 'pattern'],
-                           where="pattern LIKE '%websocket%' OR pattern LIKE '%ws%'")
+        # Fetch all API endpoints, filter for websocket in Python
+        query = build_query('api_endpoints', ['file', 'pattern'])
         cursor.execute(query)
-        # Deduplicate in Python
-        websocket_results = list(set(cursor.fetchall()))
+
+        websocket_results = []
+        seen = set()
+        for file, pattern in cursor.fetchall():
+            pattern_lower = pattern.lower()
+            if 'websocket' in pattern_lower or 'ws' in pattern_lower:
+                key = (file, pattern)
+                if key not in seen:
+                    seen.add(key)
+                    websocket_results.append((file, pattern))
+
         for file, pattern in websocket_results:
             # Check if authentication functions are called in the same file
             query2 = build_query('function_call_args', ['callee_function'],
-                                where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%verify%' OR callee_function LIKE '%current_user%' OR callee_function LIKE '%token%')")
+                                where="file = ?")
             cursor.execute(query2, (file,))
 
-            has_auth = cursor.fetchone() is not None
+            # Filter for auth patterns in Python
+            has_auth = False
+            for (callee,) in cursor.fetchall():
+                callee_lower = callee.lower()
+                if ('auth' in callee_lower or 'verify' in callee_lower or
+                    'current_user' in callee_lower or 'token' in callee_lower):
+                    has_auth = True
+                    break
 
             if not has_auth:
                 findings.append(StandardFinding(
@@ -379,10 +403,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Missing Request Timeout Configuration
         # ========================================================
-        query = build_query('function_call_args', ['callee_function'],
-                           where="callee_function = 'FastAPI' AND argument_expr LIKE '%timeout%'")
+        # Fetch FastAPI calls, filter for timeout in Python
+        query = build_query('function_call_args', ['callee_function', 'argument_expr'],
+                           where="callee_function = 'FastAPI'")
         cursor.execute(query)
-        has_timeout = cursor.fetchone() is not None
+
+        has_timeout = False
+        for callee, arg_expr in cursor.fetchall():
+            if 'timeout' in arg_expr:
+                has_timeout = True
+                break
 
         if has_fastapi_app and not has_timeout:
             query = build_query('refs', ['value'],

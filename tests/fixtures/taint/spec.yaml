@@ -1,0 +1,274 @@
+name: taint_dynamic_dispatch
+description: |
+  Taint analysis testing for dynamic dispatch via object literals.
+
+  Tests advanced taint tracking through runtime function selection:
+  - Direct dispatch: handlers[req.query.action](data)
+  - Shorthand syntax: actions[cmd]() with ES6 properties
+  - Nested dispatch: routes.api[resource][method]()
+  - Sanitization: Detecting when taint is removed
+
+  Critical for real-world Express, React, Redux pattern analysis.
+
+verification_rules:
+  - name: object_literal_handler_mappings
+    description: Verify handler function mappings in object literals
+    query: |
+      SELECT
+        object_name,
+        key,
+        value
+      FROM object_literal_properties
+      WHERE file LIKE '%dynamic_dispatch.js'
+      ORDER BY object_name, key
+    expected_minimum: 15
+
+  - name: dynamic_dispatch_assignments
+    description: Find assignments with dynamic property access (handler = obj[key])
+    query: |
+      SELECT
+        target,
+        source_expr,
+        line
+      FROM assignments
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND source_expr LIKE '%[%]%'
+      ORDER BY line
+    expected_minimum: 6
+
+  - name: http_request_sources
+    description: Find taint sources from Express request objects
+    query: |
+      SELECT
+        target,
+        source_expr,
+        line
+      FROM assignments
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND (
+          source_expr LIKE '%req.query%'
+          OR source_expr LIKE '%req.params%'
+          OR source_expr LIKE '%req.body%'
+        )
+      ORDER BY line
+    expected_minimum: 6
+
+  - name: sql_injection_sinks
+    description: Find SQL execution sinks (db.execute, db.query)
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        line
+      FROM function_calls
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND (
+          callee_function LIKE '%execute%'
+          OR callee_function LIKE '%query%'
+        )
+      ORDER BY line
+    expected_minimum: 6
+
+  - name: code_injection_sinks
+    description: Find code injection sinks (eval)
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        line
+      FROM function_calls
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND callee_function = 'eval'
+    expected_minimum: 1
+
+  - name: handler_functions
+    description: Verify all handler functions are extracted as symbols
+    query: |
+      SELECT
+        name,
+        type,
+        line
+      FROM symbols
+      WHERE path LIKE '%dynamic_dispatch.js'
+        AND type = 'function'
+        AND (
+          name LIKE '%User%'
+          OR name = 'login'
+          OR name = 'register'
+          OR name = 'logout'
+          OR name LIKE '%Posts%'
+        )
+      ORDER BY line
+    expected_minimum: 8
+
+  - name: sanitization_functions
+    description: Find sanitization/validation functions
+    query: |
+      SELECT
+        name,
+        type,
+        line
+      FROM symbols
+      WHERE path LIKE '%dynamic_dispatch.js'
+        AND (
+          name LIKE '%sanitize%'
+          OR name LIKE '%validate%'
+        )
+      ORDER BY line
+    expected_minimum: 2
+
+  - name: shorthand_properties
+    description: Find ES6 shorthand properties (login, register, logout)
+    query: |
+      SELECT
+        object_name,
+        key,
+        value
+      FROM object_literal_properties
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND object_name = 'actions'
+        AND key = value
+      ORDER BY key
+    expected_minimum: 3
+
+  - name: nested_object_dispatch
+    description: Find nested object properties for routes.api[resource][method]
+    query: |
+      SELECT
+        object_name,
+        key,
+        value,
+        nesting_level
+      FROM object_literal_properties
+      WHERE file LIKE '%dynamic_dispatch.js'
+        AND (
+          object_name LIKE '%routes%'
+          OR object_name LIKE '%api%'
+          OR object_name LIKE '%users%'
+          OR object_name LIKE '%posts%'
+        )
+      ORDER BY nesting_level, object_name
+    expected_minimum: 6
+
+taint_flow_patterns:
+  - pattern: direct_dispatch_to_sql
+    description: "req.query.action → handlers[action] → createUser() → db.execute()"
+    source: req.query.action (line 15)
+    dispatch: handlers[action] (line 16)
+    handler: createUser (line 20)
+    sink: db.execute (line 23)
+    severity: HIGH
+    vulnerability: SQL Injection
+
+  - pattern: shorthand_dispatch_to_eval
+    description: "req.body.command → actions[cmd] → register() → eval()"
+    source: req.body.command (line 43)
+    dispatch: actions[cmd] (line 44)
+    handler: register (line 53)
+    sink: eval (line 54)
+    severity: CRITICAL
+    vulnerability: Code Injection
+
+  - pattern: nested_dispatch_to_sql
+    description: "req.params.resource/method → routes.api[x][y] → getUsers() → db.query()"
+    source: req.params.resource, req.params.method (lines 75-76)
+    dispatch: routes.api[resource][method] (line 77)
+    handler: getUsers (line 81)
+    sink: db.query (line 82)
+    severity: HIGH
+    vulnerability: SQL Injection
+
+  - pattern: safe_dispatch_sanitized
+    description: "req.query.op → safeHandlers[op] → sanitizeInput() → db.query() [SAFE]"
+    source: req.query.op (line 97)
+    dispatch: safeHandlers[op] (line 98)
+    handler: sanitizeInput (line 110)
+    sanitizer: replace(/[^a-zA-Z0-9]/g, '') (line 111)
+    sink: db.query (line 100)
+    severity: NONE
+    vulnerability: None (sanitized)
+
+expected_findings:
+  critical:
+    - vulnerability: Code Injection via eval
+      line: 54
+      function: register
+      source: req.body.command
+      sink: eval
+      description: Dynamically dispatched handler uses eval on user input
+
+  high:
+    - vulnerability: SQL Injection in createUser
+      line: 22
+      function: createUser
+      source: req.query.action
+      sink: db.execute
+      description: String interpolation in SQL query
+
+    - vulnerability: SQL Injection in login
+      line: 49
+      function: login
+      source: req.body.command
+      sink: db.query
+      description: String template in SQL query
+
+    - vulnerability: SQL Injection in getUsers
+      line: 82
+      function: getUsers
+      source: req.params.resource, req.params.method
+      sink: db.query
+      description: Nested dynamic dispatch to SQL injection
+
+  medium:
+    - vulnerability: SQL Injection in updateUser
+      line: 28
+    - vulnerability: SQL Injection in deleteUser
+      line: 32
+    - vulnerability: SQL Injection in logout
+      line: 58
+    - vulnerability: SQL Injection in getPosts
+      line: 87
+
+  safe_patterns:
+    - pattern: Sanitized dispatch
+      line: 100
+      description: sanitizeInput() removes SQL metacharacters
+      expected: NO VULNERABILITY
+
+coverage_summary:
+  total_vulnerabilities: 8
+  critical: 1 (eval)
+  high: 3 (SQL injections via dynamic dispatch)
+  medium: 4 (SQL injections via direct calls)
+  safe_patterns: 1 (correctly sanitized)
+
+  dynamic_dispatch_patterns:
+    - Direct: handlers[key]
+    - Shorthand: actions[key] (ES6)
+    - Nested: routes.api[x][y]
+
+  taint_sources:
+    - req.query.action
+    - req.query.op
+    - req.body.command
+    - req.body (payload)
+    - req.params.resource
+    - req.params.method
+
+  taint_sinks:
+    - db.execute (3 occurrences)
+    - db.query (5 occurrences)
+    - eval (1 occurrence)
+
+  sanitizers:
+    - validateInput (regex test)
+    - sanitizeInput (character replacement)
+
+required_analysis_capabilities:
+  - Object literal property tracking
+  - Dynamic property access detection
+  - Multi-hop taint propagation
+  - Shorthand property resolution
+  - Nested object traversal
+  - Sanitizer function recognition
+  - String template injection detection

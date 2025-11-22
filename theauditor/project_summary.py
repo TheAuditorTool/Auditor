@@ -1,5 +1,6 @@
 """Generate project structure and intelligence reports for AI consumption."""
 
+
 import json
 import os
 import sqlite3
@@ -100,7 +101,7 @@ def generate_directory_tree(root_path: str = ".", max_depth: int = 4) -> str:
     return "\n".join(tree_lines)
 
 
-def aggregate_statistics(manifest_path: str, db_path: str) -> Dict[str, Any]:
+def aggregate_statistics(manifest_path: str, db_path: str) -> dict[str, Any]:
     """
     Aggregate project-wide statistics from manifest and database.
     
@@ -127,7 +128,7 @@ def aggregate_statistics(manifest_path: str, db_path: str) -> Dict[str, Any]:
     
     # Read manifest.json if it exists
     if Path(manifest_path).exists():
-        with open(manifest_path, 'r') as f:
+        with open(manifest_path) as f:
             manifest = json.load(f)
             
         stats['total_files'] = len(manifest)

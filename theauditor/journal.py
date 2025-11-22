@@ -4,6 +4,7 @@ This module provides functionality to write and read execution journals in NDJSO
 The journal tracks all pipeline events, file touches, and results for ML training.
 """
 
+
 import json
 import os
 from datetime import datetime, UTC
@@ -14,7 +15,7 @@ from typing import Any, Dict, List, Optional, Union
 class JournalWriter:
     """Writes execution events to journal.ndjson file."""
     
-    def __init__(self, journal_path: str = "./.pf/journal.ndjson", history_dir: Optional[str] = None):
+    def __init__(self, journal_path: str = "./.pf/journal.ndjson", history_dir: str | None = None):
         """Initialize journal writer.
         
         Args:
@@ -40,7 +41,7 @@ class JournalWriter:
             print(f"[WARNING] Could not open journal file {self.journal_path}: {e}")
             self.file_handle = None
     
-    def write_event(self, event_type: str, data: Dict[str, Any]) -> bool:
+    def write_event(self, event_type: str, data: dict[str, Any]) -> bool:
         """Write an event to the journal.
         
         Args:
@@ -86,7 +87,7 @@ class JournalWriter:
         })
     
     def phase_end(self, phase_name: str, success: bool, elapsed: float, 
-                  exit_code: int = 0, error_msg: Optional[str] = None) -> bool:
+                  exit_code: int = 0, error_msg: str | None = None) -> bool:
         """Record the end of a pipeline phase.
         
         Args:
@@ -122,7 +123,7 @@ class JournalWriter:
         })
     
     def finding(self, file_path: str, severity: str, category: str, 
-                message: str, line: Optional[int] = None) -> bool:
+                message: str, line: int | None = None) -> bool:
         """Record a specific finding/issue.
         
         Args:
@@ -141,7 +142,7 @@ class JournalWriter:
         })
     
     def apply_patch(self, file_path: str, success: bool, 
-                    patch_type: str = "fix", error_msg: Optional[str] = None) -> bool:
+                    patch_type: str = "fix", error_msg: str | None = None) -> bool:
         """Record a patch/fix being applied to a file.
         
         Args:
@@ -223,9 +224,9 @@ class JournalReader:
         """
         self.journal_path = Path(journal_path)
     
-    def read_events(self, event_type: Optional[str] = None,
-                    since: Optional[datetime] = None,
-                    session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def read_events(self, event_type: str | None = None,
+                    since: datetime | None = None,
+                    session_id: str | None = None) -> list[dict[str, Any]]:
         """Read events from journal with optional filtering.
         
         Args:
@@ -241,7 +242,7 @@ class JournalReader:
         
         events = []
         try:
-            with open(self.journal_path, 'r', encoding='utf-8') as f:
+            with open(self.journal_path, encoding='utf-8') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
@@ -273,7 +274,7 @@ class JournalReader:
         
         return events
     
-    def get_file_stats(self) -> Dict[str, Dict[str, int]]:
+    def get_file_stats(self) -> dict[str, dict[str, int]]:
         """Get statistics for file touches and failures.
         
         Returns:
@@ -326,7 +327,7 @@ class JournalReader:
         
         return stats
     
-    def get_phase_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_phase_stats(self) -> dict[str, dict[str, Any]]:
         """Get statistics for pipeline phases.
         
         Returns:
@@ -364,7 +365,7 @@ class JournalReader:
         
         return stats
     
-    def get_recent_failures(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_recent_failures(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent failure events.
         
         Args:
@@ -387,7 +388,7 @@ class JournalReader:
 
 
 # Integration functions for pipeline
-def get_journal_writer(run_type: str = "full") -> JournalWriter:
+def get_journal_writer(run_type: str = "full") -> "JournalWriter":
     """Get a journal writer for the current run.
     
     Args:

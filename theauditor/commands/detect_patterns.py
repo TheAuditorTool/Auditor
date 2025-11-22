@@ -146,21 +146,13 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
                 click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
                 click.echo("[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
+            click.echo(f"[DB] Database not found - run 'aud full' first for optimal FCE performance")
         # ===== END DUAL-WRITE =====
 
-        # Always save results to default location (AI CONSUMPTION - REQUIRED)
-        patterns_output = project_path / ".pf" / "raw" / "patterns.json"
-        patterns_output.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save to user-specified location if provided
-        if output_json:
-            detector.to_json(Path(output_json))
-            click.echo(f"\n[OK] Full results saved to: {output_json}")
-        
-        # Save to default location
-        detector.to_json(patterns_output)
-        click.echo(f"[OK] Full results saved to: {patterns_output}")
+        # Write results to JSON
+        output_path = Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
+        detector.to_json(output_path)
+        click.echo(f"[OK] Patterns analysis saved to {output_path}")
         
         # Display table
         table = detector.format_table(max_rows=max_rows)

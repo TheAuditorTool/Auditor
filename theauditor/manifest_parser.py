@@ -1,5 +1,6 @@
 """Universal parser for all manifest file types used in framework detection."""
 
+
 import json
 import yaml
 import configparser
@@ -32,7 +33,7 @@ class ManifestParser:
     def parse_json(self, path: Path) -> dict:
         """Parse JSON safely."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Failed to parse JSON {path}: {e}")
@@ -41,7 +42,7 @@ class ManifestParser:
     def parse_yaml(self, path: Path) -> dict:
         """Parse YAML safely."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
         except (yaml.YAMLError, OSError) as e:
             print(f"Warning: Failed to parse YAML {path}: {e}")
@@ -57,10 +58,10 @@ class ManifestParser:
             print(f"Warning: Failed to parse INI/CFG {path}: {e}")
             return {}
     
-    def parse_requirements_txt(self, path: Path) -> List[str]:
+    def parse_requirements_txt(self, path: Path) -> list[str]:
         """Parse requirements.txt format, returns list of package specs."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 lines = []
                 for line in f:
                     line = line.strip()
@@ -80,7 +81,7 @@ class ManifestParser:
             print(f"Warning: Failed to parse requirements.txt {path}: {e}")
             return []
     
-    def extract_nested_value(self, data: Union[dict, list], key_path: List[str]) -> Any:
+    def extract_nested_value(self, data: dict | list, key_path: list[str]) -> Any:
         """
         Navigate nested dict with key path.
         Handles wildcards (*) for dynamic keys.
@@ -129,7 +130,7 @@ class ManifestParser:
         
         return current
     
-    def check_package_in_deps(self, deps: Any, package_name: str) -> Optional[str]:
+    def check_package_in_deps(self, deps: Any, package_name: str) -> str | None:
         """
         Check if a package exists in dependencies and return its version.
         Handles various dependency formats.
@@ -154,14 +155,15 @@ class ManifestParser:
                     import re
                     # Handle extras: package[extra]==version
                     dep_spec_clean = re.sub(r'\[.*?\]', '', dep_spec)
-                    
-                    # Check if this is our package
-                    if dep_spec_clean.startswith(package_name):
-                        # Extract version if present
-                        match = re.match(rf'^{re.escape(package_name)}\s*([><=~!]+)\s*(.+)$', dep_spec_clean)
+
+                    # Check if this is our package (case-insensitive for Python packages)
+                    # Python package names in requirements.txt can be Django/django, Flask/flask, etc.
+                    if dep_spec_clean.lower().startswith(package_name.lower()):
+                        # Extract version if present (case-insensitive regex)
+                        match = re.match(rf'^{re.escape(package_name)}\s*([><=~!]+)\s*(.+)$', dep_spec_clean, re.IGNORECASE)
                         if match:
                             return match.group(2).strip()
-                        elif dep_spec_clean.strip() == package_name:
+                        elif dep_spec_clean.strip().lower() == package_name.lower():
                             return "latest"
         
         # Handle string format (requirements.txt content)

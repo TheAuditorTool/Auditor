@@ -11,6 +11,7 @@ Database-First Architecture (v1.1+):
 - NO manual AST traversal (indexer already extracted this data)
 """
 
+
 import sqlite3
 import json
 from typing import List, Set
@@ -61,7 +62,7 @@ NON_REACTIVE_INITIALIZERS = frozenset([
 # ============================================================================
 
 
-def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_reactivity_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """
     Detect Vue.js reactivity and props mutation issues using database queries.
 
@@ -99,7 +100,7 @@ def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFin
 # DETECTION FUNCTIONS (Database-First)
 # ============================================================================
 
-def _find_props_mutations(cursor) -> List[StandardFinding]:
+def _find_props_mutations(cursor) -> list[StandardFinding]:
     """Find direct props mutations using database queries.
 
     Schema contract guarantees:
@@ -140,38 +141,45 @@ def _find_props_mutations(cursor) -> List[StandardFinding]:
             if not prop_names:
                 continue
 
-            # Build patterns for each prop
-            for prop_name in prop_names:
-                # Check for mutations using assignments table
-                patterns = [
-                    f'this.{prop_name}',
-                    f'props.{prop_name}',
-                    f'this.$props.{prop_name}',
-                    f'this.props.{prop_name}'
-                ]
+            # Check for mutations using assignments table
+            cursor.execute("""
+                SELECT line, target_var, source_expr
+                FROM assignments
+                WHERE file = ?
+                  AND target_var IS NOT NULL
+            """, (file,))
 
-                for pattern in patterns:
-                    cursor.execute("""
-                        SELECT line, target_var, source_expr
-                        FROM assignments
-                        WHERE file = ?
-                          AND target_var LIKE ?
-                    """, (file, f'%{pattern}%'))
+            # Filter in Python for prop mutations
+            for line, target, source in cursor.fetchall():
+                # Check if target matches any prop pattern
+                matched_prop = None
+                for prop_name in prop_names:
+                    patterns = [
+                        f'this.{prop_name}',
+                        f'props.{prop_name}',
+                        f'this.$props.{prop_name}',
+                        f'this.props.{prop_name}'
+                    ]
+                    if any(pattern in target for pattern in patterns):
+                        matched_prop = prop_name
+                        break
 
-                    for line, target, source in cursor.fetchall():
-                        api_type = 'Composition API' if is_composition else 'Options API'
+                if not matched_prop:
+                    continue
 
-                        findings.append(StandardFinding(
-                            rule_name='vue-props-mutation',
-                            message=f'Direct mutation of prop "{prop_name}" violates one-way data flow ({api_type})',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.HIGH,
-                            category='vue',
-                            confidence=Confidence.HIGH,
-                            snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-                            cwe_id='CWE-915'
-                        ))
+                api_type = 'Composition API' if is_composition else 'Options API'
+
+                findings.append(StandardFinding(
+                    rule_name='vue-props-mutation',
+                    message=f'Direct mutation of prop "{matched_prop}" violates one-way data flow ({api_type})',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='vue',
+                    confidence=Confidence.HIGH,
+                    snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
+                    cwe_id='CWE-915'
+                ))
 
         except (json.JSONDecodeError, TypeError):
             # Skip malformed JSON - indexer bug, not rule's problem
@@ -180,7 +188,7 @@ def _find_props_mutations(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_non_reactive_data(cursor) -> List[StandardFinding]:
+def _find_non_reactive_data(cursor) -> list[StandardFinding]:
     """Find non-reactive data initialization in Options API.
 
     Strategy:
@@ -217,14 +225,17 @@ def _find_non_reactive_data(cursor) -> List[StandardFinding]:
         for data_line, _ in data_methods:
             # Find assignments within ~20 lines of data() (heuristic for data() body)
             cursor.execute("""
-                SELECT line, target_var, source_expr
+                SELECT line, target_var, source_expr, in_function
                 FROM assignments
                 WHERE file = ?
                   AND line BETWEEN ? AND ?
-                  AND in_function LIKE '%data%'
+                  AND in_function IS NOT NULL
             """, (file, data_line, data_line + 20))
 
-            for line, target, source in cursor.fetchall():
+            # Filter in Python for assignments in data function
+            for line, target, source, in_function in cursor.fetchall():
+                if 'data' not in in_function.lower():
+                    continue
                 # Check if source is a non-reactive initializer
                 source_stripped = source.strip()
                 if source_stripped in NON_REACTIVE_INITIALIZERS:
@@ -253,7 +264,7 @@ def _find_non_reactive_data(cursor) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

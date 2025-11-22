@@ -520,35 +520,155 @@ It only reports what IS. The insights layer adds what it MEANS.
 @click.argument("concept", required=False)
 @click.option("--list", "list_concepts", is_flag=True, help="List all available concepts")
 def explain(concept, list_concepts):
-    """Explain TheAuditor concepts and terminology.
+    """Interactive documentation for TheAuditor concepts, terminology, and security analysis techniques.
 
-    Provides detailed explanations of security concepts, analysis techniques,
-    and TheAuditor-specific terminology to help users understand the tool's
-    capabilities and outputs.
+    Built-in reference system that explains security concepts, analysis methodologies, and tool-specific
+    terminology through detailed, example-rich explanations optimized for learning. Covers 9 core topics
+    from taint analysis to pipeline architecture, each with practical examples and related commands.
 
-    Examples:
-      aud explain taint         # What is taint analysis?
-      aud explain workset       # What is a workset?
-      aud explain fce           # How does correlation work?
-      aud explain severity      # Understanding severity levels
-      aud explain --list        # Show all available topics
+    AI ASSISTANT CONTEXT:
+      Purpose: Provide interactive documentation for TheAuditor concepts
+      Input: Concept name (taint, workset, fce, cfg, etc.)
+      Output: Terminal-formatted explanation with examples
+      Prerequisites: None (standalone documentation)
+      Integration: Referenced throughout other command help texts
+      Performance: Instant (no I/O, pure string formatting)
 
-    Available Concepts:
-      taint     - Taint analysis and data flow
-      workset   - Focused file analysis
-      fce       - Factual Correlation Engine
-      cfg       - Control Flow Graphs
-      impact    - Impact radius analysis
-      pipeline  - Execution pipeline stages
-      severity  - Finding severity levels
-      patterns  - Pattern detection system
+    AVAILABLE CONCEPTS (9 topics):
+      taint:
+        - Data flow tracking from untrusted sources to dangerous sinks
+        - Detects SQL injection, XSS, command injection
+        - Example: user_input → query string → database execution
 
-    Each explanation includes:
-      - Concept overview
-      - How it works
-      - Practical examples
-      - Use cases
-      - Related commands
+      workset:
+        - Focused file subset for targeted analysis (10-100x faster)
+        - Git diff integration for PR review workflows
+        - Dependency expansion algorithm
+
+      fce:
+        - Feed-forward Correlation Engine for compound risk detection
+        - Combines static analysis + git churn + test coverage
+        - Identifies hot spots (high churn + low coverage + vulnerabilities)
+
+      cfg:
+        - Control Flow Graphs for complexity and reachability analysis
+        - Cyclomatic complexity calculation
+        - Dead code detection via unreachable blocks
+
+      impact:
+        - Change impact analysis (blast radius)
+        - Transitive dependency tracking
+        - PR risk assessment
+
+      pipeline:
+        - Execution stages (index → analyze → correlate → report)
+        - Tool orchestration and data flow
+        - .pf/ directory structure
+
+      severity:
+        - Finding classification (CRITICAL/HIGH/MEDIUM/LOW)
+        - CVSS scoring integration
+        - Severity promotion rules
+
+      patterns:
+        - Pattern detection system architecture
+        - 2000+ built-in security rules
+        - Custom pattern authoring
+
+      insights:
+        - ML-powered risk prediction
+        - Historical learning from audit runs
+        - Root cause vs symptom classification
+
+    HOW IT WORKS (Documentation Lookup):
+      1. Concept Validation:
+         - Checks if concept exists in EXPLANATIONS dict
+         - Shows available concepts if not found
+
+      2. Explanation Retrieval:
+         - Loads detailed explanation from internal database
+         - Includes: title, summary, full explanation, examples
+
+      3. Formatting:
+         - Terminal-optimized layout with sections
+         - Syntax highlighting for code examples
+         - Links to related commands
+
+    EXAMPLES:
+      # Use Case 1: Learn about taint analysis
+      aud explain taint
+
+      # Use Case 2: Understand workset concept
+      aud explain workset
+
+      # Use Case 3: List all available topics
+      aud explain --list
+
+      # Use Case 4: Understand FCE correlation
+      aud explain fce
+
+    COMMON WORKFLOWS:
+      Before First Analysis:
+        aud explain pipeline      # Understand execution flow
+        aud explain taint         # Learn security analysis
+        aud init && aud full
+
+      Understanding Command Output:
+        aud taint-analyze
+        aud explain taint         # Learn what taint findings mean
+
+      Troubleshooting Performance:
+        aud explain workset       # Learn optimization techniques
+        aud workset --diff HEAD
+
+    OUTPUT FORMAT (Terminal Display):
+      CONCEPT: Taint Analysis
+      ----------------------------------------
+      SUMMARY: Tracks untrusted data flow from sources to dangerous sinks
+
+      EXPLANATION:
+      Taint analysis is a security technique that tracks how untrusted data...
+      [Detailed multi-paragraph explanation with examples]
+
+      USE THE COMMAND:
+        aud taint-analyze
+        aud taint-analyze --severity high
+
+    PERFORMANCE EXPECTATIONS:
+      Instant: <1ms (pure string formatting, no I/O)
+
+    FLAG INTERACTIONS:
+      --list: Shows all 9 available concepts with one-line summaries
+
+    PREREQUISITES:
+      None (standalone documentation, works offline)
+
+    EXIT CODES:
+      0 = Success, explanation displayed
+      1 = Unknown concept (use --list to see available)
+
+    RELATED COMMANDS:
+      All commands reference specific concepts in their help text
+      Use 'aud <command> --help' for command-specific documentation
+
+    SEE ALSO:
+      TheAuditor documentation: docs/
+      Online docs: https://github.com/user/theauditor
+
+    TROUBLESHOOTING:
+      Concept not found:
+        -> Use 'aud explain --list' to see all available concepts
+        -> Check spelling (case-sensitive: 'taint' not 'Taint')
+        -> Some advanced concepts may not have explanations yet
+
+      Output formatting issues:
+        -> Terminal width <80 chars may cause wrapping
+        -> Use terminal with proper UTF-8 support
+        -> Pipe to 'less' for scrolling: aud explain fce | less
+
+    NOTE: Explanations are embedded in the CLI for offline use. They cover
+    core concepts but not every command detail - use --help on specific commands
+    for comprehensive usage information.
     """
 
     if list_concepts:

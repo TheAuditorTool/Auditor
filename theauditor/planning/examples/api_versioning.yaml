@@ -1,0 +1,128 @@
+# API Versioning Migration Example
+# This spec verifies migration from v1 to v2 API endpoints while maintaining
+# backward compatibility for v1 endpoints during transition period.
+
+refactor_name: API v1 to v2 Migration
+description: Migrate REST API from v1 to v2 with new response format
+version: 1.0
+
+rules:
+  - id: v2-routes-exist
+    description: All v2 API routes should be implemented
+    severity: critical
+    match:
+      api_routes: ['/api/v2/users', '/api/v2/products', '/api/v2/orders']
+    expect:
+      api_routes: ['/api/v2/users', '/api/v2/products']
+    # Expect at least users and products endpoints
+
+  - id: v2-response-format
+    description: v2 endpoints should use new response wrapper
+    severity: high
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [ApiV2Response, wrapV2Response, v2ResponseFormat]
+
+  - id: v1-backward-compatibility
+    description: v1 routes should still exist during transition
+    severity: medium
+    match:
+      api_routes: ['/api/v1/users', '/api/v1/products']
+    expect:
+      api_routes: ['/api/v1/users']
+    # v1 should still be present
+
+  - id: version-deprecation-headers
+    description: v1 responses should include deprecation headers
+    severity: medium
+    match:
+      api_routes: ['/api/v1']
+    expect:
+      identifiers: [X-API-Deprecated, X-API-Sunset, deprecationHeader]
+
+  - id: v2-pagination-format
+    description: v2 should use cursor-based pagination
+    severity: high
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [cursor, nextCursor, previousCursor]
+
+  - id: remove-v1-offset-pagination
+    description: v2 should not use v1 offset pagination
+    severity: medium
+    match:
+      api_routes: ['/api/v2']
+    expect_not:
+      identifiers: [page, perPage, offset, limit]
+    # v2 should not have old pagination params
+
+  - id: v2-error-format
+    description: v2 should use standardized error format
+    severity: high
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [ErrorResponseV2, standardErrorFormat]
+
+  - id: api-version-detection
+    description: API should have version detection middleware
+    severity: critical
+    match:
+      identifiers: [apiVersionMiddleware, detectApiVersion]
+    expect:
+      identifiers: [apiVersionMiddleware]
+
+  - id: v2-authentication
+    description: v2 should support JWT bearer tokens
+    severity: critical
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [verifyBearerToken, validateJWT, authenticateV2]
+
+  - id: remove-v1-session-auth
+    description: v2 should not use v1 session-based auth
+    severity: high
+    match:
+      api_routes: ['/api/v2']
+    expect_not:
+      identifiers: [session.user, req.session, sessionAuth]
+
+# Validation checks
+  - id: v2-request-validation
+    description: v2 should use schema validation
+    severity: high
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [validateSchema, zodSchema, joiSchema, yupSchema]
+
+  - id: v2-rate-limiting
+    description: v2 should have rate limiting
+    severity: medium
+    match:
+      api_routes: ['/api/v2']
+    expect:
+      identifiers: [rateLimiter, rateLimit, throttle]
+
+# Documentation checks
+  - id: v2-openapi-spec
+    description: OpenAPI/Swagger spec should include v2
+    severity: medium
+    match:
+      identifiers: [openapi, swagger, apiDoc]
+    expect:
+      identifiers: ['/api/v2', 'version: 2']
+
+# Usage:
+# 1. Create plan: aud planning init --name "API v1 to v2 Migration"
+# 2. Add tasks for each component:
+#    aud planning add-task 1 --title "Core v2 infrastructure" --spec api_versioning.yaml
+#    aud planning add-task 2 --title "Migrate /users endpoint"
+#    aud planning add-task 3 --title "Migrate /products endpoint"
+# 3. Implement v2 routes incrementally
+# 4. Verify each component: aud full --offline && aud planning verify-task 1 N --verbose
+# 5. Monitor v1 usage, deprecate after transition period
+# 6. Archive: aud planning archive 1 --notes "API v2 launched, v1 sunset scheduled"

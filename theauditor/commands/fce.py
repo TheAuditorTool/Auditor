@@ -66,9 +66,10 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
       - Control flow analysis
 
     Output:
-      .pf/raw/fce.json           # Correlated findings
-      .pf/raw/fce_failures.json  # Critical compound issues
-      .pf/readthis/fce_*.json    # AI-optimized chunks
+      .pf/raw/correlation_analysis.json  # Consolidated FCE results
+        └── analyses:
+            ├── fce               # Correlated findings
+            └── fce_failures      # Critical compound issues
 
     Finding Format:
       {
@@ -89,6 +90,36 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
       - Reduces false positives through correlation
       - Prioritizes real compound risks
       - Provides evidence chain for each finding
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Cross-reference findings to detect compound vulnerabilities
+      Input: Database + .pf/raw/*_analysis.json (consolidated analysis files)
+      Output: .pf/raw/correlation_analysis.json (consolidated FCE results)
+      Prerequisites: aud full (or multiple analysis commands)
+      Integration: Final security validation, risk prioritization
+      Performance: ~10-30 seconds (correlation rule matching)
+
+    FLAG INTERACTIONS:
+      --print-plan: Preview mode (no analysis, shows detected tools)
+      --timeout: Increase for large projects (default 600s = 10 minutes)
+      --root: Specify non-default project directory
+
+    TROUBLESHOOTING:
+      FCE timeout (>10 minutes):
+        Cause: Very large codebase with many findings
+        Solution: Increase --timeout to 1200 or run on workset
+
+      No correlations found:
+        Cause: Missing analysis phases (incomplete data)
+        Solution: Run 'aud full' to populate all data sources
+
+      "Unknown error" in FCE:
+        Cause: Malformed JSON in .pf/raw/ artifacts
+        Solution: Re-run analysis phases to regenerate clean artifacts
+
+      High memory usage:
+        Cause: Loading all findings into memory for correlation
+        Solution: Run on workset or split into multiple runs
 
     Note: FCE is most effective after running 'aud full' to ensure
     all analysis data is available for correlation."""

@@ -8,6 +8,7 @@ NO business logic, NO regex extraction methods.
 Language extractors should use AST-based extraction, not regex.
 """
 
+
 import os
 import re
 from typing import Set, List, Tuple
@@ -44,7 +45,7 @@ JS_BATCH_SIZE = _get_batch_size('THEAUDITOR_JS_BATCH_SIZE', 20, 100)
 
 # Directories to always skip during indexing
 # These are build artifacts, dependencies, or caches
-SKIP_DIRS: Set[str] = {
+SKIP_DIRS: set[str] = {
     # Version control
     ".git",
     ".hg",
@@ -93,10 +94,13 @@ SKIP_DIRS: Set[str] = {
     ".idea",
 }
 
-# Monorepo detection patterns
+# Monorepo detection patterns (DETECTION ONLY - NOT A WHITELIST)
+# Used to identify monorepo structure for metadata purposes.
+# Does NOT limit which directories are scanned - SKIP_DIRS is the ONLY filter.
+# Security tools MUST scan operational code (scripts/, tests/, configs).
 # Tuples of (base_directory, source_subdirectory)
 # None for source_subdirectory means check all subdirectories
-STANDARD_MONOREPO_PATHS: List[Tuple[str, str]] = [
+STANDARD_MONOREPO_PATHS: list[tuple[str, str]] = [
     ("backend", "src"),
     ("frontend", "src"),
     ("mobile", "src"),
@@ -110,7 +114,7 @@ STANDARD_MONOREPO_PATHS: List[Tuple[str, str]] = [
 
 # Root-level entry files in monorepos
 # These files at project root indicate monorepo structure
-MONOREPO_ENTRY_FILES: List[str] = [
+MONOREPO_ENTRY_FILES: list[str] = [
     "app.ts",
     "app.js",
     "index.ts",
@@ -125,27 +129,30 @@ MONOREPO_ENTRY_FILES: List[str] = [
 # =============================================================================
 
 # File extensions that support AST parsing
-SUPPORTED_AST_EXTENSIONS: List[str] = [
-    ".py",      # Python
-    ".js",      # JavaScript
-    ".jsx",     # React JavaScript
-    ".ts",      # TypeScript
-    ".tsx",     # React TypeScript
-    ".mjs",     # ES Module JavaScript
-    ".cjs",     # CommonJS JavaScript
-    ".tf",      # Terraform/HCL
-    ".tfvars",  # Terraform variables
+SUPPORTED_AST_EXTENSIONS: list[str] = [
+    ".py",       # Python
+    ".js",       # JavaScript
+    ".jsx",      # React JavaScript
+    ".ts",       # TypeScript
+    ".tsx",      # React TypeScript
+    ".mjs",      # ES Module JavaScript
+    ".cjs",      # CommonJS JavaScript
+    ".tf",       # Terraform/HCL
+    ".tfvars",   # Terraform variables
+    ".graphql",  # GraphQL SDL
+    ".gql",      # GraphQL SDL (short)
+    ".graphqls", # GraphQL SDL (schema)
 ]
 
 # SQL file extensions
-SQL_EXTENSIONS: List[str] = [
+SQL_EXTENSIONS: list[str] = [
     ".sql",
     ".psql",    # PostgreSQL
     ".ddl",     # Data Definition Language
 ]
 
 # Dockerfile patterns (case-insensitive matching)
-DOCKERFILE_PATTERNS: List[str] = [
+DOCKERFILE_PATTERNS: list[str] = [
     'dockerfile',
     'dockerfile.dev',
     'dockerfile.prod',
@@ -153,7 +160,7 @@ DOCKERFILE_PATTERNS: List[str] = [
 ]
 
 # Docker Compose file patterns
-COMPOSE_PATTERNS: List[str] = [
+COMPOSE_PATTERNS: list[str] = [
     'docker-compose.yml',
     'docker-compose.yaml',
     'docker-compose.override.yml',
@@ -163,7 +170,7 @@ COMPOSE_PATTERNS: List[str] = [
 ]
 
 # Nginx config file patterns
-NGINX_PATTERNS: List[str] = [
+NGINX_PATTERNS: list[str] = [
     'nginx.conf',
     'default.conf',
     'site.conf',
@@ -175,7 +182,7 @@ NGINX_PATTERNS: List[str] = [
 # =============================================================================
 
 # Docker security: Sensitive ports that should not be exposed
-SENSITIVE_PORTS: List[str] = [
+SENSITIVE_PORTS: list[str] = [
     '22',    # SSH
     '23',    # Telnet
     '135',   # Windows RPC
@@ -185,7 +192,7 @@ SENSITIVE_PORTS: List[str] = [
 ]
 
 # Docker security: Keywords indicating sensitive environment variables
-SENSITIVE_ENV_KEYWORDS: List[str] = [
+SENSITIVE_ENV_KEYWORDS: list[str] = [
     'SECRET',
     'TOKEN',
     'PASSWORD',
@@ -203,7 +210,7 @@ SENSITIVE_ENV_KEYWORDS: List[str] = [
 # =============================================================================
 
 # Route definitions (inherently string-based in most frameworks)
-ROUTE_PATTERNS: List[re.Pattern] = [
+ROUTE_PATTERNS: list[re.Pattern] = [
     # Express/Fastify/Koa style
     re.compile(r"(?:app|router)\.(get|post|put|patch|delete|all)\s*\(['\"`]([^'\"`]+)['\"`]"),
 
@@ -217,7 +224,7 @@ ROUTE_PATTERNS: List[re.Pattern] = [
 
 # SQL DDL patterns for .sql files (table/index/view creation)
 # These are for actual .sql files, not code files
-SQL_PATTERNS: List[re.Pattern] = [
+SQL_PATTERNS: list[re.Pattern] = [
     re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.IGNORECASE),
     re.compile(r"CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.IGNORECASE),
     re.compile(r"CREATE\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.IGNORECASE),

@@ -471,3 +471,211 @@ function extractVueDirectives(templateAst, componentName, nodeTypes) {
     return directives;
 }
 
+/**
+ * GraphQL Resolver Extractors
+ *
+ * Extract GraphQL resolver patterns from JavaScript/TypeScript:
+ * - Apollo Server (resolvers object pattern)
+ * - NestJS (@Resolver, @Query, @Mutation decorators)
+ * - TypeGraphQL (@Resolver, @Query decorators)
+ *
+ * Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
+ */
+
+function extractApolloResolvers(functions, classes, symbolTable) {
+    const resolvers = [];
+
+    // Apollo pattern 1: Object literal resolvers
+    // const resolvers = {
+    //   Query: {
+    //     user: (parent, args, context) => { ... }
+    //   }
+    // }
+    for (const [symbolName, symbolData] of Object.entries(symbolTable)) {
+        if (symbolName.toLowerCase().includes('resolver') && symbolData.type === 'variable') {
+            const objData = symbolData.value;
+            if (objData && typeof objData === 'object') {
+                // Iterate over type names (Query, Mutation, etc.)
+                for (const typeName in objData) {
+                    const fields = objData[typeName];
+                    if (typeof fields === 'object') {
+                        for (const fieldName in fields) {
+                            const fieldFunc = fields[fieldName];
+                            if (typeof fieldFunc === 'function' || fieldFunc === 'function') {
+                                resolvers.push({
+                                    line: symbolData.line || 0,
+                                    resolver_name: `${typeName}.${fieldName}`,
+                                    field_name: fieldName,
+                                    type_name: typeName,
+                                    binding_style: 'apollo-object',
+                                    params: []  // Parameters extracted from function signature
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Apollo pattern 2: Exported resolver functions
+    // export const userResolver = (parent, args, context) => { ... }
+    for (const func of functions) {
+        if (func.name && func.name.toLowerCase().includes('resolver')) {
+            // Try to infer field name from function name
+            const fieldName = func.name.replace(/Resolver$/i, '').replace(/^resolve/i, '');
+
+            // Extract parameters (skip parent, args, context/info)
+            // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
+            const params = (func.params || [])
+                .filter(p => !['parent', 'args', 'context', 'info', '_'].includes(p.name))
+                .map(p => ({ name: p.name }));
+
+            resolvers.push({
+                line: func.line,
+                resolver_name: func.name,
+                field_name: fieldName,
+                type_name: 'Unknown',  // Type inferred during graphql build
+                binding_style: 'apollo-function',
+                params: params
+            });
+        }
+    }
+
+    return resolvers;
+}
+
+function extractNestJSResolvers(functions, classes) {
+    const resolvers = [];
+
+    // NestJS pattern: @Resolver() class with @Query()/@Mutation() methods
+    for (const cls of classes) {
+        if (!cls.decorators) continue;
+
+        // Check for @Resolver() decorator
+        const hasResolverDecorator = cls.decorators.some(d =>
+            d.name === 'Resolver' || d.expression && d.expression.includes('Resolver')
+        );
+
+        if (!hasResolverDecorator) continue;
+
+        // Extract type name from @Resolver('TypeName') argument
+        let typeName = 'Unknown';
+        const resolverDecorator = cls.decorators.find(d => d.name === 'Resolver');
+        if (resolverDecorator && resolverDecorator.arguments && resolverDecorator.arguments.length > 0) {
+            typeName = resolverDecorator.arguments[0].replace(/['"]/g, '');
+        }
+
+        // Extract methods with @Query() or @Mutation() decorators
+        for (const method of cls.methods || []) {
+            if (!method.decorators) continue;
+
+            for (const decorator of method.decorators) {
+                const decoratorName = decorator.name || (decorator.expression || '').split('(')[0];
+
+                if (['Query', 'Mutation', 'Subscription', 'ResolveField'].includes(decoratorName)) {
+                    // Extract field name from decorator argument or use method name
+                    let fieldName = method.name;
+                    if (decorator.arguments && decorator.arguments.length > 0) {
+                        fieldName = decorator.arguments[0].replace(/['"]/g, '');
+                    }
+
+                    // Determine type name based on decorator
+                    let resolverTypeName = typeName;
+                    if (decoratorName === 'Query') resolverTypeName = 'Query';
+                    else if (decoratorName === 'Mutation') resolverTypeName = 'Mutation';
+                    else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
+
+                    // Extract parameters (skip decorated params like @Args(), @Context())
+                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
+                    const params = (method.params || [])
+                        .filter(p => !p.decorators || p.decorators.length === 0)
+                        .map(p => ({ name: p.name }));
+
+                    resolvers.push({
+                        line: method.line,
+                        resolver_name: `${cls.name}.${method.name}`,
+                        field_name: fieldName,
+                        type_name: resolverTypeName,
+                        binding_style: 'nestjs-decorator',
+                        params: params
+                    });
+                }
+            }
+        }
+    }
+
+    return resolvers;
+}
+
+function extractTypeGraphQLResolvers(functions, classes) {
+    const resolvers = [];
+
+    // TypeGraphQL pattern: @Resolver() class with @Query()/@Mutation() methods
+    for (const cls of classes) {
+        if (!cls.decorators) continue;
+
+        // Check for @Resolver() decorator
+        const hasResolverDecorator = cls.decorators.some(d =>
+            d.name === 'Resolver' || d.expression && d.expression.includes('Resolver')
+        );
+
+        if (!hasResolverDecorator) continue;
+
+        // Extract type name from @Resolver(of => TypeName) argument
+        let typeName = 'Unknown';
+        const resolverDecorator = cls.decorators.find(d => d.name === 'Resolver');
+        if (resolverDecorator && resolverDecorator.arguments && resolverDecorator.arguments.length > 0) {
+            const arg = resolverDecorator.arguments[0];
+            // Parse arrow function: of => TypeName
+            if (arg.includes('=>')) {
+                typeName = arg.split('=>')[1].trim();
+            }
+        }
+
+        // Extract methods with @Query(), @Mutation(), @FieldResolver() decorators
+        for (const method of cls.methods || []) {
+            if (!method.decorators) continue;
+
+            for (const decorator of method.decorators) {
+                const decoratorName = decorator.name || (decorator.expression || '').split('(')[0];
+
+                if (['Query', 'Mutation', 'Subscription', 'FieldResolver'].includes(decoratorName)) {
+                    // Extract field name from decorator argument or use method name
+                    let fieldName = method.name;
+                    if (decorator.arguments && decorator.arguments.length > 0) {
+                        // TypeGraphQL uses returns => Type syntax
+                        const arg = decorator.arguments[0];
+                        if (typeof arg === 'string' && !arg.includes('=>')) {
+                            fieldName = arg.replace(/['"]/g, '');
+                        }
+                    }
+
+                    // Determine type name based on decorator
+                    let resolverTypeName = typeName;
+                    if (decoratorName === 'Query') resolverTypeName = 'Query';
+                    else if (decoratorName === 'Mutation') resolverTypeName = 'Mutation';
+                    else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
+
+                    // Extract parameters decorated with @Arg()
+                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
+                    const params = (method.params || [])
+                        .filter(p => p.decorators && p.decorators.some(d => d.name === 'Arg'))
+                        .map(p => ({ name: p.name }));
+
+                    resolvers.push({
+                        line: method.line,
+                        resolver_name: `${cls.name}.${method.name}`,
+                        field_name: fieldName,
+                        type_name: resolverTypeName,
+                        binding_style: 'typegraphql-decorator',
+                        params: params
+                    });
+                }
+            }
+        }
+    }
+
+    return resolvers;
+}
+

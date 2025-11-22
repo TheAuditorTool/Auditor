@@ -1,8 +1,10 @@
 """Workset resolver - computes target file set from git diff and dependencies."""
 
+
 import json
 import os
 import platform
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -13,6 +15,37 @@ from typing import Any
 
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
+
+
+def validate_diff_spec(diff_spec: str) -> list[str]:
+    """Validate and parse git diff spec to prevent command injection.
+
+    Args:
+        diff_spec: Git diff specification (e.g., 'main..feature', 'HEAD~5')
+
+    Returns:
+        List of validated parts for git diff command
+
+    Raises:
+        ValueError: If diff spec contains potentially malicious characters
+    """
+    # Allow common git ref patterns:
+    # - branch names (alphanumeric, dash, underscore, slash)
+    # - commit hashes (hex)
+    # - relative refs (HEAD~n, HEAD^)
+    # - range operators (..)
+    # - origin refs (origin/branch)
+    if not re.match(r'^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$', diff_spec):
+        raise ValueError(f"Invalid diff spec format: {diff_spec}. "
+                        "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed.")
+
+    # Split on .. if present, otherwise return as single item
+    if ".." in diff_spec:
+        parts = diff_spec.split("..", 1)  # Split only on first ..
+    else:
+        parts = [diff_spec]
+
+    return parts
 
 
 def normalize_path(path: str) -> str:
@@ -45,8 +78,11 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
             stdout_path = stdout_fp.name
             stderr_path = stderr_fp.name
             
+            # Validate and parse diff spec to prevent command injection
+            diff_parts = validate_diff_spec(diff_spec)
+
             result = subprocess.run(
-                ["git", "diff", "--name-only"] + diff_spec.split(".."),
+                ["git", "diff", "--name-only"] + diff_parts,
                 cwd=root_path,
                 stdout=stdout_fp,
                 stderr=stderr_fp,
@@ -54,13 +90,13 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
                 encoding='utf-8',
                 errors='replace',
                 check=True,
-                shell=IS_WINDOWS  # Windows compatibility fix
+                shell=False  # No shell needed - works on both Windows and Unix
             )
         
         # Read the outputs back
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             stdout_content = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             stderr_content = f.read()
         
         # Clean up temp files
@@ -72,7 +108,7 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     except subprocess.CalledProcessError as e:
         # Read stderr for error message
         try:
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 error_msg = f.read()
         except:
             error_msg = 'git not available'
@@ -289,7 +325,7 @@ def compute_workset(
     except FileNotFoundError:
         # Check if user is in wrong directory
         cwd = Path.cwd()
-        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud index' first."
+        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud full' first."
         if cwd.name in ["Desktop", "Documents", "Downloads"]:
             helpful_msg += f"\n\nAre you in the right directory? You're in: {cwd}"
             helpful_msg += "\nTry: cd <your-project-folder> then run this command again"
@@ -297,7 +333,7 @@ def compute_workset(
 
     # Connect to database
     if not Path(db_path).exists():
-        raise RuntimeError(f"Database not found at {db_path}. Run 'aud index' first.")
+        raise RuntimeError(f"Database not found at {db_path}. Run 'aud full' first.")
 
     conn = sqlite3.connect(db_path)
 

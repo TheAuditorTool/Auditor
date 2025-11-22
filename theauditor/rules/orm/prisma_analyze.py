@@ -10,6 +10,7 @@ Follows schema contract architecture (v1.1+):
 - Proper confidence levels
 """
 
+
 import sqlite3
 import json
 from typing import List
@@ -98,7 +99,7 @@ CONNECTION_DANGER_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Prisma ORM anti-patterns and performance issues.
 
     Detects:
@@ -128,16 +129,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: Unbounded Queries Without Pagination
         # ========================================================
-        # Build conditions for unbounded methods
-        method_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in UNBOUNDED_METHODS])
-
-        query = build_query('orm_queries', ['file', 'line', 'query_type'],
-                           where=f"""({method_conditions})
-              AND (has_limit = 0 OR has_limit IS NULL)""",
+        # Fetch all orm_queries, filter in Python
+        query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_limit'],
+                           where="has_limit = 0 OR has_limit IS NULL",
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, query_type in cursor.fetchall():
+        for file, line, query_type, has_limit in cursor.fetchall():
+            # Check for unbounded methods in Python
+            if not any(f'.{method}' in query_type for method in UNBOUNDED_METHODS):
+                continue
             model = query_type.split('.')[0] if '.' in query_type else 'unknown'
             method = query_type.split('.')[-1] if '.' in query_type else query_type
 
@@ -155,13 +156,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
+        # Fetch all orm_queries, filter in Python
         query = build_query('orm_queries', ['file', 'line', 'query_type', 'includes'],
-                           where="""query_type LIKE '%.findMany'
-              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')""",
+                           where="includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = ''",
                            order_by="file, line")
         cursor.execute(query)
 
         for file, line, query_type, includes in cursor.fetchall():
+            # Check for findMany in Python
+            if '.findMany' not in query_type:
+                continue
             model = query_type.split('.')[0] if '.' in query_type else 'unknown'
 
             findings.append(StandardFinding(
@@ -178,17 +182,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
-        # Build conditions for write methods
-        write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
-
+        # Fetch all orm_queries, filter in Python
         query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_transaction'],
-                           where=f"({write_conditions})",
                            order_by="file, line")
         cursor.execute(query)
 
-        # Group operations by file
+        # Group operations by file (filter for write methods)
         file_operations = {}
         for file, line, query_type, has_transaction in cursor.fetchall():
+            # Check if any write method is in query_type
+            if not any(f'.{method}' in query_type for method in WRITE_METHODS):
+                continue
             if file not in file_operations:
                 file_operations[file] = []
             file_operations[file].append({
@@ -223,17 +227,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Unhandled OrThrow Methods
         # ========================================================
-        # Build conditions for throw methods
-        throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
-
+        # Fetch all orm_queries, filter in Python
         query = build_query('orm_queries', ['file', 'line', 'query_type'],
-                           where=f"({throw_conditions})",
                            order_by="file, line")
         cursor.execute(query)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        orthrow_methods = cursor.fetchall()
+        # Store results before nested loop (avoid cursor state bug)
+        all_orm_queries = cursor.fetchall()
 
-        for file, line, query_type in orthrow_methods:
+        for file, line, query_type in all_orm_queries:
+            # Check if any throw method is in query_type
+            if not any(f'.{method}' in query_type for method in THROW_METHODS):
+                continue
             # Check if there's error handling nearby
             cfg_query = build_query('cfg_blocks', ['block_type'], limit=1)
             cursor.execute(cfg_query + """
@@ -259,18 +263,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: Unsafe Raw SQL Queries
         # ========================================================
-        # Build query for raw query methods
-        raw_methods_list = list(RAW_QUERY_METHODS)
-        placeholders = ','.join('?' * len(raw_methods_list))
-
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where=f"""callee_function IN ({placeholders})
-               OR callee_function LIKE '%queryRaw%'
-               OR callee_function LIKE '%executeRaw%'""",
                            order_by="file, line")
-        cursor.execute(query, raw_methods_list)
+        cursor.execute(query)
 
         for file, line, func, args in cursor.fetchall():
+            # Check if callee_function matches raw query patterns
+            func_lower = func.lower()
+            if not ('queryraw' in func_lower or 'executeraw' in func_lower):
+                continue
             # Check for unsafe patterns
             is_unsafe = 'Unsafe' in func
             has_interpolation = False
@@ -308,15 +310,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         poorly_indexed_models = {row[0]: row[1] for row in cursor.fetchall()}
 
         if poorly_indexed_models:
-            # Find queries on these models
+            # Fetch all orm_queries, filter in Python
             query = build_query('orm_queries', ['file', 'line', 'query_type'],
-                               where="""query_type LIKE '%.findMany%'
-                   OR query_type LIKE '%.findFirst%'
-                   OR query_type LIKE '%.findUnique%'""",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, query_type in cursor.fetchall():
+                # Check for query methods in Python
+                if not any(method in query_type for method in ['.findMany', '.findFirst', '.findUnique']):
+                    continue
                 model = query_type.split('.')[0] if '.' in query_type else None
 
                 if model in poorly_indexed_models:
@@ -335,25 +337,31 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Connection Pool Configuration Issues
         # ========================================================
-        # Look for schema.prisma files
-        query = build_query('files', ['path'],
-                           where="""path LIKE '%schema.prisma%'
-               OR path LIKE '%prisma/schema%'""",
-                           limit=1)
+        # Look for schema.prisma files - fetch all, filter in Python
+        query = build_query('files', ['path'], limit=100)
         cursor.execute(query)
-        schema_file = cursor.fetchone()
+
+        # Check for schema.prisma in any path
+        schema_file = None
+        for (path,) in cursor.fetchall():
+            if 'schema.prisma' in path or 'prisma/schema' in path:
+                schema_file = (path,)
+                break
 
         if schema_file:
-            # Check for DATABASE_URL configuration
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="""target_var LIKE '%DATABASE_URL%'
-                   OR target_var LIKE '%DATABASE%'
-                   OR target_var LIKE '%POSTGRES%'
-                   OR target_var LIKE '%MYSQL%'""",
                                order_by="file, line")
             cursor.execute(query)
 
+            # Database-related variable patterns
+            DB_VAR_PATTERNS = frozenset(['DATABASE_URL', 'DATABASE', 'POSTGRES', 'MYSQL'])
+
             for file, line, var, expr in cursor.fetchall():
+                # Check if target_var contains any database patterns
+                var_upper = var.upper()
+                if not any(pattern in var_upper for pattern in DB_VAR_PATTERNS):
+                    continue
                 # Check for missing connection limit
                 if expr and 'connection_limit' not in expr.lower():
                     findings.append(StandardFinding(

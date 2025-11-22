@@ -1,0 +1,232 @@
+name: node_express_api
+description: |
+  Express REST API fixture for testing middleware chains, authentication controls,
+  and SQL taint flows in Node.js applications.
+
+  Tests:
+  - Express middleware chain extraction (requireAuth, requireRole, requirePermission, rateLimit)
+  - api_endpoint_controls junction table population
+  - Raw SQL queries with sql_query_tables tracking
+  - Taint flows from req.query/req.params/req.body → SQL queries
+  - Multi-source taint (URL params + body fields)
+  - SQL injection vulnerabilities
+
+verification_rules:
+  - name: express_routes_extracted
+    description: Verify Express routes are extracted
+    query: |
+      SELECT DISTINCT
+        file,
+        line,
+        method,
+        pattern
+      FROM api_endpoints
+      WHERE file LIKE '%node-express-api%'
+      ORDER BY file, line
+    expected_minimum: 5
+
+  - name: middleware_functions_extracted
+    description: Verify middleware functions are extracted as symbols
+    query: |
+      SELECT
+        name,
+        type,
+        path
+      FROM symbols
+      WHERE path LIKE '%node-express-api/middleware/auth.js'
+        AND type = 'function'
+      ORDER BY name
+    expected_minimum: 4
+
+  - name: api_endpoint_controls_multiple_middleware
+    description: Find endpoints with MULTIPLE authentication controls
+    query: |
+      SELECT
+        ae.method,
+        ae.pattern,
+        GROUP_CONCAT(aec.control_name, ', ') AS controls
+      FROM api_endpoints ae
+      JOIN api_endpoint_controls aec
+        ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+      WHERE ae.file LIKE '%node-express-api/routes/products.js'
+      GROUP BY ae.file, ae.line, ae.method, ae.pattern
+      HAVING COUNT(aec.control_name) > 1
+    expected_minimum: 2
+
+  - name: endpoints_without_authentication
+    description: Find endpoints WITHOUT any authentication controls (security issue)
+    query: |
+      SELECT
+        ae.method,
+        ae.pattern,
+        ae.file,
+        ae.line
+      FROM api_endpoints ae
+      LEFT JOIN api_endpoint_controls aec
+        ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+      WHERE ae.file LIKE '%node-express-api%'
+        AND aec.control_name IS NULL
+    expected_minimum: 1
+
+  - name: sql_queries_touching_users_table
+    description: Find all SQL queries that touch the 'users' table
+    query: |
+      SELECT
+        sq.query_text,
+        sq.file_path,
+        sq.line_number,
+        sqt.table_name
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-express-api%'
+        AND sqt.table_name = 'users'
+      ORDER BY sq.line_number
+    expected_minimum: 2
+
+  - name: sql_queries_with_join
+    description: Find SQL queries that JOIN multiple tables
+    query: |
+      SELECT
+        sq.file_path,
+        sq.line_number,
+        GROUP_CONCAT(DISTINCT sqt.table_name, ', ') AS tables_touched
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-express-api%'
+      GROUP BY sq.file_path, sq.line_number
+      HAVING COUNT(DISTINCT sqt.table_name) > 1
+    expected_minimum: 2
+
+  - name: multi_source_assignments
+    description: Find assignments with multiple source variables (taint tracking)
+    query: |
+      SELECT
+        a.target_var,
+        a.file,
+        a.line,
+        GROUP_CONCAT(asrc.source_var_name, ', ') AS all_sources
+      FROM assignments a
+      JOIN assignment_sources asrc
+        ON a.file = asrc.assignment_file
+        AND a.line = asrc.assignment_line
+        AND a.target_var = asrc.assignment_target
+      WHERE a.file LIKE '%node-express-api%'
+      GROUP BY a.file, a.line, a.target_var
+      HAVING COUNT(asrc.source_var_name) > 1
+    expected_minimum: 1
+
+  - name: taint_sources_request_params
+    description: Find taint sources from Express request objects
+    query: |
+      SELECT
+        a.target,
+        a.source_expr,
+        a.file,
+        a.line
+      FROM assignments a
+      WHERE a.file LIKE '%node-express-api/routes/%'
+        AND (
+          a.source_expr LIKE '%req.query%'
+          OR a.source_expr LIKE '%req.params%'
+          OR a.source_expr LIKE '%req.body%'
+        )
+      ORDER BY a.file, a.line
+    expected_minimum: 6
+
+  - name: function_calls_to_database
+    description: Find function calls to database query methods
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.file,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%node-express-api%'
+        AND (
+          fc.callee_function LIKE '%query%'
+          OR fc.callee_function LIKE '%execute%'
+        )
+      ORDER BY fc.file, fc.line
+    expected_minimum: 8
+
+security_patterns:
+  - pattern: sql_injection_vulnerability
+    severity: CRITICAL
+    description: |
+      SQL injection vulnerability in GET /api/products/search endpoint.
+      User input from req.query.term is directly concatenated into SQL query
+      without parameterization.
+
+      Vulnerable code:
+        const vulnerableQuery = `SELECT * FROM products WHERE name LIKE '%${searchTerm}%'`;
+
+      This allows attackers to inject arbitrary SQL commands.
+    query: |
+      SELECT
+        sq.file_path,
+        sq.line_number,
+        sq.query_text
+      FROM sql_queries sq
+      WHERE sq.file_path LIKE '%node-express-api%'
+        AND sq.query_text LIKE '%${%'
+    expected_minimum: 1
+
+  - pattern: endpoint_missing_auth
+    severity: HIGH
+    description: |
+      GET /api/products/search endpoint has NO authentication controls.
+      Anyone can access this endpoint and potentially exploit the SQL injection.
+
+      Endpoints should use at minimum requireAuth middleware.
+    query: |
+      SELECT
+        ae.method,
+        ae.pattern,
+        ae.file,
+        ae.line
+      FROM api_endpoints ae
+      LEFT JOIN api_endpoint_controls aec
+        ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+      WHERE ae.file LIKE '%node-express-api%'
+        AND ae.pattern LIKE '%search%'
+        AND aec.control_name IS NULL
+    expected_minimum: 1
+
+expected_findings:
+  - endpoint: GET /api/products
+    controls: [requireAuth, rateLimit]
+    taint_source: req.query.search
+    sink: SQL query (LIKE clause)
+
+  - endpoint: POST /api/products
+    controls: [requireAuth, requireRole('admin')]
+    taint_source: req.body (name, description, price, category)
+    sink: SQL INSERT
+
+  - endpoint: PUT /api/products/:id
+    controls: [requireAuth, requirePermission('products:update')]
+    taint_source: req.params.id + req.body
+    sink: SQL UPDATE
+    notes: Multi-source taint
+
+  - endpoint: DELETE /api/products/:id
+    controls: [requireAuth, requireRole('admin')]
+    taint_source: req.params.id
+    sink: SQL DELETE
+
+  - endpoint: GET /api/products/search
+    controls: [] # NO AUTHENTICATION (SECURITY ISSUE)
+    taint_source: req.query.term
+    sink: SQL query (VULNERABLE - string concatenation)
+    vulnerability: SQL Injection (CRITICAL)
+
+coverage_summary:
+  total_routes: 5
+  authenticated_routes: 4
+  unauthenticated_routes: 1
+  sql_queries: 10+
+  middleware_functions: 4
+  security_vulnerabilities: 2 (SQL injection + missing auth)

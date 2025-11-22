@@ -68,6 +68,39 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
       1 = High impact change (>20 files)
       3 = Analysis error
 
+    AI ASSISTANT CONTEXT:
+      Purpose: Measure blast radius of code changes
+      Input: .pf/repo_index.db (symbol table and call graph)
+      Output: Impact report (stdout) or JSON (with --json flag)
+      Prerequisites: aud index (populates symbol table and refs)
+      Integration: Pre-refactoring risk assessment, change planning
+      Performance: ~1-5 seconds (graph traversal)
+
+    FLAG INTERACTIONS:
+      --json + --verbose: Detailed JSON with transitive dependencies
+      --trace-to-backend: Enables full-stack tracing (frontend→backend API calls)
+      --max-depth: Controls transitive depth (higher = slower but more complete)
+
+    TROUBLESHOOTING:
+      "Database not found" error:
+        Solution: Run 'aud index' first to build repo_index.db
+
+      "Symbol not found" at line:
+        Cause: Line number doesn't contain a function/class definition
+        Solution: Provide line number of def/class statement
+
+      Empty upstream (no callers):
+        Meaning: Code might be dead/unused
+        Action: Consider removing if truly unused
+
+      Very high impact (>100 files):
+        Cause: Utility function used everywhere
+        Action: Be very careful with changes, add tests
+
+      Slow analysis (>30 seconds):
+        Cause: Very high --max-depth on large codebase
+        Solution: Reduce --max-depth to 2 or 3
+
     Note: Requires 'aud index' to be run first."""
     from theauditor.impact_analyzer import analyze_impact, format_impact_report
     from theauditor.config_runtime import load_runtime_config
@@ -84,7 +117,7 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
     db_path = Path(db)
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to build the repository index", err=True)
+        click.echo("Run 'aud full' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
     
     # Verify file exists (helpful for user)

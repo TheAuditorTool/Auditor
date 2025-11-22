@@ -11,6 +11,7 @@ Follows v1.1+ schema contract compliance:
 - Proper confidence levels
 """
 
+
 import sqlite3
 import json
 from typing import List, Dict, Set, Optional
@@ -151,7 +152,7 @@ class InputValidationAnalyzer:
         self.findings = []
         self.seen_issues = set()  # Deduplication
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -216,53 +217,77 @@ class InputValidationAnalyzer:
 
     def _detect_prototype_pollution(self):
         """Detect prototype pollution vulnerabilities."""
-        for merge_func in self.patterns.MERGE_FUNCTIONS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                  AND (argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%request.body%'
-                       OR argument_expr LIKE '%ctx.request.body%'
-                       OR argument_expr LIKE '%userInput%'
-                       OR argument_expr LIKE '%data%')
-                ORDER BY file, line
-            """, (f'%{merge_func}%',))
+        # Fetch all function calls, filter in Python
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                # Check if first argument is a config object
-                if args and any(x in str(args).lower() for x in ['config', 'settings', 'options', '{}']):
-                    self._add_finding(
-                        rule_name='prototype-pollution',
-                        message=f'Prototype pollution risk via {func} with user input',
-                        file=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-1321',  # Improperly Controlled Modification of Object Prototype
-                        snippet=f'{func}({args[:50]}...)'
-                    )
+        # Filter for merge functions with user input in Python
+        user_input_keywords = frozenset(['req.body', 'request.body', 'ctx.request.body', 'userInput', 'data'])
+
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a merge function
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(merge in func for merge in self.patterns.MERGE_FUNCTIONS):
+                continue
+
+            # Check if arguments contain user input
+            args_str = str(args).lower() if args else ''
+            if not any(ui in args_str for ui in user_input_keywords):
+                continue
+
+            # Check if first argument is a config object
+            if any(x in args_str for x in ['config', 'settings', 'options', '{}']):
+                self._add_finding(
+                    rule_name='prototype-pollution',
+                    message=f'Prototype pollution risk via {func} with user input',
+                    file=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-1321',  # Improperly Controlled Modification of Object Prototype
+                    snippet=f'{func}({args[:50]}...)'
+                )
 
     def _detect_nosql_injection(self):
         """Detect NoSQL injection vulnerabilities."""
         # Check for NoSQL operators in assignments
-        for operator in self.patterns.NOSQL_OPERATORS:
-            self.cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE source_expr LIKE ?
-                  AND (source_expr LIKE '%req.%'
-                       OR source_expr LIKE '%request.%'
-                       OR source_expr LIKE '%body%'
-                       OR source_expr LIKE '%query%'
-                       OR source_expr LIKE '%params%')
-                ORDER BY file, line
-            """, (f'%{operator}%',))
+        self.cursor.execute("""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE source_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, var, expr in self.cursor.fetchall():
+        # Filter in Python for NoSQL operators with user input
+        input_keywords = frozenset(['req.', 'request.', 'body', 'query', 'params'])
+
+        for file, line, var, expr in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not expr:
+                continue
+
+            # Check if expression contains user input keywords
+            if not any(keyword in expr for keyword in input_keywords):
+                continue
+
+            # Check if expression contains NoSQL operators
+            detected_operator = None
+            for operator in self.patterns.NOSQL_OPERATORS:
+                if operator in expr:
+                    detected_operator = operator
+                    break
+
+            if detected_operator:
                 self._add_finding(
                     rule_name='nosql-injection',
-                    message=f'NoSQL operator "{operator}" detected with user input',
+                    message=f'NoSQL operator "{detected_operator}" detected with user input',
                     file=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -273,17 +298,29 @@ class InputValidationAnalyzer:
 
         # Check function calls with NoSQL operators
         self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE (callee_function LIKE '%.find%'
-                       OR callee_function LIKE '%.update%'
-                       OR callee_function LIKE '%.delete%')
-                  AND argument_expr LIKE '%$%'
-                ORDER BY file, line
-            """)
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
+
+        # Filter in Python for database methods with $ operators
+        db_methods = frozenset(['.find', '.update', '.delete'])
 
         for file, line, func, args in self.cursor.fetchall():
-            if args and any(op in str(args) for op in self.patterns.NOSQL_OPERATORS):
+            # Check if function is a database method
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(method in func for method in db_methods):
+                continue
+
+            # Check if arguments contain $ (NoSQL operator indicator)
+            if '$' not in args:
+                continue
+
+            # Check if specific NoSQL operator is present
+            if any(op in str(args) for op in self.patterns.NOSQL_OPERATORS):
                 self._add_finding(
                     rule_name='nosql-injection-query',
                     message=f'NoSQL injection in {func} with operators in query',
@@ -298,64 +335,81 @@ class InputValidationAnalyzer:
     def _detect_missing_validation(self):
         """Detect database operations without validation."""
         # Find DB operations with direct user input
-        for db_op in self.patterns.DB_WRITE_OPS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                  AND (argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%req.query%'
-                       OR argument_expr LIKE '%req.params%'
-                       OR argument_expr LIKE '%request.body%'
-                       OR argument_expr LIKE '%request.query%')
-                ORDER BY file, line
-            """, (f'%.{db_op}%',))
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                # Check if validation exists nearby
-                has_validation = self._check_validation_nearby(file, line)
+        # Filter in Python for DB write operations with user input
+        user_input_patterns = frozenset(['req.body', 'req.query', 'req.params', 'request.body', 'request.query'])
 
-                if not has_validation:
-                    self._add_finding(
-                        rule_name='missing-validation',
-                        message=f'Database operation {func} with unvalidated user input',
-                        file=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-20',  # Improper Input Validation
-                        snippet=f'{func}({args[:50]})'
-                    )
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a database write operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(f'.{db_op}' in func for db_op in self.patterns.DB_WRITE_OPS):
+                continue
+
+            # Check if arguments contain user input
+            if not any(pattern in args for pattern in user_input_patterns):
+                continue
+
+            # Check if validation exists nearby
+            has_validation = self._check_validation_nearby(file, line)
+
+            if not has_validation:
+                self._add_finding(
+                    rule_name='missing-validation',
+                    message=f'Database operation {func} with unvalidated user input',
+                    file=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-20',  # Improper Input Validation
+                    snippet=f'{func}({args[:50]})'
+                )
 
     def _detect_template_injection(self):
         """Detect server-side template injection vulnerabilities."""
-        for template_func in self.patterns.TEMPLATE_ENGINES:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                  AND (argument_expr LIKE '%req.%'
-                       OR argument_expr LIKE '%request.%'
-                       OR argument_expr LIKE '%userInput%'
-                       OR argument_expr LIKE '%body%'
-                       OR argument_expr LIKE '%query%')
-                ORDER BY file, line
-            """, (f'%{template_func}%',))
+        # Fetch all function calls
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                # Higher severity for compile functions
-                is_compile = 'compile' in func.lower()
+        # Filter in Python for template engines with user input
+        user_input_keywords = frozenset(['req.', 'request.', 'userInput', 'body', 'query'])
 
-                self._add_finding(
-                    rule_name='template-injection',
-                    message=f'Template injection risk in {func} with user input',
-                    file=file,
-                    line=line,
-                    severity=Severity.CRITICAL if is_compile else Severity.HIGH,
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-1336',  # Improper Restriction of Template Inputs
-                    snippet=f'{func}({args[:50]})'
-                )
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a template engine
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(template in func for template in self.patterns.TEMPLATE_ENGINES):
+                continue
+
+            # Check if arguments contain user input
+            if not any(keyword in args for keyword in user_input_keywords):
+                continue
+
+            # Higher severity for compile functions
+            is_compile = 'compile' in func.lower()
+
+            self._add_finding(
+                rule_name='template-injection',
+                message=f'Template injection risk in {func} with user input',
+                file=file,
+                line=line,
+                severity=Severity.CRITICAL if is_compile else Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1336',  # Improper Restriction of Template Inputs
+                snippet=f'{func}({args[:50]})'
+            )
 
     def _detect_type_confusion(self):
         """Detect type confusion vulnerabilities."""
@@ -363,15 +417,31 @@ class InputValidationAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (source_expr LIKE '%typeof %'
-                   AND (source_expr LIKE '%=== "string"%'
-                        OR source_expr LIKE '%=== "number"%'
-                        OR source_expr LIKE '%=== "boolean"%'))
-               OR source_expr LIKE '%instanceof %'
+            WHERE source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for typeof/instanceof with primitive checks
+        type_check_patterns = frozenset(['typeof ', 'instanceof '])
+        primitive_checks = frozenset(['=== "string"', '=== "number"', '=== "boolean"'])
+
         for file, line, var, expr in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not expr:
+                continue
+
+            # Check if expression contains typeof or instanceof
+            has_type_check = any(pattern in expr for pattern in type_check_patterns)
+            if not has_type_check:
+                continue
+
+            # For typeof, check if it's a primitive type check
+            if 'typeof ' in expr:
+                has_primitive_check = any(check in expr for check in primitive_checks)
+                if not has_primitive_check:
+                    continue
+
             # Check if this is validating user input
             if any(src in expr for src in self.patterns.INPUT_SOURCES):
                 self._add_finding(
@@ -424,15 +494,27 @@ class InputValidationAnalyzer:
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE (callee_function LIKE '%.create%'
-                   OR callee_function LIKE '%.update%')
-              AND (argument_expr LIKE '%...%'
-                   OR argument_expr LIKE '%Object.assign%'
-                   OR argument_expr LIKE '%spread%')
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for create/update with spread operators
+        db_methods = frozenset(['.create', '.update'])
+        spread_indicators = frozenset(['...', 'Object.assign', 'spread'])
+
         for file, line, func, args in self.cursor.fetchall():
+            # Check if function is create or update
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(method in func for method in db_methods):
+                continue
+
+            # Check if arguments contain spread operators
+            if not any(indicator in args for indicator in spread_indicators):
+                continue
+
+            # Spread operator is the strongest indicator
             if '...' in str(args):
                 self._add_finding(
                     rule_name='schema-bypass',
@@ -448,19 +530,27 @@ class InputValidationAnalyzer:
     def _detect_validation_library_misuse(self):
         """Detect common validation library misconfigurations."""
         # Check for weak validation patterns
-        self.cursor.execute("""
+        validation_funcs = tuple(self.patterns.VALIDATION_FUNCTIONS)
+        placeholders = ','.join('?' * len(validation_funcs))
+
+        self.cursor.execute(f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({})
-              AND (argument_expr LIKE '%required: false%'
-                   OR argument_expr LIKE '%optional: true%'
-                   OR argument_expr LIKE '%allowUnknown: true%'
-                   OR argument_expr LIKE '%stripUnknown: false%')
+            WHERE callee_function IN ({placeholders})
+              AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """.format(','.join('?' * len(self.patterns.VALIDATION_FUNCTIONS))),
-        tuple(self.patterns.VALIDATION_FUNCTIONS))
+        """, validation_funcs)
+
+        # Filter in Python for weak config patterns
+        weak_configs = frozenset(['required: false', 'optional: true', 'allowUnknown: true', 'stripUnknown: false'])
 
         for file, line, func, args in self.cursor.fetchall():
+            # Check if arguments contain weak configuration
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(weak in args for weak in weak_configs):
+                continue
+
             config_issue = 'Unknown properties allowed' if 'allowUnknown' in str(args) else 'Weak validation config'
 
             self._add_finding(
@@ -476,20 +566,31 @@ class InputValidationAnalyzer:
 
     def _detect_framework_bypasses(self):
         """Detect framework-specific validation bypasses."""
-        # Check for endpoints without middleware
+        # JOIN with api_endpoint_controls to check for middleware
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
-            FROM api_endpoints
-            WHERE (method IN ('POST', 'PUT', 'PATCH', 'DELETE'))
-              AND (controls IS NULL
-                   OR controls = '[]'
-                   OR controls = '')
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.method,
+                ae.pattern,
+                ae.line,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE ae.method IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, method, route, controls in self.cursor.fetchall():
-            # Extract line number from file if possible
-            line = 1  # Default line
+        for file, method, route, endpoint_line, controls_str in self.cursor.fetchall():
+            # Check if endpoint has no controls
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if controls_str:
+                continue  # Has controls, skip
+
+            line = endpoint_line if endpoint_line else 1
 
             self._add_finding(
                 rule_name='missing-middleware',
@@ -504,28 +605,39 @@ class InputValidationAnalyzer:
 
     def _detect_graphql_injection(self):
         """Detect GraphQL injection vulnerabilities."""
-        for graphql_func in self.patterns.GRAPHQL_OPS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                  AND (argument_expr LIKE '%req.body.query%'
-                       OR argument_expr LIKE '%request.body.query%'
-                       OR argument_expr LIKE '%userQuery%')
-                ORDER BY file, line
-            """, (f'%{graphql_func}%',))
+        # Fetch all function calls
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                self._add_finding(
-                    rule_name='graphql-injection',
-                    message=f'GraphQL injection risk in {func} with user-provided query',
-                    file=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-20',
-                    snippet=f'{func}({args[:50]})'
-                )
+        # Filter in Python for GraphQL functions with user query
+        user_query_patterns = frozenset(['req.body.query', 'request.body.query', 'userQuery'])
+
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is a GraphQL operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(graphql in func for graphql in self.patterns.GRAPHQL_OPS):
+                continue
+
+            # Check if arguments contain user-provided query
+            if not any(pattern in args for pattern in user_query_patterns):
+                continue
+
+            self._add_finding(
+                rule_name='graphql-injection',
+                message=f'GraphQL injection risk in {func} with user-provided query',
+                file=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-20',
+                snippet=f'{func}({args[:50]})'
+            )
 
     # ========================================================================
     # PRIORITY 3: Advanced Detection (Variable Confidence)
@@ -534,20 +646,33 @@ class InputValidationAnalyzer:
     def _detect_second_order_injection(self):
         """Detect second-order injection vulnerabilities."""
         # Find data retrieved from DB and used without validation
-        self.cursor.execute("""
-            SELECT a.file, a.line, a.target_var, f.callee_function, f.line
+        template_funcs = tuple(self.patterns.TEMPLATE_ENGINES)
+        placeholders = ','.join('?' * len(template_funcs))
+
+        self.cursor.execute(f"""
+            SELECT a.file, a.line, a.target_var, a.source_expr, f.callee_function, f.line, f.argument_expr
             FROM assignments a
             JOIN function_call_args f ON a.file = f.file
-            WHERE a.source_expr LIKE '%.find%'
-              AND f.argument_expr LIKE '%' || a.target_var || '%'
-              AND f.callee_function IN ({})
+            WHERE a.source_expr IS NOT NULL
+              AND a.target_var IS NOT NULL
+              AND f.callee_function IN ({placeholders})
               AND f.line > a.line
               AND f.line - a.line <= 50
             ORDER BY a.file, a.line
-        """.format(','.join('?' * len(self.patterns.TEMPLATE_ENGINES))),
-        tuple(self.patterns.TEMPLATE_ENGINES))
+        """, template_funcs)
 
-        for file, retrieve_line, var, use_func, use_line in self.cursor.fetchall():
+        # Filter in Python for .find methods and variable usage
+        for file, retrieve_line, var, source_expr, use_func, use_line, use_args in self.cursor.fetchall():
+            # Check if source is a database find operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if '.find' not in source_expr:
+                continue
+
+            # Check if variable is used in arguments
+            if not use_args or var not in use_args:
+                continue
+
             self._add_finding(
                 rule_name='second-order-injection',
                 message=f'Data from database used in {use_func} without revalidation',
@@ -565,28 +690,49 @@ class InputValidationAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%amount%'
-                   OR target_var LIKE '%quantity%'
-                   OR target_var LIKE '%price%'
-                   OR target_var LIKE '%balance%')
-              AND (source_expr LIKE '%req.%'
-                   OR source_expr LIKE '%request.%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for numeric variables from user input
+        numeric_var_keywords = frozenset(['amount', 'quantity', 'price', 'balance'])
+        user_input_keywords = frozenset(['req.', 'request.'])
+
+        candidates = []
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable name suggests numeric/monetary value
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            var_lower = var.lower()
+            if not any(keyword in var_lower for keyword in numeric_var_keywords):
+                continue
+
+            # Check if source is user input
+            if not any(keyword in expr for keyword in user_input_keywords):
+                continue
+
+            candidates.append((file, line, var, expr))
+
+        # Check each candidate for negative validation nearby
+        for file, line, var, expr in candidates:
             # Check if there's a negative check nearby
             self.cursor.execute("""
-                SELECT COUNT(*) FROM assignments
+                SELECT source_expr FROM assignments
                 WHERE file = ?
                   AND ABS(line - ?) <= 10
-                  AND (source_expr LIKE '%< 0%'
-                       OR source_expr LIKE '%<= 0%'
-                       OR source_expr LIKE '%Math.abs%'
-                       OR source_expr LIKE '%Math.max%')
+                  AND source_expr IS NOT NULL
             """, (file, line))
 
-            if self.cursor.fetchone()[0] == 0:
+            # Filter in Python for negative checks
+            has_negative_check = False
+            negative_patterns = frozenset(['< 0', '<= 0', 'Math.abs', 'Math.max'])
+            for (nearby_expr,) in self.cursor.fetchall():
+                if any(pattern in nearby_expr for pattern in negative_patterns):
+                    has_negative_check = True
+                    break
+
+            if not has_negative_check:
                 self._add_finding(
                     rule_name='business-logic-bypass',
                     message=f'Numeric value {var} not validated for negative amounts',
@@ -604,17 +750,32 @@ class InputValidationAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (source_expr LIKE '%req.%filename%'
-                   OR source_expr LIKE '%req.%path%'
-                   OR source_expr LIKE '%req.%file%')
-              AND (target_var LIKE '%path%'
-                   OR target_var LIKE '%file%'
-                   OR target_var LIKE '%dir%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for file path variables from request params
+        req_file_patterns = frozenset(['req.', 'filename', 'path', 'file'])
+        var_file_keywords = frozenset(['path', 'file', 'dir'])
+
         for file, line, var, expr in self.cursor.fetchall():
-            # Check for ../ filtering
+            # Check if source expression contains request file parameters
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(pattern in expr for pattern in req_file_patterns):
+                continue
+
+            # More specific check: must have filename, path, or file in source
+            if not ('filename' in expr or '.path' in expr or '.file' in expr):
+                continue
+
+            # Check if variable name suggests file path
+            var_lower = var.lower()
+            if not any(keyword in var_lower for keyword in var_file_keywords):
+                continue
+
+            # Check for ../ filtering (absence indicates vulnerability)
             if '../' not in expr and '..' not in expr:
                 self._add_finding(
                     rule_name='path-traversal',
@@ -633,15 +794,25 @@ class InputValidationAnalyzer:
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (source_expr LIKE '%==%' AND source_expr NOT LIKE '%===%')
-              AND (source_expr LIKE '%true%'
-                   OR source_expr LIKE '%false%'
-                   OR source_expr LIKE '%admin%'
-                   OR source_expr LIKE '%role%')
+            WHERE source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
+        # Filter in Python for loose equality with security-sensitive values
+        security_keywords = frozenset(['true', 'false', 'admin', 'role'])
+
         for file, line, var, expr in self.cursor.fetchall():
+            # Check for loose equality (== but not ===)
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if '==' not in expr or '===' in expr:
+                continue
+
+            # Check if expression contains security-sensitive keywords
+            expr_lower = expr.lower()
+            if not any(keyword in expr_lower for keyword in security_keywords):
+                continue
+
             self._add_finding(
                 rule_name='type-juggling',
                 message='Loose equality (==) can cause type juggling vulnerabilities',
@@ -656,31 +827,44 @@ class InputValidationAnalyzer:
     def _detect_orm_injection(self):
         """Detect ORM-specific injection vulnerabilities."""
         # Check for raw queries with user input
-        for orm_method in self.patterns.ORM_METHODS:
-            self.cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                  AND (argument_expr LIKE '%req.%'
-                       OR argument_expr LIKE '%request.%'
-                       OR argument_expr LIKE '%+%'
-                       OR argument_expr LIKE '%`%')
-                ORDER BY file, line
-            """, (f'%{orm_method}%',))
+        self.cursor.execute("""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                # Check for string concatenation
-                if args and ('+' in str(args) or '`' in str(args)):
-                    self._add_finding(
-                        rule_name='orm-injection',
-                        message=f'ORM injection risk in {func} with string concatenation',
-                        file=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-89',  # SQL Injection
-                        snippet=f'{func}({args[:50]})'
-                    )
+        # Filter in Python for ORM methods with risky patterns
+        user_input_patterns = frozenset(['req.', 'request.'])
+        concat_indicators = frozenset(['+', '`'])
+
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is an ORM method
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
+            if not any(orm in func for orm in self.patterns.ORM_METHODS):
+                continue
+
+            # Check if arguments contain user input OR concatenation
+            has_user_input = any(pattern in args for pattern in user_input_patterns)
+            has_concatenation = any(indicator in str(args) for indicator in concat_indicators)
+
+            if not (has_user_input or has_concatenation):
+                continue
+
+            # Check for string concatenation (highest risk)
+            if '+' in str(args) or '`' in str(args):
+                self._add_finding(
+                    rule_name='orm-injection',
+                    message=f'ORM injection risk in {func} with string concatenation',
+                    file=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-89',  # SQL Injection
+                    snippet=f'{func}({args[:50]})'
+                )
 
     # ========================================================================
     # HELPER METHODS
@@ -706,7 +890,7 @@ class InputValidationAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_input_validation_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_input_validation_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect input validation vulnerabilities.
 
     Detects:

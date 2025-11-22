@@ -1,0 +1,269 @@
+name: github_actions_security
+description: |
+  Intentionally vulnerable GitHub Actions workflows testing security detection.
+
+  Covers 6 critical vulnerability patterns:
+  1. pull_request_target with untrusted checkout
+  2. Unpinned actions with secrets exposure
+  3. Script injection via github.event.* in run blocks
+  4. Privileged PR workflows (write permissions + untrusted code)
+  5. Reusable workflow transitive secret exposure
+  6. Artifact poisoning (untrusted build → trusted deploy)
+
+  Tests GitHub Actions-specific extraction capabilities:
+  - Workflow triggers (pull_request_target, pull_request, etc.)
+  - Step extraction (actions/checkout, uses, run, with parameters)
+  - Secret references (secrets.*, secrets: inherit)
+  - Permission declarations (contents: write, etc.)
+  - Action version extraction (mutable vs pinned refs)
+
+verification_rules:
+  - name: github_workflows_extracted
+    description: Verify GitHub Actions workflows are extracted
+    query: |
+      SELECT workflow_name, trigger_events, file
+      FROM github_workflows
+      WHERE file LIKE '%github_actions%'
+      ORDER BY workflow_name
+    expected_minimum: 6
+
+  - name: github_steps_extracted
+    description: Verify workflow steps are extracted
+    query: |
+      SELECT
+        job_id,
+        step_name,
+        uses_action,
+        uses_version
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions%'
+      ORDER BY job_id, sequence_order
+    expected_minimum: 20
+
+  - name: pull_request_target_workflows
+    description: Find workflows using pull_request_target trigger
+    query: |
+      SELECT workflow_name, trigger_events, file
+      FROM github_workflows
+      WHERE file LIKE '%github_actions%'
+        AND trigger_events LIKE '%pull_request_target%'
+      ORDER BY workflow_name
+    expected_minimum: 3
+
+  - name: untrusted_checkout_steps
+    description: Find actions/checkout steps in pull_request_target workflows
+    query: |
+      SELECT
+        gs.job_id,
+        gs.step_name,
+        gs.uses_action,
+        gj.workflow_file
+      FROM github_steps gs
+      JOIN github_jobs gj ON gs.job_id = gj.job_id
+      JOIN github_workflows gw ON gj.workflow_file = gw.file
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND gs.uses_action LIKE '%actions/checkout%'
+      ORDER BY gs.sequence_order
+    expected_minimum: 2
+
+  - name: unpinned_actions_mutable_refs
+    description: Find actions using mutable version refs (main, v1, master)
+    query: |
+      SELECT
+        uses_action,
+        uses_version,
+        step_name,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions%'
+        AND uses_version IN ('main', 'master', 'v1', 'develop', 'latest')
+      ORDER BY uses_action
+    expected_minimum: 3
+
+  - name: secret_references_in_steps
+    description: Find steps with secret references
+    query: |
+      SELECT
+        step_name,
+        uses_action,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions%'
+        AND (
+          step_name LIKE '%secrets.%'
+          OR step_name LIKE '%GITHUB_TOKEN%'
+        )
+      ORDER BY job_id
+    expected_minimum: 2
+
+  - name: run_steps_with_github_event
+    description: Find run steps that reference github.event.* (injection risk)
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE job_id LIKE '%github_actions%'
+        AND run_script LIKE '%github.event.%'
+      ORDER BY job_id
+    expected_minimum: 2
+
+  - name: reusable_workflow_calls
+    description: Find reusable workflow calls
+    query: |
+      SELECT
+        step_name,
+        uses_action,
+        job_id
+      FROM github_steps
+      WHERE uses_action LIKE '%.github/workflows/%'
+      ORDER BY job_id
+    expected_minimum: 1
+
+  - name: jobs_with_permissions
+    description: Find jobs with explicit permissions
+    query: |
+      SELECT
+        job_id,
+        permissions,
+        workflow_file
+      FROM github_jobs
+      WHERE workflow_file LIKE '%github_actions%'
+        AND permissions IS NOT NULL
+      ORDER BY job_id
+    expected_minimum: 2
+
+security_patterns:
+  - pattern: untrusted_checkout_in_pull_request_target
+    severity: CRITICAL
+    description: |
+      Workflow uses pull_request_target trigger and checks out PR code
+      before validation. Attacker can execute arbitrary code with repo secrets.
+    query: |
+      SELECT
+        gw.workflow_name,
+        gs.step_name,
+        gs.sequence_order,
+        gw.file
+      FROM github_workflows gw
+      JOIN github_jobs gj ON gw.file = gj.workflow_file
+      JOIN github_steps gs ON gj.job_id = gs.job_id
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND gs.uses_action LIKE '%actions/checkout%'
+        AND gs.sequence_order < 5
+      ORDER BY gw.workflow_name, gs.sequence_order
+
+  - pattern: unpinned_action_with_secrets
+    severity: HIGH
+    description: |
+      Third-party action pinned to mutable ref (main, v1) while having
+      access to secrets. Supply chain attack vector.
+    query: |
+      SELECT
+        uses_action,
+        uses_version,
+        step_name
+      FROM github_steps
+      WHERE uses_version IN ('main', 'master', 'v1', 'develop')
+        AND (
+          step_name LIKE '%secrets%'
+          OR job_id IN (
+            SELECT job_id FROM github_jobs
+            WHERE permissions LIKE '%write%'
+          )
+        )
+
+  - pattern: github_event_injection
+    severity: CRITICAL
+    description: |
+      Run script directly interpolates github.event.* data without
+      sanitization. Command injection via crafted PR titles/bodies.
+    query: |
+      SELECT
+        step_name,
+        run_script,
+        job_id
+      FROM github_steps
+      WHERE run_script LIKE '%${{ github.event.%'
+        AND uses_action IS NULL
+      ORDER BY job_id
+
+  - pattern: privileged_pull_request_target
+    severity: HIGH
+    description: |
+      pull_request_target workflow with write permissions allows
+      untrusted PR to modify repo, create releases, etc.
+    query: |
+      SELECT
+        gw.workflow_name,
+        gj.permissions,
+        gw.file
+      FROM github_workflows gw
+      JOIN github_jobs gj ON gw.file = gj.workflow_file
+      WHERE gw.trigger_events LIKE '%pull_request_target%'
+        AND (
+          gj.permissions LIKE '%write%'
+          OR gj.permissions LIKE '%all%'
+        )
+
+  - pattern: external_reusable_workflow_with_secrets
+    severity: MEDIUM
+    description: |
+      Calling external reusable workflow with secrets: inherit
+      exposes all repository secrets to external org/repo.
+    query: |
+      SELECT
+        uses_action,
+        step_name,
+        job_id
+      FROM github_steps
+      WHERE uses_action LIKE '%.github/workflows/%'
+        AND uses_action NOT LIKE '${{ github.repository }}%'
+        AND step_name LIKE '%secrets:%'
+
+expected_findings:
+  vulnerable-pr-target.yml:
+    - vulnerability: Untrusted checkout in pull_request_target
+      severity: CRITICAL
+      line: ~early checkout step
+      description: Checks out PR code before validation
+
+  unpinned-actions-with-secrets.yml:
+    - vulnerability: Mutable action version with secrets
+      severity: HIGH
+      action: third-party/action@main
+      description: Supply chain attack vector
+
+  script-injection.yml:
+    - vulnerability: github.event.* in run script
+      severity: CRITICAL
+      pattern: "${{ github.event.pull_request.title }}"
+      description: Command injection via PR metadata
+
+  privileged-pr-workflow.yml:
+    - vulnerability: write-all permissions in pull_request_target
+      severity: HIGH
+      permissions: contents: write or permissions: write-all
+      description: PR can modify repository
+
+  reusable-workflow-risk.yml:
+    - vulnerability: External reusable workflow with secrets: inherit
+      severity: MEDIUM
+      pattern: uses external org + secrets inheritance
+      description: Transitive secret exposure
+
+  artifact-poisoning.yml:
+    - vulnerability: Untrusted artifact used in trusted job
+      severity: HIGH
+      pattern: Job A (pr_target) builds → Job B deploys
+      description: Attacker-controlled artifacts deployed
+
+coverage_summary:
+  total_workflows: 6
+  total_steps: 25+
+  vulnerability_patterns: 6
+  severity_breakdown:
+    CRITICAL: 2 (untrusted checkout, script injection)
+    HIGH: 3 (unpinned actions, privileged PR, artifact poisoning)
+    MEDIUM: 1 (reusable workflow secrets)

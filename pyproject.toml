@@ -4,72 +4,60 @@ build-backend = "hatchling.build"
 
 [project]
 name = "theauditor"
-version = "1.4.2-RC1"
+version = "1.6.4-dev1"
 description = "Offline, air-gapped CLI for repo indexing, evidence checking, and task running"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = {text = "AGPL-3.0"}
 authors = [
     {name = "TheAuditor Team"}
 ]
 dependencies = [
-    "click==8.3.0",
-    "PyYAML==6.0.3",
-    "jsonschema==4.25.1",
-    "ijson==3.4.0.post0",
-    "json5==0.12.1",
+    # BOOTSTRAP ONLY: Minimal CLI to trigger sandbox setup
+    # ALL actual analysis runs in .auditor_venv/ sandbox
+    "click==8.3.1",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest==8.4.2",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
-    "ruff==0.14.2",
-    "black==25.9.0",
-]
-linters = [
-    "ruff==0.14.2",
-    "mypy==1.18.2",
-    "black==25.9.0",
-    "bandit==1.8.6",
-    "pylint==4.0.2",
-]
-ml = [
-    "scikit-learn==1.7.2",
-    "numpy==2.3.4",
-    "scipy==1.16.2", 
-    "joblib==1.5.2",
-]
-ast = [
-    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
-    "tree-sitter-language-pack==0.10.0",
+# Runtime dependencies (installed ONLY in sandbox via 'aud setup-ai')
+# These are NOT installed globally to keep user's Python environment clean
+runtime = [
+    # Config and rules
+    "PyYAML==6.0.3",
+    "json5==0.12.1",
+    # Language parsers
     "sqlparse==0.5.3",
+    "graphql-core==3.2.7",
     "dockerfile-parse==2.0.1",
-]
-all = [
-    # Dev tools
-    "pytest==8.4.2",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
-    # Linters
-    "ruff==0.14.2",
-    "mypy==1.18.2",
-    "black==25.9.0",
-    "bandit==1.8.6",
-    "pylint==4.0.2",
+    "tree-sitter==0.25.2",
+    "tree-sitter-language-pack==0.11.0",
     # ML features
+    "numpy==2.3.5",
     "scikit-learn==1.7.2",
-    "numpy==2.3.4",
-    "scipy==1.16.2",
     "joblib==1.5.2",
-    # AST parsing
-    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
-    "tree-sitter-language-pack==0.10.0",
-    # SQL parsing
-    "sqlparse==0.5.3",
-    # Docker parsing
-    "dockerfile-parse==2.0.1",
+    # Documentation fetching
+    "beautifulsoup4>=4.14.2",
+    "markdownify>=1.2.2",
+    # Graph analysis
+    "networkx==3.5",
+]
+
+# Development tools (for developing TheAuditor itself)
+dev = [
+    "pytest==9.0.1",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+    "ruff==0.14.5",
+    "black==25.11.0",
+    "mypy==1.18.2",
+    "bandit==1.9.1",
+    "pylint==4.0.3",
+]
+
+# Complete install (for sandbox)
+# This is what venv_install.py uses
+all = [
+    "theauditor[runtime,dev]",
 ]
 
 [project.scripts]
@@ -80,7 +68,7 @@ packages = ["theauditor"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [

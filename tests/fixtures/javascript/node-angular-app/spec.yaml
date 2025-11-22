@@ -1,0 +1,63 @@
+name: node-angular-app
+description: Angular framework extraction test fixture
+language: typescript
+
+tables:
+  angular_components:
+    min_rows: 2  # AppComponent, UserComponent
+    queries:
+      - name: verify_app_component
+        sql: SELECT * FROM angular_components WHERE component_name = 'AppComponent'
+        expect_rows: 1
+
+      - name: verify_selector
+        sql: SELECT * FROM angular_components WHERE selector = 'app-root'
+        expect_rows: 1
+
+      - name: verify_lifecycle_hooks
+        sql: SELECT * FROM angular_components WHERE has_lifecycle_hooks = 1
+        expect_rows_min: 1
+
+  angular_services:
+    min_rows: 1  # UserService
+    queries:
+      - name: verify_user_service
+        sql: SELECT * FROM angular_services WHERE service_name = 'UserService'
+        expect_rows: 1
+
+      - name: verify_injectable
+        sql: SELECT * FROM angular_services WHERE is_injectable = 1
+        expect_rows_min: 1
+
+      - name: verify_provided_in_root
+        sql: SELECT * FROM angular_services WHERE provided_in = 'root'
+        expect_rows_min: 1
+
+  angular_modules:
+    min_rows: 1  # AppModule
+    queries:
+      - name: verify_app_module
+        sql: SELECT * FROM angular_modules WHERE module_name = 'AppModule'
+        expect_rows: 1
+
+  angular_guards:
+    min_rows: 1  # AuthGuard
+    queries:
+      - name: verify_auth_guard
+        sql: SELECT * FROM angular_guards WHERE guard_name = 'AuthGuard'
+        expect_rows: 1
+
+      - name: verify_guard_type
+        sql: SELECT * FROM angular_guards WHERE guard_type = 'CanActivate'
+        expect_rows: 1
+
+  di_injections:
+    min_rows: 2  # AppComponent -> UserService, AuthGuard -> Router
+    queries:
+      - name: verify_user_service_injection
+        sql: SELECT * FROM di_injections WHERE target_class = 'AppComponent' AND injected_service = 'UserService'
+        expect_rows: 1
+
+      - name: verify_constructor_injection
+        sql: SELECT * FROM di_injections WHERE injection_type = 'constructor'
+        expect_rows_min: 2

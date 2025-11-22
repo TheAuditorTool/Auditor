@@ -15,6 +15,7 @@ Usage:
     # Returns: {'nodes': [...], 'edges': [...], 'metadata': {...}}
 """
 
+
 import sqlite3
 import json
 import re
@@ -39,7 +40,7 @@ class ProvisioningNode:
     name: str
     is_sensitive: bool = False
     has_public_exposure: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -51,7 +52,7 @@ class ProvisioningEdge:
     file: str
     edge_type: str  # "variable_reference", "resource_dependency", "output_reference"
     expression: str = ""  # The interpolation expression
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class TerraformGraphBuilder:
@@ -74,7 +75,7 @@ class TerraformGraphBuilder:
         graphs_db_path = self.db_path.parent / "graphs.db"
         self.store = XGraphStore(db_path=str(graphs_db_path))
 
-    def build_provisioning_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+    def build_provisioning_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build provisioning flow graph from Terraform data.
 
         Queries terraform_* tables to construct a graph showing how
@@ -90,8 +91,8 @@ class TerraformGraphBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, ProvisioningNode] = {}
-        edges: List[ProvisioningEdge] = []
+        nodes: dict[str, "ProvisioningNode"] = {}
+        edges: list["ProvisioningEdge"] = []
 
         stats = {
             'total_resources': 0,
@@ -218,7 +219,7 @@ class TerraformGraphBuilder:
         conn.close()
 
         # Count unique files
-        files = set(node.file for node in nodes.values())
+        files = {node.file for node in nodes.values()}
         stats['files_processed'] = len(files)
 
         # Convert to dict format (same as DFGBuilder)
@@ -243,7 +244,7 @@ class TerraformGraphBuilder:
 
         return result
 
-    def _extract_variable_references(self, properties: Dict) -> Set[str]:
+    def _extract_variable_references(self, properties: dict) -> set[str]:
         """Extract variable names from property values.
 
         Searches for Terraform variable interpolations:
@@ -268,7 +269,7 @@ class TerraformGraphBuilder:
         scan_value(properties)
         return var_names
 
-    def _find_variable_id(self, cursor, var_name: str, current_file: str) -> Optional[str]:
+    def _find_variable_id(self, cursor, var_name: str, current_file: str) -> str | None:
         """Find variable ID by name (may be in different file).
 
         Tries same file first, then any file (for module variables).
@@ -291,7 +292,7 @@ class TerraformGraphBuilder:
         row = cursor.fetchone()
         return row['variable_id'] if row else None
 
-    def _resolve_resource_reference(self, cursor, ref: str, current_file: str) -> Optional[str]:
+    def _resolve_resource_reference(self, cursor, ref: str, current_file: str) -> str | None:
         """Resolve resource reference like 'aws_security_group.web' to resource_id.
 
         Args:
@@ -316,7 +317,7 @@ class TerraformGraphBuilder:
         row = cursor.fetchone()
         return row['resource_id'] if row else None
 
-    def _extract_references_from_expression(self, expr_json: str) -> Set[str]:
+    def _extract_references_from_expression(self, expr_json: str) -> set[str]:
         """Extract all Terraform references from an expression.
 
         Matches patterns:
@@ -338,7 +339,7 @@ class TerraformGraphBuilder:
         refs.update(matches)
         return refs
 
-    def _resolve_reference(self, cursor, ref: str, current_file: str) -> Optional[str]:
+    def _resolve_reference(self, cursor, ref: str, current_file: str) -> str | None:
         """Resolve any Terraform reference to node ID.
 
         Args:
@@ -355,7 +356,7 @@ class TerraformGraphBuilder:
         else:
             return self._resolve_resource_reference(cursor, ref, current_file)
 
-    def _find_property_path(self, properties: Dict, var_name: str) -> Optional[str]:
+    def _find_property_path(self, properties: dict, var_name: str) -> str | None:
         """Find which property path contains the variable reference.
 
         Args:
@@ -371,7 +372,7 @@ class TerraformGraphBuilder:
                 return key
         return None
 
-    def _write_to_graphs_db(self, graph: Dict[str, Any]):
+    def _write_to_graphs_db(self, graph: dict[str, Any]):
         """Write graph to graphs.db using XGraphStore.save_custom_graph().
 
         Converts ProvisioningNode/Edge format to XGraphStore format.
