@@ -21,9 +21,11 @@ Thank you for your understanding.
 
 # Contributing to TheAuditor
 
-**Version 1.4.2-RC1** | Developer Guidelines & Best Practices
+**Version 1.6.4-dev1** | Developer Guidelines & Best Practices
 
 > Precision engineering for security analysis - strict standards ensure reliability
+
+**Requires Python >=3.14**
 
 ---
 
@@ -44,10 +46,10 @@ Thank you for your understanding.
 
 ### Prerequisites
 
-- **Python**: 3.11+ (3.12 recommended)
+- **Python**: 3.14+ (required - uses modern type hints and PEP 695 syntax)
 - **Git**: For version control and temporal analysis
 - **Node.js**: 18+ (for JavaScript/TypeScript analysis)
-- **SQLite**: 3.35+ (usually bundled with Python)
+- **SQLite**: 3.35+ (bundled with Python 3.14+)
 - **WSL/PowerShell 7** (Windows users)
 
 ### Quick Setup
@@ -105,28 +107,29 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 C:\TheAuditor\
 ├── theauditor\                # Main package
 │   ├── __init__.py
-│   ├── cli.py                 # CLI entry point
-│   ├── commands\              # 40+ command modules
+│   ├── cli.py                 # CLI entry point (43 commands)
+│   ├── commands\              # Command modules
 │   ├── indexer\               # Core indexing (Layers 1-4)
 │   │   ├── orchestrator.py    # Layer 1
-│   │   ├── extractors\        # Layer 2
-│   │   ├── storage.py         # Layer 3
-│   │   └── database\          # Layer 4
-│   ├── rules\                 # Rule engine (52 rules)
-│   ├── taint\                 # Taint analysis
+│   │   ├── extractors\        # Layer 2 (12 language extractors)
+│   │   ├── storage\           # Layer 3 (domain-specific storage)
+│   │   ├── database\          # Layer 4 (11 mixins)
+│   │   └── schemas\           # 250 table definitions (9 domains)
+│   ├── rules\                 # Rule engine (200+ rules across 23 categories)
+│   ├── taint\                 # IFDS-based taint analysis (11 modules)
 │   ├── graph\                 # Graph analysis
 │   ├── fce.py                 # Correlation engine
 │   ├── insights\              # ML intelligence
 │   ├── planning\              # Planning system
-│   ├── utils\                 # Utilities (9 modules)
-│   └── ast_extractors\        # Stateless AST logic
+│   ├── utils\                 # Utilities
+│   └── ast_extractors\        # Stateless AST logic (28 Python modules)
 ├── tests\                     # Test suite
 │   ├── conftest.py            # Pytest fixtures
-│   ├── fixtures\              # 20+ test projects
+│   ├── fixtures\              # Test projects
 │   └── test_*.py              # Test modules
 ├── docs\                      # Documentation
 ├── .pf\                       # Working directory (gitignored)
-├── pyproject.toml             # Package configuration
+├── pyproject.toml             # Package configuration (Python >=3.14)
 ├── pytest.ini                 # Test configuration
 └── CLAUDE.md                  # Critical architecture rules
 ```
@@ -163,25 +166,26 @@ Layer 1: ORCHESTRATOR
   └─> File discovery, AST parsing, extractor selection
 
 Layer 2: EXTRACTORS (12 languages)
-  └─> Python, JavaScript, Terraform, Docker, Prisma, Rust, SQL, etc.
+  └─> Python (28 modules), JavaScript/TypeScript, Terraform, Docker, Prisma, Rust, SQL, GraphQL, GitHub Actions
 
 Layer 3: STORAGE (Handler dispatch)
-  └─> 60+ handlers mapping data types to database operations
+  └─> 100+ handlers mapping data types to database operations
 
 Layer 4: DATABASE (Multiple inheritance)
-  └─> 90+ methods across 7 domain-specific mixins
+  └─> 11 domain-specific mixins with schema-driven code generation
 ```
 
 **File References**:
-- Layer 1: `theauditor\indexer\orchestrator.py` (740 lines)
-- Layer 2: `theauditor\indexer\extractors\*.py` (5,075 lines total)
-- Layer 3: `theauditor\indexer\storage.py` (1,200+ lines)
-- Layer 4: `theauditor\indexer\database\__init__.py` + mixins (2,313 lines)
+- Layer 1: `theauditor\indexer\orchestrator.py`
+- Layer 2: `theauditor\indexer\extractors\*.py` (12 extractors)
+- Layer 3: `theauditor\indexer\storage\*.py` (4 domain modules)
+- Layer 4: `theauditor\indexer\database\*.py` (11 mixins)
+- Schemas: `theauditor\indexer\schemas\*.py` (9 domain schemas)
 
 ### Data Flow
 
 ```
-Source Files → Orchestrator → Extractor → Storage → Database → repo_index.db (108 tables)
+Source Files → Orchestrator → Extractor → Storage → Database → repo_index.db (250 tables)
                                                                       ↓
                                                           Rule Engine, Taint Analysis, etc.
                                                                       ↓
@@ -1078,8 +1082,8 @@ cursor.execute(f"SELECT * FROM refs WHERE symbol_name IN ({placeholders})", symb
 2. Update CHANGELOG.md
 3. Run full test suite
 4. Build distribution: `python -m build`
-5. Tag release: `git tag v1.4.2-RC1`
-6. Push tag: `git push origin v1.4.2-RC1`
+5. Tag release: `git tag vX.Y.Z`
+6. Push tag: `git push origin vX.Y.Z`
 7. Upload to PyPI: `twine upload dist/*`
 
 ---
@@ -1087,9 +1091,9 @@ cursor.execute(f"SELECT * FROM refs WHERE symbol_name IN ({placeholders})", symb
 ## Resources
 
 ### Documentation
-- [ARCHITECTURE_new.md](C:\Users\santa\Desktop\TheAuditor\ARCHITECTURE_new.md) - Complete system architecture
-- [HOWTOUSE_new.md](C:\Users\santa\Desktop\TheAuditor\HOWTOUSE_new.md) - All 40 commands
-- [CLAUDE.md](C:\Users\santa\Desktop\TheAuditor\CLAUDE.md) - Critical architecture rules
+- [Architecture.md](Architecture.md) - Complete system architecture
+- [HowToUse.md](HowToUse.md) - All 43 commands
+- [CLAUDE.md](CLAUDE.md) - Critical architecture rules (AI assistant context)
 
 ### External Resources
 - [Python AST Documentation](https://docs.python.org/3/library/ast.html)

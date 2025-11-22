@@ -1,8 +1,10 @@
 # TheAuditor - Complete Usage Guide
 
-**Version 1.4.2-RC1** | Comprehensive Command Reference & Workflows
+**Version 1.6.4-dev1** | Comprehensive Command Reference & Workflows
 
 > From quick start to advanced analysis - everything you need to master TheAuditor
+
+**Requires Python >=3.14**
 
 ---
 
@@ -10,7 +12,7 @@
 
 1. [Quick Start](#quick-start)
 2. [Common Workflows](#common-workflows)
-3. [Command Reference (40 Commands)](#command-reference)
+3. [Command Reference (43 Commands)](#command-reference)
 4. [Query Language & Patterns](#query-language--patterns)
 5. [Output Format & Structure](#output-format--structure)
 6. [Advanced Usage](#advanced-usage)
@@ -37,7 +39,7 @@ cat .pf\readthis\summary.json
 **Output**:
 ```
 .pf\
-├── repo_index.db          # 108-table SQLite database
+├── repo_index.db          # 250-table SQLite database (9 schema domains)
 ├── manifest.json          # File inventory
 ├── workset.json          # Changed files
 ├── raw\                   # Immutable tool output
@@ -265,12 +267,12 @@ aud index --no-archive
 aud full --offline --quiet
 ```
 
-**Note**: The database tables (108 tables) are still created the same way, but now
-via `aud full` which ensures all phases populate their respective tables correctly
+**Note**: The database (250 tables across 9 schema domains) is created via `aud full`
+which ensures all phases populate their respective tables correctly
 - Medium (20K LOC): ~60 seconds
 - Large (100K LOC): ~180 seconds
 
-**Output**: `.pf\repo_index.db` (91MB typical)
+**Output**: `.pf\repo_index.db` (~180MB typical)
 
 ---
 
@@ -1981,8 +1983,8 @@ auth_?
 ```
 C:\Your\Project\
 ├── .pf\                              # TheAuditor working directory
-│   ├── repo_index.db                 # 108-table SQLite (91MB typical)
-│   ├── graphs.db                     # Graph structures (79MB, optional)
+│   ├── repo_index.db                 # 250-table SQLite (~180MB)
+│   ├── graphs.db                     # Graph structures (~130MB, optional)
 │   ├── planning.db                   # Planning system (separate)
 │   ├── manifest.json                 # File inventory
 │   ├── workset.json                  # Changed files
@@ -2285,6 +2287,6 @@ fi
 
 ---
 
-**For comprehensive architecture details, see [ARCHITECTURE_new.md](C:\Users\santa\Desktop\TheAuditor\ARCHITECTURE_new.md)**
+**For comprehensive architecture details, see [Architecture.md](Architecture.md)**
 
-**For development guidelines, see [CONTRIBUTING_new.md](C:\Users\santa\Desktop\TheAuditor\CONTRIBUTING_new.md)**
+**For development guidelines, see [Contributing.md](Contributing.md)**

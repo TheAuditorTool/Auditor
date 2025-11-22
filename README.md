@@ -1,8 +1,10 @@
 # TheAuditor
 
-**Version 1.6.4** | Offline-First AI-Centric SAST & Code Intelligence Platform
+**Version 1.6.4-dev1** | Offline-First AI-Centric SAST & Code Intelligence Platform
 
 > Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python and JavaScript/TypeScript projects.
+
+**Requires Python >=3.14**
 
 ---
 
@@ -213,15 +215,18 @@ Detects misconfigurations in cloud resource definitions before deployment.
 
 ### Two-Database System
 
-**repo_index.db** (91MB, regenerated fresh every `aud index`):
-- 108 normalized relational tables
-- Core: symbols, assignments, function_call_args, CFG blocks
-- Python: ORM models, routes, decorators, async, pytest
-- JavaScript: React/Vue components, TypeScript types, Prisma
-- Infrastructure: Docker, Terraform, CDK, GitHub Actions
-- Security: SQL queries, JWT patterns, env vars
+**repo_index.db** (~180MB, regenerated fresh every `aud full`):
+- 250 normalized relational tables across 9 schema domains
+- Core (24 tables): symbols, assignments, function_call_args, CFG blocks
+- Python (59 tables): ORM models, routes, decorators, async, pytest, Django, Flask, FastAPI
+- JavaScript/Node (26 tables): React/Vue components, TypeScript types, Prisma, Angular
+- Infrastructure (18 tables): Docker, Terraform, CDK, GitHub Actions
+- GraphQL (8 tables): Schema analysis, resolvers, execution edges
+- Security (7 tables): SQL queries, JWT patterns, env vars, taint sources/sinks
+- Frameworks (5 tables): Cross-language ORM relationships, API endpoints
+- Planning (9 tables): Task tracking, verification specs, checkpoints
 
-**graphs.db** (79MB, optional):
+**graphs.db** (~130MB, optional):
 - Pre-computed graph structures built from repo_index.db
 - Used only by graph commands (not core analysis)
 - Call graphs, import graphs, data flow graphs
@@ -247,13 +252,13 @@ Layer 1: ORCHESTRATOR
   └─> Coordinates file discovery, AST parsing, extractor selection
 
 Layer 2: EXTRACTORS (12 languages)
-  └─> Python, JavaScript, Terraform, Docker, Prisma, Rust, SQL, GitHub Actions
+  └─> Python (28 specialized modules), JavaScript/TypeScript, Terraform, Docker, Prisma, Rust, SQL, GitHub Actions, GraphQL
 
 Layer 3: STORAGE (Handler dispatch)
-  └─> 60+ handlers mapping data types to database operations
+  └─> 100+ handlers mapping data types to database operations
 
 Layer 4: DATABASE (Multiple inheritance)
-  └─> 90+ methods across 7 domain-specific mixins
+  └─> 11 domain-specific mixins with schema-driven code generation
 ```
 
 **Performance**: 30-60s indexing for 100K LOC, 10-30s analysis.
@@ -264,11 +269,12 @@ Layer 4: DATABASE (Multiple inheritance)
 
 | Language | Frameworks | Tables | Key Features |
 |----------|-----------|--------|--------------|
-| **Python** | Django, Flask, FastAPI, SQLAlchemy, Pydantic | 34 | ORM models, routes, decorators, async, pytest |
-| **JavaScript** | React, Vue, Express, Next.js, Prisma, Sequelize | 17 | Components, hooks, TypeScript types, JSX |
+| **Python** | Django, Flask, FastAPI, SQLAlchemy, Pydantic, Celery, Marshmallow, DRF, WTForms | 59 | ORM models, routes, decorators, async, pytest, signals, middleware, validators |
+| **JavaScript/TypeScript** | React, Vue, Angular, Express, Next.js, Prisma, Sequelize, BullMQ | 26 | Components, hooks, TypeScript types, JSX, job queues |
+| **GraphQL** | Apollo, graphql-core | 8 | Schema analysis, resolvers, execution edges, field mapping |
 | **Terraform** | All providers | 5 | Resources, variables, outputs, data sources |
 | **Docker** | Compose, Dockerfile | 8 | Images, services, env vars, healthchecks |
-| **AWS CDK** | Python CDK | 3 | Constructs, properties, IAM policies |
+| **AWS CDK** | Python + TypeScript CDK | 3 | Constructs, properties, IAM policies |
 | **GitHub Actions** | Workflows | 7 | Jobs, steps, permissions, dependencies |
 | **Rust** | Generic | 2 | Functions, imports (tree-sitter) |
 | **SQL** | DDL | 1 | Tables, indexes, views |
@@ -278,7 +284,7 @@ Layer 4: DATABASE (Multiple inheritance)
 ## Installation
 
 ### Requirements
-- Python 3.11+
+- **Python 3.14+** (required - uses modern type hints and PEP 695 syntax)
 - Git (for temporal analysis)
 - Node.js (for JavaScript analysis)
 
@@ -468,23 +474,26 @@ aud index --root C:\Users\YourName\Desktop\TheAuditor
 
 ## Contributing
 
-See [CONTRIBUTING_new.md](C:\Users\santa\Desktop\TheAuditor\CONTRIBUTING_new.md) for development setup, coding standards, and testing guidelines.
+See [Contributing.md](Contributing.md) for development setup, coding standards, and testing guidelines.
+
+**Note**: Contributions are temporarily paused while legal entity formation is completed. See Contributing.md for details.
 
 ---
 
 ## Documentation
 
-- **Indexer Architecture**: [docs/INDEXER_ARCHITECTURE.md](docs/INDEXER_ARCHITECTURE.md) - 4-layer pipeline, extractors, storage
-- **Taint Engine V3**: [docs/TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) - Flow resolver, ORM expansion, sanitizers
+- **Architecture**: [Architecture.md](Architecture.md) - Complete system architecture and design
+- **How to Use**: [HowToUse.md](HowToUse.md) - Comprehensive command reference (43 commands)
+- **Contributing**: [Contributing.md](Contributing.md) - Development guidelines
+- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Coding standards and conventions (AI assistant context)
+- **Taint Engine**: [docs/TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) - IFDS-based flow analysis
 - **CDK Analysis**: [docs/CDK_ARCHITECTURE.md](docs/CDK_ARCHITECTURE.md) - AWS CDK security scanning
-- **ML & Git Analysis**: [docs/ML_AND_GIT_TEMPORAL_ANALYSIS.md](docs/ML_AND_GIT_TEMPORAL_ANALYSIS.md) - Risk prediction
-- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Coding standards and conventions
 
 ---
 
 ## License
 
-AGPL-3.0 - See [LICENSE](C:\Users\santa\Desktop\TheAuditor\LICENSE) file for details.
+AGPL-3.0 - See [LICENSE](LICENSE) file for details.
 
 ---
 
@@ -501,7 +510,10 @@ Built with:
 
 ## Roadmap
 
-- [ ] TypeScript/JavaScript CDK support
+- [x] TypeScript/JavaScript CDK support (completed in v1.6.4)
+- [x] GraphQL analysis and security rules (completed in v1.6.4)
+- [x] Python framework parity (Django, Flask, FastAPI, Celery) (completed in v1.6.4)
+- [x] IFDS-based taint analysis with field sensitivity (completed in v1.6.4)
 - [ ] Real-time analysis (file watcher mode)
 - [ ] VS Code extension
 - [ ] GitHub Action for CI/CD
