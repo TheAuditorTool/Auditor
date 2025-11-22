@@ -145,8 +145,23 @@ function extractImports(sourceFile, ts) {
 function extractEnvVarUsage(sourceFile, ts, scopeMap) {
     const usages = [];
 
+    // CRITICAL FIX: Idempotent traversal to prevent duplicate entries
+    // Track visited nodes by (line, column, kind) to avoid processing same node multiple times
+    // Bug: AST traversal visits same node multiple times causing UNIQUE constraint violations
+    const visitedNodes = new Set();
+
     function traverse(node) {
         if (!node) return;
+
+        // CRITICAL FIX: Idempotency check - prevent processing same node twice
+        const pos = node.getStart ? node.getStart(sourceFile) : node.pos;
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(pos);
+        const nodeId = `${line}:${character}:${node.kind}`;
+        if (visitedNodes.has(nodeId)) {
+            return;  // Already processed this node
+        }
+        visitedNodes.add(nodeId);
+
         const kind = ts.SyntaxKind[node.kind];
 
         // Detect: process.env.VAR_NAME (PropertyAccessExpression)
