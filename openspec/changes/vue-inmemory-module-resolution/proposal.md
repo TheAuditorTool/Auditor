@@ -1,212 +1,270 @@
 # Vue In-Memory Compilation + Node Module Resolution
 
-**Status**: 🔴 PROPOSAL - Awaiting Architect approval
+**Status**: PROPOSAL - Awaiting Architect approval
 
-**Parent Proposal**: `performance-revolution-now` (TIER 1 Tasks 3 & 4)
+**Priority**: P1 - Performance & Accuracy
 
-**Assigned to**: AI #3 (Sonnet recommended - medium complexity)
+**Assigned to**: AI Coder (Sonnet/Opus - medium complexity)
 
-**Timeline**: 3-4 days (2-3 days implementation + 1 day testing)
+**Estimated Effort**: 3-5 days (implementation + testing)
 
-**Impact**: 🟡 **MEDIUM** - Vue: 6-10 seconds saved per 100 files + Module resolution: 40-60% accuracy improvement
+**Impact**: MEDIUM-HIGH
+- Vue: 60-80% speedup (35-95ms -> 10-20ms per .vue file)
+- Module resolution: 40-60% -> 80-90% accuracy (critical for cross-file taint)
 
 ---
 
 ## Why
 
-### **Problem 1: Vue SFC Compilation Disk I/O Overhead**
+### Problem 1: Vue SFC Disk I/O Overhead
 
-Vue Single File Component (SFC) compilation currently writes to disk, compiles, reads back, then deletes:
+Vue Single File Component (SFC) compilation currently performs 3 disk operations per file:
 
 ```javascript
-// BEFORE (3 disk operations per .vue file):
-fs.writeFileSync(tempPath, vueContent);           // 35ms
-const compiled = compileVueSFC(tempPath);        // 50ms
-const result = fs.readFileSync(tempPath);        // 10ms
-fs.unlinkSync(tempPath);                         // (cleanup)
-// Total: 35-95ms per file (disk I/O dominates)
+// CURRENT FLOW (batch_templates.js:119-175):
+// 1. Write compiled script to temp file
+const tempFilePath = createVueTempPath(scopeId, langHint);
+fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');  // LINE 147
+
+// 2. TypeScript program uses temp file path
+fileEntry.absolute = vueMeta.tempFilePath;  // LINE 258-259
+
+// 3. Cleanup temp file after processing
+safeUnlink(fileInfo.cleanup);  // LINE 542-544
 ```
 
-**Impact**: On 100 Vue files → 3.5-9.5 seconds wasted on unnecessary disk I/O
+**Measured Impact**:
+- Disk write: ~15-35ms (SSD) / ~50-100ms (HDD)
+- Disk read by TypeScript: ~5-15ms
+- Total overhead: 20-50ms per .vue file
+- On 100 Vue files: 2-5 seconds wasted
 
-### **Problem 2: Broken Import Resolution**
+### Problem 2: Broken Import Resolution
 
-JavaScript/TypeScript import resolution is broken, resolving only 40-60% of imports:
+JavaScript/TypeScript import resolution extracts only the basename:
 
 ```python
-# BEFORE (javascript.py:748-768):
-imp_path.split('/')[-1]  # Only gets basename, misses:
-# - Relative imports (./utils/validation)
-# - Path mappings (@/components)
-# - node_modules (lodash, react)
-# - index.js/ts resolution
+# CURRENT FLOW (javascript.py:800-803):
+module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
+if module_name:
+    result['resolved_imports'][module_name] = imp_path
 ```
 
-**Impact**: 40-60% of imports unresolved → cross-file taint analysis fails → false negatives (missed vulnerabilities)
+**What this misses**:
+1. **Relative imports**: `./utils/validation` -> only gets `validation`
+2. **Path mappings**: `@/components/Button` -> only gets `Button`
+3. **Scoped packages**: `@vue/reactivity` -> only gets `reactivity`
+4. **Index resolution**: `./utils` (meaning `./utils/index.ts`) -> gets `utils`
+
+**Impact**: 40-60% of imports unresolved -> cross-file taint analysis fails -> false negatives
 
 ---
 
 ## What Changes
 
-### **Task 3: Vue In-Memory Compilation** (4-6 hours)
+### Task 3: Vue In-Memory Compilation
 
-**File**: `theauditor/extractors/js/batch_templates.js:119-175`
+**Files Modified**:
+- `theauditor/ast_extractors/javascript/batch_templates.js` (lines 119-175, 646-700)
 
-**Change**: Pass compiled code directly to TypeScript API (no disk writes)
+**Change**: Pass compiled Vue script content directly to TypeScript API without disk I/O
 
 ```javascript
 // BEFORE (3 disk operations):
-fs.writeFileSync(tempPath, compiled);
-const result = ts.createSourceFile(tempPath, ...);
-fs.unlinkSync(tempPath);
+const tempFilePath = createVueTempPath(scopeId, langHint);
+fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
+// ... TypeScript reads from disk ...
+safeUnlink(fileInfo.cleanup);
 
-// AFTER (in-memory):
-const compiled = compileVueSFC(vueContent);  // In-memory compilation
-const result = ts.createSourceFile(
-    `/virtual/${scopeId}.js`,  // Virtual path
-    compiled.script,           // In-memory content
-    ts.ScriptTarget.Latest
+// AFTER (0 disk operations):
+// Option A: Use TypeScript's createSourceFile directly
+const virtualPath = `/virtual/vue_${scopeId}.${isTs ? 'ts' : 'js'}`;
+const sourceFile = ts.createSourceFile(
+    virtualPath,
+    compiledScript.content,  // In-memory content
+    ts.ScriptTarget.Latest,
+    true  // setParentNodes
 );
+
+// Option B: Use ts.createProgram with custom CompilerHost
+const customHost = ts.createCompilerHost(compilerOptions);
+customHost.readFile = (fileName) => {
+    if (fileName === virtualPath) {
+        return compiledScript.content;  // Return in-memory content
+    }
+    return ts.sys.readFile(fileName);  // Fallback to disk for non-Vue
+};
 ```
 
-**Impact**: 35-95ms → 10-20ms per .vue file (60-80% faster)
+**Decision Required**: Option A (simpler, single file) vs Option B (full program context)
 
-### **Task 4: Node Module Resolution** (1-2 weeks)
+### Task 4: Node Module Resolution
 
-**File**: `theauditor/indexer/extractors/javascript.py:748-768`
+**Files Modified**:
+- `theauditor/indexer/extractors/javascript.py` (lines 784-804)
 
-**Change**: Implement proper TypeScript module resolution algorithm
+**Change**: Implement proper TypeScript-style module resolution algorithm
 
 ```python
-# BEFORE (basename only):
-target = imp_path.split('/')[-1]  # 40-60% resolution rate
-
 # AFTER (full resolution):
-def resolve_import(import_path, from_file):
-    # 1. Relative imports (./foo, ../bar)
+def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
+    """
+    Resolve import path following TypeScript module resolution.
+
+    Resolution order (per TypeScript spec):
+    1. Relative imports (./foo, ../bar)
+    2. Path mappings from tsconfig.json (@/components, ~/utils)
+    3. node_modules lookup (walk up directory tree)
+    4. Index file resolution (./utils -> ./utils/index.ts)
+    """
+
+    # 1. Relative imports
     if import_path.startswith('.'):
-        return resolve_relative(import_path, from_file)
+        return _resolve_relative(import_path, from_file)
 
-    # 2. Path mappings (@/components → src/components)
-    if '@' in import_path or '~' in import_path:
-        return resolve_path_mapping(import_path, tsconfig)
+    # 2. Path mappings (requires tsconfig.json parsing)
+    if _is_path_mapped(import_path, project_root):
+        return _resolve_path_mapping(import_path, project_root)
 
-    # 3. node_modules lookup
-    return resolve_node_modules(import_path, from_file)
+    # 3. node_modules
+    return _resolve_node_modules(import_path, from_file)
 ```
 
-**Impact**: 40-60% → 80-90% import resolution rate (critical for cross-file taint)
+**Sub-functions required**:
+1. `_resolve_relative()` - Handle `./foo`, `../bar`, extensions, index files
+2. `_resolve_path_mapping()` - Parse tsconfig.json paths field
+3. `_resolve_node_modules()` - Walk up tree, check package.json exports
+4. `_resolve_extensions()` - Try `.ts`, `.tsx`, `.js`, `.jsx`, `/index.ts`
 
 ---
 
 ## Impact
 
-### **Affected Code**
+### Affected Code
 
 **Modified Files**:
-- `theauditor/extractors/js/batch_templates.js` - Vue compilation (50 lines modified)
-- `theauditor/indexer/extractors/javascript.py:748-768` - Module resolution (200 lines modified)
+| File | Lines | Change Type |
+|------|-------|-------------|
+| `theauditor/ast_extractors/javascript/batch_templates.js` | 119-175, 646-700 | Vue in-memory |
+| `theauditor/indexer/extractors/javascript.py` | 784-804 | Module resolution |
 
 **Read-Only** (for understanding):
-- `theauditor/extractors/js/js_helper_templates.py` - Template system
-- `theauditor/extractors/js/typescript_impl.js` - TypeScript API
+| File | Purpose |
+|------|---------|
+| `theauditor/ast_extractors/javascript/core_language.js` | Extraction functions |
+| `theauditor/ast_extractors/javascript/framework_extractors.js` | Vue extractors |
+| `theauditor/indexer/database.py` | Database storage |
 
-### **Breaking Changes**
+### Breaking Changes
 
-**None** - External API preserved:
+**NONE** - All changes are internal optimizations:
 - Vue extraction output format unchanged
-- Import resolution format unchanged (just more imports resolved)
+- Import resolution format unchanged (refs table)
 - Database schema unchanged
+- CLI interface unchanged
 
-### **Coordination Point with AI #4**
+### Performance Targets
 
-⚠️ **CONFLICT**: Both AI #3 and AI #4 touch `javascript.py`
-- **AI #3**: Lines 748-768 (module resolution)
-- **AI #4**: Line 1288 (parameters normalization)
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Vue compilation (per file) | 35-95ms | 10-20ms | 60-80% faster |
+| Vue compilation (100 files) | 6-9s | 1-2s | 70% faster |
+| Import resolution rate | 40-60% | 80-90% | 40-50% more imports |
+| Cross-file taint flows | Limited | Enabled | Qualitative |
 
-**Merge Strategy**: Apply both changes, different line ranges (safe)
+### Risk Assessment
 
-### **Performance Targets**
-
-**Vue Compilation**:
-- Before: 9 seconds per 100 .vue files
-- After: 3 seconds per 100 .vue files
-- Speedup: 3x (70% improvement)
-
-**Module Resolution**:
-- Before: 40-60% imports resolved
-- After: 80-90% imports resolved
-- Improvement: 40-60% more imports (critical for taint accuracy)
-
-### **Risk Assessment**
-
-**Complexity**: 🟡 **MEDIUM** - Requires JavaScript/TypeScript knowledge
+**Complexity**: MEDIUM
+- Vue: Requires understanding TypeScript API (CompilerHost pattern)
+- Module Resolution: Requires understanding Node.js resolution algorithm
 
 **Risks**:
-1. **Vue**: In-memory compilation might miss edge cases (script setup, TypeScript)
-2. **Module Resolution**: TypeScript algorithm is complex (100+ edge cases)
-
-**Mitigation**:
-- Test on 10+ Vue fixture projects (Vue 2, Vue 3, TypeScript)
-- Test module resolution on diverse projects (monorepos, path mappings, etc.)
+| Risk | Mitigation |
+|------|------------|
+| Vue edge cases (`<script setup>`, TypeScript) | Test on 10+ fixture projects |
+| TypeScript version compatibility | Test on TS 4.x and 5.x |
+| Module resolution edge cases | Test on diverse projects (monorepos, path mappings) |
+| Performance regression (CPU vs disk trade-off) | Benchmark before/after |
 
 ---
 
 ## Dependencies
 
 **Prerequisites**:
-- ✅ TypeScript API available (`typescript_impl.js`)
-- ✅ Vue SFC compiler available
+- TypeScript API available (`typescript_impl.js`)
+- Vue SFC compiler available (`@vue/compiler-sfc`)
+- Both already installed via `aud setup-ai`
 
 **Required Reading** (BEFORE coding):
-1. `performance-revolution-now/INVESTIGATION_REPORT.md` sections 4.1-4.2 (JavaScript findings)
-2. `performance-revolution-now/design.md` sections 3.1-3.2 (Vue + module resolution design)
-3. This proposal's `tasks.md` sections 3.1-3.5 (Vue) and 4.1-4.7 (module resolution)
-4. `teamsop.md` v4.20 (Prime Directive verification protocols)
+1. This proposal's `design.md` - Technical architecture
+2. This proposal's `tasks.md` - Implementation checklist
+3. This proposal's `verification.md` - Confirmed findings
+4. `TEAMSOP.md` v4.20 - Prime Directive protocols
+5. TypeScript `CompilerHost` documentation
+6. Node.js module resolution algorithm
 
-**Blocking**: None - Can start immediately after approval (TIER 0 not required)
+**Blocking**: None - Can start after architect approval
 
-**Blocked by this**: None - Can run in parallel with other proposals
+**Blocked by this**: None - Can run in parallel with other changes
 
 ---
 
 ## Testing Strategy
 
-### **Vue Compilation Testing**
+### Vue Compilation Testing
 
-1. **Fixture validation**: Test on 10 Vue projects
-   - Vue 2 vs Vue 3 syntax
-   - `<script setup>` with TypeScript
+1. **Fixture projects**: Test on 10+ Vue projects
+   - Vue 2 Options API
+   - Vue 3 Composition API
+   - `<script setup>` syntax
+   - TypeScript in Vue files
    - Empty `<script>` blocks
    - Complex `<template>` with directives
-2. **Output comparison**: Verify extraction output matches original (byte-for-byte)
-3. **Performance measurement**: Measure speedup on 100 .vue files
 
-### **Module Resolution Testing**
+2. **Output validation**: Byte-for-byte comparison
+   - Run extraction before/after
+   - Compare all extracted data fields
+   - Ensure no regressions
+
+3. **Performance measurement**:
+   - Benchmark on 100 .vue files
+   - Measure wall-clock time
+   - Profile CPU vs disk time
+
+### Module Resolution Testing
 
 1. **Resolution rate measurement**:
-   - Before: Count % of imports resolved
-   - After: Count % of imports resolved
-   - Target: 40-60% improvement
+   - Count resolved vs unresolved imports before/after
+   - Target: 40% improvement (40-60% -> 80-90%)
+
 2. **Edge cases**:
-   - Relative imports (./foo, ../bar)
-   - Path mappings (@/components, ~/utils)
-   - node_modules (lodash, @types/react)
-   - Scoped packages (@vue/reactivity)
-   - index.js/ts resolution
-3. **Integration testing**: Run taint analysis, verify cross-file flows detected
+   | Import Type | Example | Expected Resolution |
+   |------------|---------|---------------------|
+   | Relative | `./utils/validation` | `src/utils/validation.ts` |
+   | Parent | `../config` | `src/config.ts` |
+   | Path mapping | `@/components/Button` | `src/components/Button.tsx` |
+   | Scoped package | `@vue/reactivity` | `node_modules/@vue/reactivity/...` |
+   | Bare import | `lodash` | `node_modules/lodash/...` |
+   | Index resolution | `./utils` | `./utils/index.ts` |
+
+3. **Integration testing**:
+   - Run taint analysis on test project
+   - Verify cross-file flows detected
+   - Compare before/after findings
 
 ---
 
 ## Success Criteria
 
-**MUST MEET ALL** before merging:
+**MUST MEET ALL before merging**:
 
-1. ✅ Vue compilation: 9s → ≤3s per 100 files (3x+ speedup)
-2. ✅ Module resolution: 40-60% → ≥80% resolved
-3. ✅ All Vue extraction tests pass (zero regressions)
-4. ✅ Fixtures byte-for-byte identical (Vue extraction output)
-5. ✅ Cross-file taint analysis works (test on known multi-file vulnerabilities)
+- [ ] Vue compilation: Disk I/O eliminated (0 temp files)
+- [ ] Vue compilation: 60%+ speedup on 100-file benchmark
+- [ ] Module resolution: 80%+ imports resolved (measured)
+- [ ] All Vue extraction tests pass (zero regressions)
+- [ ] All existing tests pass (`pytest tests/ -v`)
+- [ ] Cross-file taint analysis works (test on multi-file vulnerability)
+- [ ] No breaking changes to CLI or database schema
 
 ---
 
@@ -214,39 +272,29 @@ def resolve_import(import_path, from_file):
 
 **Stage 1**: Proposal Review (Current Stage)
 - [ ] Architect reviews proposal
-- [ ] Architect approves scope and timeline
+- [ ] Architect approves scope and approach
 
 **Stage 2**: Verification Phase (Before Implementation)
-- [ ] Coder reads INVESTIGATION_REPORT.md sections 4.1-4.2
-- [ ] Coder reads design.md sections 3.1-3.2
-- [ ] Coder completes verification protocol (see `verification.md`)
+- [ ] Coder reads design.md
+- [ ] Coder reads tasks.md
+- [ ] Coder completes verification protocol
 - [ ] Architect approves verification results
 
 **Stage 3**: Implementation
-- [ ] Vue in-memory compilation implemented (tasks 3.1-3.5)
-- [ ] Module resolution implemented (tasks 4.1-4.7)
+- [ ] Task 3 implemented (Vue in-memory)
+- [ ] Task 4 implemented (module resolution)
 - [ ] All tests passing
-- [ ] Coordinate merge with AI #4 on javascript.py
+- [ ] Performance benchmarks validated
 
 **Stage 4**: Deployment
-- [ ] Performance benchmarks validated
 - [ ] Architect approves deployment
 - [ ] Merged to main
 
 ---
 
-## Related Changes
+## Document History
 
-**Parent**: `performance-revolution-now` (PAUSED AND SPLIT)
-
-**Siblings** (can run in parallel):
-- `taint-analysis-spatial-indexes` (AI #1, TIER 0) - Zero file conflicts
-- `fix-python-ast-orchestrator` (AI #2, TIER 0) - Zero file conflicts
-- `fce-json-normalization` (AI #4, TIER 1.5) - 1 file conflict (coordinate merge)
-- `database-indexes-cleanup` (TIER 2) - Zero file conflicts
-
-**Merge Strategy**: Coordinate with AI #4 on `javascript.py` (lines 748-768 vs line 1288)
-
----
-
-**Next Step**: Architect reviews and approves/rejects/modifies this proposal
+| Date | Version | Changes |
+|------|---------|---------|
+| 2025-11-24 | 2.0 | Complete rewrite with verified paths/line numbers |
+| Original | 1.0 | Initial proposal (OBSOLETE - wrong paths) |
