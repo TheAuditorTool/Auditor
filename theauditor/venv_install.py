@@ -179,27 +179,25 @@ def _inject_agents_md(target_dir: Path) -> None:
     TRIGGER_END = "<!-- THEAUDITOR:END -->"
 
     TRIGGER_BLOCK = f"""{TRIGGER_START}
-# TheAuditor Planning Agent System
+# TheAuditor Agent System
 
-When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
+For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
 
-**Agent Triggers:**
-- "refactor", "split", "extract", "merge", "modularize" => @/.theauditor_tools/agents/refactor.md
-- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.theauditor_tools/agents/security.md
-- "plan", "architecture", "design", "organize", "structure", "approach" => @/.theauditor_tools/agents/planning.md
-- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.theauditor_tools/agents/dataflow.md
+**Quick Route:**
+| Intent | Agent | Triggers |
+|--------|-------|----------|
+| Plan changes | planning.md | plan, architecture, design, structure |
+| Refactor code | refactor.md | refactor, split, extract, modularize |
+| Security audit | security.md | security, vulnerability, XSS, SQLi, CSRF |
+| Trace dataflow | dataflow.md | dataflow, trace, source, sink |
 
-**Agent Purpose:**
-These agents enforce query-driven workflows using TheAuditor's database:
-- NO file reading - use `aud query`, `aud blueprint`, `aud context`
-- NO guessing patterns - follow detected precedents from blueprint
-- NO assuming conventions - match detected naming/frameworks
-- MANDATORY sequence: blueprint => query => synthesis
-- ALL recommendations cite database query results
+**The One Rule:** Database first. Always run `aud blueprint --structure` before planning.
 
-**Agent Files Location:**
-Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
-Run `aud init` to install the venv if agents are missing.
+**Agent Locations:**
+- Full protocols: .auditor_venv/.theauditor_tools/agents/*.md
+- Slash commands: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow
+
+**Setup:** Run `aud setup-ai --target . --sync` to reinstall agents.
 
 {TRIGGER_END}
 """
@@ -313,7 +311,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
         raise RuntimeError(
             f"Venv Python not found: {python_exe}\n"
             f"The venv appears to be broken. Try running with --sync flag to recreate it:\n"
-            f"  aud setup-claude --target . --sync"
+            f"  aud setup-ai --target . --sync"
         )
     
     # Check if already installed

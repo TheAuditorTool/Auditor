@@ -563,7 +563,7 @@ def run_full_pipeline(
             else:
                 # No sandbox found - this is a setup error
                 log_output(f"[ERROR] Sandbox not found at {venv_aud}")
-                log_output(f"[ERROR] Run 'aud setup-claude --target .' to create sandbox")
+                log_output(f"[ERROR] Run 'aud setup-ai --target .' to create sandbox")
                 # Still try with system Python as emergency fallback (will likely fail)
                 command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
 

@@ -31,7 +31,7 @@ class VerboseGroup(click.Group):
         'PROJECT_SETUP': {
             'title': 'PROJECT SETUP',
             'description': 'Initial configuration and environment setup',
-            'commands': ['setup-ai', 'setup-claude', 'init-js', 'init-config'],  # 'init' deprecated (hidden)
+            'commands': ['setup-ai', 'init-js', 'init-config'],  # 'init' and 'setup-claude' deprecated (hidden)
             'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
         },
         'CORE_ANALYSIS': {
@@ -294,7 +294,14 @@ cli.add_command(impact)
 cli.add_command(taint_analyze)
 cli.add_command(boundaries)
 cli.add_command(setup_ai)
-cli.add_command(setup_ai, name="setup-claude")  # Hidden legacy alias
+# Legacy alias - create hidden wrapper
+@click.command("setup-claude", hidden=True)
+@click.pass_context
+def setup_claude_alias(ctx, **kwargs):
+    """Deprecated: Use setup-ai instead."""
+    ctx.invoke(setup_ai, **kwargs)
+setup_claude_alias.params = setup_ai.params  # Copy params from original
+cli.add_command(setup_claude_alias)
 cli.add_command(manual)
 
 # Register additional migrated commands
