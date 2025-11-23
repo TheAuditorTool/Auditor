@@ -1476,6 +1476,497 @@ class CodeQueryEngine:
 
         return results
 
+    # ========================================================================
+    # EXPLAIN COMMAND METHODS (Phase 2 - aud explain support)
+    # ========================================================================
+
+    # Whitelist of actual React hooks (not method calls like userService.getUsers)
+    REACT_HOOK_NAMES = {
+        'useState', 'useEffect', 'useCallback', 'useMemo', 'useRef',
+        'useContext', 'useReducer', 'useLayoutEffect', 'useImperativeHandle',
+        'useDebugValue', 'useTransition', 'useDeferredValue', 'useId',
+        'useSyncExternalStore', 'useInsertionEffect',
+        # Common custom hook patterns (start with 'use' + PascalCase)
+        'useAuth', 'useForm', 'useQuery', 'useMutation', 'useSelector',
+        'useDispatch', 'useNavigate', 'useParams', 'useLocation', 'useHistory',
+        'useRouter', 'useStore', 'useTheme', 'useModal', 'useToast',
+    }
+
+    def get_file_symbols(self, file_path: str, limit: int = 50) -> list[dict]:
+        """Get all symbols defined in a file.
+
+        Args:
+            file_path: File path (partial match supported)
+            limit: Max results
+
+        Returns:
+            List of {name, type, line, end_line, signature, path} dicts
+        """
+        cursor = self.repo_db.cursor()
+        results = []
+
+        for table in ['symbols', 'symbols_jsx']:
+            try:
+                cursor.execute(f"""
+                    SELECT name, type, line, end_line, type_annotation, path
+                    FROM {table}
+                    WHERE path LIKE ?
+                    ORDER BY line
+                    LIMIT ?
+                """, (f"%{file_path}", limit - len(results)))
+
+                for row in cursor.fetchall():
+                    results.append({
+                        'name': row['name'],
+                        'type': row['type'],
+                        'line': row['line'],
+                        'end_line': row['end_line'] or row['line'],
+                        'signature': row['type_annotation'],
+                        'path': row['path'],
+                    })
+            except sqlite3.OperationalError:
+                continue
+
+        return results[:limit]
+
+    def get_file_hooks(self, file_path: str) -> list[dict]:
+        """Get React/Vue hooks used in a file.
+
+        IMPORTANT: Filters react_hooks table which contains BOTH hooks AND method calls.
+        Only returns actual React hooks (useState, useEffect, etc.) or custom hooks
+        that follow the useXxx naming convention.
+
+        Args:
+            file_path: File path (partial match supported)
+
+        Returns:
+            List of {hook_name, line} dicts
+        """
+        cursor = self.repo_db.cursor()
+        results = []
+
+        # Try react_hooks table first
+        try:
+            cursor.execute("""
+                SELECT DISTINCT hook_name, line
+                FROM react_hooks
+                WHERE file LIKE ?
+                ORDER BY line
+            """, (f"%{file_path}",))
+
+            for row in cursor.fetchall():
+                hook = row['hook_name']
+                # Filter: only actual React hooks
+                # 1. In explicit whitelist OR
+                # 2. Starts with 'use' + uppercase letter (custom hook convention)
+                is_known_hook = hook in self.REACT_HOOK_NAMES
+                is_custom_hook = (
+                    hook.startswith('use') and
+                    len(hook) > 3 and
+                    hook[3].isupper()
+                )
+                if is_known_hook or is_custom_hook:
+                    results.append({
+                        'hook_name': hook,
+                        'line': row['line'],
+                    })
+        except sqlite3.OperationalError:
+            pass
+
+        # Also try vue_hooks if it exists
+        try:
+            cursor.execute("""
+                SELECT DISTINCT hook_name, line
+                FROM vue_hooks
+                WHERE file LIKE ?
+                ORDER BY line
+            """, (f"%{file_path}",))
+
+            for row in cursor.fetchall():
+                results.append({
+                    'hook_name': row['hook_name'],
+                    'line': row['line'],
+                })
+        except sqlite3.OperationalError:
+            pass
+
+        return results
+
+    def get_file_imports(self, file_path: str, limit: int = 50) -> list[dict]:
+        """Get imports declared in a file.
+
+        Uses refs table for what THIS file imports.
+
+        Args:
+            file_path: File path (partial match)
+            limit: Max results
+
+        Returns:
+            List of {module, kind, line} dicts
+        """
+        cursor = self.repo_db.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT value, kind, line
+                FROM refs
+                WHERE src LIKE ?
+                ORDER BY line
+                LIMIT ?
+            """, (f"%{file_path}", limit))
+
+            return [
+                {'module': row['value'], 'kind': row['kind'], 'line': row['line']}
+                for row in cursor.fetchall()
+            ]
+        except sqlite3.OperationalError:
+            return []
+
+    def get_file_importers(self, file_path: str, limit: int = 50) -> list[dict]:
+        """Get files that import this file.
+
+        Uses edges table in graphs.db with graph_type='import'.
+
+        Args:
+            file_path: File path (partial match)
+            limit: Max results
+
+        Returns:
+            List of {source_file, type, line} dicts
+        """
+        if not self.graph_db:
+            return []
+
+        cursor = self.graph_db.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT source, type, line
+                FROM edges
+                WHERE target LIKE ? AND graph_type = 'import'
+                ORDER BY source
+                LIMIT ?
+            """, (f"%{file_path}%", limit))
+
+            return [
+                {'source_file': row['source'], 'type': row['type'], 'line': row['line'] or 0}
+                for row in cursor.fetchall()
+            ]
+        except sqlite3.OperationalError:
+            return []
+
+    def get_file_outgoing_calls(self, file_path: str, limit: int = 50) -> list[dict]:
+        """Get function calls made FROM this file.
+
+        Args:
+            file_path: File path (partial match)
+            limit: Max results
+
+        Returns:
+            List of {callee_function, line, arguments, caller_function, file} dicts
+        """
+        cursor = self.repo_db.cursor()
+        results = []
+
+        for table in ['function_call_args', 'function_call_args_jsx']:
+            try:
+                cursor.execute(f"""
+                    SELECT callee_function, line, argument_expr, caller_function, file
+                    FROM {table}
+                    WHERE file LIKE ?
+                    ORDER BY line
+                    LIMIT ?
+                """, (f"%{file_path}", limit - len(results)))
+
+                for row in cursor.fetchall():
+                    results.append({
+                        'callee_function': row['callee_function'],
+                        'line': row['line'],
+                        'arguments': row['argument_expr'] or '',
+                        'caller_function': row['caller_function'],
+                        'file': row['file'],
+                    })
+            except sqlite3.OperationalError:
+                continue
+
+        return results[:limit]
+
+    def get_file_incoming_calls(self, file_path: str, limit: int = 50) -> list[dict]:
+        """Get calls TO symbols defined in this file.
+
+        Two-step query:
+        1. Get symbol names from this file (symbols.path)
+        2. Find calls to those symbols (function_call_args.callee_function)
+
+        Args:
+            file_path: File path (partial match)
+            limit: Max results
+
+        Returns:
+            List of {caller_file, caller_line, caller_function, callee_function} dicts
+        """
+        cursor = self.repo_db.cursor()
+
+        # Step 1: Get exported symbols from this file
+        try:
+            cursor.execute("""
+                SELECT DISTINCT name FROM symbols
+                WHERE path LIKE ? AND type IN ('function', 'class', 'method')
+            """, (f"%{file_path}",))
+
+            symbol_names = [row['name'] for row in cursor.fetchall()]
+
+            if not symbol_names:
+                return []
+
+            # Step 2: Find calls to these symbols from OTHER files
+            results = []
+            for sym in symbol_names[:20]:  # Limit symbols to prevent huge queries
+                for table in ['function_call_args', 'function_call_args_jsx']:
+                    try:
+                        cursor.execute(f"""
+                            SELECT file, line, caller_function, callee_function
+                            FROM {table}
+                            WHERE (callee_function = ? OR callee_function LIKE ?)
+                              AND file NOT LIKE ?
+                            ORDER BY file, line
+                            LIMIT ?
+                        """, (sym, f"%.{sym}", f"%{file_path}", limit - len(results)))
+
+                        for row in cursor.fetchall():
+                            results.append({
+                                'caller_file': row['file'],
+                                'caller_line': row['line'],
+                                'caller_function': row['caller_function'],
+                                'callee_function': row['callee_function'],
+                            })
+                    except sqlite3.OperationalError:
+                        continue
+
+                if len(results) >= limit:
+                    break
+
+            return results[:limit]
+
+        except sqlite3.OperationalError:
+            return []
+
+    def get_file_framework_info(self, file_path: str) -> dict:
+        """Get framework-specific information for a file.
+
+        Auto-detects framework from file extension and queries appropriate tables:
+        - React/Vue: components, hooks
+        - Express: middleware, routes
+        - Flask/FastAPI: routes, decorators
+        - Sequelize/SQLAlchemy: models, relationships
+
+        Args:
+            file_path: File path (partial match)
+
+        Returns:
+            Dict with framework name and relevant data
+        """
+        cursor = self.repo_db.cursor()
+        result = {'framework': None}
+
+        # Detect file type from extension
+        ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
+
+        # Check for React/Vue components
+        if ext in ('tsx', 'jsx', 'vue'):
+            try:
+                cursor.execute("""
+                    SELECT name, type, start_line, end_line, props_type
+                    FROM react_components
+                    WHERE file LIKE ?
+                """, (f"%{file_path}",))
+                components = [dict(row) for row in cursor.fetchall()]
+                if components:
+                    result['framework'] = 'react'
+                    result['components'] = components
+            except sqlite3.OperationalError:
+                pass
+
+            # Vue components
+            try:
+                cursor.execute("""
+                    SELECT name, type, start_line, end_line
+                    FROM vue_components
+                    WHERE file LIKE ?
+                """, (f"%{file_path}",))
+                vue_comps = [dict(row) for row in cursor.fetchall()]
+                if vue_comps:
+                    result['framework'] = 'vue'
+                    result['components'] = vue_comps
+            except sqlite3.OperationalError:
+                pass
+
+        # Check for Express routes/middleware
+        if ext in ('ts', 'js', 'mjs'):
+            try:
+                cursor.execute("""
+                    SELECT method, path, handler_function, line
+                    FROM api_endpoints
+                    WHERE file LIKE ?
+                """, (f"%{file_path}",))
+                routes = [dict(row) for row in cursor.fetchall()]
+                if routes:
+                    result['framework'] = result.get('framework') or 'express'
+                    result['routes'] = routes
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute("""
+                    SELECT route_path, route_method, handler_expr, execution_order
+                    FROM express_middleware_chains
+                    WHERE file LIKE ?
+                    ORDER BY route_path, execution_order
+                """, (f"%{file_path}",))
+                middleware = [dict(row) for row in cursor.fetchall()]
+                if middleware:
+                    result['framework'] = result.get('framework') or 'express'
+                    result['middleware'] = middleware
+            except sqlite3.OperationalError:
+                pass
+
+        # Check for Python routes (Flask/FastAPI)
+        if ext == 'py':
+            try:
+                cursor.execute("""
+                    SELECT method, pattern, handler_function, framework, line
+                    FROM python_routes
+                    WHERE file LIKE ?
+                """, (f"%{file_path}",))
+                routes = [dict(row) for row in cursor.fetchall()]
+                if routes:
+                    result['framework'] = routes[0].get('framework', 'flask')
+                    result['routes'] = routes
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute("""
+                    SELECT decorator_name, target_name, line
+                    FROM python_decorators
+                    WHERE file LIKE ?
+                """, (f"%{file_path}",))
+                decorators = [dict(row) for row in cursor.fetchall()]
+                if decorators:
+                    result['decorators'] = decorators
+            except sqlite3.OperationalError:
+                pass
+
+        # Check for ORM models
+        try:
+            cursor.execute("""
+                SELECT model_name, table_name, line
+                FROM sequelize_models
+                WHERE file LIKE ?
+            """, (f"%{file_path}",))
+            models = [dict(row) for row in cursor.fetchall()]
+            if models:
+                result['framework'] = result.get('framework') or 'sequelize'
+                result['models'] = models
+        except sqlite3.OperationalError:
+            pass
+
+        return result
+
+    def get_file_context_bundle(self, file_path: str, limit: int = 20) -> dict:
+        """Aggregate all context for a file in one call.
+
+        This is the main entry point for 'aud explain <file>'.
+
+        Args:
+            file_path: File path (partial match supported)
+            limit: Max items per section
+
+        Returns:
+            Dict with all sections: symbols, hooks, imports, importers,
+            outgoing_calls, incoming_calls, framework_info
+
+        Note: Queries for limit+1 items to enable accurate truncation detection.
+              Caller should check len(section) > limit to detect truncation.
+        """
+        # Query for limit+1 to detect truncation accurately
+        query_limit = limit + 1
+        return {
+            'target': file_path,
+            'target_type': 'file',
+            'symbols': self.get_file_symbols(file_path, query_limit),
+            'hooks': self.get_file_hooks(file_path),
+            'imports': self.get_file_imports(file_path, query_limit),
+            'importers': self.get_file_importers(file_path, query_limit),
+            'outgoing_calls': self.get_file_outgoing_calls(file_path, query_limit),
+            'incoming_calls': self.get_file_incoming_calls(file_path, query_limit),
+            'framework_info': self.get_file_framework_info(file_path),
+        }
+
+    def get_symbol_context_bundle(self, symbol_name: str, limit: int = 20, depth: int = 1) -> dict:
+        """Aggregate all context for a symbol in one call.
+
+        This is the main entry point for 'aud explain <Symbol.method>'.
+
+        Args:
+            symbol_name: Symbol name (resolution applied)
+            limit: Max items per section
+            depth: Call graph traversal depth (1-5)
+
+        Returns:
+            Dict with definition, callers, callees, or error dict
+        """
+        # Resolve symbol name
+        resolved_names, error = self._resolve_symbol(symbol_name)
+        if error:
+            return {'error': error}
+
+        # Get definition for first resolved name
+        definitions = self.find_symbol(resolved_names[0])
+        if isinstance(definitions, dict) and 'error' in definitions:
+            return definitions
+
+        definition = definitions[0] if definitions else None
+
+        # Get callers and callees with specified depth
+        callers = self.get_callers(resolved_names[0], depth=depth)
+        if isinstance(callers, dict) and 'error' in callers:
+            callers = []
+
+        callees = self.get_callees(resolved_names[0])
+
+        # Return limit+1 items so caller can detect truncation accurately
+        query_limit = limit + 1
+        return {
+            'target': symbol_name,
+            'resolved_as': resolved_names,
+            'target_type': 'symbol',
+            'definition': {
+                'file': definition.file if definition else None,
+                'line': definition.line if definition else None,
+                'end_line': definition.end_line if definition else None,
+                'type': definition.type if definition else None,
+                'signature': definition.signature if definition else None,
+            } if definition else None,
+            'callers': [
+                {
+                    'file': c.caller_file,
+                    'line': c.caller_line,
+                    'caller_function': c.caller_function,
+                    'callee_function': c.callee_function,
+                }
+                for c in (callers[:query_limit] if isinstance(callers, list) else [])
+            ],
+            'callees': [
+                {
+                    'file': c.caller_file,
+                    'line': c.caller_line,
+                    'callee_function': c.callee_function,
+                }
+                for c in (callees[:query_limit] if isinstance(callees, list) else [])
+            ],
+        }
+
     def close(self):
         """Close database connections.
 

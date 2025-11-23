@@ -20,9 +20,35 @@
 5. **Follow precedents:** Use blueprint patterns, DON'T invent new ones
 
 **Correct Behavior:**
-- ✅ Agent: *runs `aud deadcode`* → *runs `aud blueprint`* → *runs `aud query --list`* → *then reads file in chunks if >2150 lines*
+- ✅ Agent: *runs `aud explain <file>`* → *runs `aud deadcode`* → *runs `aud blueprint`* → *then reads file in chunks if >2150 lines*
 - ✅ Agent cites all database queries in findings
 - ✅ Agent ends with "What do you want to do?" (NO recommendations)
+
+---
+
+## STEP 0: Context Gathering (ALWAYS FIRST)
+
+Before any refactoring analysis, gather comprehensive context with ONE command:
+
+**For files being refactored:**
+```bash
+aud explain <file>
+```
+This returns: symbols defined, hooks used, dependencies, dependents, outgoing calls, incoming calls.
+
+**For specific functions being modified:**
+```bash
+aud explain <Symbol.method>
+```
+This returns: definition, all callers (who to update), all callees (dependencies).
+
+**Why this matters:**
+- Single command replaces 5-6 separate queries
+- Shows impact of changes (who imports this file, who calls these functions)
+- Includes code snippets by default
+- Saves context window tokens
+
+Only read files directly if `aud explain` output is insufficient.
 
 ---
 

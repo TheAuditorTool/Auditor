@@ -40,6 +40,10 @@
 
 | Need | Command | Example |
 |------|---------|---------|
+| **Comprehensive context** | `aud explain <target>` | Symbols, deps, calls in ONE command |
+| File context bundle | `aud explain file.ts` | Symbols, hooks, imports, callers |
+| Symbol context | `aud explain Symbol.method` | Definition, callers, callees |
+| Component context | `aud explain Dashboard` | Info, hooks, children |
 | Naming conventions | `aud blueprint --structure` | Extract snake_case % |
 | Architectural precedents | `aud blueprint --structure` | Find split patterns |
 | Framework detection | `aud blueprint --structure` | Detect zod, SQLAlchemy |
@@ -49,8 +53,11 @@
 | Symbol info | `aud query --symbol X` | Get definition |
 | Callers | `aud query --symbol X --show-callers` | Who calls |
 | Callees | `aud query --symbol X --show-callees` | What it calls |
+| Callers with code | `aud query --symbol X --show-callers --show-code` | Who calls + source |
 | Taint sources | `aud taint` | Find user input |
 | Dead code | `aud deadcode` | Find unused |
+
+**PREFERRED:** Use `aud explain` first - it returns symbols, deps, and calls in ONE command. Only use individual queries if you need specific features `explain` doesn't provide.
 
 **CRITICAL:** Always run `aud [command] --help` before first use. Never guess syntax.
 

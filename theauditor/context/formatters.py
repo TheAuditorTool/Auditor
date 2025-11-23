@@ -137,11 +137,18 @@ def _format_text(results: Any) -> str:
                     caller = call.caller_function or '(top-level)'
                     lines.append(f"  {i}. {call.caller_file}:{call.caller_line}")
                     lines.append(f"     {caller} -> {call.callee_function}")
-                    if call.arguments and call.arguments[0]:
-                        args_str = call.arguments[0]
+                    # Show args (filter out __snippet__ entries)
+                    regular_args = [a for a in (call.arguments or []) if not a.startswith('__snippet__:')]
+                    if regular_args and regular_args[0]:
+                        args_str = regular_args[0]
                         if len(args_str) > 60:
                             args_str = args_str[:57] + "..."
                         lines.append(f"     Args: {args_str}")
+                    # Show code snippet if present
+                    snippet_args = [a for a in (call.arguments or []) if a.startswith('__snippet__:')]
+                    if snippet_args:
+                        snippet = snippet_args[0].replace('__snippet__:', '', 1)
+                        lines.append(f"     {snippet}")
             else:
                 lines.append("  (none)")
 
@@ -155,11 +162,18 @@ def _format_text(results: Any) -> str:
                 caller = call.caller_function or '(top-level)'
                 lines.append(f"  {i}. {call.caller_file}:{call.caller_line}")
                 lines.append(f"     {caller} -> {call.callee_function}")
-                if call.arguments and call.arguments[0]:
-                    args_str = call.arguments[0]
+                # Show args (filter out __snippet__ entries)
+                regular_args = [a for a in (call.arguments or []) if not a.startswith('__snippet__:')]
+                if regular_args and regular_args[0]:
+                    args_str = regular_args[0]
                     if len(args_str) > 60:
                         args_str = args_str[:57] + "..."
                     lines.append(f"     Args: {args_str}")
+                # Show code snippet if present
+                snippet_args = [a for a in (call.arguments or []) if a.startswith('__snippet__:')]
+                if snippet_args:
+                    snippet = snippet_args[0].replace('__snippet__:', '', 1)
+                    lines.append(f"     {snippet}")
         else:
             lines.append("  (none)")
         return "\n".join(lines)
