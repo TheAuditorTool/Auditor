@@ -96,15 +96,21 @@ def check_graphql_injection(context: StandardRuleContext) -> list[StandardFindin
             if any(pattern in query_text for pattern in ['%s', '.format', 'f"', "f'"]):
                 # Check if argument name appears in query context
                 # Look for the argument in function_call_args around this line
+                # Use indexed query + Python filter (avoids full-table LIKE scan)
                 cursor.execute("""
                     SELECT argument_expr
                     FROM function_call_args
                     WHERE file = ?
                     AND line BETWEEN ? AND ?
-                    AND argument_expr LIKE ?
-                """, (resolver_path, resolver_line, query_line, f'%{arg_name}%'))
+                """, (resolver_path, resolver_line, query_line))
 
-                if cursor.fetchone():
+                # Filter in Python - check if arg_name appears in any argument expression
+                found_arg_in_context = any(
+                    row['argument_expr'] and arg_name in row['argument_expr']
+                    for row in cursor.fetchall()
+                )
+
+                if found_arg_in_context:
                     # Found potential injection - argument used in SQL without parameterization
                     finding = StandardFinding(
                         rule_name="graphql_injection",

@@ -1004,6 +1004,20 @@ class FunctionCallArgsTable:
         cursor.execute(query, (callee_file_path,))
         return [dict(zip(['file', 'line', 'caller_function', 'callee_function', 'argument_index', 'argument_expr', 'param_name', 'callee_file_path'], row)) for row in cursor.fetchall()]
 
+    @staticmethod
+    def get_by_argument_index(cursor: sqlite3.Cursor, argument_index: int) -> List[Dict[str, Any]]:
+        """Get rows by argument_index."""
+        query = build_query('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_index', 'argument_expr', 'param_name', 'callee_file_path'], where="argument_index = ?")
+        cursor.execute(query, (argument_index,))
+        return [dict(zip(['file', 'line', 'caller_function', 'callee_function', 'argument_index', 'argument_expr', 'param_name', 'callee_file_path'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_param_name(cursor: sqlite3.Cursor, param_name: str) -> List[Dict[str, Any]]:
+        """Get rows by param_name."""
+        query = build_query('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_index', 'argument_expr', 'param_name', 'callee_file_path'], where="param_name = ?")
+        cursor.execute(query, (param_name,))
+        return [dict(zip(['file', 'line', 'caller_function', 'callee_function', 'argument_index', 'argument_expr', 'param_name', 'callee_file_path'], row)) for row in cursor.fetchall()]
+
 
 class FunctionCallArgsJsxTable:
     """Accessor class for function_call_args_jsx table."""

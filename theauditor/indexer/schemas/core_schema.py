@@ -175,6 +175,8 @@ FUNCTION_CALL_ARGS = TableSchema(
         ("idx_function_call_args_callee", ["callee_function"]),
         ("idx_function_call_args_file_line", ["file", "line"]),
         ("idx_function_call_args_callee_file", ["callee_file_path"]),  # Index for cross-file queries
+        ("idx_function_call_args_argument_index", ["argument_index"]),  # Index for taint analysis queries by arg position
+        ("idx_function_call_args_param_name", ["param_name"]),  # Index for parameter name lookups
     ]
 )
 

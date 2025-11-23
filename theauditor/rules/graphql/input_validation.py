@@ -28,7 +28,7 @@ def check_input_validation(context: StandardRuleContext) -> list[StandardFinding
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    # Find Mutation fields with String/custom input args (no validation directives)
+    # Find Mutation fields with nullable args (filter by type in Python to avoid LIKE scan)
     cursor.execute("""
         SELECT f.field_name, fa.arg_name, fa.arg_type, fa.directives_json,
                t.schema_path, f.line
@@ -36,11 +36,17 @@ def check_input_validation(context: StandardRuleContext) -> list[StandardFinding
         JOIN graphql_fields f ON f.type_id = t.type_id
         JOIN graphql_field_args fa ON fa.field_id = f.field_id
         WHERE t.type_name = 'Mutation'
-          AND (fa.arg_type LIKE '%String%' OR fa.arg_type LIKE 'Input%')
           AND fa.is_nullable = 1
     """)
 
-    for row in cursor.fetchall():
+    # Filter results in Python - String types or Input types need validation
+    all_rows = cursor.fetchall()
+    filtered_rows = [
+        row for row in all_rows
+        if row['arg_type'] and ('String' in row['arg_type'] or row['arg_type'].startswith('Input'))
+    ]
+
+    for row in filtered_rows:
         directives_json = row['directives_json']
 
         # Check for validation directives
