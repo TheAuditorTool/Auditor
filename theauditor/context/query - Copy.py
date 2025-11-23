@@ -290,11 +290,9 @@ class CodeQueryEngine:
 
         # 2. Check react_components (React-specific definitions)
         try:
-            # FIX: Removed "OR name LIKE %...%"
-            # Resolution should be exact. Partial matches belong in suggestions, not resolution.
             cursor.execute("""
-                SELECT DISTINCT name FROM react_components WHERE name = ?
-            """, (input_name,))
+                SELECT DISTINCT name FROM react_components WHERE name = ? OR name LIKE ?
+            """, (input_name, f"%{input_name}%"))
             for row in cursor.fetchall():
                 found_symbols.add(row['name'])
         except sqlite3.OperationalError:
@@ -353,7 +351,7 @@ class CodeQueryEngine:
 
         return list(found_symbols), None
 
-    def find_symbol(self, name: str, type_filter: str | None = None) -> list[SymbolInfo] | dict:
+    def find_symbol(self, name: str, type_filter: str | None = None) -> list[SymbolInfo]:
         """Find symbol definitions by exact name match.
 
         Queries both symbols and symbols_jsx tables for React/JSX support.
@@ -404,12 +402,6 @@ class CodeQueryEngine:
             except sqlite3.OperationalError:
                 # Table might not exist (e.g., no JSX in Python projects)
                 continue
-
-        # FIX: If no results found, provide fuzzy suggestions
-        if not results:
-            suggestions = self._find_similar_symbols(name)
-            if suggestions:
-                return {'error': f"No symbol definitions found for '{name}'. Did you mean: {', '.join(suggestions)}?"}
 
         return results
 
@@ -725,12 +717,7 @@ class CodeQueryEngine:
 
             row = cursor.fetchone()
             if not row:
-                # FIX: Add fuzzy suggestions when component not found
-                msg = f'Component not found: {component_name}'
-                suggestions = self._find_similar_symbols(component_name)
-                if suggestions:
-                    msg += f". Did you mean: {', '.join(suggestions)}?"
-                return {'error': msg}
+                return {'error': f'Component not found: {component_name}'}
 
             result = dict(row)
 
