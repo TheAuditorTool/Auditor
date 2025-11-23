@@ -325,11 +325,12 @@ def run_full_pipeline(
     offline: bool = False,
     use_subprocess_for_taint: bool = False,  # NEW: default to in-process for performance
     wipe_cache: bool = False,  # NEW: force cache rebuild (for corruption recovery)
+    index_only: bool = False,  # Run only Stage 1 + 2 (indexing, skip heavy analysis)
     log_callback: Callable[[str, bool], None] = None
 ) -> dict[str, Any]:
     """
     Run complete audit pipeline in exact order specified in teamsop.md.
-    
+
     Args:
         root: Root directory to analyze
         quiet: Whether to run in quiet mode (minimal output)
@@ -337,6 +338,7 @@ def run_full_pipeline(
         offline: Whether to skip network operations (deps, docs)
         use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
         wipe_cache: Whether to delete caches before run (for corruption recovery)
+        index_only: Whether to run only Stage 1+2 (indexing) and skip heavy analysis
         log_callback: Optional callback function for logging messages (message, is_error)
         
     Returns:
@@ -427,8 +429,10 @@ def run_full_pipeline(
     log_output(f"TheAuditor Full Pipeline Execution Log")
     log_output(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log_output(f"Working Directory: {Path(root).resolve()}")
+    if index_only:
+        log_output(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)")
     log_output("=" * 80)
-    
+
     # Dynamically discover available commands from CLI registration (Courier principle)
     from theauditor.cli import cli
     
@@ -677,7 +681,13 @@ def run_full_pipeline(
         else:
             # Default to final commands for safety
             final_commands.append((phase_name, cmd))
-    
+
+    # Recalculate total_phases for index_only mode (Stage 1 + 2 only)
+    if index_only:
+        total_phases = len(foundation_commands) + len(data_prep_commands)
+        log_output(f"\n[INDEX-ONLY MODE] Running {total_phases} phases (Stage 1 + 2)")
+        log_output(f"  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)")
+
     # STAGE 1: Foundation (Sequential)
     log_output("\n" + "="*60)
     log_output("[STAGE 1] FOUNDATION - Sequential Execution")
@@ -972,8 +982,8 @@ def run_full_pipeline(
                 log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
                 break
     
-    # Only proceed to parallel stage if foundation and data prep succeeded
-    if failed_phases == 0 and (track_a_commands or track_b_commands or track_c_commands):
+    # Only proceed to parallel stage if foundation and data prep succeeded (skip in index_only mode)
+    if failed_phases == 0 and not index_only and (track_a_commands or track_b_commands or track_c_commands):
         # STAGE 3: Heavy Parallel Analysis (Rebalanced)
         log_output("\n" + "="*60)
         log_output("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution")
@@ -1344,8 +1354,8 @@ def run_full_pipeline(
                 log_output("[ERRORS]:")
                 log_output(result["errors"])
     
-    # STAGE 4: Final Aggregation (Sequential) 
-    if failed_phases == 0 and final_commands:
+    # STAGE 4: Final Aggregation (Sequential) - skip in index_only mode
+    if failed_phases == 0 and not index_only and final_commands:
         log_output("\n" + "="*60)
         log_output("[STAGE 4] FINAL AGGREGATION - Sequential Execution")
         log_output("="*60)
@@ -1566,7 +1576,14 @@ def run_full_pipeline(
     
     # Display final summary
     log_output("\n" + "="*60)
-    if failed_phases == 0 and phases_with_warnings == 0:
+    if index_only:
+        if failed_phases == 0:
+            log_output(f"[OK] INDEX COMPLETE - All {total_phases} phases successful")
+            log_output(f"[INFO] Database ready: .pf/repo_index.db + .pf/graphs.db")
+            log_output(f"[INFO] Run 'aud full' for complete analysis (taint, patterns, fce)")
+        else:
+            log_output(f"[WARN] INDEX INCOMPLETE - {failed_phases} phases failed")
+    elif failed_phases == 0 and phases_with_warnings == 0:
         log_output(f"[OK] AUDIT COMPLETE - All {total_phases} phases successful")
     elif phases_with_warnings > 0 and failed_phases == 0:
         log_output(f"[WARNING] AUDIT COMPLETE - {phases_with_warnings} phases completed with errors")
@@ -1595,15 +1612,24 @@ def run_full_pipeline(
     
     log_output(f"\n[SAVED] Complete file list saved to: .pf/allfiles.md")
     log_output(f"\n[TIP] Key artifacts:")
-    log_output(f"  * .pf/readthis/ - All AI-consumable chunks")
-    log_output(f"  * .pf/allfiles.md - Complete file list")
-    log_output(f"  * .pf/pipeline.log - Full execution log")
-    log_output(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
-    log_output(f"  * .pf/findings.json - Pattern detection results")
-    log_output(f"  * .pf/risk_scores.json - Risk analysis")
-    
+    if index_only:
+        log_output(f"  * .pf/repo_index.db - Symbol database (queryable)")
+        log_output(f"  * .pf/graphs.db - Call/data flow graphs")
+        log_output(f"  * .pf/manifest.json - Project manifest")
+        log_output(f"  * .pf/pipeline.log - Execution log")
+    else:
+        log_output(f"  * .pf/readthis/ - All AI-consumable chunks")
+        log_output(f"  * .pf/allfiles.md - Complete file list")
+        log_output(f"  * .pf/pipeline.log - Full execution log")
+        log_output(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
+        log_output(f"  * .pf/findings.json - Pattern detection results")
+        log_output(f"  * .pf/risk_scores.json - Risk analysis")
+
     log_output("\n" + "="*60)
-    log_output("[COMPLETE] AUDIT SUITE EXECUTION COMPLETE")
+    if index_only:
+        log_output("[COMPLETE] INDEX EXECUTION COMPLETE")
+    else:
+        log_output("[COMPLETE] AUDIT SUITE EXECUTION COMPLETE")
     log_output("="*60)
     
     # Close the log file (already written throughout execution)

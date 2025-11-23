@@ -14,7 +14,8 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
 @click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
 @click.option("--wipecache", is_flag=True, help="Delete all caches before run (for cache corruption recovery)")
-def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
+@click.option("--index", "index_only", is_flag=True, help="Run indexing only (Stage 1 + 2) - skip heavy analysis")
+def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_only):
     """Run comprehensive security audit pipeline (20 phases).
 
     Executes TheAuditor's complete analysis pipeline in 4 optimized stages
@@ -42,6 +43,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
 
     Examples:
       aud full                    # Complete audit with network operations
+      aud full --index            # Fast reindex (Stage 1+2 only, ~1-3 min)
       aud full --offline          # Air-gapped analysis (no npm/pip checks)
       aud full --exclude-self     # Skip TheAuditor's own files
       aud full --quiet            # Minimal output for CI/CD pipelines
@@ -73,6 +75,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
       This is useful for recovering from cache corruption.
 
     FLAG INTERACTIONS:
+      --index: Run Stage 1 (index, detect-frameworks) + Stage 2 (workset, graphs, cfg, metadata)
+               Skips Stage 3 (taint, patterns, lint) and Stage 4 (fce, report)
+               Use when you just need to reindex after code changes (~1-3 min vs 30-60 min)
       --offline + --subprocess-taint: Air-gapped taint analysis
       --wipecache: Overrides all caching (slowest, cleanest run)
       --quiet + --offline: Minimal output for CI/CD (fastest)
@@ -113,6 +118,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
         offline=offline,
         use_subprocess_for_taint=subprocess_taint,
         wipe_cache=wipecache,
+        index_only=index_only,
         log_callback=log_callback if not quiet else None
     )
     
