@@ -61,10 +61,13 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
       2 = Critical vulnerabilities
       3 = Pipeline failed
 
-    Performance:
-      Small project (<5K LOC):     ~2 minutes
-      Medium project (20K LOC):    ~10 minutes
-      Large monorepo (100K+ LOC):  ~30-60 minutes
+    Performance (with current tree-sitter architecture):
+      Small project (<5K LOC):     ~2-3 minutes
+      Medium project (20K LOC):    ~5-10 minutes
+      Large monorepo (100K+ LOC):  ~15-20 minutes
+
+      If pipeline takes >30 minutes, something is likely broken.
+      Check .pf/pipeline.log for the stuck phase.
 
     Cache Behavior:
       By default, caches are PRESERVED between runs for speed:
