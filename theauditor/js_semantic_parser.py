@@ -356,7 +356,7 @@ class JSSemanticParser:
             for file_path in valid_files:
                 results[file_path] = {
                     "success": False,
-                    "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
+                    "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-ai' to install tools.",
                     "ast": None,
                     "diagnostics": [],
                     "symbols": []
@@ -403,7 +403,7 @@ class JSSemanticParser:
                 
                 # CRITICAL FIX: Use sandboxed node executable, not system "node"
                 if not self.node_exe:
-                    raise RuntimeError("Node.js runtime not found. Run 'aud setup-claude' to install tools.")
+                    raise RuntimeError("Node.js runtime not found. Run 'aud setup-ai' to install tools.")
                 
                 result = subprocess.run(
                     [str(self.node_exe), helper_path, request_path_converted, output_path_converted],
@@ -588,7 +588,7 @@ class JSSemanticParser:
         if not self.tsc_available:
             return {
                 "success": False,
-                "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
+                "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-ai' to install tools.",
                 "ast": None,
                 "diagnostics": [],
                 "symbols": [],
@@ -624,7 +624,7 @@ class JSSemanticParser:
             if not self.node_exe:
                 return {
                     "success": False,
-                    "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
+                    "error": "Node.js runtime not found. Run 'aud setup-ai' to install tools.",
                     "ast": None,
                     "diagnostics": [],
                     "symbols": [],
