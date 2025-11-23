@@ -179,12 +179,25 @@ Jobs MUST include exact identifiers:
 
 **Critical:** ONLY exception to "no file reading". For non-refactor, database queries suffice.
 
-### T2.6: Phase 2 Audit
+### T2.6: Run Impact Analysis (NEW)
+- If planning change to specific symbol: `aud impact --symbol <target> --planning-context`
+- If planning file-level refactor: `aud impact --file <target> --planning-context`
+- Store: coupling score, dependency categories, risk level
+- Note suggested phases from impact output
+- **Audit:** Impact baseline established with coupling score
+
+**Coupling Score Interpretation:**
+- <30: LOW coupling - safe to change with minimal coordination
+- 30-70: MEDIUM coupling - review callers, consider phased rollout
+- >70: HIGH coupling - extract interface before refactoring
+
+### T2.7: Phase 2 Audit
 - Verify queries executed
 - Confirm structure from database
+- Confirm impact analysis run with coupling score noted
 - Confirm NO file reading (UNLESS refactor >2150 lines)
 - If chunked, confirm entire file read
-- **Audit:** Patterns queried (and file inspected if applicable)
+- **Audit:** Patterns queried + impact assessed (and file inspected if applicable)
 
 ---
 
@@ -199,7 +212,8 @@ Jobs MUST include exact identifiers:
 - Summarize precedents (e.g., "schemas/ 9 files, 320 avg lines")
 - Summarize frameworks (e.g., "React 18.2, zod 3.22.0")
 - Summarize refactor history (e.g., "Last: 2024-11-02, NONE risk")
-- **Audit:** Context complete
+- Summarize impact (e.g., "Coupling: 45/100 MEDIUM, 12 prod callers, 4 test callers")
+- **Audit:** Context complete including impact metrics
 
 ### T3.2: Generate Recommendations (Follow Precedents)
 - Cite database query for each recommendation

@@ -123,7 +123,20 @@
 - Note: Low coupling = safer to extract
 - **Audit:** Relationships analyzed
 
-### T3.4: Read Large Files in Chunks (MANDATORY for >2150 lines)
+### T3.4: Assess Blast Radius (NEW)
+- Run `aud impact --file <target> --planning-context`
+- Store: coupling score, dependency categories (prod/test/config), risk level
+- Note suggested phases from impact output
+- If coupling >70: Flag "tightly coupled, consider interface extraction"
+- If affected files >30: Flag "large blast radius, phase the refactor"
+- **Audit:** Blast radius quantified with coupling score
+
+**Coupling Score Interpretation:**
+- <30: LOW - File can be safely split with minimal coordination
+- 30-70: MEDIUM - Notify dependent teams, consider phased rollout
+- >70: HIGH - Extract interface first, then refactor implementation
+
+### T3.5: Read Large Files in Chunks (MANDATORY for >2150 lines)
 
 **When Required:** File >2150 lines (check Task 3.1 line count)
 
@@ -141,12 +154,13 @@
 
 **Critical:** Chunking is MANDATORY, not optional. Database = structure, file reading = implementation detail.
 
-### T3.5: Phase 3 Audit
+### T3.6: Phase 3 Audit
 - Verify symbols listed
 - Confirm clustering analysis complete
 - Confirm relationships queried
+- Confirm impact analysis run with coupling score noted
 - Confirm file content read (chunked if >2150, normal otherwise)
-- **Audit:** Target file structure understood from database AND file content
+- **Audit:** Target file structure understood from database + impact assessed + file content
 
 ---
 
@@ -249,33 +263,42 @@ Reply: 'A' or 'B'
 - Coupling analysis (high vs low)
 - **Audit:** Clustering complete
 
-### T6.4: Split State Section
+### T6.4: Impact Assessment Section (NEW)
+- Coupling score (e.g., "45/100 MEDIUM")
+- Dependency breakdown (e.g., "12 prod, 4 test, 2 config")
+- Affected files count
+- Risk level (LOW/MEDIUM/HIGH)
+- If HIGH coupling: note "consider interface extraction"
+- **Audit:** Impact complete
+
+### T6.5: Split State Section
 - If detected: completion %
 - New file size vs old file remaining
 - If ambiguous: include choice prompt (A or B)
 - **Audit:** Split state complete
 
-### T6.5: History Section
+### T6.6: History Section
 - Last check timestamp (or "None")
 - Risk level, migration status
 - If HIGH risk: include warning
 - **Audit:** History complete
 
-### T6.6: Evidence Citations
-- List all queries: `aud deadcode`, `aud query`, `aud blueprint`
+### T6.7: Evidence Citations
+- List all queries: `aud deadcode`, `aud query`, `aud blueprint`, `aud impact`
 - Example: "aud deadcode: [HIGH] confidence, 0 imports"
 - Example: "aud query: 45 functions, 12 python-prefixed (27%)"
+- Example: "aud impact: Coupling 45/100 MEDIUM, 16 affected files"
 - **Audit:** Evidence complete
 
-### T6.7: Present Report
+### T6.8: Present Report
 - Output complete report
 - End with: "What do you want to do?"
 - STOP and WAIT
 - DO NOT suggest actions
 - **Audit:** Report presented correctly
 
-### T6.8: Phase 6 Audit
-- Verify all sections compiled
+### T6.9: Phase 6 Audit
+- Verify all sections compiled (including impact)
 - Confirm NO recommendations made
 - Confirm ends with "What do you want to do?"
 - **Audit:** Findings presented as facts, user decision requested
@@ -285,12 +308,13 @@ Reply: 'A' or 'B'
 ## KEY PRINCIPLES
 
 1. **Zero Hallucination:** Read `--help` FIRST
-2. **Database-First:** Use `aud query`, `aud deadcode`, `aud blueprint` - NO file reading until Phase 3 Task 3.4
-3. **Follow Precedents:** Detect patterns, don't invent
-4. **Deterministic Split Detection:** 34% complete = fact, not guess
-5. **Zero Recommendation Policy:** Facts only, let user decide
-6. **Audit Loops:** Every task/phase ends with audit
-7. **Problem Decomposition:** Each phase solves specific sub-problem
+2. **Database-First:** Use `aud query`, `aud deadcode`, `aud blueprint`, `aud impact` - NO file reading until Phase 3 Task 3.5
+3. **Assess Impact First:** Run `aud impact --planning-context` before any refactor decision
+4. **Follow Precedents:** Detect patterns, don't invent
+5. **Deterministic Split Detection:** 34% complete = fact, not guess
+6. **Zero Recommendation Policy:** Facts only, let user decide
+7. **Audit Loops:** Every task/phase ends with audit
+8. **Problem Decomposition:** Each phase solves specific sub-problem
 
 ---
 
