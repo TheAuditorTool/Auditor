@@ -33,16 +33,16 @@ The `findings_consolidated.details_json` column stores tool-specific metadata as
 | cdk | 14 | 0% (empty) | 0 |
 | terraform | 7 | 100% | 4 scalar |
 | taint | 1 | 100% | 7 LIST/DICT |
-| **TOTAL** | **21,900** | **23%** | **23 scalar + 7 complex** |
+| **TOTAL** | **21,900** | **21%** | **23 scalar + 7 complex** |
 
-**Key Finding**: 77% of rows (16,879/21,900) have `details_json = '{}'`
+**Key Finding**: 79% of rows (17,379/21,900) have `details_json = '{}'` (verified 2025-11-24)
 
 ### Solution: Sparse Wide Table (Gemini 2025 Pattern)
 
 Instead of junction tables (complex) or generated columns (slow), flatten the 23 scalar keys directly into the table as nullable columns. SQLite stores NULLs in the record header with zero payload bytes.
 
 **Benefits**:
-- Zero storage overhead for 77% of rows (NULLs are free)
+- Zero storage overhead for 79% of rows (NULLs are free)
 - O(log n) indexed queries vs O(n) json.loads() + Python filter
 - Enables SQL-level correlation: `WHERE complexity > 10 AND hotspot_score > 0.8`
 - Respects ZERO FALLBACK policy (no try/except for JSON parsing)
