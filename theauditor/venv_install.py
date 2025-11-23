@@ -1203,6 +1203,30 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         else:
             print(f"    ⚠ Agents directory not found at {agents_source}")
 
+        # Copy slash commands to target project's .claude/commands/theauditor/
+        commands_source = theauditor_root / "agents" / "commands"
+        commands_dest = target_dir / ".claude" / "commands" / "theauditor"
+
+        if commands_source.exists() and commands_source.is_dir():
+            # Create .claude/commands/theauditor directory in target project
+            commands_dest.mkdir(parents=True, exist_ok=True)
+
+            # Copy all command .md files
+            command_files = list(commands_source.glob("*.md"))
+            if command_files:
+                for command_file in command_files:
+                    dest_file = commands_dest / command_file.name
+                    shutil.copy2(str(command_file), str(dest_file))
+
+                check_mark = "[OK]" if IS_WINDOWS else "✓"
+                print(f"    {check_mark} Slash commands copied to project ({len(command_files)} commands)")
+                print(f"        → {commands_dest}")
+                print(f"        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow")
+            else:
+                print(f"    ⚠ No command files found in {commands_source}")
+        else:
+            print(f"    ⚠ Commands directory not found at {commands_source}")
+
         # Create strict TypeScript configuration for sandboxed tools
         tsconfig = sandbox_dir / "tsconfig.json"
         tsconfig_data = {

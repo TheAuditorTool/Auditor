@@ -122,41 +122,48 @@ def blueprint(structure, graph, security, taint, all, output_format):
     import re
     conn.create_function("REGEXP", 2, lambda pattern, value: re.match(pattern, value) is not None if value else False)
 
-    cursor = conn.cursor()
+    # Wrap in try/finally to ensure connection is always closed
+    # Pass cursor to drilldown functions (dependency injection)
+    try:
+        cursor = conn.cursor()
 
-    # Gather all data
-    data = _gather_all_data(cursor, graphs_db)
-    conn.close()
+        # Gather all data
+        data = _gather_all_data(cursor, graphs_db)
 
-    # Handle --all flag (export everything to JSON)
-    if all:
-        click.echo(json.dumps(data, indent=2))
-        return
+        # Handle --all flag (export everything to JSON)
+        if all:
+            click.echo(json.dumps(data, indent=2))
+            return
 
-    # Handle drill-down flags
-    if structure:
-        _show_structure_drilldown(data)
-    elif graph:
-        _show_graph_drilldown(data)
-    elif security:
-        _show_security_drilldown(data)
-    elif taint:
-        _show_taint_drilldown(data)
-    else:
-        # Default: Top-level overview with tree structure
-        if output_format == 'json':
-            # Top-level summary in JSON
-            summary = {
-                'structure': data['structure'],
-                'hot_files': data['hot_files'][:5],
-                'security_surface': data['security_surface'],
-                'data_flow': data['data_flow'],
-                'import_graph': data['import_graph'],
-                'performance': data['performance'],
-            }
-            click.echo(json.dumps(summary, indent=2))
+        # Handle drill-down flags - pass cursor for detailed queries
+        if structure:
+            _show_structure_drilldown(data, cursor)
+        elif graph:
+            _show_graph_drilldown(data)
+        elif security:
+            _show_security_drilldown(data)
+        elif taint:
+            _show_taint_drilldown(data)
         else:
-            _show_top_level_overview(data)
+            # Default: Top-level overview with tree structure
+            if output_format == 'json':
+                # Top-level summary in JSON
+                summary = {
+                    'structure': data['structure'],
+                    'hot_files': data['hot_files'][:5],
+                    'security_surface': data['security_surface'],
+                    'data_flow': data['data_flow'],
+                    'import_graph': data['import_graph'],
+                    'performance': data['performance'],
+                }
+                click.echo(json.dumps(summary, indent=2))
+            else:
+                _show_top_level_overview(data)
+
+    finally:
+        # Always close connection when done
+        if conn:
+            conn.close()
 
 
 def _gather_all_data(cursor, graphs_db_path: Path) -> Dict:
@@ -690,15 +697,13 @@ def _show_top_level_overview(data: Dict):
     click.echo("\n".join(lines))
 
 
-def _show_structure_drilldown(data: Dict):
-    """Drill down: SURGICAL structure analysis - scope understanding."""
-    # Get database connection for detailed queries (frameworks, refactor history)
-    pf_dir = Path.cwd() / ".pf"
-    repo_db = pf_dir / "repo_index.db"
-    conn = sqlite3.connect(repo_db)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+def _show_structure_drilldown(data: Dict, cursor: sqlite3.Cursor):
+    """Drill down: SURGICAL structure analysis - scope understanding.
 
+    Args:
+        data: Blueprint data dict from _gather_all_data
+        cursor: Database cursor (passed from main function - dependency injection)
+    """
     struct = data['structure']
 
     click.echo("\n🏗️  STRUCTURE DRILL-DOWN")
@@ -797,44 +802,51 @@ def _show_structure_drilldown(data: Dict):
         click.echo("\nArchitectural Precedents: None detected")
 
     # Framework Detection
-    cursor.execute("""
-        SELECT language, name, version, COUNT(*) as file_count
-        FROM frameworks
-        GROUP BY name, language, version
-        ORDER BY file_count DESC
-    """)
-    frameworks = cursor.fetchall()
+    try:
+        cursor.execute("""
+            SELECT language, name, version, COUNT(*) as file_count
+            FROM frameworks
+            GROUP BY name, language, version
+            ORDER BY file_count DESC
+        """)
+        frameworks = cursor.fetchall()
 
-    if frameworks:
-        click.echo("\nFramework Detection:")
-        for lang, fw, ver, count in frameworks:
-            version_str = f"v{ver}" if ver else "(version unknown)"
-            click.echo(f"  {fw} {version_str} ({lang}) - {count} file(s)")
-    else:
-        click.echo("\nFramework Detection: None detected")
+        if frameworks:
+            click.echo("\nFramework Detection:")
+            for lang, fw, ver, count in frameworks:
+                version_str = f"v{ver}" if ver else "(version unknown)"
+                click.echo(f"  {fw} {version_str} ({lang}) - {count} file(s)")
+        else:
+            click.echo("\nFramework Detection: None detected")
+    except sqlite3.OperationalError:
+        # Gracefully handle if the table doesn't exist yet
+        click.echo("\nFramework Detection: (Table not found - run 'aud full')")
 
     # Refactor History
-    cursor.execute("""
-        SELECT timestamp, target_file, refactor_type, migrations_found,
-               migrations_complete, schema_consistent, validation_status
-        FROM refactor_history
-        ORDER BY timestamp DESC
-        LIMIT 5
-    """)
-    refactor_history = cursor.fetchall()
+    try:
+        cursor.execute("""
+            SELECT timestamp, target_file, refactor_type, migrations_found,
+                   migrations_complete, schema_consistent, validation_status
+            FROM refactor_history
+            ORDER BY timestamp DESC
+            LIMIT 5
+        """)
+        refactor_history = cursor.fetchall()
 
-    if refactor_history:
-        click.echo("\nRefactor History (Recent Checks):")
-        for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
-            # Format timestamp to date only
-            date = ts.split('T')[0] if 'T' in ts else ts
-            consistent = "consistent" if schema_ok == 1 else "inconsistent"
-            complete = "complete" if mig_complete == 1 else "incomplete"
-            click.echo(f"  {date}: {target}")
-            click.echo(f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})")
-            click.echo(f"    Schema: {consistent}")
-    else:
-        click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
+        if refactor_history:
+            click.echo("\nRefactor History (Recent Checks):")
+            for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
+                # Format timestamp to date only
+                date = ts.split('T')[0] if 'T' in ts else ts
+                consistent = "consistent" if schema_ok == 1 else "inconsistent"
+                complete = "complete" if mig_complete == 1 else "incomplete"
+                click.echo(f"  {date}: {target}")
+                click.echo(f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})")
+                click.echo(f"    Schema: {consistent}")
+        else:
+            click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
+    except sqlite3.OperationalError:
+        click.echo("\nRefactor History: (Table not found - run 'aud full')")
 
     # Token Estimates (for AI context planning)
     click.echo("\nToken Estimates (for context planning):")
@@ -867,7 +879,7 @@ def _show_structure_drilldown(data: Dict):
     click.echo("  → Use 'aud query --file <path> --show-dependents' for impact analysis")
     click.echo("  → Use 'aud graph viz' for visual dependency map")
 
-    conn.close()
+    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
 
 
