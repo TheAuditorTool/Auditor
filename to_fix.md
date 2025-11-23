@@ -5,6 +5,45 @@
 **Written By**: Claude Sonnet 4.5 (AI Coder)
 **Written For**: Future AI that will fix these bugs
 
+
+NOT A CODE BUG! It's MINGW/Git Bash auto-converting /orders to C:/Program Files/Git/orders.
+
+  Workarounds:
+  - Use //orders (double slash)
+  - Use MSYS_NO_PATHCONV=1
+  - Use orders without leading slash
+
+  ---
+  FINAL VERIFIED BUG LIST
+
+  | #   | Bug                           | Status           | Root Cause                                     | Fix
+    |
+  |-----|-------------------------------|------------------|------------------------------------------------|---------------------
+  --|
+  | 1   | blueprint --structure crash   | CODE BUG         | cursor undefined in drilldown function         | Pass conn to
+  function |
+  | 2   | boundaries 0 entry points     | CODE BUG         | Missing api_endpoints table lookup             | Add to table list
+    |
+  | 3   | --component "table not found" | CODE BUG         | hooks_used column doesn't exist                | Fix SELECT columns
+    |
+  | 4   | --symbol --show-callers empty | CODE BUG         | Exact match fails, need fuzzy                  | Add LIKE fallback
+    |
+  | 5   | --show-dependents empty       | NOT A BUG        | OrderDetails is a page, correctly not imported | N/A
+    |
+  | 6   | --api "/orders" empty         | NOT A BUG        | MINGW path conversion                          | Document workaround
+    |
+  | 7   | --type multi-tenant           | KNOWN INCOMPLETE | Explicitly says "not yet wired"                | Future work
+    |
+
+  ---
+  ACTUAL FIXES NEEDED: 4 bugs
+
+  1. blueprint.py:793 - cursor scope
+  2. input_validation_analyzer.py:88 - add api_endpoints
+  3. query.py:515 - fix column list (remove hooks_used)
+  4. query.py:297 - add fuzzy symbol matching
+
+  Ready to implement? Start with which one?
 ---
 
 ## Context: What Happened This Session

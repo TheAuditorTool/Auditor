@@ -692,6 +692,13 @@ def _show_top_level_overview(data: Dict):
 
 def _show_structure_drilldown(data: Dict):
     """Drill down: SURGICAL structure analysis - scope understanding."""
+    # Get database connection for detailed queries (frameworks, refactor history)
+    pf_dir = Path.cwd() / ".pf"
+    repo_db = pf_dir / "repo_index.db"
+    conn = sqlite3.connect(repo_db)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
     struct = data['structure']
 
     click.echo("\n🏗️  STRUCTURE DRILL-DOWN")
@@ -860,6 +867,7 @@ def _show_structure_drilldown(data: Dict):
     click.echo("  → Use 'aud query --file <path> --show-dependents' for impact analysis")
     click.echo("  → Use 'aud graph viz' for visual dependency map")
 
+    conn.close()
     click.echo("\n" + "=" * 80 + "\n")
 
 

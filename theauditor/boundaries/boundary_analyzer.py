@@ -85,7 +85,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
         entry_points = []
 
         # Check which route tables exist
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('python_routes', 'js_routes')")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('python_routes', 'js_routes', 'api_endpoints')")
         existing_tables = {row[0] for row in cursor.fetchall()}
 
         # Python routes
@@ -110,6 +110,23 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
             cursor.execute("""
                 SELECT file, line, pattern, method
                 FROM js_routes
+                WHERE pattern IS NOT NULL
+                LIMIT ?
+            """, (max_entries // 2,))
+
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append({
+                    'type': 'http',
+                    'name': f"{method or 'GET'} {pattern}",
+                    'file': file,
+                    'line': line
+                })
+
+        # API endpoints (cross-language unified table)
+        if 'api_endpoints' in existing_tables:
+            cursor.execute("""
+                SELECT file, line, pattern, method
+                FROM api_endpoints
                 WHERE pattern IS NOT NULL
                 LIMIT ?
             """, (max_entries // 2,))

@@ -5,7 +5,7 @@ import json
 import click
 from pathlib import Path
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.boundaries.input_validation_analyzer import (
+from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
     generate_report
 )

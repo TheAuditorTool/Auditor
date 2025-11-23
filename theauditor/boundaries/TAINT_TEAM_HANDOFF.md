@@ -55,7 +55,7 @@ def create_user(request):           # ← Entry point
 theauditor/boundaries/
 ├── __init__.py                          # Public API
 ├── distance.py                          # Core BFS distance calculator
-├── input_validation_analyzer.py         # Entry → validation distance
+├── boundary_analyzer.py                 # Entry → validation distance
 └── TAINT_TEAM_HANDOFF.md               # ← You are here
 ```
 
@@ -556,7 +556,7 @@ def run_full_pipeline(root_path):
 def run_boundary_analysis(db_path):
     """Run standalone boundary analysis."""
 
-    from theauditor.boundaries.input_validation_analyzer import analyze_input_validation_boundaries
+    from theauditor.boundaries.boundary_analyzer import analyze_input_validation_boundaries
 
     # Input validation boundaries
     validation_boundaries = analyze_input_validation_boundaries(
