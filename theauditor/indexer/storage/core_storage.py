@@ -360,25 +360,18 @@ class CoreStorage(BaseStorage):
                 callee_file_path = call.get('callee_file_path')
                 param_name = call.get('param_name', '')
 
-                # Validate types - fail loudly if extractor produced wrong data
+                # ZERO FALLBACK POLICY: Hard fail on wrong types - no silent skipping
                 if isinstance(callee_file_path, dict):
-                    logger.error(
-                        f"[EXTRACTOR BUG] callee_file_path is dict (expected str or None) in {file_path}:{call['line']}\n"
-                        f"  Value: {callee_file_path}\n"
-                        f"  This indicates bug in TypeScript extractor (typescript_impl.py:518-524)\n"
-                        f"  SKIPPING this function call to prevent database corruption."
+                    raise TypeError(
+                        f"EXTRACTION BUG: callee_file_path must be str or None, got dict in {file_path}:{call['line']}. "
+                        f"Value: {callee_file_path}. Fix TypeScript extractor (typescript_impl.py)."
                     )
-                    continue  # Skip this call - don't store corrupted data
 
                 if isinstance(param_name, dict):
-                    logger.error(
-                        f"[EXTRACTOR BUG] param_name is dict (expected str) in {file_path}:{call['line']}\n"
-                        f"  Value: {param_name}\n"
-                        f"  Callee: {call['callee_function']}\n"
-                        f"  This indicates bug in extraction layer producing dict instead of string.\n"
-                        f"  SKIPPING this function call to prevent database corruption."
+                    raise TypeError(
+                        f"EXTRACTION BUG: param_name must be str, got dict in {file_path}:{call['line']}. "
+                        f"Callee: {call['callee_function']}. Value: {param_name}. Fix extraction layer."
                     )
-                    continue  # Skip this call - don't store corrupted data
 
                 self.db_manager.add_function_call_arg(
                     file_path, call['line'], call['caller_function'],
