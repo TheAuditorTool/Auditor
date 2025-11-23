@@ -297,19 +297,19 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
                 # ARCHITECTURAL CONTRACT: JavaScript helper serializes parameters as:
                 # { name: "paramName" } where name is ALWAYS a string extracted from AST
                 # See core_ast_extractors.js:328-335 and :338
+                # ZERO FALLBACK POLICY: Hard fail on contract violations
                 if not isinstance(param, dict):
-                    # Contract violation - parameters MUST be dict objects
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[ERROR typescript_impl.py:298] Parameter is not dict: {type(param)}", file=sys.stderr)
-                    continue
+                    raise TypeError(
+                        f"EXTRACTION BUG: Parameter must be dict, got {type(param).__name__}. "
+                        f"Fix core_ast_extractors.js parameter serialization."
+                    )
 
                 param_name = param.get("name")
                 if not isinstance(param_name, str):
-                    # Contract violation - name field MUST be string
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[ERROR typescript_impl.py:302] Parameter name is not string: {type(param_name)}, value={param_name}", file=sys.stderr)
-                        print(f"[ERROR] This indicates JavaScript extractor bug at core_ast_extractors.js:338", file=sys.stderr)
-                    continue
+                    raise TypeError(
+                        f"EXTRACTION BUG: Parameter name must be str, got {type(param_name).__name__}. "
+                        f"Value: {param_name}. Fix core_ast_extractors.js:338."
+                    )
 
                 if param_name:  # Only add non-empty param names
                     params.append(param_name)
@@ -350,16 +350,19 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 
                     for param in param_nodes:
                         # ARCHITECTURAL CONTRACT: Same as above - params are { name: "str" } dicts
+                        # ZERO FALLBACK POLICY: Hard fail on contract violations
                         if not isinstance(param, dict):
-                            if os.environ.get("THEAUDITOR_DEBUG"):
-                                print(f"[ERROR typescript_impl.py:345] Parameter is not dict: {type(param)}", file=sys.stderr)
-                            continue
+                            raise TypeError(
+                                f"EXTRACTION BUG: Parameter must be dict, got {type(param).__name__}. "
+                                f"Fix core_ast_extractors.js parameter serialization."
+                            )
 
                         param_name = param.get("name")
                         if not isinstance(param_name, str):
-                            if os.environ.get("THEAUDITOR_DEBUG"):
-                                print(f"[ERROR typescript_impl.py:349] Parameter name is not string: {type(param_name)}", file=sys.stderr)
-                            continue
+                            raise TypeError(
+                                f"EXTRACTION BUG: Parameter name must be str, got {type(param_name).__name__}. "
+                                f"Value: {param_name}. Fix core_ast_extractors.js:338."
+                            )
 
                         if param_name:
                             params.append(param_name)
@@ -396,16 +399,19 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 
                             for param in param_nodes:
                                 # ARCHITECTURAL CONTRACT: Same as above - params are { name: "str" } dicts
+                                # ZERO FALLBACK POLICY: Hard fail on contract violations
                                 if not isinstance(param, dict):
-                                    if os.environ.get("THEAUDITOR_DEBUG"):
-                                        print(f"[ERROR typescript_impl.py:390] Parameter is not dict: {type(param)}", file=sys.stderr)
-                                    continue
+                                    raise TypeError(
+                                        f"EXTRACTION BUG: Parameter must be dict, got {type(param).__name__}. "
+                                        f"Fix core_ast_extractors.js parameter serialization."
+                                    )
 
                                 param_name = param.get("name")
                                 if not isinstance(param_name, str):
-                                    if os.environ.get("THEAUDITOR_DEBUG"):
-                                        print(f"[ERROR typescript_impl.py:394] Parameter name is not string: {type(param_name)}", file=sys.stderr)
-                                    continue
+                                    raise TypeError(
+                                        f"EXTRACTION BUG: Parameter name must be str, got {type(param_name).__name__}. "
+                                        f"Value: {param_name}. Fix core_ast_extractors.js:338."
+                                    )
 
                                 if param_name:
                                     params.append(param_name)
