@@ -10,8 +10,8 @@ The core audit pipeline works without any of these modules.
 Modules:
   - ml: Machine learning predictions and risk scoring
   - graph: Architecture health metrics and recommendations
-  - taint: Security vulnerability severity classification
   - semantic_context: User-defined business logic and semantic understanding
+  - impact_analyzer: Change blast radius and coupling analysis
 """
 
 # ML Insights - predictions and risk scoring
@@ -36,21 +36,11 @@ from theauditor.insights.ml import (
     fowler_noll_hash,
 )
 
-# Graph Insights - health metrics and recommendations  
+# Graph Insights - health metrics and recommendations
 from theauditor.insights.graph import (
     GraphInsights,
     check_insights_available,
     create_insights,
-)
-
-# Taint Insights - severity scoring and classification
-from theauditor.insights.taint import (
-    calculate_severity,
-    classify_vulnerability,
-    generate_summary,
-    format_taint_report,
-    get_taint_summary,
-    is_vulnerable_sink,
 )
 
 # Semantic Context - user-defined business logic application
@@ -95,13 +85,6 @@ __all__ = [
     'GraphInsights',
     'check_insights_available',
     'create_insights',
-    # Taint exports
-    'calculate_severity',
-    'classify_vulnerability',
-    'generate_summary',
-    'format_taint_report',
-    'get_taint_summary',
-    'is_vulnerable_sink',
     # Semantic Context exports
     'SemanticContext',
     'ContextPattern',
