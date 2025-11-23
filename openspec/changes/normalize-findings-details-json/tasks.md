@@ -1,6 +1,13 @@
 # Implementation Tasks: Sparse Wide Table Normalization
 
-**Prerequisites**:
+**VERIFIED**: 2025-11-24 against live database and codebase
+**Verifier**: Opus (AI Lead Coder)
+**Protocol**: teamsop.md v4.20 Prime Directive
+
+---
+
+## Prerequisites (READ FIRST)
+
 1. Read `proposal.md` - Understand what and why
 2. Read `design.md` - Understand technical decisions
 3. Read `verification.md` - Understand verified facts
@@ -9,99 +16,99 @@
 
 ---
 
+## VERIFIED DATA DISTRIBUTION (2025-11-24)
+
+**Tools with non-empty details_json** (21% of rows = 4,521/21,900):
+
+| Tool | Rows | Keys |
+|------|------|------|
+| mypy | 4,397 | mypy_severity, mypy_code, hint |
+| cfg-analysis | 66 | complexity, block_count, edge_count, start_line, end_line, function, has_loops, max_nesting, file |
+| graph-analysis | 50 | id, in_degree, out_degree, centrality, churn, loc, score |
+| terraform | 7 | finding_id, resource_id, remediation, graph_context_json (NULL) |
+| taint | 1 | source (DICT), sink (DICT), path (LIST), + 11 more |
+
+**Tools with EMPTY details_json** (79% of rows = 17,379/21,900):
+- ruff: 11,604 rows
+- patterns: 5,298 rows
+- eslint: 463 rows
+- cdk: 14 rows
+
+**CRITICAL FINDING**: `churn-analysis` and `coverage-analysis` tools DO NOT EXIST.
+- `load_churn_data_from_db()` at fce.py:145-181 queries non-existent tool (dead code)
+- `load_coverage_data_from_db()` at fce.py:184-220 queries non-existent tool (dead code)
+- Churn data is stored in `graph-analysis` tool (key: `churn`)
+
+---
+
 ## 0. Verification (MANDATORY BEFORE ANY CODE)
 
-Execute Prime Directive verification per teamsop.md v4.20.
+### Task 0.1: Verify Schema Location
 
-- [ ] **0.1** Read `theauditor/indexer/schemas/core_schema.py:490-516`
-  - **Verify**: FINDINGS_CONSOLIDATED has 14 columns
-  - **Verify**: `details_json` is at line 506
-  - **Verify**: 6 indexes defined
+**Command**:
+```bash
+grep -n "FINDINGS_CONSOLIDATED = TableSchema" theauditor/indexer/schemas/core_schema.py
+```
 
-- [ ] **0.2** Read `theauditor/fce.py:60-70, 125-135, 265-275`
-  - **Verify**: json.loads calls exist at lines 63, 81, 130, 171, 210, 268
-  - **Verify**: try/except blocks wrap json.loads (ZERO FALLBACK violations)
+**Expected**: Line 490
 
-- [ ] **0.3** Run database query to confirm data distribution
-  ```bash
-  cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
-  import sqlite3
-  conn = sqlite3.connect('.pf/repo_index.db')
-  c = conn.cursor()
-  c.execute('''
-      SELECT tool, COUNT(*) as total,
-             SUM(CASE WHEN details_json != \"{}\" THEN 1 ELSE 0 END) as with_details
-      FROM findings_consolidated GROUP BY tool
-  ''')
-  for row in c.fetchall():
-      print(f'{row[0]}: {row[2]}/{row[1]}')
-  "
-  ```
-  - **Verify**: ~77% rows have empty details_json
+**Verify**: Read lines 490-516 to confirm 14 columns including `details_json`
 
-- [ ] **0.4** Confirm taint_flows table exists
-  ```bash
-  cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
-  import sqlite3
-  conn = sqlite3.connect('.pf/repo_index.db')
-  c = conn.cursor()
-  c.execute('SELECT COUNT(*) FROM taint_flows')
-  print(f'taint_flows rows: {c.fetchone()[0]}')
-  "
-  ```
-  - **Verify**: Table exists with >= 1 row
+---
+
+### Task 0.2: Verify Write Path Location
+
+**Command**:
+```bash
+grep -n "INSERT INTO findings_consolidated" theauditor/indexer/database/base_database.py
+```
+
+**Expected**: Line 688
+
+**Verify**: Read lines 630-700 to confirm write logic structure
+
+---
+
+### Task 0.3: Verify FCE Read Locations
+
+**Command**:
+```bash
+grep -n "json.loads.*details" theauditor/fce.py
+```
+
+**Expected**: Lines 63, 81, 130, 171, 210, 268
+
+**Verify**: 6 json.loads calls exist
+
+---
+
+### Task 0.4: Verify Database State
+
+**Command**:
+```bash
+cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
+import sqlite3
+conn = sqlite3.connect('.pf/repo_index.db')
+c = conn.cursor()
+c.execute('''SELECT tool, COUNT(*), SUM(CASE WHEN details_json != \"{}\" THEN 1 ELSE 0 END)
+             FROM findings_consolidated GROUP BY tool ORDER BY COUNT(*) DESC''')
+for row in c.fetchall():
+    print(f'{row[0]}: {row[2]}/{row[1]} with data')
+"
+```
+
+**Expected output matches verified data distribution above**
 
 ---
 
 ## 1. Schema Changes
 
-### Task 1.1: Add Column Support to TableSchema (if needed)
-
-**File**: `theauditor/indexer/schemas/__init__.py` (or where Column is defined)
-
-**Check first**: Does Column class support all needed types?
-- INTEGER, TEXT, REAL should already work
-- NULL default should already work
-
-**Action**: If Column class needs changes, update here. Otherwise skip.
-
----
-
-### Task 1.2: Add Partial Index Support
-
-**File**: `theauditor/indexer/database/base_database.py`
-
-**Find**: Index creation loop (search for `CREATE INDEX`)
-
-**BEFORE** (approximate location):
-```python
-for idx_name, idx_columns in table.indexes:
-    cursor.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table.name}({', '.join(idx_columns)})")
-```
-
-**AFTER**:
-```python
-for idx_def in table.indexes:
-    idx_name = idx_def[0]
-    idx_columns = idx_def[1]
-    where_clause = idx_def[2] if len(idx_def) > 2 else None
-
-    sql = f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table.name}({', '.join(idx_columns)})"
-    if where_clause:
-        sql += f" WHERE {where_clause}"
-    cursor.execute(sql)
-```
-
-**Test**: Run `aud full` - should not error on new format
-
----
-
-### Task 1.3: Update FINDINGS_CONSOLIDATED Schema
+### Task 1.1: Update FINDINGS_CONSOLIDATED Schema
 
 **File**: `theauditor/indexer/schemas/core_schema.py`
 **Location**: Lines 490-516
 
-**BEFORE**:
+**COMPLETE BEFORE** (copy of current code):
 ```python
 FINDINGS_CONSOLIDATED = TableSchema(
     name="findings_consolidated",
@@ -132,12 +139,12 @@ FINDINGS_CONSOLIDATED = TableSchema(
 )
 ```
 
-**AFTER**:
+**COMPLETE AFTER** (replace entire block):
 ```python
 FINDINGS_CONSOLIDATED = TableSchema(
     name="findings_consolidated",
     columns=[
-        # === EXISTING COLUMNS (13) ===
+        # === BASE COLUMNS (13) - unchanged ===
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
@@ -152,339 +159,375 @@ FINDINGS_CONSOLIDATED = TableSchema(
         Column("cwe", "TEXT"),
         Column("timestamp", "TEXT", nullable=False),
 
-        # === MYPY COLUMNS (3) ===
-        Column("mypy_severity", "TEXT"),
-        Column("mypy_code", "TEXT"),
-        Column("mypy_hint", "TEXT"),
+        # === MYPY COLUMNS (3) - 4,397 rows use these ===
+        Column("mypy_severity", "TEXT"),       # "error", "warning", "note"
+        Column("mypy_code", "TEXT"),           # "no-untyped-def", "var-annotated", etc.
+        Column("mypy_hint", "TEXT"),           # Additional hint text (261 rows)
 
-        # === CFG-ANALYSIS COLUMNS (8) ===
-        Column("cfg_complexity", "INTEGER"),
-        Column("cfg_block_count", "INTEGER"),
-        Column("cfg_edge_count", "INTEGER"),
-        Column("cfg_start_line", "INTEGER"),
-        Column("cfg_end_line", "INTEGER"),
-        Column("cfg_function", "TEXT"),
-        Column("cfg_has_loops", "INTEGER"),
-        Column("cfg_max_nesting", "INTEGER"),
+        # === CFG-ANALYSIS COLUMNS (8) - 66 rows use these ===
+        # Note: 'file' key in details_json is redundant with base 'file' column, skip it
+        Column("cfg_complexity", "INTEGER"),   # Cyclomatic complexity value
+        Column("cfg_block_count", "INTEGER"),  # Number of basic blocks
+        Column("cfg_edge_count", "INTEGER"),   # Number of control flow edges
+        Column("cfg_start_line", "INTEGER"),   # Function start line
+        Column("cfg_end_line", "INTEGER"),     # Function end line
+        Column("cfg_function", "TEXT"),        # Function name
+        Column("cfg_has_loops", "INTEGER"),    # Boolean as 0/1
+        Column("cfg_max_nesting", "INTEGER"),  # Maximum nesting depth
 
-        # === GRAPH-ANALYSIS COLUMNS (7) ===
-        Column("graph_centrality", "REAL"),
-        Column("graph_churn", "INTEGER"),
-        Column("graph_in_degree", "INTEGER"),
-        Column("graph_out_degree", "INTEGER"),
-        Column("graph_loc", "INTEGER"),
-        Column("graph_score", "REAL"),
-        Column("graph_node_id", "TEXT"),
+        # === GRAPH-ANALYSIS COLUMNS (7) - 50 rows use these ===
+        # Note: 'churn' is stored here (no separate churn-analysis tool)
+        Column("graph_node_id", "TEXT"),       # Node identifier (was 'id')
+        Column("graph_in_degree", "INTEGER"),  # Incoming dependency count
+        Column("graph_out_degree", "INTEGER"), # Outgoing dependency count
+        Column("graph_centrality", "REAL"),    # Betweenness centrality (0.0-1.0)
+        Column("graph_churn", "INTEGER"),      # Git commit count (code churn)
+        Column("graph_loc", "INTEGER"),        # Lines of code
+        Column("graph_score", "REAL"),         # Composite hotspot score
 
-        # === TERRAFORM COLUMNS (4) ===
-        Column("tf_finding_id", "TEXT"),
-        Column("tf_resource_id", "TEXT"),
-        Column("tf_remediation", "TEXT"),
-        Column("tf_graph_context", "TEXT"),
+        # === TERRAFORM COLUMNS (4) - 7 rows use these ===
+        Column("tf_finding_id", "TEXT"),       # Terraform finding identifier
+        Column("tf_resource_id", "TEXT"),      # Resource identifier
+        Column("tf_remediation", "TEXT"),      # Remediation guidance
+        Column("tf_graph_context", "TEXT"),    # Graph context (always NULL currently)
 
-        # === FALLBACK FOR COMPLEX DATA ===
-        # ONLY use for data that cannot be normalized (e.g., nested taint paths)
+        # === FALLBACK COLUMN (1) - only for taint (1 row) ===
+        # ONLY use for complex nested data that cannot be flattened
         Column("misc_json", "TEXT", default="'{}'"),
     ],
     indexes=[
-        # Existing indexes
+        # Existing indexes - unchanged
         ("idx_findings_file_line", ["file", "line"]),
         ("idx_findings_tool", ["tool"]),
         ("idx_findings_severity", ["severity"]),
         ("idx_findings_rule", ["rule"]),
         ("idx_findings_category", ["category"]),
         ("idx_findings_tool_rule", ["tool", "rule"]),
-        # Partial indexes for sparse columns
-        ("idx_findings_complexity", ["cfg_complexity"], "cfg_complexity IS NOT NULL"),
-        ("idx_findings_hotspot", ["graph_score"], "graph_score IS NOT NULL"),
-        ("idx_findings_centrality", ["graph_centrality"], "graph_centrality IS NOT NULL"),
-        ("idx_findings_mypy_code", ["mypy_code"], "mypy_code IS NOT NULL"),
+        # NOTE: Partial indexes require schema system enhancement (Task 1.2)
+        # Add after Task 1.2 is complete:
+        # ("idx_findings_complexity", ["cfg_complexity"], "cfg_complexity IS NOT NULL"),
+        # ("idx_findings_hotspot", ["graph_score"], "graph_score IS NOT NULL"),
     ]
 )
 ```
 
-**Test**:
+**Verification after edit**:
 ```bash
-cd C:/Users/santa/Desktop/TheAuditor && aud full
+grep -c "Column(" theauditor/indexer/schemas/core_schema.py | head -1
+# Should show increased column count
 ```
-- **Verify**: No schema errors
-- **Verify**: `SELECT COUNT(*) FROM findings_consolidated` returns rows
+
+---
+
+### Task 1.2: Add Partial Index Support (OPTIONAL - skip if time constrained)
+
+**File**: `theauditor/indexer/database/base_database.py`
+
+**Why**: Partial indexes only index non-NULL rows, keeping index size small for sparse columns.
+
+**Find**: Search for index creation loop (approximately lines 300-400)
+```bash
+grep -n "CREATE INDEX" theauditor/indexer/database/base_database.py
+```
+
+**Change**: Update loop to handle 3-tuple format (name, columns, where_clause)
+
+**If not implemented**: Standard indexes still work, just slightly larger. Not a blocker.
 
 ---
 
 ## 2. Writer Updates
 
-### Task 2.1: Add Column Mapping Function
+### Task 2.1: Update base_database.py write_findings()
 
 **File**: `theauditor/indexer/database/base_database.py`
-**Location**: Near top of file (after imports)
+**Location**: Lines 630-700 (find method `write_findings`)
 
-**ADD** new function:
+**COMPLETE BEFORE** (lines 668-693):
 ```python
-# Column mappings for each tool type
-TOOL_COLUMN_MAPPINGS = {
-    'mypy': {
-        'mypy_severity': 'mypy_severity',
-        'mypy_code': 'mypy_code',
-        'hint': 'mypy_hint',
-    },
-    'cfg-analysis': {
-        'complexity': 'cfg_complexity',
-        'block_count': 'cfg_block_count',
-        'edge_count': 'cfg_edge_count',
-        'start_line': 'cfg_start_line',
-        'end_line': 'cfg_end_line',
-        'function': 'cfg_function',
-        'has_loops': 'cfg_has_loops',
-        'max_nesting': 'cfg_max_nesting',
-    },
-    'graph-analysis': {
-        'centrality': 'graph_centrality',
-        'churn': 'graph_churn',
-        'in_degree': 'graph_in_degree',
-        'out_degree': 'graph_out_degree',
-        'loc': 'graph_loc',
-        'score': 'graph_score',
-        'id': 'graph_node_id',
-    },
-    'terraform': {
-        'finding_id': 'tf_finding_id',
-        'resource_id': 'tf_resource_id',
-        'remediation': 'tf_remediation',
-        'graph_context_json': 'tf_graph_context',
-    },
-}
+            normalized.append((
+                file_path,
+                int(f.get('line', 0)),
+                f.get('column'),  # Optional
+                rule_value,
+                f.get('tool', tool_name),
+                f.get('message', ''),
+                f.get('severity', 'medium'),  # Default to medium if not specified
+                f.get('category'),  # Optional
+                f.get('confidence'),  # Optional
+                f.get('code_snippet'),  # Optional
+                f.get('cwe'),  # Optional
+                f.get('timestamp', datetime.now(UTC).isoformat()),
+                details_str  # Structured data
+            ))
 
-def extract_tool_columns(tool: str, additional_info: dict) -> dict:
-    """Extract tool-specific columns from additional_info dict.
+        # Batch insert using configured batch size for performance
+        for i in range(0, len(normalized), self.batch_size):
+            batch = normalized[i:i+self.batch_size]
+            cursor.executemany(
+                """INSERT INTO findings_consolidated
+                   (file, line, column, rule, tool, message, severity, category,
+                    confidence, code_snippet, cwe, timestamp, details_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                batch
+            )
+```
 
-    Args:
-        tool: Tool name (e.g., 'mypy', 'cfg-analysis')
-        additional_info: Dict with tool-specific data
+**COMPLETE AFTER** (replace the entire section from line ~636 to ~693):
+```python
+        # Column mappings for tool-specific data extraction
+        TOOL_COLUMN_EXTRACTORS = {
+            'mypy': {
+                'mypy_severity': 'mypy_severity',
+                'mypy_code': 'mypy_code',
+                'hint': 'mypy_hint',
+            },
+            'cfg-analysis': {
+                'complexity': 'cfg_complexity',
+                'block_count': 'cfg_block_count',
+                'edge_count': 'cfg_edge_count',
+                'start_line': 'cfg_start_line',
+                'end_line': 'cfg_end_line',
+                'function': 'cfg_function',
+                'has_loops': 'cfg_has_loops',
+                'max_nesting': 'cfg_max_nesting',
+            },
+            'graph-analysis': {
+                'id': 'graph_node_id',
+                'in_degree': 'graph_in_degree',
+                'out_degree': 'graph_out_degree',
+                'centrality': 'graph_centrality',
+                'churn': 'graph_churn',
+                'loc': 'graph_loc',
+                'score': 'graph_score',
+            },
+            'terraform': {
+                'finding_id': 'tf_finding_id',
+                'resource_id': 'tf_resource_id',
+                'remediation': 'tf_remediation',
+                'graph_context_json': 'tf_graph_context',
+            },
+        }
 
-    Returns:
-        Dict mapping column names to values
-    """
-    if not additional_info:
-        return {}
+        # All tool-specific columns in schema order
+        TOOL_COLUMNS = [
+            'mypy_severity', 'mypy_code', 'mypy_hint',
+            'cfg_complexity', 'cfg_block_count', 'cfg_edge_count',
+            'cfg_start_line', 'cfg_end_line', 'cfg_function',
+            'cfg_has_loops', 'cfg_max_nesting',
+            'graph_node_id', 'graph_in_degree', 'graph_out_degree',
+            'graph_centrality', 'graph_churn', 'graph_loc', 'graph_score',
+            'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context',
+            'misc_json',
+        ]
 
-    mappings = TOOL_COLUMN_MAPPINGS.get(tool, {})
-    columns = {}
+        normalized = []
+        for f in findings:
+            # Extract tool-specific data
+            details = f.get('additional_info', f.get('details_json', {}))
+            if isinstance(details, str):
+                try:
+                    details = json.loads(details)
+                except (json.JSONDecodeError, TypeError):
+                    details = {}
+            if not isinstance(details, dict):
+                details = {}
 
-    for json_key, column_name in mappings.items():
-        if json_key in additional_info:
-            value = additional_info[json_key]
-            # Convert bool to int for SQLite
-            if isinstance(value, bool):
-                value = 1 if value else 0
-            columns[column_name] = value
+            # Get tool name
+            tool = f.get('tool', tool_name)
 
-    return columns
+            # Extract tool-specific column values
+            extractor = TOOL_COLUMN_EXTRACTORS.get(tool, {})
+            tool_values = {}
+            for json_key, column_name in extractor.items():
+                if json_key in details:
+                    value = details[json_key]
+                    # Convert bool to int for SQLite
+                    if isinstance(value, bool):
+                        value = 1 if value else 0
+                    tool_values[column_name] = value
+
+            # Handle different finding formats from various tools
+            rule_value = f.get('rule')
+            if not rule_value:
+                rule_value = f.get('pattern', f.get('pattern_name', f.get('code', 'unknown-rule')))
+            if isinstance(rule_value, str):
+                rule_value = rule_value.strip() or 'unknown-rule'
+            else:
+                rule_value = str(rule_value) if rule_value is not None else 'unknown-rule'
+
+            file_path = f.get('file', '')
+            if not isinstance(file_path, str):
+                file_path = str(file_path or '')
+
+            # Build base tuple
+            row = [
+                file_path,
+                int(f.get('line', 0)),
+                f.get('column'),
+                rule_value,
+                tool,
+                f.get('message', ''),
+                f.get('severity', 'medium'),
+                f.get('category'),
+                f.get('confidence'),
+                f.get('code_snippet'),
+                f.get('cwe'),
+                f.get('timestamp', datetime.now(UTC).isoformat()),
+            ]
+
+            # Add tool-specific columns (None for columns not in this tool's data)
+            for col in TOOL_COLUMNS[:-1]:  # All except misc_json
+                row.append(tool_values.get(col))
+
+            # misc_json: Only for taint (complex nested data)
+            if tool == 'taint' and details:
+                row.append(json.dumps(details))
+            else:
+                row.append('{}')
+
+            normalized.append(tuple(row))
+
+        # Build INSERT statement with all columns
+        base_cols = 'file, line, column, rule, tool, message, severity, category, confidence, code_snippet, cwe, timestamp'
+        tool_cols = ', '.join(TOOL_COLUMNS)
+        all_cols = f'{base_cols}, {tool_cols}'
+        placeholders = ', '.join(['?'] * (12 + len(TOOL_COLUMNS)))
+
+        insert_sql = f"""INSERT INTO findings_consolidated ({all_cols}) VALUES ({placeholders})"""
+
+        # Batch insert
+        for i in range(0, len(normalized), self.batch_size):
+            batch = normalized[i:i+self.batch_size]
+            cursor.executemany(insert_sql, batch)
+```
+
+**Verification after edit**:
+```bash
+cd C:/Users/santa/Desktop/TheAuditor && aud full
+# Should complete without SQL errors
 ```
 
 ---
 
-### Task 2.2: Update write_findings Method
-
-**File**: `theauditor/indexer/database/base_database.py`
-**Location**: Lines 680-700 (find `write_findings` or the INSERT INTO findings_consolidated)
-
-**BEFORE**:
-```python
-cursor.executemany(
-    """INSERT INTO findings_consolidated
-       (file, line, column, rule, tool, message, severity, category,
-        confidence, code_snippet, cwe, timestamp, details_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    batch
-)
-```
-
-**AFTER**:
-```python
-# Build INSERT with all columns
-base_columns = [
-    'file', 'line', 'column', 'rule', 'tool', 'message', 'severity',
-    'category', 'confidence', 'code_snippet', 'cwe', 'timestamp',
-]
-tool_columns = [
-    'mypy_severity', 'mypy_code', 'mypy_hint',
-    'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_start_line',
-    'cfg_end_line', 'cfg_function', 'cfg_has_loops', 'cfg_max_nesting',
-    'graph_centrality', 'graph_churn', 'graph_in_degree', 'graph_out_degree',
-    'graph_loc', 'graph_score', 'graph_node_id',
-    'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context',
-    'misc_json',
-]
-all_columns = base_columns + tool_columns
-placeholders = ', '.join(['?'] * len(all_columns))
-
-insert_sql = f"""INSERT INTO findings_consolidated
-    ({', '.join(all_columns)})
-    VALUES ({placeholders})"""
-
-# Build batch with column extraction
-normalized_batch = []
-for f in batch:
-    # Base columns
-    row = [
-        f[0],   # file
-        f[1],   # line
-        f[2],   # column
-        f[3],   # rule
-        f[4],   # tool
-        f[5],   # message
-        f[6],   # severity
-        f[7],   # category
-        f[8],   # confidence
-        f[9],   # code_snippet
-        f[10],  # cwe
-        f[11],  # timestamp
-    ]
-
-    # Extract tool-specific columns
-    tool = f[4]  # tool name
-    additional_info = {}
-    if len(f) > 12 and f[12]:
-        # Parse details_json to get additional_info
-        try:
-            import json
-            additional_info = json.loads(f[12]) if isinstance(f[12], str) else f[12]
-        except:
-            additional_info = {}
-
-    tool_cols = extract_tool_columns(tool, additional_info)
-
-    # Add tool columns in order (None for columns not in this tool's data)
-    for col in tool_columns[:-1]:  # Exclude misc_json
-        row.append(tool_cols.get(col))
-
-    # misc_json - only for complex data that couldn't be extracted
-    if tool == 'taint' and additional_info:
-        import json
-        row.append(json.dumps(additional_info))
-    else:
-        row.append('{}')
-
-    normalized_batch.append(tuple(row))
-
-cursor.executemany(insert_sql, normalized_batch)
-```
-
-**Note**: This is a significant change. May need adjustment based on actual batch structure.
-
----
-
-### Task 2.3: Update rules/base.py StandardFinding.to_dict()
-
-**File**: `theauditor/rules/base.py`
-**Location**: Lines 183-186
-
-**BEFORE**:
-```python
-if self.additional_info:
-    # Map additional_info -> details_json for database schema
-    import json
-    result["details_json"] = json.dumps(self.additional_info)
-```
-
-**AFTER**:
-```python
-if self.additional_info:
-    # Pass additional_info as-is; writer will extract to columns
-    result["additional_info"] = self.additional_info
-    # Keep details_json for backwards compat during transition
-    import json
-    result["details_json"] = json.dumps(self.additional_info)
-```
-
----
-
-### Task 2.4: Update terraform/analyzer.py
+### Task 2.2: Update terraform/analyzer.py
 
 **File**: `theauditor/terraform/analyzer.py`
 **Location**: Lines 167-196
 
-**BEFORE**:
+**COMPLETE BEFORE**:
 ```python
-details_json = json.dumps({
-    'finding_id': finding.finding_id,
-    'resource_id': finding.resource_id,
-    'remediation': finding.remediation,
-    'graph_context_json': finding.graph_context_json,
-})
+            details_json = json.dumps({
+                'finding_id': finding.finding_id,
+                'resource_id': finding.resource_id,
+                'remediation': finding.remediation,
+                'graph_context_json': finding.graph_context_json,
+            })
 
-cursor.execute(
-    """INSERT INTO findings_consolidated
-    (file, line, column, rule, tool, message, severity, category,
-     confidence, code_snippet, cwe, timestamp, details_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    (..., details_json,)
-)
+            cursor.execute(
+                """
+                INSERT INTO findings_consolidated
+                (file, line, column, rule, tool, message, severity, category,
+                 confidence, code_snippet, cwe, timestamp, details_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    finding.file_path,
+                    finding.line or 0,
+                    None,
+                    finding.finding_id,
+                    'terraform',
+                    finding.title,
+                    finding.severity,
+                    finding.category,
+                    1.0,
+                    finding.resource_id or '',
+                    '',
+                    timestamp,
+                    details_json,
+                ),
+            )
 ```
 
-**AFTER**:
+**COMPLETE AFTER**:
 ```python
-cursor.execute(
-    """INSERT INTO findings_consolidated
-    (file, line, column, rule, tool, message, severity, category,
-     confidence, code_snippet, cwe, timestamp,
-     tf_finding_id, tf_resource_id, tf_remediation, tf_graph_context)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    (
-        finding.file_path,
-        finding.line or 0,
-        None,
-        finding.finding_id,
-        'terraform',
-        finding.title,
-        finding.severity,
-        finding.category,
-        1.0,
-        finding.resource_id or '',
-        '',
-        timestamp,
-        finding.finding_id,      # tf_finding_id
-        finding.resource_id,     # tf_resource_id
-        finding.remediation,     # tf_remediation
-        finding.graph_context_json,  # tf_graph_context
-    ),
-)
+            # Write directly to columns (no JSON serialization)
+            cursor.execute(
+                """
+                INSERT INTO findings_consolidated
+                (file, line, column, rule, tool, message, severity, category,
+                 confidence, code_snippet, cwe, timestamp,
+                 tf_finding_id, tf_resource_id, tf_remediation, tf_graph_context,
+                 misc_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    finding.file_path,
+                    finding.line or 0,
+                    None,
+                    finding.finding_id,
+                    'terraform',
+                    finding.title,
+                    finding.severity,
+                    finding.category,
+                    1.0,
+                    finding.resource_id or '',
+                    '',
+                    timestamp,
+                    # Tool-specific columns
+                    finding.finding_id,        # tf_finding_id
+                    finding.resource_id,       # tf_resource_id
+                    finding.remediation,       # tf_remediation
+                    finding.graph_context_json,  # tf_graph_context
+                    '{}',                      # misc_json (not used for terraform)
+                ),
+            )
 ```
+
+**Also remove**: The `json.dumps()` import if no longer used in file.
 
 ---
 
-### Task 2.5: Update commands/taint.py
+### Task 2.3: Update commands/taint.py
 
 **File**: `theauditor/commands/taint.py`
-**Location**: Lines 477-500
+**Location**: Lines 490-501 (inside the findings_dicts.append block)
 
-**Key change**: Write complex taint data to `misc_json` (exception for complex nested data)
-
-**BEFORE**:
+**COMPLETE BEFORE** (verified 2025-11-24):
 ```python
-findings_dicts.append({
-    ...
-    'additional_info': taint_path  # Complete nested structure
-})
+                findings_dicts.append({
+                    'file': sink.get('file', ''),                        # Sink location (where vulnerability manifests)
+                    'line': int(sink.get('line', 0)),                    # Sink line number
+                    'column': sink.get('column'),                        # Sink column
+                    'rule': f"taint-{sink.get('category', 'unknown')}", # Sink category (xss, sql, etc.)
+                    'tool': 'taint',
+                    'message': message,                                  # Constructed: "XSS: req.body → res.send"
+                    'severity': 'high',                                  # Default high (all taint flows are critical)
+                    'category': 'injection',
+                    'code_snippet': None,                                # Not available in taint path structure
+                    'additional_info': taint_path                        # Store complete path (source, intermediate steps, sink)
+                })
 ```
 
-**AFTER**:
+**COMPLETE AFTER**:
 ```python
-import json
-findings_dicts.append({
-    ...
-    'misc_json': json.dumps(taint_path)  # Complex data goes to misc_json
-})
+                # Taint has complex nested data - store in misc_json
+                # FCE will read from taint_flows table instead
+                findings_dicts.append({
+                    'file': sink.get('file', ''),
+                    'line': int(sink.get('line', 0)),
+                    'column': sink.get('column'),
+                    'rule': f"taint-{sink.get('category', 'unknown')}",
+                    'tool': 'taint',
+                    'message': message,
+                    'severity': 'high',
+                    'category': 'injection',
+                    'code_snippet': None,
+                    'additional_info': taint_path,  # Goes to misc_json via write_findings
+                })
 ```
 
----
-
-### Task 2.6: Update Other Writers (vulnerability_scanner.py, aws_cdk/analyzer.py)
-
-**Files**: Check each for INSERT INTO findings_consolidated
-
-**Action**: Update INSERT statements to match new schema (add NULL for unused columns)
+**Note**: No actual change needed here - write_findings handles taint specially.
 
 ---
 
@@ -493,50 +536,134 @@ findings_dicts.append({
 ### Task 3.1: Update fce.py load_graph_data_from_db()
 
 **File**: `theauditor/fce.py`
-**Location**: Lines 52-100
+**Location**: Lines 29-101 (entire function)
 
-**BEFORE**:
+**COMPLETE BEFORE**:
 ```python
-cursor.execute("""
-    SELECT file, details_json
-    FROM findings_consolidated
-    WHERE tool='graph-analysis' AND rule='ARCHITECTURAL_HOTSPOT'
-""")
+def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Load graph analysis data (hotspots and cycles) from database.
+    ...
+    """
+    hotspot_files = {}
+    cycles = []
 
-for row in cursor.fetchall():
-    file_path, details_json = row
     try:
-        if details_json:
-            details = json.loads(details_json)
-            hotspot_files[file_path] = details
-    except (json.JSONDecodeError, TypeError):
-        pass
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Load hotspots with structured data from details_json
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='graph-analysis' AND rule='ARCHITECTURAL_HOTSPOT'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    # Use file path as key, store full hotspot data
+                    hotspot_files[file_path] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Load cycles - deduplicate by cycle nodes
+        cursor.execute("""
+            SELECT DISTINCT details_json
+            FROM findings_consolidated
+            WHERE tool='graph-analysis' AND rule='CIRCULAR_DEPENDENCY'
+        """)
+
+        seen_cycles = set()
+        for row in cursor.fetchall():
+            details_json = row[0]
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    cycle_nodes = details.get('cycle_nodes', [])
+                    cycle_size = details.get('cycle_size', len(cycle_nodes))
+
+                    # Deduplicate cycles by sorted node list
+                    cycle_key = tuple(sorted(cycle_nodes))
+                    if cycle_key and cycle_key not in seen_cycles:
+                        cycles.append({
+                            'nodes': list(cycle_key),
+                            'size': cycle_size
+                        })
+                        seen_cycles.add(cycle_key)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading graph data: {e}")
+
+    return hotspot_files, cycles
 ```
 
-**AFTER**:
+**COMPLETE AFTER**:
 ```python
-cursor.execute("""
-    SELECT file,
-           graph_centrality, graph_churn, graph_in_degree,
-           graph_out_degree, graph_loc, graph_score, graph_node_id
-    FROM findings_consolidated
-    WHERE tool='graph-analysis' AND rule='ARCHITECTURAL_HOTSPOT'
-""")
+def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Load graph analysis data (hotspots and cycles) from database.
 
-for row in cursor.fetchall():
-    file_path = row[0]
-    hotspot_files[file_path] = {
-        'centrality': row[1],
-        'churn': row[2],
-        'in_degree': row[3],
-        'out_degree': row[4],
-        'loc': row[5],
-        'score': row[6],
-        'id': row[7],
-    }
+    Queries findings_consolidated using direct column access (no JSON parsing).
+    """
+    hotspot_files = {}
+    cycles = []
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Load hotspots using direct column access
+    cursor.execute("""
+        SELECT file, graph_node_id, graph_in_degree, graph_out_degree,
+               graph_centrality, graph_churn, graph_loc, graph_score
+        FROM findings_consolidated
+        WHERE tool='graph-analysis' AND rule='ARCHITECTURAL_HOTSPOT'
+    """)
+
+    for row in cursor.fetchall():
+        file_path = row[0]
+        hotspot_files[file_path] = {
+            'id': row[1],
+            'in_degree': row[2],
+            'out_degree': row[3],
+            'centrality': row[4],
+            'churn': row[5],
+            'loc': row[6],
+            'score': row[7],
+        }
+
+    # Load cycles (cycle_nodes stored in misc_json for complex array data)
+    cursor.execute("""
+        SELECT DISTINCT misc_json
+        FROM findings_consolidated
+        WHERE tool='graph-analysis' AND rule='CIRCULAR_DEPENDENCY'
+          AND misc_json != '{}'
+    """)
+
+    seen_cycles = set()
+    for row in cursor.fetchall():
+        # cycles have complex array data, still need JSON parse for misc_json
+        if row[0]:
+            details = json.loads(row[0])
+            cycle_nodes = details.get('cycle_nodes', [])
+            cycle_size = details.get('cycle_size', len(cycle_nodes))
+
+            cycle_key = tuple(sorted(cycle_nodes))
+            if cycle_key and cycle_key not in seen_cycles:
+                cycles.append({'nodes': list(cycle_key), 'size': cycle_size})
+                seen_cycles.add(cycle_key)
+
+    conn.close()
+    return hotspot_files, cycles
 ```
 
-**REMOVE**: The try/except block (ZERO FALLBACK compliance)
+**CRITICAL**: Removed try/except (ZERO FALLBACK compliance). Errors will crash.
 
 ---
 
@@ -545,210 +672,346 @@ for row in cursor.fetchall():
 **File**: `theauditor/fce.py`
 **Location**: Lines 104-143
 
-**BEFORE**:
+**COMPLETE BEFORE**:
 ```python
-cursor.execute("""
-    SELECT file, details_json
-    FROM findings_consolidated
-    WHERE tool='cfg-analysis' AND rule='HIGH_CYCLOMATIC_COMPLEXITY'
-""")
+def load_cfg_data_from_db(db_path: str) -> dict[str, Any]:
+    """Load CFG complexity data from database."""
+    complex_functions = {}
 
-for row in cursor.fetchall():
-    file_path, details_json = row
     try:
-        if details_json:
-            details = json.loads(details_json)
-            function_name = details.get('function', 'unknown')
-            key = f"{file_path}:{function_name}"
-            complex_functions[key] = details
-    except (json.JSONDecodeError, TypeError):
-        pass
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='cfg-analysis' AND rule='HIGH_CYCLOMATIC_COMPLEXITY'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    function_name = details.get('function', 'unknown')
+                    key = f"{file_path}:{function_name}"
+                    complex_functions[key] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading CFG data: {e}")
+
+    return complex_functions
 ```
 
-**AFTER**:
+**COMPLETE AFTER**:
 ```python
-cursor.execute("""
-    SELECT file,
-           cfg_complexity, cfg_block_count, cfg_edge_count,
-           cfg_start_line, cfg_end_line, cfg_function,
-           cfg_has_loops, cfg_max_nesting
-    FROM findings_consolidated
-    WHERE tool='cfg-analysis' AND rule='HIGH_CYCLOMATIC_COMPLEXITY'
-""")
+def load_cfg_data_from_db(db_path: str) -> dict[str, Any]:
+    """Load CFG complexity data from database using direct column access."""
+    complex_functions = {}
 
-for row in cursor.fetchall():
-    file_path = row[0]
-    function_name = row[6] or 'unknown'
-    key = f"{file_path}:{function_name}"
-    complex_functions[key] = {
-        'complexity': row[1],
-        'block_count': row[2],
-        'edge_count': row[3],
-        'start_line': row[4],
-        'end_line': row[5],
-        'function': row[6],
-        'has_loops': bool(row[7]),
-        'max_nesting': row[8],
-    }
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT file, cfg_function, cfg_complexity, cfg_block_count,
+               cfg_edge_count, cfg_start_line, cfg_end_line,
+               cfg_has_loops, cfg_max_nesting
+        FROM findings_consolidated
+        WHERE tool='cfg-analysis' AND rule='HIGH_CYCLOMATIC_COMPLEXITY'
+    """)
+
+    for row in cursor.fetchall():
+        file_path = row[0]
+        function_name = row[1] or 'unknown'
+        key = f"{file_path}:{function_name}"
+        complex_functions[key] = {
+            'function': row[1],
+            'complexity': row[2],
+            'block_count': row[3],
+            'edge_count': row[4],
+            'start_line': row[5],
+            'end_line': row[6],
+            'has_loops': bool(row[7]) if row[7] is not None else False,
+            'max_nesting': row[8],
+        }
+
+    conn.close()
+    return complex_functions
 ```
 
 ---
 
-### Task 3.3: Update fce.py load_taint_data_from_db() - USE taint_flows TABLE
+### Task 3.3: Update fce.py load_churn_data_from_db() - DEAD CODE
+
+**File**: `theauditor/fce.py`
+**Location**: Lines 145-181
+
+**VERIFIED FACT**: Tool `churn-analysis` does NOT exist in database. This function ALWAYS returns empty dict.
+
+**DECISION**: Two options:
+
+**Option A (Conservative)**: Keep function but add comment
+```python
+def load_churn_data_from_db(db_path: str) -> dict[str, Any]:
+    """
+    Load code churn data from database.
+
+    NOTE: As of 2025-11-24, no 'churn-analysis' tool exists.
+    Churn data is stored in 'graph-analysis' tool as graph_churn column.
+    This function is preserved for potential future use but currently returns empty.
+    """
+    # Churn data is now in graph-analysis tool (graph_churn column)
+    # which is loaded by load_graph_data_from_db()
+    return {}
+```
+
+**Option B (Aggressive)**: Delete function entirely and update callers.
+
+**RECOMMENDATION**: Option A for safety. Document the finding.
+
+---
+
+### Task 3.4: Update fce.py load_coverage_data_from_db() - DEAD CODE
+
+**File**: `theauditor/fce.py`
+**Location**: Lines 184-220
+
+**VERIFIED FACT**: Tool `coverage-analysis` does NOT exist in database. This function ALWAYS returns empty dict.
+
+**APPLY SAME CHANGE AS TASK 3.3**: Keep function, add comment, return empty dict.
+
+---
+
+### Task 3.5: Update fce.py load_taint_data_from_db() - USE taint_flows TABLE
 
 **File**: `theauditor/fce.py`
 **Location**: Lines 223-280
 
-**BEFORE**:
+**COMPLETE BEFORE**:
 ```python
-cursor.execute("""
-    SELECT details_json
-    FROM findings_consolidated
-    WHERE tool='taint'
-      AND details_json IS NOT NULL
-      AND details_json != '{}'
-""")
+def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
+    """Load complete taint paths from database."""
+    taint_paths = []
 
-for row in cursor.fetchall():
-    details_json = row[0]
     try:
-        if details_json:
-            path_data = json.loads(details_json)
-            if 'source' in path_data and 'sink' in path_data:
-                taint_paths.append(path_data)
-    except (json.JSONDecodeError, TypeError):
-        pass
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT details_json
+            FROM findings_consolidated
+            WHERE tool='taint'
+              AND details_json IS NOT NULL
+              AND details_json != '{}'
+        """)
+
+        for row in cursor.fetchall():
+            details_json = row[0]
+            try:
+                if details_json:
+                    path_data = json.loads(details_json)
+                    if 'source' in path_data and 'sink' in path_data:
+                        taint_paths.append(path_data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading taint data: {e}")
+
+    return taint_paths
 ```
 
-**AFTER**:
+**COMPLETE AFTER**:
 ```python
-# Query taint_flows table directly (proper normalized schema)
-cursor.execute("""
-    SELECT source_file, source_line, source_pattern,
-           sink_file, sink_line, sink_pattern,
-           vulnerability_type, path_length, hops, path_json
-    FROM taint_flows
-""")
+def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
+    """
+    Load complete taint paths from taint_flows table.
 
-for row in cursor.fetchall():
-    taint_paths.append({
-        'source': {
-            'file': row[0],
-            'line': row[1],
-            'pattern': row[2],
-        },
-        'sink': {
-            'file': row[3],
-            'line': row[4],
-            'pattern': row[5],
-        },
-        'vulnerability_type': row[6],
-        'path_length': row[7],
-        'hops': row[8],
-        'path': json.loads(row[9]) if row[9] else [],  # path_json is the actual path array
-    })
+    Uses taint_flows table directly (proper normalized schema) instead of
+    parsing findings_consolidated.misc_json.
+    """
+    taint_paths = []
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Query taint_flows table (already normalized with proper columns)
+    cursor.execute("""
+        SELECT source_file, source_line, source_pattern,
+               sink_file, sink_line, sink_pattern,
+               vulnerability_type, path_length, hops, path_json,
+               flow_sensitive
+        FROM taint_flows
+    """)
+
+    for row in cursor.fetchall():
+        path_data = {
+            'source': {
+                'file': row[0],
+                'line': row[1],
+                'pattern': row[2],
+            },
+            'sink': {
+                'file': row[3],
+                'line': row[4],
+                'pattern': row[5],
+            },
+            'vulnerability_type': row[6],
+            'path_length': row[7],
+            'hops': row[8],
+            'path': json.loads(row[9]) if row[9] else [],  # path_json is the actual path array
+            'flow_sensitive': bool(row[10]),
+        }
+        taint_paths.append(path_data)
+
+    conn.close()
+    return taint_paths
 ```
 
 ---
 
-### Task 3.4: Update fce.py Other Load Functions
-
-Apply same pattern to:
-- `load_churn_data_from_db()` (line 145-182)
-- `load_coverage_data_from_db()` (line 184-221)
-
-**Pattern**: SELECT columns directly, remove json.loads(), remove try/except
-
----
-
-### Task 3.5: Update context/query.py get_findings()
-
-**File**: `theauditor/context/query.py`
-**Location**: Lines 1203-1238
-
-**BEFORE**:
-```python
-cursor.execute(f"""
-    SELECT file, line, column, rule, tool, message, severity,
-           category, confidence, cwe, details_json
-    FROM findings_consolidated
-    ...
-""")
-
-for row in cursor.fetchall():
-    finding = {...}
-    if row['details_json']:
-        import json
-        try:
-            finding['details'] = json.loads(row['details_json'])
-        except (json.JSONDecodeError, TypeError):
-            pass
-```
-
-**AFTER**:
-```python
-cursor.execute(f"""
-    SELECT file, line, column, rule, tool, message, severity,
-           category, confidence, cwe,
-           mypy_severity, mypy_code, mypy_hint,
-           cfg_complexity, cfg_function,
-           graph_score, graph_centrality
-    FROM findings_consolidated
-    ...
-""")
-
-for row in cursor.fetchall():
-    finding = {
-        'file': row['file'],
-        'line': row['line'],
-        # ... other base fields
-    }
-
-    # Build details dict from columns (tool-specific)
-    details = {}
-    if row['mypy_severity']:
-        details['mypy_severity'] = row['mypy_severity']
-    if row['mypy_code']:
-        details['mypy_code'] = row['mypy_code']
-    if row['cfg_complexity']:
-        details['complexity'] = row['cfg_complexity']
-    if row['cfg_function']:
-        details['function'] = row['cfg_function']
-    if row['graph_score']:
-        details['score'] = row['graph_score']
-    if row['graph_centrality']:
-        details['centrality'] = row['graph_centrality']
-
-    if details:
-        finding['details'] = details
-
-    findings.append(finding)
-```
-
----
-
-### Task 3.6: Remove ZERO FALLBACK Violations
+### Task 3.6: Remove ZERO FALLBACK Violation at fce.py:465-476
 
 **File**: `theauditor/fce.py`
 **Location**: Lines 465-476
 
-**REMOVE** this entire block:
+**DELETE THIS ENTIRE BLOCK**:
 ```python
-# Check if table exists (graceful fallback for old databases)
-cursor.execute("""
-    SELECT name FROM sqlite_master
-    WHERE type='table' AND name='findings_consolidated'
-""")
+        # Check if table exists (graceful fallback for old databases)
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='findings_consolidated'
+        """)
 
-if not cursor.fetchone():
-    print("[FCE] Warning: findings_consolidated table not found")
-    print("[FCE] Database may need re-indexing with new schema")
-    print("[FCE] Run: aud index")
-    conn.close()
-    return []
+        if not cursor.fetchone():
+            print("[FCE] Warning: findings_consolidated table not found")
+            print("[FCE] Database may need re-indexing with new schema")
+            print("[FCE] Run: aud index")
+            conn.close()
+            return []
 ```
 
-**Reason**: ZERO FALLBACK policy - let query crash if table missing.
+**REASON**: ZERO FALLBACK policy. If table doesn't exist, let query crash.
+
+---
+
+### Task 3.7: Update context/query.py get_findings()
+
+**File**: `theauditor/context/query.py`
+**Location**: Lines 1203-1238
+
+**COMPLETE BEFORE** (key section):
+```python
+            cursor.execute(f"""
+                SELECT file, line, column, rule, tool, message, severity,
+                       category, confidence, cwe, details_json
+                FROM findings_consolidated
+                WHERE {where_sql}
+                ORDER BY severity DESC, file, line
+                LIMIT 1000
+            """, params)
+
+            findings = []
+            for row in cursor.fetchall():
+                finding = {
+                    'file': row['file'],
+                    'line': row['line'],
+                    'column': row['column'],
+                    'rule': row['rule'],
+                    'tool': row['tool'],
+                    'message': row['message'],
+                    'severity': row['severity'],
+                    'category': row['category'],
+                    'confidence': row['confidence'],
+                    'cwe': row['cwe']
+                }
+
+                # Parse details_json if present
+                if row['details_json']:
+                    import json
+                    try:
+                        finding['details'] = json.loads(row['details_json'])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                findings.append(finding)
+```
+
+**COMPLETE AFTER**:
+```python
+            cursor.execute(f"""
+                SELECT file, line, column, rule, tool, message, severity,
+                       category, confidence, cwe,
+                       mypy_severity, mypy_code, mypy_hint,
+                       cfg_complexity, cfg_function, cfg_block_count,
+                       graph_score, graph_centrality, graph_churn,
+                       tf_finding_id, tf_resource_id
+                FROM findings_consolidated
+                WHERE {where_sql}
+                ORDER BY severity DESC, file, line
+                LIMIT 1000
+            """, params)
+
+            findings = []
+            for row in cursor.fetchall():
+                finding = {
+                    'file': row['file'],
+                    'line': row['line'],
+                    'column': row['column'],
+                    'rule': row['rule'],
+                    'tool': row['tool'],
+                    'message': row['message'],
+                    'severity': row['severity'],
+                    'category': row['category'],
+                    'confidence': row['confidence'],
+                    'cwe': row['cwe']
+                }
+
+                # Build details dict from columns (no JSON parsing)
+                details = {}
+                tool = row['tool']
+
+                if tool == 'mypy':
+                    if row['mypy_severity']:
+                        details['mypy_severity'] = row['mypy_severity']
+                    if row['mypy_code']:
+                        details['mypy_code'] = row['mypy_code']
+                    if row['mypy_hint']:
+                        details['hint'] = row['mypy_hint']
+
+                elif tool == 'cfg-analysis':
+                    if row['cfg_complexity']:
+                        details['complexity'] = row['cfg_complexity']
+                    if row['cfg_function']:
+                        details['function'] = row['cfg_function']
+                    if row['cfg_block_count']:
+                        details['block_count'] = row['cfg_block_count']
+
+                elif tool == 'graph-analysis':
+                    if row['graph_score']:
+                        details['score'] = row['graph_score']
+                    if row['graph_centrality']:
+                        details['centrality'] = row['graph_centrality']
+                    if row['graph_churn']:
+                        details['churn'] = row['graph_churn']
+
+                elif tool == 'terraform':
+                    if row['tf_finding_id']:
+                        details['finding_id'] = row['tf_finding_id']
+                    if row['tf_resource_id']:
+                        details['resource_id'] = row['tf_resource_id']
+
+                if details:
+                    finding['details'] = details
+
+                findings.append(finding)
+```
 
 ---
 
@@ -758,13 +1021,13 @@ if not cursor.fetchone():
 
 ```bash
 cd C:/Users/santa/Desktop/TheAuditor
+rm -rf .pf/  # Clean slate
 aud full
 ```
 
-**Verify**:
-- [ ] No errors during indexing
-- [ ] No errors during rule detection
-- [ ] findings_consolidated table has expected row count
+**Expected**: Completes without errors
+
+---
 
 ### Task 4.2: Verify Columns Populated
 
@@ -774,29 +1037,34 @@ import sqlite3
 conn = sqlite3.connect('.pf/repo_index.db')
 c = conn.cursor()
 
-# Check mypy columns
+# Verify mypy columns
 c.execute('SELECT COUNT(*) FROM findings_consolidated WHERE mypy_severity IS NOT NULL')
-print(f'mypy rows with mypy_severity: {c.fetchone()[0]}')
+mypy_count = c.fetchone()[0]
+print(f'mypy_severity populated: {mypy_count} rows (expected: ~4397)')
 
-# Check cfg columns
+# Verify cfg columns
 c.execute('SELECT COUNT(*) FROM findings_consolidated WHERE cfg_complexity IS NOT NULL')
-print(f'cfg rows with cfg_complexity: {c.fetchone()[0]}')
+cfg_count = c.fetchone()[0]
+print(f'cfg_complexity populated: {cfg_count} rows (expected: ~66)')
 
-# Check graph columns
+# Verify graph columns
 c.execute('SELECT COUNT(*) FROM findings_consolidated WHERE graph_score IS NOT NULL')
-print(f'graph rows with graph_score: {c.fetchone()[0]}')
+graph_count = c.fetchone()[0]
+print(f'graph_score populated: {graph_count} rows (expected: ~50)')
 
-# Check misc_json usage (should be minimal)
+# Verify misc_json is minimal (only taint)
 c.execute(\"SELECT COUNT(*) FROM findings_consolidated WHERE misc_json != '{}'\")
-print(f'rows using misc_json: {c.fetchone()[0]}')
+misc_count = c.fetchone()[0]
+print(f'misc_json used: {misc_count} rows (expected: ~1, taint only)')
+
+# Verify total row count unchanged
+c.execute('SELECT COUNT(*) FROM findings_consolidated')
+total = c.fetchone()[0]
+print(f'Total rows: {total} (expected: ~21900)')
 "
 ```
 
-**Expected**:
-- mypy_severity: ~4,397 rows
-- cfg_complexity: ~66 rows
-- graph_score: ~50 rows
-- misc_json: ~1 row (taint only)
+---
 
 ### Task 4.3: Verify FCE Works
 
@@ -805,79 +1073,117 @@ cd C:/Users/santa/Desktop/TheAuditor
 aud fce
 ```
 
-**Verify**:
-- [ ] No json.loads errors
-- [ ] Output includes hotspots, complexity, taint data
-- [ ] Performance improved (should feel faster)
+**Expected**: Completes without errors, shows hotspots and correlations
 
-### Task 4.4: Verify aud explain Works
+---
+
+### Task 4.4: Verify No json.loads on details_json
+
+```bash
+cd C:/Users/santa/Desktop/TheAuditor
+grep -rn "json.loads.*details_json" theauditor/
+```
+
+**Expected**: Zero results (or only in misc_json handling for cycles)
+
+---
+
+### Task 4.5: Verify aud explain Works
 
 ```bash
 cd C:/Users/santa/Desktop/TheAuditor
 aud explain theauditor/fce.py
 ```
 
-**Verify**:
-- [ ] Findings section shows correct data
-- [ ] No JSON parse errors
-
-### Task 4.5: Grep for Remaining json.loads on details_json
-
-```bash
-cd C:/Users/santa/Desktop/TheAuditor
-grep -rn "json.loads.*details" theauditor/
-```
-
-**Expected**: Zero results (or only in misc_json handling)
+**Expected**: Shows findings with details populated from columns
 
 ---
 
 ## 5. Cleanup
 
-### Task 5.1: Remove Unused Imports
+### Task 5.1: Remove Unused json Import
 
-Check each modified file for unused `import json` statements.
+Check each modified file - if `import json` is no longer used, remove it.
 
-### Task 5.2: Update Type Hints
+Files to check:
+- `theauditor/fce.py` - Keep for misc_json/path_json parsing
+- `theauditor/terraform/analyzer.py` - Remove if no longer used
+- `theauditor/context/query.py` - Remove if no longer used
 
-If any functions changed signatures, update type hints.
+---
 
-### Task 5.3: Run Linter
+### Task 5.2: Run Linter
 
 ```bash
 cd C:/Users/santa/Desktop/TheAuditor
 ruff check theauditor/fce.py theauditor/context/query.py theauditor/indexer/
 ```
 
+Fix any issues found.
+
 ---
 
 ## 6. Documentation
 
-### Task 6.1: Update CLAUDE.md
+### Task 6.1: Update This File
 
-Add note about new schema columns if significant for future developers.
+Mark all tasks as `[x]` complete.
 
-### Task 6.2: Mark OpenSpec Complete
+### Task 6.2: Update proposal.md Status
 
-After all tasks done:
-1. Mark all checkboxes in this file as `[x]`
-2. Update `proposal.md` status to IMPLEMENTED
-3. Run `openspec validate normalize-findings-details-json --strict`
+Change status from `PROPOSAL` to `IMPLEMENTED`.
+
+### Task 6.3: Validate with OpenSpec
+
+```bash
+cd C:/Users/santa/Desktop/TheAuditor
+openspec validate normalize-findings-details-json --strict
+```
 
 ---
 
 ## Completion Checklist
 
-- [ ] All 0.x verification tasks passed
-- [ ] All 1.x schema tasks completed
-- [ ] All 2.x writer tasks completed
-- [ ] All 3.x reader tasks completed
-- [ ] All 4.x testing tasks passed
-- [ ] All 5.x cleanup tasks completed
-- [ ] All 6.x documentation tasks completed
-- [ ] `aud full` runs without errors
-- [ ] `aud fce` runs without errors
-- [ ] No json.loads on details_json in codebase
-- [ ] misc_json used only for taint (1 row)
+### Phase 0: Verification
+- [ ] 0.1 Schema location verified
+- [ ] 0.2 Write path location verified
+- [ ] 0.3 FCE read locations verified
+- [ ] 0.4 Database state verified
+
+### Phase 1: Schema
+- [ ] 1.1 FINDINGS_CONSOLIDATED schema updated (23 new columns)
+- [ ] 1.2 Partial indexes added (optional)
+
+### Phase 2: Writers
+- [ ] 2.1 base_database.py write_findings() updated
+- [ ] 2.2 terraform/analyzer.py updated
+- [ ] 2.3 commands/taint.py verified (no change needed)
+
+### Phase 3: Readers
+- [ ] 3.1 fce.py load_graph_data_from_db() updated
+- [ ] 3.2 fce.py load_cfg_data_from_db() updated
+- [ ] 3.3 fce.py load_churn_data_from_db() documented as dead code
+- [ ] 3.4 fce.py load_coverage_data_from_db() documented as dead code
+- [ ] 3.5 fce.py load_taint_data_from_db() uses taint_flows table
+- [ ] 3.6 ZERO FALLBACK violation removed (fce.py:465-476)
+- [ ] 3.7 context/query.py get_findings() updated
+
+### Phase 4: Testing
+- [ ] 4.1 aud full completes without errors
+- [ ] 4.2 Columns populated correctly
+- [ ] 4.3 aud fce completes without errors
+- [ ] 4.4 No json.loads on details_json
+- [ ] 4.5 aud explain works
+
+### Phase 5: Cleanup
+- [ ] 5.1 Unused imports removed
+- [ ] 5.2 Linter passes
+
+### Phase 6: Documentation
+- [ ] 6.1 tasks.md checkboxes complete
+- [ ] 6.2 proposal.md status updated
+- [ ] 6.3 OpenSpec validation passes
+
+---
 
 **Sign-off**: _____________________ Date: _____________________

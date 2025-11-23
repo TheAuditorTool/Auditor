@@ -34,7 +34,7 @@ Column("details_json", "TEXT", default="'{}'"),
 
 **Initial Belief**: JSON blob overhead affects most queries
 **Verification Method**: Count non-empty details_json by tool
-**Result**: INCORRECT - Only 23% of rows have data
+**Result**: INCORRECT - Only 21% of rows have data (verified 2025-11-24)
 
 ```sql
 SELECT tool,
@@ -57,11 +57,43 @@ GROUP BY tool;
 | terraform | 7 | 7 | 100.0% |
 | taint | 1 | 1 | 100.0% |
 
-**Conclusion**: 77% of rows (16,879/21,900) have empty `details_json = '{}'`
+**Conclusion**: 79% of rows (17,379/21,900) have empty `details_json = '{}'` (verified 2025-11-24)
 
 ---
 
-### Hypothesis 3: All details_json keys are complex (LIST/DICT)
+### Hypothesis 3: churn-analysis and coverage-analysis tools exist
+
+**Initial Belief**: FCE functions query these tools (fce.py:145-181, 184-220)
+**Verification Method**: Query database for all tool names
+**Result**: INCORRECT - These tools DO NOT EXIST
+
+```sql
+SELECT DISTINCT tool FROM findings_consolidated;
+```
+
+**Evidence**:
+```
+cdk
+cfg-analysis
+eslint
+graph-analysis
+mypy
+patterns
+ruff
+taint
+terraform
+```
+
+**NO `churn-analysis` or `coverage-analysis` tools exist.**
+
+**Implication**:
+- `load_churn_data_from_db()` at fce.py:145-181 is DEAD CODE (always returns {})
+- `load_coverage_data_from_db()` at fce.py:184-220 is DEAD CODE (always returns {})
+- Churn data is stored in `graph-analysis` tool as `churn` key
+
+---
+
+### Hypothesis 4: All details_json keys are complex (LIST/DICT)
 
 **Initial Belief**: Normalization will require junction tables for all keys
 **Verification Method**: Parse all details_json and analyze value types
@@ -440,7 +472,7 @@ Per teamsop.md v4.20 Template C-4.20:
 
 **Verification Finding**:
 - details_json is a column, not a table
-- 77% of rows have empty details_json (no data to migrate)
+- 79% of rows have empty details_json (no data to migrate)
 - Only 8 json.loads() calls need updating
 - Main findings flow is UNAFFECTED
 - taint_flows table exists and should be used by FCE

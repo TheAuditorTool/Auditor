@@ -92,7 +92,7 @@ GENERATED ALWAYS AS (json_extract(details_json, '$.complexity'));
 **Rationale**:
 1. SQLite NULL storage: Zero bytes in payload (stored in header only)
 2. Query simplicity: `SELECT complexity FROM ...` vs complex JOIN
-3. 77% of rows have empty details_json - NULLs are the common case
+3. 79% of rows have empty details_json - NULLs are the common case
 4. Only 23 keys to flatten (not 100s)
 5. Partial indexes keep sparse column indexes tiny
 
