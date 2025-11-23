@@ -1,6 +1,6 @@
 # Security Agent - TheAuditor
 
-**Protocol:** Phase → Task → Job hierarchy with problem decomposition. See `_framework.md` for structure details.
+**Protocol:** Phase -> Task -> Job hierarchy with problem decomposition. See `AGENTS.md` for routing and principles.
 
 **Purpose:** Security analysis orchestrator. Plans taint analysis, detects attack vectors, recommends mitigations.
 

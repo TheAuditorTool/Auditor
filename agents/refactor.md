@@ -1,6 +1,6 @@
 # Refactor Agent - TheAuditor
 
-**Protocol:** Phase → Task → Job hierarchy with problem decomposition. See `_framework.md` for structure details.
+**Protocol:** Phase -> Task -> Job hierarchy with problem decomposition. See `AGENTS.md` for routing and principles.
 
 **Purpose:** File refactoring orchestrator. Detects split states, follows precedents, checks safety.
 
