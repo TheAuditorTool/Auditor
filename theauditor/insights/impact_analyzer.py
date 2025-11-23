@@ -6,6 +6,59 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple
 
 
+def classify_risk(impact_list: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Classify dependencies into actionable risk buckets.
+
+    Organizes impact data into production code, tests, config files,
+    and external dependencies for smarter risk assessment.
+
+    Args:
+        impact_list: List of dependency dictionaries with 'file' keys
+
+    Returns:
+        Dictionary with 'breakdown' (categorized lists) and 'metrics' (counts)
+    """
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "production": [],
+        "tests": [],
+        "config": [],
+        "external": []
+    }
+
+    for item in impact_list:
+        f_path = item.get("file", "").lower()
+
+        # External/Built-ins
+        if f_path == "external":
+            buckets["external"].append(item)
+            continue
+
+        # Test files
+        if any(x in f_path for x in ['test', 'spec', 'mock', 'fixture', '/tests/', '\\tests\\']):
+            buckets["tests"].append(item)
+            continue
+
+        # Config/Infrastructure files
+        if f_path.endswith(('.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.env')) or \
+           'config' in f_path or 'dockerfile' in f_path:
+            buckets["config"].append(item)
+            continue
+
+        # Everything else is production code
+        buckets["production"].append(item)
+
+    return {
+        "breakdown": buckets,
+        "metrics": {
+            "prod_count": len(buckets["production"]),
+            "test_count": len(buckets["tests"]),
+            "config_count": len(buckets["config"]),
+            "external_count": len(buckets["external"])
+        }
+    }
+
+
 def analyze_impact(
     db_path: str,
     target_file: str,
@@ -14,15 +67,15 @@ def analyze_impact(
 ) -> dict[str, Any]:
     """
     Analyze the impact of changing code at a specific file and line.
-    
-    Traces both upstream dependencies (who calls this) and downstream 
+
+    Traces both upstream dependencies (who calls this) and downstream
     dependencies (what this calls) to understand the blast radius of changes.
-    
+
     Args:
         db_path: Path to the SQLite database
         target_file: Path to the file containing the target code
         target_line: Line number of the target code
-        
+
     Returns:
         Dictionary containing:
         - target_symbol: Name and type of the symbol at target location
@@ -30,11 +83,10 @@ def analyze_impact(
         - downstream: List of symbols called by the target (callees)
         - impact_summary: Statistics about the blast radius
     """
-    # Connect to database
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    try:
+    # Use context manager for automatic connection cleanup
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+
         # Normalize the target file path to match database format
         target_file = Path(target_file).as_posix()
         if target_file.startswith("./"):
@@ -54,10 +106,10 @@ def analyze_impact(
                 cursor.execute("""
                     SELECT name, type, line, col
                     FROM symbols
-                    WHERE path = ? 
+                    WHERE path = ?
                     AND type IN ('function', 'class')
                     AND line <= ?
-                    ORDER BY line DESC
+                    ORDER BY line DESC, col DESC
                     LIMIT 1
                 """, (backend_file, backend_line))
                 
@@ -65,11 +117,17 @@ def analyze_impact(
                 
                 if backend_result:
                     backend_name, backend_type, backend_def_line, backend_col = backend_result
-                    
+
                     # Only get downstream dependencies from backend (not upstream)
                     downstream = find_downstream_dependencies(cursor, backend_file, backend_def_line, backend_name)
                     downstream_transitive = calculate_transitive_impact(cursor, downstream, "downstream")
-                    
+
+                    # Calculate risk for cross-stack
+                    all_impacts = downstream + downstream_transitive
+                    risk_data = classify_risk(all_impacts)
+                    prod_count = risk_data["metrics"]["prod_count"]
+                    risk_level = "HIGH" if prod_count > 10 else ("MEDIUM" if prod_count > 0 else "LOW")
+
                     # Build cross-stack response
                     return {
                         "cross_stack_trace": cross_stack_trace,
@@ -95,13 +153,17 @@ def analyze_impact(
                             "direct_upstream": 0,
                             "direct_downstream": len(downstream),
                             "total_upstream": 0,
-                            "total_downstream": len(downstream) + len(downstream_transitive),
-                            "total_impact": len(downstream) + len(downstream_transitive),
+                            "total_downstream": len(all_impacts),
+                            "total_impact": len(all_impacts),
                             "affected_files": len(set(
-                                [d["file"] for d in downstream] +
-                                [d["file"] for d in downstream_transitive]
+                                item["file"] for item in all_impacts if item["file"] != "external"
                             )),
                             "cross_stack": True
+                        },
+                        "risk_assessment": {
+                            "level": risk_level,
+                            "summary": f"{prod_count} production, {risk_data['metrics']['test_count']} tests",
+                            "details": risk_data["breakdown"]
                         }
                     }
         
@@ -110,10 +172,10 @@ def analyze_impact(
         cursor.execute("""
             SELECT name, type, line, col
             FROM symbols
-            WHERE path = ? 
+            WHERE path = ?
             AND type IN ('function', 'class')
             AND line <= ?
-            ORDER BY line DESC
+            ORDER BY line DESC, col DESC
             LIMIT 1
         """, (target_file, target_line))
         
@@ -144,7 +206,19 @@ def analyze_impact(
         # Step 4: Calculate transitive impact (recursive dependencies)
         upstream_transitive = calculate_transitive_impact(cursor, upstream, "upstream")
         downstream_transitive = calculate_transitive_impact(cursor, downstream, "downstream")
-        
+
+        # Step 5: Calculate risk classification
+        all_impacts = upstream + downstream + upstream_transitive + downstream_transitive
+        risk_data = classify_risk(all_impacts)
+
+        # Calculate risk level based on production code impact
+        prod_count = risk_data["metrics"]["prod_count"]
+        risk_level = "LOW"
+        if prod_count > 10:
+            risk_level = "HIGH"
+        elif prod_count > 0:
+            risk_level = "MEDIUM"
+
         # Build response
         return {
             "target_symbol": {
@@ -163,18 +237,17 @@ def analyze_impact(
                 "direct_downstream": len(downstream),
                 "total_upstream": len(upstream) + len(upstream_transitive),
                 "total_downstream": len(downstream) + len(downstream_transitive),
-                "total_impact": len(upstream) + len(downstream) + len(upstream_transitive) + len(downstream_transitive),
+                "total_impact": len(all_impacts),
                 "affected_files": len(set(
-                    [u["file"] for u in upstream] + 
-                    [d["file"] for d in downstream] +
-                    [u["file"] for u in upstream_transitive] +
-                    [d["file"] for d in downstream_transitive]
+                    item["file"] for item in all_impacts if item["file"] != "external"
                 ))
+            },
+            "risk_assessment": {
+                "level": risk_level,
+                "summary": f"{prod_count} production, {risk_data['metrics']['test_count']} tests, {risk_data['metrics']['config_count']} config",
+                "details": risk_data["breakdown"]
             }
         }
-        
-    finally:
-        conn.close()
 
 
 def find_upstream_dependencies(
@@ -185,71 +258,61 @@ def find_upstream_dependencies(
 ) -> list[dict[str, Any]]:
     """
     Find all symbols that call the target symbol (upstream dependencies).
-    
+
+    Optimized: Uses a single JOIN query instead of N+1 queries.
+
     Args:
         cursor: Database cursor
         target_file: File containing the target symbol
         target_name: Name of the target symbol
         target_type: Type of the target symbol (function/class)
-        
+
     Returns:
         List of upstream dependency dictionaries
     """
-    upstream = []
-    
-    # Find all calls to this symbol
-    # Match by name (simple matching, could be enhanced with qualified names)
+    # Single query that finds calls AND their containing functions in one pass.
+    # The subquery finds the closest function/class definition that precedes each call.
+    # This eliminates the N+1 pattern where we queried for each call's container separately.
     cursor.execute("""
-        SELECT DISTINCT s1.path, s1.name, s1.type, s1.line, s1.col
-        FROM symbols s1
-        WHERE s1.type = 'call'
-        AND s1.name = ?
-        AND EXISTS (
-            SELECT 1 FROM symbols s2
-            WHERE s2.path = s1.path
-            AND s2.type IN ('function', 'class')
-            AND s2.line <= s1.line
-            AND s2.name != ?
-        )
-        ORDER BY s1.path, s1.line
+        SELECT
+            call.path as file,
+            call.line as call_line,
+            container.name as symbol,
+            container.type as type,
+            container.line as line
+        FROM symbols call
+        JOIN symbols container ON call.path = container.path
+        WHERE call.name = ?
+          AND call.type = 'call'
+          AND container.type IN ('function', 'class')
+          AND container.name != ?
+          AND container.line = (
+              SELECT MAX(s.line)
+              FROM symbols s
+              WHERE s.path = call.path
+              AND s.type IN ('function', 'class')
+              AND s.line <= call.line
+          )
+        ORDER BY call.path, call.line
     """, (target_name, target_name))
-    
+
+    # Deduplicate by file+symbol using dict (preserves insertion order in Python 3.7+)
+    unique_deps: dict[tuple[str, str], dict[str, Any]] = {}
+
     for row in cursor.fetchall():
-        call_file, call_name, call_type, call_line, call_col = row
-        
-        # Find the containing function/class for this call
-        cursor.execute("""
-            SELECT name, type, line
-            FROM symbols
-            WHERE path = ?
-            AND type IN ('function', 'class')
-            AND line <= ?
-            ORDER BY line DESC
-            LIMIT 1
-        """, (call_file, call_line))
-        
-        container = cursor.fetchone()
-        if container:
-            container_name, container_type, container_line = container
-            upstream.append({
-                "file": call_file,
-                "symbol": container_name,
-                "type": container_type,
-                "line": container_line,
+        f_path, call_line, sym_name, sym_type, sym_line = row
+        key = (f_path, sym_name)
+        if key not in unique_deps:
+            unique_deps[key] = {
+                "file": f_path,
+                "symbol": sym_name,
+                "type": sym_type,
+                "line": sym_line,
                 "call_line": call_line,
                 "calls": target_name
-            })
-    
-    # Deduplicate by file+symbol combination
-    seen = set()
-    unique_upstream = []
-    for dep in upstream:
-        key = (dep["file"], dep["symbol"])
-        if key not in seen:
-            seen.add(key)
-            unique_upstream.append(dep)
-    
-    return unique_upstream
+            }
+
+    return list(unique_deps.values())
 
 
 def find_downstream_dependencies(
@@ -260,36 +323,35 @@ def find_downstream_dependencies(
 ) -> list[dict[str, Any]]:
     """
     Find all symbols called by the target symbol (downstream dependencies).
-    
+
+    Optimized: Uses batch WHERE IN query instead of N+1 queries.
+
     Args:
         cursor: Database cursor
         target_file: File containing the target symbol
         target_line: Line where target symbol is defined
         target_name: Name of the target symbol
-        
+
     Returns:
         List of downstream dependency dictionaries
     """
-    downstream = []
-    
-    # Find the end line of the target function/class
-    # Look for the next function/class definition in the same file
+    # Step 1: Find the end line of the target function/class
     cursor.execute("""
         SELECT line
         FROM symbols
         WHERE path = ?
         AND type IN ('function', 'class')
         AND line > ?
-        ORDER BY line
+        ORDER BY line, col
         LIMIT 1
     """, (target_file, target_line))
-    
+
     next_symbol = cursor.fetchone()
     end_line = next_symbol[0] if next_symbol else 999999
-    
-    # Find all calls within the target function/class body
+
+    # Step 2: Get ALL calls within the function body in one query
     cursor.execute("""
-        SELECT DISTINCT name, line, col
+        SELECT DISTINCT name, line
         FROM symbols
         WHERE path = ?
         AND type = 'call'
@@ -297,54 +359,62 @@ def find_downstream_dependencies(
         AND line < ?
         ORDER BY line
     """, (target_file, target_line, end_line))
-    
-    for row in cursor.fetchall():
-        called_name, call_line, call_col = row
-        
-        # Skip recursive calls
-        if called_name == target_name:
-            continue
-            
-        # Try to find the definition of the called symbol
-        cursor.execute("""
-            SELECT path, type, line
-            FROM symbols
-            WHERE name = ?
-            AND type IN ('function', 'class')
-            LIMIT 1
-        """, (called_name,))
-        
-        definition = cursor.fetchone()
-        if definition:
-            def_file, def_type, def_line = definition
+
+    raw_calls = cursor.fetchall()
+    if not raw_calls:
+        return []
+
+    # Step 3: Build a map of {name: call_line}, excluding recursive calls
+    call_map: dict[str, int] = {}
+    for name, call_line in raw_calls:
+        if name != target_name and name not in call_map:
+            call_map[name] = call_line
+
+    if not call_map:
+        return []
+
+    call_names = list(call_map.keys())
+
+    # Step 4: Batch resolve - find all definitions in ONE query
+    placeholders = ','.join('?' * len(call_names))
+    cursor.execute(f"""
+        SELECT path, name, type, line
+        FROM symbols
+        WHERE name IN ({placeholders})
+        AND type IN ('function', 'class')
+    """, call_names)
+
+    # Build lookup of definitions (first definition wins per name)
+    definitions: dict[str, tuple[str, str, int]] = {}
+    for def_path, def_name, def_type, def_line in cursor.fetchall():
+        if def_name not in definitions:
+            definitions[def_name] = (def_path, def_type, def_line)
+
+    # Step 5: Assemble results
+    downstream = []
+    for name in call_names:
+        if name in definitions:
+            def_path, def_type, def_line = definitions[name]
             downstream.append({
-                "file": def_file,
-                "symbol": called_name,
+                "file": def_path,
+                "symbol": name,
                 "type": def_type,
                 "line": def_line,
-                "called_from_line": call_line,
+                "called_from_line": call_map[name],
                 "called_by": target_name
             })
         else:
             # External or built-in function
             downstream.append({
                 "file": "external",
-                "symbol": called_name,
+                "symbol": name,
                 "type": "unknown",
                 "line": 0,
-                "called_from_line": call_line,
+                "called_from_line": call_map[name],
                 "called_by": target_name
             })
-    
-    # Deduplicate by symbol name
-    seen = set()
-    unique_downstream = []
-    for dep in downstream:
-        if dep["symbol"] not in seen:
-            seen.add(dep["symbol"])
-            unique_downstream.append(dep)
-    
-    return unique_downstream
+
+    return downstream
 
 
 def calculate_transitive_impact(
@@ -540,7 +610,7 @@ def trace_frontend_to_backend(
     cursor.execute("""
         SELECT control_name
         FROM api_endpoint_controls
-        WHERE file = ? AND line = ?
+        WHERE endpoint_file = ? AND endpoint_line = ?
     """, (backend_file, backend_line))
 
     backend_controls = [row[0] for row in cursor.fetchall()]
@@ -560,6 +630,188 @@ def trace_frontend_to_backend(
             "controls": backend_controls
         }
     }
+
+
+def calculate_coupling_score(impact_data: dict[str, Any]) -> int:
+    """
+    Calculate a coupling score (0-100) based on impact metrics.
+
+    Higher score = more tightly coupled = higher risk.
+
+    Args:
+        impact_data: Results from analyze_impact
+
+    Returns:
+        Integer score 0-100
+    """
+    if impact_data.get("error"):
+        return 0
+
+    summary = impact_data.get("impact_summary", {})
+    direct_upstream = summary.get("direct_upstream", 0)
+    direct_downstream = summary.get("direct_downstream", 0)
+    total_impact = summary.get("total_impact", 0)
+    affected_files = summary.get("affected_files", 0)
+
+    # Scoring formula:
+    # - Base: direct dependencies (weighted)
+    # - Multiplier: affected files spread
+    # - Cap at 100
+    base_score = (direct_upstream * 3) + (direct_downstream * 2)
+    spread_multiplier = min(affected_files / 5, 3)  # Max 3x for 15+ files
+    transitive_bonus = min(total_impact / 10, 20)  # Max 20 points for transitive
+
+    score = int(base_score * (1 + spread_multiplier * 0.3) + transitive_bonus)
+    return min(score, 100)
+
+
+def format_planning_context(impact_data: dict[str, Any]) -> str:
+    """
+    Format impact analysis for planning agent consumption.
+
+    Outputs structured format with:
+    - Risk categories (production/tests/config/external)
+    - Coupling score
+    - Suggested phases for incremental changes
+
+    Args:
+        impact_data: Results from analyze_impact
+
+    Returns:
+        Planning-friendly formatted string
+    """
+    lines = []
+
+    # Header
+    lines.append("=" * 60)
+    lines.append("IMPACT CONTEXT FOR PLANNING")
+    lines.append("=" * 60)
+
+    # Error case
+    if impact_data.get("error"):
+        lines.append(f"\nError: {impact_data['error']}")
+        return "\n".join(lines)
+
+    # Target info
+    target = impact_data.get("target_symbol") or impact_data.get("backend_symbol")
+    if target:
+        lines.append(f"\nSymbol: {target['name']} ({target['type']})")
+        lines.append(f"Location: {target['file']}:{target['line']}")
+
+    # Coupling score
+    coupling = calculate_coupling_score(impact_data)
+    if coupling < 30:
+        coupling_level = "LOW"
+    elif coupling < 70:
+        coupling_level = "MEDIUM"
+    else:
+        coupling_level = "HIGH"
+    lines.append(f"Coupling Score: {coupling}/100 ({coupling_level})")
+
+    # Risk classification using classify_risk
+    upstream = impact_data.get("upstream", [])
+    downstream = impact_data.get("downstream", [])
+    all_deps = upstream + downstream
+
+    if all_deps:
+        risk_data = classify_risk(all_deps)
+        buckets = risk_data["breakdown"]
+        metrics = risk_data["metrics"]
+
+        lines.append(f"\n{'-' * 40}")
+        lines.append("DEPENDENCIES BY CATEGORY")
+        lines.append(f"{'-' * 40}")
+
+        if metrics["prod_count"] > 0:
+            lines.append(f"  Production: {metrics['prod_count']} callers")
+            for dep in buckets["production"][:5]:
+                lines.append(f"    - {dep.get('symbol', 'unknown')} in {dep['file']}")
+            if metrics["prod_count"] > 5:
+                lines.append(f"    ... and {metrics['prod_count'] - 5} more")
+
+        if metrics["test_count"] > 0:
+            lines.append(f"  Tests: {metrics['test_count']} callers")
+            for dep in buckets["tests"][:3]:
+                lines.append(f"    - {dep.get('symbol', 'unknown')} in {dep['file']}")
+            if metrics["test_count"] > 3:
+                lines.append(f"    ... and {metrics['test_count'] - 3} more")
+
+        if metrics["config_count"] > 0:
+            lines.append(f"  Config: {metrics['config_count']} files")
+
+        if metrics["external_count"] > 0:
+            lines.append(f"  External: {metrics['external_count']} calls (no action needed)")
+
+    # Impact summary
+    summary = impact_data.get("impact_summary", {})
+    lines.append(f"\n{'-' * 40}")
+    lines.append("RISK ASSESSMENT")
+    lines.append(f"{'-' * 40}")
+    lines.append(f"  Direct Impact: {summary.get('direct_upstream', 0) + summary.get('direct_downstream', 0)} dependencies")
+    lines.append(f"  Transitive Impact: {summary.get('total_impact', 0)} total")
+    lines.append(f"  Affected Files: {summary.get('affected_files', 0)}")
+
+    total = summary.get("total_impact", 0)
+    if total > 30:
+        risk_level = "HIGH"
+    elif total > 10:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+    lines.append(f"  Change Risk: {risk_level}")
+
+    # Suggested phases
+    if all_deps and len(all_deps) > 3:
+        risk_data = classify_risk(all_deps)
+        buckets = risk_data["breakdown"]
+        metrics = risk_data["metrics"]
+
+        lines.append(f"\n{'-' * 40}")
+        lines.append("SUGGESTED PHASES")
+        lines.append(f"{'-' * 40}")
+
+        phase_num = 1
+        if metrics["test_count"] > 0:
+            lines.append(f"  Phase {phase_num}: Update tests ({metrics['test_count']} files) - Update mocks first")
+            phase_num += 1
+
+        if metrics["config_count"] > 0:
+            lines.append(f"  Phase {phase_num}: Update config ({metrics['config_count']} files) - Low risk")
+            phase_num += 1
+
+        # Split production by internal vs external facing
+        internal = [d for d in buckets["production"] if "service" in d["file"].lower() or "util" in d["file"].lower()]
+        external = [d for d in buckets["production"] if d not in internal]
+
+        if internal:
+            lines.append(f"  Phase {phase_num}: Internal callers ({len(internal)} files) - Services/utils")
+            phase_num += 1
+
+        if external:
+            lines.append(f"  Phase {phase_num}: External interface ({len(external)} files) - API/handlers last")
+
+    # Recommendations based on coupling
+    lines.append(f"\n{'-' * 40}")
+    lines.append("RECOMMENDATIONS")
+    lines.append(f"{'-' * 40}")
+
+    if coupling >= 70:
+        lines.append("  [!] HIGH coupling detected:")
+        lines.append("      - Consider extracting an interface before refactoring")
+        lines.append("      - Break changes into smaller incremental steps")
+        lines.append("      - Add comprehensive tests before making changes")
+    elif coupling >= 30:
+        lines.append("  [*] MEDIUM coupling:")
+        lines.append("      - Review all callers for compatibility")
+        lines.append("      - Consider phased rollout")
+    else:
+        lines.append("  [OK] LOW coupling:")
+        lines.append("      - Safe to refactor with minimal risk")
+        lines.append("      - Standard testing should suffice")
+
+    lines.append("=" * 60)
+
+    return "\n".join(lines)
 
 
 def format_impact_report(impact_data: dict[str, Any]) -> str:
@@ -646,29 +898,35 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
         if len(impact_data["downstream"]) > 10:
             lines.append(f"  ... and {len(impact_data['downstream']) - 10} more")
     
-    # Risk assessment
+    # Risk assessment - use smart classification if available
     lines.append(f"\n{'─' * 40}")
     lines.append("RISK ASSESSMENT")
     lines.append(f"{'─' * 40}")
-    
-    risk_level = "LOW"
-    if summary["total_impact"] > 20:
-        risk_level = "HIGH"
-    elif summary["total_impact"] > 10:
-        risk_level = "MEDIUM"
-    
-    lines.append(f"Change Risk Level: {risk_level}")
-    
+
+    risk_assessment = impact_data.get("risk_assessment")
+    if risk_assessment:
+        risk_level = risk_assessment["level"]
+        lines.append(f"Change Risk Level: {risk_level}")
+        lines.append(f"Impact Breakdown: {risk_assessment['summary']}")
+    else:
+        # Fallback to simple count-based assessment
+        risk_level = "LOW"
+        if summary["total_impact"] > 20:
+            risk_level = "HIGH"
+        elif summary["total_impact"] > 10:
+            risk_level = "MEDIUM"
+        lines.append(f"Change Risk Level: {risk_level}")
+
     if risk_level == "HIGH":
-        lines.append("⚠ WARNING: This change has a large blast radius!")
+        lines.append("[!] WARNING: This change has a large blast radius!")
         lines.append("  Consider:")
         lines.append("  - Breaking the change into smaller, incremental steps")
         lines.append("  - Adding comprehensive tests before refactoring")
         lines.append("  - Reviewing all upstream dependencies for compatibility")
     elif risk_level == "MEDIUM":
-        lines.append("⚠ CAUTION: This change affects multiple components")
+        lines.append("[!] CAUTION: This change affects multiple components")
         lines.append("  Ensure all callers are updated if the interface changes")
-    
+
     lines.append("=" * 60)
     
     return "\n".join(lines)
