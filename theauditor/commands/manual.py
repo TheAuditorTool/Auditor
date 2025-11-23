@@ -512,6 +512,140 @@ TheAuditor deliberately separates facts from interpretations because:
 The core system will NEVER tell you something is "critical" or "needs fixing."
 It only reports what IS. The insights layer adds what it MEANS.
 """
+    },
+    "overview": {
+        "title": "TheAuditor Overview",
+        "summary": "What TheAuditor is and how it works",
+        "explanation": """
+TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing)
+platform. It provides ground truth about your codebase through comprehensive security
+analysis, taint tracking, and quality auditing.
+
+PURPOSE:
+  Designed for both human developers and AI assistants to detect:
+  - Security vulnerabilities (SQL injection, XSS, command injection)
+  - Incomplete refactorings (broken imports, orphan code)
+  - Architectural issues (circular dependencies, hotspots)
+
+PHILOSOPHY:
+  TheAuditor is a Truth Courier, Not a Mind Reader:
+  - Finds where code doesn't match itself (inconsistencies)
+  - Does NOT try to understand business logic
+  - Reports FACTS, not interpretations
+
+OUTPUT STRUCTURE:
+  .pf/
+  |-- raw/                    # Immutable tool outputs (ground truth)
+  |-- repo_index.db           # SQLite database with all code symbols
+  |-- graphs.db               # Graph database (query with 'aud graph')
+  +-- pipeline.log            # Detailed execution trace
+
+USE THE COMMANDS:
+    aud full                          # Complete security audit
+    aud manual workflows              # See common workflows
+    aud manual exit-codes             # Understand exit codes
+"""
+    },
+    "workflows": {
+        "title": "Common Workflows",
+        "summary": "Typical usage patterns for TheAuditor",
+        "explanation": """
+FIRST TIME SETUP:
+    aud full                          # Complete audit (auto-creates .pf/)
+
+AFTER CODE CHANGES:
+    aud workset --diff HEAD~1         # Identify changed files
+    aud lint --workset                # Quality check changes
+    aud taint-analyze --workset       # Security check changes
+
+PULL REQUEST REVIEW:
+    aud workset --diff main..feature  # What changed in PR
+    aud impact --file api.py --line 1 # Check change impact
+    aud detect-patterns --workset     # Security patterns
+
+SECURITY AUDIT:
+    aud full --offline                # Complete offline audit
+    aud deps --vuln-scan              # Check for CVEs
+    aud manual severity               # Understand findings
+
+PERFORMANCE OPTIMIZATION:
+    aud cfg analyze --threshold 20    # Find complex functions
+    aud graph analyze                 # Find circular dependencies
+    aud structure                     # Understand architecture
+
+CI/CD PIPELINE:
+    aud full --quiet || exit $?       # Fail on critical issues
+
+UNDERSTANDING RESULTS:
+    aud manual taint                  # Learn about concepts
+    aud structure                     # Project overview
+    aud report --print-stats          # Summary statistics
+"""
+    },
+    "exit-codes": {
+        "title": "Exit Codes",
+        "summary": "What TheAuditor's exit codes mean",
+        "explanation": """
+TheAuditor uses standardized exit codes for CI/CD automation:
+
+EXIT CODES:
+    0 = Success, no critical or high severity issues found
+    1 = High severity findings detected (needs attention)
+    2 = Critical security vulnerabilities found (block deployment)
+    3 = Analysis incomplete or pipeline failed
+
+USAGE IN CI/CD:
+    # Fail pipeline on any issues
+    aud full --quiet || exit $?
+
+    # Fail only on critical
+    aud full --quiet
+    if [ $? -eq 2 ]; then
+        echo "CRITICAL vulnerabilities found!"
+        exit 1
+    fi
+
+    # Continue with warnings
+    aud full --quiet
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 2 ]; then
+        exit 1  # Block on critical
+    elif [ $EXIT_CODE -eq 1 ]; then
+        echo "Warning: High severity issues found"
+    fi
+"""
+    },
+    "env-vars": {
+        "title": "Environment Variables",
+        "summary": "Configuration options via environment variables",
+        "explanation": """
+TheAuditor can be configured via environment variables:
+
+FILE SIZE LIMITS:
+    THEAUDITOR_LIMITS_MAX_FILE_SIZE=2097152   # Max file size in bytes (default: 2MB)
+    THEAUDITOR_LIMITS_MAX_CHUNK_SIZE=65536    # Max chunk size (default: 65KB)
+
+TIMEOUTS:
+    THEAUDITOR_TIMEOUT_SECONDS=1800           # Default timeout (default: 30 min)
+    THEAUDITOR_TIMEOUT_TAINT_SECONDS=600      # Taint analysis timeout
+    THEAUDITOR_TIMEOUT_LINT_SECONDS=300       # Linting timeout
+
+PERFORMANCE:
+    THEAUDITOR_DB_BATCH_SIZE=200              # Database batch insert size
+
+EXAMPLES:
+    # Increase file size limit for large files
+    export THEAUDITOR_LIMITS_MAX_FILE_SIZE=5242880  # 5MB
+    aud full
+
+    # Increase timeout for large codebase
+    export THEAUDITOR_TIMEOUT_SECONDS=3600  # 1 hour
+    aud full
+
+    # Optimize for SSD with larger batches
+    export THEAUDITOR_DB_BATCH_SIZE=500
+    aud full
+"""
     }
 }
 
