@@ -163,15 +163,12 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         # Sort by package name for consistent output
         upgraded_packages.sort(key=lambda x: x[0].lower())
         
-        # Show first 20 upgrades with details
-        for name, old_ver, new_ver, delta in upgraded_packages[:20]:
+        # Show ALL upgrades with details (no truncation)
+        for name, old_ver, new_ver, delta in upgraded_packages:
             delta_marker = " [MAJOR]" if delta == "major" else ""
             # Use arrow character that works on Windows
             arrow = "->" if IS_WINDOWS else "→"
             click.echo(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}")
-        
-        if len(upgraded_packages) > 20:
-            click.echo(f"  ... and {len(upgraded_packages) - 20} more packages")
         
         # Show summary that matches the "Outdated: 10/29" format
         if total_updated > unique_upgraded:
@@ -275,10 +272,8 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         ]
         if major_updates:
             click.echo("\n  Major version updates available:")
-            for name, locked, latest in major_updates[:5]:
+            for name, locked, latest in major_updates:
                 click.echo(f"    - {name}: {locked} -> {latest}")
-            if len(major_updates) > 5:
-                click.echo(f"    ... and {len(major_updates) - 5} more")
     
     # Add a helpful hint if no network operation was performed
     if not check_latest and not upgrade_all:

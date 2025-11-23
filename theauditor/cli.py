@@ -80,8 +80,8 @@ class VerboseGroup(click.Group):
         'UTILITIES': {
             'title': 'UTILITIES',
             'description': 'Educational and helper commands',
-            'commands': ['explain', 'planning'],
-            'ai_context': 'explain teaches concepts (taint, workset, fce), planning tracks work.',
+            'commands': ['manual', 'planning'],
+            'ai_context': 'manual teaches concepts (taint, workset, fce), planning tracks work.',
         },
     }
 
@@ -102,7 +102,7 @@ class VerboseGroup(click.Group):
         formatter.write_text("  - Commands are grouped by purpose for optimal workflow ordering")
         formatter.write_text("  - Each category shows WHEN and WHY to use commands")
         formatter.write_text("  - Run 'aud <command> --help' for detailed AI-consumable documentation")
-        formatter.write_text("  - Use 'aud explain <concept>' to learn about taint, workset, fce, etc.")
+        formatter.write_text("  - Use 'aud manual <concept>' to learn about taint, workset, fce, etc.")
         formatter.write_paragraph()
 
         for category_id, category_data in self.COMMAND_CATEGORIES.items():
@@ -144,7 +144,7 @@ class VerboseGroup(click.Group):
             formatter.write_paragraph()
 
         formatter.write_text("For detailed help: aud <command> --help")
-        formatter.write_text("For concepts: aud explain --list")
+        formatter.write_text("For concepts: aud manual --list")
 
 
 @click.group(cls=VerboseGroup)
@@ -181,7 +181,7 @@ def cli():
       Security audit:
         aud full --offline                # Complete offline audit
         aud deps --vuln-scan              # Check for CVEs
-        aud explain severity              # Understand findings
+        aud manual severity               # Understand findings
 
       Performance optimization:
         aud cfg analyze --threshold 20    # Find complex functions
@@ -192,7 +192,7 @@ def cli():
         aud full --quiet || exit $?       # Fail on critical issues
 
       Understanding results:
-        aud explain taint                 # Learn about concepts
+        aud manual taint                  # Learn about concepts
         aud structure                     # Project overview
         aud report --print-stats          # Summary statistics
 
