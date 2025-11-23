@@ -29,25 +29,27 @@ except ImportError:
 IS_WINDOWS = platform.system() == "Windows"
 
 # Command-specific timeout configuration (in seconds)
-# Based on empirical testing and user reports of 10-60 minute analysis times
+# UPDATED 2024-11: With tree-sitter parsing, batch DB ops, and proper indexes,
+# full pipeline takes 3-5 min (normal) to 15 min (large). If >30 min, something is broken.
+# Previous 10-hour timeouts were relics from week 3 regex parsing era.
 COMMAND_TIMEOUTS = {
-    "index": 600,               # 10 minutes - AST parsing can be slow on large codebases
-    "detect-frameworks": 300,   # 5 minutes - Quick scan of config files
-    "deps": 600,                # 10 minutes - Network I/O + vulnerability scanning (npm audit + osv-scanner)
-    "docs": 300,                # 5 minutes - Network I/O for fetching docs
-    "workset": 300,             # 5 minutes - File system traversal
-    "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
-    "detect-patterns": 36000,   # 10 hours - 100+ security patterns on enterprise codebases (140K+ symbols)
+    "index": 600,               # 10 minutes - AST parsing with tree-sitter is fast
+    "detect-frameworks": 180,   # 3 minutes - Quick scan of config files
+    "deps": 1200,               # 20 minutes - Network I/O for 500+ deps (Track C)
+    "docs": 600,                # 10 minutes - Network I/O for fetching docs (Track C)
+    "workset": 180,             # 3 minutes - File system traversal
+    "lint": 600,                # 10 minutes - ESLint/ruff are fast now
+    "detect-patterns": 1800,    # 30 minutes - If longer, check for missing indexes
     "graph": 600,               # 10 minutes - Building dependency graphs
     "terraform": 600,           # 10 minutes - Building Terraform provisioning graphs
-    "taint-analyze": 36000,     # 10 hours - Data flow analysis on enterprise codebases (140K+ symbols)
-    "taint": 36000,             # 10 hours - Alias for taint-analyze
-    "fce": 1800,                # 30 minutes - Correlation analysis
-    "report": 600,              # 10 minutes - Report generation
+    "taint-analyze": 1800,      # 30 minutes - If longer, something is broken
+    "taint": 1800,              # 30 minutes - Alias for taint-analyze
+    "fce": 900,                 # 15 minutes - Correlation analysis (usually <5 min)
+    "report": 300,              # 5 minutes - Report generation
 }
 
 # Allow environment variable override for all timeouts
-DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '1800'))  # Default 30 minutes
+DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '900'))  # Default 15 minutes
 
 def get_command_timeout(cmd: list[str]) -> int:
     """
