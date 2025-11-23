@@ -133,17 +133,27 @@ class ManifestParser:
     def check_package_in_deps(self, deps: Any, package_name: str) -> str | None:
         """
         Check if a package exists in dependencies and return its version.
-        Handles various dependency formats.
+        Handles various dependency formats including Cargo workspace inheritance.
         """
         if deps is None:
             return None
-        
-        # Handle dict format (package.json, pyproject.toml with Poetry)
+
+        # Handle dict format (package.json, pyproject.toml with Poetry, Cargo.toml)
         if isinstance(deps, dict):
             if package_name in deps:
                 version = deps[package_name]
                 # Handle complex version specs
                 if isinstance(version, dict):
+                    # Cargo workspace inheritance: {workspace: true}
+                    if version.get('workspace') is True:
+                        return 'workspace'
+                    # Git dependency
+                    if 'git' in version:
+                        return f"git:{version.get('branch', version.get('tag', 'HEAD'))}"
+                    # Path dependency
+                    if 'path' in version:
+                        return f"path:{version['path']}"
+                    # Regular version spec
                     version = version.get('version', str(version))
                 return str(version)
         
@@ -181,5 +191,120 @@ class ManifestParser:
                             return match.group(2).strip()
                         elif line_clean.strip() == package_name:
                             return "latest"
-        
+
         return None
+
+    def parse_cargo_toml(self, path: Path) -> dict:
+        """Parse Cargo.toml for Rust dependencies and workspace info.
+
+        Returns:
+            Dict with keys:
+            - dependencies: {name: version_or_spec}
+            - dev_dependencies: {name: version_or_spec}
+            - workspace_dependencies: {name: version_or_spec} (if workspace root)
+            - workspace_members: [str] (if workspace root)
+            - is_workspace_member: bool
+        """
+        data = self.parse_toml(path)
+        if not data:
+            return {}
+
+        result = {
+            'dependencies': {},
+            'dev_dependencies': {},
+            'workspace_dependencies': {},
+            'workspace_members': [],
+            'is_workspace_member': False,
+        }
+
+        # Extract workspace info (if this is a workspace root)
+        workspace = data.get('workspace', {})
+        if workspace:
+            result['workspace_members'] = workspace.get('members', [])
+
+            # Workspace-level dependencies
+            ws_deps = workspace.get('dependencies', {})
+            for name, spec in ws_deps.items():
+                result['workspace_dependencies'][name] = self._normalize_cargo_dep(spec)
+
+        # Extract package dependencies
+        deps = data.get('dependencies', {})
+        for name, spec in deps.items():
+            norm = self._normalize_cargo_dep(spec)
+            if norm == 'workspace':
+                result['is_workspace_member'] = True
+            result['dependencies'][name] = norm
+
+        # Extract dev dependencies
+        dev_deps = data.get('dev-dependencies', {})
+        for name, spec in dev_deps.items():
+            result['dev_dependencies'][name] = self._normalize_cargo_dep(spec)
+
+        return result
+
+    def _normalize_cargo_dep(self, spec: Any) -> str:
+        """Normalize a Cargo dependency spec to a version string.
+
+        Args:
+            spec: Can be:
+                - "1.0" (simple version string)
+                - {"version": "1.0", "features": [...]}
+                - {"workspace": true}
+                - {"git": "...", "branch": "..."}
+
+        Returns:
+            Version string, "workspace", "git", or str(spec)
+        """
+        if isinstance(spec, str):
+            return spec
+
+        if isinstance(spec, dict):
+            # Check for workspace inheritance first
+            if spec.get('workspace') is True:
+                return 'workspace'
+
+            # Check for git dependency
+            if 'git' in spec:
+                return f"git:{spec.get('branch', spec.get('tag', 'HEAD'))}"
+
+            # Check for path dependency
+            if 'path' in spec:
+                return f"path:{spec['path']}"
+
+            # Regular version spec
+            if 'version' in spec:
+                return spec['version']
+
+        return str(spec)
+
+    def discover_monorepo_manifests(self, root: Path) -> list[Path]:
+        """Find all manifest files in a polyglot monorepo.
+
+        Args:
+            root: Project root directory
+
+        Returns:
+            List of manifest file paths, excluding node_modules/vendor/etc.
+        """
+        manifests = []
+        skip_dirs = {'node_modules', 'vendor', '.git', '.venv', 'venv',
+                     '__pycache__', 'dist', 'build', 'target', '.auditor_venv'}
+
+        patterns = [
+            'package.json',
+            'pyproject.toml',
+            'requirements.txt',
+            'Cargo.toml',
+            'Gemfile',
+            'pom.xml',
+            'build.gradle',
+            'composer.json',
+        ]
+
+        for pattern in patterns:
+            for path in root.rglob(pattern):
+                # Skip if in excluded directory
+                if not any(skip in path.parts for skip in skip_dirs):
+                    manifests.append(path)
+
+        return manifests

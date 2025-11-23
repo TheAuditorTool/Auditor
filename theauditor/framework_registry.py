@@ -473,6 +473,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "actix-web",
@@ -484,6 +485,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "rocket",
@@ -495,6 +497,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "axum",
@@ -506,6 +509,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "warp",
@@ -517,6 +521,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "tokio",
@@ -528,6 +533,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "async-std",
@@ -539,6 +545,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "diesel",
@@ -551,6 +558,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "sqlx",
@@ -562,6 +570,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "sea-orm",
@@ -573,6 +582,7 @@ FRAMEWORK_REGISTRY = {
             "Cargo.toml": [
                 ["dependencies"],
                 ["dev-dependencies"],
+                ["workspace", "dependencies"],
             ],
         },
         "package_pattern": "serde",
