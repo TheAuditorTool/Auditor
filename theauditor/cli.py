@@ -239,7 +239,7 @@ from theauditor.commands.impact import impact
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.boundaries import boundaries
 from theauditor.commands.setup import setup_ai
-from theauditor.commands.explain import explain
+from theauditor.commands.manual import manual
 
 # Import additional migrated commands
 from theauditor.commands.detect_patterns import detect_patterns
@@ -295,7 +295,7 @@ cli.add_command(taint_analyze)
 cli.add_command(boundaries)
 cli.add_command(setup_ai)
 cli.add_command(setup_ai, name="setup-claude")  # Hidden legacy alias
-cli.add_command(explain)
+cli.add_command(manual)
 
 # Register additional migrated commands
 cli.add_command(detect_patterns)
