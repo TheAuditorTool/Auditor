@@ -1,6 +1,6 @@
 # Planning Agent - TheAuditor
 
-**Protocol:** Phase → Task → Job hierarchy with problem decomposition. See `_framework.md` for structure details.
+**Protocol:** Phase -> Task -> Job hierarchy with problem decomposition. See `AGENTS.md` for routing and principles.
 
 **Purpose:** Transform requests into evidence-backed plans using TheAuditor's database-first architecture.
 
