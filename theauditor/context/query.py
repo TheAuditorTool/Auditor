@@ -271,7 +271,7 @@ class CodeQueryEngine:
         # This catches function/class/variable declarations
         for table in ['symbols', 'symbols_jsx']:
             try:
-                # Exact match
+                # Exact match (highest priority)
                 cursor.execute(f"""
                     SELECT DISTINCT name FROM {table} WHERE name = ?
                 """, (input_name,))
@@ -284,6 +284,16 @@ class CodeQueryEngine:
                 """, (f"%.{input_name}",))
                 for row in cursor.fetchall():
                     found_symbols.add(row['name'])
+
+                # FIX: If input is qualified (has dots), also try matching just the last segment
+                # This handles: "OrderController.getAllOrders" -> try "%.getAllOrders"
+                if '.' in input_name:
+                    last_segment = input_name.split('.')[-1]
+                    cursor.execute(f"""
+                        SELECT DISTINCT name FROM {table} WHERE name LIKE ?
+                    """, (f"%.{last_segment}",))
+                    for row in cursor.fetchall():
+                        found_symbols.add(row['name'])
 
             except sqlite3.OperationalError:
                 continue
@@ -318,6 +328,15 @@ class CodeQueryEngine:
                 for row in cursor.fetchall():
                     found_symbols.add(row['callee_function'])
 
+                # FIX: If input is qualified, also try last segment
+                if '.' in input_name:
+                    last_segment = input_name.split('.')[-1]
+                    cursor.execute(f"""
+                        SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
+                    """, (f"%.{last_segment}",))
+                    for row in cursor.fetchall():
+                        found_symbols.add(row['callee_function'])
+
             except sqlite3.OperationalError:
                 continue
 
@@ -325,7 +344,7 @@ class CodeQueryEngine:
         # This catches: router.get('/path', handler) where handler is passed as data
         for table in ['function_call_args', 'function_call_args_jsx']:
             try:
-                # Exact match in argument expressions
+                # Exact match and suffix match in argument expressions
                 cursor.execute(f"""
                     SELECT DISTINCT argument_expr FROM {table}
                     WHERE argument_expr = ? OR argument_expr LIKE ?
@@ -337,6 +356,18 @@ class CodeQueryEngine:
                     # Complex expressions like "x + y" or "foo(bar)" aren't symbol references
                     if expr and not any(c in expr for c in ['+', '-', '*', '/', '(', ')', ' ']):
                         found_symbols.add(expr)
+
+                # FIX: If input is qualified, also try last segment
+                if '.' in input_name:
+                    last_segment = input_name.split('.')[-1]
+                    cursor.execute(f"""
+                        SELECT DISTINCT argument_expr FROM {table}
+                        WHERE argument_expr LIKE ?
+                    """, (f"%.{last_segment}",))
+                    for row in cursor.fetchall():
+                        expr = row['argument_expr']
+                        if expr and not any(c in expr for c in ['+', '-', '*', '/', '(', ')', ' ']):
+                            found_symbols.add(expr)
 
             except sqlite3.OperationalError:
                 continue
@@ -1220,6 +1251,7 @@ class CodeQueryEngine:
         self,
         pattern: str,
         type_filter: str | None = None,
+        path_filter: str | None = None,
         limit: int = 100
     ) -> list[SymbolInfo]:
         """Search symbols by pattern (LIKE query).
@@ -1230,6 +1262,7 @@ class CodeQueryEngine:
         Args:
             pattern: Search pattern (supports % wildcards)
             type_filter: Filter by symbol type (function, class, etc.)
+            path_filter: Filter by file path (supports % wildcards)
             limit: Maximum results to return
 
         Returns:
@@ -1241,6 +1274,12 @@ class CodeQueryEngine:
 
             # Find all validation code
             results = engine.pattern_search("%valid%")
+
+            # Find all controllers in src/api/
+            results = engine.pattern_search("%Controller%", path_filter="src/api/%")
+
+            # List everything in a path
+            results = engine.pattern_search("%", path_filter="services/%")
         """
         cursor = self.repo_db.cursor()
         results = []
@@ -1259,6 +1298,11 @@ class CodeQueryEngine:
                 query += " AND type = ?"
                 params.append(type_filter)
 
+            if path_filter:
+                query += " AND path LIKE ?"
+                params.append(path_filter)
+
+            query += " ORDER BY path, line"
             query += f" LIMIT {limit}"
 
             try:

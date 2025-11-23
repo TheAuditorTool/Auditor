@@ -59,6 +59,49 @@ def _format_text(results: Any) -> str:
     if isinstance(results, dict) and 'error' in results:
         return f"ERROR: {results['error']}"
 
+    # Discovery mode results (--list-symbols)
+    if isinstance(results, dict) and results.get('type') == 'discovery':
+        lines = []
+        filter_str = results.get('filter', '*')
+        path_str = results.get('path', '(all)')
+        type_str = results.get('type_filter') or '(all types)'
+        count = results.get('count', 0)
+        symbols = results.get('symbols', [])
+
+        lines.append(f"Symbol Discovery Results")
+        lines.append(f"  Filter: {filter_str}")
+        lines.append(f"  Path:   {path_str}")
+        lines.append(f"  Type:   {type_str}")
+        lines.append(f"  Found:  {count} symbols")
+        lines.append("")
+
+        if symbols:
+            # Group by file for better readability
+            by_file = {}
+            for sym in symbols:
+                file_path = sym.file if hasattr(sym, 'file') else sym.get('file', '?')
+                if file_path not in by_file:
+                    by_file[file_path] = []
+                by_file[file_path].append(sym)
+
+            for file_path in sorted(by_file.keys()):
+                file_symbols = by_file[file_path]
+                # Truncate long paths from the left
+                display_path = file_path[-60:] if len(file_path) > 60 else file_path
+                if len(file_path) > 60:
+                    display_path = "..." + display_path
+                lines.append(f"{display_path}:")
+                for sym in file_symbols:
+                    name = sym.name if hasattr(sym, 'name') else sym.get('name', '?')
+                    sym_type = sym.type if hasattr(sym, 'type') else sym.get('type', '?')
+                    line_num = sym.line if hasattr(sym, 'line') else sym.get('line', '?')
+                    lines.append(f"  :{line_num:<5} {sym_type:<12} {name}")
+                lines.append("")
+        else:
+            lines.append("No symbols found matching criteria.")
+
+        return "\n".join(lines)
+
     # Symbol info + callers (combined query)
     if isinstance(results, dict) and 'symbol' in results and 'callers' in results:
         lines = []
@@ -84,19 +127,23 @@ def _format_text(results: Any) -> str:
 
         # Callers
         callers = results['callers']
-        lines.append(f"Callers ({len(callers)}):")
-        if callers:
-            for i, call in enumerate(callers, 1):
-                caller = call.caller_function or '(top-level)'
-                lines.append(f"  {i}. {call.caller_file}:{call.caller_line}")
-                lines.append(f"     {caller} -> {call.callee_function}")
-                if call.arguments and call.arguments[0]:
-                    args_str = call.arguments[0]
-                    if len(args_str) > 60:
-                        args_str = args_str[:57] + "..."
-                    lines.append(f"     Args: {args_str}")
+        # Handle error dict from get_callers (fuzzy suggestions)
+        if isinstance(callers, dict) and 'error' in callers:
+            lines.append(f"Callers: {callers['error']}")
         else:
-            lines.append("  (none)")
+            lines.append(f"Callers ({len(callers)}):")
+            if callers:
+                for i, call in enumerate(callers, 1):
+                    caller = call.caller_function or '(top-level)'
+                    lines.append(f"  {i}. {call.caller_file}:{call.caller_line}")
+                    lines.append(f"     {caller} -> {call.callee_function}")
+                    if call.arguments and call.arguments[0]:
+                        args_str = call.arguments[0]
+                        if len(args_str) > 60:
+                            args_str = args_str[:57] + "..."
+                        lines.append(f"     Args: {args_str}")
+            else:
+                lines.append("  (none)")
 
         return "\n".join(lines)
 

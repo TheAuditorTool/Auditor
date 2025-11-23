@@ -24,6 +24,9 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--category", help="Search by security category (jwt, oauth, password, sql, xss, auth)")
 @click.option("--search", help="Cross-table exploratory search (finds term across all tables)")
 @click.option("--list", "list_mode", help="List all symbols in file (symbols, functions, classes, imports, all)")
+@click.option("--list-symbols", "list_symbols", is_flag=True, help="Discovery mode: list symbols matching filter pattern")
+@click.option("--filter", "symbol_filter", help="Symbol name pattern for --list-symbols (e.g., '*Controller*', '*auth*')")
+@click.option("--path", "path_filter", help="File path pattern for --list-symbols (e.g., 'src/api/*', 'services/')")
 @click.option("--show-callers", is_flag=True, help="Show who calls this symbol (control flow incoming)")
 @click.option("--show-callees", is_flag=True, help="Show what this symbol calls (control flow outgoing)")
 @click.option("--show-dependencies", is_flag=True, help="Show what this file imports (outgoing dependencies)")
@@ -43,6 +46,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--save", type=click.Path(), help="Save output to file (auto-creates parent dirs)")
 @handle_exceptions
 def query(symbol, file, api, component, variable, pattern, category, search, list_mode,
+          list_symbols, symbol_filter, path_filter,
           show_callers, show_callees, show_dependencies, show_dependents,
           show_tree, show_hooks, show_data_deps, show_flow, show_taint_flow,
           show_api_coverage, type_filter, include_tables,
@@ -969,7 +973,7 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
         raise click.Abort()
 
     # Validate at least one query target provided
-    if not any([symbol, file, api, component, variable, pattern, category, search, show_api_coverage, list_mode]):
+    if not any([symbol, file, api, component, variable, pattern, category, search, show_api_coverage, list_mode, list_symbols]):
         click.echo("\n" + "="*60, err=True)
         click.echo("ERROR: No query target specified", err=True)
         click.echo("="*60, err=True)
@@ -983,6 +987,7 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
         click.echo("    --category CATEGORY (search by security category)", err=True)
         click.echo("    --search TERM       (cross-table exploratory search)", err=True)
         click.echo("    --list TYPE         (list symbols: functions, classes, imports, all)", err=True)
+        click.echo("    --list-symbols      (discovery mode: find symbols by pattern)", err=True)
         click.echo("    --show-api-coverage (query all API security coverage)", err=True)
         click.echo("\nExamples:", err=True)
         click.echo("    aud query --symbol authenticateUser --show-callers", err=True)
@@ -994,6 +999,8 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
         click.echo("    aud query --category jwt --format json", err=True)
         click.echo("    aud query --search payment --include-tables symbols,findings", err=True)
         click.echo("    aud query --file python_impl.py --list functions", err=True)
+        click.echo("    aud query --list-symbols --filter '*Controller*'", err=True)
+        click.echo("    aud query --list-symbols --path 'services/' --filter '*'", err=True)
         click.echo("    aud query --show-api-coverage\n", err=True)
         raise click.Abort()
 
@@ -1008,7 +1015,40 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
     results = None
 
     try:
-        if pattern:
+        if list_symbols:
+            # DISCOVERY MODE: List symbols matching filter pattern
+            # Converts shell glob (*) to SQL LIKE (%)
+            name_pattern = '%'  # Default: match all
+            if symbol_filter:
+                # Convert glob to SQL LIKE: * -> %, ? -> _
+                name_pattern = symbol_filter.replace('*', '%').replace('?', '_')
+
+            # Convert path filter glob to SQL LIKE
+            sql_path_filter = None
+            if path_filter:
+                sql_path_filter = path_filter.replace('*', '%').replace('?', '_')
+                # Ensure trailing % for directory patterns
+                if not sql_path_filter.endswith('%'):
+                    sql_path_filter += '%'
+
+            results = engine.pattern_search(
+                name_pattern,
+                type_filter=type_filter,
+                path_filter=sql_path_filter,
+                limit=200
+            )
+
+            # Wrap in discovery result format
+            results = {
+                'type': 'discovery',
+                'filter': symbol_filter or '*',
+                'path': path_filter or '(all)',
+                'type_filter': type_filter,
+                'count': len(results),
+                'symbols': results
+            }
+
+        elif pattern:
             # NEW: Pattern search - SQL LIKE pattern matching (NO ML, NO CUDA)
             results = engine.pattern_search(pattern, type_filter=type_filter)
 
@@ -1036,8 +1076,12 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
             else:
                 # Default: symbol info + direct callers
                 symbols = engine.find_symbol(symbol)
-                callers = engine.get_callers(symbol, depth=1)
-                results = {'symbol': symbols, 'callers': callers}
+                # Handle error dict from find_symbol (fuzzy suggestions)
+                if isinstance(symbols, dict) and 'error' in symbols:
+                    results = symbols  # Pass error dict directly
+                else:
+                    callers = engine.get_callers(symbol, depth=1)
+                    results = {'symbol': symbols, 'callers': callers}
 
         elif list_mode:
             # NEW: List symbols in file (enumeration mode)
