@@ -1,0 +1,276 @@
+"""Code snippet manager for reading source code lines with LRU caching.
+
+Provides language-agnostic source code extraction for the explain command.
+Reads files from disk on-demand with caching to avoid repeated file I/O.
+
+Usage:
+    manager = CodeSnippetManager(Path.cwd())
+    snippet = manager.get_snippet("src/auth.py", 42, expand_block=True)
+"""
+
+from collections import OrderedDict
+from pathlib import Path
+
+from .logger import setup_logger
+
+logger = setup_logger(__name__)
+
+
+class CodeSnippetManager:
+    """Read source code lines with LRU caching and safety limits.
+
+    Language agnostic - works with Python, JavaScript, TypeScript, Rust, Go, Vue, etc.
+    Block expansion uses indentation-based heuristics that work across languages.
+
+    Safety limits:
+    - Max file size: 1MB (skip larger files)
+    - Max cache size: 20 files
+    - Max snippet lines: 15
+    - Max line length: 120 chars (truncate with ...)
+    """
+
+    MAX_FILE_SIZE = 1_000_000  # 1MB
+    MAX_CACHE_SIZE = 20
+    MAX_SNIPPET_LINES = 15
+    MAX_LINE_LENGTH = 120
+
+    def __init__(self, root_dir: Path):
+        """Initialize snippet manager.
+
+        Args:
+            root_dir: Project root directory for resolving relative paths
+        """
+        self.root_dir = Path(root_dir)
+        self._cache: OrderedDict[str, list[str]] = OrderedDict()
+
+    def get_snippet(self, file_path: str, line: int, expand_block: bool = True) -> str:
+        """Get code snippet for a line with optional block expansion.
+
+        Args:
+            file_path: Relative path from root_dir
+            line: 1-indexed line number
+            expand_block: If True, expand to include full block (max 15 lines)
+
+        Returns:
+            Formatted snippet with line numbers, or error message string
+        """
+        lines = self._get_file_lines(file_path)
+
+        if lines is None:
+            # Determine error type
+            full_path = self.root_dir / file_path
+            if not full_path.exists():
+                return "[File not found on disk]"
+            try:
+                size = full_path.stat().st_size
+                if size > self.MAX_FILE_SIZE:
+                    return "[File too large to preview]"
+            except OSError:
+                pass
+            return "[Binary file - no preview]"
+
+        # Convert to 0-indexed
+        start_idx = line - 1
+        if start_idx < 0 or start_idx >= len(lines):
+            return f"[Line {line} out of range (file has {len(lines)} lines)]"
+
+        # Determine end index
+        if expand_block:
+            end_idx = self._expand_block(lines, start_idx)
+        else:
+            end_idx = start_idx
+
+        return self._format_snippet(lines, start_idx, end_idx)
+
+    def get_lines(self, file_path: str, start_line: int, end_line: int) -> str:
+        """Get specific range of lines without block expansion.
+
+        Args:
+            file_path: Relative path from root_dir
+            start_line: 1-indexed start line
+            end_line: 1-indexed end line (inclusive)
+
+        Returns:
+            Formatted snippet with line numbers
+        """
+        lines = self._get_file_lines(file_path)
+
+        if lines is None:
+            full_path = self.root_dir / file_path
+            if not full_path.exists():
+                return "[File not found on disk]"
+            return "[Could not read file]"
+
+        # Convert to 0-indexed, clamp to valid range
+        start_idx = max(0, start_line - 1)
+        end_idx = min(len(lines) - 1, end_line - 1)
+
+        if start_idx > end_idx or start_idx >= len(lines):
+            return f"[Lines {start_line}-{end_line} out of range]"
+
+        # Limit to MAX_SNIPPET_LINES
+        if end_idx - start_idx + 1 > self.MAX_SNIPPET_LINES:
+            end_idx = start_idx + self.MAX_SNIPPET_LINES - 1
+
+        return self._format_snippet(lines, start_idx, end_idx)
+
+    def _get_file_lines(self, file_path: str) -> list[str] | None:
+        """Load file into cache, return lines or None on error.
+
+        Args:
+            file_path: Relative path from root_dir
+
+        Returns:
+            List of lines (with newlines stripped) or None on error
+        """
+        # Normalize path for cache key
+        cache_key = str(file_path).replace("\\", "/")
+
+        # Check cache first
+        if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)  # LRU touch
+            return self._cache[cache_key]
+
+        # Build full path
+        full_path = self.root_dir / file_path
+
+        # Safety: check exists
+        if not full_path.exists():
+            logger.debug(f"File not found: {full_path}")
+            return None
+
+        # Safety: check size
+        try:
+            if full_path.stat().st_size > self.MAX_FILE_SIZE:
+                logger.debug(f"File too large: {full_path}")
+                return None
+        except OSError as e:
+            logger.debug(f"Cannot stat file {full_path}: {e}")
+            return None
+
+        # Read with encoding fallback
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            # Try latin-1 as fallback (handles most binary-ish files)
+            try:
+                with open(full_path, "r", encoding="latin-1") as f:
+                    lines = f.readlines()
+            except Exception:
+                logger.debug(f"Cannot decode file: {full_path}")
+                return None
+        except OSError as e:
+            logger.debug(f"Cannot read file {full_path}: {e}")
+            return None
+
+        # Strip newlines for cleaner formatting
+        lines = [line.rstrip("\n\r") for line in lines]
+
+        # Add to cache, evict oldest if needed
+        if len(self._cache) >= self.MAX_CACHE_SIZE:
+            self._cache.popitem(last=False)  # Remove oldest
+        self._cache[cache_key] = lines
+
+        return lines
+
+    def _expand_block(self, lines: list[str], start_idx: int) -> int:
+        """Expand from start_idx to include indented block, max 15 lines.
+
+        Uses indentation-based heuristics that work across languages:
+        - Python: indentation after ':'
+        - JS/TS/Rust/Go: indentation after '{'
+        - Stops at closing braces or dedent
+
+        Args:
+            lines: List of file lines
+            start_idx: Starting line index (0-indexed)
+
+        Returns:
+            End index (0-indexed, inclusive)
+        """
+        if start_idx >= len(lines):
+            return start_idx
+
+        start_line = lines[start_idx]
+        start_indent = len(start_line) - len(start_line.lstrip())
+
+        # Check if this line starts a block
+        stripped = start_line.rstrip()
+        is_block_start = stripped.endswith(("{", ":", "(", "["))
+
+        end_idx = start_idx
+        max_end = min(start_idx + self.MAX_SNIPPET_LINES, len(lines))
+
+        for i in range(start_idx + 1, max_end):
+            line = lines[i]
+
+            # Skip empty lines but track them
+            if not line.strip():
+                end_idx = i
+                continue
+
+            curr_indent = len(line) - len(line.lstrip())
+            stripped_line = line.strip()
+
+            # If this is a block start, include lines with deeper indentation
+            if is_block_start:
+                if curr_indent <= start_indent:
+                    # Back to same or lower indent
+                    if stripped_line.startswith(("}", "]", ")", "end", "else", "elif", "except", "finally", "case")):
+                        return i  # Include closing/continuation
+                    return end_idx  # Stop before this line
+                end_idx = i
+            else:
+                # Not a block start - just include same-indent continuation
+                if curr_indent < start_indent:
+                    return end_idx
+                if curr_indent == start_indent and not stripped_line.startswith((".", ",", "+")):
+                    return end_idx
+                end_idx = i
+
+        return end_idx
+
+    def _format_snippet(self, lines: list[str], start_idx: int, end_idx: int) -> str:
+        """Format lines with line numbers.
+
+        Args:
+            lines: List of file lines
+            start_idx: Start index (0-indexed)
+            end_idx: End index (0-indexed, inclusive)
+
+        Returns:
+            Formatted string with line numbers
+        """
+        result = []
+        # Calculate padding for line numbers
+        max_line_num = end_idx + 1
+        padding = len(str(max_line_num))
+
+        for i in range(start_idx, end_idx + 1):
+            line_num = i + 1  # 1-indexed for display
+            line_content = lines[i]
+
+            # Truncate long lines
+            if len(line_content) > self.MAX_LINE_LENGTH:
+                line_content = line_content[: self.MAX_LINE_LENGTH - 3] + "..."
+
+            result.append(f"{line_num:>{padding}} | {line_content}")
+
+        return "\n".join(result)
+
+    def clear_cache(self):
+        """Clear the file cache."""
+        self._cache.clear()
+
+    def cache_stats(self) -> dict:
+        """Return cache statistics.
+
+        Returns:
+            Dict with cache info
+        """
+        return {
+            "cached_files": len(self._cache),
+            "max_size": self.MAX_CACHE_SIZE,
+            "files": list(self._cache.keys()),
+        }

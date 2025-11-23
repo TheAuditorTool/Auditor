@@ -44,13 +44,15 @@ from theauditor.utils.error_handler import handle_exceptions
               type=click.Choice(['text', 'json', 'tree']),
               help="Output format: text (human), json (AI), tree (visual)")
 @click.option("--save", type=click.Path(), help="Save output to file (auto-creates parent dirs)")
+@click.option("--show-code/--no-code", default=False,
+              help="Include source code snippets for callers/callees (default: no)")
 @handle_exceptions
 def query(symbol, file, api, component, variable, pattern, category, search, list_mode,
           list_symbols, symbol_filter, path_filter,
           show_callers, show_callees, show_dependencies, show_dependents,
           show_tree, show_hooks, show_data_deps, show_flow, show_taint_flow,
           show_api_coverage, type_filter, include_tables,
-          depth, output_format, save):
+          depth, output_format, save, show_code):
     """Query code relationships from indexed database for AI-assisted refactoring.
 
     WHAT THIS DOES:
@@ -1193,6 +1195,28 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
         raise click.Abort()
     finally:
         engine.close()
+
+    # Add code snippets if requested and results are caller/callee lists
+    if show_code and results:
+        from theauditor.utils.code_snippets import CodeSnippetManager
+        snippet_manager = CodeSnippetManager(Path.cwd())
+
+        # Handle list of CallSite objects (from get_callers/get_callees)
+        if isinstance(results, list) and results and hasattr(results[0], 'caller_file'):
+            for call in results:
+                snippet = snippet_manager.get_snippet(call.caller_file, call.caller_line, expand_block=False)
+                if not snippet.startswith('['):
+                    call.arguments.append(f"__snippet__:{snippet}")
+
+        # Handle dict with 'symbol' + 'callers' (default symbol query)
+        elif isinstance(results, dict) and 'callers' in results:
+            callers = results.get('callers', [])
+            if isinstance(callers, list):
+                for call in callers:
+                    if hasattr(call, 'caller_file'):
+                        snippet = snippet_manager.get_snippet(call.caller_file, call.caller_line, expand_block=False)
+                        if not snippet.startswith('['):
+                            call.arguments.append(f"__snippet__:{snippet}")
 
     # Format output
     output_str = format_output(results, format=output_format)

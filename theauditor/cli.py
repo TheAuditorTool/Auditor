@@ -68,8 +68,8 @@ class VerboseGroup(click.Group):
         'ADVANCED_QUERIES': {
             'title': 'ADVANCED QUERIES',
             'description': 'Direct database queries and impact analysis',
-            'commands': ['query', 'impact', 'refactor'],
-            'ai_context': 'query=SQL-like symbol lookup, impact=blast radius, refactor=migration analysis.',
+            'commands': ['explain', 'query', 'impact', 'refactor'],
+            'ai_context': 'explain=comprehensive context, query=SQL-like symbol lookup, impact=blast radius, refactor=migration analysis.',
         },
         'INSIGHTS_ML': {
             'title': 'INSIGHTS & ML',
@@ -265,6 +265,7 @@ from theauditor.commands.insights import insights_command
 from theauditor.commands.context import context_command
 from theauditor.commands.query import query
 from theauditor.commands.blueprint import blueprint
+from theauditor.commands.explain import explain
 
 # Import new commands
 from theauditor.commands.docker_analyze import docker_analyze
@@ -328,6 +329,7 @@ cli.add_command(refactor_command, name="refactor")
 cli.add_command(insights_command, name="insights")
 cli.add_command(context_command, name="context")
 cli.add_command(query)
+cli.add_command(explain)
 cli.add_command(blueprint)
 
 # Register new commands

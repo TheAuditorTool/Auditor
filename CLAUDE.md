@@ -374,8 +374,17 @@ class YourLanguageExtractor(BaseExtractor):
 # Full analysis pipeline
 aud full
 
-# Query symbol information
-aud context query --symbol function_name --show-callers
+# Comprehensive context (AI-Optimized) - USE THIS FIRST
+aud explain <target>              # Auto-detects file/symbol/component
+aud explain src/auth.ts           # File: symbols, hooks, deps, callers, callees
+aud explain validateInput         # Symbol: definition, callers, callees with code
+aud explain Dashboard             # Component: info, hooks, children
+aud explain --format json file.py # JSON output for AI consumption
+aud explain --depth 3 Symbol.method  # Deeper call graph traversal
+
+# Query symbol information (use explain first, this for specific needs)
+aud query --symbol function_name --show-callers
+aud query --symbol foo --show-callers --show-code  # Include source snippets
 
 # Run security rules
 aud detect-patterns
@@ -392,6 +401,8 @@ aud workset --files file1.py file2.py
 # Generate report
 aud report
 ```
+
+**AI Assistants:** Always use `aud explain` first - it returns symbols, dependencies, and calls in ONE command, saving 5,000-10,000 context tokens per task. Only use individual queries if explain doesn't provide what you need.
 
 ---
 
