@@ -190,6 +190,65 @@ class CodeQueryEngine:
         else:
             self.graph_db = None  # Graph commands not run yet
 
+    def _resolve_symbol(self, input_name: str) -> tuple[list[str], str | None]:
+        """Resolve user input to qualified symbol name(s).
+
+        Symbol Resolution Step (NOT a fallback - this is normalization).
+        Maps imprecise user input to exact indexed symbols.
+
+        Algorithm:
+        1. Try exact match first (user provided qualified name)
+        2. If no exact match, search for symbols ending with input (e.g., 'save' -> 'User.save')
+        3. Return list of matching qualified names
+
+        Args:
+            input_name: User-provided symbol name (may be unqualified)
+
+        Returns:
+            Tuple of (qualified_names: list[str], error: str | None)
+            - If 0 matches: ([], "Symbol 'X' not found in index.")
+            - If 1+ matches: ([qualified_names], None)
+
+        Example:
+            # User provides "save"
+            names, err = engine._resolve_symbol("save")
+            # Returns: (["User.save", "File.save"], None)
+        """
+        cursor = self.repo_db.cursor()
+        qualified_names = set()
+
+        # Search both regular and JSX call tables for callee_function matches
+        for table in ['function_call_args', 'function_call_args_jsx']:
+            try:
+                # First: exact match (user may have provided qualified name)
+                cursor.execute(f"""
+                    SELECT DISTINCT callee_function
+                    FROM {table}
+                    WHERE callee_function = ?
+                """, (input_name,))
+                for row in cursor.fetchall():
+                    qualified_names.add(row['callee_function'])
+
+                # Second: suffix match (e.g., "save" matches "User.save", "File.save")
+                # Only if no exact match found yet
+                if not qualified_names:
+                    cursor.execute(f"""
+                        SELECT DISTINCT callee_function
+                        FROM {table}
+                        WHERE callee_function LIKE ?
+                    """, (f"%.{input_name}",))
+                    for row in cursor.fetchall():
+                        qualified_names.add(row['callee_function'])
+
+            except sqlite3.OperationalError:
+                # Table might not exist (e.g., no JSX in Python projects)
+                continue
+
+        if not qualified_names:
+            return [], f"Symbol '{input_name}' not found in index."
+
+        return list(qualified_names), None
+
     def find_symbol(self, name: str, type_filter: str | None = None) -> list[SymbolInfo]:
         """Find symbol definitions by exact name match.
 
@@ -244,18 +303,26 @@ class CodeQueryEngine:
 
         return results
 
-    def get_callers(self, symbol_name: str, depth: int = 1) -> list[CallSite]:
+    def get_callers(self, symbol_name: str, depth: int = 1) -> list[CallSite] | dict:
         """Find who calls a symbol (with optional transitive search).
 
-        Direct query on function_call_args table.
-        For depth > 1, recursively finds callers of callers using BFS.
+        First resolves user input to qualified symbol name(s), then queries
+        function_call_args table. For depth > 1, recursively finds callers
+        of callers using BFS.
+
+        Symbol Resolution:
+            - "save" may resolve to ["User.save", "File.save"]
+            - If ambiguous, returns callers for ALL matches with labeling
+            - If not found, returns error dict
 
         Args:
-            symbol_name: Symbol to find callers for
+            symbol_name: Symbol to find callers for (may be unqualified)
             depth: Traversal depth (1-5, default=1)
 
         Returns:
-            List of call sites with full context
+            List of call sites with full context, OR
+            Dict with 'error' key if symbol not found, OR
+            Dict with 'ambiguous' key listing possible matches
 
         Raises:
             ValueError: If depth < 1 or depth > 5
@@ -266,16 +333,30 @@ class CodeQueryEngine:
 
             # Transitive callers (3 levels deep)
             callers = engine.get_callers("validateInput", depth=3)
+
+            # Unqualified name (will resolve)
+            callers = engine.get_callers("save", depth=1)  # Finds User.save, File.save
         """
         if depth < 1 or depth > 5:
             raise ValueError("Depth must be between 1 and 5")
+
+        # SYMBOL RESOLUTION STEP: Map user input to qualified name(s)
+        resolved_names, error = self._resolve_symbol(symbol_name)
+
+        if error:
+            # No matches found - return explicit error
+            return {'error': error, 'suggestion': 'Use: aud query --symbol <partial> to search symbols'}
 
         cursor = self.repo_db.cursor()
         all_callers = []
         visited = set()
 
-        # BFS for transitive callers
-        queue = deque([(symbol_name, 0)])
+        # If multiple matches, we'll query all of them
+        # This is NOT a fallback - we're providing complete results
+        symbols_to_query = resolved_names
+
+        # BFS for transitive callers - start with all resolved symbols
+        queue = deque([(name, 0) for name in symbols_to_query])
 
         while queue:
             current_symbol, current_depth = queue.popleft()
@@ -509,12 +590,18 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
-        # Component definition
+        # Component definition with hooks from junction table
         try:
             cursor.execute("""
-                SELECT file, name, type, start_line, end_line, has_jsx, hooks_used, props_type
-                FROM react_components
-                WHERE name = ?
+                SELECT
+                    rc.file, rc.name, rc.type, rc.start_line, rc.end_line,
+                    rc.has_jsx, rc.props_type,
+                    GROUP_CONCAT(rch.hook_name) as hooks_concat
+                FROM react_components rc
+                LEFT JOIN react_component_hooks rch
+                    ON rc.file = rch.component_file AND rc.name = rch.component_name
+                WHERE rc.name = ?
+                GROUP BY rc.file, rc.name, rc.type, rc.start_line, rc.end_line, rc.has_jsx, rc.props_type
             """, (component_name,))
 
             row = cursor.fetchone()
@@ -523,13 +610,10 @@ class CodeQueryEngine:
 
             result = dict(row)
 
-            # Hooks used (parse JSON if stored as JSON string)
-            import json
-            if result.get('hooks_used'):
-                try:
-                    result['hooks'] = json.loads(result['hooks_used'])
-                except (json.JSONDecodeError, TypeError):
-                    result['hooks'] = []
+            # Parse hooks from GROUP_CONCAT result (comma-separated or NULL)
+            hooks_concat = result.pop('hooks_concat', None)
+            if hooks_concat:
+                result['hooks'] = hooks_concat.split(',')
             else:
                 result['hooks'] = []
 

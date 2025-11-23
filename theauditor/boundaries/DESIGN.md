@@ -99,7 +99,7 @@ Each analyzer defines:
 - **Violation Rules**: When distance is too high or control missing
 
 Implemented:
-- ✅ `input_validation_analyzer.py` - Validates entry points have validation
+- ✅ `boundary_analyzer.py` - Validates entry points have validation
 - ✅ `multi_tenant_analyze.py` (existing) - RLS enforcement for multi-tenant
 
 Planned:

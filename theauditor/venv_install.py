@@ -170,9 +170,9 @@ def find_theauditor_root() -> Path:
 
 def _inject_agents_md(target_dir: Path) -> None:
     """
-    Inject TheAuditor agent trigger block into AGENTS.md in target project root.
+    Inject TheAuditor agent trigger block into AGENTS.md and CLAUDE.md in target project root.
 
-    Creates AGENTS.md if it doesn't exist, or injects trigger block if not already present.
+    Creates files if they don't exist, or injects trigger block if not already present.
     This tells AI assistants where to find specialized agent workflows.
     """
     TRIGGER_START = "<!-- THEAUDITOR:START -->"
@@ -184,10 +184,10 @@ def _inject_agents_md(target_dir: Path) -> None:
 When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
 
 **Agent Triggers:**
-- "refactor", "split", "extract", "merge", "modularize" => @/.auditor_venv/.theauditor_tools/agents/refactor.md
-- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.auditor_venv/.theauditor_tools/agents/security.md
-- "plan", "architecture", "design", "organize", "structure", "approach" => @/.auditor_venv/.theauditor_tools/agents/planning.md
-- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.auditor_venv/.theauditor_tools/agents/dataflow.md
+- "refactor", "split", "extract", "merge", "modularize" => @/.theauditor_tools/agents/refactor.md
+- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.theauditor_tools/agents/security.md
+- "plan", "architecture", "design", "organize", "structure", "approach" => @/.theauditor_tools/agents/planning.md
+- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.theauditor_tools/agents/dataflow.md
 
 **Agent Purpose:**
 These agents enforce query-driven workflows using TheAuditor's database:
@@ -198,29 +198,32 @@ These agents enforce query-driven workflows using TheAuditor's database:
 - ALL recommendations cite database query results
 
 **Agent Files Location:**
-Agents are located at .auditor_venv/.theauditor_tools/agents/
-Copied during `aud setup-ai` from TheAuditor source.
+Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
+Run `aud init` to install the venv if agents are missing.
 
 {TRIGGER_END}
 """
 
-    agents_md = target_dir / "AGENTS.md"
     check_mark = "[OK]" if IS_WINDOWS else "✓"
 
-    if not agents_md.exists():
-        # Create new AGENTS.md with trigger block
-        agents_md.write_text(TRIGGER_BLOCK + "\n", encoding="utf-8")
-        print(f"    {check_mark} Created AGENTS.md with agent triggers")
-    else:
-        # Check if trigger already exists
-        content = agents_md.read_text(encoding="utf-8")
-        if TRIGGER_START in content:
-            print(f"    {check_mark} AGENTS.md already has agent triggers")
+    # Inject into both AGENTS.md and CLAUDE.md
+    for filename in ["AGENTS.md", "CLAUDE.md"]:
+        target_file = target_dir / filename
+
+        if not target_file.exists():
+            # Create new file with trigger block
+            target_file.write_text(TRIGGER_BLOCK + "\n", encoding="utf-8")
+            print(f"    {check_mark} Created {filename} with agent triggers")
         else:
-            # Inject at beginning of file
-            new_content = TRIGGER_BLOCK + "\n" + content
-            agents_md.write_text(new_content, encoding="utf-8")
-            print(f"    {check_mark} Injected agent triggers into AGENTS.md")
+            # Check if trigger already exists
+            content = target_file.read_text(encoding="utf-8")
+            if TRIGGER_START in content:
+                print(f"    {check_mark} {filename} already has agent triggers")
+            else:
+                # Inject at beginning of file
+                new_content = TRIGGER_BLOCK + "\n" + content
+                target_file.write_text(new_content, encoding="utf-8")
+                print(f"    {check_mark} Injected agent triggers into {filename}")
 
 
 def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
