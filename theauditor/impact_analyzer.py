@@ -11,6 +11,7 @@ from theauditor.insights.impact_analyzer import (
     calculate_transitive_impact,
     trace_frontend_to_backend,
     format_impact_report,
+    classify_risk,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     'calculate_transitive_impact',
     'trace_frontend_to_backend',
     'format_impact_report',
+    'classify_risk',
 ]
