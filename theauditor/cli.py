@@ -26,12 +26,16 @@ if platform.system() == "Windows":
 class VerboseGroup(click.Group):
     """AI-First help system - dynamically generates help from registered commands."""
 
+    def format_commands(self, ctx, formatter):
+        """Override to suppress default command listing (we use categorized format in format_help)."""
+        pass  # Intentionally empty - categories are in format_help
+
     # Command taxonomy (metadata only - NOT help text)
     COMMAND_CATEGORIES = {
         'PROJECT_SETUP': {
             'title': 'PROJECT SETUP',
             'description': 'Initial configuration and environment setup',
-            'commands': ['setup-ai', 'init-js', 'init-config'],  # 'init' and 'setup-claude' deprecated (hidden)
+            'commands': ['setup-ai'],  # init-js, init-config deprecated (hidden)
             'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
         },
         'CORE_ANALYSIS': {
@@ -62,7 +66,7 @@ class VerboseGroup(click.Group):
         'DATA_REPORTING': {
             'title': 'DATA & REPORTING',
             'description': 'Analysis aggregation and report generation',
-            'commands': ['fce', 'report', 'structure', 'summary', 'metadata', 'tool-versions', 'blueprint'],
+            'commands': ['fce', 'report', 'structure', 'summary', 'metadata', 'blueprint'],  # tool-versions deprecated
             'ai_context': 'fce correlates findings, report generates AI chunks, structure maps codebase.',
         },
         'ADVANCED_QUERIES': {
@@ -86,64 +90,35 @@ class VerboseGroup(click.Group):
     }
 
     def format_help(self, ctx, formatter):
-        """Generate AI-first help dynamically from registered commands."""
+        """Generate concise categorized help."""
         super().format_help(ctx, formatter)
 
-        formatter.write_paragraph()
-        formatter.write_text("=" * 80)
-        formatter.write_text("COMMAND REFERENCE (AI-Optimized Categorization)")
-        formatter.write_text("=" * 80)
-        formatter.write_paragraph()
-
         registered = {name: cmd for name, cmd in self.commands.items()
-                     if not name.startswith('_')}
+                     if not name.startswith('_') and not getattr(cmd, 'hidden', False)}
 
-        formatter.write_text("AI ASSISTANT GUIDANCE:")
-        formatter.write_text("  - Commands are grouped by purpose for optimal workflow ordering")
-        formatter.write_text("  - Each category shows WHEN and WHY to use commands")
-        formatter.write_text("  - Run 'aud <command> --help' for detailed AI-consumable documentation")
-        formatter.write_text("  - Use 'aud manual <concept>' to learn about taint, workset, fce, etc.")
         formatter.write_paragraph()
+        formatter.write_text("Commands:")
 
         for category_id, category_data in self.COMMAND_CATEGORIES.items():
-            formatter.write_text(f"{category_data['title']}:")
-            with formatter.indentation():
-                formatter.write_text(f"# {category_data['description']}")
-                formatter.write_text(f"# AI: {category_data['ai_context']}")
-                formatter.write_paragraph()
-
-                for cmd_name in category_data['commands']:
-                    if cmd_name not in registered:
-                        continue
-
-                    cmd = registered[cmd_name]
-                    short_help = (cmd.help or "No description").split('\n')[0].strip()
-                    formatter.write_text(f"aud {cmd_name:20s} # {short_help}")
-
-                    if hasattr(cmd, 'params'):
-                        key_options = [p for p in cmd.params[:3] if hasattr(p, 'help') and p.help]
-                        for param in key_options:
-                            opt_name = f"--{param.name.replace('_', '-')}"
-                            formatter.write_text(f"  {opt_name:22s} # {param.help}")
-
-                formatter.write_paragraph()
-
-        all_categorized = set()
-        for cat_data in self.COMMAND_CATEGORIES.values():
-            all_categorized.update(cat_data['commands'])
-
-        ungrouped = set(registered.keys()) - all_categorized
-        if ungrouped:
-            formatter.write_text("=" * 80)
-            formatter.write_text("WARNING: The following commands are not categorized:")
-            formatter.write_text("=" * 80)
-            for cmd_name in sorted(ungrouped):
-                formatter.write_text(f"  - {cmd_name}")
-            formatter.write_paragraph()
-            formatter.write_text("^ Report this to maintainers - all commands should be categorized")
+            formatter.write_text(f"  {category_data['title']}:")
+            for cmd_name in category_data['commands']:
+                if cmd_name not in registered:
+                    continue
+                cmd = registered[cmd_name]
+                # Get first sentence, truncate at word boundary if too long
+                first_line = (cmd.help or "").split('\n')[0].strip()
+                period_idx = first_line.find('.')
+                if period_idx > 0:
+                    short_help = first_line[:period_idx]
+                else:
+                    short_help = first_line
+                # Truncate at word boundary if >50 chars
+                if len(short_help) > 50:
+                    short_help = short_help[:50].rsplit(' ', 1)[0] + "..."
+                formatter.write_text(f"    {cmd_name:20s} {short_help}")
             formatter.write_paragraph()
 
-        formatter.write_text("For detailed help: aud <command> --help")
+        formatter.write_text("For detailed options: aud <command> --help")
         formatter.write_text("For concepts: aud manual --list")
 
 
@@ -151,72 +126,17 @@ class VerboseGroup(click.Group):
 @click.version_option(version=__version__, prog_name="aud")
 @click.help_option("-h", "--help")
 def cli():
-    """TheAuditor - Security & Code Intelligence Platform for AI-Assisted Development
+    """TheAuditor - Security & Code Intelligence Platform
 
-    PURPOSE:
-      Provides ground truth about your codebase through comprehensive security
-      analysis, taint tracking, and quality auditing. Designed for both human
-      developers and AI assistants to detect vulnerabilities, incomplete
-      refactorings, and architectural issues.
-
+    \b
     QUICK START:
-      aud full                    # Complete security audit (auto-creates .pf/ directory)
-      aud full --offline          # Air-gapped analysis (no network calls)
-      aud full --quiet            # Minimal output for CI/CD pipelines
+      aud full                  # Complete security audit
+      aud full --offline        # Air-gapped analysis
+      aud manual --list         # Learn concepts
 
-    COMMON WORKFLOWS:
-      First time setup:
-        aud full                          # Complete audit (auto-creates .pf/)
-
-      After code changes:
-        aud workset --diff HEAD~1         # Identify changed files
-        aud lint --workset                # Quality check changes
-        aud taint-analyze --workset       # Security check changes
-
-      Pull request review:
-        aud workset --diff main..feature  # What changed in PR
-        aud impact --file api.py --line 1 # Check change impact
-        aud detect-patterns --workset     # Security patterns
-
-      Security audit:
-        aud full --offline                # Complete offline audit
-        aud deps --vuln-scan              # Check for CVEs
-        aud manual severity               # Understand findings
-
-      Performance optimization:
-        aud cfg analyze --threshold 20    # Find complex functions
-        aud graph analyze                 # Find circular dependencies
-        aud structure                     # Understand architecture
-
-      CI/CD pipeline:
-        aud full --quiet || exit $?       # Fail on critical issues
-
-      Understanding results:
-        aud manual taint                  # Learn about concepts
-        aud structure                     # Project overview
-        aud report --print-stats          # Summary statistics
-
-    OUTPUT STRUCTURE:
-      .pf/
-      ├── raw/                    # Immutable tool outputs (ground truth)
-      ├── repo_index.db          # SQLite database with all code symbols
-      ├── graphs.db              # Graph database (query with 'aud graph')
-      └── pipeline.log           # Detailed execution trace
-
-    EXIT CODES:
-      0 = Success, no issues found
-      1 = High severity findings detected
-      2 = Critical security vulnerabilities found
-      3 = Analysis incomplete or failed
-
-    ENVIRONMENT VARIABLES:
-      THEAUDITOR_LIMITS_MAX_FILE_SIZE=2097152   # Max file size in bytes (2MB)
-      THEAUDITOR_LIMITS_MAX_CHUNK_SIZE=65536    # Max chunk size (65KB)
-      THEAUDITOR_TIMEOUT_SECONDS=1800           # Default timeout (30 min)
-      THEAUDITOR_DB_BATCH_SIZE=200              # Database batch insert size
-
-    For detailed help on any command: aud <command> --help
-    Full documentation: https://github.com/TheAuditorTool/Auditor"""
+    \b
+    For detailed options: aud <command> --help
+    For concepts: aud manual --list"""
     pass
 
 

@@ -3,7 +3,7 @@
 import click
 
 
-@click.command("tool-versions")
+@click.command("tool-versions", hidden=True)
 @click.option("--out-dir", default="./.pf/raw", help="Output directory for version manifest")
 def tool_versions(out_dir):
     """Detect and record versions of all analysis tools for reproducibility.
@@ -92,6 +92,10 @@ def tool_versions(out_dir):
     NOTE: This command is idempotent and safe to run multiple times.
     It will overwrite previous version files.
     """
+    click.echo("WARNING: 'aud tool-versions' is deprecated.")
+    click.echo("         Use 'aud setup-ai --show-versions' instead.")
+    click.echo("")
+
     from theauditor.tools import write_tools_report
 
     try:

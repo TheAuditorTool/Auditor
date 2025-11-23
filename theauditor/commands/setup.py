@@ -22,7 +22,12 @@ import click
     is_flag=True,
     help="Print plan without executing"
 )
-def setup_ai(target, sync, dry_run):
+@click.option(
+    "--show-versions",
+    is_flag=True,
+    help="Show installed tool versions (reads from cache or runs detection)"
+)
+def setup_ai(target, sync, dry_run, show_versions):
     """Create isolated analysis environment with offline vulnerability databases and sandboxed tooling.
 
     One-time setup command that creates a completely sandboxed Python virtual environment
@@ -214,6 +219,28 @@ def setup_ai(target, sync, dry_run):
         click.echo(f"3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
         click.echo("\nNo files will be modified.")
         return
+
+    # Handle --show-versions (standalone operation)
+    if show_versions:
+        from theauditor.tools import write_tools_report
+
+        out_dir = target_dir / ".pf" / "raw"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            res = write_tools_report(str(out_dir))
+            click.echo(f"Tool versions (from {out_dir}):")
+            python_found = sum(1 for v in res["python"].values() if v != "missing")
+            node_found = sum(1 for v in res["node"].values() if v != "missing")
+            click.echo(f"  Python tools: {python_found}/4 found")
+            click.echo(f"  Node tools: {node_found}/3 found")
+            for tool, version in res["python"].items():
+                click.echo(f"    {tool}: {version}")
+            for tool, version in res["node"].items():
+                click.echo(f"    {tool}: {version}")
+        except Exception as e:
+            click.echo(f"Error detecting tool versions: {e}", err=True)
+        return  # Exit after showing versions
 
     # Setup venv
     click.echo("Step 1: Setting up Python virtual environment...", nl=False)

@@ -3,7 +3,7 @@
 import click
 
 
-@click.command("init-js")
+@click.command("init-js", hidden=True)
 @click.option("--path", default="package.json", help="Path to package.json")
 @click.option("--add-hooks", is_flag=True, help="Add TheAuditor hooks to npm scripts")
 def init_js(path, add_hooks):
@@ -171,6 +171,10 @@ def init_js(path, add_hooks):
     manually after initialization. PIN_ME placeholders must be replaced with actual
     version numbers before running npm install.
     """
+    click.echo("WARNING: 'aud init-js' is deprecated and will be removed in v2.0.")
+    click.echo("         Package.json scaffolding is not part of security auditing.")
+    click.echo("")
+
     from theauditor.js_init import ensure_package_json, add_auditor_hooks
 
     try:

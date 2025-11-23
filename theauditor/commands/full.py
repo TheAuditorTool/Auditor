@@ -10,9 +10,9 @@ from theauditor.utils.exit_codes import ExitCodes
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--quiet", is_flag=True, help="Minimal output")
-@click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
+@click.option("--exclude-self", is_flag=True, hidden=True, help="Exclude TheAuditor's own files (for self-testing)")
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
-@click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
+@click.option("--subprocess-taint", is_flag=True, hidden=True, help="Run taint analysis as subprocess (slower but isolated)")
 @click.option("--wipecache", is_flag=True, help="Delete all caches before run (for cache corruption recovery)")
 @click.option("--index", "index_only", is_flag=True, help="Run indexing only (Stage 1 + 2) - skip heavy analysis")
 def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_only):

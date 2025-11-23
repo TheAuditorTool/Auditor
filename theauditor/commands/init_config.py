@@ -3,7 +3,7 @@
 import click
 
 
-@click.command("init-config")
+@click.command("init-config", hidden=True)
 @click.option("--pyproject", default="pyproject.toml", help="Path to pyproject.toml")
 def init_config(pyproject):
     """Create or update minimal mypy type-checking configuration in pyproject.toml (idempotent).
@@ -53,6 +53,10 @@ def init_config(pyproject):
     NOTE: This command does NOT enable strict type checking by default. For
     strict mode, manually edit pyproject.toml and set strict = true.
     """
+    click.echo("WARNING: 'aud init-config' is deprecated and will be removed in v2.0.")
+    click.echo("         Mypy configuration is not part of security auditing.")
+    click.echo("")
+
     from theauditor.config import ensure_mypy_config
 
     try:
