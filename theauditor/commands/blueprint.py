@@ -1022,7 +1022,7 @@ def _show_security_drilldown(data: Dict):
         secret_count = cursor.fetchone()[0]
         if secret_count > 0:
             click.echo(f"  ⚠ {secret_count} potential hardcoded secrets detected")
-            click.echo(f"  → Check .pf/readthis/patterns_secrets_*.json for details")
+            click.echo(f"  -> Use 'aud query --symbol <func> --show-code' for details")
         else:
             click.echo(f"  ✓ No hardcoded secrets detected")
     except Exception:
@@ -1154,7 +1154,7 @@ def _show_taint_drilldown(data: Dict):
 
             if df['taint_paths'] > 5:
                 click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
-                click.echo(f"  → Check .pf/readthis/taint_*.json for full vulnerability details")
+                click.echo(f"  -> Use 'aud taint-analyze --json' for full vulnerability details")
         else:
             click.echo(f"  (No taint findings in findings_consolidated table)")
     except Exception as e:
@@ -1211,7 +1211,7 @@ def _show_taint_drilldown(data: Dict):
     click.echo("\nCross-Reference Commands:")
     click.echo("  → Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
     click.echo("  → Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
-    click.echo("  → Use '.pf/readthis/taint_*.json' for complete vulnerability analysis")
+    click.echo("  -> Use '.pf/raw/taint_analysis.json' for complete vulnerability analysis")
     click.echo("  → Use 'aud taint-analyze --json' to re-run analysis with fresh data")
 
     conn.close()

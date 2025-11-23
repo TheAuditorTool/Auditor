@@ -199,10 +199,8 @@ def cli():
     OUTPUT STRUCTURE:
       .pf/
       ├── raw/                    # Immutable tool outputs (ground truth)
-      ├── readthis/              # AI-optimized chunks (<65KB each)
-      │   ├── *_chunk01.json     # Chunked findings for LLM consumption
-      │   └── summary.json       # Executive summary
       ├── repo_index.db          # SQLite database with all code symbols
+      ├── graphs.db              # Graph database (query with 'aud graph')
       └── pipeline.log           # Detailed execution trace
 
     EXIT CODES:
