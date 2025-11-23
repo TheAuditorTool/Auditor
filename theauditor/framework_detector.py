@@ -28,6 +28,8 @@ class FrameworkDetector:
         self.detected_frameworks = []
         self.deps_cache = None
         self.exclude_patterns = exclude_patterns or []
+        # Cache for Cargo workspace roots: {workspace_root_path: workspace_dependencies}
+        self._cargo_workspace_cache: dict[str, dict] = {}
 
     def detect_all(self) -> list[dict[str, Any]]:
         """Detect all frameworks in the project.
@@ -319,6 +321,13 @@ class FrameworkDetector:
                                 package_name = fw_config.get("package_pattern", fw_name)
                                 version = parser.check_package_in_deps(deps, package_name)
                                 if version:
+                                    # Resolve Cargo workspace versions
+                                    if version == "workspace" and manifest_key.endswith("Cargo.toml"):
+                                        manifest_path = manifests.get(manifest_key)
+                                        if manifest_path:
+                                            version = self._resolve_cargo_workspace_version(
+                                                package_name, manifest_path
+                                            )
                                     self.detected_frameworks.append({
                                         "framework": fw_name,
                                         "version": version,
@@ -581,6 +590,72 @@ class FrameworkDetector:
                 # Log the error but continue
                 print(f"Warning: Could not load deps cache: {e}")
                 pass
+
+    def _find_cargo_workspace_root(self, cargo_toml_path: Path) -> Path | None:
+        """Find the Cargo workspace root for a given Cargo.toml.
+
+        Walks up the directory tree looking for a Cargo.toml with [workspace] section.
+
+        Args:
+            cargo_toml_path: Path to a Cargo.toml file
+
+        Returns:
+            Path to workspace root Cargo.toml, or None if not in a workspace
+        """
+        parser = ManifestParser()
+        current = cargo_toml_path.parent
+
+        while current >= self.project_path:
+            candidate = current / "Cargo.toml"
+            if candidate.exists() and candidate != cargo_toml_path:
+                data = parser.parse_toml(candidate)
+                if 'workspace' in data:
+                    return candidate
+            current = current.parent
+
+        # Check if the file itself is a workspace root
+        data = parser.parse_toml(cargo_toml_path)
+        if 'workspace' in data:
+            return cargo_toml_path
+
+        return None
+
+    def _get_cargo_workspace_deps(self, workspace_root: Path) -> dict:
+        """Get workspace dependencies from a Cargo workspace root.
+
+        Args:
+            workspace_root: Path to the workspace root Cargo.toml
+
+        Returns:
+            Dict mapping package names to version strings
+        """
+        cache_key = str(workspace_root)
+        if cache_key in self._cargo_workspace_cache:
+            return self._cargo_workspace_cache[cache_key]
+
+        parser = ManifestParser()
+        cargo_data = parser.parse_cargo_toml(workspace_root)
+        ws_deps = cargo_data.get('workspace_dependencies', {})
+
+        self._cargo_workspace_cache[cache_key] = ws_deps
+        return ws_deps
+
+    def _resolve_cargo_workspace_version(self, package_name: str, cargo_toml_path: Path) -> str:
+        """Resolve a workspace dependency version.
+
+        Args:
+            package_name: Name of the package
+            cargo_toml_path: Path to the Cargo.toml using workspace = true
+
+        Returns:
+            Resolved version string, or "workspace" if not found
+        """
+        workspace_root = self._find_cargo_workspace_root(cargo_toml_path)
+        if not workspace_root:
+            return "workspace"
+
+        ws_deps = self._get_cargo_workspace_deps(workspace_root)
+        return ws_deps.get(package_name, "workspace")
 
     def format_table(self) -> str:
         """Format detected frameworks as a table.
