@@ -1,14 +1,10 @@
 """Dependency parser for multiple ecosystems."""
 
 
-import glob
-import http.client
 import json
 import platform
 import re
 import shutil
-import time
-import urllib.error
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +14,15 @@ from theauditor.security import sanitize_path, sanitize_url_component, validate_
 
 # Detect if running on Windows for character encoding
 IS_WINDOWS = platform.system() == "Windows"
+
+
+def _canonicalize_name(name: str) -> str:
+    """
+    Normalize package name to PyPI standards (PEP 503).
+    Converts 'PyYAML' -> 'pyyaml', 'My-Package.Cool' -> 'my-package-cool'
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
+
 
 # Rate limiting configuration - optimized for minimal runtime
 # Based on actual API rate limits and industry standards
@@ -29,20 +34,23 @@ RATE_LIMIT_BACKOFF = 15   # Backoff on 429/disconnect (15s gives APIs time to re
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     """
-    Parse dependencies from various package managers.
+    Parse dependencies from the indexed database.
 
     Architecture:
-    - Primary: Read from package_configs table (populated by indexer)
-    - Fallback: Parse files directly (for standalone 'aud deps' without 'aud index')
+    - DB-ONLY: Reads from package_configs and python_package_configs tables
+    - NO FALLBACKS: If DB doesn't exist, fail loudly
+    - Docker/Cargo: Still parsed from files (not yet indexed)
 
     Returns list of dependency objects with structure:
     {
         "name": str,
         "version": str,
-        "manager": "npm"|"py",
+        "manager": "npm"|"py"|"docker"|"cargo",
         "files": [paths that import it],
         "source": "package.json|pyproject.toml|requirements.txt"
     }
+
+    Requires: Run 'aud full --index' first to populate the database.
     """
     import os
     import sqlite3
@@ -53,145 +61,38 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     debug = os.environ.get("THEAUDITOR_DEBUG")
 
     # =========================================================================
-    # DATABASE-FIRST: Try to read npm dependencies from package_configs table
+    # GUARD CLAUSE: Fail loudly if index doesn't exist (Tweak 1)
     # =========================================================================
     db_path = root / ".pf" / "repo_index.db"
-    npm_deps_from_db = []
 
-    if db_path.exists():
+    if not db_path.exists():
+        print("Error: Index not found at .pf/repo_index.db")
+        print("Run 'aud full --index' first to index the project.")
+        return []
+
+    # =========================================================================
+    # DATABASE-ONLY: Read npm dependencies from package_configs table
+    # =========================================================================
+    if debug:
+        print(f"Debug: Reading npm dependencies from database: {db_path}")
+
+    npm_deps = _read_npm_deps_from_database(db_path, root, debug)
+    if npm_deps:
         if debug:
-            print(f"Debug: Reading npm dependencies from database: {db_path}")
-
-        npm_deps_from_db = _read_npm_deps_from_database(db_path, root, debug)
-
-        if npm_deps_from_db:
-            if debug:
-                print(f"Debug: Loaded {len(npm_deps_from_db)} npm dependencies from database")
-            deps.extend(npm_deps_from_db)
-        elif debug:
-            print("Debug: package_configs table empty, falling back to file parsing for npm")
-    elif debug:
-        print("Debug: Database not found, parsing npm dependencies from files")
+            print(f"Debug: Loaded {len(npm_deps)} npm dependencies from database")
+        deps.extend(npm_deps)
 
     # =========================================================================
-    # FALLBACK: Parse npm dependencies from files if database didn't have them
+    # DATABASE-ONLY: Read Python dependencies from python_package_configs table
     # =========================================================================
-    if not npm_deps_from_db:
-        # Parse Node dependencies from files
-        try:
-            package_json = sanitize_path("package.json", root_path)
-            if package_json.exists():
-                if debug:
-                    print(f"Debug: Found {package_json}")
-                deps.extend(_parse_package_json(package_json))
-        except SecurityError as e:
-            if debug:
-                print(f"Debug: Security error checking package.json: {e}")
+    if debug:
+        print(f"Debug: Reading Python dependencies from database: {db_path}")
 
-        # Check for package.json in common monorepo patterns
-        npm_patterns = [
-            "*/package.json",           # backend/package.json, frontend/package.json
-            "packages/*/package.json",   # packages/core/package.json
-            "apps/*/package.json",       # apps/web/package.json
-            "services/*/package.json",   # services/api/package.json
-        ]
-
-        package_files = []
-        for pattern in npm_patterns:
-            package_files.extend(root.glob(pattern))
-
-        # Process all discovered package.json files
-        for pkg_file in package_files:
-            try:
-                safe_pkg = sanitize_path(str(pkg_file), root_path)
-                if debug:
-                    print(f"Debug: Found {safe_pkg}")
-                # Parse this package.json directly without workspace detection
-                pkg_deps = _parse_standalone_package_json(safe_pkg)
-                # Set the workspace_package field to reflect the actual path
-                try:
-                    rel_path = safe_pkg.relative_to(Path(root_path).resolve())
-                    workspace_path = str(rel_path).replace("\\", "/")
-                except ValueError:
-                    workspace_path = str(safe_pkg)
-
-                for dep in pkg_deps:
-                    dep["workspace_package"] = workspace_path
-
-                deps.extend(pkg_deps)
-            except SecurityError as e:
-                if debug:
-                    print(f"Debug: Security error with {pkg_file}: {e}")
-
-    # =========================================================================
-    # DATABASE-FIRST: Try to read Python dependencies from python_package_configs table
-    # =========================================================================
-    python_deps_from_db = []
-
-    if db_path.exists():
+    python_deps = _read_python_deps_from_database(db_path, root, debug)
+    if python_deps:
         if debug:
-            print(f"Debug: Reading Python dependencies from database: {db_path}")
-
-        python_deps_from_db = _read_python_deps_from_database(db_path, root, debug)
-
-        if python_deps_from_db:
-            if debug:
-                print(f"Debug: Loaded {len(python_deps_from_db)} Python dependencies from database")
-            deps.extend(python_deps_from_db)
-        elif debug:
-            print("Debug: python_package_configs table empty, falling back to file parsing for Python")
-    elif debug:
-        print("Debug: Database not found, parsing Python dependencies from files")
-
-    # =========================================================================
-    # FALLBACK: Parse Python dependencies from files if database didn't have them
-    # =========================================================================
-    if not python_deps_from_db:
-        # Parse Python dependencies
-        try:
-            pyproject = sanitize_path("pyproject.toml", root_path)
-            if pyproject.exists():
-                if debug:
-                    print(f"Debug: Found {pyproject}")
-                deps.extend(_parse_pyproject_toml(pyproject))
-        except SecurityError as e:
-            if debug:
-                print(f"Debug: Security error checking pyproject.toml: {e}")
-
-        # Parse requirements files (including in subdirectories for monorepos)
-        # Check root first
-        req_files = list(root.glob("requirements*.txt"))
-        # Also check common Python monorepo patterns
-        req_files.extend(root.glob("*/requirements*.txt"))  # backend/requirements.txt
-        req_files.extend(root.glob("services/*/requirements*.txt"))  # services/api/requirements.txt
-        req_files.extend(root.glob("apps/*/requirements*.txt"))  # apps/web/requirements.txt
-
-        # Also check for pyproject.toml in subdirectories (Python monorepos)
-        pyproject_files = list(root.glob("*/pyproject.toml"))  # backend/pyproject.toml
-        pyproject_files.extend(root.glob("services/*/pyproject.toml"))
-        pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
-
-        # Process all pyproject.toml files found
-        for pyproject_file in pyproject_files:
-            try:
-                safe_pyproject = sanitize_path(str(pyproject_file), root_path)
-                if debug:
-                    print(f"Debug: Found {safe_pyproject}")
-                deps.extend(_parse_pyproject_toml(safe_pyproject))
-            except SecurityError as e:
-                if debug:
-                    print(f"Debug: Security error with {pyproject_file}: {e}")
-
-        if debug and req_files:
-            print(f"Debug: Found requirements files: {req_files}")
-        for req_file in req_files:
-            try:
-                # Validate the path is within project root
-                safe_req_file = sanitize_path(str(req_file), root_path)
-                deps.extend(_parse_requirements_txt(safe_req_file))
-            except SecurityError as e:
-                if debug:
-                    print(f"Debug: Security error with {req_file}: {e}")
+            print(f"Debug: Loaded {len(python_deps)} Python dependencies from database")
+        deps.extend(python_deps)
     
     # Parse Docker Compose files
     docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
@@ -244,24 +145,17 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
     Returns:
         List of dependency dictionaries in deps.py format
+
+    Raises:
+        sqlite3.Error: On unexpected database errors (not missing tables)
     """
     import sqlite3
 
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Check if package_configs table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='package_configs'
-        """)
-
-        if not cursor.fetchone():
-            conn.close()
-            return []
-
-        # Read all package.json files from database
+        # NO TABLE CHECK: Just query directly, let it fail if table missing
         cursor.execute("""
             SELECT file_path, package_name, version, dependencies, dev_dependencies
             FROM package_configs
@@ -315,10 +209,15 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
         conn.close()
         return deps
 
-    except (sqlite3.Error, Exception) as e:
-        if debug:
-            print(f"Debug: Database read error: {e}")
-        return []
+    except sqlite3.OperationalError as e:
+        conn.close()
+        # Table doesn't exist - valid empty state (indexer hasn't run for npm yet)
+        if "no such table" in str(e):
+            if debug:
+                print("Debug: package_configs table not found (run indexer first)")
+            return []
+        # Unexpected DB error - crash loudly
+        raise
 
 
 def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
@@ -331,24 +230,17 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
     Returns:
         List of dependency dictionaries in deps.py format
+
+    Raises:
+        sqlite3.Error: On unexpected database errors (not missing tables)
     """
     import sqlite3
 
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Check if python_package_configs table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='python_package_configs'
-        """)
-
-        if not cursor.fetchone():
-            conn.close()
-            return []
-
-        # Read all Python dependency files from database
+        # NO TABLE CHECK: Just query directly, let it fail if table missing
         cursor.execute("""
             SELECT file_path, file_type, project_name, project_version,
                    dependencies, optional_dependencies
@@ -367,8 +259,11 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
                 # Convert to deps.py format (maintains compatibility with downstream code)
                 for dep_info in dependencies:
+                    # Normalize package name immediately when reading from DB
+                    # This ensures cache keys match regardless of how indexer stored the name
+                    raw_name = dep_info.get('name', '')
                     dep_obj = {
-                        "name": dep_info.get('name', ''),
+                        "name": _canonicalize_name(raw_name) if raw_name else '',
                         "version": dep_info.get('version', ''),
                         "manager": "py",
                         "files": [],  # TODO: Could join with refs table for actual usage
@@ -388,8 +283,10 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
                 # Include optional dependencies (marked with group name)
                 for group_name, group_deps in optional_dependencies.items():
                     for dep_info in group_deps:
+                        # Normalize package name for optional deps too
+                        raw_name = dep_info.get('name', '')
                         dep_obj = {
-                            "name": dep_info.get('name', ''),
+                            "name": _canonicalize_name(raw_name) if raw_name else '',
                             "version": dep_info.get('version', ''),
                             "manager": "py",
                             "files": [],
@@ -413,321 +310,25 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
         conn.close()
         return deps
 
-    except (sqlite3.Error, Exception) as e:
-        if debug:
-            print(f"Debug: Python database read error: {e}")
-        return []
-
-
-def _parse_standalone_package_json(path: Path) -> list[dict[str, Any]]:
-    """Parse dependencies from a single package.json file without workspace detection."""
-    deps = []
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        
-        # Combine dependencies and devDependencies
-        all_deps = {}
-        if "dependencies" in data:
-            all_deps.update(data["dependencies"])
-        if "devDependencies" in data:
-            all_deps.update(data["devDependencies"])
-        
-        for name, version_spec in all_deps.items():
-            # Clean version spec (remove ^, ~, >=, etc.)
-            version = _clean_version(version_spec)
-            deps.append({
-                "name": name,
-                "version": version,
-                "manager": "npm",
-                "files": [],  # Will be populated by workset scan
-                "source": "package.json",
-                "workspace_package": "package.json"  # Will be overridden by caller
-            })
-    except (json.JSONDecodeError, KeyError) as e:
-        # Log but don't fail - package.json might be malformed
-        print(f"Warning: Could not parse {path}: {e}")
-    
-    return deps
-
-
-def _parse_package_json(path: Path) -> list[dict[str, Any]]:
-    """Parse dependencies from package.json, with monorepo support."""
-    deps = []
-    processed_packages = set()  # Track processed packages to avoid duplicates
-    
-    def parse_single_package(pkg_path: Path, workspace_path: str = "package.json") -> list[dict[str, Any]]:
-        """Parse a single package.json file."""
-        local_deps = []
-        try:
-            with open(pkg_path, encoding="utf-8") as f:
-                data = json.load(f)
-            
-            # Combine dependencies and devDependencies
-            all_deps = {}
-            if "dependencies" in data:
-                all_deps.update(data["dependencies"])
-            if "devDependencies" in data:
-                all_deps.update(data["devDependencies"])
-            
-            for name, version_spec in all_deps.items():
-                # Clean version spec (remove ^, ~, >=, etc.)
-                version = _clean_version(version_spec)
-                local_deps.append({
-                    "name": name,
-                    "version": version,
-                    "manager": "npm",
-                    "files": [],  # Will be populated by workset scan
-                    "source": "package.json",
-                    "workspace_package": workspace_path  # Track which package.json this came from
-                })
-        except (json.JSONDecodeError, KeyError) as e:
-            # Log but don't fail - package.json might be malformed
-            print(f"Warning: Could not parse {pkg_path}: {e}")
-        
-        return local_deps
-    
-    # Parse the root package.json first
-    root_dir = path.parent
-    deps.extend(parse_single_package(path, "package.json"))
-    processed_packages.add(str(path.resolve()))
-    
-    # Check for monorepo workspaces
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        
-        # Check for workspaces field (Yarn/npm workspaces)
-        workspaces = data.get("workspaces", [])
-        
-        # Handle different workspace formats
-        if isinstance(workspaces, dict):
-            # npm 7+ format: {"packages": ["packages/*"]}
-            workspaces = workspaces.get("packages", [])
-        
-        if workspaces and isinstance(workspaces, list):
-            # This is a monorepo - expand workspace patterns
-            for pattern in workspaces:
-                # Convert workspace pattern to absolute path pattern
-                abs_pattern = str(root_dir / pattern)
-                
-                # Handle glob patterns like "packages/*" or "apps/**"
-                if "*" in abs_pattern:
-                    # Use glob to find matching directories
-                    matched_paths = glob.glob(abs_pattern)
-                    
-                    for matched_path in matched_paths:
-                        matched_dir = Path(matched_path)
-                        if matched_dir.is_dir():
-                            # Look for package.json in this directory
-                            workspace_pkg = matched_dir / "package.json"
-                            if workspace_pkg.exists():
-                                # Skip if already processed
-                                if str(workspace_pkg.resolve()) in processed_packages:
-                                    continue
-                                
-                                # Calculate relative path for workspace_package field
-                                try:
-                                    rel_path = workspace_pkg.relative_to(root_dir)
-                                    workspace_path = str(rel_path).replace("\\", "/")
-                                except ValueError:
-                                    # If relative path fails, use absolute path
-                                    workspace_path = str(workspace_pkg)
-                                
-                                # Parse this workspace package
-                                workspace_deps = parse_single_package(workspace_pkg, workspace_path)
-                                deps.extend(workspace_deps)
-                                processed_packages.add(str(workspace_pkg.resolve()))
-                else:
-                    # Direct path without glob
-                    workspace_dir = root_dir / pattern
-                    if workspace_dir.is_dir():
-                        workspace_pkg = workspace_dir / "package.json"
-                        if workspace_pkg.exists():
-                            # Skip if already processed
-                            if str(workspace_pkg.resolve()) in processed_packages:
-                                continue
-                            
-                            # Calculate relative path for workspace_package field
-                            try:
-                                rel_path = workspace_pkg.relative_to(root_dir)
-                                workspace_path = str(rel_path).replace("\\", "/")
-                            except ValueError:
-                                workspace_path = str(workspace_pkg)
-                            
-                            # Parse this workspace package
-                            workspace_deps = parse_single_package(workspace_pkg, workspace_path)
-                            deps.extend(workspace_deps)
-                            processed_packages.add(str(workspace_pkg.resolve()))
-        
-        # Also check for Lerna configuration (lerna.json)
-        lerna_json = root_dir / "lerna.json"
-        if lerna_json.exists():
-            try:
-                with open(lerna_json, encoding="utf-8") as f:
-                    lerna_data = json.load(f)
-                
-                lerna_packages = lerna_data.get("packages", [])
-                for pattern in lerna_packages:
-                    abs_pattern = str(root_dir / pattern)
-                    if "*" in abs_pattern:
-                        matched_paths = glob.glob(abs_pattern)
-                        for matched_path in matched_paths:
-                            matched_dir = Path(matched_path)
-                            if matched_dir.is_dir():
-                                workspace_pkg = matched_dir / "package.json"
-                                if workspace_pkg.exists() and str(workspace_pkg.resolve()) not in processed_packages:
-                                    try:
-                                        rel_path = workspace_pkg.relative_to(root_dir)
-                                        workspace_path = str(rel_path).replace("\\", "/")
-                                    except ValueError:
-                                        workspace_path = str(workspace_pkg)
-                                    
-                                    workspace_deps = parse_single_package(workspace_pkg, workspace_path)
-                                    deps.extend(workspace_deps)
-                                    processed_packages.add(str(workspace_pkg.resolve()))
-            except (json.JSONDecodeError, KeyError):
-                # Lerna.json parsing failed, continue without it
-                pass
-        
-        # Check for pnpm-workspace.yaml
-        pnpm_workspace = root_dir / "pnpm-workspace.yaml"
-        if pnpm_workspace.exists():
-            try:
-                with open(pnpm_workspace, encoding="utf-8") as f:
-                    pnpm_data = yaml.safe_load(f)
-                
-                pnpm_packages = pnpm_data.get("packages", [])
-                for pattern in pnpm_packages:
-                    abs_pattern = str(root_dir / pattern)
-                    if "*" in abs_pattern:
-                        matched_paths = glob.glob(abs_pattern)
-                        for matched_path in matched_paths:
-                            matched_dir = Path(matched_path)
-                            if matched_dir.is_dir():
-                                workspace_pkg = matched_dir / "package.json"
-                                if workspace_pkg.exists() and str(workspace_pkg.resolve()) not in processed_packages:
-                                    try:
-                                        rel_path = workspace_pkg.relative_to(root_dir)
-                                        workspace_path = str(rel_path).replace("\\", "/")
-                                    except ValueError:
-                                        workspace_path = str(workspace_pkg)
-                                    
-                                    workspace_deps = parse_single_package(workspace_pkg, workspace_path)
-                                    deps.extend(workspace_deps)
-                                    processed_packages.add(str(workspace_pkg.resolve()))
-            except (yaml.YAMLError, KeyError):
-                # pnpm-workspace.yaml parsing failed, continue without it
-                pass
-    
-    except (json.JSONDecodeError, KeyError) as e:
-        # Root package.json parsing for workspaces failed, but we already have root deps
-        pass
-    
-    return deps
-
-
-def _parse_pyproject_toml(path: Path) -> list[dict[str, Any]]:
-    """Parse dependencies from pyproject.toml."""
-    deps = []
-    try:
-        import tomllib
-    except ImportError:
-        # Python < 3.11
-        try:
-            import tomli as tomllib
-        except ImportError:
-            # Can't parse TOML without library
-            print(f"Warning: Cannot parse {path} - tomllib not available")
-            return deps
-    
-    # Calculate source path (relative if in subdirectory)
-    try:
-        source_path = path.relative_to(Path.cwd())
-        source = str(source_path).replace("\\", "/")
-    except ValueError:
-        source = "pyproject.toml"
-    
-    try:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        
-        # Get project dependencies
-        project_deps = data.get("project", {}).get("dependencies", [])
-        for dep_spec in project_deps:
-            name, version = _parse_python_dep_spec(dep_spec)
-            if name:
-                deps.append({
-                    "name": name,
-                    "version": version or "latest",
-                    "manager": "py",
-                    "files": [],
-                    "source": source
-                })
-        
-        # Also check optional dependencies
-        optional = data.get("project", {}).get("optional-dependencies", {})
-        for group_deps in optional.values():
-            for dep_spec in group_deps:
-                name, version = _parse_python_dep_spec(dep_spec)
-                if name:
-                    deps.append({
-                        "name": name,
-                        "version": version or "latest",
-                        "manager": "py",
-                        "files": [],
-                        "source": source
-                    })
-    except Exception as e:
-        print(f"Warning: Could not parse {path}: {e}")
-    
-    return deps
-
-
-def _parse_requirements_txt(path: Path) -> list[dict[str, Any]]:
-    """Parse dependencies from requirements.txt."""
-    deps = []
-    try:
-        # Calculate source path (relative if in subdirectory)
-        try:
-            source_path = path.relative_to(Path.cwd())
-            source = str(source_path).replace("\\", "/")
-        except ValueError:
-            source = path.name
-        
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
-                    continue
-                # Skip special directives
-                if line.startswith("-"):
-                    continue
-                
-                # Strip inline comments and trailing whitespace
-                if "#" in line:
-                    line = line.split("#")[0].strip()
-                
-                name, version = _parse_python_dep_spec(line)
-                if name:
-                    deps.append({
-                        "name": name,
-                        "version": version or "latest",
-                        "manager": "py",
-                        "files": [],
-                        "source": source
-                    })
-    except Exception as e:
-        print(f"Warning: Could not parse {path}: {e}")
-    
-    return deps
+    except sqlite3.OperationalError as e:
+        conn.close()
+        # Table doesn't exist - valid empty state (indexer hasn't run for Python yet)
+        if "no such table" in str(e):
+            if debug:
+                print("Debug: python_package_configs table not found (run indexer first)")
+            return []
+        # Unexpected DB error - crash loudly
+        raise
 
 
 def _parse_python_dep_spec(spec: str) -> tuple[str, str | None]:
     """
     Parse a Python dependency specification.
     Returns (name, version) tuple.
+
+    Package names are normalized to PyPI canonical form (PEP 503):
+    - PyYAML -> pyyaml
+    - My_Package -> my-package
     """
     # Handle various formats:
     # package==1.2.3
@@ -735,27 +336,32 @@ def _parse_python_dep_spec(spec: str) -> tuple[str, str | None]:
     # package~=1.2.3
     # package[extra]==1.2.3
     # package @ git+https://...
-    
-    # Remove extras
+
+    # Remove extras (but preserve for future use if needed)
     spec = re.sub(r'\[.*?\]', '', spec)
-    
+
     # Handle git URLs
     if "@" in spec and ("git+" in spec or "https://" in spec):
         name = spec.split("@")[0].strip()
-        return (name, "git")
-    
+        return (_canonicalize_name(name), "git")
+
     # Parse version specs (allow dots, underscores, hyphens in package names)
     match = re.match(r'^([a-zA-Z0-9._-]+)\s*([><=~!]+)\s*(.+)$', spec)
     if match:
         name, op, version = match.groups()
+        # Normalize package name to PyPI canonical form
+        name = _canonicalize_name(name)
         # For pinned versions, use exact version
         if op == "==":
             return (name, version)
         # For other operators, use the specified version as hint
         return (name, version)
-    
-    # No version specified
-    return (spec.strip(), None)
+
+    # No version specified - still normalize the name
+    name = spec.strip()
+    if name:
+        name = _canonicalize_name(name)
+    return (name, None)
 
 
 def _clean_version(version_spec: str) -> str:
@@ -833,8 +439,22 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
 
 
 def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
-    """Parse Docker base images from Dockerfile."""
+    """
+    Parse Docker base images from Dockerfile.
+    Ignores multi-stage build aliases to prevent false "Not found" errors.
+
+    Multi-stage builds like:
+        FROM node:18 AS base
+        FROM base AS build
+
+    The second FROM references the "base" stage, NOT an external image.
+    We track these aliases and skip them.
+    """
     deps = []
+    # Track build stages (e.g., "FROM python AS builder")
+    # We shouldn't audit "builder" as an external dependency later
+    stages = set()
+
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -842,25 +462,31 @@ def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
                 # Look for FROM instructions
                 if line.upper().startswith("FROM "):
                     # Extract image spec after FROM
-                    image_spec = line[5:].strip()
-                    
-                    # Handle multi-stage builds (FROM image AS stage)
-                    if " AS " in image_spec.upper():
-                        image_spec = image_spec.split(" AS ")[0].strip()
-                    elif " as " in image_spec:
-                        image_spec = image_spec.split(" as ")[0].strip()
-                    
-                    # Skip scratch and build stages
-                    if image_spec.lower() in ["scratch", "builder"]:
+                    # Format: FROM <image> [AS <name>]
+                    parts = line[5:].strip().split()
+                    image_part = parts[0]
+
+                    # Check if this is a reference to a previous stage
+                    # e.g., "FROM builder" -> Skip (it's not an external image)
+                    if image_part in stages:
                         continue
-                    
+
+                    # Handle stage aliasing
+                    # e.g., "FROM python:3.9 AS builder" -> Record "builder"
+                    if len(parts) >= 3 and parts[1].upper() == "AS":
+                        stages.add(parts[2])
+
+                    # Skip scratch (empty base)
+                    if image_part.lower() == "scratch":
+                        continue
+
                     # Parse image:tag format
-                    if ":" in image_spec:
-                        name, tag = image_spec.rsplit(":", 1)
+                    if ":" in image_part:
+                        name, tag = image_part.rsplit(":", 1)
                     else:
-                        name = image_spec
+                        name = image_part
                         tag = "latest"
-                    
+
                     # Handle registry prefixes
                     if "/" in name:
                         name_parts = name.split("/")
@@ -869,7 +495,7 @@ def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
                                 name = name_parts[-1]
                             else:
                                 name = "/".join(name_parts[-2:])
-                    
+
                     deps.append({
                         "name": name,
                         "version": tag,
@@ -878,8 +504,9 @@ def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
                         "source": str(path.relative_to(Path.cwd()))
                     })
     except Exception as e:
+        # Don't crash on read errors, just warn
         print(f"Warning: Could not parse {path}: {e}")
-    
+
     return deps
 
 
@@ -963,6 +590,175 @@ def write_deps_json(deps: list[dict[str, Any]], output_path: str = "./.pf/deps.j
         raise SecurityError(f"Invalid output path: {e}")
 
 
+# =============================================================================
+# ASYNC HTTP ENGINE - Modern dependency checking with httpx
+# =============================================================================
+
+
+async def _fetch_npm_async(client, name: str) -> str | None:
+    """Fetch latest version from npm registry (async)."""
+    if not validate_package_name(name, "npm"):
+        return None
+    url = f"https://registry.npmjs.org/{sanitize_url_component(name)}"
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            return resp.json().get("dist-tags", {}).get("latest")
+    except Exception:
+        pass
+    return None
+
+
+async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | None:
+    """Fetch latest version from PyPI (async)."""
+    if not validate_package_name(name, "py"):
+        return None
+    # Ensure canonical name for URL
+    safe_name = sanitize_url_component(_canonicalize_name(name))
+    url = f"https://pypi.org/pypi/{safe_name}/json"
+
+    try:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        if allow_prerelease:
+            return data.get("info", {}).get("version")
+
+        # Filter to stable versions only
+        releases = data.get("releases", {})
+        stable = [v for v in releases.keys() if not _is_prerelease_version(v)]
+        if stable:
+            stable.sort(key=_parse_pypi_version, reverse=True)
+            return stable[0]
+        return data.get("info", {}).get("version")
+    except Exception:
+        pass
+    return None
+
+
+async def _fetch_docker_async(client, name: str, current_tag: str, allow_prerelease: bool) -> str | None:
+    """Fetch latest Docker tag from Docker Hub (async)."""
+    if not validate_package_name(name, "docker"):
+        return None
+    if "/" not in name:
+        name = f"library/{name}"
+
+    url = f"https://hub.docker.com/v2/repositories/{name}/tags?page_size=100"
+    try:
+        resp = await client.get(url, headers={"User-Agent": f"TheAuditor/{__version__}"})
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        tags = data.get("results", [])
+        if not tags:
+            return None
+
+        # Parse all tags with semantic version parser
+        parsed_tags = []
+        for tag in tags:
+            tag_name = tag.get("name", "")
+            parsed = _parse_docker_tag(tag_name)
+            if parsed:
+                parsed_tags.append(parsed)
+
+        if not parsed_tags:
+            # Fallback to "latest" if no parseable versions
+            for tag in tags:
+                if tag.get("name") == "latest":
+                    return "latest"
+            return None
+
+        # Filter by stability
+        if allow_prerelease:
+            candidates = parsed_tags
+        else:
+            candidates = [t for t in parsed_tags if t['stability'] == 'stable']
+            if not candidates:
+                candidates = [t for t in parsed_tags if t['stability'] in ['stable', 'rc']]
+            if not candidates:
+                candidates = parsed_tags
+
+        # Filter by base image preference
+        if current_tag:
+            base_preference = _extract_base_preference(current_tag)
+            if base_preference:
+                matching_base = [t for t in candidates if base_preference in t['variant'].lower()]
+                if matching_base:
+                    candidates = matching_base
+                else:
+                    return None  # Don't suggest upgrade with different base
+
+        # Sort by semantic version
+        candidates.sort(key=lambda x: x['version'], reverse=True)
+        return candidates[0]['tag'] if candidates else None
+    except Exception:
+        pass
+    return None
+
+
+async def _check_latest_batch_async(
+    deps_to_check: list[dict],
+    allow_prerelease: bool
+) -> dict[str, dict[str, Any]]:
+    """
+    Check latest versions for a batch of dependencies using async HTTP.
+
+    This is the modern async engine that replaces the slow synchronous loop.
+    Uses httpx with a semaphore to limit concurrent requests.
+
+    Args:
+        deps_to_check: List of dependency objects to check
+        allow_prerelease: Allow pre-release versions
+
+    Returns:
+        Dict keyed by universal key with {latest, error} values
+    """
+    try:
+        import httpx
+    except ImportError:
+        print("Error: 'httpx' not installed. Run: pip install httpx")
+        return {}
+
+    results = {}
+    # Semaphore: limit to 10 concurrent requests to be polite to registries
+    import asyncio
+    semaphore = asyncio.Semaphore(10)
+
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+
+        async def check_one(dep: dict) -> tuple[str, str | None, str | None]:
+            """Check a single dependency and return (key, latest, error)."""
+            # Universal key format
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+
+            async with semaphore:
+                try:
+                    latest = None
+                    if dep["manager"] == "npm":
+                        latest = await _fetch_npm_async(client, dep["name"])
+                    elif dep["manager"] == "py":
+                        latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
+                    elif dep["manager"] == "docker":
+                        current_tag = dep.get("version", "")
+                        latest = await _fetch_docker_async(client, dep["name"], current_tag, allow_prerelease)
+
+                    return key, latest, None
+                except Exception as e:
+                    return key, None, f"{type(e).__name__}: {str(e)[:50]}"
+
+        # Fire off all tasks concurrently
+        tasks = [check_one(dep) for dep in deps_to_check]
+        batch_results = await asyncio.gather(*tasks)
+
+        for key, latest, error in batch_results:
+            results[key] = {"latest": latest, "error": error}
+
+    return results
+
+
 def check_latest_versions(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
@@ -995,11 +791,9 @@ def check_latest_versions(
         if cached_data:
             # Update locked versions from current deps
             for dep in deps:
-                # For Docker, include version in key
-                if dep['manager'] == 'docker':
-                    key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
-                else:
-                    key = f"{dep['manager']}:{dep['name']}"
+                # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
+                # Fixes multi-version collision (requests==2.20 vs requests==2.30 in monorepo)
+                key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
                 if key in cached_data:
                     # Clean version to remove operators (==, >=, etc.)
                     locked_clean = _clean_version(dep["version"])
@@ -1015,11 +809,9 @@ def check_latest_versions(
     
     # FIRST PASS: Check what's in cache and still valid
     for dep in deps:
-        # For Docker, include version in key since different tags need different checks
-        if dep['manager'] == 'docker':
-            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
-        else:
-            key = f"{dep['manager']}:{dep['name']}"
+        # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
+        # Fixes multi-version collision (requests==2.20 vs requests==2.30 in monorepo)
+        key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
 
         if key in latest_info:
             continue  # Already processed
@@ -1039,98 +831,46 @@ def check_latest_versions(
     # Early exit if everything is cached
     if not needs_check:
         return latest_info
-    
-    # SECOND PASS: Check only what needs updating, with per-service rate limiting
-    npm_rate_limited_until = 0
-    pypi_rate_limited_until = 0
-    docker_rate_limited_until = 0
-    
+
+    # SECOND PASS: Async batch processing (replaces slow synchronous loop)
+    import asyncio
+
+    # Run the async engine
+    batch_results = asyncio.run(_check_latest_batch_async(needs_check, allow_prerelease))
+
+    # Process results
     for dep in needs_check:
-        # For Docker, include version in key since different tags have different upgrade paths
-        # (e.g., python:3.11-slim vs python:3.12-alpine need separate checks)
-        if dep['manager'] == 'docker':
-            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+        key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+        result = batch_results.get(key, {})
+
+        latest = result.get("latest")
+        error_msg = result.get("error")
+        locked = _clean_version(dep["version"])
+
+        if latest:
+            # Success - package found with latest version
+            latest_info[key] = {
+                "locked": locked,
+                "latest": latest,
+                "delta": _calculate_version_delta(locked, latest),
+                "is_outdated": locked != latest,
+                "last_checked": datetime.now().isoformat()
+            }
         else:
-            key = f"{dep['manager']}:{dep['name']}"
-        current_time = time.time()
-        
-        # Skip if this service is rate limited
-        if dep["manager"] == "npm" and current_time < npm_rate_limited_until:
-            # Use cached data if available, even if expired
+            # Failure - use cached data if available, otherwise mark as error
             if key in cache:
                 latest_info[key] = cache[key]
-            continue
-        elif dep["manager"] == "py" and current_time < pypi_rate_limited_until:
-            if key in cache:
-                latest_info[key] = cache[key]
-            continue
-        elif dep["manager"] == "docker" and current_time < docker_rate_limited_until:
-            if key in cache:
-                latest_info[key] = cache[key]
-            continue
-        
-        try:
-            if dep["manager"] == "npm":
-                latest = _check_npm_latest(dep["name"])
-            elif dep["manager"] == "py":
-                # Pass allow_prerelease flag for pre-release filtering
-                latest = _check_pypi_latest(dep["name"], allow_prerelease)
-            elif dep["manager"] == "docker":
-                # Pass current tag for base image matching and allow_prerelease flag
-                current_tag = dep.get("version", "")
-                latest = _check_dockerhub_latest(dep["name"], current_tag, allow_prerelease)
+                if error_msg:
+                    latest_info[key]["error"] = error_msg
             else:
-                continue
-            
-            if latest:
-                # Clean version to remove operators (==, >=, etc.)
-                locked = _clean_version(dep["version"])
-                delta = _calculate_version_delta(locked, latest)
-                latest_info[key] = {
-                    "locked": locked,
-                    "latest": latest,
-                    "delta": delta,
-                    "is_outdated": locked != latest,
-                    "last_checked": datetime.now().isoformat()
-                }
-                # Rate limiting: service-specific delays for optimal performance
-                if dep["manager"] == "npm":
-                    time.sleep(RATE_LIMIT_NPM)  # 0.1s for npm
-                elif dep["manager"] == "py":
-                    time.sleep(RATE_LIMIT_PYPI)  # 0.2s for PyPI
-                elif dep["manager"] == "docker":
-                    time.sleep(RATE_LIMIT_DOCKER)  # 0.2s for Docker Hub
-        except (urllib.error.URLError, urllib.error.HTTPError, http.client.RemoteDisconnected,
-                TimeoutError, json.JSONDecodeError, KeyError, ValueError) as e:
-            error_msg = f"{type(e).__name__}: {str(e)[:50]}"
-            
-            # Handle rate limiting and connection errors specifically
-            if ("429" in str(e) or "rate" in str(e).lower() or 
-                "RemoteDisconnected" in str(e) or "closed connection" in str(e).lower()):
-                # Set rate limit expiry for this service
-                if dep["manager"] == "npm":
-                    npm_rate_limited_until = current_time + RATE_LIMIT_BACKOFF
-                elif dep["manager"] == "py":
-                    pypi_rate_limited_until = current_time + RATE_LIMIT_BACKOFF
-                elif dep["manager"] == "docker":
-                    docker_rate_limited_until = current_time + RATE_LIMIT_BACKOFF
-            
-            # Use cached data if available, even if expired
-            if key in cache:
-                latest_info[key] = cache[key]
-                latest_info[key]["error"] = error_msg
-            else:
-                # Clean version to remove operators (==, >=, etc.)
-                locked = _clean_version(dep["version"])
                 latest_info[key] = {
                     "locked": locked,
                     "latest": None,
                     "delta": None,
                     "is_outdated": False,
-                    "error": error_msg,
+                    "error": error_msg or "Not found",
                     "last_checked": datetime.now().isoformat()
                 }
-            continue
     
     # Save updated cache
     _save_deps_cache(latest_info, root_path)
@@ -1143,18 +883,19 @@ def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
     Load the dependency version cache from repo_index.db.
 
     Returns empty dict if database doesn't exist or table is empty.
+    Key format: "manager:package_name:locked_version" (Universal Keys - Tweak 2)
     """
     import sqlite3
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
 
+    if not db_path.exists():
+        return {}
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
     try:
-        if not db_path.exists():
-            return {}
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
         # Load all cache entries from dependency_versions table
         cursor.execute("""
             SELECT manager, package_name, locked_version, latest_version, delta, is_outdated, last_checked, error
@@ -1164,7 +905,8 @@ def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
         cache = {}
         for row in cursor.fetchall():
             manager, pkg_name, locked, latest, delta, is_outdated, last_checked, error = row
-            key = f"{manager}:{pkg_name}"
+            # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
+            key = f"{manager}:{pkg_name}:{locked}"
             cache[key] = {
                 "locked": locked,
                 "latest": latest,
@@ -1178,8 +920,13 @@ def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
         conn.close()
         return cache
 
-    except (sqlite3.Error, OSError):
-        return {}
+    except sqlite3.OperationalError as e:
+        conn.close()
+        # Table doesn't exist - valid empty state
+        if "no such table" in str(e):
+            return {}
+        # Unexpected DB error - crash loudly
+        raise
 
 
 def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> None:
@@ -1187,71 +934,74 @@ def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> 
     Save the dependency version cache to repo_index.db.
     Uses INSERT OR REPLACE to update existing entries.
     Creates table if it doesn't exist (for standalone aud deps usage).
+
+    Key format: "manager:package_name:locked_version" (Universal Keys - Tweak 2)
     """
     import sqlite3
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
 
-    try:
-        if not db_path.exists():
-            # Create .pf directory and database for standalone usage
-            db_path.parent.mkdir(parents=True, exist_ok=True)
+    if not db_path.exists():
+        # Create .pf directory and database for standalone usage
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-        # Create table if it doesn't exist (schema contract)
+    # Create table if it doesn't exist (schema contract)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dependency_versions (
+            manager TEXT NOT NULL,
+            package_name TEXT NOT NULL,
+            locked_version TEXT NOT NULL,
+            latest_version TEXT,
+            delta TEXT,
+            is_outdated INTEGER NOT NULL DEFAULT 0,
+            last_checked TEXT NOT NULL,
+            error TEXT,
+            PRIMARY KEY (manager, package_name, locked_version)
+        )
+    """)
+
+    # Create indexes if they don't exist
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_dependency_versions_outdated
+        ON dependency_versions(is_outdated)
+    """)
+
+    # Upsert each entry into dependency_versions table
+    for key, info in latest_info.items():
+        # Parse UNIVERSAL KEY format: "manager:package_name:version" (Tweak 2)
+        parts = key.split(":")
+        if len(parts) < 2:
+            continue
+        manager = parts[0]
+        # Handle package names that might contain colons (rare but possible)
+        # Join everything after manager except last part (version)
+        if len(parts) >= 3:
+            pkg_name = ":".join(parts[1:-1]) if len(parts) > 3 else parts[1]
+            version_from_key = parts[-1]
+        else:
+            pkg_name = parts[1]
+            version_from_key = ""
+
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS dependency_versions (
-                manager TEXT NOT NULL,
-                package_name TEXT NOT NULL,
-                locked_version TEXT NOT NULL,
-                latest_version TEXT,
-                delta TEXT,
-                is_outdated INTEGER NOT NULL DEFAULT 0,
-                last_checked TEXT NOT NULL,
-                error TEXT
-            )
-        """)
+            INSERT OR REPLACE INTO dependency_versions
+            (manager, package_name, locked_version, latest_version, delta, is_outdated, last_checked, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            manager,
+            pkg_name,
+            info.get("locked", version_from_key),
+            info.get("latest"),
+            info.get("delta"),
+            1 if info.get("is_outdated") else 0,
+            info.get("last_checked", ""),
+            info.get("error")
+        ))
 
-        # Create indexes if they don't exist
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_dependency_versions_pk
-            ON dependency_versions(manager, package_name, locked_version)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_dependency_versions_outdated
-            ON dependency_versions(is_outdated)
-        """)
-
-        # Upsert each entry into dependency_versions table
-        for key, info in latest_info.items():
-            # Parse key format: "manager:package_name"
-            parts = key.split(":", 1)
-            if len(parts) != 2:
-                continue
-            manager, pkg_name = parts
-
-            cursor.execute("""
-                INSERT OR REPLACE INTO dependency_versions
-                (manager, package_name, locked_version, latest_version, delta, is_outdated, last_checked, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                manager,
-                pkg_name,
-                info.get("locked", ""),
-                info.get("latest"),
-                info.get("delta"),
-                1 if info.get("is_outdated") else 0,
-                info.get("last_checked", ""),
-                info.get("error")
-            ))
-
-        conn.commit()
-        conn.close()
-
-    except (sqlite3.Error, OSError):
-        pass  # Fail silently if can't write cache
+    conn.commit()
+    conn.close()
 
 
 def _is_cache_valid(cached_item: dict[str, Any], hours: int = 24) -> bool:
@@ -1267,26 +1017,6 @@ def _is_cache_valid(cached_item: dict[str, Any], hours: int = 24) -> bool:
         return age.total_seconds() < (hours * 3600)
     except (ValueError, KeyError):
         return False
-
-
-def _check_npm_latest(package_name: str) -> str | None:
-    """Fetch latest version from npm registry."""
-    import urllib.request
-    import urllib.error
-    
-    # Validate and sanitize package name
-    if not validate_package_name(package_name, "npm"):
-        return None
-    
-    # URL-encode the package name for safety
-    safe_package_name = sanitize_url_component(package_name)
-    url = f"https://registry.npmjs.org/{safe_package_name}"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read())
-            return data.get("dist-tags", {}).get("latest")
-    except (urllib.error.URLError, http.client.RemoteDisconnected, json.JSONDecodeError, KeyError):
-        return None
 
 
 def _is_prerelease_version(version: str) -> bool:
@@ -1356,67 +1086,6 @@ def _parse_pypi_version(version_str: str) -> tuple:
 
     # Fallback: return (0, 0, 0, 0) for unparseable versions
     return (0, 0, 0, 0)
-
-
-def _check_pypi_latest(package_name: str, allow_prerelease: bool = False) -> str | None:
-    """
-    Fetch latest stable version from PyPI using semantic version comparison.
-
-    Args:
-        package_name: Package name
-        allow_prerelease: If True, allow pre-release versions
-
-    Returns:
-        Latest version string, or None if unavailable
-    """
-    import urllib.request
-    import urllib.error
-
-    # Validate package name
-    if not validate_package_name(package_name, "py"):
-        return None
-
-    # Normalize package name for PyPI (replace underscores with hyphens)
-    normalized_name = package_name.replace('_', '-')
-    # Sanitize for URL
-    safe_package_name = sanitize_url_component(normalized_name)
-    url = f"https://pypi.org/pypi/{safe_package_name}/json"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read())
-
-            # If allow_prerelease, just return the latest version
-            if allow_prerelease:
-                return data.get("info", {}).get("version")
-
-            # Otherwise, filter to stable versions only
-            # Get all releases
-            releases = data.get("releases", {})
-            if not releases:
-                # Fallback to info.version if no releases list
-                version = data.get("info", {}).get("version")
-                # Check if it's stable
-                if version and not _is_prerelease_version(version):
-                    return version
-                return None
-
-            # Filter to stable versions only
-            stable_versions = []
-            for version_str in releases.keys():
-                if not _is_prerelease_version(version_str):
-                    stable_versions.append(version_str)
-
-            if not stable_versions:
-                # No stable versions found, return None
-                return None
-
-            # Return the highest stable version using SEMANTIC COMPARISON
-            # Sort by parsed version tuple, not string comparison
-            stable_versions.sort(key=_parse_pypi_version, reverse=True)
-            return stable_versions[0]
-
-    except (urllib.error.URLError, http.client.RemoteDisconnected, json.JSONDecodeError, KeyError):
-        return None
 
 
 def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
@@ -1507,108 +1176,6 @@ def _extract_base_preference(current_tag: str) -> str:
             return base
 
     return ''  # No recognizable base
-
-
-def _check_dockerhub_latest(image_name: str, current_tag: str = "", allow_prerelease: bool = False) -> str | None:
-    """
-    Fetch latest stable version from Docker Hub with semantic version comparison.
-
-    CRITICAL: This function prevents production disasters by:
-    1. Using semantic version comparison (not string sort)
-    2. Filtering pre-release versions (alpha/beta/rc)
-    3. Preserving base image consistency (alpine stays alpine)
-
-    Args:
-        image_name: Docker image name (e.g., "postgres", "python")
-        current_tag: Current tag to extract base preference (e.g., "17-alpine3.21")
-        allow_prerelease: If True, allow alpha/beta/rc versions
-
-    Returns:
-        Best matching tag, or None if unavailable
-    """
-    import urllib.request
-    import urllib.error
-
-    # Validate image name
-    if not validate_package_name(image_name, "docker"):
-        return None
-    
-    # For official images, use library/ prefix
-    if "/" not in image_name:
-        image_name = f"library/{image_name}"
-
-    # Sanitize image name for URL
-    safe_image_name = sanitize_url_component(image_name)
-
-    # Docker Hub API endpoint for tags (fetch 100 tags to ensure we get latest versions)
-    url = f"https://hub.docker.com/v2/repositories/{safe_image_name}/tags?page_size=100"
-
-    try:
-        # Create request with proper headers
-        req = urllib.request.Request(url)
-        req.add_header('User-Agent', f'TheAuditor/{__version__}')
-
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read())
-
-            # Parse the results to find latest stable version
-            tags = data.get("results", [])
-            if not tags:
-                return None
-
-            # Parse all tags with semantic version parser
-            parsed_tags = []
-            for tag in tags:
-                tag_name = tag.get("name", "")
-                parsed = _parse_docker_tag(tag_name)
-                if parsed:
-                    parsed_tags.append(parsed)
-
-            if not parsed_tags:
-                # No parseable version tags found, fallback to "latest"
-                for tag in tags:
-                    if tag.get("name") == "latest":
-                        return "latest"
-                return None
-
-            # Filter by stability (CRITICAL for production safety)
-            if allow_prerelease:
-                # Allow all stability levels
-                candidates = parsed_tags
-            else:
-                # Filter to stable only
-                stable = [t for t in parsed_tags if t['stability'] == 'stable']
-                if not stable:
-                    # No stable versions, allow RC with warning (better than nothing)
-                    stable = [t for t in parsed_tags if t['stability'] in ['stable', 'rc']]
-                    if not stable:
-                        # Last resort: use any version (shouldn't happen for official images)
-                        stable = parsed_tags
-                candidates = stable
-
-            # Extract base image preference from current tag
-            if current_tag:
-                base_preference = _extract_base_preference(current_tag)
-                if base_preference:
-                    # Filter to matching base images
-                    matching_base = [t for t in candidates if base_preference in t['variant'].lower()]
-                    if matching_base:
-                        candidates = matching_base
-                    else:
-                        # No matching base found - don't suggest upgrade with different base
-                        # This prevents alpine -> bookworm drift
-                        return None
-
-            # Sort by semantic version tuple (FIXED: no more string sort!)
-            # Sort order: (major DESC, minor DESC, patch DESC)
-            candidates.sort(key=lambda x: x['version'], reverse=True)
-
-            # Return best match
-            return candidates[0]['tag']
-
-    except (urllib.error.URLError, http.client.RemoteDisconnected, json.JSONDecodeError, KeyError) as e:
-        # Docker Hub API might require auth or have rate limits
-        return None
 
 
 def _calculate_version_delta(locked: str, latest: str) -> str:
