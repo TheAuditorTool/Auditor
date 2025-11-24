@@ -82,9 +82,10 @@ class ExplainFormatter:
                 self._format_hook_item
             ))
 
-        # Framework info section (if present)
+        # Framework info section (if present AND detected)
         framework_info = data.get("framework_info", {})
-        if framework_info:
+        # [FIX] Only show if 'framework' key exists and is not None
+        if framework_info and framework_info.get('framework'):
             lines.append(self._format_framework_section(framework_info))
 
         # Dependencies (imports) section
@@ -386,9 +387,14 @@ class ExplainFormatter:
         kind = imp.get("kind", "import")
         line_num = imp.get("line", "?")
 
-        # Determine if external or internal
-        is_external = not module.startswith(".") and not module.startswith("/")
-        scope = "external" if is_external else "internal"
+        # [FIX] Smarter internal/external detection
+        # Internal: starts with . or / OR is a known project package
+        is_internal = (
+            module.startswith(".") or
+            module.startswith("/") or
+            module.startswith("theauditor")  # Project-specific
+        )
+        scope = "internal" if is_internal else "external"
 
         return f"  {index}. {module} ({scope}) - line {line_num}"
 

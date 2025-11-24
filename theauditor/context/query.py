@@ -454,6 +454,14 @@ class CodeQueryEngine:
                 # Table might not exist (e.g., no JSX in Python projects)
                 continue
 
+        # [FIX] Deduplicate results by file and line to be 100% safe
+        unique_results = {}
+        for sym in results:
+            key = (sym.file, sym.line, sym.name)
+            if key not in unique_results:
+                unique_results[key] = sym
+        results = list(unique_results.values())
+
         # FIX: If no results found, provide fuzzy suggestions
         if not results:
             suggestions = self._find_similar_symbols(name)
@@ -1532,6 +1540,7 @@ class CodeQueryEngine:
                     SELECT name, type, line, end_line, type_annotation, path
                     FROM {table}
                     WHERE path LIKE ?
+                      AND type NOT IN ('call')
                     ORDER BY line
                     LIMIT ?
                 """, (f"%{normalized_path}", limit - len(results)))
@@ -1685,6 +1694,33 @@ class CodeQueryEngine:
         except sqlite3.OperationalError:
             return []
 
+    # [FIX] Filter out noise from outgoing calls - built-ins and common plumbing
+    NOISE_FUNCTIONS = {
+        # Python built-ins
+        'print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set',
+        'tuple', 'range', 'enumerate', 'zip', 'isinstance', 'issubclass',
+        'super', 'getattr', 'setattr', 'hasattr', 'delattr', 'min', 'max',
+        'sum', 'any', 'all', 'open', 'repr', 'type', 'help', 'dir', 'id',
+        'input', 'abs', 'round', 'sorted', 'reversed', 'filter', 'map',
+        'format', 'ord', 'chr', 'hex', 'bin', 'oct', 'hash', 'callable',
+        'vars', 'locals', 'globals', 'iter', 'next', 'slice', 'property',
+        'staticmethod', 'classmethod', 'object', 'bytes', 'bytearray',
+        # Common Python Exceptions (often "called" to instantiate)
+        'Exception', 'ValueError', 'TypeError', 'RuntimeError', 'KeyError',
+        'IndexError', 'AttributeError', 'ImportError', 'OSError', 'IOError',
+        'FileNotFoundError', 'NotImplementedError', 'StopIteration',
+        'AssertionError', 'ZeroDivisionError', 'OverflowError',
+        # JS/TS built-ins
+        'console.log', 'console.error', 'console.warn', 'console.info', 'console.debug',
+        'require', 'import', 'typeof', 'parseInt', 'parseFloat', 'JSON.stringify',
+        'JSON.parse', 'Object.keys', 'Object.values', 'Object.entries',
+        'Array.isArray', 'String', 'Number', 'Boolean', 'Array', 'Object',
+        'Promise', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
+        # Testing frameworks
+        'describe', 'it', 'test', 'expect', 'beforeEach', 'afterEach',
+        'beforeAll', 'afterAll', 'jest', 'assert', 'pytest',
+    }
+
     def get_file_outgoing_calls(self, file_path: str, limit: int = 50) -> list[dict]:
         """Get function calls made FROM this file.
 
@@ -1701,15 +1737,20 @@ class CodeQueryEngine:
         # CRITICAL: Normalize path before querying
         normalized_path = self._normalize_path(file_path)
 
+        # Build NOT IN clause for noise filtering
+        noise_list = list(self.NOISE_FUNCTIONS)
+        placeholders = ', '.join(['?'] * len(noise_list))
+
         for table in ['function_call_args', 'function_call_args_jsx']:
             try:
                 cursor.execute(f"""
-                    SELECT callee_function, line, argument_expr, caller_function, file
+                    SELECT DISTINCT callee_function, line, argument_expr, caller_function, file
                     FROM {table}
                     WHERE file LIKE ?
+                      AND callee_function NOT IN ({placeholders})
                     ORDER BY line
                     LIMIT ?
-                """, (f"%{normalized_path}", limit - len(results)))
+                """, [f"%{normalized_path}"] + noise_list + [limit - len(results)])
 
                 for row in cursor.fetchall():
                     results.append({
@@ -1761,7 +1802,7 @@ class CodeQueryEngine:
                 for table in ['function_call_args', 'function_call_args_jsx']:
                     try:
                         cursor.execute(f"""
-                            SELECT file, line, caller_function, callee_function
+                            SELECT DISTINCT file, line, caller_function, callee_function
                             FROM {table}
                             WHERE (callee_function = ? OR callee_function LIKE ?)
                               AND file NOT LIKE ?

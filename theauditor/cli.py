@@ -37,12 +37,26 @@ class VerboseGroup(click.Group):
             'description': 'Initial configuration and environment setup',
             'commands': ['setup-ai'],  # init-js, init-config deprecated (hidden)
             'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
+            'command_meta': {
+                'setup-ai': {
+                    'run_when': 'Once per project, before first aud full',
+                },
+            },
         },
         'CORE_ANALYSIS': {
             'title': 'CORE ANALYSIS',
             'description': 'Essential indexing and workset commands',
             'commands': ['full', 'workset'],  # 'index' deprecated (hidden)
             'ai_context': 'Foundation commands. full runs complete audit, workset filters scope.',
+            'command_meta': {
+                'full': {
+                    'run_when': 'First time, or after major code changes',
+                },
+                'workset': {
+                    'use_when': 'Need incremental analysis on file subset',
+                    'gives': 'Filtered file list for targeted scans',
+                },
+            },
         },
         'SECURITY_SCANNING': {
             'title': 'SECURITY SCANNING',
@@ -50,47 +64,137 @@ class VerboseGroup(click.Group):
             'commands': ['detect-patterns', 'taint-analyze', 'boundaries', 'docker-analyze',
                         'detect-frameworks', 'rules', 'context', 'workflows', 'cdk', 'terraform', 'deadcode'],
             'ai_context': 'Security-focused analysis. detect-patterns=rules, taint-analyze=data flow, boundaries=control distance.',
+            'command_meta': {
+                'detect-patterns': {
+                    'use_when': 'Need security vulnerability scan',
+                    'gives': '200+ rule findings with file:line',
+                },
+                'taint-analyze': {
+                    'use_when': 'Need data flow analysis (source to sink)',
+                    'gives': 'Taint paths with vulnerability type',
+                },
+                'boundaries': {
+                    'use_when': 'Checking trust boundary enforcement',
+                    'gives': 'Trust boundary violations',
+                },
+            },
         },
         'DEPENDENCIES': {
             'title': 'DEPENDENCIES',
             'description': 'Package analysis and documentation',
             'commands': ['deps', 'docs'],
             'ai_context': 'deps checks CVEs and versions, docs fetches/summarizes package documentation.',
+            'command_meta': {
+                'deps': {
+                    'use_when': 'Need CVE check or dependency analysis',
+                    'gives': 'Vulnerability report, outdated packages',
+                },
+                'docs': {
+                    'use_when': 'Need package documentation summary',
+                    'gives': 'AI-summarized docs for dependencies',
+                },
+            },
         },
         'CODE_QUALITY': {
             'title': 'CODE QUALITY',
             'description': 'Linting and complexity analysis',
             'commands': ['lint', 'cfg', 'graph', 'graphql'],
             'ai_context': 'Quality checks. lint=linters, cfg=complexity, graph=architecture, graphql=schema analysis.',
+            'command_meta': {
+                'lint': {
+                    'use_when': 'Need code quality check',
+                    'gives': 'Linter findings with file:line',
+                },
+                'cfg': {
+                    'use_when': 'Need complexity analysis',
+                    'gives': 'Cyclomatic complexity, dead code',
+                },
+                'graph': {
+                    'run_when': 'After aud full, for dependency visualization',
+                    'gives': 'Import graph, circular dependencies',
+                },
+            },
         },
         'DATA_REPORTING': {
             'title': 'DATA & REPORTING',
             'description': 'Analysis aggregation and report generation',
             'commands': ['fce', 'report', 'structure', 'summary', 'metadata', 'blueprint'],  # tool-versions deprecated
             'ai_context': 'fce correlates findings, report generates AI chunks, structure maps codebase.',
+            'command_meta': {
+                'fce': {
+                    'use_when': 'Need correlated findings across tools',
+                    'gives': 'Compound vulnerabilities, evidence chains',
+                },
+                'report': {
+                    'use_when': 'Need consolidated analysis output',
+                    'gives': 'AI-chunked findings report',
+                },
+                'structure': {
+                    'use_when': 'Need project architecture overview',
+                    'gives': 'Module map, entry points, tech stack',
+                },
+            },
         },
         'ADVANCED_QUERIES': {
             'title': 'ADVANCED QUERIES',
             'description': 'Direct database queries and impact analysis',
             'commands': ['explain', 'query', 'impact', 'refactor'],
             'ai_context': 'explain=comprehensive context, query=SQL-like symbol lookup, impact=blast radius, refactor=migration analysis.',
+            'command_meta': {
+                'explain': {
+                    'use_when': 'Need to understand code before editing',
+                    'gives': 'Definitions, dependencies, callers, callees',
+                },
+                'query': {
+                    'use_when': 'Need specific facts (Who calls X?, Where is Y?)',
+                    'gives': 'Exact file:line locations and relationships',
+                },
+                'impact': {
+                    'use_when': 'Assessing blast radius of changes',
+                    'gives': 'Upstream/downstream dependency counts',
+                },
+                'refactor': {
+                    'use_when': 'Detecting incomplete migrations',
+                    'gives': 'Broken imports, orphan code locations',
+                },
+            },
         },
         'INSIGHTS_ML': {
             'title': 'INSIGHTS & ML',
             'description': 'Machine learning and risk predictions',
             'commands': ['insights', 'learn', 'suggest', 'learn-feedback', 'session'],
             'ai_context': 'Optional ML layer. learn trains models, suggest predicts risky files, session analyzes AI agent behavior.',
+            'command_meta': {
+                'insights': {
+                    'use_when': 'Need ML-powered risk predictions',
+                    'gives': 'Health scores, risk rankings',
+                },
+                'suggest': {
+                    'use_when': 'Need AI file review suggestions',
+                    'gives': 'Prioritized list of risky files',
+                },
+            },
         },
         'UTILITIES': {
             'title': 'UTILITIES',
             'description': 'Educational and helper commands',
             'commands': ['manual', 'planning'],
             'ai_context': 'manual teaches concepts (taint, workset, fce), planning tracks work.',
+            'command_meta': {
+                'manual': {
+                    'use_when': 'Need concept explanation or troubleshooting',
+                    'gives': 'Detailed docs for taint, workset, fce, etc.',
+                },
+                'planning': {
+                    'use_when': 'Need to track analysis work',
+                    'gives': 'Task tracking and planning output',
+                },
+            },
         },
     }
 
     def format_help(self, ctx, formatter):
-        """Generate concise categorized help."""
+        """Generate concise categorized help with AI routing annotations."""
         super().format_help(ctx, formatter)
 
         registered = {name: cmd for name, cmd in self.commands.items()
@@ -116,6 +220,16 @@ class VerboseGroup(click.Group):
                 if len(short_help) > 50:
                     short_help = short_help[:50].rsplit(' ', 1)[0] + "..."
                 formatter.write_text(f"    {cmd_name:20s} {short_help}")
+
+                # Add AI routing annotations if available
+                cmd_meta = category_data.get('command_meta', {}).get(cmd_name, {})
+                if 'use_when' in cmd_meta:
+                    formatter.write_text(f"                          > USE WHEN: {cmd_meta['use_when']}")
+                elif 'run_when' in cmd_meta:
+                    formatter.write_text(f"                          > RUN: {cmd_meta['run_when']}")
+                if 'gives' in cmd_meta:
+                    formatter.write_text(f"                          > GIVES: {cmd_meta['gives']}")
+
             formatter.write_paragraph()
 
         formatter.write_text("For detailed options: aud <command> --help")

@@ -150,6 +150,44 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
 
       # Limit output size
       aud explain utils/helpers.py --limit 10
+
+    \b
+    ANTI-PATTERNS (Do NOT Do This)
+    ------------------------------
+      X  aud explain --symbol foo
+         -> Just use: aud explain foo (auto-detects target type)
+
+      X  aud explain .
+         -> Use 'aud structure' for project overview
+
+      X  Running 'aud query' before 'aud explain'
+         -> Always try 'explain' first - it returns more comprehensive context
+
+      X  aud explain --format json | jq '.symbols'
+         -> JSON structure varies by target type, check OUTPUT FORMAT below
+
+    \b
+    OUTPUT FORMAT
+    -------------
+    Text mode (file target):
+      === FILE: src/auth.py ===
+      SYMBOLS DEFINED (5):
+        - authenticate (function) line 42-58
+        - User (class) line 10-40
+      DEPENDENCIES (3):
+        - src/utils/crypto.py
+        - src/db/users.py
+      INCOMING CALLS (2):
+        - src/api/login.py:15 login_handler() -> authenticate
+
+    JSON mode (--format json):
+      {
+        "target": "src/auth.py",
+        "target_type": "file",
+        "symbols": [{"name": "authenticate", "type": "function", "line": 42}],
+        "imports": ["src/utils/crypto.py"],
+        "incoming_calls": [{"file": "src/api/login.py", "line": 15, ...}]
+      }
     """
     start_time = time.perf_counter()
 

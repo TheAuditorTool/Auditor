@@ -274,6 +274,68 @@ class XGraphBuilder:
             # - File path format: "theauditor/cli.py" (contains /)
             # - Module name format: "theauditor.cli" (dots only)
 
+            # [FIX] Handle Relative Imports (starting with .)
+            if import_str.startswith("."):
+                # Count dots to determine level (1 dot = current, 2 dots = parent)
+                level = 0
+                temp_str = import_str
+                while temp_str.startswith("."):
+                    level += 1
+                    temp_str = temp_str[1:]
+
+                # Strip dots from the module name
+                module_name = temp_str
+
+                # Determine base directory:
+                # level 1 (.) = current directory of source_file
+                # level 2 (..) = parent of source_file
+                # etc.
+                current_dir = source_file.parent
+                try:
+                    for _ in range(level - 1):
+                        current_dir = current_dir.parent
+                except ValueError:
+                    # Went past root - return as external
+                    return f"external::{import_str}"
+
+                # Make current_dir relative to project root
+                try:
+                    current_dir_rel = current_dir.relative_to(self.project_root)
+                except ValueError:
+                    current_dir_rel = current_dir
+
+                # [FIX] Handle root directory case where relative_to returns "."
+                # We want empty string prefix, not "./" which breaks DB cache lookup
+                if str(current_dir_rel) == ".":
+                    rel_prefix = ""
+                else:
+                    rel_prefix = f"{str(current_dir_rel).replace(chr(92), '/')}/"
+
+                # Construct candidate paths
+                if not module_name:
+                    # "from . import x" -> import_str="." -> module_name=""
+                    # Target is the __init__.py in the directory
+                    candidates = [
+                        f"{rel_prefix}__init__.py"
+                    ]
+                else:
+                    # "from .utils import x" -> import_str=".utils"
+                    # Target is utils.py OR utils/__init__.py
+                    base_path = module_name.replace(".", "/")
+                    candidates = [
+                        f"{rel_prefix}{base_path}.py",
+                        f"{rel_prefix}{base_path}/__init__.py"
+                    ]
+
+                # Check existence using cache
+                for candidate in candidates:
+                    norm_candidate = str(candidate).replace("\\", "/")
+                    if self.db_cache.file_exists(norm_candidate):
+                        return norm_candidate
+
+                # If relative resolution failed, return first candidate as best guess
+                return str(candidates[0]).replace("\\", "/")
+
             # If already a file path (contains /), return normalized
             if "/" in import_str:
                 # Cache handles normalization (Guardian of Hygiene)
@@ -651,7 +713,7 @@ class XGraphBuilder:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("SELECT path, name, line FROM symbols WHERE type = 'function'")
+            cursor.execute("SELECT path, name, line FROM symbols WHERE type IN ('function', 'class')")
             for row in cursor.fetchall():
                 rel = row['path'].replace('\\', '/')
                 function_defs[row['name']].add(rel)
@@ -775,7 +837,15 @@ class XGraphBuilder:
                     caller_node = ensure_function_node(rel_path, caller, lang, "caller")
 
                     # [FIX] Import-Aware Resolution Logic
+                    # Try exact match first
                     target_candidates = function_defs.get(callee, set())
+
+                    # [FIX] If no exact match, try splitting (module.function or Class.method)
+                    # e.g., "os.path.join" -> try "join", "UserService.create" -> try "create"
+                    if not target_candidates and "." in callee:
+                        short_name = callee.split(".")[-1]
+                        target_candidates = function_defs.get(short_name, set())
+
                     target_module = None
                     resolution_status = "unresolved"
 
