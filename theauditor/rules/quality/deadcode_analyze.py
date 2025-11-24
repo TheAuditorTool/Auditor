@@ -15,7 +15,7 @@ from theauditor.rules.base import (
     Severity,
     RuleMetadata
 )
-from theauditor.context.deadcode import detect_isolated_modules, DEFAULT_EXCLUSIONS
+from theauditor.context.deadcode_graph import detect_isolated_modules, DEFAULT_EXCLUSIONS
 
 
 METADATA = RuleMetadata(
