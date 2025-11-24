@@ -38,8 +38,12 @@ runtime = [
     # Documentation fetching
     "beautifulsoup4>=4.14.2",
     "markdownify>=1.2.2",
+    # Async HTTP client for dependency checking
+    "httpx>=0.28.0",
     # Graph analysis
     "networkx==3.5",
+    # Git object database (shadow snapshots)
+    "pygit2>=1.14.0",
 ]
 
 # Development tools (for developing TheAuditor itself)

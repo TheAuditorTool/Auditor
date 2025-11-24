@@ -1,163 +1,118 @@
+"""Snapshot management for planning system.
+
+DEPRECATED: This module contains legacy snapshot functions that use subprocess
+to shell out to git and manually parse diffs. New code should use:
+- PlanningManager.create_snapshot() - Uses pygit2 shadow repo
+- ShadowRepoManager - Direct access to .pf/snapshots.git
+
+The legacy functions are kept for backward compatibility but will be removed
+in a future version.
+
+Migration path:
+    # OLD (deprecated)
+    from theauditor.planning.snapshots import create_snapshot
+    snapshot_data = create_snapshot(plan_id, name, repo_root, task_id, manager)
+
+    # NEW (recommended)
+    from theauditor.planning import PlanningManager
+    manager = PlanningManager(db_path)
+    snapshot_id, sha = manager.create_snapshot(plan_id, name, repo_root, files, task_id)
 """
-Snapshot management for planning system.
 
-Handles git-based code snapshots and diffs for tracking implementation progress.
-"""
-
-
-import subprocess
 import json
+import warnings
 from pathlib import Path
-from typing import Dict, List, Optional
-from datetime import datetime
-import platform
+from datetime import datetime, UTC
 
-# Windows detection
-IS_WINDOWS = platform.system() == "Windows"
+from .shadow_git import ShadowRepoManager
 
 
-def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, task_id: int = None, manager=None) -> dict:
-    """
-    Create a code snapshot at the current git state.
+def create_snapshot(
+    plan_id: int,
+    checkpoint_name: str,
+    repo_root: Path,
+    task_id: int | None = None,
+    manager=None,
+) -> dict:
+    """DEPRECATED: Create a code snapshot at the current git state.
+
+    Use PlanningManager.create_snapshot() instead, which uses pygit2
+    for efficient, binary-safe snapshot storage.
 
     Args:
         plan_id: Plan ID to associate snapshot with
-        checkpoint_name: Name for this checkpoint (e.g., "pre-refactor", "post-migration")
+        checkpoint_name: Name for this checkpoint
         repo_root: Repository root directory
         task_id: Optional task ID for sequence tracking
         manager: Optional PlanningManager instance to persist snapshot
 
     Returns:
-        Dict with snapshot data:
-            - git_ref: Current git commit SHA
-            - files_affected: List of modified file paths
-            - diffs: List of diffs with added/removed line counts
-            - sequence: Sequence number if task_id provided
+        Dict with snapshot data
 
-    Raises:
-        subprocess.CalledProcessError: If git commands fail
+    .. deprecated:: 1.6.5
+        Use :meth:`PlanningManager.create_snapshot` instead.
     """
-    # Get current git commit SHA
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
-        shell=IS_WINDOWS
+    warnings.warn(
+        "create_snapshot() is deprecated. Use PlanningManager.create_snapshot() instead.",
+        DeprecationWarning,
+        stacklevel=2,
     )
-    git_ref = result.stdout.strip()
 
-    # Get git diff (staged and unstaged changes)
-    result = subprocess.run(
-        ["git", "diff", "HEAD"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
-        shell=IS_WINDOWS
-    )
-    full_diff = result.stdout
-
-    # Parse diff to extract file paths and line counts
-    files_affected = []
-    diffs = []
-
-    if full_diff:
-        current_file = None
-        current_diff = []
-        added_lines = 0
-        removed_lines = 0
-
-        for line in full_diff.split('\n'):
-            if line.startswith('diff --git'):
-                # Save previous file's diff
-                if current_file:
-                    diffs.append({
-                        'file_path': current_file,
-                        'diff_text': '\n'.join(current_diff),
-                        'added_lines': added_lines,
-                        'removed_lines': removed_lines
-                    })
-                    files_affected.append(current_file)
-
-                # Extract file path from "diff --git a/path b/path"
-                parts = line.split()
-                if len(parts) >= 4:
-                    current_file = parts[2][2:]  # Remove 'a/' prefix
-                    current_diff = [line]
-                    added_lines = 0
-                    removed_lines = 0
-            elif current_file:
-                current_diff.append(line)
-                if line.startswith('+') and not line.startswith('+++'):
-                    added_lines += 1
-                elif line.startswith('-') and not line.startswith('---'):
-                    removed_lines += 1
-
-        # Save last file's diff
-        if current_file:
-            diffs.append({
-                'file_path': current_file,
-                'diff_text': '\n'.join(current_diff),
-                'added_lines': added_lines,
-                'removed_lines': removed_lines
-            })
-            files_affected.append(current_file)
-
-    from datetime import datetime, UTC
-    snapshot_data = {
-        'git_ref': git_ref,
-        'checkpoint_name': checkpoint_name,
-        'timestamp': datetime.now(UTC).isoformat(),
-        'files_affected': files_affected,
-        'diffs': diffs
-    }
-
-    # Persist to database if manager provided
+    # If manager provided, use the new shadow git path
     if manager:
-        files_json = json.dumps(files_affected)
-        cursor = manager.conn.cursor()
+        # Get list of changed files from git status
+        import subprocess
 
-        # Calculate sequence number for task if task_id provided
-        sequence = None
-        if task_id:
-            cursor.execute("""
-                SELECT MAX(sequence) FROM code_snapshots WHERE task_id = ?
-            """, (task_id,))
-            max_seq = cursor.fetchone()[0]
-            sequence = (max_seq or 0) + 1
-            snapshot_data['sequence'] = sequence
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,  # No shell=True, it's a security risk
+        )
 
-        cursor.execute("""
-            INSERT INTO code_snapshots (plan_id, task_id, sequence, checkpoint_name, timestamp, git_ref, files_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (plan_id, task_id, sequence, checkpoint_name, snapshot_data['timestamp'], git_ref, files_json))
+        files_affected = []
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                # Status is first 2 chars, then space, then filename
+                filename = line[3:].strip()
+                # Handle renamed files (old -> new format)
+                if " -> " in filename:
+                    filename = filename.split(" -> ")[1]
+                files_affected.append(filename)
 
-        snapshot_id = cursor.lastrowid
+        # Use new shadow git method
+        snapshot_id, shadow_sha = manager.create_snapshot(
+            plan_id=plan_id,
+            checkpoint_name=checkpoint_name,
+            project_root=repo_root,
+            files_affected=files_affected,
+            task_id=task_id,
+        )
 
-        # Insert diffs
-        for diff_item in diffs:
-            cursor.execute("""
-                INSERT INTO code_diffs (snapshot_id, file_path, diff_text, added_lines, removed_lines)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                snapshot_id,
-                diff_item['file_path'],
-                diff_item['diff_text'],
-                diff_item['added_lines'],
-                diff_item['removed_lines']
-            ))
+        return {
+            "snapshot_id": snapshot_id,
+            "shadow_sha": shadow_sha,
+            "checkpoint_name": checkpoint_name,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "files_affected": files_affected,
+            "diffs": [],  # Diffs now retrieved on-demand from shadow git
+        }
 
-        manager.conn.commit()
-        snapshot_data['snapshot_id'] = snapshot_id
-
-    return snapshot_data
+    # No manager - return minimal snapshot data without persistence
+    return {
+        "checkpoint_name": checkpoint_name,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "files_affected": [],
+        "diffs": [],
+    }
 
 
 def load_snapshot(snapshot_id: int, manager) -> dict | None:
-    """
-    Load a snapshot from the database.
+    """DEPRECATED: Load a snapshot from the database.
+
+    Use PlanningManager.get_snapshot() instead.
 
     Args:
         snapshot_id: Snapshot ID to load
@@ -165,47 +120,18 @@ def load_snapshot(snapshot_id: int, manager) -> dict | None:
 
     Returns:
         Dict with snapshot data or None if not found
+
+    .. deprecated:: 1.6.5
+        Use :meth:`PlanningManager.get_snapshot` instead.
     """
-    cursor = manager.conn.cursor()
+    warnings.warn(
+        "load_snapshot() is deprecated. Use PlanningManager.get_snapshot() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
-    # Load snapshot metadata
-    cursor.execute("""
-        SELECT id, plan_id, task_id, sequence, checkpoint_name, timestamp, git_ref, files_json
-        FROM code_snapshots
-        WHERE id = ?
-    """, (snapshot_id,))
+    return manager.get_snapshot(snapshot_id)
 
-    row = cursor.fetchone()
-    if not row:
-        return None
 
-    snapshot_data = {
-        'snapshot_id': row[0],
-        'plan_id': row[1],
-        'task_id': row[2],
-        'sequence': row[3],
-        'checkpoint_name': row[4],
-        'timestamp': row[5],
-        'git_ref': row[6],
-        'files_affected': json.loads(row[7]) if row[7] else []
-    }
-
-    # Load diffs
-    cursor.execute("""
-        SELECT file_path, diff_text, added_lines, removed_lines
-        FROM code_diffs
-        WHERE snapshot_id = ?
-    """, (snapshot_id,))
-
-    diffs = []
-    for diff_row in cursor.fetchall():
-        diffs.append({
-            'file_path': diff_row[0],
-            'diff_text': diff_row[1],
-            'added_lines': diff_row[2],
-            'removed_lines': diff_row[3]
-        })
-
-    snapshot_data['diffs'] = diffs
-
-    return snapshot_data
+# Re-export ShadowRepoManager for direct access
+__all__ = ["create_snapshot", "load_snapshot", "ShadowRepoManager"]

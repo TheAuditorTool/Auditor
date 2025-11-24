@@ -167,7 +167,8 @@ CODE_SNAPSHOTS = TableSchema(
         Column("sequence", "INTEGER"),
         Column("checkpoint_name", "TEXT", nullable=False),
         Column("timestamp", "TEXT", nullable=False),
-        Column("git_ref", "TEXT"),
+        Column("git_ref", "TEXT"),  # DEPRECATED: User's git SHA (kept for migration)
+        Column("shadow_sha", "TEXT"),  # NEW: SHA in .pf/snapshots.git (pygit2)
         Column("files_json", "TEXT", default="'[]'"),
     ],
     indexes=[

@@ -5,17 +5,17 @@ This module manages planning.db operations following DatabaseManager pattern.
 ARCHITECTURE: Separate planning.db from repo_index.db
 - planning.db stores plans, tasks, specs, and code snapshots
 - repo_index.db remains unchanged (used for verification)
+- Shadow git repo (.pf/snapshots.git) for efficient snapshot storage
 - NO FALLBACKS. Hard failure if planning.db malformed or missing.
 """
-
 
 from pathlib import Path
 import sqlite3
 import json
-from typing import Dict, List, Optional
 from datetime import datetime, UTC
 
 from theauditor.indexer.schema import TABLES
+from .shadow_git import ShadowRepoManager
 
 
 class PlanningManager:
@@ -45,10 +45,14 @@ class PlanningManager:
         self.db_path = db_path
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row  # Enable dict-like access
+        self._ensure_schema_compliance()  # Self-healing migration
 
     @classmethod
     def init_database(cls, db_path: Path) -> "PlanningManager":
         """Create planning.db if it doesn't exist and initialize schema.
+
+        Also initializes shadow git repository (.pf/snapshots.git) for
+        efficient snapshot storage using pygit2.
 
         Args:
             db_path: Path to planning.db
@@ -66,6 +70,10 @@ class PlanningManager:
         manager.conn = sqlite3.connect(str(db_path))
         manager.conn.row_factory = sqlite3.Row
         manager.create_schema()
+
+        # Initialize shadow git repository for snapshots
+        ShadowRepoManager(db_path.parent)
+
         return manager
 
     def create_schema(self):
@@ -92,6 +100,26 @@ class PlanningManager:
                 cursor.execute(index_sql)
 
         self.conn.commit()
+
+    def _ensure_schema_compliance(self):
+        """Self-healing: Ensures the existing physical DB matches code expectations.
+
+        Run automatically in __init__. Handles schema migrations for existing
+        planning.db files when new columns are added.
+
+        This is NOT a fallback pattern - it's a forward migration that ensures
+        old databases work with new code. If migration fails, it fails hard.
+        """
+        cursor = self.conn.cursor()
+
+        # Get list of columns currently in code_snapshots table
+        cursor.execute("PRAGMA table_info(code_snapshots)")
+        existing_cols = {row['name'] for row in cursor.fetchall()}
+
+        # Migration: Add shadow_sha column if missing (v1.6.5+)
+        if 'shadow_sha' not in existing_cols:
+            cursor.execute("ALTER TABLE code_snapshots ADD COLUMN shadow_sha TEXT")
+            self.conn.commit()
 
     def create_plan(self, name: str, description: str = "", metadata: dict = None) -> int:
         """Create new plan and return plan ID.
@@ -240,16 +268,82 @@ class PlanningManager:
 
         return [dict(row) for row in cursor.fetchall()]
 
-    def create_snapshot(self, plan_id: int, checkpoint_name: str, task_id: int = None,
-                       git_ref: str = None, files_json: str = None) -> int:
-        """Create code snapshot for plan/task.
+    def create_snapshot(
+        self,
+        plan_id: int,
+        checkpoint_name: str,
+        project_root: Path,
+        files_affected: list[str],
+        task_id: int | None = None,
+    ) -> tuple[int, str]:
+        """Create code snapshot using shadow git repository.
+
+        Reads files from project_root, commits them to .pf/snapshots.git,
+        and stores metadata in SQLite. Uses atomic transaction for sequence
+        assignment to prevent race conditions.
 
         Args:
             plan_id: ID of plan
-            checkpoint_name: Name of checkpoint
-            task_id: Optional task ID
-            git_ref: Git commit SHA or branch name
-            files_json: JSON list of affected files
+            checkpoint_name: Name of checkpoint (e.g., "added-imports")
+            project_root: Root directory of user's project
+            files_affected: List of relative file paths to snapshot
+            task_id: Optional task ID for sequence tracking
+
+        Returns:
+            tuple: (snapshot_id, shadow_sha)
+                - snapshot_id: SQLite row ID
+                - shadow_sha: SHA-1 of commit in snapshots.git
+
+        NO FALLBACKS. Raises on any error.
+        """
+        # 1. Create snapshot in shadow git repo (efficient, binary-safe)
+        shadow = ShadowRepoManager(self.db_path.parent)
+        shadow_sha = shadow.create_snapshot(
+            project_root,
+            files_affected,
+            f"Snapshot: {checkpoint_name}",
+        )
+
+        # 2. Store metadata in SQLite with atomic sequence assignment
+        cursor = self.conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")  # Lock to prevent race condition
+
+        # Calculate sequence atomically within transaction
+        sequence = None
+        if task_id is not None:
+            cursor.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM code_snapshots WHERE task_id = ?",
+                (task_id,),
+            )
+            sequence = cursor.fetchone()[0]
+
+        timestamp = datetime.now(UTC).isoformat()
+        files_json = json.dumps(files_affected)
+
+        cursor.execute(
+            """INSERT INTO code_snapshots
+               (plan_id, task_id, sequence, checkpoint_name, timestamp, shadow_sha, files_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (plan_id, task_id, sequence, checkpoint_name, timestamp, shadow_sha, files_json),
+        )
+
+        snapshot_id = cursor.lastrowid
+        self.conn.commit()
+
+        return snapshot_id, shadow_sha
+
+    def create_snapshot_legacy(
+        self,
+        plan_id: int,
+        checkpoint_name: str,
+        task_id: int | None = None,
+        git_ref: str | None = None,
+        files_json: str | None = None,
+    ) -> int:
+        """DEPRECATED: Legacy snapshot creation without shadow git.
+
+        Use create_snapshot() instead for new code.
+        Kept for backward compatibility with existing callers.
 
         Returns:
             snapshot_id: ID of created snapshot
@@ -260,7 +354,7 @@ class PlanningManager:
                (plan_id, task_id, checkpoint_name, timestamp, git_ref, files_json)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (plan_id, task_id, checkpoint_name, datetime.now(UTC).isoformat(),
-             git_ref, files_json or "[]")
+             git_ref, files_json or "[]"),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -292,11 +386,14 @@ class PlanningManager:
     def get_snapshot(self, snapshot_id: int) -> dict | None:
         """Get snapshot by ID with associated diffs.
 
+        If snapshot has shadow_sha, retrieves diff from shadow git repo.
+        Otherwise falls back to legacy code_diffs table.
+
         Args:
             snapshot_id: ID of snapshot
 
         Returns:
-            dict with snapshot details and diffs list
+            dict with snapshot details and diffs/diff_text
         """
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM code_snapshots WHERE id = ?", (snapshot_id,))
@@ -305,12 +402,64 @@ class PlanningManager:
         if not snapshot:
             return None
 
-        cursor.execute("SELECT * FROM code_diffs WHERE snapshot_id = ?", (snapshot_id,))
-        diffs = [dict(row) for row in cursor.fetchall()]
-
         result = dict(snapshot)
-        result['diffs'] = diffs
+
+        # New path: Get diff from shadow git if available
+        shadow_sha = result.get('shadow_sha')
+        if shadow_sha:
+            result['diff_text'] = self.get_snapshot_diff(snapshot_id)
+            result['diffs'] = []  # No legacy diffs for shadow snapshots
+        else:
+            # Legacy path: Get diffs from code_diffs table
+            cursor.execute("SELECT * FROM code_diffs WHERE snapshot_id = ?", (snapshot_id,))
+            result['diffs'] = [dict(row) for row in cursor.fetchall()]
+
         return result
+
+    def get_snapshot_diff(self, snapshot_id: int) -> str:
+        """Get unified diff for a snapshot from shadow git repo.
+
+        Args:
+            snapshot_id: ID of snapshot
+
+        Returns:
+            str: Unified diff text (empty string if no changes)
+
+        Raises:
+            ValueError: If snapshot not found or has no shadow_sha
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT shadow_sha, task_id, sequence FROM code_snapshots WHERE id = ?",
+            (snapshot_id,),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            raise ValueError(f"Snapshot {snapshot_id} not found")
+
+        shadow_sha = row['shadow_sha']
+        if not shadow_sha:
+            raise ValueError(f"Snapshot {snapshot_id} has no shadow_sha (legacy snapshot)")
+
+        # Find previous snapshot's SHA for diff
+        task_id = row['task_id']
+        sequence = row['sequence']
+        old_sha = None
+
+        if task_id and sequence and sequence > 1:
+            cursor.execute(
+                """SELECT shadow_sha FROM code_snapshots
+                   WHERE task_id = ? AND sequence = ?""",
+                (task_id, sequence - 1),
+            )
+            prev_row = cursor.fetchone()
+            if prev_row:
+                old_sha = prev_row['shadow_sha']
+
+        # Get diff from shadow repo
+        shadow = ShadowRepoManager(self.db_path.parent)
+        return shadow.get_diff(old_sha, shadow_sha)
 
     def archive_plan(self, plan_id: int):
         """Archive plan (mark as archived).
