@@ -3,15 +3,19 @@
 # This template encodes the business logic spelled out in:
 #   Desktop/PlantFlow/frontrefact_issues.md (see sections 1-22)
 #
-# ⚠️  READ THIS BEFORE MODIFYING:
-#   • `match` = strings/idents we must eradicate (old product schema)
-#   • `expect` = strings/idents that must appear once the flow is migrated
-#   • `scope.include` uses glob paths relative to repo root
-#   • Copy this file per initiative and keep comments – other engineers
-#     copy/paste from here to author their own rules.
+# READ THIS BEFORE MODIFYING:
+#   - `match` = strings/idents we must eradicate (old product schema)
+#   - `expect` = strings/idents that must appear once the flow is migrated
+#   - `scope.include` uses glob paths relative to repo root
+#   - Copy this file per initiative and keep comments
+#
+# PATTERN SYNTAX:
+#   - Literal:  "product_id"       -> word-boundary match (won't match "old_product_id")
+#   - Regex:    "/.*\.product\.id/" -> catches x.product.id variations
+#   See templates_instructions.md Section 2 for full syntax reference.
 #
 # Running the check:
-#   aud refactor --file theauditor/refactor/examples/plantflow_variants_profile.yaml
+#   aud refactor --file theauditor/refactor/yaml_rules/profile.yaml
 # ------------------------------------------------------------
 
 refactor_name: "plantflow_frontend_variants"
@@ -125,14 +129,21 @@ rules:
   # --------------------------------------------------------
   # CreateOrder, POS, Receipts still write cartItem.product_id etc.
   # (Ref: frontrefact_issues.md:61-74, 123-133)
+  #
+  # NOTE: Uses regex patterns to catch variable name variations like
+  # item.product.id, cart.product.id, etc. Regex patterns are wrapped
+  # in forward slashes: /pattern/
   # --------------------------------------------------------
   - id: "order-pos-cart"
     description: "Ordering and POS flows must capture variant selections and prices"
     severity: "critical"
     match:
       identifiers:
-        - "cartItem.product_id"
-        - "orderItem.product_id"
+        # Regex: catches x.product.id variations (item.product.id, cart.product.id)
+        - "/.*\\.product\\.id/"
+        # Regex: catches .product_id property access
+        - "/\\.product_id/"
+        # Literal patterns for specific known violations
         - "receipt.product_name"
       expressions:
         - "product.unit_price"
