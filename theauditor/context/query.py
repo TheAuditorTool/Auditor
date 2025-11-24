@@ -717,6 +717,11 @@ class CodeQueryEngine:
             for ep in endpoints:
                 print(f"{ep['method']} {ep['path']} -> {ep['handler_function']}")
         """
+        # Defensive fix: Git Bash (MSYS/MinGW) converts "/orders" to
+        # "C:/Program Files/Git/orders" before Python sees it. Detect and strip.
+        if route_pattern.startswith("C:/Program Files/Git"):
+            route_pattern = route_pattern.replace("C:/Program Files/Git", "")
+
         cursor = self.repo_db.cursor()
 
         cursor.execute("""
