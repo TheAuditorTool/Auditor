@@ -244,13 +244,14 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
 
 
 def _get_structure(cursor) -> Dict:
-    """Get codebase structure facts."""
+    """Get codebase structure facts with meaningful categorization."""
     structure = {
         'total_files': 0,
         'total_symbols': 0,
         'by_directory': {},
         'by_language': {},
         'by_type': {},
+        'by_category': {},  # NEW: src/test/migrations/scripts/config breakdown
     }
 
     # Total counts
@@ -266,6 +267,7 @@ def _get_structure(cursor) -> Dict:
 
     dir_counts = defaultdict(int)
     lang_counts = defaultdict(int)
+    category_counts = defaultdict(int)
 
     for path in paths:
         parts = path.split('/')
@@ -278,8 +280,26 @@ def _get_structure(cursor) -> Dict:
         if ext:
             lang_counts[ext] += 1
 
+        # Categorize by purpose (helps understand what "225 files" means)
+        path_lower = path.lower()
+        if any(p in path_lower for p in ['test', 'spec', '__tests__']):
+            category_counts['test'] += 1
+        elif any(p in path_lower for p in ['migration', 'migrations', 'alembic']):
+            category_counts['migrations'] += 1
+        elif any(p in path_lower for p in ['seed', 'seeders', 'fixtures']):
+            category_counts['seeders'] += 1
+        elif any(p in path_lower for p in ['script', 'scripts', 'tools', 'bin']):
+            category_counts['scripts'] += 1
+        elif any(p in path_lower for p in ['config', 'settings', '.config']):
+            category_counts['config'] += 1
+        elif any(p in path_lower for p in ['src/', 'app/', 'lib/', 'pkg/', 'theauditor/']):
+            category_counts['source'] += 1
+        else:
+            category_counts['other'] += 1
+
     structure['by_directory'] = dict(dir_counts)
     structure['by_language'] = dict(lang_counts)
+    structure['by_category'] = dict(category_counts)
 
     # By symbol type
     try:
@@ -463,10 +483,17 @@ def _get_architectural_precedents(cursor) -> List[Dict]:
 
 
 def _get_hot_files(cursor) -> List[Dict]:
-    """Get most-called functions (call graph centrality)."""
+    """Get most-called functions (call graph centrality).
+
+    Filters out:
+    - Generic method names (up, down, render, constructor, etc.) that cause false matches
+    - Migration/seeder files that inflate call counts
+    - Test/spec files
+    """
     hot_files = []
 
-    # Exclude migrations/tests/node_modules
+    # Exact match on callee_function (not LIKE) to avoid false positives
+    # Also exclude generic lifecycle methods that exist everywhere
     cursor.execute("""
         SELECT
             s.path,
@@ -474,9 +501,13 @@ def _get_hot_files(cursor) -> List[Dict]:
             COUNT(DISTINCT fca.file) as caller_count,
             COUNT(fca.file) as total_calls
         FROM symbols s
-        JOIN function_call_args fca ON fca.callee_function LIKE '%' || s.name || '%'
+        JOIN function_call_args fca ON fca.callee_function = s.name
         WHERE s.type IN ('function', 'method')
+            AND s.name NOT IN ('up', 'down', 'render', 'constructor', 'toString',
+                               'init', 'run', 'execute', 'handle', 'process',
+                               'get', 'set', 'call', 'apply', 'bind')
             AND s.path NOT LIKE '%migration%'
+            AND s.path NOT LIKE '%/seeders/%'
             AND s.path NOT LIKE '%test%'
             AND s.path NOT LIKE '%spec%'
             AND s.path NOT LIKE '%node_modules%'
@@ -534,25 +565,37 @@ def _get_security_surface(cursor) -> Dict:
     except:
         pass
 
-    # SQL
+    # SQL - Exclude migrations/seeders (they use raw SQL legitimately)
     try:
-        cursor.execute("SELECT COUNT(*) FROM sql_queries")
+        cursor.execute("""
+            SELECT COUNT(*) FROM sql_queries
+            WHERE file NOT LIKE '%/migrations/%'
+              AND file NOT LIKE '%/seeders/%'
+              AND file NOT LIKE '%migration%'
+        """)
         security['sql_queries']['total'] = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) FROM sql_queries WHERE command != 'UNKNOWN'")
+        cursor.execute("""
+            SELECT COUNT(*) FROM sql_queries
+            WHERE command != 'UNKNOWN'
+              AND file NOT LIKE '%/migrations/%'
+              AND file NOT LIKE '%/seeders/%'
+              AND file NOT LIKE '%migration%'
+        """)
         security['sql_queries']['raw'] = cursor.fetchone()[0] or 0
     except:
         pass
 
-    # API endpoints
+    # API endpoints - Exclude middleware (USE method is infrastructure, not endpoint)
     try:
-        cursor.execute("SELECT COUNT(*) FROM api_endpoints")
+        cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method != 'USE'")
         security['api_endpoints']['total'] = cursor.fetchone()[0] or 0
 
         cursor.execute("""
             SELECT COUNT(*) FROM api_endpoints ae
             JOIN api_endpoint_controls aec
                 ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+            WHERE ae.method != 'USE'
         """)
         security['api_endpoints']['protected'] = cursor.fetchone()[0] or 0
         security['api_endpoints']['unprotected'] = security['api_endpoints']['total'] - security['api_endpoints']['protected']
@@ -683,6 +726,15 @@ def _show_top_level_overview(data: Dict):
 
     lines.append(f"  Total Files: {struct['total_files']:,}")
     lines.append(f"  Total Symbols: {struct['total_symbols']:,}")
+
+    # File categorization breakdown (helps understand what the numbers mean)
+    by_cat = struct.get('by_category', {})
+    if by_cat:
+        lines.append("  File Categories:")
+        cat_order = ['source', 'test', 'scripts', 'migrations', 'seeders', 'config', 'other']
+        for cat in cat_order:
+            if cat in by_cat and by_cat[cat] > 0:
+                lines.append(f"    {cat}: {by_cat[cat]:,}")
     lines.append("")
 
     # Hot Files
@@ -1010,7 +1062,7 @@ def _show_security_drilldown(data: Dict, cursor):
         click.echo(f"  Protected: {protected} ({protected_pct}%)")
         click.echo(f"  Unprotected: {unprotected} ({100-protected_pct}%) {'← SECURITY RISK' if unprotected > 0 else ''}")
 
-    # Show ACTUAL unprotected endpoints (top 10)
+    # Show ACTUAL unprotected endpoints (top 10) - excludes middleware (USE)
     if unprotected > 0:
         click.echo(f"\n  Unprotected Endpoints (showing first 10):")
         try:
@@ -1020,6 +1072,7 @@ def _show_security_drilldown(data: Dict, cursor):
                 LEFT JOIN api_endpoint_controls aec
                     ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
                 WHERE aec.endpoint_file IS NULL
+                  AND ae.method != 'USE'
                 LIMIT 10
             """)
             for i, row in enumerate(cursor.fetchall(), 1):
