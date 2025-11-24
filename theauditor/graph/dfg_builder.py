@@ -9,45 +9,24 @@ Architecture:
 - Reads from normalized junction tables (assignment_sources, function_return_sources)
 - Returns same format as builder.py (dataclass -> asdict)
 - Zero tolerance for missing data - hard fail exposes bugs
+- Strategy Pattern: Language-specific logic delegated to strategies/
 """
 
 
 import sqlite3
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Set, Optional
+from typing import Any
 from collections import defaultdict
 
 import click
 
-# Phase 3: ORM Awakening - Python ORM relationship expansion
-from theauditor.taint.orm_utils import PythonOrmContext
+# Shared types (extracted to prevent circular imports with strategies)
+from .types import DFGNode, DFGEdge, create_bidirectional_edges
 
-
-@dataclass
-class DFGNode:
-    """Represents a variable in the data flow graph."""
-
-    id: str  # Format: "file::variable" or "file::function::variable"
-    file: str
-    variable_name: str
-    scope: str  # function name or "global"
-    type: str = "variable"  # variable, parameter, return_value
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class DFGEdge:
-    """Represents a data flow edge in the graph."""
-
-    source: str  # Source variable ID
-    target: str  # Target variable ID
-    file: str  # File containing this edge (moved before defaults)
-    line: int  # Line number (moved before defaults)
-    type: str = "assignment"  # assignment, return, parameter
-    expression: str = ""  # The assignment expression
-    function: str = ""  # Function context
-    metadata: dict[str, Any] = field(default_factory=dict)
+# Strategy Pattern: Language-specific logic delegated to strategies
+from .strategies.python_orm import PythonOrmStrategy
+from .strategies.node_express import NodeExpressStrategy
 
 
 class DFGBuilder:
@@ -68,59 +47,12 @@ class DFGBuilder:
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
 
-    def _create_bidirectional_edges(self, source: str, target: str, edge_type: str,
-                                   file: str, line: int, expression: str,
-                                   function: str, metadata: dict[str, Any] = None) -> list[DFGEdge]:
-        """
-        Helper to create both a FORWARD edge and a REVERSE edge.
-
-        Forward: Source -> Target (type)
-        Reverse: Target -> Source (type_reverse)
-
-        This enables backward traversal algorithms (IFDS) to navigate the graph
-        by querying outgoing edges from a sink.
-
-        Args:
-            source: Source node ID
-            target: Target node ID
-            edge_type: Type of edge (assignment, return, etc.)
-            file: File containing this edge
-            line: Line number
-            expression: Expression for this edge
-            function: Function context
-            metadata: Additional metadata dict
-
-        Returns:
-            List containing both forward and reverse edges
-        """
-        if metadata is None:
-            metadata = {}
-
-        edges = []
-
-        # 1. Forward Edge (Standard)
-        forward = DFGEdge(
-            source=source, target=target, type=edge_type,
-            file=file, line=line, expression=expression,
-            function=function, metadata=metadata
-        )
-        edges.append(forward)
-
-        # 2. Reverse Edge (Back-pointer)
-        reverse_meta = metadata.copy()
-        reverse_meta['is_reverse'] = True
-        reverse_meta['original_type'] = edge_type
-
-        reverse = DFGEdge(
-            source=target, target=source,  # Swapped
-            type=f"{edge_type}_reverse",
-            file=file, line=line,
-            expression=f"REV: {expression[:190]}" if expression else "REVERSE",
-            function=function, metadata=reverse_meta
-        )
-        edges.append(reverse)
-
-        return edges
+        # Strategy Pattern: Language-specific builders
+        # Add new strategies here when supporting new languages (Rust, Go, etc.)
+        self.strategies = [
+            PythonOrmStrategy(),
+            NodeExpressStrategy(),
+        ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build data flow graph from variable assignments.
@@ -224,7 +156,7 @@ class DFGBuilder:
                     nodes[source_id].metadata["usage_count"] = nodes[source_id].metadata.get("usage_count", 0) + 1
 
                     # Create edge: source_var -> target_var
-                    new_edges = self._create_bidirectional_edges(
+                    new_edges = create_bidirectional_edges(
                         source=source_id, target=target_id, edge_type="assignment",
                         file=file, line=line,
                         expression=source_expr[:200] if source_expr else "",
@@ -340,7 +272,7 @@ class DFGBuilder:
                         )
 
                     # Create edge: variable -> return_value
-                    new_edges = self._create_bidirectional_edges(
+                    new_edges = create_bidirectional_edges(
                         source=var_id, target=return_id, edge_type="return",
                         file=file, line=line,
                         expression=return_expr[:200] if return_expr else "",
@@ -485,7 +417,7 @@ class DFGBuilder:
                     )
 
                 # Create parameter binding edge: argument -> parameter
-                new_edges = self._create_bidirectional_edges(
+                new_edges = create_bidirectional_edges(
                     source=source_id, target=target_id, edge_type="parameter_binding",
                     file=caller_file, line=line,
                     expression=f"{callee_function}({argument_expr})",
@@ -546,11 +478,11 @@ class DFGBuilder:
             'skipped_no_match': 0
         }
 
-        # [FIX] SOFT MATCHING: Decouple fetch and match in memory
-        # SQL JOIN is too rigid for modern apps (template literals, config constants, variables)
-        # Strategy: Fetch separately, match using suffix logic (BASE_URL + '/api/users' matches '/api/users')
+        # [FIX 2024-11] VECTORIZED MATCHING: O(1) exact + O(M) suffix with early break
+        # Previous: O(N*M) nested loops for exact AND suffix matching
+        # Now: Dict lookup for exact, pre-sorted list for suffix (longest paths first)
 
-        # Step 1: Build backend endpoint lookup organized by HTTP method
+        # Step 1: Build backend endpoint indexes
         print("[DFG Builder] Loading backend API endpoints...")
         cursor.execute("""
             SELECT file, method, full_path, handler_function
@@ -560,16 +492,27 @@ class DFGBuilder:
               AND method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
         """)
 
-        backend_routes = defaultdict(list)
+        # Two indexes for O(1) exact match + efficient suffix match
+        exact_lookup: dict[tuple[str, str], dict] = {}  # (method, path) -> route
+        suffix_candidates: dict[str, list[dict]] = defaultdict(list)  # method -> [routes sorted by len DESC]
+
         for row in cursor.fetchall():
-            # Strip trailing slashes - "/users/" and "/users" are the same API
             clean_path = row['full_path'].rstrip('/')
-            backend_routes[row['method']].append({
+            route = {
                 'path': clean_path,
                 'file': row['file'],
                 'handler_function': row['handler_function'],
-                'full_path': row['full_path']  # Keep original for metadata
-            })
+                'full_path': row['full_path']
+            }
+            # Exact lookup index
+            exact_lookup[(row['method'], clean_path)] = route
+            # Suffix candidates (will sort after)
+            suffix_candidates[row['method']].append(route)
+
+        # Pre-sort suffix candidates by path length DESC (longest/most specific first)
+        # This ensures we match /api/users/profile before /api/users
+        for method in suffix_candidates:
+            suffix_candidates[method].sort(key=lambda r: len(r['path']), reverse=True)
 
         # Step 2: Fetch frontend API calls (no JOIN constraint)
         print("[DFG Builder] Loading frontend API calls...")
@@ -607,36 +550,28 @@ class DFGBuilder:
                     stats['skipped_no_body'] += 1
                     continue
 
-                # Get backend candidates for this HTTP method (optimization)
-                candidates = backend_routes.get(method, [])
-                if not candidates:
-                    stats['skipped_no_match'] += 1
-                    continue
-
                 # Clean frontend URL (strip trailing slash)
                 clean_frontend_url = frontend_url.rstrip('/')
 
-                # Attempt 1: Exact Match (Ideal)
-                backend_match = None
+                # [FIX 2024-11] VECTORIZED LOOKUP
+                # Attempt 1: O(1) Exact Match via dict lookup
+                backend_match = exact_lookup.get((method, clean_frontend_url))
                 match_type = None
-                for route in candidates:
-                    if route['path'] == clean_frontend_url:
-                        backend_match = route
-                        match_type = "exact"
-                        stats['exact_matches'] += 1
-                        break
 
-                # Attempt 2: Suffix Match (The Fix for template literals/constants)
-                # Example: frontend="https://api.example.com/api/users" matches backend="/api/users"
-                if not backend_match:
+                if backend_match:
+                    match_type = "exact"
+                    stats['exact_matches'] += 1
+                else:
+                    # Attempt 2: Suffix Match (pre-sorted by length DESC for most specific first)
+                    # Example: frontend="https://api.example.com/api/users" matches backend="/api/users"
+                    candidates = suffix_candidates.get(method, [])
                     for route in candidates:
                         # SAFETY CHECK: Don't match root "/" against everything
-                        # Only suffix match if the route is specific (length > 1)
                         if len(route['path']) > 1 and clean_frontend_url.endswith(route['path']):
                             backend_match = route
                             match_type = "suffix"
                             stats['suffix_matches'] += 1
-                            break
+                            break  # First match is most specific due to pre-sorting
 
                 # Skip if no match found
                 if not backend_match:
@@ -739,7 +674,7 @@ class DFGBuilder:
                     )
 
                 # Create cross-boundary edge
-                new_edges = self._create_bidirectional_edges(
+                new_edges = create_bidirectional_edges(
                     source=source_id, target=target_id, edge_type="cross_boundary",
                     file=fe_file, line=fe_line,
                     expression=f"{method} {frontend_url}",
@@ -771,533 +706,26 @@ class DFGBuilder:
             }
         }
 
-    def build_express_middleware_edges(self, root: str = ".") -> dict[str, Any]:
-        """Build edges connecting Express middleware chains.
-
-        Creates edges showing data flow through middleware execution order.
-        For a route with validateBody -> authenticate -> controller,
-        creates edges showing req.body flows through the chain.
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata
-        """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
-
-        stats = {
-            'total_routes': 0,
-            'total_middleware': 0,
-            'edges_created': 0,
-            'unique_nodes': 0
-        }
-
-        # Query middleware chains ordered by file, route and execution order
-        cursor.execute("""
-            SELECT file, route_path, route_method, execution_order,
-                   handler_expr, handler_type, handler_function
-            FROM express_middleware_chains
-            WHERE handler_type IN ('middleware', 'controller')
-            ORDER BY file, route_path, route_method, execution_order
-        """)
-
-        # FIX: Group by route only, ignoring file to allow middleware imported from other files
-        # This allows validate.ts middleware to connect to controller.ts handlers
-        routes: dict[str, list] = defaultdict(list)
-        for row in cursor.fetchall():
-            # Group by route only - allows cross-file middleware chains
-            key = f"{row['route_method']} {row['route_path']}"
-            routes[key].append(row)
-            stats['total_middleware'] += 1
-
-        stats['total_routes'] = len(routes)
-
-        with click.progressbar(
-            routes.items(),
-            label="Building middleware chain edges",
-            show_pos=True,
-            show_percent=True,
-            item_show_func=lambda x: x[0] if x else None
-        ) as route_items:
-            for route_key, handlers in route_items:
-                if len(handlers) < 2:
-                    continue  # Need at least 2 handlers to create edges
-
-                # Create edges between consecutive handlers in the chain
-                for i in range(len(handlers) - 1):
-                    curr_handler = handlers[i]
-                    next_handler = handlers[i + 1]
-
-                    # Skip if current handler is a controller (controllers are endpoints, not middleware)
-                    # Controllers don't pass control to the next handler
-                    if curr_handler['handler_type'] == 'controller':
-                        continue
-
-                    # Extract handler identifiers
-                    curr_func = curr_handler['handler_function'] or curr_handler['handler_expr']
-                    next_func = next_handler['handler_function'] or next_handler['handler_expr']
-
-                    if not curr_func or not next_func:
-                        continue
-
-                    # Middleware typically passes req object through the chain
-                    # Create edges for req, req.body, req.params, req.query
-                    for req_field in ['req', 'req.body', 'req.params', 'req.query']:
-                        # Source node (current handler output)
-                        source_id = f"{curr_handler['file']}::{curr_func}::{req_field}"
-                        if source_id not in nodes:
-                            nodes[source_id] = DFGNode(
-                                id=source_id,
-                                file=curr_handler['file'],
-                                variable_name=req_field,
-                                scope=curr_func,
-                                type="variable",
-                                metadata={"is_middleware": True}
-                            )
-
-                        # Target node (next handler input)
-                        target_id = f"{next_handler['file']}::{next_func}::{req_field}"
-                        if target_id not in nodes:
-                            nodes[target_id] = DFGNode(
-                                id=target_id,
-                                file=next_handler['file'],
-                                variable_name=req_field,
-                                scope=next_func,
-                                type="parameter",
-                                metadata={"is_middleware": True}
-                            )
-
-                        # Create middleware chain edge
-                        new_edges = self._create_bidirectional_edges(
-                            source=source_id, target=target_id, edge_type="express_middleware_chain",
-                            file=curr_handler['file'], line=0,
-                            expression=f"{curr_func} -> {next_func}",
-                            function=curr_func,
-                            metadata={
-                                "route": route_key,
-                                "execution_order": curr_handler['execution_order'],
-                                "next_order": next_handler['execution_order']
-                            }
-                        )
-                        edges.extend(new_edges)
-                        stats['edges_created'] += len(new_edges)
-
-        conn.close()
-
-        stats['unique_nodes'] = len(nodes)
-
-        return {
-            "nodes": [asdict(node) for node in nodes.values()],
-            "edges": [asdict(edge) for edge in edges],
-            "metadata": {
-                "root": str(Path(root).resolve()),
-                "graph_type": "express_middleware",
-                "stats": stats
-            }
-        }
-
-    def _parse_argument_variable(self, arg_expr: str) -> str | None:
-        """Extract variable identifier or semantic placeholder from argument.
-
-        Universal Adapter Logic:
-        - Simple vars: Return exact name ("userInput", "req.body")
-        - Wrapped calls: Unwrap if simple ("validate(data)" -> "data")
-        - Complex structures: Return semantic placeholder ("function_expression", "object_literal")
-        - Literals: Return placeholder ("string_literal")
-
-        This ensures GRAPH CONNECTIVITY is never broken, even if the exact
-        variable name inside a complex expression is ambiguous.
-        """
-        if not arg_expr or not isinstance(arg_expr, str):
-            return None
-
-        arg_expr = arg_expr.strip()
-        if not arg_expr:
-            return None
-
-        # 1. Async/Arrow Functions (Fixes 102 missing asyncHandler edges)
-        # We return a placeholder so the edge is CREATED.
-        if arg_expr.startswith('async') or '=>' in arg_expr:
-            return "function_expression"
-
-        # 2. Object Literals (Fixes 1,921 missing config/options edges)
-        if arg_expr.startswith('{') and arg_expr.endswith('}'):
-            return "object_literal"
-
-        # 3. Array Literals (Fixes 273 missing edges)
-        if arg_expr.startswith('[') and arg_expr.endswith(']'):
-            return "array_literal"
-
-        # 4. Wrapped Calls (Fixes 220 missing validation edges)
-        # Try to unwrap simple wrappers like validate(data) -> data
-        if '(' in arg_expr and arg_expr.endswith(')'):
-            start = arg_expr.find('(') + 1
-            end = arg_expr.rfind(')')
-            inner = arg_expr[start:end].strip()
-
-            # If inner looks like a clean variable/property, use it
-            # Allow dots, underscores, $, question marks (optional chaining)
-            if inner and all(c.isalnum() or c in '._$?' for c in inner):
-                return inner
-
-            # If complex inside (e.g. nested calls), fall back to placeholder
-            # BUT KEEP THE EDGE.
-            return "complex_expression"
-
-        # 5. String Literals (Fixes 2,457 missing edges)
-        # Usually not taint sources, but required for graph continuity
-        if arg_expr[0] in '"\'`':
-            return "string_literal"
-
-        # 6. Non-null assertions (Fixes 52 missing edges)
-        # "userId!" -> "userId"
-        if arg_expr.endswith('!'):
-            return arg_expr[:-1]
-
-        # 7. Fallback: Return the expression itself (cleaned)
-        # This catches "prefix + path", "data[index]", etc.
-        # We split by space/operators to get the primary token
-        clean_expr = arg_expr.split(' ')[0]
-
-        # Final safety check: if it creates a valid SQL/Graph ID, return it
-        return clean_expr
-
-    def build_controller_implementation_edges(self, root: str = ".") -> dict[str, Any]:
-        """Build edges connecting route handlers to controller implementations.
-
-        This bridges the gap between Express route handlers and their actual
-        controller method implementations by:
-        1. Finding handler expressions like 'handler(controller.create)'
-        2. Resolving controller imports to actual file paths
-        3. Finding controller methods in symbols table
-        4. Creating edges from handlers to implementations
-
-        Args:
-            root: Project root directory
-
-        Returns:
-            Graph with controller implementation edges
-        """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        nodes = {}
-        edges = []
-
-        stats = {
-            'handlers_processed': 0,
-            'controllers_resolved': 0,
-            'edges_created': 0,
-            'failed_resolutions': 0
-        }
-
-        # [FIX] BATCH LOADING: Pre-load ALL import_styles and symbols ONCE
-        # This prevents N+1 query problem (100 handlers = 201 queries → 3 queries total)
-        print("[DFG Builder] Pre-loading import_styles and symbols for controller resolution...")
-
-        # Step 1: Load all import_styles into memory (O(1) lookup)
-        import_styles_map = defaultdict(dict)  # {file: {alias_name: package}}
-        cursor.execute("SELECT file, package, alias_name FROM import_styles")
-        for row in cursor.fetchall():
-            import_styles_map[row['file']][row['alias_name']] = row['package']
-
-        # Step 2: Load all symbols into memory (O(1) lookup)
-        symbols_by_name = defaultdict(list)  # {name: [{path, name, type}, ...]}
-        cursor.execute("""
-            SELECT path, name, type
-            FROM symbols
-            WHERE type IN ('function', 'class')
-        """)
-        for row in cursor.fetchall():
-            symbols_by_name[row['name']].append({
-                'path': row['path'],
-                'name': row['name'],
-                'type': row['type']
-            })
-
-        # Step 3: Get all controller handlers from express_middleware_chains
-        cursor.execute("""
-            SELECT DISTINCT
-                file,
-                route_path,
-                route_method,
-                handler_expr
-            FROM express_middleware_chains
-            WHERE handler_type = 'controller'
-              AND handler_expr IS NOT NULL
-        """)
-
-        handlers = cursor.fetchall()
-        stats['handlers_processed'] = len(handlers)
-
-        for handler in handlers:
-            route_file = handler['file']
-            handler_expr = handler['handler_expr']
-
-            # Parse the handler expression to extract object and method
-            object_name = None
-            method_name = None
-
-            # Pattern 1: handler(controller.method) or fileHandler(controller.method)
-            if '(' in handler_expr and ')' in handler_expr:
-                # Extract content between parentheses
-                start = handler_expr.index('(') + 1
-                end = handler_expr.rindex(')')
-                inner = handler_expr[start:end]
-
-                if '.' in inner:
-                    object_name, method_name = inner.split('.', 1)
-
-            # Pattern 2: controller.method (direct reference)
-            elif '.' in handler_expr:
-                object_name, method_name = handler_expr.split('.', 1)
-
-            # Pattern 3: Single identifiers like 'userId' - skip these
-            else:
-                continue
-
-            if not object_name or not method_name:
-                continue
-
-            # [FIX] O(1) lookup instead of SQL query
-            # Find the imported package/path for the controller object
-            import_package = import_styles_map.get(route_file, {}).get(object_name)
-
-            if not import_package:
-                stats['failed_resolutions'] += 1
-                continue
-
-            # [FIX] O(1) lookup instead of SQL query
-            # Find the controller file and class/method name from symbols
-            # Try to find: method_name OR object_name.method_name
-            symbol_result = None
-
-            # Search for method_name in symbols (exact match)
-            if method_name in symbols_by_name:
-                candidates = symbols_by_name[method_name]
-                # Prefer controller files
-                for sym in candidates:
-                    if 'controller' in sym['path'].lower():
-                        symbol_result = sym
-                        break
-                # Fallback to first match
-                if not symbol_result and candidates:
-                    symbol_result = candidates[0]
-
-            # Search for Class.method pattern
-            if not symbol_result:
-                full_name = f"{object_name}.{method_name}"
-                if full_name in symbols_by_name:
-                    candidates = symbols_by_name[full_name]
-                    if candidates:
-                        symbol_result = candidates[0]
-
-            if not symbol_result:
-                stats['failed_resolutions'] += 1
-                continue
-
-            resolved_path = symbol_result['path']
-            symbol_name = symbol_result['name']
-
-            # Determine full method name (e.g., Class.method or just method)
-            if symbol_name == method_name:
-                full_method_name = method_name
-            elif '.' in symbol_name:
-                 # This is likely the class name, append the method
-                 full_method_name = f"{symbol_name}.{method_name}"
-            else:
-                # Fallback
-                full_method_name = f"{symbol_name}.{method_name}"
-
-            # [FIX] O(1) validation check instead of SQL query
-            # Check if the full method name actually exists in symbols
-            method_exists = False
-            if full_method_name in symbols_by_name:
-                for sym in symbols_by_name[full_method_name]:
-                    if sym['path'] == resolved_path and sym['type'] == 'function':
-                        method_exists = True
-                        break
-
-            if not method_exists:
-                if symbol_name == method_name:
-                    # It was a direct function export - already validated above
-                    method_exists = True
-                else:
-                    stats['failed_resolutions'] += 1
-                    continue  # Method not found in class
-
-            stats['controllers_resolved'] += 1
-
-            # Create nodes and edges for all variable suffixes
-            for suffix in ['req', 'req.body', 'req.params', 'req.query', 'res']:
-                # Source node (handler in route)
-                source_id = f"{route_file}::{handler_expr}::{suffix}"
-                if source_id not in nodes:
-                    nodes[source_id] = DFGNode(
-                        id=source_id,
-                        file=route_file,
-                        variable_name=suffix,
-                        scope=handler_expr,
-                        type="parameter",
-                        metadata={"handler": True}
-                    )
-
-                # Target node (controller method)
-                target_id = f"{resolved_path}::{full_method_name}::{suffix}"
-                if target_id not in nodes:
-                    nodes[target_id] = DFGNode(
-                        id=target_id,
-                        file=resolved_path,
-                        variable_name=suffix,
-                        scope=full_method_name,
-                        type="parameter",
-                        metadata={"controller": True}
-                    )
-
-                # Create edge
-                new_edges = self._create_bidirectional_edges(
-                    source=source_id, target=target_id, edge_type="controller_implementation",
-                    file=route_file, line=0,
-                    expression=f"{handler_expr} -> {full_method_name}",
-                    function=handler_expr,
-                    metadata={
-                        "route_path": handler['route_path'],
-                        "route_method": handler['route_method']
-                    }
-                )
-                edges.extend(new_edges)
-                stats['edges_created'] += len(new_edges)
-
-        conn.close()
-
-        return {
-            "nodes": [asdict(node) for node in nodes.values()],
-            "edges": [asdict(edge) for edge in edges],
-            "metadata": {
-                "type": "controller_implementation_flow",
-                "root": root,
-                "stats": stats
-            }
-        }
-
-
-    def build_python_orm_edges(self, root: str = ".") -> dict[str, Any]:
-        """Build edges for Python ORM relationships (User -> user.posts).
-
-        Phase 3: ORM Awakening - Uses orm_utils to expand the graph based on
-        model definitions. This enables taint tracking through ORM relationships.
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata for ORM expansions
-        """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
-
-        stats = {'orm_expansions': 0, 'edges_created': 0}
-
-        # 1. Initialize the Context from DB
-        try:
-            orm_context = PythonOrmContext.from_database(cursor)
-            if not orm_context.enabled:
-                conn.close()
-                return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
-        except Exception as e:
-            print(f"[DFG Builder] ORM Context init failed: {e}")
-            conn.close()
-            return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
-
-        # 2. Find all variable nodes that might be ORM models
-        cursor.execute("""
-            SELECT file, target_var, in_function
-            FROM assignments
-            WHERE target_var IS NOT NULL
-        """)
-
-        potential_models = cursor.fetchall()
-
-        with click.progressbar(
-            potential_models,
-            label="Building Python ORM edges",
-            show_pos=True
-        ) as items:
-            for row in items:
-                file = row['file']
-                var_name = row['target_var']
-                func = row['in_function'] or 'global'
-
-                # 3. Ask orm_utils: "Is this variable an ORM Model?"
-                model_name = orm_context.get_model_for_variable(
-                    file, [func], var_name
-                )
-
-                if not model_name:
-                    continue
-
-                # 4. Expand Relationships (user -> user.posts)
-                rels = orm_context.get_relationships(model_name)
-                fk_fields = orm_context.get_fk_fields(model_name)
-
-                if not rels and not fk_fields:
-                    continue
-
-                stats['orm_expansions'] += 1
-
-                source_id = f"{file}::{func}::{var_name}"
-
-                # Create expansion edges for relationships
-                for rel in rels:
-                    alias = rel['alias']
-                    target_var = f"{var_name}.{alias}"
-                    target_id = f"{file}::{func}::{target_var}"
-
-                    # Ensure target node exists
-                    if target_id not in nodes:
-                        nodes[target_id] = DFGNode(
-                            id=target_id, file=file, variable_name=target_var,
-                            scope=func, type="orm_expansion",
-                            metadata={"model": model_name, "relation": alias}
-                        )
-
-                    # Link them
-                    new_edges = self._create_bidirectional_edges(
-                        source=source_id, target=target_id, edge_type="orm_expansion",
-                        file=file, line=0, expression=f"ORM: {model_name}.{alias}",
-                        function=func
-                    )
-                    edges.extend(new_edges)
-                    stats['edges_created'] += len(new_edges)
-
-        conn.close()
-        return {
-            "nodes": [asdict(node) for node in nodes.values()],
-            "edges": [asdict(edge) for edge in edges],
-            "metadata": {"graph_type": "python_orm", "stats": stats}
-        }
+    # ==========================================================================
+    # NOTE: Language-specific methods moved to strategies/ (Phase 3 refactoring):
+    # - build_express_middleware_edges -> strategies/node_express.py
+    # - build_controller_implementation_edges -> strategies/node_express.py
+    # - build_python_orm_edges -> strategies/python_orm.py
+    # ==========================================================================
 
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types.
+
+        Architecture (Strategy Pattern):
+        - Core builders: Assignment, Return, Parameter, Cross-boundary (always run)
+        - Strategies: Language-specific logic (Express, ORM, etc.) - pluggable
 
         Includes:
         - Assignment edges (x = y)
         - Return edges (return x)
         - Parameter binding edges (func(x) -> param)
         - Cross-boundary edges (frontend -> backend API)
-        - Express middleware edges (chain execution order)
-        - Python ORM edges (model relationships)
+        - Strategy edges (Express middleware, Python ORM, etc.)
 
         Args:
             root: Project root directory
@@ -1305,7 +733,9 @@ class DFGBuilder:
         Returns:
             Combined graph with all data flow edges (complete provenance)
         """
-        # Build all graph types
+        # =================================================================
+        # CORE BUILDERS (Always run - language agnostic)
+        # =================================================================
         print("Building assignment flow graph...")
         assignment_graph = self.build_assignment_flow_graph(root)
 
@@ -1318,32 +748,39 @@ class DFGBuilder:
         print("Building cross-boundary API edges...")
         cross_boundary_graph = self.build_cross_boundary_edges(root)
 
-        print("Building Express middleware chain edges...")
-        middleware_graph = self.build_express_middleware_edges(root)
+        # Collect core graphs
+        core_graphs = [assignment_graph, return_graph, parameter_graph, cross_boundary_graph]
 
-        print("Building controller implementation edges...")
-        controller_impl_graph = self.build_controller_implementation_edges(root)
+        # =================================================================
+        # STRATEGY PATTERN: Language-specific builders (pluggable)
+        # =================================================================
+        strategy_graphs = []
+        strategy_stats = {}
 
-        # Phase 3: ORM Awakening
-        print("Building Python ORM edges...")
-        orm_graph = self.build_python_orm_edges(root)
+        for strategy in self.strategies:
+            print(f"Running strategy: {strategy.name}...")
+            try:
+                result = strategy.build(str(self.db_path), root)
+                strategy_graphs.append(result)
+                strategy_stats[strategy.name] = result.get("metadata", {}).get("stats", {})
+            except Exception as e:
+                # Don't crash entire build if one strategy fails
+                print(f"  WARNING: Strategy {strategy.name} failed: {e}")
+                strategy_stats[strategy.name] = {"error": str(e)}
 
+        # =================================================================
+        # MERGE ALL RESULTS
+        # =================================================================
         # Merge nodes (dedup by id)
         nodes = {}
-        for graph in [assignment_graph, return_graph, parameter_graph,
-                      cross_boundary_graph, middleware_graph, controller_impl_graph,
-                      orm_graph]:
-            for node in graph["nodes"]:
+        for graph in core_graphs + strategy_graphs:
+            for node in graph.get("nodes", []):
                 nodes[node["id"]] = node
 
         # Combine edges
-        edges = (assignment_graph["edges"] +
-                return_graph["edges"] +
-                parameter_graph["edges"] +
-                cross_boundary_graph["edges"] +
-                middleware_graph["edges"] +
-                controller_impl_graph["edges"] +
-                orm_graph["edges"])
+        edges = []
+        for graph in core_graphs + strategy_graphs:
+            edges.extend(graph.get("edges", []))
 
         # Merge stats
         stats = {
@@ -1351,11 +788,9 @@ class DFGBuilder:
             "return_stats": return_graph["metadata"]["stats"],
             "parameter_stats": parameter_graph["metadata"]["stats"],
             "cross_boundary_stats": cross_boundary_graph["metadata"]["stats"],
-            "middleware_stats": middleware_graph["metadata"]["stats"],
-            "controller_implementation_stats": controller_impl_graph["metadata"]["stats"],
-            "orm_stats": orm_graph["metadata"]["stats"],
+            "strategy_stats": strategy_stats,
             "total_nodes": len(nodes),
-            "total_edges": len(edges)
+            "total_edges": len(edges),
         }
 
         print(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
@@ -1366,8 +801,8 @@ class DFGBuilder:
             "metadata": {
                 "root": str(Path(root).resolve()),
                 "graph_type": "unified_data_flow",
-                "stats": stats
-            }
+                "stats": stats,
+            },
         }
 
     def get_data_dependencies(self, file: str, variable: str,
@@ -1443,3 +878,71 @@ class DFGBuilder:
             "dependencies": list(dependencies),
             "dependency_count": len(dependencies)
         }
+
+    def _parse_argument_variable(self, arg_expr: str) -> str | None:
+        """Parse an argument expression to extract the variable name.
+
+        Handles various expression types:
+        - Simple variables: "data" -> "data"
+        - Property access: "obj.prop" -> "obj.prop"
+        - Function calls: "validate(data)" -> "data" (unwrap)
+        - Async/Arrow functions: "async () => {}" -> "function_expression"
+        - Object literals: "{a: 1}" -> "object_literal"
+        - Array literals: "[1, 2]" -> "array_literal"
+        - String literals: "'hello'" -> "string_literal"
+
+        Args:
+            arg_expr: The argument expression string
+
+        Returns:
+            Variable name or placeholder, None if unparseable
+        """
+        if not arg_expr:
+            return None
+
+        # 1. Async/Arrow Functions (Fixes 102 missing asyncHandler edges)
+        # We return a placeholder so the edge is CREATED.
+        if arg_expr.startswith('async') or '=>' in arg_expr:
+            return "function_expression"
+
+        # 2. Object Literals (Fixes 1,921 missing config/options edges)
+        if arg_expr.startswith('{') and arg_expr.endswith('}'):
+            return "object_literal"
+
+        # 3. Array Literals (Fixes 273 missing edges)
+        if arg_expr.startswith('[') and arg_expr.endswith(']'):
+            return "array_literal"
+
+        # 4. Wrapped Calls (Fixes 220 missing validation edges)
+        # Try to unwrap simple wrappers like validate(data) -> data
+        if '(' in arg_expr and arg_expr.endswith(')'):
+            start = arg_expr.find('(') + 1
+            end = arg_expr.rfind(')')
+            inner = arg_expr[start:end].strip()
+
+            # If inner looks like a clean variable/property, use it
+            # Allow dots, underscores, $, question marks (optional chaining)
+            if inner and all(c.isalnum() or c in '._$?' for c in inner):
+                return inner
+
+            # If complex inside (e.g. nested calls), fall back to placeholder
+            # BUT KEEP THE EDGE.
+            return "complex_expression"
+
+        # 5. String Literals (Fixes 2,457 missing edges)
+        # Usually not taint sources, but required for graph continuity
+        if arg_expr[0] in '"\'`':
+            return "string_literal"
+
+        # 6. Non-null assertions (Fixes 52 missing edges)
+        # "userId!" -> "userId"
+        if arg_expr.endswith('!'):
+            return arg_expr[:-1]
+
+        # 7. Fallback: Return the expression itself (cleaned)
+        # This catches "prefix + path", "data[index]", etc.
+        # We split by space/operators to get the primary token
+        clean_expr = arg_expr.split(' ')[0]
+
+        # Final safety check: if it creates a valid SQL/Graph ID, return it
+        return clean_expr
