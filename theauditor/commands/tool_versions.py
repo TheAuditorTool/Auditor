@@ -66,7 +66,7 @@ def tool_versions(out_dir):
         "python": "3.11.4",
         "pylint": "2.17.4",
         "eslint": "8.43.0",
-        "theauditor": "1.3.0-RC1",
+        "theauditor": "1.6.4-dev1",
         "detected_at": "2025-10-26T15:30:00Z"
       }
 
