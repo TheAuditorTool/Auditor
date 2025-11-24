@@ -122,7 +122,32 @@ class RefactorProfile:
 
     @classmethod
     def load(cls, path: Path) -> "RefactorProfile":
+        """Load profile from a YAML file path."""
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        return cls._from_dict(data)
+
+    @classmethod
+    def load_from_string(cls, yaml_text: str) -> "RefactorProfile":
+        """Load profile from a YAML string (no temp file needed).
+
+        This is the preferred method when you already have the YAML content
+        in memory, avoiding unnecessary disk I/O.
+
+        Args:
+            yaml_text: YAML specification text
+
+        Returns:
+            RefactorProfile instance
+
+        Raises:
+            ValueError: If YAML is malformed or missing required fields
+        """
+        data = yaml.safe_load(yaml_text)
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict | None) -> "RefactorProfile":
+        """Internal: Create profile from parsed YAML dict."""
         if not isinstance(data, dict):
             raise ValueError("Refactor profile must be a YAML mapping")
         name = data.get("refactor_name") or data.get("context_name")

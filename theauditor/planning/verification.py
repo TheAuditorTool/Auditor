@@ -3,7 +3,7 @@
 This module bridges planning with RefactorRuleEngine and CodeQueryEngine.
 
 Integration Points:
-- RefactorProfile.load() (refactor/profiles.py:121)
+- RefactorProfile.load_from_string() (refactor/profiles.py:130)
 - RefactorRuleEngine.evaluate() (refactor/profiles.py:257)
 - CodeQueryEngine.find_symbol() (context/query.py:158)
 - CodeQueryEngine.get_api_handlers() (context/query.py:412)
@@ -11,14 +11,10 @@ Integration Points:
 NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
 """
 
-
 from pathlib import Path
-from typing import List, Dict
-import tempfile
-import os
 
 from theauditor.refactor.profiles import RefactorProfile, RefactorRuleEngine, ProfileEvaluation
-from theauditor.context.query import CodeQueryEngine, SymbolInfo
+from theauditor.context.query import CodeQueryEngine
 
 
 def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileEvaluation:
@@ -33,7 +29,7 @@ def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileE
         ProfileEvaluation with violations and expected_references
 
     Integration:
-        - Uses RefactorProfile.load() (refactor/profiles.py:121)
+        - Uses RefactorProfile.load_from_string() (in-memory, no temp files)
         - Uses RefactorRuleEngine.evaluate() (refactor/profiles.py:257)
 
     NO FALLBACKS. Raises ValueError if spec_yaml is malformed.
@@ -56,17 +52,9 @@ def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileE
         else:
             print(f"Found {evaluation.total_violations()} violations")
     """
-    # RefactorProfile.load expects a file path, create temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, encoding='utf-8') as f:
-        f.write(spec_yaml)
-        temp_path = Path(f.name)
-
-    try:
-        # Parse YAML into RefactorProfile
-        # This validates YAML structure and rule format
-        profile = RefactorProfile.load(temp_path)
-    finally:
-        os.unlink(temp_path)
+    # Parse YAML directly from string (no temp file needed)
+    # This validates YAML structure and rule format
+    profile = RefactorProfile.load_from_string(spec_yaml)
 
     # Run verification using existing engine
     with RefactorRuleEngine(db_path, repo_root) as engine:
