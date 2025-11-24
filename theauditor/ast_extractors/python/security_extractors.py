@@ -188,71 +188,6 @@ def extract_password_hashing(context: FileContext) -> list[dict[str, Any]]:
     return hash_patterns
 
 
-def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract JWT (JSON Web Token) operations.
-
-    Detects:
-    - jwt.encode()
-    - jwt.decode()
-    - Token verification
-    - Algorithm specification
-
-    Security relevance:
-    - Missing verification = token forgery
-    - Weak algorithms (HS256 with public key)
-    - None algorithm = critical bypass
-    """
-    jwt_patterns = []
-    if not isinstance(context.tree, ast.AST):
-        return jwt_patterns
-
-    for node in context.walk_tree():
-        if not isinstance(node, ast.Call):
-            continue
-
-        func_name = get_node_name(node.func)
-
-        # Check if this is a JWT operation
-        if 'jwt' not in func_name.lower():
-            continue
-
-        operation = None
-        for jwt_func in JWT_FUNCTIONS:
-            if jwt_func in func_name.lower():
-                operation = jwt_func
-                break
-
-        if not operation:
-            continue
-
-        # Extract algorithm if specified
-        algorithm = None
-        verify = None
-
-        if isinstance(node, ast.Call):
-            for keyword in node.keywords:
-                if keyword.arg == 'algorithm':
-                    if isinstance(keyword.value, ast.Constant):
-                        algorithm = keyword.value.value
-                    elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
-                        algorithm = keyword.value.value
-                elif keyword.arg in ['verify', 'verify_signature']:
-                    if isinstance(keyword.value, ast.Constant):
-                        verify = keyword.value.value
-                    elif isinstance(keyword.value, ast.Constant):
-                        verify = keyword.value.value
-
-        jwt_patterns.append({
-            "line": node.lineno,
-            "operation": operation,
-            "algorithm": algorithm,
-            "verify": verify,
-            "is_insecure": algorithm == 'none' or verify is False,
-        })
-
-    return jwt_patterns
-
-
 def extract_sql_injection_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract SQL injection vulnerability patterns.
 
@@ -544,7 +479,7 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
             })
 
     return crypto_patterns
-"""Temporary file for SQL and JWT extractors - to be appended to security_extractors.py"""
+
 
 def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
     """Extract SQL queries from database execution calls using AST.

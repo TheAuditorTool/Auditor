@@ -238,7 +238,6 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
 
 def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, list[str]]:
     """Extract function parameters from TypeScript semantic AST."""
-    import sys, os
     debug = os.environ.get("THEAUDITOR_DEBUG")
 
     if debug:

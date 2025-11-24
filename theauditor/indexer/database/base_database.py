@@ -14,6 +14,7 @@ All language-specific add_* methods are provided by mixin classes.
 import sqlite3
 import json
 import os
+import sys
 from typing import Any, List, Dict, Optional
 from pathlib import Path
 from collections import defaultdict
@@ -226,7 +227,6 @@ class BaseDatabaseManager:
         # by checking the first batch tuple size
         tuple_size = len(batch[0]) if batch else 0
 
-        import os, sys
         if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
             print(f"[DEBUG] Flush: {table_name}", file=sys.stderr)
             print(f"  all_cols count: {len(all_cols)}", file=sys.stderr)

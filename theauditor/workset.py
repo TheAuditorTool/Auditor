@@ -69,7 +69,6 @@ def load_manifest(manifest_path: str) -> dict[str, str]:
 
 def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     """Get list of changed files from git diff."""
-    import tempfile
     try:
         # Use temp files to avoid buffer overflow
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \

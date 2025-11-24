@@ -360,8 +360,6 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
     Returns:
         Number of chunks created (0 if no chunking needed)
     """
-    import json
-
     # Load the JSON file
     with open(json_file, 'r', encoding='utf-8') as f:
         data = json.load(f)

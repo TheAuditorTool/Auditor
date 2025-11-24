@@ -743,9 +743,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
     # Start traversal from AST root
     traverse(ast_root)
 
-    import sys
-    import os
-
     # DEDUPLICATION: With full AST traversal, functions may be extracted multiple times
     # (e.g., from both AST nodes and symbol metadata)
     # Use (name, line, column) as unique key

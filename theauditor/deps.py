@@ -1261,8 +1261,6 @@ def _create_versioned_backup(path: Path) -> Path:
     
     Returns the path to the created backup.
     """
-    import shutil
-    
     base_backup = path.with_suffix(path.suffix + ".bak")
     
     # If no backup exists, use the base name
@@ -1294,9 +1292,6 @@ def upgrade_all_deps(
     
     Returns dict with counts of upgraded packages per file type.
     """
-    import shutil
-    from datetime import datetime
-    
     root = Path(root_path)
     upgraded = {
         "requirements.txt": 0,
@@ -1490,8 +1485,6 @@ def _upgrade_package_json(
     deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade package.json to latest versions."""
-    import shutil
-    
     # Sanitize path
     try:
         safe_path = sanitize_path(str(path), ".")
@@ -1537,9 +1530,6 @@ def _upgrade_pyproject_toml(
     deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade pyproject.toml to latest versions - handles ALL sections."""
-    import shutil
-    import re
-    
     # Sanitize path
     try:
         safe_path = sanitize_path(str(path), ".")
