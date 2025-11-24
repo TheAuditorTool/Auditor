@@ -40,7 +40,7 @@ def report(
     """Generate consolidated audit report from analysis artifacts.
 
     **DEPRECATED**: This command generates .pf/readthis/ chunks which are obsolete
-    as of v1.3.0. Use `aud query` for database queries or read consolidated files
+    as of v1.6.4. Use `aud query` for database queries or read consolidated files
     in .pf/raw/ directly. See migration guide in README.md.
 
     This command is kept for backward compatibility only.

@@ -11,6 +11,7 @@ import click
 
 from ..utils.logger import setup_logger
 from ..utils.error_handler import handle_exceptions
+from .. import __version__
 
 logger = setup_logger(__name__)
 
@@ -136,7 +137,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
         analysis = {
             "metadata": {
                 "tool": "TheAuditor",
-                "version": "1.3.0",
+                "version": __version__,
                 "analysis_type": "github_actions_workflows",
                 "severity_filter": severity,
                 "workset_only": workset
