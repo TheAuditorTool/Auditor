@@ -1,4 +1,11 @@
-"""Helper utility functions for TheAuditor."""
+"""Helper utility functions for TheAuditor.
+
+IMPORTANT UTILITIES:
+- normalize_path_for_db(): Use this for ANY database query involving file paths.
+  The database stores Unix-style relative paths (e.g., 'theauditor/cli.py'),
+  but users may pass Windows absolute paths (e.g., 'C:\\Users\\...\\cli.py').
+  This function normalizes both to match.
+"""
 
 
 import hashlib
@@ -9,6 +16,87 @@ from typing import Any
 from .logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+# =============================================================================
+# PATH NORMALIZATION - CRITICAL FOR DATABASE QUERIES
+# =============================================================================
+#
+# The database stores file paths as Unix-style relative paths:
+#   - Forward slashes: theauditor/context/query.py
+#   - Relative to project root: No C:\Users\... prefix
+#
+# Users (and Windows) may pass:
+#   - Backslashes: theauditor\context\query.py
+#   - Absolute paths: C:\Users\santa\Desktop\TheAuditor\theauditor\context\query.py
+#
+# ALL database queries using file paths MUST normalize first.
+# =============================================================================
+
+
+def normalize_path_for_db(file_path: str, project_root: Path | str | None = None) -> str:
+    """Normalize a file path for database queries.
+
+    CRITICAL: Use this function before ANY database query that matches file paths.
+    The database stores Unix-style relative paths. This function converts Windows
+    absolute paths to match.
+
+    Transformations:
+    1. Convert backslashes to forward slashes (Windows -> Unix)
+    2. Strip project root prefix if provided (absolute -> relative)
+    3. Strip leading slashes
+
+    Args:
+        file_path: The file path to normalize (can be absolute or relative,
+                   Windows or Unix style)
+        project_root: Optional project root to strip. If the file_path starts
+                      with this root, it will be removed to create a relative path.
+
+    Returns:
+        Normalized path suitable for database LIKE queries
+
+    Examples:
+        >>> normalize_path_for_db("theauditor\\context\\query.py")
+        'theauditor/context/query.py'
+
+        >>> normalize_path_for_db(
+        ...     "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\cli.py",
+        ...     project_root="C:\\Users\\santa\\Desktop\\TheAuditor"
+        ... )
+        'theauditor/cli.py'
+
+        >>> normalize_path_for_db("src/auth.ts")
+        'src/auth.ts'
+
+    Usage in query.py:
+        from theauditor.utils.helpers import normalize_path_for_db
+
+        def get_file_symbols(self, file_path: str, limit: int = 50):
+            # ALWAYS normalize before querying!
+            normalized = normalize_path_for_db(file_path, self.root_dir)
+            cursor.execute("SELECT * FROM symbols WHERE path LIKE ?",
+                          (f"%{normalized}",))
+    """
+    # Step 1: Convert backslashes to forward slashes
+    normalized = file_path.replace("\\", "/")
+
+    # Step 2: Strip project root if provided
+    if project_root is not None:
+        root_str = str(project_root).replace("\\", "/")
+        # Remove trailing slash from root for clean comparison
+        root_str = root_str.rstrip("/")
+
+        if normalized.startswith(root_str + "/"):
+            # Exact match with separator - strip root and separator
+            normalized = normalized[len(root_str) + 1:]
+        elif normalized.startswith(root_str):
+            # Root without trailing content - strip root only
+            normalized = normalized[len(root_str):]
+
+    # Step 3: Strip any leading slashes
+    normalized = normalized.lstrip("/")
+
+    return normalized
 
 
 def compute_file_hash(file_path: Path) -> str:

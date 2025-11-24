@@ -321,12 +321,18 @@ def extract_python_attribute_annotations(context: FileContext) -> list[dict]:
 
 
 def extract_python_imports(context: FileContext) -> list[dict[str, Any]]:
-    """Extract import statements from Python AST."""
+    """Extract import statements from Python AST.
+
+    Handles both:
+    - `import X` (ast.Import) -> target = "X"
+    - `from X import Y` (ast.ImportFrom) -> target = "X" (the module being imported from)
+    """
     imports = []
 
     if not context.tree:
         return imports
 
+    # Handle `import X` statements
     for node in context.find_nodes(ast.Import):
         for alias in node.names:
             imports.append({
@@ -337,6 +343,33 @@ def extract_python_imports(context: FileContext) -> list[dict[str, Any]]:
                 "as": alias.asname,
                 "specifiers": []
             })
+
+    # Handle `from X import Y` statements (ast.ImportFrom)
+    # This is CRITICAL for tracking internal module dependencies
+    for node in context.find_nodes(ast.ImportFrom):
+        # Build the module name with relative level prefix
+        module = node.module or ""
+        level = node.level or 0
+        prefix = "." * level
+
+        # Full module reference (e.g., "theauditor.ast_parser" or "..utils")
+        target = f"{prefix}{module}" if module else prefix
+
+        # Skip empty targets (shouldn't happen but be safe)
+        if not target:
+            continue
+
+        # Collect imported names as specifiers
+        specifiers = [alias.name for alias in node.names]
+
+        imports.append({
+            "source": "from",
+            "target": target,
+            "type": "from",
+            "line": node.lineno,
+            "as": None,  # The module itself doesn't have an alias
+            "specifiers": specifiers
+        })
 
     return imports
 
