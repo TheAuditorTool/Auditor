@@ -229,7 +229,6 @@ class IndexerOrchestrator:
         from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
         from theauditor.utils.exit_codes import ExitCodes
         from pathlib import Path
-        import sys
 
         # Get current schema hash
         current_hash = SchemaCodeGenerator.get_schema_hash()
@@ -653,7 +652,6 @@ class IndexerOrchestrator:
             js_ts_cache: Cache of pre-parsed JS/TS ASTs
         """
         # DEBUG: Trace file processing
-        import sys
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
 

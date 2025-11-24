@@ -144,7 +144,6 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
     DATABASE SCHEMA: aud manual database
     ARCHITECTURE:    aud manual architecture
     """
-    from pathlib import Path
     from theauditor.context import CodeQueryEngine, format_output
 
     # Validate .pf directory exists

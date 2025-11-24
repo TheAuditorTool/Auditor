@@ -8,6 +8,7 @@ import sys
 import click
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
+from theauditor.events import ConsoleLogger
 
 
 @click.command()
@@ -110,12 +111,8 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
 
-    # Define log callback for console output
-    def log_callback(message, is_error=False):
-        if is_error:
-            click.echo(message, err=True)
-        else:
-            click.echo(message)
+    # Create console logger for structured events
+    logger = ConsoleLogger(quiet=quiet)
 
     # Windows asyncio compatibility (required for Python < 3.10)
     if sys.platform == 'win32':
@@ -131,7 +128,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             use_subprocess_for_taint=subprocess_taint,
             wipe_cache=wipecache,
             index_only=index_only,
-            log_callback=log_callback if not quiet else None
+            observer=logger
         ))
     except KeyboardInterrupt:
         click.echo("\n[INFO] Pipeline stopped by user.", err=True)
