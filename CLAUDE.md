@@ -21,6 +21,22 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE" FUCK THE FUCKING FUCK OFF DUMBASS FUCKFACE!!!
 
+## CORRECT AUD COMMANDS - STOP RUNNING DEPRECATED SHIT
+
+**ONLY USE THESE:**
+```bash
+aud full --index      # Just indexing (rebuilds repo_index.db + graphs.db)
+aud full --offline    # Full pipeline WITHOUT network (PREFERRED - no rate limiting)
+aud full              # Full pipeline with network (slow due to docs/deps fetching)
+```
+
+**DEPRECATED - DO NOT USE:**
+- ~~`aud index`~~ - DOES NOT EXIST
+- ~~`aud init`~~ - DOES NOT EXIST
+- Any other standalone indexing commands
+
+**Why --offline is preferred:** Network fetches for docs/deps have aggressive rate limiting and take forever. Use `--offline` unless you specifically need version checking.
+
 ## NEVER USE SQLITE3 COMMAND DIRECTLY
 
 **ALWAYS** use Python with sqlite3 import. The sqlite3 command is not installed in WSL.
@@ -139,37 +155,11 @@ TheAuditor is an offline-first, AI-centric SAST (Static Application Security Tes
 **Python**: >=3.14 required
 **Status**: Production-ready with critical fixes needed
 
-### Codebase Statistics (2025-11-22 Comprehensive Audit)
-- **Files**: 357 Python files
-- **LOC**: 158,638 lines total (51,000 in core module)
-- **Database Tables**: 255 (251 in repo_index.db, 4 in graphs.db)
-- **Security Rules**: 200+ across 18 categories
-- **CLI Commands**: 42 registered
-- **Test Coverage**: 15-20% (CRITICAL - needs immediate improvement)
-- **Documentation**: 65% coverage (missing CWE IDs in rules)
-- **Quality Score**: 53/100 (F) - Immediate attention required
-
 ### Related Documentation
 - `Architecture.md` - Complete system architecture and audit findings
 - `quality_report.md` - Comprehensive code quality analysis
 - `HowToUse.md` - Installation and usage guide
 - `README.md` - Project overview
-
----
-
-## CRITICAL ISSUES REQUIRING IMMEDIATE ATTENTION
-
-### P0 - Security Vulnerabilities (Fix Immediately)
-1. **SQL Injection via f-strings** - 4 locations in blueprint.py, query.py, base_database.py
-2. **Command Injection (shell=True)** - 5 locations including cli.py, workset.py
-3. **Weak Hash (MD5)** - Replace with SHA-256 in ast_parser.py, docs_fetch.py
-4. **ZERO FALLBACK violations** - 10+ files returning empty instead of crashing
-
-### P0 - Critical Gaps
-1. **Test Coverage**: Only 6% of security rules have tests (5/83)
-2. **Backup Files**: Delete `theauditor/taint/backup/` (2,590 lines of dead code)
-3. **Taint Module**: Actually 4,280 lines, not ~2,000 as documented
-4. **FCE Performance**: 8 separate DB connections causing 400-800ms overhead
 
 ---
 
@@ -250,69 +240,6 @@ if not result:
 
 ---
 
-## Major Engines and Their Status
-
-### 1. Indexer Engine (`theauditor/indexer/`)
-- **Status**: HEALTHY
-- **Performance**: Good with batch optimizations
-- **Issues**: FastAPI dependency extraction bug (checks annotations instead of defaults)
-- **Extractors**: 12 language-specific (Python, JS/TS, Terraform, Docker, SQL, etc.)
-
-### 2. Taint Analysis Engine (`theauditor/taint/`)
-- **Status**: FUNCTIONAL with issues
-- **Lines**: 4,280 (NOT ~2,000 as claimed)
-- **Architecture**: 3-layer (Schema, Discovery, Analysis)
-- **Issues**: 6+ ZERO FALLBACK violations, backup files need deletion
-- **Missing**: Python-specific sinks (pickle.loads, yaml.load)
-
-### 3. Rules Engine (`theauditor/rules/`)
-- **Status**: CRITICAL - needs immediate attention
-- **Rules**: 200+ across 18 categories
-- **Test Coverage**: 6% (5/83 rules tested)
-- **Issues**: 4 files violate ZERO FALLBACK policy
-- **N+1 Queries**: 20+ rules with performance issues
-
-### 4. Graph Engine (`theauditor/graph/`)
-- **Status**: EXCELLENT
-- **Performance**: 9/10
-- **Features**: Cycle detection, hotspot analysis, visualization
-- **Issues**: Missing aggregate query index
-
-### 5. Context Query Engine (`theauditor/context/`)
-- **Status**: GOOD
-- **Performance**: <50ms for most queries
-- **Issues**: No workset filtering, no VS Code integration
-
-### 6. FCE Engine (`theauditor/fce.py`)
-- **Status**: FUNCTIONAL but needs optimization
-- **Issues**: 8 separate DB connections, 6+ ZERO FALLBACK violations
-- **Test Coverage**: 0% (1,846 LOC untested)
-
-### 7. CLI System (`theauditor/cli.py`)
-- **Status**: WELL-DESIGNED
-- **Commands**: 42 registered
-- **Issues**: Emojis crash Windows, inconsistent --workset flag
-- **Test Coverage**: 30% (29 commands untested)
-
----
-
-## Performance Bottlenecks and Optimizations
-
-### Critical Performance Issues
-1. **FCE 8 DB connections**: 400-800ms overhead → Use connection pool (87% reduction)
-2. **GraphQL N+1 queries**: 101 queries → Use JOIN (99% reduction)
-3. **Missing indexes**: Add 5 composite indexes (10-100x speedup)
-4. **LIKE '%...%' patterns**: No index use → Use exact matches (2-10x speedup)
-5. **FlowResolver discovery**: O(n) queries → Bulk load (99% reduction)
-
-**Total potential speedup**: 15-50% on large codebases
-
-### Memory Usage
-- Small projects: ~250MB peak
-- Medium projects: ~600MB peak
-- Large projects: ~2GB peak
-- Monorepos: ~6GB peak
-
 ---
 
 ## Critical Development Patterns
@@ -356,15 +283,7 @@ class YourLanguageExtractor(BaseExtractor):
 
     def extract(self, file_info, content, tree):
         # Return dict with symbols, imports, etc.
-```
-
-### Python Framework Extraction (Parity Work)
-
-- **ORM models**: SQLAlchemy and Django definitions populate `python_orm_models`, `python_orm_fields`, and the shared `orm_relationships` table (bidirectional rows with cascade flags).
-- **HTTP routes**: Flask blueprints/routes and FastAPI handlers land in `python_routes` (method, auth flag, dependency metadata) and `python_blueprints`.
-- **Validation**: Pydantic decorators produce entries in `python_validators` with field vs root classification for sanitizer parity.
-- **Import resolution**: Python imports are stored in the `refs` table with `.py` file paths as targets (no separate resolved_imports dict/table exists).
-- **Verification**: Fixtures under `tests/fixtures/python/` pair with `pytest tests/test_python_framework_extraction.py` to guard regressions.
+``
 
 ---
 
@@ -406,41 +325,6 @@ aud report
 
 ---
 
-## Known Issues and Workarounds
-
-### Windows-Specific Issues
-1. **Emojis crash**: context.py uses emojis that crash CP1252 - needs ASCII replacement
-2. **shell=True vulnerability**: Multiple subprocess calls use shell=True on Windows
-3. **Path handling**: Always use full Windows paths with drive letters
-
-### Database Issues
-1. **Foreign keys not enforced**: PRAGMA foreign_keys = 0 by design
-2. **Empty tables**: python_celery_task_calls, python_crypto_operations
-3. **Unknown vulnerability types**: 1,134/1,135 flows unclassified
-
-### Framework Extraction Issues
-1. **FastAPI dependencies**: Bug in extractor checks annotations instead of defaults
-2. **Missing extractors**: NestJS, Redux, Webpack configs not implemented
-3. **TypeScript interfaces**: Intentionally excluded but needed
-
----
-
-## Technical Debt Summary
-
-| Category | Hours to Fix | Priority |
-|----------|--------------|----------|
-| Security vulnerabilities | 40 | P0 |
-| Test coverage gaps | 200 | P0 |
-| ZERO FALLBACK violations | 20 | P0 |
-| Performance bottlenecks | 30 | P1 |
-| Dead code removal | 10 | P2 |
-| Documentation gaps | 80 | P2 |
-| Type hints | 60 | P3 |
-| Code duplication | 40 | P3 |
-| **TOTAL** | **480 hours** | - |
-
----
-
 ## Common Misconceptions
 
 ### TheAuditor is NOT:
@@ -470,21 +354,3 @@ aud report
 | Graph Analyzer | `theauditor/graph/analyzer.py` | 485 |
 | FCE Engine | `theauditor/fce.py` | 1,846 |
 | CLI | `theauditor/cli.py` | 350 |
-
----
-
-## Immediate Action Items
-
-1. **Fix SQL injection vulnerabilities** - Use parameterized queries
-2. **Remove shell=True** - Security critical
-3. **Delete backup files** - `theauditor/taint/backup/`
-4. **Fix ZERO FALLBACK violations** - Let DB errors crash
-5. **Add tests for security rules** - 78 rules need tests
-6. **Implement connection pooling** - 20-30% speedup
-7. **Add missing DB indexes** - 10-100x query speedup
-
----
-
-**Last Comprehensive Audit**: 2025-11-22 by 15 parallel AI agents
-**Next Audit Recommended**: After P0 fixes completed
-**Confidence Level**: HIGH - Based on complete codebase analysis
