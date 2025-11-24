@@ -33,16 +33,16 @@ def initialize_project(
             - has_failures: Whether any steps failed
             - next_steps: List of recommended next commands
     """
-    from theauditor.indexer import build_index
+    from theauditor.indexer.runner import run_repository_index
     from theauditor.workset import compute_workset
     from theauditor.deps import parse_dependencies, check_latest_versions
     from theauditor.docs_fetch import fetch_docs
     from theauditor.config_runtime import load_runtime_config
-    
+
     # Load configuration
     config = load_runtime_config(".")
     stats = {}
-    
+
     # 1. Index
     if progress_callback:
         progress_callback("[1/4] Indexing repository...")
@@ -50,8 +50,8 @@ def initialize_project(
         # Sanitize paths from config before use
         manifest_path = str(sanitize_config_path(config["paths"]["manifest"], "paths", "manifest", "."))
         db_path = str(sanitize_config_path(config["paths"]["db"], "paths", "db", "."))
-        
-        result = build_index(
+
+        result = run_repository_index(
             root_path=".",
             manifest_path=manifest_path,
             db_path=db_path,
@@ -59,9 +59,7 @@ def initialize_project(
             dry_run=False,
             follow_symlinks=False
         )
-        if result.get("error"):
-            raise Exception(result["error"])
-        # Extract stats from nested structure
+        # run_repository_index raises on failure, so if we get here it succeeded
         index_stats = result.get("stats", {})
         stats["index"] = {
             "files": index_stats.get("total_files", 0),
