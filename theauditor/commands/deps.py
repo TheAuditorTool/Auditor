@@ -247,7 +247,11 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         outdated_deps = 0
         checked_deps = 0
         for dep in deps_list:
-            key = f"{dep['manager']}:{dep['name']}"
+            # Docker deps use manager:name:version key format, others use manager:name
+            if dep['manager'] == 'docker':
+                key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+            else:
+                key = f"{dep['manager']}:{dep['name']}"
             if key in latest_info and latest_info[key].get("latest") is not None:
                 checked_deps += 1
                 if latest_info[key]["is_outdated"]:
@@ -264,16 +268,30 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
             # Some failed, show both numbers
             click.echo(f"  Outdated: {outdated_deps}/{checked_deps} checked ({len(deps_list)} total)")
         
-        # Show major updates
-        major_updates = [
-            (k.split(":")[1], v["locked"], v["latest"])
+        # Show ALL outdated packages with version delta flags
+        outdated_packages = [
+            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
             for k, v in latest_info.items()
-            if v.get("delta") == "major"
+            if v.get("is_outdated", False) and v.get("latest") is not None
         ]
-        if major_updates:
-            click.echo("\n  Major version updates available:")
-            for name, locked, latest in major_updates:
-                click.echo(f"    - {name}: {locked} -> {latest}")
+
+        if outdated_packages:
+            # Sort by package name for consistent output
+            outdated_packages.sort(key=lambda x: x[0].lower())
+
+            click.echo("\n  Outdated packages:")
+            arrow = "->" if IS_WINDOWS else "->"
+            for name, locked, latest, delta in outdated_packages:
+                # Add flags for version delta type
+                if delta == "major":
+                    flag = " [MAJOR!]"
+                elif delta == "minor":
+                    flag = " [minor]"
+                elif delta == "patch":
+                    flag = ""  # No flag for patch - too noisy
+                else:
+                    flag = ""
+                click.echo(f"    - {name}: {locked} {arrow} {latest}{flag}")
     
     # Add a helpful hint if no network operation was performed
     if not check_latest and not upgrade_all:
