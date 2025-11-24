@@ -1,5 +1,9 @@
-"""Run complete audit pipeline."""
+"""Run complete audit pipeline.
 
+2025 Modern: Uses asyncio for parallel execution.
+"""
+
+import asyncio
 import sys
 import click
 from theauditor.utils.error_handler import handle_exceptions
@@ -105,25 +109,33 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
 
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
-    
+
     # Define log callback for console output
     def log_callback(message, is_error=False):
         if is_error:
             click.echo(message, err=True)
         else:
             click.echo(message)
-    
-    # Run the pipeline
-    result = run_full_pipeline(
-        root=root,
-        quiet=quiet,
-        exclude_self=exclude_self,
-        offline=offline,
-        use_subprocess_for_taint=subprocess_taint,
-        wipe_cache=wipecache,
-        index_only=index_only,
-        log_callback=log_callback if not quiet else None
-    )
+
+    # Windows asyncio compatibility (required for Python < 3.10)
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    # Run the async pipeline with asyncio.run()
+    try:
+        result = asyncio.run(run_full_pipeline(
+            root=root,
+            quiet=quiet,
+            exclude_self=exclude_self,
+            offline=offline,
+            use_subprocess_for_taint=subprocess_taint,
+            wipe_cache=wipecache,
+            index_only=index_only,
+            log_callback=log_callback if not quiet else None
+        ))
+    except KeyboardInterrupt:
+        click.echo("\n[INFO] Pipeline stopped by user.", err=True)
+        sys.exit(130)  # Standard exit code for Ctrl+C
     
     # Display clear status message based on results
     findings = result.get("findings", {})

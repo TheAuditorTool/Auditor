@@ -36,35 +36,19 @@ See also:
 # Core orchestrator
 from .orchestrator import IndexerOrchestrator
 
-# Core components (for backward compatibility)
+# Core components
 from .core import FileWalker, ASTCache
 from .database import DatabaseManager
 from .extractors import ExtractorRegistry
 
-# Backward compatibility functions
-from ..indexer_compat import (
-    build_index,
-    walk_directory,
-    populate_database,
-    extract_imports,
-    extract_routes,
-    extract_sql_objects,
-    extract_sql_queries
-)
+# Clean entry point (replaces deprecated indexer_compat.build_index)
+from .runner import run_repository_index
 
-# Backward compatibility exports
 __all__ = [
     'IndexerOrchestrator',
     'FileWalker',
     'DatabaseManager',
     'ASTCache',
     'ExtractorRegistry',
-    # Backward compat functions
-    'build_index',
-    'walk_directory',
-    'populate_database',
-    'extract_imports',
-    'extract_routes',
-    'extract_sql_objects',
-    'extract_sql_queries'
+    'run_repository_index',
 ]
