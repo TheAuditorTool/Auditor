@@ -218,6 +218,15 @@ def refactor(
 
         click.echo(f"  Profile: {profile.refactor_name}")
         click.echo(f"  Rules: {len(profile.rules)}")
+
+        # Auto-exclude migration directory from profile scans to prevent
+        # flagging migration files themselves as violations (they MUST
+        # reference the tables/columns they're dropping)
+        migration_glob = f"{migration_dir}/**"
+        for rule in profile.rules:
+            if migration_glob not in rule.scope.get("exclude", []):
+                rule.scope.setdefault("exclude", []).append(migration_glob)
+
         with RefactorRuleEngine(db_path, repo_root) as engine:
             profile_report = engine.evaluate(profile)
 

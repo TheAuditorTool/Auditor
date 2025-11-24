@@ -9,6 +9,8 @@ to find exact files/lines without any AI guesses.
 
 
 import fnmatch
+import functools
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -281,12 +283,40 @@ class RefactorRuleEngine:
         sources: tuple["_SourceQuery", ...],
         scope: dict[str, list[str]],
     ) -> list[dict[str, Any]]:
+        """Query sources with batched SQL and regex boundary filtering.
+
+        Performance: Batches terms into chunks of 50 to reduce query count from
+        O(terms * sources) to O(ceil(terms/50) * sources). Then filters results
+        with word-boundary regex to eliminate false positives like 'id' matching 'grid'.
+        """
+        if not terms:
+            return []
+
         cursor = self.conn.cursor()
         results: list[dict[str, Any]] = []
         seen: set = set()
-        for term in terms:
-            like_term = self._prepare_like_term(term)
+
+        # Deduplicate and prepare terms
+        unique_terms = list(dict.fromkeys(terms))  # Preserves order, removes dupes
+
+        # Pre-compile word-boundary regex patterns for strict filtering
+        # Maps term -> compiled pattern
+        term_patterns = {
+            term: re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+            for term in unique_terms
+        }
+
+        # Batch terms to reduce query count (SQLite limit is 999 variables)
+        BATCH_SIZE = 50
+        for chunk in self._chunk_list(unique_terms, BATCH_SIZE):
+            like_params = [f"%{t}%" for t in chunk]
+
             for source in sources:
+                # Build batched WHERE clause: (col LIKE ? OR col LIKE ? ...)
+                or_clauses = " OR ".join(
+                    [f"{source.column} LIKE ? COLLATE NOCASE"] * len(chunk)
+                )
+
                 query = (
                     f"SELECT {source.file_field} AS file_path, "
                     f"{source.line_field} AS line_number, "
@@ -296,22 +326,38 @@ class RefactorRuleEngine:
                     query += f", {source.context_field} AS context_value"
                 query += (
                     f" FROM {source.table} "
-                    f"WHERE {source.column} LIKE ? COLLATE NOCASE "
+                    f"WHERE ({or_clauses}) "
                     f"LIMIT {MAX_RESULTS_PER_QUERY}"
                 )
-                cursor.execute(query, (like_term,))
+
+                cursor.execute(query, like_params)
+
                 for row in cursor.fetchall():
                     file_raw = row["file_path"]
                     file_path = _normalize_path(file_raw, self.repo_root)
                     if not file_path or not self._in_scope(file_path, scope):
                         continue
-                    line = row["line_number"] or 0
+
                     match_value = row["match_value"] or ""
+
+                    # Strict filter: find which term actually matched with word boundaries
+                    # This eliminates 'id' matching 'product_id' or 'grid'
+                    matched_term = None
+                    for term in chunk:
+                        if term_patterns[term].search(match_value):
+                            matched_term = term
+                            break
+
+                    if not matched_term:
+                        continue  # SQL LIKE matched but regex boundary check failed
+
+                    line = row["line_number"] or 0
                     context_value = row["context_value"] if source.context_field else None
                     signature = (file_path, line, source.label, match_value)
                     if signature in seen:
                         continue
                     seen.add(signature)
+
                     results.append(
                         {
                             "file": file_path,
@@ -319,20 +365,32 @@ class RefactorRuleEngine:
                             "source": source.label,
                             "match": match_value,
                             "context": context_value,
-                            "term": term,
+                            "term": matched_term,
                         }
                     )
         return results
+
+    @staticmethod
+    def _chunk_list(data: Sequence, size: int):
+        """Yield successive chunks of data."""
+        for i in range(0, len(data), size):
+            yield data[i : i + size]
 
     @staticmethod
     def _prepare_like_term(term: str) -> str:
         """Prepare LIKE pattern (simple wildcard search)."""
         return f"%{term}%"
 
+    def _in_scope(self, file_path: str, scope: dict[str, list[str]]) -> bool:
+        """Check if file matches scope. Delegates to cached method with hashable args."""
+        includes = tuple(scope.get("include") or [])
+        excludes = tuple(scope.get("exclude") or [])
+        return self._in_scope_cached(file_path, includes, excludes)
+
     @staticmethod
-    def _in_scope(file_path: str, scope: dict[str, list[str]]) -> bool:
-        includes = scope.get("include") or []
-        excludes = scope.get("exclude") or []
+    @functools.lru_cache(maxsize=10000)
+    def _in_scope_cached(file_path: str, includes: tuple, excludes: tuple) -> bool:
+        """Cached scope check with hashable tuple args."""
         if excludes and any(fnmatch.fnmatch(file_path, pattern) for pattern in excludes):
             return False
         if includes:
