@@ -720,7 +720,8 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
 
         cursor.execute("""
-            SELECT ae.file, ae.line, ae.method, ae.pattern, ae.path, ae.handler_function,
+            SELECT ae.file, ae.line, ae.method, ae.pattern, ae.path, ae.full_path,
+                   ae.handler_function,
                    GROUP_CONCAT(aec.control_name, ', ') AS controls,
                    CASE WHEN COUNT(aec.control_name) > 0 THEN 1 ELSE 0 END AS has_auth,
                    COUNT(aec.control_name) AS control_count
@@ -728,10 +729,10 @@ class CodeQueryEngine:
             LEFT JOIN api_endpoint_controls aec
               ON ae.file = aec.endpoint_file
               AND ae.line = aec.endpoint_line
-            WHERE ae.path LIKE ? OR ae.pattern LIKE ?
+            WHERE ae.full_path LIKE ? OR ae.pattern LIKE ? OR ae.path LIKE ?
             GROUP BY ae.file, ae.line, ae.method, ae.path
-            ORDER BY ae.path, ae.method
-        """, (f'%{route_pattern}%', f'%{route_pattern}%'))
+            ORDER BY ae.full_path, ae.method
+        """, (f'%{route_pattern}%', f'%{route_pattern}%', f'%{route_pattern}%'))
 
         results = []
         for row in cursor.fetchall():
