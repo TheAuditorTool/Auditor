@@ -183,10 +183,11 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
     # Check latest versions if requested
     latest_info = {}
     if check_latest and not offline:
-        # Count unique packages first
+        # Count unique packages first (by manager:name:version - Universal Keys)
         unique_packages = {}
         for dep in deps_list:
-            key = f"{dep['manager']}:{dep['name']}"
+            # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
             if key not in unique_packages:
                 unique_packages[key] = 0
             unique_packages[key] += 1
@@ -247,11 +248,8 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         outdated_deps = 0
         checked_deps = 0
         for dep in deps_list:
-            # Docker deps use manager:name:version key format, others use manager:name
-            if dep['manager'] == 'docker':
-                key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
-            else:
-                key = f"{dep['manager']}:{dep['name']}"
+            # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
             if key in latest_info and latest_info[key].get("latest") is not None:
                 checked_deps += 1
                 if latest_info[key]["is_outdated"]:
