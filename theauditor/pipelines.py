@@ -18,9 +18,10 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional
 
 from collections.abc import Callable
+from theauditor.events import PipelineObserver
 
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
@@ -166,7 +167,12 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> dic
         }
 
 
-async def run_chain_async(commands: list[tuple[str, list[str]]], root: str, chain_name: str) -> dict:
+async def run_chain_async(
+    commands: list[tuple[str, list[str]]],
+    root: str,
+    chain_name: str,
+    observer: Optional[PipelineObserver] = None
+) -> dict:
     """Execute a chain of commands asynchronously.
 
     This is the modern replacement for run_command_chain().
@@ -185,6 +191,8 @@ async def run_chain_async(commands: list[tuple[str, list[str]]], root: str, chai
     chain_errors = []
     failed = False
 
+    if observer:
+        observer.on_parallel_track_start(chain_name)
     print(f"[START] {chain_name}...", file=sys.stderr)
 
     completed_count = 0
@@ -248,6 +256,9 @@ async def run_chain_async(commands: list[tuple[str, list[str]]], root: str, chai
 
     elapsed = time.time() - chain_start
     status = "FAILED" if failed else "COMPLETED"
+    if observer:
+        if not failed:
+            observer.on_parallel_track_complete(chain_name, elapsed)
     print(f"[{status}] {chain_name} ({elapsed:.1f}s)", file=sys.stderr)
 
     return {
@@ -267,7 +278,7 @@ async def run_full_pipeline(
     use_subprocess_for_taint: bool = False,  # default to in-process for performance
     wipe_cache: bool = False,  # force cache rebuild (for corruption recovery)
     index_only: bool = False,  # Run only Stage 1 + 2 (indexing, skip heavy analysis)
-    log_callback: Callable[[str, bool], None] = None
+    observer: Optional[PipelineObserver] = None
 ) -> dict[str, Any]:
     """
     Run complete audit pipeline in exact order specified in teamsop.md.
@@ -282,7 +293,7 @@ async def run_full_pipeline(
         use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
         wipe_cache: Whether to delete caches before run (for corruption recovery)
         index_only: Whether to run only Stage 1+2 (indexing) and skip heavy analysis
-        log_callback: Optional callback function for logging messages (message, is_error)
+        observer: Optional PipelineObserver for receiving structured events
         
     Returns:
         Dict containing:
@@ -319,6 +330,7 @@ async def run_full_pipeline(
     pf_dir = Path(root) / ".pf"
     pf_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = pf_dir / "pipeline.log"
+    error_log_path = pf_dir / "error.log"  # CI/CD failure detection
     log_lines = []  # Keep for return value
     
     # Open log file in write mode with line buffering for immediate writes
@@ -335,29 +347,23 @@ async def run_full_pipeline(
     # Archive has already moved old content to history
     readthis_dir = Path(root) / ".pf" / "readthis"
     readthis_dir.mkdir(parents=True, exist_ok=True)
-    
-    def log_output(message, is_error=False):
-        """Log message to callback, file (real-time), and memory."""
-        if log_callback and not quiet:
-            log_callback(message, is_error)
-        # Always add to log list for return value
-        log_lines.append(message)
-        # CRITICAL: Write immediately to file and flush (if file is open)
-        if log_file:
-            try:
-                log_file.write(message + '\n')
-                log_file.flush()  # Force write to disk immediately
-            except Exception as e:
-                print(f"[CRITICAL] Failed to write to log file: {e}", file=sys.stderr)
-                # Continue execution - logging failure shouldn't stop pipeline
-    
+
     # Log header
-    log_output(f"TheAuditor Full Pipeline Execution Log")
-    log_output(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    log_output(f"Working Directory: {Path(root).resolve()}")
+    if log_file:
+        log_file.write(f"TheAuditor Full Pipeline Execution Log\n")
+        log_file.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"Working Directory: {Path(root).resolve()}\n")
+        if index_only:
+            log_file.write(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)\n")
+        log_file.write("=" * 80 + "\n")
+        log_file.flush()
+
+    log_lines.append(f"TheAuditor Full Pipeline Execution Log")
+    log_lines.append(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    log_lines.append(f"Working Directory: {Path(root).resolve()}")
     if index_only:
-        log_output(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)")
-    log_output("=" * 80)
+        log_lines.append(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)")
+    log_lines.append("=" * 80)
 
     # Dynamically discover available commands from CLI registration (Courier principle)
     from theauditor.cli import cli
@@ -486,15 +492,30 @@ async def run_full_pipeline(
                 command_array = [str(venv_aud), cmd_name] + extra_args
             else:
                 # No sandbox found - this is a setup error
-                log_output(f"[ERROR] Sandbox not found at {venv_aud}")
-                log_output(f"[ERROR] Run 'aud setup-ai --target .' to create sandbox")
+                err1 = f"[ERROR] Sandbox not found at {venv_aud}"
+                err2 = f"[ERROR] Run 'aud setup-ai --target .' to create sandbox"
+                if observer:
+                    observer.on_log(err1, is_error=True)
+                    observer.on_log(err2, is_error=True)
+                if log_file:
+                    log_file.write(err1 + "\n")
+                    log_file.write(err2 + "\n")
+                    log_file.flush()
+                log_lines.append(err1)
+                log_lines.append(err2)
                 # Still try with system Python as emergency fallback (will likely fail)
                 command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
 
             commands.append((description, command_array))
         else:
             # Command not available, log warning but continue (resilient)
-            log_output(f"[WARNING] Command '{cmd_name}' not available, skipping")
+            warning_msg = f"[WARNING] Command '{cmd_name}' not available, skipping"
+            if observer:
+                observer.on_log(warning_msg, is_error=False)
+            if log_file:
+                log_file.write(warning_msg + "\n")
+                log_file.flush()
+            log_lines.append(warning_msg)
     
     total_phases = len(commands)
     current_phase = 0
@@ -611,17 +632,38 @@ async def run_full_pipeline(
     # Recalculate total_phases for index_only mode (Stage 1 + 2 only)
     if index_only:
         total_phases = len(foundation_commands) + len(data_prep_commands)
-        log_output(f"\n[INDEX-ONLY MODE] Running {total_phases} phases (Stage 1 + 2)")
-        log_output(f"  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)")
+        mode_msg = f"\n[INDEX-ONLY MODE] Running {total_phases} phases (Stage 1 + 2)"
+        skip_msg = f"  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)"
+        if observer:
+            observer.on_log(mode_msg)
+            observer.on_log(skip_msg)
+        if log_file:
+            log_file.write(mode_msg + "\n")
+            log_file.write(skip_msg + "\n")
+            log_file.flush()
+        log_lines.append(mode_msg)
+        log_lines.append(skip_msg)
 
     # STAGE 1: Foundation (Sequential)
-    log_output("\n" + "="*60)
-    log_output("[STAGE 1] FOUNDATION - Sequential Execution")
-    log_output("="*60)
+    if observer:
+        observer.on_stage_start("FOUNDATION - Sequential Execution", 1)
+    if log_file:
+        log_file.write("\n" + "="*60 + "\n")
+        log_file.write("[STAGE 1] FOUNDATION - Sequential Execution\n")
+        log_file.write("="*60 + "\n")
+        log_file.flush()
+    log_lines.append("\n" + "="*60)
+    log_lines.append("[STAGE 1] FOUNDATION - Sequential Execution")
+    log_lines.append("="*60)
     
     for phase_name, cmd in foundation_commands:
         current_phase += 1
-        log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
+        if observer:
+            observer.on_phase_start(phase_name, current_phase, total_phases)
+        if log_file:
+            log_file.write(f"\n[Phase {current_phase}/{total_phases}] {phase_name}\n")
+            log_file.flush()
+        log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
         start_time = time.time()
 
         # Record phase start in journal
@@ -635,7 +677,14 @@ async def run_full_pipeline(
             # CLEAN ARCHITECTURE: Index phase runs in-process via runner
             # Avoids subprocess recursion (index.py redirects to 'full')
             if "index" in " ".join(cmd):
-                log_output(f"[INDEX] Running in-process via indexer.runner")
+                idx_msg = "[INDEX] Running in-process via indexer.runner"
+                if observer:
+                    observer.on_log(idx_msg)
+                if log_file:
+                    log_file.write(idx_msg + "\n")
+                    log_file.flush()
+                log_lines.append(idx_msg)
+
                 from theauditor.indexer.runner import run_repository_index
                 from theauditor.utils.helpers import get_self_exclusion_patterns
 
@@ -643,7 +692,13 @@ async def run_full_pipeline(
                 exclude_patterns = None
                 if exclude_self:
                     exclude_patterns = get_self_exclusion_patterns(True)
-                    log_output(f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns")
+                    excl_msg = f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns"
+                    if observer:
+                        observer.on_log(excl_msg)
+                    if log_file:
+                        log_file.write(excl_msg + "\n")
+                        log_file.flush()
+                    log_lines.append(excl_msg)
 
                 # Run indexer in thread pool (non-blocking for async loop)
                 try:
@@ -687,7 +742,13 @@ async def run_full_pipeline(
                     print(f"[WARN] Journal phase_end failed: {e}", file=sys.stderr)
 
             if result['returncode'] == 0:
-                log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+                if observer:
+                    observer.on_phase_complete(phase_name, elapsed)
+                if log_file:
+                    log_file.write(f"[OK] {phase_name} completed in {elapsed:.1f}s\n")
+                    log_file.flush()
+                log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+
                 if result['stdout']:
                     lines = result['stdout'].strip().split('\n')
                     # Write FULL output to log file
@@ -696,7 +757,7 @@ async def run_full_pipeline(
                         for line in lines:
                             log_file.write(f"  {line}\n")
                         log_file.flush()
-                    
+
                     # Special handling for framework detection to show actual results
                     if "Detect frameworks" in phase_name and len(lines) > 3:
                         # Check if this looks like table output (has header separator)
@@ -704,34 +765,50 @@ async def run_full_pipeline(
                         if has_table:
                             # Show ALL lines for framework table - users want to see all detected frameworks
                             for line in lines:
-                                if log_callback and not quiet:
-                                    log_callback(f"  {line}", False)
+                                if observer:
+                                    observer.on_log(f"  {line}")
                                 log_lines.append(f"  {line}")
                         else:
                             # Regular truncation for non-table output
                             for line in lines[:3]:
-                                if log_callback and not quiet:
-                                    log_callback(f"  {line}", False)
+                                if observer:
+                                    observer.on_log(f"  {line}")
                                 log_lines.append(f"  {line}")
                             if len(lines) > 3:
                                 truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                if log_callback and not quiet:
-                                    log_callback(truncate_msg, False)
+                                if observer:
+                                    observer.on_log(truncate_msg)
                                 log_lines.append(truncate_msg)
                     else:
                         # Regular truncation for other commands
                         for line in lines[:3]:
-                            if log_callback and not quiet:
-                                log_callback(f"  {line}", False)
+                            if observer:
+                                observer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
                         if len(lines) > 3:
                             truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                            if log_callback and not quiet:
-                                log_callback(truncate_msg, False)
+                            if observer:
+                                observer.on_log(truncate_msg)
                             log_lines.append(truncate_msg)
             else:
                 failed_phases += 1
-                log_output(f"[FAILED] {phase_name} failed (exit code {result['returncode']})", is_error=True)
+                if observer:
+                    observer.on_phase_failed(phase_name, result['stderr'], result['returncode'])
+                if log_file:
+                    log_file.write(f"[FAILED] {phase_name} failed (exit code {result['returncode']})\n")
+                    log_file.flush()
+                log_lines.append(f"[FAILED] {phase_name} failed (exit code {result['returncode']})")
+
+                # CI/CD: Write to dedicated error.log
+                try:
+                    with open(error_log_path, 'a', encoding='utf-8') as ef:
+                        ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [FAILED] {phase_name} (Exit: {result['returncode']})\n")
+                        if result['stderr']:
+                            ef.write(result['stderr'] + "\n")
+                        ef.write("-" * 40 + "\n")
+                except Exception:
+                    pass  # Ensure logging failure doesn't crash the pipeline
+
                 if result['stderr']:
                     # Write FULL error to log file
                     if log_file:
@@ -742,28 +819,63 @@ async def run_full_pipeline(
                     error_msg = f"  Error: {result['stderr'][:200]}"
                     if len(result['stderr']) > 200:
                         error_msg += "... [see pipeline.log for full error]"
-                    if log_callback and not quiet:
-                        log_callback(error_msg, True)
+                    if observer:
+                        observer.on_log(error_msg, is_error=True)
                     log_lines.append(error_msg)
                 # Foundation failure stops pipeline
-                log_output("[CRITICAL] Foundation stage failed - stopping pipeline", is_error=True)
+                critical_msg = "[CRITICAL] Foundation stage failed - stopping pipeline"
+                if observer:
+                    observer.on_log(critical_msg, is_error=True)
+                if log_file:
+                    log_file.write(critical_msg + "\n")
+                    log_file.flush()
+                log_lines.append(critical_msg)
                 break
 
         except Exception as e:
             failed_phases += 1
-            log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
+            fail_msg = f"[FAILED] {phase_name} failed: {e}"
+            if observer:
+                observer.on_log(fail_msg, is_error=True)
+            if log_file:
+                log_file.write(fail_msg + "\n")
+                log_file.flush()
+            log_lines.append(fail_msg)
+
+            # CI/CD: Write to dedicated error.log
+            try:
+                with open(error_log_path, 'a', encoding='utf-8') as ef:
+                    ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [EXCEPTION] {phase_name}: {e}\n")
+                    ef.write("-" * 40 + "\n")
+            except Exception:
+                pass  # Ensure logging failure doesn't crash the pipeline
+
             break
 
     # STAGE 2: Data Preparation (Sequential) - Only if foundation succeeded
     if failed_phases == 0 and data_prep_commands:
-        log_output("\n" + "="*60)
-        log_output("[STAGE 2] DATA PREPARATION - Sequential Execution")
-        log_output("="*60)
-        log_output("Preparing data structures for parallel analysis...")
+        if observer:
+            observer.on_stage_start("DATA PREPARATION - Sequential Execution", 2)
+            observer.on_log("Preparing data structures for parallel analysis...")
+        if log_file:
+            log_file.write("\n" + "="*60 + "\n")
+            log_file.write("[STAGE 2] DATA PREPARATION - Sequential Execution\n")
+            log_file.write("="*60 + "\n")
+            log_file.write("Preparing data structures for parallel analysis...\n")
+            log_file.flush()
+        log_lines.append("\n" + "="*60)
+        log_lines.append("[STAGE 2] DATA PREPARATION - Sequential Execution")
+        log_lines.append("="*60)
+        log_lines.append("Preparing data structures for parallel analysis...")
         
         for phase_name, cmd in data_prep_commands:
             current_phase += 1
-            log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
+            if observer:
+                observer.on_phase_start(phase_name, current_phase, total_phases)
+            if log_file:
+                log_file.write(f"\n[Phase {current_phase}/{total_phases}] {phase_name}\n")
+                log_file.flush()
+            log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
             start_time = time.time()
 
             # Record phase start in journal
@@ -789,7 +901,13 @@ async def run_full_pipeline(
                         print(f"[WARN] Journal phase_end failed: {e}", file=sys.stderr)
 
                 if result['returncode'] == 0:
-                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+                    if observer:
+                        observer.on_phase_complete(phase_name, elapsed)
+                    if log_file:
+                        log_file.write(f"[OK] {phase_name} completed in {elapsed:.1f}s\n")
+                        log_file.flush()
+                    log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+
                     if result['stdout']:
                         lines = result['stdout'].strip().split('\n')
                         # Write FULL output to log file
@@ -801,17 +919,23 @@ async def run_full_pipeline(
 
                         # Show first few lines in terminal
                         for line in lines[:3]:
-                            if log_callback and not quiet:
-                                log_callback(f"  {line}", False)
+                            if observer:
+                                observer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
                         if len(lines) > 3:
                             truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                            if log_callback and not quiet:
-                                log_callback(truncate_msg, False)
+                            if observer:
+                                observer.on_log(truncate_msg)
                             log_lines.append(truncate_msg)
                 else:
                     failed_phases += 1
-                    log_output(f"[FAILED] {phase_name} failed (exit code {result['returncode']})", is_error=True)
+                    if observer:
+                        observer.on_phase_failed(phase_name, result['stderr'], result['returncode'])
+                    if log_file:
+                        log_file.write(f"[FAILED] {phase_name} failed (exit code {result['returncode']})\n")
+                        log_file.flush()
+                    log_lines.append(f"[FAILED] {phase_name} failed (exit code {result['returncode']})")
+
                     if result['stderr']:
                         # Write FULL error to log file
                         if log_file:
@@ -822,33 +946,79 @@ async def run_full_pipeline(
                         error_msg = f"  Error: {result['stderr'][:200]}"
                         if len(result['stderr']) > 200:
                             error_msg += "... [see pipeline.log for full error]"
-                        if log_callback and not quiet:
-                            log_callback(error_msg, True)
+                        if observer:
+                            observer.on_log(error_msg, is_error=True)
                         log_lines.append(error_msg)
                     # Data prep failure stops pipeline
-                    log_output("[CRITICAL] Data preparation stage failed - stopping pipeline", is_error=True)
+                    critical_msg = "[CRITICAL] Data preparation stage failed - stopping pipeline"
+                    if observer:
+                        observer.on_log(critical_msg, is_error=True)
+                    if log_file:
+                        log_file.write(critical_msg + "\n")
+                        log_file.flush()
+                    log_lines.append(critical_msg)
                     break
-                    
+
             except Exception as e:
                 failed_phases += 1
-                log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
+                fail_msg = f"[FAILED] {phase_name} failed: {e}"
+                if observer:
+                    observer.on_log(fail_msg, is_error=True)
+                if log_file:
+                    log_file.write(fail_msg + "\n")
+                    log_file.flush()
+                log_lines.append(fail_msg)
+
+                # CI/CD: Write to dedicated error.log
+                try:
+                    with open(error_log_path, 'a', encoding='utf-8') as ef:
+                        ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [EXCEPTION] {phase_name}: {e}\n")
+                        ef.write("-" * 40 + "\n")
+                except Exception:
+                    pass  # Ensure logging failure doesn't crash the pipeline
+
                 break
     
     # Only proceed to parallel stage if foundation and data prep succeeded (skip in index_only mode)
     if failed_phases == 0 and not index_only and (track_a_commands or track_b_commands or track_c_commands):
         # STAGE 3: Heavy Parallel Analysis (Rebalanced)
-        log_output("\n" + "="*60)
-        log_output("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution")
-        log_output("="*60)
-        log_output("Launching rebalanced parallel tracks:")
+        if observer:
+            observer.on_stage_start("HEAVY PARALLEL ANALYSIS - Optimized Execution", 3)
+            observer.on_log("Launching rebalanced parallel tracks:")
+            if track_a_commands:
+                observer.on_log("  Track A: Taint Analysis (isolated heavy task)")
+            if track_b_commands:
+                observer.on_log("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)")
+            if track_c_commands and not offline:
+                observer.on_log("  Track C: Network I/O (version checks, docs)")
+            elif offline:
+                observer.on_log("  [OFFLINE MODE] Track C skipped")
+        if log_file:
+            log_file.write("\n" + "="*60 + "\n")
+            log_file.write("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution\n")
+            log_file.write("="*60 + "\n")
+            log_file.write("Launching rebalanced parallel tracks:\n")
+            if track_a_commands:
+                log_file.write("  Track A: Taint Analysis (isolated heavy task)\n")
+            if track_b_commands:
+                log_file.write("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)\n")
+            if track_c_commands and not offline:
+                log_file.write("  Track C: Network I/O (version checks, docs)\n")
+            elif offline:
+                log_file.write("  [OFFLINE MODE] Track C skipped\n")
+            log_file.flush()
+        log_lines.append("\n" + "="*60)
+        log_lines.append("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution")
+        log_lines.append("="*60)
+        log_lines.append("Launching rebalanced parallel tracks:")
         if track_a_commands:
-            log_output("  Track A: Taint Analysis (isolated heavy task)")
+            log_lines.append("  Track A: Taint Analysis (isolated heavy task)")
         if track_b_commands:
-            log_output("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)")
+            log_lines.append("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)")
         if track_c_commands and not offline:
-            log_output("  Track C: Network I/O (version checks, docs)")
+            log_lines.append("  Track C: Network I/O (version checks, docs)")
         elif offline:
-            log_output("  [OFFLINE MODE] Track C skipped")
+            log_lines.append("  [OFFLINE MODE] Track C skipped")
         
         # Execute parallel tracks using asyncio (2025 Modern)
         parallel_results = []
@@ -1034,57 +1204,142 @@ async def run_full_pipeline(
                 current_phase += len(track_a_commands)
             else:
                 # Subprocess execution via async chain
-                tasks.append(run_chain_async(track_a_commands, root, "Track A (Taint Analysis)"))
+                tasks.append(run_chain_async(track_a_commands, root, "Track A (Taint Analysis)", observer))
                 current_phase += len(track_a_commands)
 
         # Track B: Static Analysis
         if track_b_commands:
-            tasks.append(run_chain_async(track_b_commands, root, "Track B (Static & Graph)"))
+            tasks.append(run_chain_async(track_b_commands, root, "Track B (Static & Graph)", observer))
             current_phase += len(track_b_commands)
 
         # Track C: Network I/O
         if track_c_commands:
-            tasks.append(run_chain_async(track_c_commands, root, "Track C (Network I/O)"))
+            tasks.append(run_chain_async(track_c_commands, root, "Track C (Network I/O)", observer))
             current_phase += len(track_c_commands)
 
         # SYNC POINT: Run all tracks in parallel
-        log_output("\n[SYNC] Launching parallel tracks with asyncio.gather()...")
+        sync_msg = "\n[SYNC] Launching parallel tracks with asyncio.gather()..."
+        if observer:
+            observer.on_log(sync_msg)
+        if log_file:
+            log_file.write(sync_msg + "\n")
+            log_file.flush()
+        log_lines.append(sync_msg)
+
         parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
         for result in parallel_results:
             if isinstance(result, Exception):
-                log_output(f"[ERROR] Track failed with exception: {result}", is_error=True)
-                failed_phases += 1
-            elif result["success"]:
-                log_output(f"[OK] {result['name']} completed in {result['elapsed']:.1f}s")
-            else:
-                log_output(f"[FAILED] {result['name']} failed", is_error=True)
+                err_msg = f"[ERROR] Track failed with exception: {result}"
+                if observer:
+                    observer.on_log(err_msg, is_error=True)
+                if log_file:
+                    log_file.write(err_msg + "\n")
+                    log_file.flush()
+                log_lines.append(err_msg)
                 failed_phases += 1
 
+                # CI/CD: Write to dedicated error.log
+                try:
+                    with open(error_log_path, 'a', encoding='utf-8') as ef:
+                        ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] Track exception: {result}\n")
+                        ef.write("-" * 40 + "\n")
+                except Exception:
+                    pass  # Ensure logging failure doesn't crash the pipeline
+            elif result["success"]:
+                ok_msg = f"[OK] {result['name']} completed in {result['elapsed']:.1f}s"
+                if observer:
+                    observer.on_parallel_track_complete(result['name'], result['elapsed'])
+                if log_file:
+                    log_file.write(ok_msg + "\n")
+                    log_file.flush()
+                log_lines.append(ok_msg)
+            else:
+                fail_msg = f"[FAILED] {result['name']} failed"
+                if observer:
+                    observer.on_log(fail_msg, is_error=True)
+                if log_file:
+                    log_file.write(fail_msg + "\n")
+                    log_file.flush()
+                log_lines.append(fail_msg)
+                failed_phases += 1
+
+                # CI/CD: Write to dedicated error.log
+                try:
+                    with open(error_log_path, 'a', encoding='utf-8') as ef:
+                        ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [FAILED] {result['name']}\n")
+                        if result.get('errors'):
+                            ef.write(result['errors'] + "\n")
+                        ef.write("-" * 40 + "\n")
+                except Exception:
+                    pass  # Ensure logging failure doesn't crash the pipeline
+
         # Print outputs from parallel tracks sequentially for clean logging
-        log_output("\n" + "="*60)
-        log_output("[STAGE 3 RESULTS] Parallel Track Outputs")
-        log_output("="*60)
+        if observer:
+            observer.on_log("\n" + "="*60)
+            observer.on_log("[STAGE 3 RESULTS] Parallel Track Outputs")
+            observer.on_log("="*60)
+        if log_file:
+            log_file.write("\n" + "="*60 + "\n")
+            log_file.write("[STAGE 3 RESULTS] Parallel Track Outputs\n")
+            log_file.write("="*60 + "\n")
+            log_file.flush()
+        log_lines.append("\n" + "="*60)
+        log_lines.append("[STAGE 3 RESULTS] Parallel Track Outputs")
+        log_lines.append("="*60)
 
         for result in parallel_results:
             if isinstance(result, Exception):
-                log_output(f"[EXCEPTION] {result}")
+                exc_msg = f"[EXCEPTION] {result}"
+                if observer:
+                    observer.on_log(exc_msg)
+                if log_file:
+                    log_file.write(exc_msg + "\n")
+                    log_file.flush()
+                log_lines.append(exc_msg)
             else:
-                log_output(result.get("output", ""))
+                output = result.get("output", "")
+                if observer:
+                    observer.on_log(output)
+                if log_file:
+                    log_file.write(output + "\n")
+                    log_file.flush()
+                log_lines.append(output)
+
                 if result.get("errors"):
-                    log_output("[ERRORS]:")
-                    log_output(result["errors"])
+                    err_hdr = "[ERRORS]:"
+                    if observer:
+                        observer.on_log(err_hdr)
+                        observer.on_log(result["errors"])
+                    if log_file:
+                        log_file.write(err_hdr + "\n")
+                        log_file.write(result["errors"] + "\n")
+                        log_file.flush()
+                    log_lines.append(err_hdr)
+                    log_lines.append(result["errors"])
     
     # STAGE 4: Final Aggregation (Sequential) - skip in index_only mode
     if failed_phases == 0 and not index_only and final_commands:
-        log_output("\n" + "="*60)
-        log_output("[STAGE 4] FINAL AGGREGATION - AsyncIO Sequential Execution")
-        log_output("="*60)
+        if observer:
+            observer.on_stage_start("FINAL AGGREGATION - AsyncIO Sequential Execution", 4)
+        if log_file:
+            log_file.write("\n" + "="*60 + "\n")
+            log_file.write("[STAGE 4] FINAL AGGREGATION - AsyncIO Sequential Execution\n")
+            log_file.write("="*60 + "\n")
+            log_file.flush()
+        log_lines.append("\n" + "="*60)
+        log_lines.append("[STAGE 4] FINAL AGGREGATION - AsyncIO Sequential Execution")
+        log_lines.append("="*60)
 
         for phase_name, cmd in final_commands:
             current_phase += 1
-            log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
+            if observer:
+                observer.on_phase_start(phase_name, current_phase, total_phases)
+            if log_file:
+                log_file.write(f"\n[Phase {current_phase}/{total_phases}] {phase_name}\n")
+                log_file.flush()
+            log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
 
             # Record phase start in journal
             if journal:
@@ -1101,7 +1356,14 @@ async def run_full_pipeline(
             is_fce = "factual correlation" in phase_name.lower() or "fce" in " ".join(cmd)
             if is_fce:
                 fce_log_path = Path(root) / ".pf" / "fce.log"
-                log_output(f"[INFO] Writing FCE output to: {fce_log_path}")
+                fce_info_msg = f"[INFO] Writing FCE output to: {fce_log_path}"
+                if observer:
+                    observer.on_log(fce_info_msg)
+                if log_file:
+                    log_file.write(fce_info_msg + "\n")
+                    log_file.flush()
+                log_lines.append(fce_info_msg)
+
                 with open(fce_log_path, 'w', encoding='utf-8') as fce_log:
                     fce_log.write(f"FCE Execution Log - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                     fce_log.write("="*80 + "\n")
@@ -1140,11 +1402,18 @@ async def run_full_pipeline(
 
             if success:
                 if result['returncode'] == 2 and is_findings_command:
-                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings")
+                    ok_msg = f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings"
                 elif result['returncode'] == 1 and is_findings_command:
-                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s - HIGH findings")
+                    ok_msg = f"[OK] {phase_name} completed in {elapsed:.1f}s - HIGH findings"
                 else:
-                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+                    ok_msg = f"[OK] {phase_name} completed in {elapsed:.1f}s"
+
+                if observer:
+                    observer.on_phase_complete(phase_name, elapsed)
+                if log_file:
+                    log_file.write(ok_msg + "\n")
+                    log_file.flush()
+                log_lines.append(ok_msg)
 
                 if result['stdout']:
                     lines = result['stdout'].strip().split('\n')
@@ -1160,32 +1429,48 @@ async def run_full_pipeline(
                         has_table = any("---" in line for line in lines[:5])
                         if has_table:
                             for line in lines:
-                                if log_callback and not quiet:
-                                    log_callback(f"  {line}", False)
+                                if observer:
+                                    observer.on_log(f"  {line}")
                                 log_lines.append(f"  {line}")
                         else:
                             for line in lines[:3]:
-                                if log_callback and not quiet:
-                                    log_callback(f"  {line}", False)
+                                if observer:
+                                    observer.on_log(f"  {line}")
                                 log_lines.append(f"  {line}")
                             if len(lines) > 3:
                                 truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                if log_callback and not quiet:
-                                    log_callback(truncate_msg, False)
+                                if observer:
+                                    observer.on_log(truncate_msg)
                                 log_lines.append(truncate_msg)
                     else:
                         for line in lines[:3]:
-                            if log_callback and not quiet:
-                                log_callback(f"  {line}", False)
+                            if observer:
+                                observer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
                         if len(lines) > 3:
                             truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                            if log_callback and not quiet:
-                                log_callback(truncate_msg, False)
+                            if observer:
+                                observer.on_log(truncate_msg)
                             log_lines.append(truncate_msg)
             else:
                 failed_phases += 1
-                log_output(f"[FAILED] {phase_name} failed (exit code {result['returncode']})", is_error=True)
+                if observer:
+                    observer.on_phase_failed(phase_name, result['stderr'], result['returncode'])
+                if log_file:
+                    log_file.write(f"[FAILED] {phase_name} failed (exit code {result['returncode']})\n")
+                    log_file.flush()
+                log_lines.append(f"[FAILED] {phase_name} failed (exit code {result['returncode']})")
+
+                # CI/CD: Write to dedicated error.log
+                try:
+                    with open(error_log_path, 'a', encoding='utf-8') as ef:
+                        ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [FAILED] {phase_name} (Exit: {result['returncode']})\n")
+                        if result['stderr']:
+                            ef.write(result['stderr'] + "\n")
+                        ef.write("-" * 40 + "\n")
+                except Exception:
+                    pass  # Ensure logging failure doesn't crash the pipeline
+
                 if result['stderr']:
                     # Write FULL error to log file
                     if log_file:
@@ -1196,8 +1481,8 @@ async def run_full_pipeline(
                     error_msg = f"  Error: {result['stderr'][:200]}"
                     if len(result['stderr']) > 200:
                         error_msg += "... [see pipeline.log for full error]"
-                    if log_callback and not quiet:
-                        log_callback(error_msg, True)
+                    if observer:
+                        observer.on_log(error_msg, is_error=True)
                     log_lines.append(error_msg)
     
     # After all commands complete, collect all created files
@@ -1235,26 +1520,34 @@ async def run_full_pipeline(
         f.write(f"Failed commands: {failed_phases}\n")
     
     # Display final summary
-    log_output("\n" + "="*60)
+    def write_summary(msg):
+        if observer:
+            observer.on_log(msg)
+        if log_file:
+            log_file.write(msg + "\n")
+            log_file.flush()
+        log_lines.append(msg)
+
+    write_summary("\n" + "="*60)
     if index_only:
         if failed_phases == 0:
-            log_output(f"[OK] INDEX COMPLETE - All {total_phases} phases successful")
-            log_output(f"[INFO] Database ready: .pf/repo_index.db + .pf/graphs.db")
-            log_output(f"[INFO] Run 'aud full' for complete analysis (taint, patterns, fce)")
+            write_summary(f"[OK] INDEX COMPLETE - All {total_phases} phases successful")
+            write_summary(f"[INFO] Database ready: .pf/repo_index.db + .pf/graphs.db")
+            write_summary(f"[INFO] Run 'aud full' for complete analysis (taint, patterns, fce)")
         else:
-            log_output(f"[WARN] INDEX INCOMPLETE - {failed_phases} phases failed")
+            write_summary(f"[WARN] INDEX INCOMPLETE - {failed_phases} phases failed")
     elif failed_phases == 0 and phases_with_warnings == 0:
-        log_output(f"[OK] AUDIT COMPLETE - All {total_phases} phases successful")
+        write_summary(f"[OK] AUDIT COMPLETE - All {total_phases} phases successful")
     elif phases_with_warnings > 0 and failed_phases == 0:
-        log_output(f"[WARNING] AUDIT COMPLETE - {phases_with_warnings} phases completed with errors")
+        write_summary(f"[WARNING] AUDIT COMPLETE - {phases_with_warnings} phases completed with errors")
     else:
-        log_output(f"[WARN] AUDIT COMPLETE - {failed_phases} phases failed, {phases_with_warnings} phases with errors")
-    log_output(f"[TIME] Total time: {pipeline_elapsed:.1f}s ({pipeline_elapsed/60:.1f} minutes)")
-    
+        write_summary(f"[WARN] AUDIT COMPLETE - {failed_phases} phases failed, {phases_with_warnings} phases with errors")
+    write_summary(f"[TIME] Total time: {pipeline_elapsed:.1f}s ({pipeline_elapsed/60:.1f} minutes)")
+
     # Display all created files summary
-    log_output("\n" + "="*60)
-    log_output("[FILES] ALL CREATED FILES")
-    log_output("="*60)
+    write_summary("\n" + "="*60)
+    write_summary("[FILES] ALL CREATED FILES")
+    write_summary("="*60)
     
     # Count files by category
     pf_files = [f for f in all_created_files if f.startswith(".pf/")]
@@ -1262,35 +1555,35 @@ async def run_full_pipeline(
     docs_files = [f for f in all_created_files if f.startswith(".pf/docs/")]
     root_files = [f for f in all_created_files if "/" not in f]
     
-    log_output(f"\n[STATS] Summary:")
-    log_output(f"  Total files created: {len(all_created_files)}")
-    log_output(f"  .pf/ files: {len(pf_files)}")
-    log_output(f"  .pf/readthis/ files: {len(readthis_files)}")
+    write_summary(f"\n[STATS] Summary:")
+    write_summary(f"  Total files created: {len(all_created_files)}")
+    write_summary(f"  .pf/ files: {len(pf_files)}")
+    write_summary(f"  .pf/readthis/ files: {len(readthis_files)}")
     if docs_files:
-        log_output(f"  .pf/docs/ files: {len(docs_files)}")
-    log_output(f"  Root files: {len(root_files)}")
-    
-    log_output(f"\n[SAVED] Complete file list saved to: .pf/allfiles.md")
-    log_output(f"\n[TIP] Key artifacts:")
-    if index_only:
-        log_output(f"  * .pf/repo_index.db - Symbol database (queryable)")
-        log_output(f"  * .pf/graphs.db - Call/data flow graphs")
-        log_output(f"  * .pf/manifest.json - Project manifest")
-        log_output(f"  * .pf/pipeline.log - Execution log")
-    else:
-        log_output(f"  * .pf/readthis/ - All AI-consumable chunks")
-        log_output(f"  * .pf/allfiles.md - Complete file list")
-        log_output(f"  * .pf/pipeline.log - Full execution log")
-        log_output(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
-        log_output(f"  * .pf/findings.json - Pattern detection results")
-        log_output(f"  * .pf/risk_scores.json - Risk analysis")
+        write_summary(f"  .pf/docs/ files: {len(docs_files)}")
+    write_summary(f"  Root files: {len(root_files)}")
 
-    log_output("\n" + "="*60)
+    write_summary(f"\n[SAVED] Complete file list saved to: .pf/allfiles.md")
+    write_summary(f"\n[TIP] Key artifacts:")
     if index_only:
-        log_output("[COMPLETE] INDEX EXECUTION COMPLETE")
+        write_summary(f"  * .pf/repo_index.db - Symbol database (queryable)")
+        write_summary(f"  * .pf/graphs.db - Call/data flow graphs")
+        write_summary(f"  * .pf/manifest.json - Project manifest")
+        write_summary(f"  * .pf/pipeline.log - Execution log")
     else:
-        log_output("[COMPLETE] AUDIT SUITE EXECUTION COMPLETE")
-    log_output("="*60)
+        write_summary(f"  * .pf/readthis/ - All AI-consumable chunks")
+        write_summary(f"  * .pf/allfiles.md - Complete file list")
+        write_summary(f"  * .pf/pipeline.log - Full execution log")
+        write_summary(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
+        write_summary(f"  * .pf/findings.json - Pattern detection results")
+        write_summary(f"  * .pf/risk_scores.json - Risk analysis")
+
+    write_summary("\n" + "="*60)
+    if index_only:
+        write_summary("[COMPLETE] INDEX EXECUTION COMPLETE")
+    else:
+        write_summary("[COMPLETE] AUDIT SUITE EXECUTION COMPLETE")
+    write_summary("="*60)
     
     # Close the log file (already written throughout execution)
     if log_file:

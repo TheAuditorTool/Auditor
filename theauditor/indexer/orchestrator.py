@@ -298,38 +298,6 @@ class IndexerOrchestrator:
 
             print(f"[Indexer] Successfully batch processed {len(js_ts_cache)} JS/TS files")
 
-            # CRITICAL FIX (Bug #3): Build global function parameter cache
-            # This enables cross-file parameter name resolution for taint analysis
-            # Without this, 93.1% of function calls fall back to argN naming
-            js_ts_function_params = {}
-            for file_str, tree in js_ts_cache.items():
-                if not tree or not isinstance(tree, dict):
-                    continue
-
-                # Extract parameters from this file's tree
-                file_params = self.ast_parser._extract_function_parameters(tree, language='javascript')
-
-                # Merge into global cache
-                for func_name, param_list in file_params.items():
-                    # Store unqualified name (works for same-file calls)
-                    if func_name not in js_ts_function_params:
-                        js_ts_function_params[func_name] = param_list
-
-                    # ALSO store file-qualified name (for disambiguation)
-                    # Format: "backend/src/services/account.service.ts#createAccount"
-                    qualified_key = f"{file_str}#{func_name}"
-                    js_ts_function_params[qualified_key] = param_list
-
-            # Inject into AST parser for use during extraction
-            self.ast_parser.global_function_params = js_ts_function_params
-
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] Built global function params cache: {len(js_ts_function_params)} entries", file=sys.stderr)
-                # Show sample entries
-                sample_entries = list(js_ts_function_params.items())[:3]
-                for func_name, params in sample_entries:
-                    print(f"[DEBUG]   {func_name} -> {params}", file=sys.stderr)
-
         # Process all files
         for idx, file_info in enumerate(files):
             # Debug progress
