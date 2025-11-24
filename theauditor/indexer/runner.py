@@ -18,6 +18,12 @@ from theauditor.indexer.orchestrator import IndexerOrchestrator
 from theauditor.indexer.database import create_database_schema
 from theauditor.indexer.config import DEFAULT_BATCH_SIZE
 
+# Pre-heat ModuleResolver cache to avoid database lock race condition
+try:
+    from theauditor.js_semantic_parser import _module_resolver_cache
+except ImportError:
+    _module_resolver_cache = None
+
 
 def run_repository_index(
     root_path: str = ".",
@@ -100,6 +106,16 @@ def run_repository_index(
 
     if not db_exists:
         print(f"[Indexer] Created database: {db_path}")
+
+    # FIX: Pre-heat ModuleResolver BEFORE Orchestrator locks the DB.
+    # This prevents the "Database locked" warning by ensuring path mappings
+    # are cached in memory before the exclusive write transaction begins.
+    if _module_resolver_cache is not None:
+        try:
+            # Force DB read now while the database is unlocked
+            _module_resolver_cache._load_all_configs_from_db()
+        except Exception:
+            pass  # If it fails (e.g. empty DB), we continue safely
 
     # 4. Run Indexer Orchestrator
     orchestrator = IndexerOrchestrator(
