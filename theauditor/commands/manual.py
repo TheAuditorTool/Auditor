@@ -31,10 +31,10 @@ EXAMPLE VULNERABILITY:
     db.execute(query)  # SINK: SQL injection vulnerability!
 
 WHAT THEAUDITOR DETECTS:
-- SQL Injection (tainted data → SQL query)
-- Command Injection (tainted data → system command)
-- XSS (tainted data → HTML output)
-- Path Traversal (tainted data → file path)
+- SQL Injection (tainted data -> SQL query)
+- Command Injection (tainted data -> system command)
+- XSS (tainted data -> HTML output)
+- Path Traversal (tainted data -> file path)
 - LDAP/NoSQL Injection
 
 USE THE COMMAND:
@@ -497,11 +497,11 @@ USING INSIGHTS:
 
 OUTPUT STRUCTURE:
 .pf/
-├── raw/               # Immutable facts (truth)
-└── insights/          # Interpretations (opinions)
-    ├── ml_suggestions.json
-    ├── graph_health.json
-    └── taint_severity.json
+|-- raw/               # Immutable facts (truth)
++-- insights/          # Interpretations (opinions)
+    |-- ml_suggestions.json
+    |-- graph_health.json
+    +-- taint_severity.json
 
 PHILOSOPHY:
 TheAuditor deliberately separates facts from interpretations because:
@@ -646,6 +646,225 @@ EXAMPLES:
     export THEAUDITOR_DB_BATCH_SIZE=500
     aud full
 """
+    },
+    "database": {
+        "title": "Database Schema Reference",
+        "summary": "Tables, indexes, and manual SQL queries for repo_index.db",
+        "explanation": """
+TheAuditor stores all indexed data in SQLite databases that you can query
+directly using Python's sqlite3 module.
+
+DATABASE LOCATIONS:
+    .pf/repo_index.db     - Main code index (250+ tables, 200k+ rows)
+    .pf/graphs.db         - Import/call graph (optional)
+
+KEY TABLES:
+
+    symbols (33k rows)
+        - Function/class/variable definitions
+        - Columns: name, type, file, line, end_line, scope
+        - Index: symbols.name for O(log n) lookup
+
+    function_call_args (13k rows)
+        - Every function call with arguments
+        - Columns: caller_function, callee_function, file, line, arguments
+        - Index: callee_function for caller lookup
+
+    assignments (42k rows)
+        - Variable assignments with source expressions
+        - Columns: target_var, source_expr, file, line, in_function
+        - Used for data flow analysis
+
+    api_endpoints (185 rows)
+        - REST API routes
+        - Columns: method, path, handler_function, file, line
+        - Tracks auth controls via api_endpoint_controls junction
+
+    imports (7k rows)
+        - Import statements
+        - Columns: file, module_name, style, line
+        - Used for dependency tracking
+
+JUNCTION TABLES (for normalized queries):
+    assignment_sources        - Which vars are read in assignments
+    function_return_sources   - Which vars are returned from functions
+    api_endpoint_controls     - Which auth controls protect endpoints
+    import_style_names        - Which symbols are imported
+
+MANUAL QUERIES (Python):
+
+    import sqlite3
+    conn = sqlite3.connect('.pf/repo_index.db')
+    cursor = conn.cursor()
+
+    # Find all functions in a file
+    cursor.execute('''
+        SELECT name, line FROM symbols
+        WHERE file LIKE '%auth.py%' AND type = 'function'
+        ORDER BY line
+    ''')
+
+    # Find callers of a function
+    cursor.execute('''
+        SELECT caller_function, file, line
+        FROM function_call_args
+        WHERE callee_function = 'validateUser'
+    ''')
+
+    # Find all API endpoints
+    cursor.execute('''
+        SELECT method, path, handler_function, file
+        FROM api_endpoints
+        ORDER BY path
+    ''')
+
+    conn.close()
+
+SCHEMA DOCUMENTATION:
+    See: theauditor/indexer/schema.py for complete table definitions
+    Each table includes column types, indexes, and constraints.
+"""
+    },
+    "troubleshooting": {
+        "title": "Troubleshooting Guide",
+        "summary": "Common errors and solutions for TheAuditor",
+        "explanation": """
+COMMON ERRORS AND SOLUTIONS:
+
+ERROR: "No .pf directory found"
+    CAUSE: Haven't run aud full yet
+    FIX: Run 'aud full' to create .pf/ and build index
+    NOTE: All query commands require indexed data
+
+ERROR: "Graph database not found"
+    CAUSE: graphs.db not built (only for dependency queries)
+    FIX: Run 'aud graph build'
+    NOTE: Only needed for --show-dependencies/--show-dependents
+
+SYMPTOM: Empty results but symbol exists in code
+    CAUSE 1: Typo in symbol name (case-sensitive)
+    FIX: Run 'aud query --symbol foo' to see exact name
+
+    CAUSE 2: Database stale (code changed since last index)
+    FIX: Re-run 'aud full' to rebuild index
+
+    CAUSE 3: Unqualified method name
+    FIX: Methods stored as ClassName.methodName
+         Run 'aud query --symbol bar' to find canonical name
+         Then use exact name: 'aud query --symbol Foo.bar'
+
+SYMPTOM: Slow queries (>50ms)
+    CAUSE: Large project + high --depth
+    FIX: Reduce --depth to 1-2
+    NOTE: depth=5 can traverse 10k+ nodes
+
+SYMPTOM: Missing expected results
+    CAUSE: Dynamic calls (obj[variable]()) not indexed
+    FIX: Use taint analysis for dynamic dispatch
+    NOTE: Static analysis cannot resolve all dynamic behavior
+
+SYMPTOM: Unicode/emoji errors on Windows
+    CAUSE: CP1252 encoding cannot handle emojis
+    FIX: TheAuditor uses ASCII-only output
+    NOTE: If you see encoding errors, report the bug
+
+SYMPTOM: Command hangs during analysis
+    CAUSE: Large file or infinite loop in code
+    FIX: Set timeout: THEAUDITOR_TIMEOUT_SECONDS=600
+    NOTE: Check pipeline.log for progress
+
+GETTING HELP:
+    aud manual <concept>     - Learn about specific concepts
+    aud manual --list        - See all available topics
+    aud <command> --help     - Command-specific help
+"""
+    },
+    "architecture": {
+        "title": "System Architecture",
+        "summary": "How TheAuditor's analysis pipeline and query engine work",
+        "explanation": """
+EXTRACTION PIPELINE:
+    Source Code
+        |
+        v
+    tree-sitter (AST parsing)
+        |
+        v
+    Language Extractors (Python, JS/TS, etc.)
+        |
+        v
+    Database Manager
+        |
+        v
+    repo_index.db (SQLite)
+
+SCHEMA NORMALIZATION (v1.2+):
+    OLD: JSON TEXT columns with LIKE queries (slow)
+         assignments.source_vars = '["x", "y", "z"]'
+
+    NEW: Junction tables with JOIN queries (fast)
+         assignment_sources table:
+           (file, line, target_var, source_var_name='x')
+           (file, line, target_var, source_var_name='y')
+           (file, line, target_var, source_var_name='z')
+
+    Benefits:
+    - 10x faster queries (indexed lookups vs JSON parsing)
+    - Standard SQL JOINs work correctly
+    - Type-safe queries (no JSON parsing errors)
+
+QUERY ENGINE ARCHITECTURE:
+    User Request
+        |
+        v
+    CLI (commands/query.py)
+        |
+        v
+    CodeQueryEngine (context/query.py)
+        |
+        v
+    Direct SQL SELECT (no ORM overhead)
+        |
+        v
+    SQLite (repo_index.db)
+        |
+        v
+    Formatters (text/json/tree)
+        |
+        v
+    Output
+
+TWO-DATABASE DESIGN:
+    repo_index.db (181MB):
+        - Raw extracted facts from AST parsing
+        - Regenerated on every 'aud full'
+        - Used by: rules, taint, FCE, context queries
+
+    graphs.db (126MB):
+        - Pre-computed graph structures
+        - Built from repo_index.db
+        - Used by: 'aud graph' commands only
+
+INDEX MAINTENANCE:
+    - Database is REGENERATED on every 'aud full'
+    - NO migrations (fresh build every time)
+    - Code changes -> re-run 'aud full' -> database updated
+    - Database is TRUTH SOURCE (not code files)
+
+PERFORMANCE CHARACTERISTICS:
+    Query time: <10ms (indexed lookups)
+    Database size: 20-50MB typical project
+    Memory usage: <50MB for query engine
+    BFS traversal: O(n) where n = nodes visited
+    JOIN queries: O(log n) with proper indexes
+
+JUNCTION TABLE PATTERN:
+    Parent Table <-> Junction Table <-> (values)
+    assignments  <-> assignment_sources <-> (source variables)
+
+    Composite key: file + line + target_var
+    Enables: Many-to-many relationships, fast lookups
+"""
     }
 }
 
@@ -672,7 +891,7 @@ def manual(concept, list_concepts):
       taint:
         - Data flow tracking from untrusted sources to dangerous sinks
         - Detects SQL injection, XSS, command injection
-        - Example: user_input → query string → database execution
+        - Example: user_input -> query string -> database execution
 
       workset:
         - Focused file subset for targeted analysis (10-100x faster)
@@ -695,7 +914,7 @@ def manual(concept, list_concepts):
         - PR risk assessment
 
       pipeline:
-        - Execution stages (index → analyze → correlate → report)
+        - Execution stages (index -> analyze -> correlate -> report)
         - Tool orchestration and data flow
         - .pf/ directory structure
 
