@@ -31,6 +31,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--show-callees", is_flag=True, help="Show what this symbol calls (control flow outgoing)")
 @click.option("--show-dependencies", is_flag=True, help="Show what this file imports (outgoing dependencies)")
 @click.option("--show-dependents", is_flag=True, help="Show who imports this file (incoming dependencies)")
+@click.option("--show-incoming", is_flag=True, help="Show who CALLS symbols in this file (incoming calls)")
 @click.option("--show-tree", is_flag=True, help="Show component hierarchy tree (parent-child relationships)")
 @click.option("--show-hooks", is_flag=True, help="Show React hooks used by component")
 @click.option("--show-data-deps", is_flag=True, help="Show data dependencies (what vars function reads/writes) - DFG")
@@ -50,7 +51,7 @@ from theauditor.utils.error_handler import handle_exceptions
 def query(symbol, file, api, component, variable, pattern, category, search, list_mode,
           list_symbols, symbol_filter, path_filter,
           show_callers, show_callees, show_dependencies, show_dependents,
-          show_tree, show_hooks, show_data_deps, show_flow, show_taint_flow,
+          show_incoming, show_tree, show_hooks, show_data_deps, show_flow, show_taint_flow,
           show_api_coverage, type_filter, include_tables,
           depth, output_format, save, show_code):
     """Query code relationships from indexed database.
@@ -352,6 +353,9 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
                 results = engine.get_file_dependencies(file, direction='outgoing')
             elif show_dependents:
                 results = engine.get_file_dependencies(file, direction='incoming')
+            elif show_incoming:
+                # Who CALLS symbols defined in this file (uses optimized IN-clause query)
+                results = engine.get_file_incoming_calls(file)
             else:
                 # Default: both directions
                 results = engine.get_file_dependencies(file, direction='both')
