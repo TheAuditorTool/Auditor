@@ -118,7 +118,7 @@ class GraphDatabaseCache:
         cursor.execute("""
             SELECT src, kind, value, line
             FROM refs
-            WHERE kind IN ('import', 'require', 'from', 'import_type', 'export', 'import_dynamic')
+            WHERE kind IN ('import', 'require', 'from', 'import_type', 'export', 'dynamic_import')
         """)
         for row in cursor.fetchall():
             src = self._normalize_path(row["src"])
@@ -211,6 +211,50 @@ class GraphDatabaseCache:
         """
         normalized = self._normalize_path(file_path)
         return normalized in self.known_files
+
+    def resolve_filename(self, path_guess: str) -> str | None:
+        """Smart-resolve a path to an actual file in the DB, handling extensions.
+
+        This is the FIX for the dynamic import bug where aliases like
+        @/pages/dashboard/Products resolve to a path without extension,
+        but the DB stores the actual file (Products.tsx).
+
+        Args:
+            path_guess: The path to check (e.g. 'src/utils', 'src/comp')
+
+        Returns:
+            The actual normalized path (e.g. 'src/utils.ts') or None.
+
+        Example:
+            >>> cache.resolve_filename("frontend/src/pages/Products")
+            "frontend/src/pages/Products.tsx"
+            >>> cache.resolve_filename("src/utils")
+            "src/utils/index.ts"
+        """
+        # 1. Normalize the guess first (Guard against Windows paths)
+        clean = self._normalize_path(path_guess)
+
+        # 2. Fast Path: Exact match (The most common case)
+        if clean in self.known_files:
+            return clean
+
+        # 3. Permutation Strategy: Check common implicit extensions
+        # Order matters! .ts/.tsx usually prioritized over .js in mixed projects
+        extensions = ['.ts', '.tsx', '.js', '.jsx', '.d.ts', '.py']
+
+        for ext in extensions:
+            candidate = clean + ext
+            if candidate in self.known_files:
+                return candidate
+
+        # 4. Index Strategy: Check for folder imports (src/utils -> src/utils/index.ts)
+        # This is CRITICAL for React/Node projects
+        for ext in extensions:
+            candidate = f"{clean}/index{ext}"
+            if candidate in self.known_files:
+                return candidate
+
+        return None
 
     def get_stats(self) -> dict[str, int]:
         """Get cache statistics.

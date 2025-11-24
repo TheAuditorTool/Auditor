@@ -6,7 +6,6 @@ import platform
 import sqlite3
 import subprocess
 import tempfile
-import hashlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -383,26 +382,17 @@ class XGraphBuilder:
 
                 # Use ModuleResolver's context-aware resolution
                 resolved = self.module_resolver.resolve_with_context(import_str, str(source_file), context)
-                
-                # Check if resolution succeeded
-                if resolved != import_str:
-                    # Resolution worked, now verify file exists using CACHE
-                    # NO DATABASE ACCESS - uses pre-loaded cache
 
-                    # Try with common extensions if no extension
-                    test_paths = [resolved]
-                    if not Path(resolved).suffix:
-                        for ext in [".ts", ".tsx", ".js", ".jsx"]:
-                            test_paths.append(resolved + ext)
-                        test_paths.append(resolved + "/index.ts")
-                        test_paths.append(resolved + "/index.js")
+                # [FIX 2024-11] Use smart cache resolution instead of manual extension loop
+                # The cache is the source of truth for file existence - it handles:
+                # - Extension permutation (.ts, .tsx, .js, .jsx, .d.ts, .py)
+                # - Index file resolution (src/utils -> src/utils/index.ts)
+                real_file = self.db_cache.resolve_filename(resolved)
+                if real_file:
+                    return real_file
 
-                    for test_path in test_paths:
-                        if self.db_cache.file_exists(test_path):
-                            return test_path
-
-                    # Return resolved even if file check failed
-                    return resolved
+                # If cache couldn't find it, return the resolved guess (might be external/broken)
+                return resolved
             
             # 2. Handle relative imports (./foo, ../bar/baz)
             elif import_str.startswith("."):
@@ -410,31 +400,27 @@ class XGraphBuilder:
                 try:
                     # Remove leading dots and slashes
                     rel_import = import_str.lstrip("./")
-                    
+
                     # Go up directories for ../
                     up_count = import_str.count("../")
                     current_dir = source_dir
                     for _ in range(up_count):
                         current_dir = current_dir.parent
-                    
+
                     if up_count > 0:
                         rel_import = import_str.replace("../", "")
-                    
+
                     # Build the target path
                     target_path = current_dir / rel_import
                     rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
-                    
-                    # Check if this file exists using CACHE (try with extensions)
-                    # NO DATABASE ACCESS - uses pre-loaded cache
 
-                    # Try with common extensions
-                    for ext in ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]:
-                        test_path = rel_target + ext
-                        if self.db_cache.file_exists(test_path):
-                            return test_path
+                    # [FIX 2024-11] Use smart cache resolution instead of manual extension loop
+                    real_file = self.db_cache.resolve_filename(rel_target)
+                    if real_file:
+                        return real_file
 
                     return rel_target
-                    
+
                 except (ValueError, OSError):
                     pass
             
@@ -542,20 +528,13 @@ class XGraphBuilder:
                         if lang and (not langs or lang in langs):
                             files.append((file, lang))
 
-        # Compute file hashes for incremental cache lookup
+        # [FIX 2024-11] Removed expensive file hashing IO (was reading EVERY file to SHA256)
+        # The Indexer already stores file metadata in DB. Builder should only read from DB/cache.
+        # This change alone can double build speed on large repos.
         current_files = {}
         for file_path, lang in files:
-            try:
-                with open(file_path, 'rb') as f:
-                    file_hash = hashlib.sha256(f.read()).hexdigest()
-                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
-                current_files[rel_path] = {
-                    'hash': file_hash,
-                    'language': lang,
-                    'size': file_path.stat().st_size if file_path.exists() else 0,
-                }
-            except (OSError, PermissionError):
-                pass
+            rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+            current_files[rel_path] = {'language': lang}
 
         # Build import graph from database (no caching)
         with click.progressbar(
@@ -586,17 +565,10 @@ class XGraphBuilder:
                     resolved = self.resolve_import_path(raw_value, file_path, lang) if raw_value else raw_value
                     resolved_norm = resolved.replace('\\', '/') if resolved else None
 
-                    # CRITICAL FIX: Use cache (database) as source of truth, not current_files dict
-                    # current_files only has files in current batch (wrong for workset builds)
+                    # [FIX 2024-11] resolve_import_path now uses cache.resolve_filename() which handles
+                    # extension permutation internally. A simple file_exists check is sufficient here.
+                    # The redundant extension loop has been removed - all resolution logic is in one place.
                     resolved_exists = self.db_cache.file_exists(resolved_norm) if resolved_norm else False
-
-                    # Try with common extensions if exact match fails
-                    if not resolved_exists and resolved_norm and not Path(resolved_norm).suffix:
-                        for ext in [".ts", ".tsx", ".js", ".jsx", ".py"]:
-                            if self.db_cache.file_exists(resolved_norm + ext):
-                                resolved_norm = resolved_norm + ext
-                                resolved_exists = True
-                                break
 
                     if resolved_exists:
                         target_id = resolved_norm
