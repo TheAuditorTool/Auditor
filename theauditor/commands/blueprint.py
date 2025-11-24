@@ -127,8 +127,17 @@ def blueprint(structure, graph, security, taint, all, output_format):
     try:
         cursor = conn.cursor()
 
-        # Gather all data
-        data = _gather_all_data(cursor, graphs_db)
+        # Pack flags for logic-gated data gathering
+        flags = {
+            'structure': structure,
+            'graph': graph,
+            'security': security,
+            'taint': taint,
+            'all': all,
+        }
+
+        # Gather data based on flags (logic gating for performance)
+        data = _gather_all_data(cursor, graphs_db, flags)
 
         # Handle --all flag (export everything to JSON)
         if all:
@@ -141,9 +150,9 @@ def blueprint(structure, graph, security, taint, all, output_format):
         elif graph:
             _show_graph_drilldown(data)
         elif security:
-            _show_security_drilldown(data)
+            _show_security_drilldown(data, cursor)
         elif taint:
-            _show_taint_drilldown(data)
+            _show_taint_drilldown(data, cursor)
         else:
             # Default: Top-level overview with tree structure
             if output_format == 'json':
@@ -166,35 +175,69 @@ def blueprint(structure, graph, security, taint, all, output_format):
             conn.close()
 
 
-def _gather_all_data(cursor, graphs_db_path: Path) -> Dict:
-    """Gather all blueprint data from database."""
-    data = {}
+def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
+    """Gather blueprint data with logic gating based on flags.
 
-    # 1. Codebase Structure
+    Performance: Only runs expensive queries when the relevant flag is set.
+    - --structure: naming_conventions, architectural_precedents (regex-heavy)
+    - --graph: hot_files, import_graph (JOIN-heavy)
+    - --security: security_surface (multiple table scans)
+    - --taint: data_flow (taint tables)
+    - --all: everything
+    - (no flags): minimal set for overview
+    """
+    data = {}
+    run_all = flags.get('all', False)
+
+    # No specific flag = overview mode (need basics for top-level display)
+    no_drilldown = not any([flags.get('structure'), flags.get('graph'),
+                           flags.get('security'), flags.get('taint')])
+
+    # 1. Codebase Structure - always needed (fast)
     data['structure'] = _get_structure(cursor)
 
-    # 2. Naming Conventions
-    data['naming_conventions'] = _get_naming_conventions(cursor)
+    # 2. Naming Conventions - expensive regex, only for --structure or --all
+    if run_all or flags.get('structure'):
+        data['naming_conventions'] = _get_naming_conventions(cursor)
+    else:
+        data['naming_conventions'] = {}
 
-    # 3. Architectural Precedents
-    data['architectural_precedents'] = _get_architectural_precedents(cursor)
+    # 3. Architectural Precedents - expensive, only for --structure or --all
+    if run_all or flags.get('structure'):
+        data['architectural_precedents'] = _get_architectural_precedents(cursor)
+    else:
+        data['architectural_precedents'] = []
 
-    # 4. Hot Files
-    data['hot_files'] = _get_hot_files(cursor)
+    # 4. Hot Files - needed for --graph, --all, or overview
+    if run_all or flags.get('graph') or no_drilldown:
+        data['hot_files'] = _get_hot_files(cursor)
+    else:
+        data['hot_files'] = []
 
-    # 4. Security Surface
-    data['security_surface'] = _get_security_surface(cursor)
+    # 5. Security Surface - only for --security, --all, or overview
+    if run_all or flags.get('security') or no_drilldown:
+        data['security_surface'] = _get_security_surface(cursor)
+    else:
+        data['security_surface'] = {'jwt': {'sign': 0, 'verify': 0}, 'oauth': 0,
+                                    'password': 0, 'sql_queries': {'total': 0, 'raw': 0},
+                                    'api_endpoints': {'total': 0, 'protected': 0, 'unprotected': 0}}
 
-    # 5. Data Flow
-    data['data_flow'] = _get_data_flow(cursor)
+    # 6. Data Flow - only for --taint, --all, or overview
+    if run_all or flags.get('taint') or no_drilldown:
+        data['data_flow'] = _get_data_flow(cursor)
+    else:
+        data['data_flow'] = {'taint_sources': 0, 'taint_paths': 0, 'cross_function_flows': 0}
 
-    # 6. Import Graph
-    if graphs_db_path.exists():
-        data['import_graph'] = _get_import_graph(graphs_db_path)
+    # 7. Import Graph - only for --graph, --all, or overview
+    if run_all or flags.get('graph') or no_drilldown:
+        if graphs_db_path.exists():
+            data['import_graph'] = _get_import_graph(graphs_db_path)
+        else:
+            data['import_graph'] = None
     else:
         data['import_graph'] = None
 
-    # 7. Performance
+    # 8. Performance - always useful (fast)
     data['performance'] = _get_performance(cursor, Path.cwd() / ".pf" / "repo_index.db")
 
     return data
@@ -942,15 +985,13 @@ def _show_graph_drilldown(data: Dict):
     click.echo("\n" + "=" * 80 + "\n")
 
 
-def _show_security_drilldown(data: Dict):
-    """Drill down: SURGICAL attack surface mapping - what's vulnerable."""
-    # Get database connection for detailed queries
-    pf_dir = Path.cwd() / ".pf"
-    repo_db = pf_dir / "repo_index.db"
-    conn = sqlite3.connect(repo_db)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+def _show_security_drilldown(data: Dict, cursor):
+    """Drill down: SURGICAL attack surface mapping - what's vulnerable.
 
+    Args:
+        data: Blueprint data dict from _gather_all_data
+        cursor: Database cursor (passed from main function - dependency injection)
+    """
     sec = data['security_surface']
 
     click.echo("\n🔒 SECURITY DRILL-DOWN")
@@ -1064,19 +1105,17 @@ def _show_security_drilldown(data: Dict):
     click.echo("  → Use 'aud deps --vuln-scan' for dependency CVEs (OSV-Scanner)")
     click.echo("  → Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage")
 
-    conn.close()
+    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
 
 
-def _show_taint_drilldown(data: Dict):
-    """Drill down: SURGICAL data flow mapping - where does user data flow."""
-    # Get database connection for detailed queries
-    pf_dir = Path.cwd() / ".pf"
-    repo_db = pf_dir / "repo_index.db"
-    conn = sqlite3.connect(repo_db)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+def _show_taint_drilldown(data: Dict, cursor):
+    """Drill down: SURGICAL data flow mapping - where does user data flow.
 
+    Args:
+        data: Blueprint data dict from _gather_all_data
+        cursor: Database cursor (passed from main function - dependency injection)
+    """
     df = data['data_flow']
 
     click.echo("\n🌊 TAINT DRILL-DOWN")
@@ -1088,7 +1127,6 @@ def _show_taint_drilldown(data: Dict):
         click.echo("\n⚠ No taint analysis data available")
         click.echo("  Run: aud taint-analyze")
         click.echo("\n" + "=" * 80 + "\n")
-        conn.close()
         return
 
     # Top Taint Sources (user-controlled data)
@@ -1214,5 +1252,5 @@ def _show_taint_drilldown(data: Dict):
     click.echo("  -> Use '.pf/raw/taint_analysis.json' for complete vulnerability analysis")
     click.echo("  → Use 'aud taint-analyze --json' to re-run analysis with fresh data")
 
-    conn.close()
+    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
