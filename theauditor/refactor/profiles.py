@@ -299,17 +299,36 @@ class RefactorRuleEngine:
         # Deduplicate and prepare terms
         unique_terms = list(dict.fromkeys(terms))  # Preserves order, removes dupes
 
-        # Pre-compile word-boundary regex patterns for strict filtering
-        # Maps term -> compiled pattern
-        term_patterns = {
-            term: re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
-            for term in unique_terms
-        }
+        # Pre-compile regex patterns for strict filtering
+        # Supports two modes:
+        #   /pattern/  -> Raw regex (e.g., "/item\..*\.id/" matches item.product.id)
+        #   plain      -> Word boundary match (e.g., "id" matches "id" but not "grid")
+        term_patterns = {}
+        for term in unique_terms:
+            if term.startswith("/") and term.endswith("/") and len(term) > 2:
+                # Raw regex mode - user provides their own pattern
+                raw_pattern = term[1:-1]
+                try:
+                    term_patterns[term] = re.compile(raw_pattern, re.IGNORECASE)
+                except re.error:
+                    # Invalid regex - fall back to escaped literal
+                    term_patterns[term] = re.compile(re.escape(term), re.IGNORECASE)
+            else:
+                # Default: word boundary match
+                term_patterns[term] = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
 
         # Batch terms to reduce query count (SQLite limit is 999 variables)
         BATCH_SIZE = 50
         for chunk in self._chunk_list(unique_terms, BATCH_SIZE):
-            like_params = [f"%{t}%" for t in chunk]
+            # For SQL LIKE, strip /.../ delimiters from regex terms
+            like_params = []
+            for t in chunk:
+                if t.startswith("/") and t.endswith("/") and len(t) > 2:
+                    # Extract core pattern for LIKE (remove regex metacharacters)
+                    core = t[1:-1].replace(".*", "").replace("\\.", ".")
+                    like_params.append(f"%{core}%")
+                else:
+                    like_params.append(f"%{t}%")
 
             for source in sources:
                 # Build batched WHERE clause: (col LIKE ? OR col LIKE ? ...)
@@ -327,6 +346,7 @@ class RefactorRuleEngine:
                 query += (
                     f" FROM {source.table} "
                     f"WHERE ({or_clauses}) "
+                    f"ORDER BY {source.file_field}, {source.line_field} "
                     f"LIMIT {MAX_RESULTS_PER_QUERY}"
                 )
 
@@ -368,7 +388,8 @@ class RefactorRuleEngine:
                             "term": matched_term,
                         }
                     )
-        return results
+        # Sort for deterministic output (same results every run)
+        return sorted(results, key=lambda x: (x['file'], x['line'], x['match']))
 
     @staticmethod
     def _chunk_list(data: Sequence, size: int):

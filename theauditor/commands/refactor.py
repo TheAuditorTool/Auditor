@@ -32,11 +32,14 @@ SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
               help="Refactor profile YAML describing old/new schema expectations")
 @click.option("--output", "-o", type=click.Path(),
               help="Output file for detailed report")
+@click.option("--in-file", "in_file_filter",
+              help="Only scan files matching this pattern (e.g., 'OrderDetails' or 'src/components')")
 def refactor(
     migration_dir: str,
     migration_limit: int,
     profile_file: Optional[str],
     output: Optional[str],
+    in_file_filter: Optional[str],
 ) -> None:
     """Detect incomplete refactorings and breaking changes from database schema migrations.
 
@@ -226,6 +229,13 @@ def refactor(
         for rule in profile.rules:
             if migration_glob not in rule.scope.get("exclude", []):
                 rule.scope.setdefault("exclude", []).append(migration_glob)
+
+        # Apply --in-file filter to narrow scope to specific files
+        if in_file_filter:
+            click.echo(f"  Filter: *{in_file_filter}*")
+            for rule in profile.rules:
+                # Override include to only match files containing the filter
+                rule.scope["include"] = [f"*{in_file_filter}*"]
 
         with RefactorRuleEngine(db_path, repo_root) as engine:
             profile_report = engine.evaluate(profile)
@@ -756,8 +766,23 @@ def _print_rule_breakdown(
 
         if old_count:
             click.echo("      Files:")
-            top_files = _top_counts((item['file'] for item in result.violations), limit=5)
-            for file_path, count in top_files:
+            # Group violations by file with their line numbers
+            file_lines: Dict[str, List[int]] = defaultdict(list)
+            for item in result.violations:
+                if item.get('file'):
+                    file_lines[item['file']].append(item.get('line', 0))
+
+            # Sort files by violation count (descending), then by name
+            sorted_files = sorted(file_lines.items(), key=lambda x: (-len(x[1]), x[0]))[:5]
+            for file_path, lines in sorted_files:
+                # Sort lines numerically and format compactly
+                lines_sorted = sorted(set(lines))
+                if len(lines_sorted) <= 5:
+                    line_str = ", ".join(str(ln) for ln in lines_sorted)
+                else:
+                    line_str = ", ".join(str(ln) for ln in lines_sorted[:5])
+                    line_str += f", ... (+{len(lines_sorted) - 5})"
+
                 suffix = ""
                 if schema_counts and schema_counts.get(file_path, {}).get('total'):
                     schema_info = schema_counts[file_path]
@@ -765,7 +790,7 @@ def _print_rule_breakdown(
                         f" | schema refs: {schema_info['total']} "
                         f"(tables:{schema_info['tables']}, columns:{schema_info['columns']})"
                     )
-                click.echo(f"        - {file_path} ({count}){suffix}")
+                click.echo(f"        - {file_path} (lines {line_str}){suffix}")
         else:
             click.echo("      Files: clean")
 
