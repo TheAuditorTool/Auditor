@@ -798,8 +798,14 @@ def check_latest_versions(
                     # Clean version to remove operators (==, >=, etc.)
                     locked_clean = _clean_version(dep["version"])
                     cached_data[key]["locked"] = locked_clean
-                    cached_data[key]["is_outdated"] = cached_data[key]["latest"] != locked_clean
-                    cached_data[key]["delta"] = _calculate_version_delta(locked_clean, cached_data[key]["latest"])
+                    # Guard against None latest (cache entry with error/not found)
+                    latest = cached_data[key].get("latest")
+                    if latest:
+                        cached_data[key]["is_outdated"] = latest != locked_clean
+                        cached_data[key]["delta"] = _calculate_version_delta(locked_clean, latest)
+                    else:
+                        cached_data[key]["is_outdated"] = False
+                        cached_data[key]["delta"] = None
         return cached_data or {}
 
     # Load existing cache
@@ -822,8 +828,14 @@ def check_latest_versions(
             # Clean version to remove operators (==, >=, etc.)
             locked_clean = _clean_version(dep["version"])
             cache[key]["locked"] = locked_clean
-            cache[key]["is_outdated"] = cache[key]["latest"] != locked_clean
-            cache[key]["delta"] = _calculate_version_delta(locked_clean, cache[key]["latest"])
+            # Guard against None latest (cache entry with error/not found)
+            cached_latest = cache[key].get("latest")
+            if cached_latest:
+                cache[key]["is_outdated"] = cached_latest != locked_clean
+                cache[key]["delta"] = _calculate_version_delta(locked_clean, cached_latest)
+            else:
+                cache[key]["is_outdated"] = False
+                cache[key]["delta"] = None
             latest_info[key] = cache[key]
         else:
             needs_check.append(dep)
@@ -1800,3 +1812,147 @@ def _upgrade_dockerfile(
         print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}")
 
     return count
+
+
+# =============================================================================
+# GROUPED REPORTING ENGINE - Solves "Where is this coming from?" problem
+# =============================================================================
+
+
+def generate_grouped_report(
+    deps: list[dict[str, Any]],
+    latest_info: dict[str, dict[str, Any]],
+    hide_up_to_date: bool = True
+) -> None:
+    """
+    Print a report grouped by SOURCE FILE path.
+
+    This solves the "Where the f*** is this coming from?" problem by organizing
+    dependencies by their origin file and clearly marking test fixtures.
+
+    Args:
+        deps: List of dependency objects from parse_dependencies()
+        latest_info: Dict from check_latest_versions() with version info
+        hide_up_to_date: If True, skip files with no outdated deps (default: True)
+    """
+    from collections import defaultdict
+
+    # Windows-safe symbols
+    arrow = "->" if IS_WINDOWS else "->"
+    check = "[OK]" if IS_WINDOWS else "[OK]"
+    folder = "[FILE]" if IS_WINDOWS else "[FILE]"
+
+    # 1. Group dependencies by their source file
+    files_map = defaultdict(list)
+    for dep in deps:
+        # Use workspace_package if available (monorepos), else source file
+        source = dep.get("workspace_package") or dep.get("source", "unknown")
+        files_map[source].append(dep)
+
+    # 2. Sort files: real code first, then test fixtures
+    def sort_key(path: str) -> tuple:
+        """Sort real code first, test fixtures last."""
+        is_test = any(x in path.lower() for x in [
+            "test", "fixture", "mock", "example", "node_modules",
+            "venv", ".venv", "__pycache__", "dist", "build"
+        ])
+        return (is_test, path.lower())
+
+    sorted_files = sorted(files_map.keys(), key=sort_key)
+
+    # 3. Print the report header
+    print("\n" + "=" * 80)
+    print("DEPENDENCY HEALTH REPORT (GROUPED BY FILE)")
+    print("=" * 80)
+
+    total_outdated = 0
+    total_outdated_real = 0  # Excluding test fixtures
+    ghost_files_detected = 0
+    files_with_issues = 0
+
+    for source_file in sorted_files:
+        file_deps = files_map[source_file]
+
+        # Check if this looks like a test/fixture (The "Ghost" Detector)
+        ghost_markers = [
+            "test", "fixture", "mock", "example", "sample",
+            "node_modules", "venv", ".venv", "__pycache__",
+            "dist", "build", "vendor", "third_party"
+        ]
+        is_ghost = any(marker in source_file.lower() for marker in ghost_markers)
+
+        # Filter for outdated deps in this file
+        outdated_in_file = []
+        for dep in file_deps:
+            # UNIVERSAL KEY: manager:name:version
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+            info = latest_info.get(key)
+
+            if info and info.get("is_outdated"):
+                outdated_in_file.append((dep, info))
+
+        # Skip printing if file is healthy and we are hiding up-to-date
+        if hide_up_to_date and not outdated_in_file:
+            continue
+
+        # Count stats
+        if outdated_in_file:
+            files_with_issues += 1
+            if is_ghost:
+                ghost_files_detected += 1
+
+        # Header for the file
+        if is_ghost:
+            # Mark test fixtures clearly
+            print(f"\n{folder} {source_file} [TEST/FIXTURE]")
+        else:
+            # Real code - highlight it
+            print(f"\n{folder} {source_file}")
+
+        if not outdated_in_file:
+            print(f"  {check} All dependencies up to date")
+            continue
+
+        # Print the deps for this specific file
+        for dep, info in outdated_in_file:
+            total_outdated += 1
+            if not is_ghost:
+                total_outdated_real += 1
+
+            name = dep['name']
+            current = info['locked']
+            latest = info['latest']
+            delta = info.get('delta', 'unknown')
+
+            # Label based on severity
+            if delta == "major":
+                label = "[MAJOR!]"
+            elif delta == "minor":
+                label = "[minor]"
+            elif delta == "patch":
+                label = "[patch]"
+            else:
+                label = ""
+
+            # Indent test fixture output to de-emphasize
+            if is_ghost:
+                print(f"    (test) {name}: {current} {arrow} {latest} {label}")
+            else:
+                print(f"  - {name}: {current} {arrow} {latest} {label}")
+
+    # Summary section
+    print("\n" + "-" * 80)
+    print("SUMMARY")
+    print("-" * 80)
+
+    if total_outdated == 0:
+        print("All dependencies are up to date!")
+    else:
+        print(f"Total outdated: {total_outdated} packages across {files_with_issues} files")
+
+        if ghost_files_detected > 0:
+            real_files = files_with_issues - ghost_files_detected
+            print(f"  - Real code: {total_outdated_real} packages in {real_files} files")
+            print(f"  - Test fixtures: {total_outdated - total_outdated_real} packages in {ghost_files_detected} files")
+
+    print("=" * 80 + "\n")
