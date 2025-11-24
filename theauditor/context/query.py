@@ -35,6 +35,8 @@ from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, asdict
 from collections import deque
 
+from theauditor.utils.helpers import normalize_path_for_db
+
 
 # Comprehensive whitelist of valid tables to prevent SQL injection
 # This includes all tables that might be queried dynamically
@@ -168,6 +170,7 @@ class CodeQueryEngine:
         Raises:
             FileNotFoundError: If repo_index.db doesn't exist
         """
+        self.root = root  # Store for path normalization
         pf_dir = root / ".pf"
 
         # Validate repo_index.db exists (required)
@@ -189,6 +192,21 @@ class CodeQueryEngine:
             self.graph_db.row_factory = sqlite3.Row
         else:
             self.graph_db = None  # Graph commands not run yet
+
+    def _normalize_path(self, file_path: str) -> str:
+        """Normalize file path for database queries.
+
+        CRITICAL: Call this before ANY query using file paths!
+        Converts Windows absolute paths to Unix-style relative paths
+        that match what's stored in the database.
+
+        Args:
+            file_path: User-provided path (may be absolute Windows path)
+
+        Returns:
+            Normalized path for database LIKE queries
+        """
+        return normalize_path_for_db(file_path, self.root)
 
     def _find_similar_symbols(self, input_name: str, limit: int = 5) -> list[str]:
         """Find symbols similar to input for helpful 'Did you mean?' suggestions.
@@ -1505,6 +1523,9 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
+        # CRITICAL: Normalize path before querying (Windows -> Unix, absolute -> relative)
+        normalized_path = self._normalize_path(file_path)
+
         for table in ['symbols', 'symbols_jsx']:
             try:
                 cursor.execute(f"""
@@ -1513,7 +1534,7 @@ class CodeQueryEngine:
                     WHERE path LIKE ?
                     ORDER BY line
                     LIMIT ?
-                """, (f"%{file_path}", limit - len(results)))
+                """, (f"%{normalized_path}", limit - len(results)))
 
                 for row in cursor.fetchall():
                     results.append({
@@ -1545,6 +1566,9 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
+        # CRITICAL: Normalize path before querying
+        normalized_path = self._normalize_path(file_path)
+
         # Try react_hooks table first
         try:
             cursor.execute("""
@@ -1552,7 +1576,7 @@ class CodeQueryEngine:
                 FROM react_hooks
                 WHERE file LIKE ?
                 ORDER BY line
-            """, (f"%{file_path}",))
+            """, (f"%{normalized_path}",))
 
             for row in cursor.fetchall():
                 hook = row['hook_name']
@@ -1606,6 +1630,9 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
+        # CRITICAL: Normalize path before querying
+        normalized_path = self._normalize_path(file_path)
+
         try:
             cursor.execute("""
                 SELECT value, kind, line
@@ -1613,7 +1640,7 @@ class CodeQueryEngine:
                 WHERE src LIKE ?
                 ORDER BY line
                 LIMIT ?
-            """, (f"%{file_path}", limit))
+            """, (f"%{normalized_path}", limit))
 
             return [
                 {'module': row['value'], 'kind': row['kind'], 'line': row['line']}
@@ -1639,6 +1666,9 @@ class CodeQueryEngine:
 
         cursor = self.graph_db.cursor()
 
+        # CRITICAL: Normalize path before querying
+        normalized_path = self._normalize_path(file_path)
+
         try:
             cursor.execute("""
                 SELECT source, type, line
@@ -1646,7 +1676,7 @@ class CodeQueryEngine:
                 WHERE target LIKE ? AND graph_type = 'import'
                 ORDER BY source
                 LIMIT ?
-            """, (f"%{file_path}%", limit))
+            """, (f"%{normalized_path}%", limit))
 
             return [
                 {'source_file': row['source'], 'type': row['type'], 'line': row['line'] or 0}
@@ -1668,6 +1698,9 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
+        # CRITICAL: Normalize path before querying
+        normalized_path = self._normalize_path(file_path)
+
         for table in ['function_call_args', 'function_call_args_jsx']:
             try:
                 cursor.execute(f"""
@@ -1676,7 +1709,7 @@ class CodeQueryEngine:
                     WHERE file LIKE ?
                     ORDER BY line
                     LIMIT ?
-                """, (f"%{file_path}", limit - len(results)))
+                """, (f"%{normalized_path}", limit - len(results)))
 
                 for row in cursor.fetchall():
                     results.append({
@@ -1707,12 +1740,15 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
+        # CRITICAL: Normalize path before querying (used in BOTH steps)
+        normalized_path = self._normalize_path(file_path)
+
         # Step 1: Get exported symbols from this file
         try:
             cursor.execute("""
                 SELECT DISTINCT name FROM symbols
                 WHERE path LIKE ? AND type IN ('function', 'class', 'method')
-            """, (f"%{file_path}",))
+            """, (f"%{normalized_path}",))
 
             symbol_names = [row['name'] for row in cursor.fetchall()]
 
@@ -1731,7 +1767,7 @@ class CodeQueryEngine:
                               AND file NOT LIKE ?
                             ORDER BY file, line
                             LIMIT ?
-                        """, (sym, f"%.{sym}", f"%{file_path}", limit - len(results)))
+                        """, (sym, f"%.{sym}", f"%{normalized_path}", limit - len(results)))
 
                         for row in cursor.fetchall():
                             results.append({
@@ -1769,7 +1805,10 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         result = {'framework': None}
 
-        # Detect file type from extension
+        # CRITICAL: Normalize path before querying (used in ALL framework queries below)
+        normalized_path = self._normalize_path(file_path)
+
+        # Detect file type from extension (use original path for extension detection)
         ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
 
         # Check for React/Vue components
@@ -1779,7 +1818,7 @@ class CodeQueryEngine:
                     SELECT name, type, start_line, end_line, props_type
                     FROM react_components
                     WHERE file LIKE ?
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 components = [dict(row) for row in cursor.fetchall()]
                 if components:
                     result['framework'] = 'react'
@@ -1793,7 +1832,7 @@ class CodeQueryEngine:
                     SELECT name, type, start_line, end_line
                     FROM vue_components
                     WHERE file LIKE ?
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 vue_comps = [dict(row) for row in cursor.fetchall()]
                 if vue_comps:
                     result['framework'] = 'vue'
@@ -1808,7 +1847,7 @@ class CodeQueryEngine:
                     SELECT method, path, handler_function, line
                     FROM api_endpoints
                     WHERE file LIKE ?
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 routes = [dict(row) for row in cursor.fetchall()]
                 if routes:
                     result['framework'] = result.get('framework') or 'express'
@@ -1822,7 +1861,7 @@ class CodeQueryEngine:
                     FROM express_middleware_chains
                     WHERE file LIKE ?
                     ORDER BY route_path, execution_order
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 middleware = [dict(row) for row in cursor.fetchall()]
                 if middleware:
                     result['framework'] = result.get('framework') or 'express'
@@ -1837,7 +1876,7 @@ class CodeQueryEngine:
                     SELECT method, pattern, handler_function, framework, line
                     FROM python_routes
                     WHERE file LIKE ?
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 routes = [dict(row) for row in cursor.fetchall()]
                 if routes:
                     result['framework'] = routes[0].get('framework', 'flask')
@@ -1850,7 +1889,7 @@ class CodeQueryEngine:
                     SELECT decorator_name, target_name, line
                     FROM python_decorators
                     WHERE file LIKE ?
-                """, (f"%{file_path}",))
+                """, (f"%{normalized_path}",))
                 decorators = [dict(row) for row in cursor.fetchall()]
                 if decorators:
                     result['decorators'] = decorators
@@ -1863,7 +1902,7 @@ class CodeQueryEngine:
                 SELECT model_name, table_name, line
                 FROM sequelize_models
                 WHERE file LIKE ?
-            """, (f"%{file_path}",))
+            """, (f"%{normalized_path}",))
             models = [dict(row) for row in cursor.fetchall()]
             if models:
                 result['framework'] = result.get('framework') or 'sequelize'
