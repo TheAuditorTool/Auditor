@@ -324,10 +324,13 @@ class JavaScriptExtractor(BaseExtractor):
                 actual_tree = tree
             imports_data = actual_tree.get("imports", [])
         elif tree_type == "tree_sitter":
-            # Tree-sitter: Extract imports using AST parser's extract_imports method
+            # Tree-sitter: DEPRECATED for JS/TS (never used in practice)
+            # This path should never execute - semantic_ast is mandatory for JS/TS
             actual_tree = tree
             if self.ast_parser:
-                imports_data = self.ast_parser.extract_imports(tree, language='javascript')
+                # Call treesitter implementation directly
+                from theauditor.ast_extractors import treesitter_impl
+                imports_data = treesitter_impl.extract_treesitter_imports(tree, self.ast_parser, 'javascript')
             else:
                 imports_data = []
         else:

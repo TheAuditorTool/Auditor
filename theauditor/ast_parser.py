@@ -27,7 +27,6 @@ from typing import Any, Optional, List, Dict, Union
 
 from theauditor.js_semantic_parser import get_semantic_ast, get_semantic_ast_batch
 from theauditor.ast_patterns import ASTPatternMixin
-from theauditor.ast_extractors import ASTExtractorMixin
 
 
 @dataclass
@@ -42,7 +41,7 @@ class ASTMatch:
     metadata: dict[str, Any] = None
 
 
-class ASTParser(ASTPatternMixin, ASTExtractorMixin):
+class ASTParser(ASTPatternMixin):
     """Multi-language AST parser using Tree-sitter for structural analysis."""
 
     def __init__(self):

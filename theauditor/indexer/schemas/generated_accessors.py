@@ -647,30 +647,30 @@ class CodeSnapshotsTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> List[Dict[str, Any]]:
         """Get all rows from code_snapshots."""
-        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'])
+        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'])
         cursor.execute(query)
-        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], row)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], row)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_plan_id(cursor: sqlite3.Cursor, plan_id: int) -> List[Dict[str, Any]]:
         """Get rows by plan_id."""
-        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], where="plan_id = ?")
+        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], where="plan_id = ?")
         cursor.execute(query, (plan_id,))
-        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], row)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], row)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_task_id(cursor: sqlite3.Cursor, task_id: int) -> List[Dict[str, Any]]:
         """Get rows by task_id."""
-        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], where="task_id = ?")
+        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], where="task_id = ?")
         cursor.execute(query, (task_id,))
-        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], row)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], row)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_timestamp(cursor: sqlite3.Cursor, timestamp: str) -> List[Dict[str, Any]]:
         """Get rows by timestamp."""
-        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], where="timestamp = ?")
+        query = build_query('code_snapshots', ['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], where="timestamp = ?")
         cursor.execute(query, (timestamp,))
-        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'files_json'], row)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'plan_id', 'task_id', 'sequence', 'checkpoint_name', 'timestamp', 'git_ref', 'shadow_sha', 'files_json'], row)) for row in cursor.fetchall()]
 
 
 class ComposeServicesTable:

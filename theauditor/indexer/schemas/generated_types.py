@@ -224,6 +224,7 @@ class CodeSnapshotsRow(TypedDict):
     checkpoint_name: str
     timestamp: str
     git_ref: Optional[str]
+    shadow_sha: Optional[str]
     files_json: Optional[str]
 
 class ComposeServicesRow(TypedDict):
