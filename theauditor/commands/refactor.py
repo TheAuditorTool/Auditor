@@ -262,7 +262,7 @@ def refactor(
 
     # Step 3: Query database for code references
     click.echo("\nPhase 3: Searching codebase for references to removed schema...")
-    mismatches = _find_code_references(db_path, schema_changes, repo_root)
+    mismatches = _find_code_references(db_path, schema_changes, repo_root, migration_dir)
 
     schema_counts = _aggregate_schema_counts(mismatches)
 
@@ -303,14 +303,20 @@ def refactor(
             description="code still referencing pre-rename identifiers",
         )
 
-    # Risk assessment
+    # Risk assessment - split into schema risk vs refactor debt
     risk = _assess_risk(mismatches)
-    click.echo(f"\nRisk Level: {risk}")
+    click.echo(f"\nSchema Stability Risk: {risk}")
+
     if profile_report:
+        # Calculate debt level based on profile violation count
+        debt_level = "NONE"
         if profile_violations > 0:
-            click.echo(f"Profile violations (YAML rules): {profile_violations}")
-        else:
-            click.echo("Profile violations (YAML rules): 0")
+            debt_level = "LOW"
+        if profile_violations > 20:
+            debt_level = "MEDIUM"
+        if profile_violations > 50:
+            debt_level = "HIGH"
+        click.echo(f"Refactor Debt Level:   {debt_level} ({profile_violations} legacy patterns)")
 
     # Save detailed report
     if output:
@@ -398,6 +404,16 @@ def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: in
             with open(mig_file, 'r', encoding='utf-8') as f:
                 content = f.read()
 
+            # Strip rollback logic (down block) for JS/TS migrations
+            # We only care about forward migrations (up block), not rollbacks.
+            # Otherwise we'd flag every createTable as "dropped" because the
+            # down() method contains dropTable for rollback.
+            if mig_file.endswith(('.js', '.ts')):
+                # Split on common "down" patterns: "down:", "down(", "async down"
+                parts = re.split(r'(?:async\s+)?down\s*[:=(]', content, maxsplit=1, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    content = parts[0]
+
             # Find dropped tables
             for match in DROP_TABLE.finditer(content):
                 table = match.group(1)
@@ -440,17 +456,26 @@ def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: in
     }
 
 
-def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) -> Dict[str, List[Dict]]:
+def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path, migration_dir: str = "migrations") -> Dict[str, List[Dict]]:
     """Query database for code that references removed schema items.
 
     Returns dict with:
         removed_tables: Code references to dropped tables
         removed_columns: Code references to dropped columns
         renamed_items: Code using old names
+
+    Note: Automatically excludes migration files themselves from results.
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
+
+    # Helper to filter out migration files (they MUST reference what they're dropping)
+    def is_migration_file(file_path: str) -> bool:
+        if not file_path:
+            return False
+        normalized = file_path.replace("\\", "/")
+        return f"/{migration_dir}/" in normalized or normalized.startswith(f"{migration_dir}/")
 
     mismatches = {
         'removed_tables': [],
@@ -468,6 +493,8 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) 
         """, (f"%{table}%",))
 
         for row in cursor.fetchall():
+            if is_migration_file(row['path']):
+                continue
             mismatches['removed_tables'].append({
                 'file': row['path'],
                 'line': row['line'] or 0,
@@ -484,6 +511,8 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) 
         """, (f"%{table}%", f"%{table}%"))
 
         for row in cursor.fetchall():
+            if is_migration_file(row['file']):
+                continue
             mismatches['removed_tables'].append({
                 'file': row['file'],
                 'line': row['line'] or 0,
@@ -513,6 +542,8 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) 
         """, (f"%{table}.{column}%", f"%'{column}'%"))
 
         for row in cursor.fetchall():
+            if is_migration_file(row['file']):
+                continue
             mismatches['removed_columns'].append({
                 'file': row['file'],
                 'line': row['line'] or 0,
@@ -534,6 +565,8 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) 
         """, (f"%{old_name}%",))
 
         for row in cursor.fetchall():
+            if is_migration_file(row['path']):
+                continue
             mismatches['renamed_items'].append({
                 'file': row['path'],
                 'line': row['line'] or 0,
