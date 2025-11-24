@@ -2,6 +2,7 @@
 from typing import Any, Callable, Dict
 from functools import wraps
 from ..schema import TABLES
+from .codegen import SchemaCodeGenerator
 
 
 def validate_storage(table_name: str):

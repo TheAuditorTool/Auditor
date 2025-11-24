@@ -272,6 +272,7 @@ class SchemaCodeGenerator:
         code.append("from typing import Any, Callable, Dict")
         code.append("from functools import wraps")
         code.append("from ..schema import TABLES")
+        code.append("from .codegen import SchemaCodeGenerator")
         code.append("")
         code.append("")
         code.append("def validate_storage(table_name: str):")
