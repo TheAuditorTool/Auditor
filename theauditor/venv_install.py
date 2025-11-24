@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreter
     import tomli as tomllib  # type: ignore
 
 # Import dependency checking functions for self-updating sandbox
-from theauditor.deps import _check_npm_latest
+from theauditor.deps import check_latest_versions
 # Import our custom temp manager to avoid WSL2/Windows issues
 from theauditor.utils.temp_manager import TempManager
 
@@ -453,14 +453,16 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
 def _self_update_package_json(package_json_path: Path) -> int:
     """
     Self-update package.json with latest versions from npm registry.
-    
+
+    Uses the modern async batch engine from deps.py for efficient parallel fetching.
+
     This function is called BEFORE npm install to ensure we always
     get the latest versions of our tools, solving the paradox of
     needing to update dependencies that are in excluded directories.
-    
+
     Args:
         package_json_path: Path to the package.json file to update
-        
+
     Returns:
         Number of packages updated
     """
@@ -468,47 +470,63 @@ def _self_update_package_json(package_json_path: Path) -> int:
         # Read current package.json
         with open(package_json_path) as f:
             data = json.load(f)
-        
-        updated_count = 0
-        
-        # Update dependencies if present
+
+        # Build deps list in the format expected by check_latest_versions
+        deps_to_check = []
+
         if "dependencies" in data:
-            for name in list(data["dependencies"].keys()):
-                try:
-                    latest = _check_npm_latest(name)
-                    if latest:
-                        current = data["dependencies"][name]
-                        # Clean current version for comparison
-                        current_clean = current.lstrip('^~>=')
-                        if current_clean != latest:
-                            data["dependencies"][name] = f"^{latest}"
-                            updated_count += 1
-                            check_mark = "[OK]"
-                            print(f"      {check_mark} Updated {name}: {current} → ^{latest}")
-                except Exception as e:
-                    # If we can't get latest, keep current version
-                    print(f"      ⚠ Could not check {name}: {e}")
-                    continue
-        
-        # Update devDependencies if present
+            for name, version in data["dependencies"].items():
+                deps_to_check.append({
+                    "name": name,
+                    "version": version.lstrip('^~>='),
+                    "manager": "npm",
+                    "source": str(package_json_path),
+                    "section": "dependencies"
+                })
+
         if "devDependencies" in data:
-            for name in list(data["devDependencies"].keys()):
-                try:
-                    latest = _check_npm_latest(name)
-                    if latest:
-                        current = data["devDependencies"][name]
-                        # Clean current version for comparison
-                        current_clean = current.lstrip('^~>=')
-                        if current_clean != latest:
-                            data["devDependencies"][name] = f"^{latest}"
-                            updated_count += 1
-                            check_mark = "[OK]"
-                            print(f"      {check_mark} Updated {name}: {current} → ^{latest}")
-                except Exception as e:
-                    # If we can't get latest, keep current version
-                    print(f"      ⚠ Could not check {name}: {e}")
-                    continue
-        
+            for name, version in data["devDependencies"].items():
+                deps_to_check.append({
+                    "name": name,
+                    "version": version.lstrip('^~>='),
+                    "manager": "npm",
+                    "source": str(package_json_path),
+                    "section": "devDependencies"
+                })
+
+        if not deps_to_check:
+            print(f"    No dependencies to check")
+            return 0
+
+        # Use the new async batch engine - checks all packages in parallel
+        print(f"    Checking {len(deps_to_check)} npm packages...")
+        latest_info = check_latest_versions(
+            deps_to_check,
+            allow_net=True,
+            offline=False,
+            allow_prerelease=False,
+            root_path=str(package_json_path.parent)
+        )
+
+        # Apply updates
+        updated_count = 0
+        check_mark = "[OK]" if IS_WINDOWS else "[OK]"
+        arrow = "->" if IS_WINDOWS else "->"
+
+        for dep in deps_to_check:
+            key = f"{dep['manager']}:{dep['name']}:{dep['version']}"
+            info = latest_info.get(key, {})
+
+            if info.get("is_outdated") and info.get("latest"):
+                section = dep["section"]
+                name = dep["name"]
+                current = data[section][name]
+                latest = info["latest"]
+
+                data[section][name] = f"^{latest}"
+                updated_count += 1
+                print(f"      {check_mark} {name}: {current} {arrow} ^{latest}")
+
         # Write updated package.json
         if updated_count > 0:
             with open(package_json_path, 'w') as f:
@@ -517,11 +535,11 @@ def _self_update_package_json(package_json_path: Path) -> int:
             print(f"    Updated {updated_count} packages to latest versions")
         else:
             print(f"    All packages already at latest versions")
-        
+
         return updated_count
-        
+
     except Exception as e:
-        print(f"    ⚠ Could not self-update package.json: {e}")
+        print(f"    [WARN] Could not self-update package.json: {e}")
         return 0
 
 

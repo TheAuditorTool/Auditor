@@ -36,16 +36,16 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
 
     Operation Modes:
       Default:        Parse and inventory all dependencies
-      --check-latest: Check for available updates
+      --check-latest: Check for available updates (grouped by file)
       --vuln-scan:    Run security scanners (npm audit + OSV-Scanner)
       --upgrade-all:  YOLO mode - upgrade everything to latest
 
     Examples:
-      aud deps                        # Basic dependency inventory
-      aud deps --check-latest         # Check for outdated packages
-      aud deps --vuln-scan            # Security vulnerability scan
-      aud deps --upgrade-all          # DANGEROUS: Upgrade everything
-      aud deps --offline              # Skip all network operations
+      aud deps                              # Basic dependency inventory
+      aud deps --check-latest               # Check for outdated packages (grouped by file)
+      aud deps --vuln-scan                  # Security vulnerability scan
+      aud deps --upgrade-all                # DANGEROUS: Upgrade everything
+      aud deps --offline                    # Skip all network operations
 
     Vulnerability Scanning (--vuln-scan):
       - Runs 2 native tools: npm audit and OSV-Scanner
@@ -70,7 +70,7 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
       2 = Critical vulnerabilities found (--vuln-scan)
 
     Note: Respects proxy settings and npm/pip configurations."""
-    from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps
+    from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps, generate_grouped_report
     from theauditor.vulnerability_scanner import scan_dependencies, write_vulnerabilities_json, format_vulnerability_report
     import sys
     
@@ -244,52 +244,8 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         click.echo(f"  Cargo/Rust: {cargo_count}")
     
     if latest_info:
-        # Count how many of the TOTAL deps are outdated (only if successfully checked)
-        outdated_deps = 0
-        checked_deps = 0
-        for dep in deps_list:
-            # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
-            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
-            if key in latest_info and latest_info[key].get("latest") is not None:
-                checked_deps += 1
-                if latest_info[key]["is_outdated"]:
-                    outdated_deps += 1
-        
-        # Also count unique outdated packages
-        outdated_unique = sum(1 for info in latest_info.values() if info.get("is_outdated", False))
-        
-        # Show outdated/checked rather than outdated/total
-        if checked_deps == len(deps_list):
-            # All were checked successfully
-            click.echo(f"  Outdated: {outdated_deps}/{len(deps_list)}")
-        else:
-            # Some failed, show both numbers
-            click.echo(f"  Outdated: {outdated_deps}/{checked_deps} checked ({len(deps_list)} total)")
-        
-        # Show ALL outdated packages with version delta flags
-        outdated_packages = [
-            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
-            for k, v in latest_info.items()
-            if v.get("is_outdated", False) and v.get("latest") is not None
-        ]
-
-        if outdated_packages:
-            # Sort by package name for consistent output
-            outdated_packages.sort(key=lambda x: x[0].lower())
-
-            click.echo("\n  Outdated packages:")
-            arrow = "->" if IS_WINDOWS else "->"
-            for name, locked, latest, delta in outdated_packages:
-                # Add flags for version delta type
-                if delta == "major":
-                    flag = " [MAJOR!]"
-                elif delta == "minor":
-                    flag = " [minor]"
-                elif delta == "patch":
-                    flag = ""  # No flag for patch - too noisy
-                else:
-                    flag = ""
-                click.echo(f"    - {name}: {locked} {arrow} {latest}{flag}")
+        # Always use grouped report (only sane output format)
+        generate_grouped_report(deps_list, latest_info, hide_up_to_date=True)
     
     # Add a helpful hint if no network operation was performed
     if not check_latest and not upgrade_all:
