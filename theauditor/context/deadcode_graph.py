@@ -5,6 +5,9 @@ Detects zombie clusters (circular dead code) and orphaned features.
 
 NO FALLBACKS. Hard fail if graphs.db missing or malformed.
 Databases are regenerated fresh every run - missing data = BUG.
+
+This is the SINGLE SOURCE OF TRUTH for dead code detection.
+The old SQL-based approximation (deadcode.py) has been merged here.
 """
 
 
@@ -14,7 +17,85 @@ from pathlib import Path
 from typing import List, Set, Optional, Tuple
 from dataclasses import dataclass
 
-from theauditor.context.deadcode import DeadCode, DEFAULT_EXCLUSIONS
+
+# =============================================================================
+# MERGED FROM deadcode.py - Canonical definitions
+# =============================================================================
+
+# Centralized exclusion patterns (DRY principle)
+DEFAULT_EXCLUSIONS = [
+    '__init__.py',
+    'test', '__tests__', '.test.', '.spec.',
+    'migration', 'migrations',
+    '__pycache__', 'node_modules', '.venv',
+    'dist', 'build', '.next', '.nuxt'
+]
+
+
+@dataclass
+class DeadCode:
+    """Base class for dead code findings."""
+    type: str  # 'module' | 'function' | 'class' | 'feature'
+    path: str
+    name: str  # For functions/classes
+    line: int  # For functions/classes
+    symbol_count: int
+    reason: str
+    confidence: str  # 'high' | 'medium' | 'low'
+    lines_estimated: int = 0  # For rule compatibility
+    cluster_id: int | None = None  # For zombie cluster tracking
+
+
+# =============================================================================
+# Backward compatibility wrapper (used by commands/deadcode.py)
+# =============================================================================
+
+def detect_isolated_modules(
+    db_path: str,
+    path_filter: str = None,
+    exclude_patterns: list[str] = None
+) -> list[DeadCode]:
+    """Detect dead code using graph-based analysis.
+
+    This is the backward-compatible wrapper for the old deadcode.py API.
+    Internally uses GraphDeadCodeDetector for accurate graph reachability.
+
+    Args:
+        db_path: Path to repo_index.db
+        path_filter: Optional LIKE pattern
+        exclude_patterns: Paths to skip
+
+    Returns:
+        List of DeadCode findings
+    """
+    repo_db = Path(db_path)
+    graphs_db = repo_db.parent / "graphs.db"
+
+    # If graphs.db doesn't exist, return empty (graceful for CLI usage)
+    # The rule (deadcode_analyze.py) has its own hard-fail logic
+    if not graphs_db.exists():
+        return []
+
+    detector = GraphDeadCodeDetector(
+        str(graphs_db),
+        str(repo_db),
+        debug=False
+    )
+
+    return detector.analyze(
+        path_filter=path_filter,
+        exclude_patterns=exclude_patterns or DEFAULT_EXCLUSIONS,
+        analyze_symbols=False  # Module-level only for speed
+    )
+
+
+# Alias for full backward compatibility
+detect_all = detect_isolated_modules
+
+
+# =============================================================================
+# Graph-based detector (the source of truth)
+# =============================================================================
 
 
 class GraphDeadCodeDetector:

@@ -1768,9 +1768,7 @@ class CodeQueryEngine:
     def get_file_incoming_calls(self, file_path: str, limit: int = 50) -> list[dict]:
         """Get calls TO symbols defined in this file.
 
-        Two-step query:
-        1. Get symbol names from this file (symbols.path)
-        2. Find calls to those symbols (function_call_args.callee_function)
+        Optimized: Single query with IN clause instead of O(N) loop.
 
         Args:
             file_path: File path (partial match)
@@ -1781,10 +1779,10 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
-        # CRITICAL: Normalize path before querying (used in BOTH steps)
+        # CRITICAL: Normalize path before querying
         normalized_path = self._normalize_path(file_path)
 
-        # Step 1: Get exported symbols from this file
+        # Step 1: Get symbol names (fast indexed query)
         try:
             cursor.execute("""
                 SELECT DISTINCT name FROM symbols
@@ -1796,32 +1794,34 @@ class CodeQueryEngine:
             if not symbol_names:
                 return []
 
-            # Step 2: Find calls to these symbols from OTHER files
+            # Step 2: Single query with IN clause (replaces 40-query loop)
+            # Build placeholders for IN clause
+            placeholders = ','.join(['?' for _ in symbol_names])
+
             results = []
-            for sym in symbol_names[:20]:  # Limit symbols to prevent huge queries
-                for table in ['function_call_args', 'function_call_args_jsx']:
-                    try:
-                        cursor.execute(f"""
-                            SELECT DISTINCT file, line, caller_function, callee_function
-                            FROM {table}
-                            WHERE (callee_function = ? OR callee_function LIKE ?)
-                              AND file NOT LIKE ?
-                            ORDER BY file, line
-                            LIMIT ?
-                        """, (sym, f"%.{sym}", f"%{normalized_path}", limit - len(results)))
+            for table in ['function_call_args', 'function_call_args_jsx']:
+                try:
+                    cursor.execute(f"""
+                        SELECT DISTINCT file, line, caller_function, callee_function
+                        FROM {table}
+                        WHERE callee_function IN ({placeholders})
+                          AND file NOT LIKE ?
+                        ORDER BY file, line
+                        LIMIT ?
+                    """, (*symbol_names, f"%{normalized_path}", limit - len(results)))
 
-                        for row in cursor.fetchall():
-                            results.append({
-                                'caller_file': row['file'],
-                                'caller_line': row['line'],
-                                'caller_function': row['caller_function'],
-                                'callee_function': row['callee_function'],
-                            })
-                    except sqlite3.OperationalError:
-                        continue
+                    for row in cursor.fetchall():
+                        results.append({
+                            'caller_file': row['file'],
+                            'caller_line': row['line'],
+                            'caller_function': row['caller_function'],
+                            'callee_function': row['callee_function'],
+                        })
 
-                if len(results) >= limit:
-                    break
+                    if len(results) >= limit:
+                        break
+                except sqlite3.OperationalError:
+                    continue  # JSX table doesn't exist (Python-only project)
 
             return results[:limit]
 
