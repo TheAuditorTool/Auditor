@@ -206,12 +206,19 @@ class TaintDiscovery:
                 continue  # Skip migrations - they run at deploy time, not runtime
 
             # Query assignments table to find variable assigned the query result
+            # HEURISTIC FIX: SQL queries are often multi-line. The assignment
+            # (const x = await db.query(...)) starts 0-5 lines BEFORE the SQL
+            # text literal. We search a window and pick the closest match.
+            # ORDER BY line DESC ensures we get the nearest assignment.
             cursor.execute("""
                 SELECT target_var, in_function
                 FROM assignments
-                WHERE file = ? AND line = ?
+                WHERE file = ?
+                  AND line >= ? - 5
+                  AND line <= ?
+                ORDER BY line DESC
                 LIMIT 1
-            """, (file_path, line_number))
+            """, (file_path, line_number, line_number))
 
             result_row = cursor.fetchone()
             if result_row:
@@ -263,15 +270,19 @@ class TaintDiscovery:
                 risk = 'critical' if has_interpolation else 'high'
 
                 # Query assignments table to find variable assigned the query result
+                # HEURISTIC FIX: Same multi-line fix as above
                 file_path = call.get('file', '')
                 line_number = call.get('line', 0)
 
                 cursor2.execute("""
                     SELECT target_var, in_function
                     FROM assignments
-                    WHERE file = ? AND line = ?
+                    WHERE file = ?
+                      AND line >= ? - 5
+                      AND line <= ?
+                    ORDER BY line DESC
                     LIMIT 1
-                """, (file_path, line_number))
+                """, (file_path, line_number, line_number))
 
                 result_row = cursor2.fetchone()
                 if result_row:

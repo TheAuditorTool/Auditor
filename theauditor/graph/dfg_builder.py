@@ -27,6 +27,7 @@ from .types import DFGNode, DFGEdge, create_bidirectional_edges
 # Strategy Pattern: Language-specific logic delegated to strategies
 from .strategies.python_orm import PythonOrmStrategy
 from .strategies.node_express import NodeExpressStrategy
+from .strategies.interceptors import InterceptorStrategy
 
 
 class DFGBuilder:
@@ -52,6 +53,7 @@ class DFGBuilder:
         self.strategies = [
             PythonOrmStrategy(),
             NodeExpressStrategy(),
+            InterceptorStrategy(),
         ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
