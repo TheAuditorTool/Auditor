@@ -268,16 +268,17 @@ These prevent false-positive F401 (unused import) warnings on intentional re-exp
 **Approach:** Manual Edit tool, file-by-file with READ verification before each edit.
 **Directive:** NO SCRIPTS, NO RUFF --FIX, NO AUTOMATION (Architect directive)
 
-**Current Status (2025-11-26, Session 6):**
+**Current Status (2025-11-26, Session 7):**
 - Initial count: 731 F401 errors
 - After Session 1: 655 F401 errors (76 fixed)
 - After Session 2: 586 F401 errors (69 fixed)
 - After Session 3: 274 F401 errors (312 fixed)
 - After Session 4: 146 F401 errors (128 fixed)
 - After Session 5: 91 F401 errors (55 fixed)
-- After Session 6 (partial): **40 F401 errors** (51 fixed this session)
+- After Session 6: 40 F401 errors (51 fixed)
+- After Session 7 (partial): **18 F401 errors** (22 fixed this session)
 
-**Directories COMPLETE (0 F401 errors):**
+**Directories/Files COMPLETE (0 F401 errors):**
 - ast_extractors/ (Session 2)
 - commands/ (Session 3)
 - rules/ (Session 3)
@@ -290,6 +291,13 @@ These prevent false-positive F401 (unused import) warnings on intentional re-exp
 - indexer/orchestrator.py (Session 4 - Batch C)
 - indexer/database/ (Session 4 - Batch D partial)
 - indexer/extractors/ (Session 4 - Batch D partial)
+- session/store.py (Session 7)
+- session/workflow_checker.py (Session 7)
+- terraform/analyzer.py (Session 7)
+- terraform/graph.py (Session 7)
+- terraform/parser.py (Session 7)
+- test_frameworks.py (Session 7)
+- universal_detector.py (Session 7)
 
 **Session 4 Commits:**
 - `4a88dee` - refactor: remove unused imports from indexer/schemas and indexer/storage

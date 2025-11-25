@@ -10,13 +10,10 @@ This module coordinates pattern detection across the codebase:
 import json
 import os
 import sqlite3
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import click
+from typing import Any
 
 from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext

@@ -7,7 +7,7 @@ legacy imports fail with a clear error instead of ``ModuleNotFoundError``.
 
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 class TerraformParser:
