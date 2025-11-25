@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Any, List, Tuple
+from typing import Any
 
 # Import helper templates for JavaScript/Node.js scripts
 from theauditor.ast_extractors import js_helper_templates

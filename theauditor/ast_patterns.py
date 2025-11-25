@@ -6,7 +6,7 @@ It provides pattern-based search capabilities across different AST types.
 
 
 import ast
-from typing import Any, Optional, List, Dict, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:

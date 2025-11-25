@@ -8,7 +8,7 @@ import shutil
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from theauditor import __version__
 from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
 
@@ -53,7 +53,6 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     Requires: Run 'aud full --index' first to populate the database.
     """
     import os
-    import sqlite3
     root = Path(root_path)
     deps = []
 
