@@ -7,7 +7,6 @@ Philosophy: SAST tools need RAM. If you're running complex analysis, allocate ac
 
 import os
 import platform
-import sys
 
 from .logger import setup_logger
 from .constants import (

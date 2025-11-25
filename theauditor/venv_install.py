@@ -6,11 +6,9 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import venv
 import contextlib
 from pathlib import Path
-from typing import Optional, Tuple, List
 
 try:
     import tomllib  # Python 3.11+
