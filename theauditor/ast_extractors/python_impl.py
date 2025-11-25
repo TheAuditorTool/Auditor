@@ -90,6 +90,7 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     #
     # HISTORY:
     # - 2025-11-25: Consolidated from ~150 keys to 28 (wire-extractors-to-consolidated-schema)
+    # - 2025-11-26: Added 2 keys for expression decomposition (Phase 2 Fidelity Control)
     # ==========================================================================
 
     result = {
@@ -155,7 +156,11 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         'python_collections': [],        # dict, list, set, string, builtin, itertools, functools, collections
         'python_stdlib_usage': [],       # re, json, datetime, pathlib, logging, threading, contextlib, typing, weakref, contextvars
         'python_imports_advanced': [],   # static, dynamic, namespace, module_attr
-        'python_expressions': [],        # comprehension, slice, tuple, unpack, none, truthiness, format, ellipsis, bytes, exec, copy, recursion, yield, complexity, resource, memoize, await, break, continue, pass, assert, del, with, class_decorator
+        'python_expressions': [],        # slice, tuple, unpack, none, truthiness, format, ellipsis, bytes, exec, copy, recursion, yield, complexity, resource, memoize, await, class_decorator
+
+        # Group 5: Expression Decomposition (Phase 2 Fidelity Control)
+        'python_comprehensions': [],      # list, dict, set, generator - split from python_expressions
+        'python_control_statements': [],  # break, continue, pass, assert, del, with - split from python_expressions
     }
 
     # Core extractors - These run for every Python file
@@ -233,16 +238,18 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     if decorators:
         result['python_decorators'].extend(decorators)
 
-    # Context managers → python_functions_advanced (function_type='context_manager')
+    # Context managers → python_functions_advanced
+    # Two-discriminator pattern: function_kind (table discriminator) + function_type (extractor subtype preserved)
     context_managers = core_extractors.extract_python_context_managers(context)
     for cm in context_managers:
-        cm['function_type'] = 'context_manager'
+        cm['function_kind'] = 'context_manager'  # Discriminator (function_type preserved from extractor)
         result['python_functions_advanced'].append(cm)
 
-    # Generators → python_functions_advanced (function_type='generator')
+    # Generators → python_functions_advanced
+    # Two-discriminator pattern: function_kind (table discriminator) + function_type (extractor subtype preserved)
     generators = core_extractors.extract_generators(context)
     for gen in generators:
-        gen['function_type'] = 'generator'
+        gen['function_kind'] = 'generator'  # Discriminator (function_type preserved from extractor)
         result['python_functions_advanced'].append(gen)
 
     # ORM and framework extractors
@@ -416,9 +423,38 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     if flask_routes:
         result['python_routes'].extend(flask_routes)
 
-    # Flask blueprints - skip (table doesn't exist in schema)
-    # flask_blueprints = orm_extractors.extract_flask_blueprints(context)
-    # Note: python_blueprints table was deleted - blueprints are now captured via routes
+    # Flask blueprints → python_framework_config (framework='flask', config_kind='blueprint')
+    flask_blueprints = orm_extractors.extract_flask_blueprints(context)
+    for bp in flask_blueprints:
+        bp['framework'] = 'flask'
+        bp['config_kind'] = 'blueprint'
+        bp['config_type'] = bp.get('blueprint_type')  # Preserve extractor's subtype
+        result['python_framework_config'].append(bp)
+
+    # GraphQL resolvers → python_framework_config
+    # Graphene resolvers (framework='graphene', config_kind='resolver')
+    graphene_resolvers = task_graphql_extractors.extract_graphene_resolvers(context)
+    for resolver in graphene_resolvers:
+        resolver['framework'] = 'graphene'
+        resolver['config_kind'] = 'resolver'
+        resolver['config_type'] = resolver.get('resolver_type')  # Preserve extractor's subtype
+        result['python_framework_config'].append(resolver)
+
+    # Ariadne resolvers (framework='ariadne', config_kind='resolver')
+    ariadne_resolvers = task_graphql_extractors.extract_ariadne_resolvers(context)
+    for resolver in ariadne_resolvers:
+        resolver['framework'] = 'ariadne'
+        resolver['config_kind'] = 'resolver'
+        resolver['config_type'] = resolver.get('resolver_type')
+        result['python_framework_config'].append(resolver)
+
+    # Strawberry resolvers (framework='strawberry', config_kind='resolver')
+    strawberry_resolvers = task_graphql_extractors.extract_strawberry_resolvers(context)
+    for resolver in strawberry_resolvers:
+        resolver['framework'] = 'strawberry'
+        resolver['config_kind'] = 'resolver'
+        resolver['config_type'] = resolver.get('resolver_type')
+        result['python_framework_config'].append(resolver)
 
     # Testing patterns → python_test_cases and python_test_fixtures
     # unittest_test_cases → python_test_cases (test_type='unittest')
@@ -549,128 +585,143 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         result['python_framework_config'].append(queryset)
 
     # State mutation patterns → python_state_mutations
+    # Two-discriminator pattern: mutation_kind (table discriminator) + mutation_type (extractor subtype preserved)
     instance_mutations = state_mutation_extractors.extract_instance_mutations(context)
     for mut in instance_mutations:
-        mut['mutation_type'] = 'instance'
+        mut['mutation_kind'] = 'instance'  # Discriminator (mutation_type preserved from extractor)
         result['python_state_mutations'].append(mut)
 
     class_mutations = state_mutation_extractors.extract_class_mutations(context)
     for mut in class_mutations:
-        mut['mutation_type'] = 'class'
+        mut['mutation_kind'] = 'class'  # Discriminator (mutation_type preserved from extractor)
         result['python_state_mutations'].append(mut)
 
     global_mutations = state_mutation_extractors.extract_global_mutations(context)
     for mut in global_mutations:
-        mut['mutation_type'] = 'global'
+        mut['mutation_kind'] = 'global'  # Discriminator (mutation_type preserved from extractor)
         result['python_state_mutations'].append(mut)
 
     argument_mutations = state_mutation_extractors.extract_argument_mutations(context)
     for mut in argument_mutations:
-        mut['mutation_type'] = 'argument'
+        mut['mutation_kind'] = 'argument'  # Discriminator (mutation_type preserved from extractor)
         result['python_state_mutations'].append(mut)
 
     augmented_assignments = state_mutation_extractors.extract_augmented_assignments(context)
     for mut in augmented_assignments:
-        mut['mutation_type'] = 'augmented'
+        mut['mutation_kind'] = 'augmented'  # Discriminator (mutation_type preserved from extractor)
         result['python_state_mutations'].append(mut)
 
     # Exception flow patterns → python_branches
+    # Two-discriminator pattern: branch_kind (table discriminator) + branch_type (extractor subtype preserved)
     exception_raises = exception_flow_extractors.extract_exception_raises(context)
     for exc in exception_raises:
-        exc['branch_type'] = 'raise'
+        exc['branch_kind'] = 'raise'  # Discriminator (branch_type preserved from extractor)
         result['python_branches'].append(exc)
 
     exception_catches = exception_flow_extractors.extract_exception_catches(context)
     for exc in exception_catches:
-        exc['branch_type'] = 'except'
+        exc['branch_kind'] = 'except'  # Discriminator (branch_type preserved from extractor)
         result['python_branches'].append(exc)
 
     finally_blocks = exception_flow_extractors.extract_finally_blocks(context)
     for block in finally_blocks:
-        block['branch_type'] = 'finally'
+        block['branch_kind'] = 'finally'  # Discriminator (branch_type preserved from extractor)
         result['python_branches'].append(block)
 
-    # context_managers_enhanced → python_protocols (protocol_type='context_manager')
+    # context_managers_enhanced → python_protocols
+    # Two-discriminator pattern: protocol_kind (table discriminator) + protocol_type (extractor subtype preserved)
     context_managers_enhanced = exception_flow_extractors.extract_context_managers(context)
     for cm in context_managers_enhanced:
-        cm['protocol_type'] = 'context_manager'
+        cm['protocol_kind'] = 'context_manager'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(cm)
 
     # Data flow patterns → python_io_operations
-    # io_operations already has io_type from extractor, just extend
+    # Two-discriminator pattern: io_kind (table discriminator) + io_type (extractor subtype preserved)
+    # io_operations already has io_type from extractor - need to add io_kind
     io_operations = data_flow_extractors.extract_io_operations(context)
-    if io_operations:
-        result['python_io_operations'].extend(io_operations)
+    for io_op in io_operations:
+        # io_type is set by extractor ('file', 'network', etc.), set io_kind to same value
+        io_op['io_kind'] = io_op.get('io_type', 'file')
+        result['python_io_operations'].append(io_op)
 
     parameter_return_flow = data_flow_extractors.extract_parameter_return_flow(context)
     for flow in parameter_return_flow:
-        flow['io_type'] = 'param_flow'
+        flow['io_kind'] = 'param_flow'  # Discriminator (io_type preserved from extractor)
         result['python_io_operations'].append(flow)
 
     closure_captures = data_flow_extractors.extract_closure_captures(context)
     for capture in closure_captures:
-        capture['io_type'] = 'closure'
+        capture['io_kind'] = 'closure'  # Discriminator (io_type preserved from extractor)
         result['python_io_operations'].append(capture)
 
     nonlocal_access = data_flow_extractors.extract_nonlocal_access(context)
     for access in nonlocal_access:
-        access['io_type'] = 'nonlocal'
+        access['io_kind'] = 'nonlocal'  # Discriminator (io_type preserved from extractor)
         result['python_io_operations'].append(access)
 
     conditional_calls = data_flow_extractors.extract_conditional_calls(context)
     for call in conditional_calls:
-        call['io_type'] = 'conditional'
+        call['io_kind'] = 'conditional'  # Discriminator (io_type preserved from extractor)
         result['python_io_operations'].append(call)
 
-    # Behavioral patterns → python_expressions/python_descriptors
+    # Behavioral patterns → python_functions_advanced/python_descriptors
+    # Two-discriminator pattern: function_kind (table discriminator) + function_type (extractor subtype preserved)
+    # Re-routed from python_expressions (Phase 2 Fidelity Control)
     recursion_patterns = behavioral_extractors.extract_recursion_patterns(context)
     for pattern in recursion_patterns:
-        pattern['expression_type'] = 'recursion'
-        result['python_expressions'].append(pattern)
+        pattern['function_kind'] = 'recursive'  # Discriminator (function_type preserved from extractor)
+        result['python_functions_advanced'].append(pattern)
 
     generator_yields = behavioral_extractors.extract_generator_yields(context)
     for yld in generator_yields:
         yld['expression_type'] = 'yield'
         result['python_expressions'].append(yld)
 
-    # property_patterns → python_descriptors (descriptor_type='property')
+    # property_patterns → python_descriptors
+    # Two-discriminator pattern: descriptor_kind (table discriminator) + descriptor_type (extractor subtype preserved)
     property_patterns = behavioral_extractors.extract_property_patterns(context)
     for prop in property_patterns:
-        prop['descriptor_type'] = 'property'
+        prop['descriptor_kind'] = 'property'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(prop)
 
-    # dynamic_attributes → python_descriptors (descriptor_type='dynamic_attr')
+    # dynamic_attributes → python_descriptors
     dynamic_attributes = behavioral_extractors.extract_dynamic_attributes(context)
     for attr in dynamic_attributes:
-        attr['descriptor_type'] = 'dynamic_attr'
+        attr['descriptor_kind'] = 'dynamic_attr'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(attr)
 
-    # Performance patterns → python_expressions
+    # Performance patterns → python_loops/python_expressions/python_functions_advanced
+    # Two-discriminator pattern: *_kind (table discriminator) + *_type (extractor subtype preserved)
+    # Re-routed from python_expressions (Phase 2 Fidelity Control)
     loop_complexity = performance_extractors.extract_loop_complexity(context)
     for lc in loop_complexity:
-        lc['expression_type'] = 'complexity'
-        result['python_expressions'].append(lc)
+        lc['loop_kind'] = 'complexity_analysis'  # Discriminator (loop_type preserved from extractor)
+        result['python_loops'].append(lc)
 
     resource_usage = performance_extractors.extract_resource_usage(context)
     for ru in resource_usage:
         ru['expression_type'] = 'resource'
         result['python_expressions'].append(ru)
 
+    # Re-routed from python_expressions (Phase 2 Fidelity Control)
     memoization_patterns = performance_extractors.extract_memoization_patterns(context)
     for memo in memoization_patterns:
-        memo['expression_type'] = 'memoize'
-        result['python_expressions'].append(memo)
+        memo['function_kind'] = 'memoized'  # Discriminator (function_type preserved from extractor)
+        result['python_functions_advanced'].append(memo)
 
-    # Fundamental patterns → python_expressions/python_functions_advanced
+    # Fundamental patterns → python_comprehensions/python_functions_advanced
+    # Comprehensions routed to dedicated table (Phase 2 Fidelity Control)
     comprehensions = fundamental_extractors.extract_comprehensions(context)
     for comp in comprehensions:
-        comp['expression_type'] = 'comprehension'
-        result['python_expressions'].append(comp)
+        # Two-discriminator pattern: comp_kind (table) from extractor's comp_type
+        comp['comp_kind'] = comp.get('comp_type', 'list')  # 'list', 'dict', 'set', 'generator'
+        result['python_comprehensions'].append(comp)
 
-    # lambda_functions → python_functions_advanced (function_type='lambda')
+    # lambda_functions → python_functions_advanced
+    # Two-discriminator pattern: function_kind (table discriminator) + function_type (extractor subtype preserved)
     lambda_functions = fundamental_extractors.extract_lambda_functions(context)
     for lam in lambda_functions:
-        lam['function_type'] = 'lambda'
+        lam['function_kind'] = 'lambda'  # Discriminator (function_type preserved from extractor)
         result['python_functions_advanced'].append(lam)
 
     slice_operations = fundamental_extractors.extract_slice_operations(context)
@@ -776,55 +827,57 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         result['python_collections'].append(usage)
 
     # Class feature patterns → python_class_features/python_descriptors
+    # Two-discriminator pattern: feature_kind (table discriminator) + feature_type (extractor subtype preserved)
     metaclasses = class_feature_extractors.extract_metaclasses(context)
     for meta in metaclasses:
-        meta['feature_type'] = 'metaclass'
+        meta['feature_kind'] = 'metaclass'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(meta)
 
-    # descriptors from class_feature_extractors → python_descriptors (descriptor_type='descriptor')
+    # descriptors from class_feature_extractors → python_descriptors
+    # Two-discriminator pattern: descriptor_kind (table discriminator) + descriptor_type (extractor subtype preserved)
     descriptors = class_feature_extractors.extract_descriptors(context)
     for desc in descriptors:
-        desc['descriptor_type'] = 'descriptor'
+        desc['descriptor_kind'] = 'descriptor'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(desc)
 
     dataclasses = class_feature_extractors.extract_dataclasses(context)
     for dc in dataclasses:
-        dc['feature_type'] = 'dataclass'
+        dc['feature_kind'] = 'dataclass'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(dc)
 
     enums = class_feature_extractors.extract_enums(context)
     for enum in enums:
-        enum['feature_type'] = 'enum'
+        enum['feature_kind'] = 'enum'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(enum)
 
     slots = class_feature_extractors.extract_slots(context)
     for slot in slots:
-        slot['feature_type'] = 'slots'
+        slot['feature_kind'] = 'slots'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(slot)
 
     abstract_classes = class_feature_extractors.extract_abstract_classes(context)
     for abstract in abstract_classes:
-        abstract['feature_type'] = 'abstract'
+        abstract['feature_kind'] = 'abstract'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(abstract)
 
     method_types = class_feature_extractors.extract_method_types(context)
     for mt in method_types:
-        mt['feature_type'] = 'method_type'
+        mt['feature_kind'] = 'method_type'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(mt)
 
     multiple_inheritance = class_feature_extractors.extract_multiple_inheritance(context)
     for mi in multiple_inheritance:
-        mi['feature_type'] = 'inheritance'
+        mi['feature_kind'] = 'inheritance'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(mi)
 
     dunder_methods = class_feature_extractors.extract_dunder_methods(context)
     for dunder in dunder_methods:
-        dunder['feature_type'] = 'dunder'
+        dunder['feature_kind'] = 'dunder'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(dunder)
 
     visibility_conventions = class_feature_extractors.extract_visibility_conventions(context)
     for vis in visibility_conventions:
-        vis['feature_type'] = 'visibility'
+        vis['feature_kind'] = 'visibility'  # Discriminator (feature_type preserved from extractor)
         result['python_class_features'].append(vis)
 
     # Stdlib patterns → python_stdlib_usage
@@ -869,45 +922,49 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         result['python_stdlib_usage'].append(tc)
 
     # Control flow patterns → python_loops/python_branches/python_expressions/python_imports_advanced
+    # Two-discriminator pattern: *_kind (table discriminator) + *_type (extractor subtype preserved)
     for_loops = control_flow_extractors.extract_for_loops(context)
     for loop in for_loops:
-        loop['loop_type'] = 'for_loop'
+        loop['loop_kind'] = 'for'  # Discriminator (loop_type preserved from extractor)
         result['python_loops'].append(loop)
 
     while_loops = control_flow_extractors.extract_while_loops(context)
     for loop in while_loops:
-        loop['loop_type'] = 'while_loop'
+        loop['loop_kind'] = 'while'  # Discriminator (loop_type preserved from extractor)
         result['python_loops'].append(loop)
 
     async_for_loops = control_flow_extractors.extract_async_for_loops(context)
     for loop in async_for_loops:
-        loop['loop_type'] = 'async_for_loop'
+        loop['loop_kind'] = 'async_for'  # Discriminator (loop_type preserved from extractor)
         result['python_loops'].append(loop)
 
     if_statements = control_flow_extractors.extract_if_statements(context)
     for stmt in if_statements:
-        stmt['branch_type'] = 'if'
+        stmt['branch_kind'] = 'if'  # Discriminator (branch_type preserved from extractor)
         result['python_branches'].append(stmt)
 
     match_statements = control_flow_extractors.extract_match_statements(context)
     for stmt in match_statements:
-        stmt['branch_type'] = 'match'
+        stmt['branch_kind'] = 'match'  # Discriminator (branch_type preserved from extractor)
         result['python_branches'].append(stmt)
 
+    # Control statements routed to dedicated table (Phase 2 Fidelity Control)
+    # Two-discriminator pattern: statement_kind (table) + statement_type (extractor subtype)
     break_continue_pass = control_flow_extractors.extract_break_continue_pass(context)
     for stmt in break_continue_pass:
-        stmt['expression_type'] = 'break_continue'
-        result['python_expressions'].append(stmt)
+        # statement_type from extractor is 'break', 'continue', or 'pass' - use as statement_kind
+        stmt['statement_kind'] = stmt.get('statement_type', 'pass')
+        result['python_control_statements'].append(stmt)
 
     assert_statements = control_flow_extractors.extract_assert_statements(context)
     for stmt in assert_statements:
-        stmt['expression_type'] = 'assert'
-        result['python_expressions'].append(stmt)
+        stmt['statement_kind'] = 'assert'
+        result['python_control_statements'].append(stmt)
 
     del_statements = control_flow_extractors.extract_del_statements(context)
     for stmt in del_statements:
-        stmt['expression_type'] = 'del'
-        result['python_expressions'].append(stmt)
+        stmt['statement_kind'] = 'del'
+        result['python_control_statements'].append(stmt)
 
     # import_statements → python_imports_advanced (import_type='static')
     import_statements = control_flow_extractors.extract_import_statements(context)
@@ -917,38 +974,39 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
 
     with_statements = control_flow_extractors.extract_with_statements(context)
     for stmt in with_statements:
-        stmt['expression_type'] = 'with'
-        result['python_expressions'].append(stmt)
+        stmt['statement_kind'] = 'with'
+        result['python_control_statements'].append(stmt)
 
     # Protocol patterns → python_protocols/python_stdlib_usage/python_imports_advanced/python_expressions
+    # Two-discriminator pattern: protocol_kind (table discriminator) + protocol_type (extractor subtype preserved)
     iterator_protocol = protocol_extractors.extract_iterator_protocol(context)
     for proto in iterator_protocol:
-        proto['protocol_type'] = 'iterator'
+        proto['protocol_kind'] = 'iterator'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     container_protocol = protocol_extractors.extract_container_protocol(context)
     for proto in container_protocol:
-        proto['protocol_type'] = 'container'
+        proto['protocol_kind'] = 'container'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     callable_protocol = protocol_extractors.extract_callable_protocol(context)
     for proto in callable_protocol:
-        proto['protocol_type'] = 'callable'
+        proto['protocol_kind'] = 'callable'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     comparison_protocol = protocol_extractors.extract_comparison_protocol(context)
     for proto in comparison_protocol:
-        proto['protocol_type'] = 'comparison'
+        proto['protocol_kind'] = 'comparison'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     arithmetic_protocol = protocol_extractors.extract_arithmetic_protocol(context)
     for proto in arithmetic_protocol:
-        proto['protocol_type'] = 'arithmetic'
+        proto['protocol_kind'] = 'arithmetic'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     pickle_protocol = protocol_extractors.extract_pickle_protocol(context)
     for proto in pickle_protocol:
-        proto['protocol_type'] = 'pickle'
+        proto['protocol_kind'] = 'pickle'  # Discriminator (protocol_type preserved from extractor)
         result['python_protocols'].append(proto)
 
     # weakref_usage → python_stdlib_usage (module='weakref')
@@ -969,11 +1027,12 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         attr['import_type'] = 'module_attr'
         result['python_imports_advanced'].append(attr)
 
-    # class_decorators → python_expressions (expression_type='class_decorator')
+    # class_decorators → python_class_features (re-routed from python_expressions)
+    # Phase 2 Fidelity Control - Two-discriminator pattern
     class_decorators = protocol_extractors.extract_class_decorators(context)
     for dec in class_decorators:
-        dec['expression_type'] = 'class_decorator'
-        result['python_expressions'].append(dec)
+        dec['feature_kind'] = 'class_decorator'  # Discriminator (feature_type preserved from extractor)
+        result['python_class_features'].append(dec)
 
     # Advanced patterns → python_imports_advanced/python_descriptors/python_expressions
     # namespace_packages → python_imports_advanced (import_type='namespace')
@@ -982,28 +1041,40 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         pkg['import_type'] = 'namespace'
         result['python_imports_advanced'].append(pkg)
 
-    # cached_property → python_descriptors (descriptor_type='cached_property')
+    # python_exports → python_imports_advanced (import_kind='export')
+    # CRITICAL: This was previously UNWIRED - Phase 6 Fidelity Control
+    # Two-discriminator pattern: import_kind (table discriminator) + import_type (extractor subtype preserved)
+    python_exports = core_extractors.extract_python_exports(context)
+    for exp in python_exports:
+        exp['import_kind'] = 'export'  # Discriminator
+        exp['export_type'] = exp.get('type')  # Map 'type' field to 'export_type'
+        result['python_imports_advanced'].append(exp)
+
+    # cached_property → python_descriptors
+    # Two-discriminator pattern: descriptor_kind (table discriminator) + descriptor_type (extractor subtype preserved)
     cached_property = advanced_extractors.extract_cached_property(context)
     for cp in cached_property:
-        cp['descriptor_type'] = 'cached_property'
+        cp['descriptor_kind'] = 'cached_property'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(cp)
 
-    # descriptor_protocol → python_descriptors (descriptor_type='descriptor_protocol')
+    # descriptor_protocol → python_descriptors
     descriptor_protocol = advanced_extractors.extract_descriptor_protocol(context)
     for dp in descriptor_protocol:
-        dp['descriptor_type'] = 'descriptor_protocol'
+        dp['descriptor_kind'] = 'descriptor_protocol'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(dp)
 
-    # attribute_access_protocol → python_descriptors (descriptor_type='attr_access')
+    # attribute_access_protocol → python_descriptors
     attribute_access_protocol = advanced_extractors.extract_attribute_access_protocol(context)
     for aap in attribute_access_protocol:
-        aap['descriptor_type'] = 'attr_access'
+        aap['descriptor_kind'] = 'attr_access'  # Discriminator (descriptor_type preserved from extractor)
         result['python_descriptors'].append(aap)
 
+    # copy_protocol → python_protocols (re-routed from python_expressions)
+    # Phase 2 Fidelity Control - Two-discriminator pattern
     copy_protocol = advanced_extractors.extract_copy_protocol(context)
     for cp in copy_protocol:
-        cp['expression_type'] = 'copy'
-        result['python_expressions'].append(cp)
+        cp['protocol_kind'] = 'copy'  # Discriminator (protocol_type preserved from extractor)
+        result['python_protocols'].append(cp)
 
     ellipsis_usage = advanced_extractors.extract_ellipsis_usage(context)
     for ell in ellipsis_usage:
@@ -1021,9 +1092,10 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         result['python_expressions'].append(eec)
 
     # Async patterns → python_functions_advanced/python_expressions
+    # Two-discriminator pattern: function_kind (table discriminator) + function_type (extractor subtype preserved)
     async_functions = async_extractors.extract_async_functions(context)
     for af in async_functions:
-        af['function_type'] = 'async'
+        af['function_kind'] = 'async'  # Discriminator (function_type preserved from extractor)
         result['python_functions_advanced'].append(af)
 
     # await_expressions → python_expressions (expression_type='await')
@@ -1034,7 +1106,7 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
 
     async_generators = async_extractors.extract_async_generators(context)
     for ag in async_generators:
-        ag['function_type'] = 'async_generator'
+        ag['function_kind'] = 'async_generator'  # Discriminator (function_type preserved from extractor)
         result['python_functions_advanced'].append(ag)
 
     # Type patterns → python_type_definitions/python_literals
@@ -1054,14 +1126,15 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         td['type_kind'] = 'typed_dict'
         result['python_type_definitions'].append(td)
 
+    # Two-discriminator pattern: literal_kind (table discriminator) + literal_type (extractor subtype preserved)
     literals = type_extractors.extract_literals(context)
     for lit in literals:
-        lit['literal_type'] = 'literal'
+        lit['literal_kind'] = 'literal'  # Discriminator (literal_type preserved from extractor)
         result['python_literals'].append(lit)
 
     overloads = type_extractors.extract_overloads(context)
     for ovl in overloads:
-        ovl['literal_type'] = 'overload'
+        ovl['literal_kind'] = 'overload'  # Discriminator (literal_type preserved from extractor)
         result['python_literals'].append(ovl)
 
     # Infrastructure
@@ -1103,5 +1176,31 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     # print(f"  Function calls: {len(result.get('function_calls', []))}", file=sys.stderr)
     # print(f"  Python routes: {len(result.get('python_routes', []))}", file=sys.stderr)
     # print(f"  Python ORM models: {len(result.get('python_orm_models', []))}", file=sys.stderr)
+
+    # ==========================================================================
+    # DATA FIDELITY: GENERATE EXTRACTION MANIFEST
+    # ==========================================================================
+    # Count what the extractor produced. Storage will compare against this
+    # to detect silent data loss. See: theauditor/indexer/fidelity.py
+    manifest = {}
+    total_items = 0
+
+    for key, value in result.items():
+        # Skip metadata keys or non-list items
+        if key.startswith('_') or not isinstance(value, list):
+            continue
+
+        count = len(value)
+        if count > 0:
+            manifest[key] = count
+            total_items += count
+
+    # Add metadata for debugging
+    from datetime import datetime
+    manifest['_total'] = total_items
+    manifest['_timestamp'] = datetime.utcnow().isoformat()
+    manifest['_file'] = context.file_path if hasattr(context, 'file_path') else 'unknown'
+
+    result['_extraction_manifest'] = manifest
 
     return result

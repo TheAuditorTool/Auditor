@@ -344,22 +344,32 @@ class BaseDatabaseManager:
                 ('python_state_mutations', 'INSERT'),
                 # Group 2: Object-Oriented & Types
                 ('python_class_features', 'INSERT'),
-                ('python_protocols', 'INSERT'),
+                ('python_protocols', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
                 ('python_descriptors', 'INSERT'),
-                ('python_type_definitions', 'INSERT'),
+                ('python_type_definitions', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
                 ('python_literals', 'INSERT'),
+                # Group 6: Junction Tables (MUST be after parents)
+                ('python_protocol_methods', 'INSERT'),
+                ('python_typeddict_fields', 'INSERT'),
                 # Group 3: Security & Testing
                 ('python_security_findings', 'INSERT'),
                 ('python_test_cases', 'INSERT'),
-                ('python_test_fixtures', 'INSERT'),
-                ('python_framework_config', 'INSERT'),
-                ('python_validation_schemas', 'INSERT'),
+                ('python_test_fixtures', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
+                ('python_framework_config', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
+                ('python_validation_schemas', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
+                # Group 6 continued: Phase 5 Junction Tables (MUST be after parents)
+                ('python_fixture_params', 'INSERT'),
+                ('python_framework_methods', 'INSERT'),
+                ('python_schema_validators', 'INSERT'),
                 # Group 4: Low-Level & Misc
                 ('python_operators', 'INSERT'),
                 ('python_collections', 'INSERT'),
                 ('python_stdlib_usage', 'INSERT'),
                 ('python_imports_advanced', 'INSERT'),
                 ('python_expressions', 'INSERT'),
+                # Group 5: Expression Decomposition (Phase 2 Fidelity Control)
+                ('python_comprehensions', 'INSERT'),
+                ('python_control_statements', 'INSERT'),
 
                 # SQL query tables (before junction table)
                 ('sql_query_tables', 'INSERT'),  # Junction table
