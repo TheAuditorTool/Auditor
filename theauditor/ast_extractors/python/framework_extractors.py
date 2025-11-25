@@ -130,7 +130,7 @@ def _extract_fastapi_dependencies(func_node):
                 dependencies.append(dep)
 
     # Extract from keyword-only args
-    for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):
+    for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):  # noqa: B905 - AST guarantees equal length
         if isinstance(default, ast.Call):
             dep = _dependency_name(default)
             if dep:

@@ -428,7 +428,7 @@ def build_join_query(
             )
 
         # Build JOIN conditions from foreign key
-        join_on = list(zip(fk.foreign_columns, fk.local_columns))
+        join_on = list(zip(fk.foreign_columns, fk.local_columns, strict=True))
 
     # Validate JOIN ON columns
     for base_col, join_col in join_on:

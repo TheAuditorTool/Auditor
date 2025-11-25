@@ -245,14 +245,14 @@ def _format_table(frameworks: list[dict]) -> str:
 
     # Build table
     separator = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
-    header_row = "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths)) + "|"
+    header_row = "|" + "|".join(f" {h:<{w}} " for h, w in zip(headers, widths, strict=True)) + "|"
 
     lines = [separator, header_row, separator]
 
     for fw in frameworks:
         row = "|" + "|".join(
             f" {fw.get(k, ''):<{w}} "
-            for k, w in zip(["framework", "version", "language", "path", "source"], widths)
+            for k, w in zip(["framework", "version", "language", "path", "source"], widths, strict=True)
         ) + "|"
         lines.append(row)
 

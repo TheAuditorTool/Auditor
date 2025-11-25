@@ -706,7 +706,7 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
 
         # Handle dict with explicit keys
         if dict_node.keys:
-            for i, (key, value) in enumerate(zip(dict_node.keys, dict_node.values)):
+            for i, (key, value) in enumerate(zip(dict_node.keys, dict_node.values)):  # noqa: B905 - AST guarantees equal length
                 # Skip None keys (these are **spread operations)
                 if key is None:
                     # This is a dict unpacking: {**other_dict}
