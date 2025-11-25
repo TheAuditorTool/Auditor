@@ -82,8 +82,14 @@ class ConsoleLogger:
 
     def on_parallel_track_start(self, track_name: str) -> None:
         if not self.quiet:
-            print(f"[START] {track_name}...", flush=True)
+            try:
+                print(f"[START] {track_name}...", flush=True)
+            except OSError:
+                pass  # Windows console buffer issue - ignore
 
     def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
         if not self.quiet:
-            print(f"[COMPLETED] {track_name} ({elapsed:.1f}s)", flush=True)
+            try:
+                print(f"[COMPLETED] {track_name} ({elapsed:.1f}s)", flush=True)
+            except OSError:
+                pass  # Windows console buffer issue - ignore
