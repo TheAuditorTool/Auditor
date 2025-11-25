@@ -492,7 +492,7 @@ def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
     Returns:
         List of SQL query dicts with command, tables, and source info
     """
-    from theauditor.indexer.extractors.python import parse_sql_query
+    from theauditor.indexer.extractors.sql import parse_sql_query
 
     queries = []
     if not isinstance(context.tree, ast.AST):
