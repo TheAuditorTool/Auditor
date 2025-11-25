@@ -14,7 +14,6 @@ Design Philosophy:
 - Complements core schema with JavaScript ecosystem patterns
 """
 
-from typing import Dict
 from .utils import Column, ForeignKey, TableSchema
 
 

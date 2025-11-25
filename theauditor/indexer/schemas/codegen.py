@@ -24,15 +24,10 @@ Usage:
 """
 
 
-from typing import Any
-import textwrap
-from collections import defaultdict
-import sqlite3
 import hashlib
 from pathlib import Path
 
-from ..schema import TABLES, build_query
-from .utils import TableSchema, Column
+from ..schema import TABLES
 
 
 class SchemaCodeGenerator:
@@ -340,9 +335,6 @@ class SchemaCodeGenerator:
         Args:
             output_dir: Directory to write files to (defaults to same dir as codegen.py)
         """
-        import os
-        from pathlib import Path
-
         if output_dir is None:
             output_dir = Path(__file__).parent
         else:

@@ -12,7 +12,6 @@ Design Philosophy:
 - Complements core schema with language-specific patterns
 """
 
-from typing import Dict
 from .utils import Column, TableSchema
 
 
