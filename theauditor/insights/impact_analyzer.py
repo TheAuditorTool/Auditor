@@ -3,7 +3,7 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple
+from typing import Any
 
 
 def classify_risk(impact_list: list[dict[str, Any]]) -> dict[str, Any]:

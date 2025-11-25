@@ -2,10 +2,9 @@
 
 
 import json
-import os
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 from .indexer.config import SKIP_DIRS
 

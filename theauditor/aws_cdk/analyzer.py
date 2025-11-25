@@ -10,11 +10,10 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 from dataclasses import dataclass
 
 from ..rules.orchestrator import RulesOrchestrator
-from ..rules.base import StandardRuleContext, StandardFinding, Severity
+from ..rules.base import StandardRuleContext, Severity
 
 logger = logging.getLogger(__name__)
 
