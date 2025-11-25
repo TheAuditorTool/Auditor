@@ -38,13 +38,13 @@ class SanitizerRegistry:
         # ARCHITECTURAL FIX: Pre-load DB data to eliminate DB-in-loop bottleneck
         # These caches convert O(paths × hops) SQL queries to O(1) memory lookups
         self.call_args_cache: dict[tuple, list[str]] = {}  # (file, line) -> [callees]
-        self.middleware_cache: dict[str, str] = {}  # controller_func -> validation_middleware
+        # NOTE: middleware_cache removed - InterceptorStrategy now provides structural graph edges
 
         # Load data from database
         self._load_safe_sinks()
         self._load_validation_sanitizers()
         self._preload_call_args()
-        self._preload_middleware_chains()
+        # NOTE: _preload_middleware_chains() removed - graph edges handle this structurally
 
     def _load_safe_sinks(self):
         """Load safe sink patterns from framework_safe_sinks table.
@@ -133,40 +133,9 @@ class SanitizerRegistry:
                 print(f"[SanitizerRegistry] Failed to preload call args: {e}", file=sys.stderr)
             # NO FALLBACK - continue with empty cache
 
-    def _preload_middleware_chains(self):
-        """Pre-load express_middleware_chains for controller validation checks.
-
-        ARCHITECTURAL FIX: Eliminates expensive EXISTS subqueries in hot loop.
-        """
-        try:
-            # Build a map of controller function -> validation middleware
-            # This captures routes that have validation middleware before the controller
-            self.repo_cursor.execute("""
-                SELECT DISTINCT
-                    emc2.handler_expr as controller,
-                    emc1.handler_expr as validation
-                FROM express_middleware_chains emc1
-                JOIN express_middleware_chains emc2
-                  ON emc2.route_path = emc1.route_path
-                 AND emc2.route_method = emc1.route_method
-                WHERE emc1.handler_expr LIKE '%validate%'
-                  AND emc2.handler_expr LIKE '%Controller%'
-            """)
-
-            for row in self.repo_cursor.fetchall():
-                controller = row['controller']
-                validation = row['validation']
-                # Extract function name from controller expression
-                if '.' in controller:
-                    func_name = controller.split('.')[-1]
-                    self.middleware_cache[func_name] = validation
-
-            if self.debug:
-                print(f"[SanitizerRegistry] Pre-loaded {len(self.middleware_cache)} controller->validation mappings", file=sys.stderr)
-        except Exception as e:
-            if self.debug:
-                print(f"[SanitizerRegistry] Failed to preload middleware chains: {e}", file=sys.stderr)
-            # NO FALLBACK - continue with empty cache
+    # NOTE: _preload_middleware_chains() DELETED
+    # InterceptorStrategy now creates graph edges: Route -> Middleware -> Controller
+    # IFDS naturally walks through these edges and detects sanitizers via CHECK 0/1
 
     def _is_sanitizer(self, function_name: str) -> bool:
         """Check if a function name matches any safe sink pattern.
@@ -213,9 +182,10 @@ class SanitizerRegistry:
             # Handle both hop dict format (IFDS) and node ID string format (FlowResolver)
             if isinstance(hop, dict):
                 # IFDS format: dict with from_file, to_file, line
+                # FIX: IFDS uses 'from'/'to' keys, not 'from_node'/'to_node'
                 hop_file = hop.get('from_file') or hop.get('to_file')
                 hop_line = hop.get('line', 0)
-                node_str = hop.get('from_node') or hop.get('to_node') or ""
+                node_str = hop.get('from') or hop.get('to') or hop.get('from_node') or hop.get('to_node') or ""
             else:
                 # FlowResolver format: node ID string (file::function::variable)
                 node_str = hop
@@ -233,7 +203,13 @@ class SanitizerRegistry:
                         'validateQuery',
                         'validateHeaders',
                         'validateRequest',
-                        'validate('  # PlantFlow style: validate(schema, 'body')
+                        'validate',      # Generic validate function (PlantFlow style)
+                        'sanitize',      # Generic sanitize function
+                        'parse',         # Zod .parse()
+                        'safeParse',     # Zod .safeParse()
+                        'authenticate',  # Auth middleware (gating)
+                        'requireAuth',   # Auth middleware
+                        'requireAdmin',  # Admin auth middleware
                     ]
                     for pattern in validation_patterns:
                         if pattern in func:
@@ -260,7 +236,14 @@ class SanitizerRegistry:
                     'validateParams',
                     'validateQuery',
                     'validateHeaders',
-                    'validate('  # PlantFlow style
+                    'validateRequest',
+                    'validate',      # Generic validate function
+                    'sanitize',      # Generic sanitize function
+                    'parse',         # Zod .parse()
+                    'safeParse',     # Zod .safeParse()
+                    'authenticate',  # Auth middleware
+                    'requireAuth',   # Auth middleware
+                    'requireAdmin',  # Admin auth middleware
                 ]
 
                 for pattern in validation_patterns:
@@ -306,38 +289,10 @@ class SanitizerRegistry:
                             'method': callee
                         }
 
-        # CHECK 4: Express middleware validation for controllers
-        # If path goes through a controller, check if its route has validation middleware
-        for hop in hop_chain:
-            # Look for controller functions in the path
-            node_str = ""
-            if isinstance(hop, dict):
-                node_str = hop.get('from_node') or hop.get('to_node') or hop.get('from') or hop.get('to') or ""
-            else:
-                node_str = hop
-
-            # Check if this is a controller function
-            if 'Controller' in node_str and '::' in node_str:
-                parts = node_str.split('::')
-                if len(parts) >= 2:
-                    controller_func = parts[1]  # e.g., WorkerController.create
-
-                    if self.debug:
-                        print(f"[SanitizerRegistry] Checking middleware for controller: {controller_func}", file=sys.stderr)
-
-                    # ARCHITECTURAL FIX: Use pre-loaded cache instead of SQL EXISTS query
-                    # Extract function name (handle both "create" and "WorkerController.create")
-                    func_name = controller_func.split('.')[-1] if '.' in controller_func else controller_func
-
-                    validation_middleware = self.middleware_cache.get(func_name)
-                    if validation_middleware:
-                        if self.debug:
-                            print(f"[SanitizerRegistry] Found validation middleware: {validation_middleware}", file=sys.stderr)
-                        return {
-                            'file': parts[0] if parts else "",
-                            'line': 0,
-                            'method': f"middleware:{validation_middleware}"
-                        }
+        # NOTE: CHECK 4 (Express middleware validation) DELETED
+        # InterceptorStrategy now creates structural graph edges for middleware chains.
+        # IFDS walks through these edges naturally and detects sanitizers via CHECK 0/1.
+        # No more runtime guessing - the graph provides the truth.
 
         if self.debug:
             print(f"[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
