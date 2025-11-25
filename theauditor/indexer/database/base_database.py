@@ -75,11 +75,11 @@ class BaseDatabaseManager:
         # Kept for backward compatibility with add_jwt_pattern signature
         self.jwt_patterns_batch: list[dict] = []
 
-    def begin_transaction(self):
+    def begin_transaction(self) -> None:
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
 
-    def commit(self):
+    def commit(self) -> None:
         """Commit the current transaction."""
         try:
             self.conn.commit()
@@ -87,11 +87,11 @@ class BaseDatabaseManager:
             self.conn.rollback()
             raise RuntimeError(f"Failed to commit database changes: {e}")
 
-    def rollback(self):
+    def rollback(self) -> None:
         """Rollback the current transaction."""
         self.conn.rollback()
 
-    def close(self):
+    def close(self) -> None:
         """Close the database connection."""
         self.conn.close()
 
@@ -124,7 +124,7 @@ class BaseDatabaseManager:
         print("[SCHEMA] Note: Some mismatches may be due to migration columns (expected)", file=sys.stderr)
         return False
 
-    def create_schema(self):
+    def create_schema(self) -> None:
         """Create all database tables and indexes using schema.py definitions.
 
         ARCHITECTURE: Schema-driven table creation.
@@ -168,7 +168,7 @@ class BaseDatabaseManager:
 
         self.conn.commit()
 
-    def clear_tables(self):
+    def clear_tables(self) -> None:
         """Clear all existing data from tables using schema.py registry.
 
         ARCHITECTURE: Schema-driven table clearing.
@@ -188,7 +188,7 @@ class BaseDatabaseManager:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
 
-    def flush_generic_batch(self, table_name: str, insert_mode: str = 'INSERT'):
+    def flush_generic_batch(self, table_name: str, insert_mode: str = 'INSERT') -> None:
         """Flush a single table's batch using schema-driven INSERT.
 
         ARCHITECTURE: Schema-driven batch flushing.
@@ -271,7 +271,7 @@ class BaseDatabaseManager:
         # Clear batch after flush
         self.generic_batches[table_name] = []
 
-    def flush_batch(self, batch_idx: int | None = None):
+    def flush_batch(self, batch_idx: int | None = None) -> None:
         """Execute all pending batch inserts using schema-driven approach.
 
         ARCHITECTURE: Hybrid flushing strategy.
@@ -607,7 +607,7 @@ class BaseDatabaseManager:
         ])
         self.jwt_patterns_batch.clear()
 
-    def write_findings_batch(self, findings: list[dict], tool_name: str):
+    def write_findings_batch(self, findings: list[dict], tool_name: str) -> None:
         """Write findings to database using batch insert for dual-write pattern.
 
         This method implements the dual-write architecture where findings are written
