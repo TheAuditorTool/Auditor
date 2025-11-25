@@ -41,7 +41,7 @@ flowchart TB
         DB1 --> CACHE[GraphDatabaseCache<br/>db_cache.py]
         CACHE --> BUILD[XGraphBuilder<br/>builder.py]
         BUILD --> DFG[DFGBuilder<br/>dfg_builder.py]
-        DFG --> DB2[(graphs.db<br/>126MB, 4 tables)]
+        DFG --> DB2[(graphs.db<br/>126MB, 3 tables)]
     end
 
     subgraph Phase3["Phase 3: Analysis"]
@@ -90,7 +90,6 @@ flowchart LR
         G1[nodes]
         G2[edges]
         G3[analysis_results]
-        G4[metadata]
     end
 
     repo -->|"XGraphBuilder reads"| graphs
@@ -194,8 +193,8 @@ flowchart TB
 flowchart LR
     subgraph Python["Python Extraction (263 lines)"]
         AST[CPython AST] --> CTX[FileContext<br/>O(1) NodeIndex]
-        CTX --> IMPL[python_impl.py<br/>42,732 lines]
-        IMPL --> MODS["31 Extractor Modules"]
+        CTX --> IMPL[python_impl.py<br/>1,033 lines]
+        IMPL --> MODS["Extractor Modules"]
     end
 
     MODS --> OUT["{'symbols': [...],<br/>'imports': [...],<br/>'assignments': [...],<br/>... 40+ keys}"]
@@ -205,8 +204,8 @@ flowchart LR
 
 **Key Files:**
 - `theauditor/indexer/extractors/python.py` (263 lines) - Wrapper
-- `theauditor/ast_extractors/python_impl.py` (42,732 lines) - Orchestrator
-- `theauditor/ast_extractors/python/utils/context.py` (150 lines) - FileContext
+- `theauditor/ast_extractors/python_impl.py` (1,033 lines) - Orchestrator
+- `theauditor/ast_extractors/python/utils/context.py` - FileContext
 
 ### JavaScript/TypeScript Extraction Path
 
@@ -294,7 +293,7 @@ sequenceDiagram
     end
 ```
 
-### File: `theauditor/indexer/orchestrator.py` (788 lines)
+### File: `theauditor/indexer/orchestrator.py` (786 lines)
 
 **Key Methods:**
 | Method | Lines | Purpose |
@@ -335,10 +334,10 @@ flowchart TB
     end
 
     subgraph Handlers["Domain Handlers"]
-        CORE["CoreStorage<br/>21 handlers<br/>imports, symbols, cfg, sql, jwt"]
-        PY["PythonStorage<br/>34 handlers<br/>Django, Flask, Celery, pytest"]
-        NODE["NodeStorage<br/>14 handlers<br/>React, Vue, TypeScript"]
-        INFRA["InfraStorage<br/>18 handlers<br/>Docker, Terraform, CDK"]
+        CORE["CoreStorage<br/>23 handlers<br/>imports, symbols, cfg, sql, jwt"]
+        PY["PythonStorage<br/>148 handlers<br/>Django, Flask, Celery, pytest"]
+        NODE["NodeStorage<br/>17 handlers<br/>React, Vue, TypeScript"]
+        INFRA["InfraStorage<br/>11 handlers<br/>Docker, Terraform, CDK"]
     end
 
     DataStorer --> Handlers
@@ -361,9 +360,9 @@ flowchart TB
 pie title Schema Domains
     "Core (24)" : 24
     "Security (7)" : 7
-    "Frameworks (5)" : 5
-    "Python (59)" : 59
-    "Node (26)" : 26
+    "Frameworks (6)" : 6
+    "Python (149)" : 149
+    "Node (29)" : 29
     "Infrastructure (18)" : 18
     "Planning (9)" : 9
     "GraphQL (8)" : 8
@@ -375,10 +374,10 @@ pie title Schema Domains
 
 | Module | Lines | Handlers | Purpose |
 |--------|-------|----------|---------|
-| `core_storage.py` | 30,149 | 21 | Cross-language patterns |
-| `python_storage.py` | 121,457 | 34 | Django, Flask, SQLAlchemy, Celery |
-| `node_storage.py` | 15,581 | 14 | React, Vue, Angular, TypeScript |
-| `infrastructure_storage.py` | 11,443 | 18 | Docker, Terraform, CDK, GitHub Actions |
+| `core_storage.py` | 641 | 23 | Cross-language patterns |
+| `python_storage.py` | 2,486 | 148 | Django, Flask, SQLAlchemy, Celery |
+| `node_storage.py` | 354 | 17 | React, Vue, Angular, TypeScript |
+| `infrastructure_storage.py` | 229 | 11 | Docker, Terraform, CDK, GitHub Actions |
 
 ---
 
@@ -468,6 +467,8 @@ flowchart LR
 
 **Key Insight**: Bidirectional edges enable both ancestor and descendant queries for IFDS backward analysis.
 
+**File: `theauditor/graph/dfg_builder.py` (950 lines)**
+
 ---
 
 ## 8. Taint Analysis & FCE
@@ -511,9 +512,9 @@ theauditor/taint/
 ├── core.py           (921 lines)  - Main orchestrator + TaintRegistry
 ├── ifds_analyzer.py  (629 lines)  - IFDS backward analysis
 ├── flow_resolver.py  (777 lines)  - Forward flow resolution
-├── discovery.py      (684 lines)  - Database-driven source/sink discovery
+├── discovery.py      (695 lines)  - Database-driven source/sink discovery
 ├── access_path.py    (246 lines)  - Field-sensitive tracking (k=5)
-├── sanitizer_util.py (298 lines)  - Sanitizer detection
+├── sanitizer_util.py (299 lines)  - Sanitizer detection
 └── orm_utils.py      (305 lines)  - ORM-aware taint tracking
 ```
 
@@ -777,18 +778,18 @@ if not result:
 | **Extraction** | `extractors/__init__.py` | 274 | Registry |
 | **Extraction** | `extractors/python.py` | 263 | Python wrapper |
 | **Extraction** | `extractors/javascript.py` | 1,674 | JS/TS wrapper |
-| **Extraction** | `ast_extractors/python_impl.py` | 42,732 | Python orchestrator |
-| **Extraction** | `ast_extractors/typescript_impl.py` | 63,195 | TS extraction |
-| **Indexer** | `indexer/orchestrator.py` | 788 | Main pipeline |
-| **Schema** | `indexer/schema.py` | 582 | Schema registry |
-| **Database** | `indexer/database/__init__.py` | 80 | 8 mixin composition |
-| **Database** | `indexer/database/base_database.py` | 400+ | Core infrastructure |
-| **Storage** | `indexer/storage/__init__.py` | 104 | Handler router |
-| **Storage** | `indexer/storage/core_storage.py` | 30,149 | 21 handlers |
-| **Graph** | `graph/builder.py` | 1,132 | Import + call graphs |
-| **Graph** | `graph/dfg_builder.py` | 370 | Data flow graph |
-| **Graph** | `graph/store.py` | 423 | SQLite persistence |
-| **Graph** | `graph/analyzer.py` | 200+ | Graph algorithms |
+| **Extraction** | `ast_extractors/python_impl.py` | 1,033 | Python orchestrator |
+| **Extraction** | `ast_extractors/typescript_impl.py` | 1,334 | TS extraction |
+| **Indexer** | `indexer/orchestrator.py` | 786 | Main pipeline |
+| **Schema** | `indexer/schema.py` | 581 | Schema registry |
+| **Database** | `indexer/database/__init__.py` | 108 | 8 mixin composition |
+| **Database** | `indexer/database/base_database.py` | 700 | Core infrastructure |
+| **Storage** | `indexer/storage/__init__.py` | 103 | Handler router |
+| **Storage** | `indexer/storage/core_storage.py` | 641 | 23 handlers |
+| **Graph** | `graph/builder.py` | 1,131 | Import + call graphs |
+| **Graph** | `graph/dfg_builder.py` | 950 | Data flow graph |
+| **Graph** | `graph/store.py` | 422 | SQLite persistence |
+| **Graph** | `graph/analyzer.py` | 485 | Graph algorithms |
 | **Taint** | `taint/core.py` | 921 | Orchestrator + registry |
 | **Taint** | `taint/ifds_analyzer.py` | 629 | IFDS backward |
 | **Taint** | `taint/flow_resolver.py` | 777 | Forward resolution |
@@ -810,6 +811,7 @@ if not result:
 | `resolved_flow_audit` | repo_index.db | Complete flow provenance |
 | `nodes` | graphs.db | Graph nodes (polymorphic) |
 | `edges` | graphs.db | Graph edges (polymorphic) |
+| `analysis_results` | graphs.db | Cached analysis (cycles, hotspots) |
 
 ---
 
@@ -839,7 +841,7 @@ flowchart TB
     end
 
     subgraph DB2["graphs.db"]
-        GRAPH["4 polymorphic tables"]
+        GRAPH["3 polymorphic tables"]
     end
 
     subgraph Phase3["ANALYSIS"]

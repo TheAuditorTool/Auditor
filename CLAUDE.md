@@ -21,6 +21,30 @@ For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
 
 <!-- THEAUDITOR:END -->
 
+---
+
+## Custom Slash Commands (`.claude/commands/`)
+
+Workflow commands encoding team philosophy. Use these as guidance even when not explicitly invoked.
+
+| Command | Purpose | Key Insight |
+|---------|---------|-------------|
+| `/onboard` | Session init with roles/rules | Read teamsop.md + CLAUDE.md fully |
+| `/start <ticket>` | Load ticket, verify, brief before building | NO partial reads, cross-reference against reality |
+| `/spec` | Create OpenSpec proposal | Atomic, ironclad, explicit HOW and WHY |
+| `/check <target>` | Due diligence review | Balance: fix real issues, skip code style fetishes |
+| `/docs <target>` | Document a component | Use `aud explain` first, write to root |
+| `/audit <path>` | Comprehensive audit | Run aud commands + manual review, prioritized output |
+| `/explore` | Architecture discovery | Database first, propose structure, wait for approval |
+| `/git` | Generate commit message | NO Co-authored-by, explain WHY not WHAT |
+
+**Core Philosophy Baked Into Commands:**
+1. **ZERO FALLBACK** - Hunt and destroy hidden fallbacks
+2. **Polyglot awareness** - Python + Node + Rust, don't forget the orchestrator
+3. **Verification first** - Read code before making claims (Prime Directive)
+4. **No over-engineering** - Fix functionality, skip developer purist fetishes
+5. **Single root output** - Docs/reports to root, not nested folder hell
+
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
