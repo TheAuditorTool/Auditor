@@ -8,8 +8,7 @@ database evolves.
 """
 
 
-from typing import Dict, List, Any, Optional, Tuple
-import sys
+from typing import Any
 import sqlite3
 
 

@@ -27,7 +27,7 @@ Example:
 
 import sqlite3
 from pathlib import Path
-from typing import Set, Dict, List, Any
+from typing import Any
 
 
 class GraphDatabaseCache:

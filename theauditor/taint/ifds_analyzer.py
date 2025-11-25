@@ -25,9 +25,8 @@ Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
 
 import sqlite3
 import sys
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple, Any, TYPE_CHECKING
-from collections import deque, defaultdict
+from typing import TYPE_CHECKING
+from collections import deque
 
 from .sanitizer_util import SanitizerRegistry
 
@@ -164,9 +163,6 @@ class IFDSTaintAnalyzer:
         Returns:
             Tuple of (vulnerable_paths, sanitized_paths)
         """
-        # Runtime import to avoid circular dependency
-        from .taint_path import TaintPath
-
         vulnerable_paths = []
         sanitized_paths = []
 

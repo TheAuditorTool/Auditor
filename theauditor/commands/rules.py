@@ -5,7 +5,7 @@ import yaml
 import importlib
 import inspect
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List
 
 import click
 

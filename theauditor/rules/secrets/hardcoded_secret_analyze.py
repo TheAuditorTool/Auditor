@@ -24,7 +24,7 @@ import sqlite3
 import re
 import base64
 import math
-from typing import List, Optional
+from typing import Optional
 from pathlib import Path
 from collections import Counter
 

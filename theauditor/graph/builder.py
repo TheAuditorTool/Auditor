@@ -4,8 +4,6 @@
 import os
 import platform
 import sqlite3
-import subprocess
-import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -262,8 +260,6 @@ class XGraphBuilder:
 
     def resolve_import_path(self, import_str: str, source_file: Path, lang: str) -> str:
         """Resolve import string to a normalized module path that matches actual files in the graph."""
-        import sqlite3
-
         # Clean up the import string (remove quotes, semicolons, etc.)
         import_str = import_str.strip().strip('"\'`;')
 

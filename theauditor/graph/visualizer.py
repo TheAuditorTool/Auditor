@@ -12,9 +12,8 @@ Visual encoding strategy:
 """
 
 
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Set, Optional
+from typing import Any
 
 
 class GraphVisualizer:

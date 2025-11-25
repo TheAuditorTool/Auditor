@@ -12,14 +12,13 @@ import sys
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Any, Optional, TYPE_CHECKING, Tuple
+from typing import Any, TYPE_CHECKING
 from collections import defaultdict
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
 from theauditor.indexer.schema import build_query
-from .taint_path import TaintPath
 # ARCHITECTURAL FIX (2025-11-09): TaintFlowAnalyzer removed (dormant engine)
 # analysis.py renamed to analysis.py.backup per Priority 1 directive
 # Only IFDSTaintAnalyzer is active (ifds_analyzer.py)

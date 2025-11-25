@@ -6,7 +6,6 @@ These are particularly dangerous as they can bypass server-side protections.
 
 
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 

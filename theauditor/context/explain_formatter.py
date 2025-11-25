@@ -16,7 +16,6 @@ Usage:
 """
 
 import json
-from typing import Any
 
 from theauditor.utils.code_snippets import CodeSnippetManager
 

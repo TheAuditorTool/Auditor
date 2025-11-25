@@ -1,10 +1,8 @@
 """GraphQL schema analysis and resolver mapping."""
 
 import json
-import sqlite3
 from pathlib import Path
 import click
-from theauditor.config_runtime import load_runtime_config
 from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)

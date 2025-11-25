@@ -8,8 +8,6 @@ Focuses on state complexity, prop drilling, and state management best practices.
 
 
 import sqlite3
-import json
-from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata

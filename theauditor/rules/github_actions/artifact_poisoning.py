@@ -18,7 +18,6 @@ CWE-494: Download of Code Without Integrity Check
 import json
 import logging
 import sqlite3
-from typing import List, Set, Dict
 
 from theauditor.rules.base import (
     RuleMetadata,

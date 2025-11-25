@@ -112,7 +112,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         - Symbol count (functions, classes)
         - Refactor recommendation
     """
-    from theauditor.project_summary import generate_project_summary, generate_directory_tree
+    from theauditor.project_summary import generate_project_summary
 
     # Handle --monoliths flag (separate mode)
     if monoliths:

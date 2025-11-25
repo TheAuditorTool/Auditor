@@ -12,7 +12,6 @@ Schema-driven enforcement (v1.3+):
 
 import re
 import sqlite3
-from typing import List
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity

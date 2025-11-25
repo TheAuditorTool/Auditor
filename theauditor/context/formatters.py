@@ -18,7 +18,7 @@ Usage:
 
 
 import json
-from typing import Any, List, Dict
+from typing import Any
 from dataclasses import asdict, is_dataclass
 
 
