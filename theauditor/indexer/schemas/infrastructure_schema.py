@@ -13,7 +13,6 @@ Design Philosophy:
 - Security-focused (public exposure, misconfigurations)
 """
 
-from typing import Dict
 from .utils import Column, ForeignKey, TableSchema
 
 
