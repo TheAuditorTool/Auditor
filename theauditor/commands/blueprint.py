@@ -20,13 +20,14 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--graph", is_flag=True, help="Drill down into import/call graph analysis")
 @click.option("--security", is_flag=True, help="Drill down into security surface details")
 @click.option("--taint", is_flag=True, help="Drill down into taint analysis details")
+@click.option("--boundaries", is_flag=True, help="Drill down into boundary distance analysis")
 @click.option("--deps", is_flag=True, help="Drill down into dependency analysis (packages, versions)")
 @click.option("--all", is_flag=True, help="Export all data to JSON (ignores other flags)")
 @click.option("--format", "output_format", default="text",
               type=click.Choice(['text', 'json']),
               help="Output format: text (visual tree), json (structured)")
 @handle_exceptions
-def blueprint(structure, graph, security, taint, deps, all, output_format):
+def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
     Truth-courier mode visualization that presents pure architectural facts extracted from
@@ -66,6 +67,12 @@ def blueprint(structure, graph, security, taint, deps, all, output_format):
         - Taint sources (user input, network, files)
         - Taint sinks (SQL, commands, file writes)
         - Data flow paths
+
+      --boundaries: Security boundary distance analysis
+        - Entry points (routes, handlers)
+        - Control points (validation, auth, sanitization)
+        - Distance metrics (calls between entry and control)
+        - Quality levels (clear, acceptable, fuzzy, missing)
 
       --all: Export complete data as JSON
 
@@ -134,6 +141,7 @@ def blueprint(structure, graph, security, taint, deps, all, output_format):
             'graph': graph,
             'security': security,
             'taint': taint,
+            'boundaries': boundaries,
             'deps': deps,
             'all': all,
         }
@@ -155,6 +163,8 @@ def blueprint(structure, graph, security, taint, deps, all, output_format):
             _show_security_drilldown(data, cursor)
         elif taint:
             _show_taint_drilldown(data, cursor)
+        elif boundaries:
+            _show_boundaries_drilldown(data, cursor)
         elif deps:
             _show_deps_drilldown(data, cursor)
         else:
@@ -187,6 +197,7 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
     - --graph: hot_files, import_graph (JOIN-heavy)
     - --security: security_surface (multiple table scans)
     - --taint: data_flow (taint tables)
+    - --boundaries: boundary distance analysis (graphs.db)
     - --all: everything
     - (no flags): minimal set for overview
     """
@@ -195,7 +206,8 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
 
     # No specific flag = overview mode (need basics for top-level display)
     no_drilldown = not any([flags.get('structure'), flags.get('graph'),
-                           flags.get('security'), flags.get('taint'), flags.get('deps')])
+                           flags.get('security'), flags.get('taint'),
+                           flags.get('boundaries'), flags.get('deps')])
 
     # 1. Codebase Structure - always needed (fast)
     data['structure'] = _get_structure(cursor)
@@ -249,6 +261,12 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
         data['dependencies'] = _get_dependencies(cursor)
     else:
         data['dependencies'] = {'total': 0, 'by_manager': {}, 'packages': []}
+
+    # 10. Boundaries - only for --boundaries, --all, or overview
+    if run_all or flags.get('boundaries') or no_drilldown:
+        data['boundaries'] = _get_boundaries(cursor, graphs_db_path)
+    else:
+        data['boundaries'] = {'total_entries': 0, 'by_quality': {}, 'missing_controls': 0}
 
     return data
 
@@ -1487,5 +1505,153 @@ def _show_deps_drilldown(data: Dict, cursor):
     click.echo("  -> aud deps --check-latest   # Check for outdated packages")
     click.echo("  -> aud deps --vuln-scan      # Scan for CVEs (OSV-Scanner)")
     click.echo("  -> aud deps --upgrade-all    # YOLO mode: upgrade everything")
+
+    click.echo("\n" + "=" * 80 + "\n")
+
+
+def _get_boundaries(cursor, graphs_db_path: Path) -> Dict:
+    """Get boundary analysis summary by running the analyzer.
+
+    Runs analyze_input_validation_boundaries() to compute distances
+    between entry points and validation controls.
+    """
+    from theauditor.boundaries.boundary_analyzer import analyze_input_validation_boundaries
+
+    boundaries = {
+        'total_entries': 0,
+        'by_quality': {
+            'clear': 0,      # Distance 0
+            'acceptable': 0,  # Distance 1-2
+            'fuzzy': 0,       # Distance 3+ or multiple controls
+            'missing': 0,     # No control found
+        },
+        'missing_controls': 0,
+        'late_validation': 0,  # Distance 3+
+        'entries': [],  # Sample entries for drilldown
+    }
+
+    # Get database path from cursor connection
+    db_path = Path.cwd() / ".pf" / "repo_index.db"
+
+    try:
+        # Run the actual boundary analysis (limited to 20 entries for speed)
+        results = analyze_input_validation_boundaries(str(db_path), max_entries=20)
+
+        boundaries['total_entries'] = len(results)
+
+        # Aggregate by quality
+        for result in results:
+            quality = result['quality']['quality']
+            boundaries['by_quality'][quality] = boundaries['by_quality'].get(quality, 0) + 1
+
+            if quality == 'missing':
+                boundaries['missing_controls'] += 1
+
+            # Check for late validation (distance 3+)
+            for control in result.get('controls', []):
+                if control.get('distance', 0) >= 3:
+                    boundaries['late_validation'] += 1
+                    break  # Count entry point once
+
+            # Get min distance for this entry
+            distances = [c.get('distance', 999) for c in result.get('controls', [])]
+            min_dist = min(distances) if distances else None
+
+            boundaries['entries'].append({
+                'entry_point': result['entry_point'],
+                'file': result['entry_file'],
+                'line': result['entry_line'],
+                'quality': quality,
+                'distance': min_dist,
+                'control_count': len(result.get('controls', [])),
+            })
+
+        # Sort entries by severity (missing first, then fuzzy, etc.)
+        quality_order = {'missing': 0, 'fuzzy': 1, 'acceptable': 2, 'clear': 3}
+        boundaries['entries'].sort(key=lambda x: (quality_order.get(x['quality'], 4), -(x['distance'] or 0)))
+
+    except Exception as e:
+        # Analysis failed - return empty with error note
+        boundaries['error'] = str(e)
+
+    return boundaries
+
+
+def _show_boundaries_drilldown(data: Dict, cursor):
+    """Drill down: SURGICAL boundary distance analysis.
+
+    Args:
+        data: Blueprint data dict from _gather_all_data
+        cursor: Database cursor (passed from main function - dependency injection)
+    """
+    bounds = data.get('boundaries', {})
+
+    click.echo("\nBOUNDARIES DRILL-DOWN")
+    click.echo("=" * 80)
+    click.echo("Boundary Distance Analysis: How far is validation from entry points?")
+    click.echo("=" * 80)
+
+    # Check for errors
+    if bounds.get('error'):
+        click.echo(f"\n(!) Analysis error: {bounds['error']}")
+        click.echo("  Run: aud full (to index routes and handlers)")
+        click.echo("\n" + "=" * 80 + "\n")
+        return
+
+    total = bounds.get('total_entries', 0)
+    if total == 0:
+        click.echo("\n(!) No entry points found in database")
+        click.echo("  Run: aud full (indexes routes and handlers)")
+        click.echo("\n" + "=" * 80 + "\n")
+        return
+
+    # Summary
+    click.echo(f"\nEntry Points Analyzed: {total}")
+
+    by_quality = bounds.get('by_quality', {})
+
+    # Quality breakdown
+    click.echo(f"\nBoundary Quality Breakdown:")
+    click.echo(f"  Clear (dist 0):      {by_quality.get('clear', 0):4d} - Validation at entry")
+    click.echo(f"  Acceptable (1-2):    {by_quality.get('acceptable', 0):4d} - Validation nearby")
+    click.echo(f"  Fuzzy (3+ or multi): {by_quality.get('fuzzy', 0):4d} - Late or scattered validation")
+    click.echo(f"  Missing:             {by_quality.get('missing', 0):4d} - No validation found")
+
+    # Risk summary
+    missing = bounds.get('missing_controls', 0)
+    late = bounds.get('late_validation', 0)
+
+    if missing > 0 or late > 0:
+        click.echo(f"\nRisk Summary:")
+        if missing > 0:
+            click.echo(f"  (!) {missing} entry points have NO validation control")
+        if late > 0:
+            click.echo(f"  (!) {late} entry points have LATE validation (distance 3+)")
+
+    # Sample entries
+    entries = bounds.get('entries', [])
+    if entries:
+        click.echo(f"\nTop Issues (by severity):")
+        for i, entry in enumerate(entries[:10], 1):
+            quality = entry.get('quality', 'unknown')
+            distance = entry.get('distance')
+            ep = entry.get('entry_point', 'unknown')
+            file = entry.get('file', '')
+            line = entry.get('line', 0)
+            controls = entry.get('control_count', 0)
+
+            # Format distance display
+            dist_str = f"dist={distance}" if distance is not None else "no path"
+
+            click.echo(f"\n  {i}. [{quality.upper()}] {ep}")
+            click.echo(f"     Location: {file}:{line}")
+            click.echo(f"     Distance: {dist_str}, Controls found: {controls}")
+
+    # Cross-References
+    click.echo("\nRelated Commands:")
+    click.echo("  -> aud boundaries --format json        # Full analysis as JSON")
+    click.echo("  -> aud boundaries --type input-validation  # Focus on input validation")
+    click.echo("  -> aud blueprint --taint               # Data flow analysis")
+    click.echo("  -> aud blueprint --security            # Security surface overview")
 
     click.echo("\n" + "=" * 80 + "\n")

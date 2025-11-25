@@ -36,14 +36,18 @@ Every recommendation cites a database query. No exceptions.
 |------|---------|
 | Project structure, conventions, frameworks | `aud blueprint --structure` |
 | Dependency info (packages, versions) | `aud blueprint --deps` |
+| Taint summary (from DB) | `aud blueprint --taint` |
+| Boundary summary (from DB) | `aud blueprint --boundaries` |
 | Large files (>2150 lines) | `aud structure --monoliths` |
 | List symbols in file | `aud query --file X --list all` |
 | Who calls this? | `aud query --symbol X --show-callers` |
 | What does this call? | `aud query --symbol X --show-callees` |
 | Dead code detection | `aud deadcode` |
-| Taint analysis | `aud taint-analyze --source X --sink Y` |
+| Boundary distance analysis | `aud boundaries --type input-validation` |
 | Change impact/coupling | `aud impact --symbol X --planning-context` |
 | Full analysis pipeline | `aud full` |
+
+**Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint-analyze` (slow).
 
 **First time?** Run `aud --help` and `aud <command> --help`. Never guess syntax.
 
