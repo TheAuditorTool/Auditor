@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 import click
 
 
@@ -120,7 +120,7 @@ def summary(root, raw_dir, out):
     }
 
     # Helper function to safely load JSON
-    def load_json(file_path: Path) -> Dict[str, Any]:
+    def load_json(file_path: Path) -> dict[str, Any]:
         if file_path.exists():
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
@@ -343,7 +343,7 @@ def summary(root, raw_dir, out):
     click.echo(f"  Critical: {severity_counts['critical']}, High: {severity_counts['high']}, Medium: {severity_counts['medium']}, Low: {severity_counts['low']}")
 
 
-def _load_frameworks_from_db(project_path: Path) -> List[Dict]:
+def _load_frameworks_from_db(project_path: Path) -> list[dict]:
     """Load frameworks from database (not output files).
 
     Args:

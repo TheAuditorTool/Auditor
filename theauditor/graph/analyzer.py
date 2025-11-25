@@ -130,7 +130,7 @@ class XGraphAnalyzer:
         cycles.sort(key=lambda c: c["size"], reverse=True)
 
         return cycles
-    
+
     def impact_of_change(
         self,
         targets: list[str],
@@ -210,7 +210,7 @@ class XGraphAnalyzer:
             "total_impacted": len(all_impacted),
             "graph_nodes": len(import_graph.get("nodes", [])),
         }
-    
+
     def find_shortest_path(
         self,
         source: str,
@@ -252,7 +252,7 @@ class XGraphAnalyzer:
                     queue.append((neighbor, path + [neighbor]))
 
         return None
-    
+
     def identify_layers(self, graph: dict[str, Any]) -> dict[str, list[str]]:
         """
         Identify architectural layers using topological sorting.
@@ -268,40 +268,40 @@ class XGraphAnalyzer:
         # Calculate in-degrees
         in_degree = defaultdict(int)
         nodes = {node["id"] for node in graph.get("nodes", [])}
-        
+
         for edge in graph.get("edges", []):
             in_degree[edge["target"]] += 1
-        
+
         # Find nodes with no dependencies (layer 0)
         layers = {}
         current_layer = []
-        
+
         for node_id in nodes:
             if in_degree[node_id] == 0:
                 current_layer.append(node_id)
-        
+
         # Build layers using modified topological sort
         layer_num = 0
         adj = defaultdict(list)
-        
+
         for edge in graph.get("edges", []):
             adj[edge["source"]].append(edge["target"])
-        
+
         while current_layer:
             layers[layer_num] = current_layer
             next_layer = []
-            
+
             for node in current_layer:
                 for neighbor in adj[node]:
                     in_degree[neighbor] -= 1
                     if in_degree[neighbor] == 0:
                         next_layer.append(neighbor)
-            
+
             current_layer = next_layer
             layer_num += 1
-        
+
         return layers
-    
+
     def get_graph_summary(self, graph_data: dict[str, Any]) -> dict[str, Any]:
         """
         Extract basic statistics from a graph without interpretation.
@@ -318,14 +318,14 @@ class XGraphAnalyzer:
         # Basic statistics
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
-        
+
         # Calculate in/out degrees
         in_degree = defaultdict(int)
         out_degree = defaultdict(int)
         for edge in edges:
             out_degree[edge["source"]] += 1
             in_degree[edge["target"]] += 1
-        
+
         # Find most connected nodes (raw data only)
         connection_counts = []
         for node in nodes:  # Process all nodes
@@ -338,14 +338,14 @@ class XGraphAnalyzer:
                     "out_degree": out_degree[node_id],
                     "total_connections": total
                 })
-        
+
         # Sort and get top 10
         connection_counts.sort(key=lambda x: x["total_connections"], reverse=True)
         top_connected = connection_counts[:10]
-        
+
         # Detect cycles (complete search)
         cycles = self.detect_cycles({"nodes": nodes, "edges": edges})
-        
+
         # Calculate graph metrics
         node_count = len(nodes)
         edge_count = len(edges)
@@ -384,9 +384,9 @@ class XGraphAnalyzer:
                 "cycle_count": len(cycles) if len(nodes) < 500 else f"{len(cycles)}+ (limited search)",
             }
         }
-        
+
         return summary
-    
+
     def _count_file_types(self, nodes: list[dict]) -> dict[str, int]:
         """Count nodes by file extension - pure counting, no interpretation."""
         ext_counts = defaultdict(int)
@@ -397,7 +397,7 @@ class XGraphAnalyzer:
         # Return top 10 extensions
         sorted_exts = sorted(ext_counts.items(), key=lambda x: x[1], reverse=True)
         return dict(sorted_exts[:10])
-    
+
     def identify_hotspots(self, graph: dict[str, Any], top_n: int = 10) -> list[dict[str, Any]]:
         """
         Identify hotspot nodes based on connectivity (in/out degree).
@@ -415,11 +415,11 @@ class XGraphAnalyzer:
         # Calculate in/out degrees
         in_degree = defaultdict(int)
         out_degree = defaultdict(int)
-        
+
         for edge in graph.get("edges", []):
             out_degree[edge["source"]] += 1
             in_degree[edge["target"]] += 1
-        
+
         # Calculate total connections for each node
         hotspots = []
         for node in graph.get("nodes", []):
@@ -427,7 +427,7 @@ class XGraphAnalyzer:
             in_deg = in_degree[node_id]
             out_deg = out_degree[node_id]
             total = in_deg + out_deg
-            
+
             if total > 0:  # Only include connected nodes
                 hotspots.append({
                     "id": node_id,
@@ -437,11 +437,11 @@ class XGraphAnalyzer:
                     "file": node.get("file", node_id),
                     "lang": node.get("lang", "unknown")
                 })
-        
+
         # Sort by total connections and return top N
         hotspots.sort(key=lambda x: x["total_connections"], reverse=True)
         return hotspots[:top_n]
-    
+
     def calculate_node_degrees(self, graph: dict[str, Any]) -> dict[str, dict[str, int]]:
         """
         Calculate in-degree and out-degree for all nodes.
@@ -455,13 +455,13 @@ class XGraphAnalyzer:
             Dict mapping node IDs to degree counts
         """
         degrees = defaultdict(lambda: {"in_degree": 0, "out_degree": 0})
-        
+
         for edge in graph.get("edges", []):
             degrees[edge["source"]]["out_degree"] += 1
             degrees[edge["target"]]["in_degree"] += 1
-        
+
         return dict(degrees)
-    
+
     def analyze_impact(self, graph: dict[str, Any], targets: list[str], max_depth: int = 3) -> dict[str, Any]:
         """
         Analyze impact of changes to target nodes.
@@ -478,9 +478,9 @@ class XGraphAnalyzer:
         """
         # Use existing impact_of_change method
         result = self.impact_of_change(targets, graph, None, max_depth)
-        
+
         # Add all_impacted field for compatibility
         all_impacted = set(targets) | set(result.get("upstream", [])) | set(result.get("downstream", []))
         result["all_impacted"] = sorted(all_impacted)
-        
+
         return result

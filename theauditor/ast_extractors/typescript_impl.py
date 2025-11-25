@@ -71,7 +71,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
-    
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
         print(f"[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map", file=sys.stderr)
@@ -82,7 +82,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
 
         try:
             kind = node.get("kind", "")
-            
+
             # DEBUG: Log ALL node kinds we see to understand structure
             if os.environ.get("THEAUDITOR_DEBUG"):
                 import sys
@@ -103,7 +103,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
                     if not (isinstance(op_token, dict) and op_token.get("kind") == "EqualsToken"):
                         # Not an assignment, just a comparison or arithmetic expression
                         is_assignment = False
-                
+
                 if is_assignment:
                     # TypeScript AST structure is different - use children and text
                     if kind == "VariableDeclaration":
@@ -142,7 +142,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
                         # BinaryExpression - use the original logic
                         target_node = node.get("left")
                         source_node = node.get("right")
-                        
+
                         if isinstance(target_node, dict) and isinstance(source_node, dict):
                             # --- ENHANCEMENT: Handle Destructuring ---
                             if target_node.get("kind") in ["ObjectBindingPattern", "ArrayBindingPattern"]:
@@ -411,7 +411,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
                                 if os.environ.get("THEAUDITOR_DEBUG"):
                                     import sys
                                     print(f"[DEBUG] Extracted wrapped PropertyDeclaration params: {prop_name}({', '.join(params)})", file=sys.stderr)
-        
+
         # Recurse through children
         for child in node.get("children", []):
             traverse(child, depth + 1)
@@ -470,7 +470,7 @@ def extract_typescript_calls_with_args(tree: dict, function_params: dict[str, li
     # This pre-computes which function contains each line number
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
-    
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] Built scope map with {len(scope_map)} line mappings")
         # Show sample mappings
@@ -499,15 +499,15 @@ def extract_typescript_calls_with_args(tree: dict, function_params: dict[str, li
             # CallExpression: function calls
             if kind == "CallExpression":
                 line = node.get("line", 0)
-                
+
                 # CRITICAL FIX: Get caller from scope map using line number
                 # This is O(1) and accurate, unlike the old recursive tracking
                 caller_function_raw = scope_map.get(line, "global") or "global"
                 caller_function = _strip_comment_prefix(caller_function_raw) or "global"
-                
+
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] Found CallExpression at line {line}, caller={caller_function}")
-                
+
                 # FIX: In TypeScript AST, the function and arguments are in children array
                 children = node.get("children", [])
                 if not children:
@@ -516,7 +516,7 @@ def extract_typescript_calls_with_args(tree: dict, function_params: dict[str, li
                 else:
                     # New structure: first child is function, rest are arguments
                     arguments = children[1:] if len(children) > 1 else []
-                
+
                 # Get function name from expression (canonicalised)
                 callee_name = _canonical_callee_from_call(node) or "unknown"
 

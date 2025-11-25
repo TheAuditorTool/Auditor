@@ -75,7 +75,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
     """
     root = Path(root)
     parser = ManifestParser()
-    
+
     # Parse all relevant manifests once
     manifests = {}
     manifest_files = {
@@ -94,7 +94,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
         "build.gradle": root / "build.gradle",
         "build.gradle.kts": root / "build.gradle.kts",
     }
-    
+
     for name, path in manifest_files.items():
         if path.exists():
             try:
@@ -128,7 +128,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
             "tox.ini",
         )
     )
-    
+
     # Check each test framework in priority order
     for tf_name, tf_config in TEST_FRAMEWORK_REGISTRY.items():
         # Check config files first (highest confidence)
@@ -148,7 +148,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                         "language": tf_config["language"],
                         "cmd": cmd
                     }
-        
+
         # Check config sections in manifests
         if "config_sections" in tf_config:
             for manifest_name, section_paths in tf_config.get("config_sections", {}).items():
@@ -161,15 +161,15 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                                 "language": tf_config["language"],
                                 "cmd": tf_config.get("command", "")
                             }
-        
+
         # Check dependencies in manifests
         if "detection_sources" in tf_config:
             for manifest_name, search_configs in tf_config["detection_sources"].items():
                 if manifest_name not in manifests:
                     continue
-                    
+
                 manifest_data = manifests[manifest_name]
-                
+
                 if search_configs == "line_search":
                     # Text search for requirements.txt or Gemfile
                     if isinstance(manifest_data, list):
@@ -186,7 +186,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                             "language": tf_config["language"],
                             "cmd": tf_config.get("command", "")
                         }
-                
+
                 elif search_configs == "content_search":
                     # Content search for text files
                     if isinstance(manifest_data, str):
@@ -206,7 +206,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                                         "language": tf_config["language"],
                                         "cmd": cmd
                                     }
-                
+
                 elif search_configs == "exists":
                     # Just check if file exists (for go.mod)
                     return {
@@ -214,7 +214,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                         "language": tf_config["language"],
                         "cmd": tf_config.get("command", "")
                     }
-                
+
                 else:
                     # Structured search for dependencies
                     for key_path in search_configs:
@@ -228,7 +228,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                                     "language": tf_config["language"],
                                     "cmd": tf_config.get("command", "")
                                 }
-        
+
         # Check for directory markers
         if "directory_markers" in tf_config:
             for dir_marker in tf_config["directory_markers"]:
@@ -238,7 +238,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                         "language": tf_config["language"],
                         "cmd": tf_config.get("command", "")
                     }
-        
+
         # Check for file patterns
         if "file_patterns" in tf_config:
             if tf_config.get("language") == "python" and not python_manifest_present:
@@ -252,16 +252,16 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                             "language": tf_config["language"],
                             "cmd": tf_config.get("command", "")
                         }
-    
+
     # Fallback: Check for import patterns in source files (for unittest)
     # This is last resort for frameworks like unittest that don't have manifest entries
     max_files_to_check = 20
     files_checked = 0
-    
+
     for tf_name, tf_config in TEST_FRAMEWORK_REGISTRY.items():
         if "import_patterns" not in tf_config:
             continue
-            
+
         # Find files matching the language
         ext_map = {
             "python": ["*.py"],
@@ -270,7 +270,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
             "go": ["*.go"],
             "ruby": ["*.rb"],
         }
-        
+
         extensions = ext_map.get(tf_config["language"], [])
         for ext in extensions:
             if files_checked >= max_files_to_check:
@@ -282,12 +282,12 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
             for file_path in candidate_files:
                 if files_checked >= max_files_to_check:
                     break
-                    
+
                 files_checked += 1
                 try:
                     with open(file_path, encoding='utf-8', errors='ignore') as f:
                         content = f.read(2000)  # Read first 2000 chars
-                        
+
                     for import_pattern in tf_config["import_patterns"]:
                         if import_pattern in content:
                             return {
@@ -297,7 +297,7 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                             }
                 except Exception:
                     continue
-    
+
     # Unknown framework
     return {"name": "unknown", "language": "unknown", "cmd": ""}
 

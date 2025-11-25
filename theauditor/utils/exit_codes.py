@@ -18,20 +18,20 @@ class ExitCodes:
     
     This aligns with Unix conventions where 0 = success and non-zero = various failure modes.
     """
-    
+
     # Success states
     SUCCESS = 0  # Complete success, no issues found
-    
+
     # Issue severity levels (command succeeded but found problems)
     HIGH_SEVERITY = 1  # High severity findings (e.g., lint errors, bugs)
     CRITICAL_SEVERITY = 2  # Critical/security findings (e.g., vulnerabilities)
-    
+
     # Task completion failures (command ran but couldn't complete objective)
     TASK_INCOMPLETE = 3  # Task could not be completed (e.g., missing prerequisites)
 
     # Build and configuration errors
     SCHEMA_STALE = 10  # Schema files changed but generated code not regenerated (auto-fixable)
-    
+
     @classmethod
     def get_description(cls, code: int) -> str:
         """Get human-readable description for an exit code.
@@ -50,7 +50,7 @@ class ExitCodes:
             cls.SCHEMA_STALE: "Schema files changed but generated code not regenerated - please retry",
         }
         return descriptions.get(code, f"Unknown exit code: {code}")
-    
+
     @classmethod
     def should_fail_pipeline(cls, code: int) -> bool:
         """Determine if an exit code should fail a CI/CD pipeline.

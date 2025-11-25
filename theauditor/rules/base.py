@@ -45,13 +45,13 @@ class StandardRuleContext:
     Old rules received various parameters (tree, file_path, **kwargs).
     This unified context replaces ALL of those parameters.
     """
-    
+
     # Required fields (must be provided)
     file_path: Path
     content: str
     language: str  # 'python', 'javascript', 'typescript', etc.
     project_path: Path
-    
+
     # Optional AST data
     ast_wrapper: dict[str, Any] | None = None
     # Expected structure:
@@ -60,20 +60,20 @@ class StandardRuleContext:
     #   "tree": <actual AST object>,
     #   "parser_version": "1.0.0"
     # }
-    
+
     # Analysis tools (lazy-loaded)
     db_path: str | None = None
     taint_checker: Callable | None = None
     module_resolver: Any | None = None
-    
+
     # File metadata
     file_hash: str | None = None
     file_size: int | None = None
     line_count: int | None = None
-    
+
     # Extensibility
     extra: dict[str, Any] = field(default_factory=dict)
-    
+
     def get_ast(self, expected_type: str = None) -> Any | None:
         """Safely extract AST with optional type checking.
         
@@ -90,20 +90,20 @@ class StandardRuleContext:
         """
         if not self.ast_wrapper:
             return None
-        
+
         ast_type = self.ast_wrapper.get("type")
-        
+
         # Type checking if requested
         if expected_type and ast_type != expected_type:
             logger.debug(f"AST type mismatch: wanted {expected_type}, got {ast_type}")
             return None
-        
+
         return self.ast_wrapper.get("tree")
-    
+
     def get_lines(self) -> list[str]:
         """Get file content as list of lines."""
         return self.content.splitlines() if self.content else []
-    
+
     def get_snippet(self, line_num: int, context_lines: int = 2) -> str:
         """Extract code snippet around a line number.
         
@@ -117,15 +117,15 @@ class StandardRuleContext:
         lines = self.get_lines()
         if not lines or line_num < 1 or line_num > len(lines):
             return ""
-        
+
         start = max(1, line_num - context_lines)
         end = min(len(lines), line_num + context_lines)
-        
+
         snippet_lines = []
         for i in range(start, end + 1):
             prefix = ">> " if i == line_num else "   "
             snippet_lines.append(f"{i:4d}{prefix}{lines[i-1]}")
-        
+
         return "\n".join(snippet_lines)
 
 
@@ -135,20 +135,20 @@ class StandardFinding:
     
     This replaces the various dict formats that rules previously returned.
     """
-    
+
     # Required fields
     rule_name: str
     message: str
     file_path: str
     line: int
-    
+
     # Optional with defaults
     column: int = 0
     severity: Severity | str = Severity.MEDIUM
     category: str = "security"
     confidence: Confidence | str = Confidence.HIGH
     snippet: str = ""
-    
+
     # Additional context
     references: list[str] | None = None
     cwe_id: str | None = None
@@ -204,7 +204,7 @@ def validate_rule_signature(func: Callable) -> bool:
     import inspect
     sig = inspect.signature(func)
     params = list(sig.parameters.keys())
-    
+
     # Must have exactly one parameter named 'context'
     return len(params) == 1 and params[0] == 'context'
 
@@ -246,7 +246,7 @@ def convert_old_context(old_context, project_path: Path = None) -> "StandardRule
     Helper for dual-mode orchestrator during migration.
     """
     from pathlib import Path
-    
+
     return StandardRuleContext(
         file_path=Path(old_context.file_path) if old_context.file_path else Path("unknown"),
         content=old_context.content or "",

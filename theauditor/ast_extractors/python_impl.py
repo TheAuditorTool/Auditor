@@ -20,7 +20,7 @@ This separation ensures:
 - No duplicate extraction code
 """
 
-from typing import Any, Dict
+from typing import Any
 from theauditor.ast_extractors.python.utils.context import FileContext
 from theauditor.ast_extractors.python import (
     # Core extractors
@@ -61,7 +61,7 @@ from theauditor.ast_extractors.python import (
 )
 
 
-def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
+def extract_all_python_data(context: FileContext) -> dict[str, Any]:
     """Extract all Python data by delegating to specialized extractors.
 
     This is the main entry point for Python extraction. It coordinates

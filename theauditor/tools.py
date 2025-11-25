@@ -19,18 +19,18 @@ def detect_tool_version(cmd: list[str]) -> str:
         # Use temp files to avoid buffer overflow
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \
              tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
-            
+
             stdout_path = stdout_fp.name
             stderr_path = stderr_fp.name
-            
+
             result = subprocess.run(cmd, stdout=stdout_fp, stderr=stderr_fp, text=True, timeout=5, check=False)
-        
+
         # Read the outputs back
         with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
         with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
-        
+
         # Clean up temp files
         os.unlink(stdout_path)
         os.unlink(stderr_path)
@@ -88,13 +88,13 @@ def write_tools_report(out_dir: str) -> dict[str, Any]:
     # Detect Node tools from TheAuditor's sandboxed environment
     # Check in .auditor_venv/.theauditor_tools/ for our bundled tools
     sandbox_base = Path(".auditor_venv/.theauditor_tools")
-    
+
     # Try sandboxed tools first, fallback to system
     if sandbox_base.exists():
         # Use our sandboxed Node.js and tools
         node_exe = sandbox_base / "node-runtime" / ("node.exe" if os.name == "nt" else "bin/node")
         npx_exe = sandbox_base / "node-runtime" / ("npx.cmd" if os.name == "nt" else "bin/npx")
-        
+
         if node_exe.exists() and npx_exe.exists():
             # Run npx from sandbox with proper paths
             node_tools = {

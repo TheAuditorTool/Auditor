@@ -549,13 +549,13 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
     # Stream output with timeout
     try:
         process.communicate(timeout=timeout)
-        
+
         # Read back the outputs
         with open(stdout_path, encoding='utf-8', errors='ignore') as f:
             stdout = f.read()
         with open(stderr_path, encoding='utf-8', errors='ignore') as f:
             stderr = f.read()
-        
+
         # Clean up temp files
         try:
             os.unlink(stdout_path)
@@ -565,7 +565,7 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
             os.unlink(stderr_path)
         except OSError:
             pass
-        
+
         # Append any errors to the global error.log
         if stderr.strip():
             from pathlib import Path
@@ -688,13 +688,13 @@ def parse_pytest_errors(output: str) -> list[dict[str, Any]]:
 def parse_python_compile_errors(output: str) -> list[dict[str, Any]]:
     """Parse Python compilation errors from py_compile output."""
     errors = []
-    
+
     # Python compile error format:
     # Traceback (most recent call last):
     #   File "path/to/file.py", line X, in <module>
     # SyntaxError: invalid syntax
     # Or: ModuleNotFoundError: No module named 'xxx'
-    
+
     # Parse traceback format
     lines = output.splitlines()
     for i, line in enumerate(lines):
@@ -705,7 +705,7 @@ def parse_python_compile_errors(output: str) -> list[dict[str, Any]]:
             if match and i + 1 < len(lines):
                 file_path = match.group(1)
                 line_num = int(match.group(2))
-                
+
                 # Look for the error type in following lines
                 for j in range(i + 1, min(i + 5, len(lines))):
                     if 'Error:' in lines[j]:
@@ -718,7 +718,7 @@ def parse_python_compile_errors(output: str) -> list[dict[str, Any]]:
                             "category": "compile_error",
                         })
                         break
-        
+
         # Also catch simple error messages
         if 'SyntaxError:' in line or 'ModuleNotFoundError:' in line or 'ImportError:' in line:
             # Try to extract file info from previous lines
@@ -730,7 +730,7 @@ def parse_python_compile_errors(output: str) -> list[dict[str, Any]]:
                     if file_match:
                         file_info = file_match.group(1)
                         break
-            
+
             if file_info:
                 errors.append({
                     "tool": "py_compile",
@@ -739,7 +739,7 @@ def parse_python_compile_errors(output: str) -> list[dict[str, Any]]:
                     "message": line.strip(),
                     "category": "compile_error",
                 })
-    
+
     return errors
 
 
@@ -853,7 +853,7 @@ def run_fce(
             "duplicates_collapsed": 0,
             "top_duplicates": [],
         }
-    
+
     # Step B1: Load Graph Analysis Data (Hotspots, Cycles, Health)
     hotspot_files, cycles = load_graph_data_from_db(full_db_path)
     print(f"[FCE] Loaded from database: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
@@ -886,7 +886,7 @@ def run_fce(
     # IMPORTANT: Insights are kept separate from factual findings to maintain Truth Courier principles
     insights_data = {}
     insights_dir = Path(root_path) / ".pf" / "insights"
-    
+
     if insights_dir.exists():
         # Dynamically load ALL JSON files from insights directory
         # This future-proofs the system - new insights modules are automatically included
@@ -898,13 +898,13 @@ def run_fce(
             # Examples: ml_suggestions, taint_severity, graph_health, impact_analysis, unified_insights
             insights_data[insight_file.stem] = file_data
             print(f"[FCE] Loaded insights module: {insight_file.stem}")
-        
+
         if insights_data:
             # Store ALL insights in a separate section to maintain fact/interpretation separation
             # This preserves the Truth Courier model - facts and interpretations are never mixed
             results["insights"] = insights_data
             print(f"[FCE] Loaded {len(insights_data)} insights modules into results['insights']")
-            
+
             # Log what was loaded for transparency
             modules_loaded = list(insights_data.keys())
             print(f"[FCE] Available insights: {', '.join(modules_loaded)}")
@@ -912,15 +912,15 @@ def run_fce(
             print("[FCE] No insights data found in .pf/insights/")
     else:
         print("[FCE] Insights directory not found - skipping optional insights loading")
-    
+
     # Step C: Phase 2 - Execute Tests
     # Detect test framework
     framework_info = detect_test_framework(root_path)
-    
+
     tools = []
     if framework_info["name"] != "unknown" and framework_info["cmd"]:
         command = framework_info["cmd"]
-        
+
         # Add quiet flags
         if "pytest" in command:
             command = "pytest -q -p no:cacheprovider"
@@ -928,13 +928,13 @@ def run_fce(
             command = "npm test --silent"
         elif "unittest" in command:
             command = "python -m unittest discover -q"
-        
+
         tools.append({
             "name": framework_info["name"],
             "command": command,
             "type": "test"
         })
-    
+
     # Check for build scripts
     package_json = Path(root_path) / "package.json"
     run_build = os.environ.get("THEAUDITOR_FCE_RUN_BUILD", "0") == "1"
@@ -951,51 +951,51 @@ def run_fce(
             })
     elif package_json.exists() and not run_build:
         print("[FCE] Skipping npm build (set THEAUDITOR_FCE_RUN_BUILD=1 to enable)")
-    
+
     if print_plan:
         print("Detected tools:")
         for tool in tools:
             print(f"  - {tool['name']}: {tool['command']}")
         return {"success": True, "printed_plan": True}
-    
+
     if not tools:
         tools = []  # No test tools, continue processing
-    
+
     # Run tools and collect failures
     all_failures = []
-    
+
     for tool in tools:
         print(f"Running {tool['name']}...")
         exit_code, stdout, stderr = run_tool(tool["command"], root_path, timeout)
-        
+
         if exit_code != 0:
             output = stdout + "\n" + stderr
             errors = parse_errors(output, tool["name"])
-            
+
             # Special handling for pytest collection failures
             if tool["name"] == "pytest" and exit_code == 2 and "ERROR collecting" in output:
                 print("Pytest collection failed. Falling back to Python compilation check...")
-                
+
                 py_files = []
                 for py_file in Path(root_path).rglob("*.py"):
                     if "__pycache__" not in str(py_file) and not any(part.startswith('.') for part in py_file.parts):
                         py_files.append(str(py_file.relative_to(root_path)))
-                
+
                 if py_files:
                     print(f"Checking {len(py_files)} Python files for compilation errors...")
                     compile_errors = []
-                    
+
                     for py_file in py_files[:50]:
                         module_path = str(Path(py_file).as_posix()).replace('/', '.').replace('.py', '')
                         import_cmd = f'python3 -c "import {module_path}"'
                         comp_exit, comp_out, comp_err = run_tool(import_cmd, root_path, 10)
-                        
+
                         if comp_exit != 0:
                             comp_output = comp_out + "\n" + comp_err
                             if comp_output.strip():
                                 error_lines = comp_output.strip().split('\n')
                                 error_msg = "Import failed"
-                                
+
                                 for line in error_lines:
                                     if 'ModuleNotFoundError:' in line:
                                         error_msg = line.strip()
@@ -1009,7 +1009,7 @@ def run_fce(
                                     elif 'AttributeError:' in line:
                                         error_msg = line.strip()
                                         break
-                                
+
                                 compile_errors.append({
                                     "tool": "py_import",
                                     "file": py_file,
@@ -1017,11 +1017,11 @@ def run_fce(
                                     "message": error_msg,
                                     "category": "compile_error",
                                 })
-                    
+
                     if compile_errors:
                         print(f"Found {len(compile_errors)} compilation errors")
                         errors.extend(compile_errors)
-            
+
             # If no errors parsed, create generic one
             if not errors and exit_code != 0:
                 errors.append({
@@ -1031,9 +1031,9 @@ def run_fce(
                     "message": f"Tool failed with exit code {exit_code}",
                     "category": "runtime",
                 })
-            
+
             all_failures.extend(errors)
-    
+
     # Correlate with capsules
     all_failures = correlate_failures(
         all_failures,
@@ -1042,17 +1042,17 @@ def run_fce(
         Path(root_path) / capsules_dir,
         Path(root_path) / db_path,
     )
-    
+
     # Store test results
     results["test_results"] = {
         "completed_at": datetime.now(UTC).isoformat(),
         "failures": all_failures,
         "tools_run": len(tools)
     }
-    
+
     # Step D: Consolidate Evidence
     consolidated_findings = results["all_findings"].copy()
-    
+
     # Add test failures to consolidated list
     if all_failures:
         for failure in all_failures:
@@ -1065,7 +1065,7 @@ def run_fce(
                     'message': failure.get('message', ''),
                     'severity': failure.get('severity', 'error')
                 })
-    
+
     # Step E: Phase 3 - Line-Level Correlation (Hotspots)
     # Group findings by file:line
     line_groups = defaultdict(list)
@@ -1073,14 +1073,14 @@ def run_fce(
         if finding['line'] > 0:
             key = f"{finding['file']}:{finding['line']}"
             line_groups[key].append(finding)
-    
+
     # Find hotspots
     hotspots = {}
     for line_key, findings in line_groups.items():
         tools_on_line = {f['tool'] for f in findings}
         if len(tools_on_line) > 1:
             hotspots[line_key] = findings
-    
+
     # Enrich hotspots with symbol context
     full_db_path = Path(root_path) / db_path
     if hotspots and full_db_path.exists():
@@ -1119,13 +1119,13 @@ def run_fce(
         hotspots = enriched_hotspots
     else:
         hotspots = {k: {"findings": v} for k, v in hotspots.items()}
-    
+
     # Store hotspots in correlations
     results["correlations"]["hotspots"] = hotspots
     results["correlations"]["total_findings"] = len(consolidated_findings)
     results["correlations"]["total_lines_with_findings"] = len(line_groups)
     results["correlations"]["total_hotspots"] = len(hotspots)
-    
+
     # Step F: Phase 4 - Factual Cluster Detection (DEPRECATED)
     # NOTE: Old correlation system removed in v1.1+
     # User-defined business logic now handled by semantic context engine:
@@ -1135,7 +1135,7 @@ def run_fce(
 
     # Store empty factual clusters (backward compat)
     results["correlations"]["factual_clusters"] = factual_clusters
-    
+
     # Step F2: Generate Architectural Meta-Findings (NEW)
     # These correlations combine graph, CFG, and security findings for deeper insights
     meta_findings: list[dict[str, Any]] = []
@@ -1475,7 +1475,7 @@ def run_fce(
                     f"[FCE] Meta-finding: Untested vulnerability in {fp[:50]} ({pct:.1f}% coverage)"
                 ),
             )
-    
+
     # Store meta-findings and correlation statistics
     results["correlations"]["meta_findings"] = meta_findings
     results["correlations"]["total_meta_findings"] = len(meta_findings)
@@ -1497,7 +1497,7 @@ def run_fce(
             print(f"[FCE]   - {mf_type}: {count}")
     else:
         print("[FCE] No architectural meta-findings generated (good architecture!)")
-    
+
     # Store graph/CFG/metadata metrics in correlations for reference
     max_complexity = max((func.get('complexity', 0) for func in complex_functions.values()), default=0) if complex_functions else 0
 
@@ -1639,10 +1639,10 @@ def run_fce(
                 print(f"[FCE] Path correlation filtered {false_positives_removed} potential false positives")
     else:
         print("[FCE] Skipping path correlation - database not found")
-    
+
     # Step H: Finalization - Apply intelligent organization sorting
     from theauditor.utils.finding_priority import sort_findings, normalize_severity
-    
+
     # CRITICAL: Normalize all severities BEFORE sorting
     # This handles Docker's integer severity and ESLint's "error" strings
     if results.get("all_findings"):
@@ -1650,7 +1650,7 @@ def run_fce(
         for finding in results["all_findings"]:
             original_severity = finding.get("severity")
             finding["severity"] = normalize_severity(original_severity)
-            
+
             # Debug log for unusual severities (helps catch new formats)
             if original_severity and str(original_severity) != finding["severity"]:
                 if isinstance(original_severity, int):
@@ -1658,10 +1658,10 @@ def run_fce(
                     pass
                 else:
                     print(f"[FCE] Normalized severity: {original_severity} -> {finding['severity']}")
-        
+
         # Second pass: sort using centralized logic
         results["all_findings"] = sort_findings(results["all_findings"])
-        
+
         # Log sorting results for verification
         if results["all_findings"]:
             print(f"[FCE] Sorted {len(results['all_findings'])} findings")
@@ -1669,7 +1669,7 @@ def run_fce(
             last = results["all_findings"][-1] if len(results["all_findings"]) > 1 else first
             print(f"[FCE] First: {first.get('severity')} from {first.get('tool')}")
             print(f"[FCE] Last: {last.get('severity')} from {last.get('tool')}")
-    
+
     meta_count = len(meta_findings)
     factual_count = len(factual_clusters)
     path_cluster_count = len(path_clusters)
@@ -1722,4 +1722,4 @@ def run_fce(
         "output_files": [str(fce_path), str(failures_path)],
         "results": results
     }
-        
+

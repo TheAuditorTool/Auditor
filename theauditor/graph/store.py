@@ -11,7 +11,7 @@ from theauditor.indexer.schemas.graphs_schema import GRAPH_TABLES
 
 class XGraphStore:
     """Store and query cross-project graphs in SQLite."""
-    
+
     def __init__(self, db_path: str = "./.pf/graphs.db"):
         """
         Initialize store with database path.
@@ -22,7 +22,7 @@ class XGraphStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
-    
+
     def _init_schema(self) -> None:
         """Initialize database schema using TableSchema definitions."""
         with sqlite3.connect(self.db_path) as conn:
@@ -123,7 +123,7 @@ class XGraphStore:
             graph: Import graph with nodes and edges
         """
         self._save_graph_bulk(graph, "import", default_node_type="module", default_edge_type="import")
-    
+
     def save_call_graph(self, graph: dict[str, Any]) -> None:
         """
         Save call graph to database.
@@ -214,7 +214,7 @@ class XGraphStore:
             Import graph dict
         """
         return self._load_graph("import")
-    
+
     def load_call_graph(self) -> dict[str, Any]:
         """
         Load call graph from database.
@@ -223,7 +223,7 @@ class XGraphStore:
             Call graph dict
         """
         return self._load_graph("call")
-    
+
     def query_dependencies(
         self, 
         node_id: str, 
@@ -242,7 +242,7 @@ class XGraphStore:
             Dict with upstream and/or downstream dependencies
         """
         result = {}
-        
+
         with sqlite3.connect(self.db_path) as conn:
             if direction in ["upstream", "both"]:
                 # Find who depends on this node
@@ -253,7 +253,7 @@ class XGraphStore:
                 ):
                     upstream.append(row[0])
                 result["upstream"] = upstream
-            
+
             if direction in ["downstream", "both"]:
                 # Find what this node depends on
                 downstream = []
@@ -263,9 +263,9 @@ class XGraphStore:
                 ):
                     downstream.append(row[0])
                 result["downstream"] = downstream
-        
+
         return result
-    
+
     def query_calls(
         self,
         node_id: str,
@@ -282,7 +282,7 @@ class XGraphStore:
             Dict with callers and/or callees
         """
         result = {}
-        
+
         with sqlite3.connect(self.db_path) as conn:
             if direction in ["callers", "both"]:
                 # Find who calls this function
@@ -293,7 +293,7 @@ class XGraphStore:
                 ):
                     callers.append(row[0])
                 result["callers"] = callers
-            
+
             if direction in ["callees", "both"]:
                 # Find what this function calls
                 callees = []
@@ -303,9 +303,9 @@ class XGraphStore:
                 ):
                     callees.append(row[0])
                 result["callees"] = callees
-        
+
         return result
-    
+
     def save_analysis_result(
         self, 
         analysis_type: str, 
@@ -327,7 +327,7 @@ class XGraphStore:
                 (analysis_type, json.dumps(result))
             )
             conn.commit()
-    
+
     def get_latest_analysis(self, analysis_type: str) -> dict[str, Any] | None:
         """
         Get most recent analysis result of given type.
@@ -348,11 +348,11 @@ class XGraphStore:
                 """,
                 (analysis_type,)
             ).fetchone()
-            
+
             if row:
                 return json.loads(row[0])
             return None
-    
+
     def get_graph_stats(self) -> dict[str, Any]:
         """
         Get summary statistics about stored graphs.
@@ -375,9 +375,9 @@ class XGraphStore:
                     "SELECT COUNT(*) FROM edges WHERE graph_type = 'call'"
                 ).fetchone()[0],
             }
-            
+
             return stats
-    
+
     def get_high_risk_nodes(self, threshold: float = 0.5, limit: int = 10) -> list[dict[str, Any]]:
         """
         Get nodes with high risk based on connectivity and churn.
@@ -391,7 +391,7 @@ class XGraphStore:
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            
+
             # Calculate risk based on in-degree and churn
             query = """
                 SELECT 
@@ -408,7 +408,7 @@ class XGraphStore:
                 ORDER BY risk_score DESC
                 LIMIT ?
             """
-            
+
             nodes = []
             for row in conn.execute(query, (threshold, limit)):
                 nodes.append({
@@ -418,5 +418,5 @@ class XGraphStore:
                     "in_degree": row["in_degree"],
                     "risk_score": row["risk_score"],
                 })
-            
+
             return nodes
