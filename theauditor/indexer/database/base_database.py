@@ -325,30 +325,41 @@ class BaseDatabaseManager:
                 ('router_mounts', 'INSERT'),  # PHASE 6.7: Router mount points for full_path resolution
                 ('api_endpoint_controls', 'INSERT'),  # Junction table
                 ('express_middleware_chains', 'INSERT'),  # PHASE 5: Express middleware execution chains
+                # Python - Original 8 kept tables (from consolidate-python-orphan-tables)
                 ('python_orm_models', 'INSERT'),
                 ('python_orm_fields', 'INSERT'),
                 ('python_routes', 'INSERT'),
-                ('python_blueprints', 'INSERT'),
                 ('python_validators', 'INSERT'),
-
-                # Python Phase 2.2: Advanced patterns
+                ('python_package_configs', 'INSERT'),
                 ('python_decorators', 'INSERT'),
-                ('python_context_managers', 'INSERT'),
-                ('python_async_functions', 'INSERT'),
-                ('python_await_expressions', 'INSERT'),
-                ('python_async_generators', 'INSERT'),
-                ('python_pytest_fixtures', 'INSERT'),
-                ('python_pytest_parametrize', 'INSERT'),
-                ('python_pytest_markers', 'INSERT'),
-                ('python_mock_patterns', 'INSERT'),
-                ('python_protocols', 'INSERT'),
-                ('python_generics', 'INSERT'),
-                ('python_typed_dicts', 'INSERT'),
-                ('python_literals', 'INSERT'),
-                ('python_overloads', 'INSERT'),
+                ('python_django_views', 'INSERT'),
+                ('python_django_middleware', 'INSERT'),
 
-                # Causal Learning Patterns (Week 1 - State Mutations)
-                ('python_instance_mutations', 'INSERT'),
+                # Python - 20 consolidated tables (wire-extractors-to-consolidated-schema)
+                # Group 1: Control & Data Flow
+                ('python_loops', 'INSERT'),
+                ('python_branches', 'INSERT'),
+                ('python_functions_advanced', 'INSERT'),
+                ('python_io_operations', 'INSERT'),
+                ('python_state_mutations', 'INSERT'),
+                # Group 2: Object-Oriented & Types
+                ('python_class_features', 'INSERT'),
+                ('python_protocols', 'INSERT'),
+                ('python_descriptors', 'INSERT'),
+                ('python_type_definitions', 'INSERT'),
+                ('python_literals', 'INSERT'),
+                # Group 3: Security & Testing
+                ('python_security_findings', 'INSERT'),
+                ('python_test_cases', 'INSERT'),
+                ('python_test_fixtures', 'INSERT'),
+                ('python_framework_config', 'INSERT'),
+                ('python_validation_schemas', 'INSERT'),
+                # Group 4: Low-Level & Misc
+                ('python_operators', 'INSERT'),
+                ('python_collections', 'INSERT'),
+                ('python_stdlib_usage', 'INSERT'),
+                ('python_imports_advanced', 'INSERT'),
+                ('python_expressions', 'INSERT'),
 
                 # SQL query tables (before junction table)
                 ('sql_query_tables', 'INSERT'),  # Junction table

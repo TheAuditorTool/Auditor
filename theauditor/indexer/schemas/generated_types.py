@@ -705,6 +705,37 @@ class PrismaModelsRow(TypedDict):
     is_unique: Optional[bool]
     is_relation: Optional[bool]
 
+class PythonBranchesRow(TypedDict):
+    """Row type for python_branches table."""
+    id: Optional[int]
+    file: str
+    line: int
+    branch_type: str
+    condition: Optional[str]
+    has_else: Optional[int]
+    elif_count: Optional[int]
+    case_count: Optional[int]
+    exception_type: Optional[str]
+
+class PythonClassFeaturesRow(TypedDict):
+    """Row type for python_class_features table."""
+    id: Optional[int]
+    file: str
+    line: int
+    feature_type: str
+    class_name: Optional[str]
+    name: Optional[str]
+    details: Optional[str]
+
+class PythonCollectionsRow(TypedDict):
+    """Row type for python_collections table."""
+    id: Optional[int]
+    file: str
+    line: int
+    collection_type: str
+    operation: Optional[str]
+    method: Optional[str]
+
 class PythonDecoratorsRow(TypedDict):
     """Row type for python_decorators table."""
     file: str
@@ -714,6 +745,18 @@ class PythonDecoratorsRow(TypedDict):
     target_type: str
     target_name: str
     is_async: Optional[bool]
+
+class PythonDescriptorsRow(TypedDict):
+    """Row type for python_descriptors table."""
+    id: Optional[int]
+    file: str
+    line: int
+    descriptor_type: str
+    name: Optional[str]
+    class_name: Optional[str]
+    has_getter: Optional[int]
+    has_setter: Optional[int]
+    has_deleter: Optional[int]
 
 class PythonDjangoMiddlewareRow(TypedDict):
     """Row type for python_django_middleware table."""
@@ -738,6 +781,93 @@ class PythonDjangoViewsRow(TypedDict):
     has_permission_check: Optional[bool]
     http_method_names: Optional[str]
     has_get_queryset_override: Optional[bool]
+
+class PythonExpressionsRow(TypedDict):
+    """Row type for python_expressions table."""
+    id: Optional[int]
+    file: str
+    line: int
+    expression_type: str
+    subtype: Optional[str]
+    expression: Optional[str]
+    variables: Optional[str]
+
+class PythonFrameworkConfigRow(TypedDict):
+    """Row type for python_framework_config table."""
+    id: Optional[int]
+    file: str
+    line: int
+    framework: str
+    config_type: str
+    name: Optional[str]
+    endpoint: Optional[str]
+    methods: Optional[str]
+    schedule: Optional[str]
+    details: Optional[str]
+
+class PythonFunctionsAdvancedRow(TypedDict):
+    """Row type for python_functions_advanced table."""
+    id: Optional[int]
+    file: str
+    line: int
+    function_type: str
+    name: Optional[str]
+    is_method: Optional[int]
+    yield_count: Optional[int]
+    await_count: Optional[int]
+
+class PythonImportsAdvancedRow(TypedDict):
+    """Row type for python_imports_advanced table."""
+    id: Optional[int]
+    file: str
+    line: int
+    import_type: str
+    module: Optional[str]
+    name: Optional[str]
+    alias: Optional[str]
+    is_relative: Optional[int]
+
+class PythonIoOperationsRow(TypedDict):
+    """Row type for python_io_operations table."""
+    id: Optional[int]
+    file: str
+    line: int
+    io_type: str
+    operation: Optional[str]
+    target: Optional[str]
+    is_taint_source: Optional[int]
+    is_taint_sink: Optional[int]
+
+class PythonLiteralsRow(TypedDict):
+    """Row type for python_literals table."""
+    id: Optional[int]
+    file: str
+    line: int
+    literal_type: str
+    name: Optional[str]
+    literal_values: Optional[str]
+
+class PythonLoopsRow(TypedDict):
+    """Row type for python_loops table."""
+    id: Optional[int]
+    file: str
+    line: int
+    loop_type: str
+    target: Optional[str]
+    iterator: Optional[str]
+    has_else: Optional[int]
+    nesting_level: Optional[int]
+    body_line_count: Optional[int]
+
+class PythonOperatorsRow(TypedDict):
+    """Row type for python_operators table."""
+    id: Optional[int]
+    file: str
+    line: int
+    operator_type: str
+    operator: Optional[str]
+    left_operand: Optional[str]
+    right_operand: Optional[str]
 
 class PythonOrmFieldsRow(TypedDict):
     """Row type for python_orm_fields table."""
@@ -769,6 +899,15 @@ class PythonPackageConfigsRow(TypedDict):
     build_system: Optional[str]
     indexed_at: Optional[Any]
 
+class PythonProtocolsRow(TypedDict):
+    """Row type for python_protocols table."""
+    id: Optional[int]
+    file: str
+    line: int
+    protocol_type: str
+    class_name: Optional[str]
+    implemented_methods: Optional[str]
+
 class PythonRoutesRow(TypedDict):
     """Row type for python_routes table."""
     file: str
@@ -780,6 +919,83 @@ class PythonRoutesRow(TypedDict):
     has_auth: Optional[bool]
     dependencies: Optional[str]
     blueprint: Optional[str]
+
+class PythonSecurityFindingsRow(TypedDict):
+    """Row type for python_security_findings table."""
+    id: Optional[int]
+    file: str
+    line: int
+    finding_type: str
+    severity: Optional[str]
+    source_expr: Optional[str]
+    sink_expr: Optional[str]
+    vulnerable_code: Optional[str]
+    cwe_id: Optional[str]
+
+class PythonStateMutationsRow(TypedDict):
+    """Row type for python_state_mutations table."""
+    id: Optional[int]
+    file: str
+    line: int
+    mutation_type: str
+    target: Optional[str]
+    operator: Optional[str]
+    value_expr: Optional[str]
+    in_function: Optional[str]
+
+class PythonStdlibUsageRow(TypedDict):
+    """Row type for python_stdlib_usage table."""
+    id: Optional[int]
+    file: str
+    line: int
+    module: str
+    usage_type: str
+    function_name: Optional[str]
+    pattern: Optional[str]
+
+class PythonTestCasesRow(TypedDict):
+    """Row type for python_test_cases table."""
+    id: Optional[int]
+    file: str
+    line: int
+    test_type: str
+    name: Optional[str]
+    class_name: Optional[str]
+    assertion_type: Optional[str]
+    expected_exception: Optional[str]
+
+class PythonTestFixturesRow(TypedDict):
+    """Row type for python_test_fixtures table."""
+    id: Optional[int]
+    file: str
+    line: int
+    fixture_type: str
+    name: Optional[str]
+    scope: Optional[str]
+    params: Optional[str]
+    autouse: Optional[int]
+
+class PythonTypeDefinitionsRow(TypedDict):
+    """Row type for python_type_definitions table."""
+    id: Optional[int]
+    file: str
+    line: int
+    type_kind: str
+    name: Optional[str]
+    type_params: Optional[str]
+    fields: Optional[str]
+
+class PythonValidationSchemasRow(TypedDict):
+    """Row type for python_validation_schemas table."""
+    id: Optional[int]
+    file: str
+    line: int
+    framework: str
+    schema_type: str
+    name: Optional[str]
+    field_type: Optional[str]
+    validators: Optional[str]
+    required: Optional[int]
 
 class PythonValidatorsRow(TypedDict):
     """Row type for python_validators table."""

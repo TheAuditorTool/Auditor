@@ -81,8 +81,19 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     # print(f"[PYTHON_IMPL ENTRY] Context.tree: {type(context.tree) if hasattr(context, 'tree') else 'NO TREE'}", file=sys.stderr)
     # print(f"[PYTHON_IMPL ENTRY] Context.file_path: {context.file_path if hasattr(context, 'file_path') else 'NO PATH'}", file=sys.stderr)
 
+    # ==========================================================================
+    # CONSOLIDATED RESULT DICTIONARY
+    # ==========================================================================
+    # This dictionary uses 28 consolidated Python keys (8 kept + 20 new)
+    # instead of ~150 granular keys. Extractor outputs are tagged with
+    # discriminator fields before being appended to the appropriate list.
+    #
+    # HISTORY:
+    # - 2025-11-25: Consolidated from ~150 keys to 28 (wire-extractors-to-consolidated-schema)
+    # ==========================================================================
+
     result = {
-        # Core language features
+        # Core language features (unchanged)
         'imports': [],
         'symbols': [],
         'assignments': [],
@@ -94,206 +105,57 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
         'type_annotations': [],
         'resolved_imports': {},
 
-        # ORM and database
+        # ORM and database (unchanged)
         'orm_relationships': [],
-        'python_orm_models': [],
-        'python_orm_fields': [],
 
-        # Web frameworks
-        'routes': [],  # Legacy field for backward compatibility
-        'python_routes': [],
-        'python_blueprints': [],
-        'python_validators': [],
-
-        # Infrastructure
+        # Infrastructure (unchanged)
         'cdk_constructs': [],
         'cdk_construct_properties': [],
 
-        # Python-specific patterns (Phase 2.2A)
+        # SQL queries (unchanged - used by security analysis)
+        'sql_queries': [],
+
+        # Legacy routes field (unchanged for backward compatibility)
+        'routes': [],
+
+        # ===== KEPT PYTHON TABLES (8) =====
+        'python_orm_models': [],
+        'python_orm_fields': [],
+        'python_routes': [],
+        'python_validators': [],
         'python_decorators': [],
-        'python_context_managers': [],
-        'python_async_functions': [],
-        'python_await_expressions': [],
-        'python_async_generators': [],
-        'python_pytest_fixtures': [],
-        'python_pytest_parametrize': [],
-        'python_pytest_markers': [],
-        'python_mock_patterns': [],
-        'python_protocols': [],
-        'python_generics': [],
-        'python_typed_dicts': [],
-        'python_literals': [],
-        'python_overloads': [],
-
-        # Django framework
         'python_django_views': [],
-        'python_django_forms': [],
-        'python_django_form_fields': [],
-        'python_django_admin': [],
         'python_django_middleware': [],
-        'python_django_signals': [],
-        'python_django_receivers': [],
-        'python_django_managers': [],
-        'python_django_querysets': [],
+        'python_package_configs': [],
 
-        # Validation frameworks
-        'python_marshmallow_schemas': [],
-        'python_marshmallow_fields': [],
-        'python_drf_serializers': [],
-        'python_drf_serializer_fields': [],
-        'python_wtforms_forms': [],
-        'python_wtforms_fields': [],
+        # ===== NEW CONSOLIDATED TABLES (20) =====
+        # Group 1: Control & Data Flow
+        'python_loops': [],              # for_loop, while_loop, async_for_loop
+        'python_branches': [],           # if, match, raise, except, finally
+        'python_functions_advanced': [], # async, async_generator, generator, lambda, context_manager
+        'python_io_operations': [],      # file, network, database, process, param_flow, closure, nonlocal, conditional
+        'python_state_mutations': [],    # instance, class, global, argument, augmented
 
-        # Background tasks
-        'python_celery_tasks': [],
-        'python_celery_task_calls': [],
-        'python_celery_beat_schedules': [],
+        # Group 2: Object-Oriented & Types
+        'python_class_features': [],     # metaclass, slots, abstract, dataclass, enum, inheritance, dunder, visibility, method_type
+        'python_protocols': [],          # iterator, container, callable, comparison, arithmetic, pickle, context_manager
+        'python_descriptors': [],        # descriptor, property, dynamic_attr, cached_property, attr_access
+        'python_type_definitions': [],   # typed_dict, generic, protocol
+        'python_literals': [],           # literal, overload
 
-        # Generators
-        'python_generators': [],
+        # Group 3: Security & Testing
+        'python_security_findings': [],  # sql_injection, command_injection, path_traversal, dangerous_eval, crypto, auth, password, jwt
+        'python_test_cases': [],         # unittest, pytest, assertion
+        'python_test_fixtures': [],      # fixture, parametrize, marker, mock, plugin_hook, hypothesis
+        'python_framework_config': [],   # flask/celery/django configs
+        'python_validation_schemas': [], # marshmallow, drf, wtforms
 
-        # Flask framework (Phase 3.1)
-        'python_flask_apps': [],
-        'python_flask_extensions': [],
-        'python_flask_hooks': [],
-        'python_flask_error_handlers': [],
-        'python_flask_websockets': [],
-        'python_flask_cli_commands': [],
-        'python_flask_cors': [],
-        'python_flask_rate_limits': [],
-        'python_flask_cache': [],
-
-        # Testing (Phase 3.2)
-        'python_unittest_test_cases': [],
-        'python_assertion_patterns': [],
-        'python_pytest_plugin_hooks': [],
-        'python_hypothesis_strategies': [],
-
-        # Security (Phase 3.3)
-        'python_auth_decorators': [],
-        'python_password_hashing': [],
-        'python_jwt_operations': [],
-        'sql_queries': [],  # SQL query extraction from execute() calls
-        'python_sql_injection': [],
-        'python_command_injection': [],
-        'python_path_traversal': [],
-        'python_dangerous_eval': [],
-        'python_crypto_operations': [],
-
-        # State mutations (Causal Learning Week 1)
-        'python_instance_mutations': [],
-        'python_class_mutations': [],
-        'python_global_mutations': [],
-        'python_argument_mutations': [],
-        'python_augmented_assignments': [],
-
-        # Exception flow (Causal Learning Week 1)
-        'python_exception_raises': [],
-        'python_exception_catches': [],
-        'python_finally_blocks': [],
-        'python_context_managers_enhanced': [],
-
-        # Data flow (Causal Learning Week 2)
-        'python_io_operations': [],
-        'python_parameter_return_flow': [],
-        'python_closure_captures': [],
-        'python_nonlocal_access': [],
-        'python_conditional_calls': [],
-
-        # Behavioral patterns (Causal Learning Week 3)
-        'python_recursion_patterns': [],
-        'python_generator_yields': [],
-        'python_property_patterns': [],
-        'python_dynamic_attributes': [],
-
-        # Performance patterns (Causal Learning Week 4)
-        'python_loop_complexity': [],
-        'python_resource_usage': [],
-        'python_memoization_patterns': [],
-
-        # Python Coverage V2 - Week 1: Fundamentals
-        'python_comprehensions': [],
-        'python_lambda_functions': [],
-        'python_slice_operations': [],
-        'python_tuple_operations': [],
-        'python_unpacking_patterns': [],
-        'python_none_patterns': [],
-        'python_truthiness_patterns': [],
-        'python_string_formatting': [],
-
-        # Python Coverage V2 - Week 2: Operators
-        'python_operators': [],
-        'python_membership_tests': [],
-        'python_chained_comparisons': [],
-        'python_ternary_expressions': [],
-        'python_walrus_operators': [],
-        'python_matrix_multiplication': [],
-
-        # Python Coverage V2 - Week 3: Collections
-        'python_dict_operations': [],
-        'python_list_mutations': [],
-        'python_set_operations': [],
-        'python_string_methods': [],
-        'python_builtin_usage': [],
-        'python_itertools_usage': [],
-        'python_functools_usage': [],
-        'python_collections_usage': [],
-
-        # Python Coverage V2 - Week 4: Advanced classes
-        'python_metaclasses': [],
-        'python_descriptors': [],
-        'python_dataclasses': [],
-        'python_enums': [],
-        'python_slots': [],
-        'python_abstract_classes': [],
-        'python_method_types': [],
-        'python_multiple_inheritance': [],
-        'python_dunder_methods': [],
-        'python_visibility_conventions': [],
-
-        # Python Coverage V2 - Week 4: Stdlib
-        'python_regex_patterns': [],
-        'python_json_operations': [],
-        'python_datetime_operations': [],
-        'python_path_operations': [],
-        'python_logging_patterns': [],
-        'python_threading_patterns': [],
-        'python_contextlib_patterns': [],
-        'python_type_checking': [],
-
-        # Python Coverage V2 - Week 5: Control flow
-        'python_for_loops': [],
-        'python_while_loops': [],
-        'python_async_for_loops': [],
-        'python_if_statements': [],
-        'python_match_statements': [],
-        'python_break_continue_pass': [],
-        'python_assert_statements': [],
-        'python_del_statements': [],
-        'python_import_statements': [],
-        'python_with_statements': [],
-
-        # Python Coverage V2 - Week 6: Protocols
-        'python_iterator_protocol': [],
-        'python_container_protocol': [],
-        'python_callable_protocol': [],
-        'python_comparison_protocol': [],
-        'python_arithmetic_protocol': [],
-        'python_pickle_protocol': [],
-        'python_weakref_usage': [],
-        'python_contextvar_usage': [],
-        'python_module_attributes': [],
-        'python_class_decorators': [],
-
-        # Python Coverage V2 - Advanced
-        'python_namespace_packages': [],
-        'python_cached_property': [],
-        'python_descriptor_protocol': [],
-        'python_attribute_access_protocol': [],
-        'python_copy_protocol': [],
-        'python_ellipsis_usage': [],
-        'python_bytes_operations': [],
-        'python_exec_eval_compile': [],
+        # Group 4: Low-Level & Misc
+        'python_operators': [],          # binary, unary, membership, chained, ternary, walrus, matmul
+        'python_collections': [],        # dict, list, set, string, builtin, itertools, functools, collections
+        'python_stdlib_usage': [],       # re, json, datetime, pathlib, logging, threading, contextlib, typing, weakref, contextvars
+        'python_imports_advanced': [],   # static, dynamic, namespace, module_attr
+        'python_expressions': [],        # comprehension, slice, tuple, unpack, none, truthiness, format, ellipsis, bytes, exec, copy, recursion, yield, complexity, resource, memoize, await, break, continue, pass, assert, del, with, class_decorator
     }
 
     # Core extractors - These run for every Python file
@@ -371,13 +233,17 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     if decorators:
         result['python_decorators'].extend(decorators)
 
+    # Context managers → python_functions_advanced (function_type='context_manager')
     context_managers = core_extractors.extract_python_context_managers(context)
-    if context_managers:
-        result['python_context_managers'].extend(context_managers)
+    for cm in context_managers:
+        cm['function_type'] = 'context_manager'
+        result['python_functions_advanced'].append(cm)
 
+    # Generators → python_functions_advanced (function_type='generator')
     generators = core_extractors.extract_generators(context)
-    if generators:
-        result['python_generators'].extend(generators)
+    for gen in generators:
+        gen['function_type'] = 'generator'
+        result['python_functions_advanced'].append(gen)
 
     # ORM and framework extractors
     sql_models, sql_fields, sql_relationships = orm_extractors.extract_sqlalchemy_definitions(context)
@@ -398,598 +264,805 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     if django_cbvs:
         result['python_django_views'].extend(django_cbvs)
 
+    # Django forms → python_framework_config (framework='django', config_type='form')
     django_forms = django_web_extractors.extract_django_forms(context)
-    if django_forms:
-        result['python_django_forms'].extend(django_forms)
+    for form in django_forms:
+        form['framework'] = 'django'
+        form['config_type'] = 'form'
+        result['python_framework_config'].append(form)
 
+    # Django form fields → python_framework_config (framework='django', config_type='form_field')
     django_form_fields = django_web_extractors.extract_django_form_fields(context)
-    if django_form_fields:
-        result['python_django_form_fields'].extend(django_form_fields)
+    for field in django_form_fields:
+        field['framework'] = 'django'
+        field['config_type'] = 'form_field'
+        result['python_framework_config'].append(field)
 
+    # Django admin → python_framework_config (framework='django', config_type='admin')
     django_admin = django_web_extractors.extract_django_admin(context)
-    if django_admin:
-        result['python_django_admin'].extend(django_admin)
+    for admin in django_admin:
+        admin['framework'] = 'django'
+        admin['config_type'] = 'admin'
+        result['python_framework_config'].append(admin)
 
     django_middleware = django_web_extractors.extract_django_middleware(context)
     if django_middleware:
         result['python_django_middleware'].extend(django_middleware)
 
     # Validation frameworks
+    # Pydantic validators → python_validators (kept table)
     pydantic_validators = validation_extractors.extract_pydantic_validators(context)
     if pydantic_validators:
         result['python_validators'].extend(pydantic_validators)
 
+    # Marshmallow schemas → python_validation_schemas (framework='marshmallow', schema_type='schema')
     marshmallow_schemas = validation_extractors.extract_marshmallow_schemas(context)
-    if marshmallow_schemas:
-        result['python_marshmallow_schemas'].extend(marshmallow_schemas)
+    for schema in marshmallow_schemas:
+        schema['framework'] = 'marshmallow'
+        schema['schema_type'] = 'schema'
+        result['python_validation_schemas'].append(schema)
 
+    # Marshmallow fields → python_validation_schemas (framework='marshmallow', schema_type='field')
     marshmallow_fields = validation_extractors.extract_marshmallow_fields(context)
-    if marshmallow_fields:
-        result['python_marshmallow_fields'].extend(marshmallow_fields)
+    for field in marshmallow_fields:
+        field['framework'] = 'marshmallow'
+        field['schema_type'] = 'field'
+        result['python_validation_schemas'].append(field)
 
+    # DRF serializers → python_validation_schemas (framework='drf', schema_type='serializer')
     drf_serializers = validation_extractors.extract_drf_serializers(context)
-    if drf_serializers:
-        result['python_drf_serializers'].extend(drf_serializers)
+    for serializer in drf_serializers:
+        serializer['framework'] = 'drf'
+        serializer['schema_type'] = 'serializer'
+        result['python_validation_schemas'].append(serializer)
 
+    # DRF serializer fields → python_validation_schemas (framework='drf', schema_type='field')
     drf_serializer_fields = validation_extractors.extract_drf_serializer_fields(context)
-    if drf_serializer_fields:
-        result['python_drf_serializer_fields'].extend(drf_serializer_fields)
+    for field in drf_serializer_fields:
+        field['framework'] = 'drf'
+        field['schema_type'] = 'field'
+        result['python_validation_schemas'].append(field)
 
+    # WTForms forms → python_validation_schemas (framework='wtforms', schema_type='form')
     wtforms_forms = validation_extractors.extract_wtforms_forms(context)
-    if wtforms_forms:
-        result['python_wtforms_forms'].extend(wtforms_forms)
+    for form in wtforms_forms:
+        form['framework'] = 'wtforms'
+        form['schema_type'] = 'form'
+        result['python_validation_schemas'].append(form)
 
+    # WTForms fields → python_validation_schemas (framework='wtforms', schema_type='field')
     wtforms_fields = validation_extractors.extract_wtforms_fields(context)
-    if wtforms_fields:
-        result['python_wtforms_fields'].extend(wtforms_fields)
+    for field in wtforms_fields:
+        field['framework'] = 'wtforms'
+        field['schema_type'] = 'field'
+        result['python_validation_schemas'].append(field)
 
-    # Background tasks
+    # Background tasks - Celery → python_framework_config
     celery_tasks = framework_extractors.extract_celery_tasks(context)
-    if celery_tasks:
-        result['python_celery_tasks'].extend(celery_tasks)
+    for task in celery_tasks:
+        task['framework'] = 'celery'
+        task['config_type'] = 'task'
+        result['python_framework_config'].append(task)
 
     celery_task_calls = framework_extractors.extract_celery_task_calls(context)
-    if celery_task_calls:
-        result['python_celery_task_calls'].extend(celery_task_calls)
+    for call in celery_task_calls:
+        call['framework'] = 'celery'
+        call['config_type'] = 'task_call'
+        result['python_framework_config'].append(call)
 
     celery_beat_schedules = framework_extractors.extract_celery_beat_schedules(context)
-    if celery_beat_schedules:
-        result['python_celery_beat_schedules'].extend(celery_beat_schedules)
+    for schedule in celery_beat_schedules:
+        schedule['framework'] = 'celery'
+        schedule['config_type'] = 'schedule'
+        result['python_framework_config'].append(schedule)
 
-    # Flask framework
+    # Flask framework → python_framework_config
     flask_apps = flask_extractors.extract_flask_app_factories(context)
-    if flask_apps:
-        result['python_flask_apps'].extend(flask_apps)
+    for app in flask_apps:
+        app['framework'] = 'flask'
+        app['config_type'] = 'app'
+        result['python_framework_config'].append(app)
 
     flask_extensions = flask_extractors.extract_flask_extensions(context)
-    if flask_extensions:
-        result['python_flask_extensions'].extend(flask_extensions)
+    for ext in flask_extensions:
+        ext['framework'] = 'flask'
+        ext['config_type'] = 'extension'
+        result['python_framework_config'].append(ext)
 
     flask_hooks = flask_extractors.extract_flask_request_hooks(context)
-    if flask_hooks:
-        result['python_flask_hooks'].extend(flask_hooks)
+    for hook in flask_hooks:
+        hook['framework'] = 'flask'
+        hook['config_type'] = 'hook'
+        result['python_framework_config'].append(hook)
 
     flask_error_handlers = flask_extractors.extract_flask_error_handlers(context)
-    if flask_error_handlers:
-        result['python_flask_error_handlers'].extend(flask_error_handlers)
+    for handler in flask_error_handlers:
+        handler['framework'] = 'flask'
+        handler['config_type'] = 'error_handler'
+        result['python_framework_config'].append(handler)
 
     flask_websockets = flask_extractors.extract_flask_websocket_handlers(context)
-    if flask_websockets:
-        result['python_flask_websockets'].extend(flask_websockets)
+    for ws in flask_websockets:
+        ws['framework'] = 'flask'
+        ws['config_type'] = 'websocket'
+        result['python_framework_config'].append(ws)
 
     flask_cli_commands = flask_extractors.extract_flask_cli_commands(context)
-    if flask_cli_commands:
-        result['python_flask_cli_commands'].extend(flask_cli_commands)
+    for cmd in flask_cli_commands:
+        cmd['framework'] = 'flask'
+        cmd['config_type'] = 'cli'
+        result['python_framework_config'].append(cmd)
 
     flask_cors = flask_extractors.extract_flask_cors_configs(context)
-    if flask_cors:
-        result['python_flask_cors'].extend(flask_cors)
+    for cors in flask_cors:
+        cors['framework'] = 'flask'
+        cors['config_type'] = 'cors'
+        result['python_framework_config'].append(cors)
 
     flask_rate_limits = flask_extractors.extract_flask_rate_limits(context)
-    if flask_rate_limits:
-        result['python_flask_rate_limits'].extend(flask_rate_limits)
+    for limit in flask_rate_limits:
+        limit['framework'] = 'flask'
+        limit['config_type'] = 'rate_limit'
+        result['python_framework_config'].append(limit)
 
     flask_cache = flask_extractors.extract_flask_cache_decorators(context)
-    if flask_cache:
-        result['python_flask_cache'].extend(flask_cache)
+    for cache in flask_cache:
+        cache['framework'] = 'flask'
+        cache['config_type'] = 'cache'
+        result['python_framework_config'].append(cache)
 
+    # Flask routes → python_routes (kept table)
     flask_routes = flask_extractors.extract_flask_routes(context)
     if flask_routes:
         result['python_routes'].extend(flask_routes)
 
-    flask_blueprints = orm_extractors.extract_flask_blueprints(context)
-    if flask_blueprints:
-        result['python_blueprints'].extend(flask_blueprints)
+    # Flask blueprints - skip (table doesn't exist in schema)
+    # flask_blueprints = orm_extractors.extract_flask_blueprints(context)
+    # Note: python_blueprints table was deleted - blueprints are now captured via routes
 
-    # Testing patterns
+    # Testing patterns → python_test_cases and python_test_fixtures
+    # unittest_test_cases → python_test_cases (test_type='unittest')
     unittest_test_cases = testing_extractors.extract_unittest_test_cases(context)
-    if unittest_test_cases:
-        result['python_unittest_test_cases'].extend(unittest_test_cases)
+    for tc in unittest_test_cases:
+        tc['test_type'] = 'unittest'
+        result['python_test_cases'].append(tc)
 
+    # assertion_patterns → python_test_cases (test_type='assertion')
     assertion_patterns = testing_extractors.extract_assertion_patterns(context)
-    if assertion_patterns:
-        result['python_assertion_patterns'].extend(assertion_patterns)
+    for ap in assertion_patterns:
+        ap['test_type'] = 'assertion'
+        result['python_test_cases'].append(ap)
 
+    # pytest_plugin_hooks → python_test_fixtures (fixture_type='plugin_hook')
     pytest_plugin_hooks = testing_extractors.extract_pytest_plugin_hooks(context)
-    if pytest_plugin_hooks:
-        result['python_pytest_plugin_hooks'].extend(pytest_plugin_hooks)
+    for hook in pytest_plugin_hooks:
+        hook['fixture_type'] = 'plugin_hook'
+        result['python_test_fixtures'].append(hook)
 
+    # hypothesis_strategies → python_test_fixtures (fixture_type='hypothesis')
     hypothesis_strategies = testing_extractors.extract_hypothesis_strategies(context)
-    if hypothesis_strategies:
-        result['python_hypothesis_strategies'].extend(hypothesis_strategies)
+    for strategy in hypothesis_strategies:
+        strategy['fixture_type'] = 'hypothesis'
+        result['python_test_fixtures'].append(strategy)
 
+    # pytest_fixtures → python_test_fixtures (fixture_type='fixture')
     pytest_fixtures = testing_extractors.extract_pytest_fixtures(context)
-    if pytest_fixtures:
-        result['python_pytest_fixtures'].extend(pytest_fixtures)
+    for fixture in pytest_fixtures:
+        fixture['fixture_type'] = 'fixture'
+        result['python_test_fixtures'].append(fixture)
 
+    # pytest_parametrize → python_test_fixtures (fixture_type='parametrize')
     pytest_parametrize = testing_extractors.extract_pytest_parametrize(context)
-    if pytest_parametrize:
-        result['python_pytest_parametrize'].extend(pytest_parametrize)
+    for param in pytest_parametrize:
+        param['fixture_type'] = 'parametrize'
+        result['python_test_fixtures'].append(param)
 
+    # pytest_markers → python_test_fixtures (fixture_type='marker')
     pytest_markers = testing_extractors.extract_pytest_markers(context)
-    if pytest_markers:
-        result['python_pytest_markers'].extend(pytest_markers)
+    for marker in pytest_markers:
+        marker['fixture_type'] = 'marker'
+        result['python_test_fixtures'].append(marker)
 
+    # mock_patterns → python_test_fixtures (fixture_type='mock')
     mock_patterns = testing_extractors.extract_mock_patterns(context)
-    if mock_patterns:
-        result['python_mock_patterns'].extend(mock_patterns)
+    for mock in mock_patterns:
+        mock['fixture_type'] = 'mock'
+        result['python_test_fixtures'].append(mock)
 
-    # Security patterns
+    # Security patterns → python_security_findings
+    # auth_decorators → python_security_findings (finding_type='auth')
     auth_decorators = security_extractors.extract_auth_decorators(context)
-    if auth_decorators:
-        result['python_auth_decorators'].extend(auth_decorators)
+    for auth in auth_decorators:
+        auth['finding_type'] = 'auth'
+        result['python_security_findings'].append(auth)
 
+    # password_hashing → python_security_findings (finding_type='password')
     password_hashing = security_extractors.extract_password_hashing(context)
-    if password_hashing:
-        result['python_password_hashing'].extend(password_hashing)
+    for pw in password_hashing:
+        pw['finding_type'] = 'password'
+        result['python_security_findings'].append(pw)
 
+    # jwt_operations → python_security_findings (finding_type='jwt')
     jwt_operations = security_extractors.extract_jwt_operations(context)
-    if jwt_operations:
-        result['python_jwt_operations'].extend(jwt_operations)
+    for jwt in jwt_operations:
+        jwt['finding_type'] = 'jwt'
+        result['python_security_findings'].append(jwt)
 
+    # sql_queries → sql_queries (unchanged - used by security analysis)
     sql_queries = security_extractors.extract_sql_queries(context)
     if sql_queries:
         result['sql_queries'].extend(sql_queries)
 
+    # sql_injection → python_security_findings (finding_type='sql_injection')
     sql_injection = security_extractors.extract_sql_injection_patterns(context)
-    if sql_injection:
-        result['python_sql_injection'].extend(sql_injection)
+    for sqli in sql_injection:
+        sqli['finding_type'] = 'sql_injection'
+        result['python_security_findings'].append(sqli)
 
+    # command_injection → python_security_findings (finding_type='command_injection')
     command_injection = security_extractors.extract_command_injection_patterns(context)
-    if command_injection:
-        result['python_command_injection'].extend(command_injection)
+    for cmdi in command_injection:
+        cmdi['finding_type'] = 'command_injection'
+        result['python_security_findings'].append(cmdi)
 
+    # path_traversal → python_security_findings (finding_type='path_traversal')
     path_traversal = security_extractors.extract_path_traversal_patterns(context)
-    if path_traversal:
-        result['python_path_traversal'].extend(path_traversal)
+    for pt in path_traversal:
+        pt['finding_type'] = 'path_traversal'
+        result['python_security_findings'].append(pt)
 
+    # dangerous_eval → python_security_findings (finding_type='dangerous_eval')
     dangerous_eval = security_extractors.extract_dangerous_eval_exec(context)
-    if dangerous_eval:
-        result['python_dangerous_eval'].extend(dangerous_eval)
+    for de in dangerous_eval:
+        de['finding_type'] = 'dangerous_eval'
+        result['python_security_findings'].append(de)
 
+    # crypto_operations → python_security_findings (finding_type='crypto')
     crypto_operations = security_extractors.extract_crypto_operations(context)
-    if crypto_operations:
-        result['python_crypto_operations'].extend(crypto_operations)
+    for crypto in crypto_operations:
+        crypto['finding_type'] = 'crypto'
+        result['python_security_findings'].append(crypto)
 
-    # Django advanced patterns
+    # Django advanced patterns → python_framework_config
     django_signals = django_advanced_extractors.extract_django_signals(context)
-    if django_signals:
-        result['python_django_signals'].extend(django_signals)
+    for signal in django_signals:
+        signal['framework'] = 'django'
+        signal['config_type'] = 'signal'
+        result['python_framework_config'].append(signal)
 
     django_receivers = django_advanced_extractors.extract_django_receivers(context)
-    if django_receivers:
-        result['python_django_receivers'].extend(django_receivers)
+    for receiver in django_receivers:
+        receiver['framework'] = 'django'
+        receiver['config_type'] = 'receiver'
+        result['python_framework_config'].append(receiver)
 
     django_managers = django_advanced_extractors.extract_django_managers(context)
-    if django_managers:
-        result['python_django_managers'].extend(django_managers)
+    for manager in django_managers:
+        manager['framework'] = 'django'
+        manager['config_type'] = 'manager'
+        result['python_framework_config'].append(manager)
 
     django_querysets = django_advanced_extractors.extract_django_querysets(context)
-    if django_querysets:
-        result['python_django_querysets'].extend(django_querysets)
+    for queryset in django_querysets:
+        queryset['framework'] = 'django'
+        queryset['config_type'] = 'queryset'
+        result['python_framework_config'].append(queryset)
 
-    # State mutation patterns
+    # State mutation patterns → python_state_mutations
     instance_mutations = state_mutation_extractors.extract_instance_mutations(context)
-    if instance_mutations:
-        result['python_instance_mutations'].extend(instance_mutations)
+    for mut in instance_mutations:
+        mut['mutation_type'] = 'instance'
+        result['python_state_mutations'].append(mut)
 
     class_mutations = state_mutation_extractors.extract_class_mutations(context)
-    if class_mutations:
-        result['python_class_mutations'].extend(class_mutations)
+    for mut in class_mutations:
+        mut['mutation_type'] = 'class'
+        result['python_state_mutations'].append(mut)
 
     global_mutations = state_mutation_extractors.extract_global_mutations(context)
-    if global_mutations:
-        result['python_global_mutations'].extend(global_mutations)
+    for mut in global_mutations:
+        mut['mutation_type'] = 'global'
+        result['python_state_mutations'].append(mut)
 
     argument_mutations = state_mutation_extractors.extract_argument_mutations(context)
-    if argument_mutations:
-        result['python_argument_mutations'].extend(argument_mutations)
+    for mut in argument_mutations:
+        mut['mutation_type'] = 'argument'
+        result['python_state_mutations'].append(mut)
 
     augmented_assignments = state_mutation_extractors.extract_augmented_assignments(context)
-    if augmented_assignments:
-        result['python_augmented_assignments'].extend(augmented_assignments)
+    for mut in augmented_assignments:
+        mut['mutation_type'] = 'augmented'
+        result['python_state_mutations'].append(mut)
 
-    # Exception flow patterns
+    # Exception flow patterns → python_branches
     exception_raises = exception_flow_extractors.extract_exception_raises(context)
-    if exception_raises:
-        result['python_exception_raises'].extend(exception_raises)
+    for exc in exception_raises:
+        exc['branch_type'] = 'raise'
+        result['python_branches'].append(exc)
 
     exception_catches = exception_flow_extractors.extract_exception_catches(context)
-    if exception_catches:
-        result['python_exception_catches'].extend(exception_catches)
+    for exc in exception_catches:
+        exc['branch_type'] = 'except'
+        result['python_branches'].append(exc)
 
     finally_blocks = exception_flow_extractors.extract_finally_blocks(context)
-    if finally_blocks:
-        result['python_finally_blocks'].extend(finally_blocks)
+    for block in finally_blocks:
+        block['branch_type'] = 'finally'
+        result['python_branches'].append(block)
 
+    # context_managers_enhanced → python_protocols (protocol_type='context_manager')
     context_managers_enhanced = exception_flow_extractors.extract_context_managers(context)
-    if context_managers_enhanced:
-        result['python_context_managers_enhanced'].extend(context_managers_enhanced)
+    for cm in context_managers_enhanced:
+        cm['protocol_type'] = 'context_manager'
+        result['python_protocols'].append(cm)
 
-    # Data flow patterns
+    # Data flow patterns → python_io_operations
+    # io_operations already has io_type from extractor, just extend
     io_operations = data_flow_extractors.extract_io_operations(context)
     if io_operations:
         result['python_io_operations'].extend(io_operations)
 
     parameter_return_flow = data_flow_extractors.extract_parameter_return_flow(context)
-    if parameter_return_flow:
-        result['python_parameter_return_flow'].extend(parameter_return_flow)
+    for flow in parameter_return_flow:
+        flow['io_type'] = 'param_flow'
+        result['python_io_operations'].append(flow)
 
     closure_captures = data_flow_extractors.extract_closure_captures(context)
-    if closure_captures:
-        result['python_closure_captures'].extend(closure_captures)
+    for capture in closure_captures:
+        capture['io_type'] = 'closure'
+        result['python_io_operations'].append(capture)
 
     nonlocal_access = data_flow_extractors.extract_nonlocal_access(context)
-    if nonlocal_access:
-        result['python_nonlocal_access'].extend(nonlocal_access)
+    for access in nonlocal_access:
+        access['io_type'] = 'nonlocal'
+        result['python_io_operations'].append(access)
 
     conditional_calls = data_flow_extractors.extract_conditional_calls(context)
-    if conditional_calls:
-        result['python_conditional_calls'].extend(conditional_calls)
+    for call in conditional_calls:
+        call['io_type'] = 'conditional'
+        result['python_io_operations'].append(call)
 
-    # Behavioral patterns
+    # Behavioral patterns → python_expressions/python_descriptors
     recursion_patterns = behavioral_extractors.extract_recursion_patterns(context)
-    if recursion_patterns:
-        result['python_recursion_patterns'].extend(recursion_patterns)
+    for pattern in recursion_patterns:
+        pattern['expression_type'] = 'recursion'
+        result['python_expressions'].append(pattern)
 
     generator_yields = behavioral_extractors.extract_generator_yields(context)
-    if generator_yields:
-        result['python_generator_yields'].extend(generator_yields)
+    for yld in generator_yields:
+        yld['expression_type'] = 'yield'
+        result['python_expressions'].append(yld)
 
+    # property_patterns → python_descriptors (descriptor_type='property')
     property_patterns = behavioral_extractors.extract_property_patterns(context)
-    if property_patterns:
-        result['python_property_patterns'].extend(property_patterns)
+    for prop in property_patterns:
+        prop['descriptor_type'] = 'property'
+        result['python_descriptors'].append(prop)
 
+    # dynamic_attributes → python_descriptors (descriptor_type='dynamic_attr')
     dynamic_attributes = behavioral_extractors.extract_dynamic_attributes(context)
-    if dynamic_attributes:
-        result['python_dynamic_attributes'].extend(dynamic_attributes)
+    for attr in dynamic_attributes:
+        attr['descriptor_type'] = 'dynamic_attr'
+        result['python_descriptors'].append(attr)
 
-    # Performance patterns
+    # Performance patterns → python_expressions
     loop_complexity = performance_extractors.extract_loop_complexity(context)
-    if loop_complexity:
-        result['python_loop_complexity'].extend(loop_complexity)
+    for lc in loop_complexity:
+        lc['expression_type'] = 'complexity'
+        result['python_expressions'].append(lc)
 
     resource_usage = performance_extractors.extract_resource_usage(context)
-    if resource_usage:
-        result['python_resource_usage'].extend(resource_usage)
+    for ru in resource_usage:
+        ru['expression_type'] = 'resource'
+        result['python_expressions'].append(ru)
 
     memoization_patterns = performance_extractors.extract_memoization_patterns(context)
-    if memoization_patterns:
-        result['python_memoization_patterns'].extend(memoization_patterns)
+    for memo in memoization_patterns:
+        memo['expression_type'] = 'memoize'
+        result['python_expressions'].append(memo)
 
-    # Fundamental patterns (Week 1)
+    # Fundamental patterns → python_expressions/python_functions_advanced
     comprehensions = fundamental_extractors.extract_comprehensions(context)
-    if comprehensions:
-        result['python_comprehensions'].extend(comprehensions)
+    for comp in comprehensions:
+        comp['expression_type'] = 'comprehension'
+        result['python_expressions'].append(comp)
 
+    # lambda_functions → python_functions_advanced (function_type='lambda')
     lambda_functions = fundamental_extractors.extract_lambda_functions(context)
-    if lambda_functions:
-        result['python_lambda_functions'].extend(lambda_functions)
+    for lam in lambda_functions:
+        lam['function_type'] = 'lambda'
+        result['python_functions_advanced'].append(lam)
 
     slice_operations = fundamental_extractors.extract_slice_operations(context)
-    if slice_operations:
-        result['python_slice_operations'].extend(slice_operations)
+    for sl in slice_operations:
+        sl['expression_type'] = 'slice'
+        result['python_expressions'].append(sl)
 
     tuple_operations = fundamental_extractors.extract_tuple_operations(context)
-    if tuple_operations:
-        result['python_tuple_operations'].extend(tuple_operations)
+    for tup in tuple_operations:
+        tup['expression_type'] = 'tuple'
+        result['python_expressions'].append(tup)
 
     unpacking_patterns = fundamental_extractors.extract_unpacking_patterns(context)
-    if unpacking_patterns:
-        result['python_unpacking_patterns'].extend(unpacking_patterns)
+    for unpack in unpacking_patterns:
+        unpack['expression_type'] = 'unpack'
+        result['python_expressions'].append(unpack)
 
     none_patterns = fundamental_extractors.extract_none_patterns(context)
-    if none_patterns:
-        result['python_none_patterns'].extend(none_patterns)
+    for none_pat in none_patterns:
+        none_pat['expression_type'] = 'none'
+        result['python_expressions'].append(none_pat)
 
     truthiness_patterns = fundamental_extractors.extract_truthiness_patterns(context)
-    if truthiness_patterns:
-        result['python_truthiness_patterns'].extend(truthiness_patterns)
+    for truth in truthiness_patterns:
+        truth['expression_type'] = 'truthiness'
+        result['python_expressions'].append(truth)
 
     string_formatting = fundamental_extractors.extract_string_formatting(context)
-    if string_formatting:
-        result['python_string_formatting'].extend(string_formatting)
+    for fmt in string_formatting:
+        fmt['expression_type'] = 'format'
+        result['python_expressions'].append(fmt)
 
-    # Operator patterns (Week 2)
+    # Operator patterns → python_operators
+    # operators already has operator_type from extractor, just extend
     operators = operator_extractors.extract_operators(context)
     if operators:
         result['python_operators'].extend(operators)
 
     membership_tests = operator_extractors.extract_membership_tests(context)
-    if membership_tests:
-        result['python_membership_tests'].extend(membership_tests)
+    for test in membership_tests:
+        test['operator_type'] = 'membership'
+        result['python_operators'].append(test)
 
     chained_comparisons = operator_extractors.extract_chained_comparisons(context)
-    if chained_comparisons:
-        result['python_chained_comparisons'].extend(chained_comparisons)
+    for comp in chained_comparisons:
+        comp['operator_type'] = 'chained'
+        result['python_operators'].append(comp)
 
     ternary_expressions = operator_extractors.extract_ternary_expressions(context)
-    if ternary_expressions:
-        result['python_ternary_expressions'].extend(ternary_expressions)
+    for tern in ternary_expressions:
+        tern['operator_type'] = 'ternary'
+        result['python_operators'].append(tern)
 
     walrus_operators = operator_extractors.extract_walrus_operators(context)
-    if walrus_operators:
-        result['python_walrus_operators'].extend(walrus_operators)
+    for walrus in walrus_operators:
+        walrus['operator_type'] = 'walrus'
+        result['python_operators'].append(walrus)
 
     matrix_multiplication = operator_extractors.extract_matrix_multiplication(context)
-    if matrix_multiplication:
-        result['python_matrix_multiplication'].extend(matrix_multiplication)
+    for matmul in matrix_multiplication:
+        matmul['operator_type'] = 'matmul'
+        result['python_operators'].append(matmul)
 
-    # Collection patterns (Week 3)
+    # Collection patterns → python_collections
     dict_operations = collection_extractors.extract_dict_operations(context)
-    if dict_operations:
-        result['python_dict_operations'].extend(dict_operations)
+    for op in dict_operations:
+        op['collection_type'] = 'dict'
+        result['python_collections'].append(op)
 
     list_mutations = collection_extractors.extract_list_mutations(context)
-    if list_mutations:
-        result['python_list_mutations'].extend(list_mutations)
+    for mut in list_mutations:
+        mut['collection_type'] = 'list'
+        result['python_collections'].append(mut)
 
     set_operations = collection_extractors.extract_set_operations(context)
-    if set_operations:
-        result['python_set_operations'].extend(set_operations)
+    for op in set_operations:
+        op['collection_type'] = 'set'
+        result['python_collections'].append(op)
 
     string_methods = collection_extractors.extract_string_methods(context)
-    if string_methods:
-        result['python_string_methods'].extend(string_methods)
+    for meth in string_methods:
+        meth['collection_type'] = 'string'
+        result['python_collections'].append(meth)
 
     builtin_usage = collection_extractors.extract_builtin_usage(context)
-    if builtin_usage:
-        result['python_builtin_usage'].extend(builtin_usage)
+    for usage in builtin_usage:
+        usage['collection_type'] = 'builtin'
+        result['python_collections'].append(usage)
 
     itertools_usage = collection_extractors.extract_itertools_usage(context)
-    if itertools_usage:
-        result['python_itertools_usage'].extend(itertools_usage)
+    for usage in itertools_usage:
+        usage['collection_type'] = 'itertools'
+        result['python_collections'].append(usage)
 
     functools_usage = collection_extractors.extract_functools_usage(context)
-    if functools_usage:
-        result['python_functools_usage'].extend(functools_usage)
+    for usage in functools_usage:
+        usage['collection_type'] = 'functools'
+        result['python_collections'].append(usage)
 
     collections_usage = collection_extractors.extract_collections_usage(context)
-    if collections_usage:
-        result['python_collections_usage'].extend(collections_usage)
+    for usage in collections_usage:
+        usage['collection_type'] = 'collections'
+        result['python_collections'].append(usage)
 
-    # Class feature patterns (Week 4)
+    # Class feature patterns → python_class_features/python_descriptors
     metaclasses = class_feature_extractors.extract_metaclasses(context)
-    if metaclasses:
-        result['python_metaclasses'].extend(metaclasses)
+    for meta in metaclasses:
+        meta['feature_type'] = 'metaclass'
+        result['python_class_features'].append(meta)
 
+    # descriptors from class_feature_extractors → python_descriptors (descriptor_type='descriptor')
     descriptors = class_feature_extractors.extract_descriptors(context)
-    if descriptors:
-        result['python_descriptors'].extend(descriptors)
+    for desc in descriptors:
+        desc['descriptor_type'] = 'descriptor'
+        result['python_descriptors'].append(desc)
 
     dataclasses = class_feature_extractors.extract_dataclasses(context)
-    if dataclasses:
-        result['python_dataclasses'].extend(dataclasses)
+    for dc in dataclasses:
+        dc['feature_type'] = 'dataclass'
+        result['python_class_features'].append(dc)
 
     enums = class_feature_extractors.extract_enums(context)
-    if enums:
-        result['python_enums'].extend(enums)
+    for enum in enums:
+        enum['feature_type'] = 'enum'
+        result['python_class_features'].append(enum)
 
     slots = class_feature_extractors.extract_slots(context)
-    if slots:
-        result['python_slots'].extend(slots)
+    for slot in slots:
+        slot['feature_type'] = 'slots'
+        result['python_class_features'].append(slot)
 
     abstract_classes = class_feature_extractors.extract_abstract_classes(context)
-    if abstract_classes:
-        result['python_abstract_classes'].extend(abstract_classes)
+    for abstract in abstract_classes:
+        abstract['feature_type'] = 'abstract'
+        result['python_class_features'].append(abstract)
 
     method_types = class_feature_extractors.extract_method_types(context)
-    if method_types:
-        result['python_method_types'].extend(method_types)
+    for mt in method_types:
+        mt['feature_type'] = 'method_type'
+        result['python_class_features'].append(mt)
 
     multiple_inheritance = class_feature_extractors.extract_multiple_inheritance(context)
-    if multiple_inheritance:
-        result['python_multiple_inheritance'].extend(multiple_inheritance)
+    for mi in multiple_inheritance:
+        mi['feature_type'] = 'inheritance'
+        result['python_class_features'].append(mi)
 
     dunder_methods = class_feature_extractors.extract_dunder_methods(context)
-    if dunder_methods:
-        result['python_dunder_methods'].extend(dunder_methods)
+    for dunder in dunder_methods:
+        dunder['feature_type'] = 'dunder'
+        result['python_class_features'].append(dunder)
 
     visibility_conventions = class_feature_extractors.extract_visibility_conventions(context)
-    if visibility_conventions:
-        result['python_visibility_conventions'].extend(visibility_conventions)
+    for vis in visibility_conventions:
+        vis['feature_type'] = 'visibility'
+        result['python_class_features'].append(vis)
 
-    # Stdlib patterns (Week 4)
+    # Stdlib patterns → python_stdlib_usage
     regex_patterns = stdlib_pattern_extractors.extract_regex_patterns(context)
-    if regex_patterns:
-        result['python_regex_patterns'].extend(regex_patterns)
+    for regex in regex_patterns:
+        regex['module'] = 're'
+        result['python_stdlib_usage'].append(regex)
 
     json_operations = stdlib_pattern_extractors.extract_json_operations(context)
-    if json_operations:
-        result['python_json_operations'].extend(json_operations)
+    for json_op in json_operations:
+        json_op['module'] = 'json'
+        result['python_stdlib_usage'].append(json_op)
 
     datetime_operations = stdlib_pattern_extractors.extract_datetime_operations(context)
-    if datetime_operations:
-        result['python_datetime_operations'].extend(datetime_operations)
+    for dt in datetime_operations:
+        dt['module'] = 'datetime'
+        result['python_stdlib_usage'].append(dt)
 
     path_operations = stdlib_pattern_extractors.extract_path_operations(context)
-    if path_operations:
-        result['python_path_operations'].extend(path_operations)
+    for path_op in path_operations:
+        path_op['module'] = 'pathlib'
+        result['python_stdlib_usage'].append(path_op)
 
     logging_patterns = stdlib_pattern_extractors.extract_logging_patterns(context)
-    if logging_patterns:
-        result['python_logging_patterns'].extend(logging_patterns)
+    for log in logging_patterns:
+        log['module'] = 'logging'
+        result['python_stdlib_usage'].append(log)
 
     threading_patterns = stdlib_pattern_extractors.extract_threading_patterns(context)
-    if threading_patterns:
-        result['python_threading_patterns'].extend(threading_patterns)
+    for thread in threading_patterns:
+        thread['module'] = 'threading'
+        result['python_stdlib_usage'].append(thread)
 
     contextlib_patterns = stdlib_pattern_extractors.extract_contextlib_patterns(context)
-    if contextlib_patterns:
-        result['python_contextlib_patterns'].extend(contextlib_patterns)
+    for ctx in contextlib_patterns:
+        ctx['module'] = 'contextlib'
+        result['python_stdlib_usage'].append(ctx)
 
     type_checking = stdlib_pattern_extractors.extract_type_checking(context)
-    if type_checking:
-        result['python_type_checking'].extend(type_checking)
+    for tc in type_checking:
+        tc['module'] = 'typing'
+        result['python_stdlib_usage'].append(tc)
 
-    # Control flow patterns (Week 5)
+    # Control flow patterns → python_loops/python_branches/python_expressions/python_imports_advanced
     for_loops = control_flow_extractors.extract_for_loops(context)
-    if for_loops:
-        result['python_for_loops'].extend(for_loops)
+    for loop in for_loops:
+        loop['loop_type'] = 'for_loop'
+        result['python_loops'].append(loop)
 
     while_loops = control_flow_extractors.extract_while_loops(context)
-    if while_loops:
-        result['python_while_loops'].extend(while_loops)
+    for loop in while_loops:
+        loop['loop_type'] = 'while_loop'
+        result['python_loops'].append(loop)
 
     async_for_loops = control_flow_extractors.extract_async_for_loops(context)
-    if async_for_loops:
-        result['python_async_for_loops'].extend(async_for_loops)
+    for loop in async_for_loops:
+        loop['loop_type'] = 'async_for_loop'
+        result['python_loops'].append(loop)
 
     if_statements = control_flow_extractors.extract_if_statements(context)
-    if if_statements:
-        result['python_if_statements'].extend(if_statements)
+    for stmt in if_statements:
+        stmt['branch_type'] = 'if'
+        result['python_branches'].append(stmt)
 
     match_statements = control_flow_extractors.extract_match_statements(context)
-    if match_statements:
-        result['python_match_statements'].extend(match_statements)
+    for stmt in match_statements:
+        stmt['branch_type'] = 'match'
+        result['python_branches'].append(stmt)
 
     break_continue_pass = control_flow_extractors.extract_break_continue_pass(context)
-    if break_continue_pass:
-        result['python_break_continue_pass'].extend(break_continue_pass)
+    for stmt in break_continue_pass:
+        stmt['expression_type'] = 'break_continue'
+        result['python_expressions'].append(stmt)
 
     assert_statements = control_flow_extractors.extract_assert_statements(context)
-    if assert_statements:
-        result['python_assert_statements'].extend(assert_statements)
+    for stmt in assert_statements:
+        stmt['expression_type'] = 'assert'
+        result['python_expressions'].append(stmt)
 
     del_statements = control_flow_extractors.extract_del_statements(context)
-    if del_statements:
-        result['python_del_statements'].extend(del_statements)
+    for stmt in del_statements:
+        stmt['expression_type'] = 'del'
+        result['python_expressions'].append(stmt)
 
+    # import_statements → python_imports_advanced (import_type='static')
     import_statements = control_flow_extractors.extract_import_statements(context)
-    if import_statements:
-        result['python_import_statements'].extend(import_statements)
+    for stmt in import_statements:
+        stmt['import_type'] = 'static'
+        result['python_imports_advanced'].append(stmt)
 
     with_statements = control_flow_extractors.extract_with_statements(context)
-    if with_statements:
-        result['python_with_statements'].extend(with_statements)
+    for stmt in with_statements:
+        stmt['expression_type'] = 'with'
+        result['python_expressions'].append(stmt)
 
-    # Protocol patterns (Week 6)
+    # Protocol patterns → python_protocols/python_stdlib_usage/python_imports_advanced/python_expressions
     iterator_protocol = protocol_extractors.extract_iterator_protocol(context)
-    if iterator_protocol:
-        result['python_iterator_protocol'].extend(iterator_protocol)
+    for proto in iterator_protocol:
+        proto['protocol_type'] = 'iterator'
+        result['python_protocols'].append(proto)
 
     container_protocol = protocol_extractors.extract_container_protocol(context)
-    if container_protocol:
-        result['python_container_protocol'].extend(container_protocol)
+    for proto in container_protocol:
+        proto['protocol_type'] = 'container'
+        result['python_protocols'].append(proto)
 
     callable_protocol = protocol_extractors.extract_callable_protocol(context)
-    if callable_protocol:
-        result['python_callable_protocol'].extend(callable_protocol)
+    for proto in callable_protocol:
+        proto['protocol_type'] = 'callable'
+        result['python_protocols'].append(proto)
 
     comparison_protocol = protocol_extractors.extract_comparison_protocol(context)
-    if comparison_protocol:
-        result['python_comparison_protocol'].extend(comparison_protocol)
+    for proto in comparison_protocol:
+        proto['protocol_type'] = 'comparison'
+        result['python_protocols'].append(proto)
 
     arithmetic_protocol = protocol_extractors.extract_arithmetic_protocol(context)
-    if arithmetic_protocol:
-        result['python_arithmetic_protocol'].extend(arithmetic_protocol)
+    for proto in arithmetic_protocol:
+        proto['protocol_type'] = 'arithmetic'
+        result['python_protocols'].append(proto)
 
     pickle_protocol = protocol_extractors.extract_pickle_protocol(context)
-    if pickle_protocol:
-        result['python_pickle_protocol'].extend(pickle_protocol)
+    for proto in pickle_protocol:
+        proto['protocol_type'] = 'pickle'
+        result['python_protocols'].append(proto)
 
+    # weakref_usage → python_stdlib_usage (module='weakref')
     weakref_usage = protocol_extractors.extract_weakref_usage(context)
-    if weakref_usage:
-        result['python_weakref_usage'].extend(weakref_usage)
+    for wr in weakref_usage:
+        wr['module'] = 'weakref'
+        result['python_stdlib_usage'].append(wr)
 
+    # contextvar_usage → python_stdlib_usage (module='contextvars')
     contextvar_usage = protocol_extractors.extract_contextvar_usage(context)
-    if contextvar_usage:
-        result['python_contextvar_usage'].extend(contextvar_usage)
+    for cv in contextvar_usage:
+        cv['module'] = 'contextvars'
+        result['python_stdlib_usage'].append(cv)
 
+    # module_attributes → python_imports_advanced (import_type='module_attr')
     module_attributes = protocol_extractors.extract_module_attributes(context)
-    if module_attributes:
-        result['python_module_attributes'].extend(module_attributes)
+    for attr in module_attributes:
+        attr['import_type'] = 'module_attr'
+        result['python_imports_advanced'].append(attr)
 
+    # class_decorators → python_expressions (expression_type='class_decorator')
     class_decorators = protocol_extractors.extract_class_decorators(context)
-    if class_decorators:
-        result['python_class_decorators'].extend(class_decorators)
+    for dec in class_decorators:
+        dec['expression_type'] = 'class_decorator'
+        result['python_expressions'].append(dec)
 
-    # Advanced patterns
+    # Advanced patterns → python_imports_advanced/python_descriptors/python_expressions
+    # namespace_packages → python_imports_advanced (import_type='namespace')
     namespace_packages = advanced_extractors.extract_namespace_packages(context)
-    if namespace_packages:
-        result['python_namespace_packages'].extend(namespace_packages)
+    for pkg in namespace_packages:
+        pkg['import_type'] = 'namespace'
+        result['python_imports_advanced'].append(pkg)
 
+    # cached_property → python_descriptors (descriptor_type='cached_property')
     cached_property = advanced_extractors.extract_cached_property(context)
-    if cached_property:
-        result['python_cached_property'].extend(cached_property)
+    for cp in cached_property:
+        cp['descriptor_type'] = 'cached_property'
+        result['python_descriptors'].append(cp)
 
+    # descriptor_protocol → python_descriptors (descriptor_type='descriptor_protocol')
     descriptor_protocol = advanced_extractors.extract_descriptor_protocol(context)
-    if descriptor_protocol:
-        result['python_descriptor_protocol'].extend(descriptor_protocol)
+    for dp in descriptor_protocol:
+        dp['descriptor_type'] = 'descriptor_protocol'
+        result['python_descriptors'].append(dp)
 
+    # attribute_access_protocol → python_descriptors (descriptor_type='attr_access')
     attribute_access_protocol = advanced_extractors.extract_attribute_access_protocol(context)
-    if attribute_access_protocol:
-        result['python_attribute_access_protocol'].extend(attribute_access_protocol)
+    for aap in attribute_access_protocol:
+        aap['descriptor_type'] = 'attr_access'
+        result['python_descriptors'].append(aap)
 
     copy_protocol = advanced_extractors.extract_copy_protocol(context)
-    if copy_protocol:
-        result['python_copy_protocol'].extend(copy_protocol)
+    for cp in copy_protocol:
+        cp['expression_type'] = 'copy'
+        result['python_expressions'].append(cp)
 
     ellipsis_usage = advanced_extractors.extract_ellipsis_usage(context)
-    if ellipsis_usage:
-        result['python_ellipsis_usage'].extend(ellipsis_usage)
+    for ell in ellipsis_usage:
+        ell['expression_type'] = 'ellipsis'
+        result['python_expressions'].append(ell)
 
     bytes_operations = advanced_extractors.extract_bytes_operations(context)
-    if bytes_operations:
-        result['python_bytes_operations'].extend(bytes_operations)
+    for bo in bytes_operations:
+        bo['expression_type'] = 'bytes'
+        result['python_expressions'].append(bo)
 
     exec_eval_compile = advanced_extractors.extract_exec_eval_compile(context)
-    if exec_eval_compile:
-        result['python_exec_eval_compile'].extend(exec_eval_compile)
+    for eec in exec_eval_compile:
+        eec['expression_type'] = 'exec'
+        result['python_expressions'].append(eec)
 
-    # Async patterns
+    # Async patterns → python_functions_advanced/python_expressions
     async_functions = async_extractors.extract_async_functions(context)
-    if async_functions:
-        result['python_async_functions'].extend(async_functions)
+    for af in async_functions:
+        af['function_type'] = 'async'
+        result['python_functions_advanced'].append(af)
 
+    # await_expressions → python_expressions (expression_type='await')
     await_expressions = async_extractors.extract_await_expressions(context)
-    if await_expressions:
-        result['python_await_expressions'].extend(await_expressions)
+    for aw in await_expressions:
+        aw['expression_type'] = 'await'
+        result['python_expressions'].append(aw)
 
     async_generators = async_extractors.extract_async_generators(context)
-    if async_generators:
-        result['python_async_generators'].extend(async_generators)
+    for ag in async_generators:
+        ag['function_type'] = 'async_generator'
+        result['python_functions_advanced'].append(ag)
 
-    # Type patterns
+    # Type patterns → python_type_definitions/python_literals
+    # protocols from type_extractors → python_type_definitions (type_kind='protocol')
     protocols = type_extractors.extract_protocols(context)
-    if protocols:
-        result['python_protocols'].extend(protocols)
+    for proto in protocols:
+        proto['type_kind'] = 'protocol'
+        result['python_type_definitions'].append(proto)
 
     generics = type_extractors.extract_generics(context)
-    if generics:
-        result['python_generics'].extend(generics)
+    for gen in generics:
+        gen['type_kind'] = 'generic'
+        result['python_type_definitions'].append(gen)
 
     typed_dicts = type_extractors.extract_typed_dicts(context)
-    if typed_dicts:
-        result['python_typed_dicts'].extend(typed_dicts)
+    for td in typed_dicts:
+        td['type_kind'] = 'typed_dict'
+        result['python_type_definitions'].append(td)
 
     literals = type_extractors.extract_literals(context)
-    if literals:
-        result['python_literals'].extend(literals)
+    for lit in literals:
+        lit['literal_type'] = 'literal'
+        result['python_literals'].append(lit)
 
     overloads = type_extractors.extract_overloads(context)
-    if overloads:
-        result['python_overloads'].extend(overloads)
+    for ovl in overloads:
+        ovl['literal_type'] = 'overload'
+        result['python_literals'].append(ovl)
 
     # Infrastructure
     cdk_constructs = cdk_extractor.extract_python_cdk_constructs(context)

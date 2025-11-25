@@ -23,45 +23,45 @@ print(f'PYTHON_TABLES: {len(PYTHON_TABLES)} (expect 8)')
 ## VERIFICATION FINDINGS (2025-11-25)
 
 **Auditor:** Opus Lead Coder
-**Status:** CRITICAL GAPS IDENTIFIED
+**Status:** PHASE 1 COMPLETE
 
-### Current State Verified:
+### Initial State Verified (Pre-Implementation):
 - TABLES: 109 - MATCH
 - PYTHON_TABLES: 8 - MATCH
 - python_storage.py handlers: 7 - MATCH (python_package_configs via generic_batches)
+- python_database.py: 149 methods (141 zombie) - CRITICAL FINDING
 
-### Critical Finding: Zombie Database Mixin Methods
+### Post-Phase 1 State (2025-11-25):
+- TABLES: 129 - VERIFIED
+- PYTHON_TABLES: 28 - VERIFIED
+- schema.py assertion: Updated 109 → 129
+- python_database.py: 28 methods (8 original + 20 new) - CLEANED
+- base_database.py flush_order: Updated with 28 Python tables
+
+### Critical Finding: Zombie Database Mixin Methods - RESOLVED
 
 **File:** `theauditor/indexer/database/python_database.py`
 
-The file contains **~100 `add_python_*` methods** that write to tables that **no longer exist** in the schema. These are leftover from the 141 deleted orphan tables.
+The file contained **149 `add_python_*` methods** (1,816 lines) writing to tables that no longer exist.
 
-Examples of zombie methods:
-- `add_python_flask_app` → writes to `python_flask_apps` (deleted)
-- `add_python_celery_task` → writes to `python_celery_tasks` (deleted)
-- `add_python_for_loop` → writes to `python_for_loops` (deleted)
+**Resolution:**
+- Purged 141 zombie methods (1,655 lines deleted)
+- Removed dead `add_python_blueprint` method (table doesn't exist in schema)
+- Added 20 new consolidated methods
+- Final state: 28 methods for 28 tables
 
-**Risk:** If storage handlers call these methods, `flush_generic_batch()` will fail with "No schema found for table" error.
+### Completed Task Sequence:
 
-### Missing Tasks Identified:
-
-| Gap | Impact | Resolution |
-|-----|--------|------------|
-| No `add_python_*` methods for new consolidated tables | Storage handlers will get `AttributeError` | Add Phase 1.5 |
-| `flush_order` in base_database.py not updated | New tables won't be flushed to disk | Add Phase 1.6 |
-| ~100 zombie methods not deleted | Technical debt, potential confusion | Add Phase 6.5 |
-
-### Corrected Task Sequence:
-
-1. **Phase 1.1-1.4:** Add 20 tables to python_schema.py
-2. **Phase 1.5 (NEW):** Add 20 `add_python_*` methods to python_database.py
-3. **Phase 1.6 (NEW):** Update `flush_order` in base_database.py
-4. **Phase 1.7:** Update schema.py assertion (109 → 129)
-5. **Phase 2:** Add 20 handlers to python_storage.py
-6. **Phase 3:** Rewire python_impl.py
-7. **Phase 4:** Regenerate codegen
-8. **Phase 5:** Full verification
-9. **Phase 6.5 (NEW):** Delete ~100 zombie mixin methods
+1. **Phase 1.1-1.4:** Add 20 tables to python_schema.py - DONE
+2. **Phase 1.5a (PURGE):** Delete 141 zombie methods - DONE (1,655 lines deleted)
+3. **Phase 1.5b:** Add 20 new `add_python_*` methods - DONE
+4. **Phase 1.6:** Update `flush_order` in base_database.py - DONE
+5. **Phase 1.7:** Update schema.py assertion (109 → 129) - DONE
+6. **Phase 1.8:** Verify schema changes - DONE (129 tables, 28 Python)
+7. **Phase 2:** Add 20 handlers to python_storage.py - DONE (27 handlers total)
+8. **Phase 3:** Rewire python_impl.py - PENDING
+9. **Phase 4:** Regenerate codegen - PENDING
+10. **Phase 5:** Full verification - PENDING
 
 ---
 
@@ -69,132 +69,148 @@ Examples of zombie methods:
 
 **File:** `theauditor/indexer/schemas/python_schema.py`
 
-### Task 1.1: Add Group 1 - Control & Data Flow (5 tables)
+### Task 1.1: Add Group 1 - Control & Data Flow (5 tables) - DONE
 
-- [ ] Add `PYTHON_LOOPS` TableSchema
-- [ ] Add `PYTHON_BRANCHES` TableSchema
-- [ ] Add `PYTHON_FUNCTIONS_ADVANCED` TableSchema
-- [ ] Add `PYTHON_IO_OPERATIONS` TableSchema
-- [ ] Add `PYTHON_STATE_MUTATIONS` TableSchema
-- [ ] Add all 5 to `PYTHON_TABLES` dict
+- [x] Add `PYTHON_LOOPS` TableSchema
+- [x] Add `PYTHON_BRANCHES` TableSchema
+- [x] Add `PYTHON_FUNCTIONS_ADVANCED` TableSchema
+- [x] Add `PYTHON_IO_OPERATIONS` TableSchema
+- [x] Add `PYTHON_STATE_MUTATIONS` TableSchema
+- [x] Add all 5 to `PYTHON_TABLES` dict
 
-### Task 1.2: Add Group 2 - Object-Oriented & Types (5 tables)
+### Task 1.2: Add Group 2 - Object-Oriented & Types (5 tables) - DONE
 
-- [ ] Add `PYTHON_CLASS_FEATURES` TableSchema
-- [ ] Add `PYTHON_PROTOCOLS` TableSchema
-- [ ] Add `PYTHON_DESCRIPTORS` TableSchema
-- [ ] Add `PYTHON_TYPE_DEFINITIONS` TableSchema
-- [ ] Add `PYTHON_LITERALS` TableSchema
-- [ ] Add all 5 to `PYTHON_TABLES` dict
+- [x] Add `PYTHON_CLASS_FEATURES` TableSchema
+- [x] Add `PYTHON_PROTOCOLS` TableSchema
+- [x] Add `PYTHON_DESCRIPTORS` TableSchema
+- [x] Add `PYTHON_TYPE_DEFINITIONS` TableSchema
+- [x] Add `PYTHON_LITERALS` TableSchema
+- [x] Add all 5 to `PYTHON_TABLES` dict
 
-### Task 1.3: Add Group 3 - Security & Testing (5 tables)
+### Task 1.3: Add Group 3 - Security & Testing (5 tables) - DONE
 
-- [ ] Add `PYTHON_SECURITY_FINDINGS` TableSchema
-- [ ] Add `PYTHON_TEST_CASES` TableSchema
-- [ ] Add `PYTHON_TEST_FIXTURES` TableSchema
-- [ ] Add `PYTHON_FRAMEWORK_CONFIG` TableSchema
-- [ ] Add `PYTHON_VALIDATION_SCHEMAS` TableSchema
-- [ ] Add all 5 to `PYTHON_TABLES` dict
+- [x] Add `PYTHON_SECURITY_FINDINGS` TableSchema
+- [x] Add `PYTHON_TEST_CASES` TableSchema
+- [x] Add `PYTHON_TEST_FIXTURES` TableSchema
+- [x] Add `PYTHON_FRAMEWORK_CONFIG` TableSchema
+- [x] Add `PYTHON_VALIDATION_SCHEMAS` TableSchema
+- [x] Add all 5 to `PYTHON_TABLES` dict
 
-### Task 1.4: Add Group 4 - Low-Level & Misc (5 tables)
+### Task 1.4: Add Group 4 - Low-Level & Misc (5 tables) - DONE
 
-- [ ] Add `PYTHON_OPERATORS` TableSchema
-- [ ] Add `PYTHON_COLLECTIONS` TableSchema
-- [ ] Add `PYTHON_STDLIB_USAGE` TableSchema
-- [ ] Add `PYTHON_IMPORTS_ADVANCED` TableSchema
-- [ ] Add `PYTHON_EXPRESSIONS` TableSchema
-- [ ] Add all 5 to `PYTHON_TABLES` dict
+- [x] Add `PYTHON_OPERATORS` TableSchema
+- [x] Add `PYTHON_COLLECTIONS` TableSchema
+- [x] Add `PYTHON_STDLIB_USAGE` TableSchema
+- [x] Add `PYTHON_IMPORTS_ADVANCED` TableSchema
+- [x] Add `PYTHON_EXPRESSIONS` TableSchema
+- [x] Add all 5 to `PYTHON_TABLES` dict
 
-### Task 1.5: Add Database Mixin Methods (NEW - from verification)
+### Task 1.5a: PURGE Zombie Database Methods (PREREQUISITE) - DONE
 
 **File:** `theauditor/indexer/database/python_database.py`
 
-Add 20 new `add_python_*` methods for the consolidated tables. Each method appends a tuple to `self.generic_batches[table_name]`.
+**CRITICAL:** Clean first, build second. Delete ~100 zombie methods BEFORE adding new ones.
 
-**Pattern:**
-```python
-def add_python_loop(self, file_path: str, line: int, loop_type: str,
-                    has_else: bool, nesting_level: int, in_function: str,
-                    # ... additional columns from schema
-                    ):
-    """Add a python_loops record to the batch."""
-    self.generic_batches['python_loops'].append((
-        file_path, line, loop_type,
-        1 if has_else else 0, nesting_level, in_function,
-        # ... match schema column order
-    ))
+**Methods KEPT (8 for kept tables):**
+- `add_python_orm_model` → `python_orm_models`
+- `add_python_orm_field` → `python_orm_fields`
+- `add_python_route` → `python_routes`
+- `add_python_validator` → `python_validators`
+- `add_python_package_config` → `python_package_configs`
+- `add_python_decorator` → `python_decorators`
+- `add_python_django_view` → `python_django_views`
+- `add_python_django_middleware` → `python_django_middleware`
+
+**Note:** `add_python_blueprint` was initially kept but later removed (table doesn't exist in PYTHON_TABLES).
+
+**PURGE RESULTS (2025-11-25):**
+```
+Old file size: 1,816 lines
+New file size: 161 lines (after initial purge)
+Final file size: 553 lines (after adding 20 new methods)
+Lines deleted: 1,655 lines
+Zombie methods deleted: 141
+Original methods remaining: 8
 ```
 
-**Methods to Add:**
-- [ ] `add_python_loop` → `python_loops`
-- [ ] `add_python_branch` → `python_branches`
-- [ ] `add_python_function_advanced` → `python_functions_advanced`
-- [ ] `add_python_io_operation` → `python_io_operations`
-- [ ] `add_python_state_mutation` → `python_state_mutations`
-- [ ] `add_python_class_feature` → `python_class_features`
-- [ ] `add_python_protocol` → `python_protocols`
-- [ ] `add_python_descriptor` → `python_descriptors`
-- [ ] `add_python_type_definition` → `python_type_definitions`
-- [ ] `add_python_literal` → `python_literals`
-- [ ] `add_python_security_finding` → `python_security_findings`
-- [ ] `add_python_test_case` → `python_test_cases`
-- [ ] `add_python_test_fixture` → `python_test_fixtures`
-- [ ] `add_python_framework_config` → `python_framework_config`
-- [ ] `add_python_validation_schema` → `python_validation_schemas`
-- [ ] `add_python_operator` → `python_operators`
-- [ ] `add_python_collection` → `python_collections`
-- [ ] `add_python_stdlib_usage` → `python_stdlib_usage`
-- [ ] `add_python_import_advanced` → `python_imports_advanced`
-- [ ] `add_python_expression` → `python_expressions`
+**Final Verification (post-Phase 1.5b):**
+```
+Tables in PYTHON_TABLES: 28
+Methods in PythonDatabaseMixin: 28
+(8 original + 20 new consolidated)
+```
 
-**CRITICAL:** Method parameter order MUST match schema column order exactly.
+- [x] Deleted 141 zombie methods
+- [x] Verified 8 original methods remain
+- [x] Added 20 new consolidated methods
+- [x] All 28 methods import and parse correctly
 
-### Task 1.6: Update Flush Order (NEW - from verification)
+### Task 1.5b: Add 20 New Database Mixin Methods - DONE
+
+**File:** `theauditor/indexer/database/python_database.py`
+
+All 20 methods added with correct column order matching schema.
+
+**Additional fix:** Removed dead `add_python_blueprint` method (table doesn't exist in schema).
+
+**Verification output:**
+```
+Tables in PYTHON_TABLES: 28
+Methods in PythonDatabaseMixin: 28
+```
+
+- [x] `add_python_loop` → `python_loops`
+- [x] `add_python_branch` → `python_branches`
+- [x] `add_python_function_advanced` → `python_functions_advanced`
+- [x] `add_python_io_operation` → `python_io_operations`
+- [x] `add_python_state_mutation` → `python_state_mutations`
+- [x] `add_python_class_feature` → `python_class_features`
+- [x] `add_python_protocol` → `python_protocols`
+- [x] `add_python_descriptor` → `python_descriptors`
+- [x] `add_python_type_definition` → `python_type_definitions`
+- [x] `add_python_literal` → `python_literals`
+- [x] `add_python_security_finding` → `python_security_findings`
+- [x] `add_python_test_case` → `python_test_cases`
+- [x] `add_python_test_fixture` → `python_test_fixtures`
+- [x] `add_python_framework_config` → `python_framework_config`
+- [x] `add_python_validation_schema` → `python_validation_schemas`
+- [x] `add_python_operator` → `python_operators`
+- [x] `add_python_collection` → `python_collections`
+- [x] `add_python_stdlib_usage` → `python_stdlib_usage`
+- [x] `add_python_import_advanced` → `python_imports_advanced`
+- [x] `add_python_expression` → `python_expressions`
+
+### Task 1.6: Update Flush Order - DONE
 
 **File:** `theauditor/indexer/database/base_database.py`
 
-Add 20 new tables to `flush_order` list (around line 352, after existing Python tables).
+Updated flush_order (lines 328-362):
+- Replaced old orphan Python tables with 8 correct original tables
+- Added all 20 new consolidated tables in groups
+- Removed `python_blueprints` (table doesn't exist)
+- Added `python_package_configs` (was missing)
 
-```python
-# After existing python tables, add:
-('python_loops', 'INSERT'),
-('python_branches', 'INSERT'),
-('python_functions_advanced', 'INSERT'),
-('python_io_operations', 'INSERT'),
-('python_state_mutations', 'INSERT'),
-('python_class_features', 'INSERT'),
-('python_protocols', 'INSERT'),
-('python_descriptors', 'INSERT'),
-('python_type_definitions', 'INSERT'),
-('python_literals', 'INSERT'),
-('python_security_findings', 'INSERT'),
-('python_test_cases', 'INSERT'),
-('python_test_fixtures', 'INSERT'),
-('python_framework_config', 'INSERT'),
-('python_validation_schemas', 'INSERT'),
-('python_operators', 'INSERT'),
-('python_collections', 'INSERT'),
-('python_stdlib_usage', 'INSERT'),
-('python_imports_advanced', 'INSERT'),
-('python_expressions', 'INSERT'),
-```
+- [x] All 8 original tables in flush_order
+- [x] All 20 new consolidated tables in flush_order
+- [x] Removed orphan table references
 
-- [ ] All 20 tables added to flush_order
-
-### Task 1.7: Update schema.py Assertion
+### Task 1.7: Update schema.py Assertion - DONE
 
 **File:** `theauditor/indexer/schema.py`
 
 ```python
-# Change from:
+# Changed from:
 assert len(TABLES) == 109
 # To:
 assert len(TABLES) == 129  # 109 + 20 new consolidated tables
 ```
 
-- [ ] Assertion updated
+- [x] Assertion updated
+- [x] Docstring updated (python_schema.py: 8 → 28 tables)
+- [x] PYTHON_TABLES comment updated
+- [x] Re-exports added for 20 new tables
 
-### Task 1.8: Verify Schema Changes
+### Task 1.8: Verify Schema Changes - DONE
 
 ```bash
 cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
@@ -207,52 +223,59 @@ for name in sorted(PYTHON_TABLES.keys()):
 "
 ```
 
-- [ ] TABLES == 129
-- [ ] PYTHON_TABLES == 28
+**Output (2025-11-25):**
+```
+[SCHEMA] Loaded 129 tables
+TABLES: 129 (expected 129)
+PYTHON_TABLES: 28 (expected 28)
+```
+
+- [x] TABLES == 129
+- [x] PYTHON_TABLES == 28
 
 ---
 
-## Phase 2: Storage - Add 20 Consolidated Handlers
+## Phase 2: Storage - Add 20 Consolidated Handlers - DONE
 
 **File:** `theauditor/indexer/storage/python_storage.py`
 
-### Task 2.1: Add Group 1 Handlers
+### Task 2.1: Add Group 1 Handlers - DONE
 
-- [ ] Add `_store_python_loops` handler
-- [ ] Add `_store_python_branches` handler
-- [ ] Add `_store_python_functions_advanced` handler
-- [ ] Add `_store_python_io_operations` handler
-- [ ] Add `_store_python_state_mutations` handler
-- [ ] Register all 5 in `self.handlers` dict
+- [x] Add `_store_python_loops` handler
+- [x] Add `_store_python_branches` handler
+- [x] Add `_store_python_functions_advanced` handler
+- [x] Add `_store_python_io_operations` handler
+- [x] Add `_store_python_state_mutations` handler
+- [x] Register all 5 in `self.handlers` dict
 
-### Task 2.2: Add Group 2 Handlers
+### Task 2.2: Add Group 2 Handlers - DONE
 
-- [ ] Add `_store_python_class_features` handler
-- [ ] Add `_store_python_protocols` handler
-- [ ] Add `_store_python_descriptors` handler
-- [ ] Add `_store_python_type_definitions` handler
-- [ ] Add `_store_python_literals` handler
-- [ ] Register all 5 in `self.handlers` dict
+- [x] Add `_store_python_class_features` handler
+- [x] Add `_store_python_protocols` handler
+- [x] Add `_store_python_descriptors` handler
+- [x] Add `_store_python_type_definitions` handler
+- [x] Add `_store_python_literals` handler
+- [x] Register all 5 in `self.handlers` dict
 
-### Task 2.3: Add Group 3 Handlers
+### Task 2.3: Add Group 3 Handlers - DONE
 
-- [ ] Add `_store_python_security_findings` handler
-- [ ] Add `_store_python_test_cases` handler
-- [ ] Add `_store_python_test_fixtures` handler
-- [ ] Add `_store_python_framework_config` handler
-- [ ] Add `_store_python_validation_schemas` handler
-- [ ] Register all 5 in `self.handlers` dict
+- [x] Add `_store_python_security_findings` handler
+- [x] Add `_store_python_test_cases` handler
+- [x] Add `_store_python_test_fixtures` handler
+- [x] Add `_store_python_framework_config` handler
+- [x] Add `_store_python_validation_schemas` handler
+- [x] Register all 5 in `self.handlers` dict
 
-### Task 2.4: Add Group 4 Handlers
+### Task 2.4: Add Group 4 Handlers - DONE
 
-- [ ] Add `_store_python_operators` handler
-- [ ] Add `_store_python_collections` handler
-- [ ] Add `_store_python_stdlib_usage` handler
-- [ ] Add `_store_python_imports_advanced` handler
-- [ ] Add `_store_python_expressions` handler
-- [ ] Register all 5 in `self.handlers` dict
+- [x] Add `_store_python_operators` handler
+- [x] Add `_store_python_collections` handler
+- [x] Add `_store_python_stdlib_usage` handler
+- [x] Add `_store_python_imports_advanced` handler
+- [x] Add `_store_python_expressions` handler
+- [x] Register all 5 in `self.handlers` dict
 
-### Task 2.5: Verify Storage Handlers
+### Task 2.5: Verify Storage Handlers - DONE
 
 ```bash
 cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
@@ -265,7 +288,13 @@ print(f'Python handlers: {len(ps.handlers)} (expect 27)')
 "
 ```
 
-- [ ] Handlers == 27
+**Output (2025-11-25):**
+```
+[SCHEMA] Loaded 129 tables
+Python handlers: 27 (expect 27)
+```
+
+- [x] Handlers == 27
 
 ---
 
@@ -884,49 +913,30 @@ cd C:/Users/santa/Desktop/PlantFlow && aud full --offline
 
 (Do NOT commit - present for review)
 
-### Task 6.5: Delete Zombie Database Mixin Methods (NEW - from verification)
-
-**File:** `theauditor/indexer/database/python_database.py`
-
-Delete ~100 `add_python_*` methods that write to tables that no longer exist. These are dangerous dead code.
-
-**Methods to DELETE (examples - see full file for complete list):**
-- `add_python_flask_app` → `python_flask_apps` (deleted table)
-- `add_python_flask_extension` → `python_flask_extensions` (deleted table)
-- `add_python_celery_task` → `python_celery_tasks` (deleted table)
-- `add_python_for_loop` → `python_for_loops` (deleted table)
-- `add_python_while_loop` → `python_while_loops` (deleted table)
-- ... (~95 more methods)
-
-**Verification:** After deletion, only 28 `add_python_*` methods should remain:
-- 8 for kept tables (orm_models, orm_fields, routes, validators, decorators, django_views, django_middleware, package_configs)
-- 20 for new consolidated tables
-
-```bash
-cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
-import inspect
-from theauditor.indexer.database.python_database import PythonDatabaseMixin
-methods = [m for m in dir(PythonDatabaseMixin) if m.startswith('add_python_')]
-print(f'add_python_* methods: {len(methods)} (expect 28)')
-"
-```
-
-- [ ] ~100 zombie methods deleted
-- [ ] Only 28 methods remain
-
 ---
 
 ## Summary
 
-| Phase | Tasks | Checkboxes |
-|-------|-------|------------|
-| 1. Schema | Add 20 tables + 20 mixin methods + flush_order | 48 |
-| 2. Storage | Add 20 handlers | 25 |
-| 3. python_impl.py | Wire ~150 outputs | 120+ |
-| 4. Codegen | Regenerate generated code | 2 |
-| 5. Verification | Full pipeline test | 6 |
-| 6. Documentation | Update docs + cleanup zombie methods | 4 |
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| 1.1-1.4 | Add 20 tables to python_schema.py | DONE |
+| 1.7-1.8 | Update schema.py assertion + verify | DONE |
+| 1.5a | PURGE ~140 zombie database methods | DONE (1,655 lines deleted) |
+| 1.5b | Add 20 new database mixin methods | DONE (28 methods total) |
+| 1.6 | Update flush_order in base_database.py | DONE |
+| 2 | Add 20 handlers to python_storage.py | DONE (27 handlers total) |
+| 3 | Wire ~150 outputs in python_impl.py | DONE |
+| 4 | Regenerate codegen | DONE |
+| 5 | Full pipeline verification | DONE |
+| 6 | Documentation + commit | PENDING |
 
-**Total estimated checkboxes**: ~205
-**Estimated new code**: ~2,500 lines (schema + mixin methods + storage + mapping)
-**Estimated deleted code**: ~1,500 lines (zombie mixin methods)
+**Progress**: Phase 5 COMPLETE. Full pipeline (aud full --offline) passed all 25 phases.
+
+**Bugs Fixed During Phase 5**:
+- `python_literals.values` column renamed to `literal_values` (SQL reserved keyword)
+- Updated schema, database mixin, and storage handler
+- **CRITICAL FIX**: Storage handler now reads both `lit.get('literal_values') or lit.get('values')`
+  to handle extractor output (which uses `values`) vs DB column (which uses `literal_values`)
+
+**Estimated work remaining**:
+- Phase 6: Documentation + commit (optional)

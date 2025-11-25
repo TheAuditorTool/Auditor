@@ -3,16 +3,30 @@
 ## VERIFICATION FINDINGS (2025-11-25)
 
 **Auditor:** Opus Lead Coder
+**Status:** PHASE 5 COMPLETE (Pipeline Verified)
 
-### Critical Finding: Zombie Database Methods
+### Critical Finding: Zombie Database Methods - RESOLVED
 
-The `python_database.py` file contains ~100 `add_python_*` methods writing to tables that no longer exist. These must be deleted and replaced with 20 new methods for consolidated tables.
+The `python_database.py` file contained **149** `add_python_*` methods writing to tables that no longer exist.
 
-### Additional Requirements Identified:
+**Resolution (2025-11-25):**
+- Purged 141 zombie methods (1,655 lines deleted)
+- Removed dead `add_python_blueprint` method (table doesn't exist)
+- Added 20 new consolidated methods
+- Final state: 28 methods for 28 tables
 
-1. **Database Mixin Methods:** 20 new `add_python_*` methods required
-2. **Flush Order Update:** 20 new tables must be added to `base_database.py` flush_order
-3. **Zombie Cleanup:** ~100 old methods must be deleted
+### Implementation Status (2025-11-25):
+
+| Phase | Component | Status |
+|-------|-----------|--------|
+| 1 | Schema (28 tables) | DONE |
+| 1 | Database Mixin (28 methods) | DONE |
+| 1 | Flush Order (28 tables) | DONE |
+| 1 | Zombie Cleanup (141 deleted) | DONE |
+| 2 | Storage Handlers (27 handlers) | DONE |
+| 3 | python_impl.py Rewiring | DONE |
+| 4 | Codegen Regeneration | DONE |
+| 5 | Full Pipeline Verification | DONE |
 
 ---
 
@@ -74,18 +88,19 @@ The system SHALL map all extractor outputs to consolidated tables via `python_im
 - **WHEN** `aud full` completes on a Python project
 - **THEN** all extractor outputs are stored in one of the 28 Python tables (8 kept + 20 new consolidated)
 
-### Requirement: Storage Handlers for Consolidated Tables
+### Requirement: Storage Handlers for Consolidated Tables - VERIFIED
 
 The system SHALL provide storage handlers for each consolidated table in `python_storage.py`.
 
-#### Scenario: Handler stores discriminated data
+#### Scenario: Handler stores discriminated data - IMPLEMENTED
 - **WHEN** `python_loops` data is passed to storage
 - **THEN** the handler calls `db_manager.add_python_loop(...)` for each record
 - **AND** rows contain file, line, loop_type, and domain-specific columns
 
-#### Scenario: Handler count matches table count
+#### Scenario: Handler count matches table count - VERIFIED
 - **WHEN** PythonStorage is instantiated
 - **THEN** `len(ps.handlers) == 27` (7 original + 20 new)
+- **VERIFIED (2025-11-25):** `Python handlers: 27 (expect 27)`
 
 ## MODIFIED Requirements
 
