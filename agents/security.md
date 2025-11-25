@@ -65,11 +65,11 @@
 
 ---
 
-## PHASE 2: Run Existing Security Analysis
+## PHASE 2: Query Existing Analysis Results
 
-**Description:** Query existing findings for baseline vulnerability count.
+**Description:** Query existing findings from database (already computed by `aud full`).
 
-**Success Criteria:** Baseline established. High-priority areas identified.
+**Success Criteria:** Baseline established from DB. Taint and boundary summaries retrieved. No re-running slow analysis.
 
 ### T2.1: Query Security Rules
 - `aud context --security-rules` (if available)
@@ -77,22 +77,31 @@
 - Identify top 5 files with most findings
 - **Audit:** Security rules queried
 
-### T2.2: Run Taint Analysis
-- `aud taint-analyze` (if available)
-- Extract source → sink paths
-- Count unsanitized paths
-- **Audit:** Taint analysis ran
+### T2.2: Query Taint Summary
+- `aud blueprint --taint` (reads from DB, does NOT re-run analysis)
+- Extract: taint sources, sinks, path count
+- Note cross-function flows
+- **Audit:** Taint summary retrieved
 
-### T2.3: Compile Baseline
+### T2.3: Query Boundary Distances
+- `aud boundaries --type input-validation --format json`
+- Extract: quality levels (clear/acceptable/fuzzy/missing)
+- Note entries with distance 3+ (late validation)
+- Note entries with missing controls
+- **Audit:** Boundary distances measured
+
+### T2.4: Compile Baseline
 - Summarize counts (e.g., "12 XSS, 3 SQL injection, 5 CSRF")
+- Summarize taint (e.g., "47 sources, 12 vulnerable paths")
+- Summarize boundaries (e.g., "8 missing validation, 3 late validation")
 - Note files with highest density
-- Identify most common type
 - **Audit:** Baseline compiled
 
-### T2.4: Phase 2 Audit
-- Verify findings retrieved
+### T2.5: Phase 2 Audit
+- Verify findings retrieved from database
+- Confirm taint summary retrieved (not re-run)
+- Confirm boundary distances measured
 - Confirm baseline established (counts by type)
-- Confirm high-priority files identified
 - **Audit:** Baseline security posture documented
 
 ---
