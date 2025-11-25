@@ -51,19 +51,29 @@ def create_user(request):           # ← Entry point
 
 ## Architecture Overview
 
+**UPDATED 2025-11-25**: distance.py now uses XGraphAnalyzer + graphs.db (the "Ferrari")
+instead of BFS over function_call_args. This enables boundaries to see through
+middleware/decorator connections via InterceptorStrategy virtual edges.
+
 ```
 theauditor/boundaries/
 ├── __init__.py                          # Public API
-├── distance.py                          # Core BFS distance calculator
+├── distance.py                          # Distance calculator (uses graphs.db!)
 ├── boundary_analyzer.py                 # Entry → validation distance
 └── TAINT_TEAM_HANDOFF.md               # ← You are here
+
+theauditor/graph/
+├── store.py                             # XGraphStore - loads from graphs.db
+├── analyzer.py                          # XGraphAnalyzer - pathfinding algorithms
+└── strategies/interceptors.py           # InterceptorStrategy - creates middleware edges
 ```
 
 ### Key Functions
 
 **1. `calculate_distance(db_path, entry_file, entry_line, control_file, control_line) -> Optional[int]`**
 
-Calculates call-chain distance between two points using BFS on `function_call_args` table.
+Calculates call-chain distance between two points using XGraphAnalyzer on `graphs.db`.
+Now sees interceptor/middleware edges! Falls back to repo_index.db if graphs.db unavailable.
 
 ```python
 from theauditor.boundaries.distance import calculate_distance
@@ -126,7 +136,10 @@ quality = measure_boundary_quality(controls)
 
 ## Database Schema
 
-Boundary analysis uses these existing tables:
+**Primary**: graphs.db (XGraphStore) - contains call graph with interceptor edges
+**Fallback**: repo_index.db - used for symbol resolution and when graphs.db unavailable
+
+Boundary analysis uses these tables:
 
 ### 1. `symbols` (Function Definitions)
 ```sql
