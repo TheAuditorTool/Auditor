@@ -20,12 +20,13 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--graph", is_flag=True, help="Drill down into import/call graph analysis")
 @click.option("--security", is_flag=True, help="Drill down into security surface details")
 @click.option("--taint", is_flag=True, help="Drill down into taint analysis details")
+@click.option("--deps", is_flag=True, help="Drill down into dependency analysis (packages, versions)")
 @click.option("--all", is_flag=True, help="Export all data to JSON (ignores other flags)")
 @click.option("--format", "output_format", default="text",
               type=click.Choice(['text', 'json']),
               help="Output format: text (visual tree), json (structured)")
 @handle_exceptions
-def blueprint(structure, graph, security, taint, all, output_format):
+def blueprint(structure, graph, security, taint, deps, all, output_format):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
     Truth-courier mode visualization that presents pure architectural facts extracted from
@@ -133,6 +134,7 @@ def blueprint(structure, graph, security, taint, all, output_format):
             'graph': graph,
             'security': security,
             'taint': taint,
+            'deps': deps,
             'all': all,
         }
 
@@ -153,6 +155,8 @@ def blueprint(structure, graph, security, taint, all, output_format):
             _show_security_drilldown(data, cursor)
         elif taint:
             _show_taint_drilldown(data, cursor)
+        elif deps:
+            _show_deps_drilldown(data, cursor)
         else:
             # Default: Top-level overview with tree structure
             if output_format == 'json':
@@ -191,7 +195,7 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
 
     # No specific flag = overview mode (need basics for top-level display)
     no_drilldown = not any([flags.get('structure'), flags.get('graph'),
-                           flags.get('security'), flags.get('taint')])
+                           flags.get('security'), flags.get('taint'), flags.get('deps')])
 
     # 1. Codebase Structure - always needed (fast)
     data['structure'] = _get_structure(cursor)
@@ -239,6 +243,12 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: Dict) -> Dict:
 
     # 8. Performance - always useful (fast)
     data['performance'] = _get_performance(cursor, Path.cwd() / ".pf" / "repo_index.db")
+
+    # 9. Dependencies - only for --deps, --all, or overview
+    if run_all or flags.get('deps') or no_drilldown:
+        data['dependencies'] = _get_dependencies(cursor)
+    else:
+        data['dependencies'] = {'total': 0, 'by_manager': {}, 'packages': []}
 
     return data
 
@@ -1300,10 +1310,182 @@ def _show_taint_drilldown(data: Dict, cursor):
 
     # Cross-References
     click.echo("\nCross-Reference Commands:")
-    click.echo("  → Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
-    click.echo("  → Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
-    click.echo("  -> Use '.pf/raw/taint_analysis.json' for complete vulnerability analysis")
-    click.echo("  → Use 'aud taint-analyze --json' to re-run analysis with fresh data")
+    click.echo("  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
+    click.echo("  -> Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
+    click.echo("  -> Use 'aud taint-analyze --json' to re-run analysis with fresh data")
 
     # Note: conn is managed by main blueprint() function - no close here
+    click.echo("\n" + "=" * 80 + "\n")
+
+
+def _get_dependencies(cursor) -> Dict:
+    """Get dependency facts from package_configs and python_package_configs tables.
+
+    Queries DATABASE (source of truth), not JSON files.
+    """
+    deps = {
+        'total': 0,
+        'by_manager': {},
+        'packages': [],
+        'workspaces': [],
+    }
+
+    # Get npm/yarn packages from package_configs
+    try:
+        cursor.execute("""
+            SELECT file_path, package_name, version, dependencies, dev_dependencies
+            FROM package_configs
+        """)
+        for row in cursor.fetchall():
+            file_path = row['file_path']
+            pkg_name = row['package_name']
+            version = row['version']
+
+            # Parse dependencies JSON
+            prod_deps = json.loads(row['dependencies']) if row['dependencies'] else {}
+            dev_deps = json.loads(row['dev_dependencies']) if row['dev_dependencies'] else {}
+
+            workspace = {
+                'file': file_path,
+                'name': pkg_name,
+                'version': version,
+                'manager': 'npm',
+                'prod_count': len(prod_deps),
+                'dev_count': len(dev_deps),
+                'prod_deps': prod_deps,
+                'dev_deps': dev_deps,
+            }
+            deps['workspaces'].append(workspace)
+
+            # Aggregate counts
+            deps['by_manager']['npm'] = deps['by_manager'].get('npm', 0) + len(prod_deps) + len(dev_deps)
+            deps['total'] += len(prod_deps) + len(dev_deps)
+
+            # Add to flat package list
+            for name, ver in prod_deps.items():
+                deps['packages'].append({'name': name, 'version': ver, 'manager': 'npm', 'dev': False})
+            for name, ver in dev_deps.items():
+                deps['packages'].append({'name': name, 'version': ver, 'manager': 'npm', 'dev': True})
+    except Exception:
+        pass
+
+    # Get pip/poetry packages from python_package_configs
+    try:
+        cursor.execute("""
+            SELECT file_path, project_name, project_version, dependencies, optional_dependencies
+            FROM python_package_configs
+        """)
+        for row in cursor.fetchall():
+            file_path = row['file_path']
+            pkg_name = row['project_name']
+            version = row['project_version']
+
+            # Parse dependencies JSON (list format for Python)
+            prod_deps_raw = json.loads(row['dependencies']) if row['dependencies'] else []
+            opt_deps_raw = json.loads(row['optional_dependencies']) if row['optional_dependencies'] else {}
+
+            # Flatten optional deps
+            dev_deps = []
+            if isinstance(opt_deps_raw, dict):
+                for group_name, group_deps in opt_deps_raw.items():
+                    if isinstance(group_deps, list):
+                        dev_deps.extend(group_deps)
+
+            workspace = {
+                'file': file_path,
+                'name': pkg_name,
+                'version': version,
+                'manager': 'pip',
+                'prod_count': len(prod_deps_raw),
+                'dev_count': len(dev_deps),
+            }
+            deps['workspaces'].append(workspace)
+
+            # Aggregate counts
+            deps['by_manager']['pip'] = deps['by_manager'].get('pip', 0) + len(prod_deps_raw) + len(dev_deps)
+            deps['total'] += len(prod_deps_raw) + len(dev_deps)
+
+            # Add to flat package list
+            for dep in prod_deps_raw:
+                if isinstance(dep, dict):
+                    deps['packages'].append({'name': dep.get('name', ''), 'version': dep.get('version', ''), 'manager': 'pip', 'dev': False})
+            for dep in dev_deps:
+                if isinstance(dep, dict):
+                    deps['packages'].append({'name': dep.get('name', ''), 'version': dep.get('version', ''), 'manager': 'pip', 'dev': True})
+    except Exception:
+        pass
+
+    return deps
+
+
+def _show_deps_drilldown(data: Dict, cursor):
+    """Drill down: Dependency analysis - packages, versions, managers.
+
+    Args:
+        data: Blueprint data dict from _gather_all_data
+        cursor: Database cursor (passed from main function - dependency injection)
+    """
+    deps = data.get('dependencies', {})
+
+    click.echo("\nDEPS DRILL-DOWN")
+    click.echo("=" * 80)
+    click.echo("Dependency Analysis: What packages? What versions? What managers?")
+    click.echo("=" * 80)
+
+    if deps['total'] == 0:
+        click.echo("\n(!) No dependencies found in database")
+        click.echo("  Run: aud full (indexes package.json, pyproject.toml, requirements.txt)")
+        click.echo("\n" + "=" * 80 + "\n")
+        return
+
+    # Summary
+    click.echo(f"\nTotal Dependencies: {deps['total']}")
+    click.echo("\nBy Package Manager:")
+    for manager, count in sorted(deps['by_manager'].items(), key=lambda x: -x[1]):
+        click.echo(f"  {manager}: {count} packages")
+
+    # Workspaces/Projects
+    click.echo("\nProjects/Workspaces:")
+    for ws in deps['workspaces']:
+        click.echo(f"\n  {ws['file']}")
+        click.echo(f"    Name: {ws['name'] or '(unnamed)'}")
+        click.echo(f"    Version: {ws['version'] or '(no version)'}")
+        click.echo(f"    Manager: {ws['manager']}")
+        click.echo(f"    Production deps: {ws['prod_count']}")
+        click.echo(f"    Dev deps: {ws['dev_count']}")
+
+        # Show top 5 prod deps if available
+        if ws.get('prod_deps'):
+            click.echo("    Top dependencies:")
+            for i, (name, ver) in enumerate(list(ws['prod_deps'].items())[:5]):
+                click.echo(f"      - {name}: {ver}")
+            if len(ws['prod_deps']) > 5:
+                click.echo(f"      ... and {len(ws['prod_deps']) - 5} more")
+
+    # Check for outdated info
+    click.echo("\nOutdated Package Check:")
+    try:
+        cursor.execute("SELECT COUNT(*) FROM dependency_versions WHERE is_outdated = 1")
+        outdated_count = cursor.fetchone()[0]
+        if outdated_count > 0:
+            click.echo(f"  (!) {outdated_count} outdated packages detected")
+            cursor.execute("""
+                SELECT package_name, locked_version, latest_version, manager
+                FROM dependency_versions
+                WHERE is_outdated = 1
+                LIMIT 10
+            """)
+            for row in cursor.fetchall():
+                click.echo(f"    {row['package_name']}: {row['locked_version']} -> {row['latest_version']} ({row['manager']})")
+        else:
+            click.echo("  (No outdated package data - run 'aud deps --check-latest')")
+    except Exception:
+        click.echo("  (No version check data - run 'aud deps --check-latest')")
+
+    # Cross-References
+    click.echo("\nRelated Commands:")
+    click.echo("  -> aud deps --check-latest   # Check for outdated packages")
+    click.echo("  -> aud deps --vuln-scan      # Scan for CVEs (OSV-Scanner)")
+    click.echo("  -> aud deps --upgrade-all    # YOLO mode: upgrade everything")
+
     click.echo("\n" + "=" * 80 + "\n")
