@@ -48,6 +48,7 @@
 | Architectural precedents | `aud blueprint --structure` | Find split patterns |
 | Framework detection | `aud blueprint --structure` | Detect zod, SQLAlchemy |
 | Refactor history | `aud blueprint --structure` | Check risk levels |
+| Dependency info | `aud blueprint --deps` | Packages, versions, managers |
 | Function list | `aud query --file X --list functions` | Get functions |
 | Class list | `aud query --file X --list classes` | Get classes |
 | Symbol info | `aud query --symbol X` | Get definition |

@@ -35,6 +35,7 @@ Every recommendation cites a database query. No exceptions.
 | Need | Command |
 |------|---------|
 | Project structure, conventions, frameworks | `aud blueprint --structure` |
+| Dependency info (packages, versions) | `aud blueprint --deps` |
 | Large files (>2150 lines) | `aud structure --monoliths` |
 | List symbols in file | `aud query --file X --list all` |
 | Who calls this? | `aud query --symbol X --show-callers` |
