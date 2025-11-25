@@ -7,7 +7,7 @@ avoiding repeated parsing of unchanged files.
 
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 class ASTCache:

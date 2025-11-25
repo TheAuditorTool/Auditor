@@ -3,7 +3,7 @@
 
 import json
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal
 
 
 AgentType = Literal['claude-code', 'codex', 'unknown']
