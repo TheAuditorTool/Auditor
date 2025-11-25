@@ -98,7 +98,10 @@ def run_repository_index(
     db_exists = db_file.exists()
 
     # Initialize Schema
-    conn = sqlite3.connect(str(db_file))
+    # WAL mode + timeout for parallel track concurrency (Side Quest fix 2025-11-25)
+    conn = sqlite3.connect(str(db_file), timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("BEGIN IMMEDIATE")
     create_database_schema(conn)
     conn.commit()

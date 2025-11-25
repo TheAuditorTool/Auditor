@@ -151,7 +151,8 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
     """
     import sqlite3
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
 
     try:
@@ -236,7 +237,8 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
     """
     import sqlite3
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
 
     try:
@@ -904,7 +906,8 @@ def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
     if not db_path.exists():
         return {}
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
 
     try:
@@ -957,7 +960,8 @@ def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> 
         # Create .pf directory and database for standalone usage
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
     cursor = conn.cursor()
 
     # Create table if it doesn't exist (schema contract)

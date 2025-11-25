@@ -11,7 +11,7 @@ The actual table definitions have been split into:
 - schemas/core_schema.py (21 tables - language-agnostic core patterns)
 - schemas/security_schema.py (5 tables - cross-language security patterns)
 - schemas/frameworks_schema.py (5 tables - cross-language framework patterns)
-- schemas/python_schema.py (34 tables - Python-specific patterns)
+- schemas/python_schema.py (8 tables - Python-specific patterns with verified consumers)
 - schemas/node_schema.py (17 tables - Node/React/Vue/TypeScript)
 - schemas/infrastructure_schema.py (18 tables - Docker/Terraform/CDK/GitHub Actions)
 - schemas/planning_schema.py (5 tables - Planning/meta-system)
@@ -71,20 +71,19 @@ TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
     **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
-    **PYTHON_TABLES,         # 59 tables (5 basic + 54 advanced Python patterns)
+    **PYTHON_TABLES,         # 8 tables (Python-specific with verified consumers)
     **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
     **PLANNING_TABLES,       # 9 tables (Planning/meta-system + refactor candidates + Eric's Framework)
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 250 tables (180 base + 68 Python Coverage V2 + 2 deps)
-#   - 180 base: 164 + 4 exception flow + 5 data flow + 4 behavioral + 3 performance = Causal Learning COMPLETE
-#   - 68 Python Coverage V2: 8 fundamentals + 6 operators + 8 collections + 18 advanced (10 class features + 8 stdlib patterns) + 20 Week 5-6 (10 control flow + 10 protocol) + 8 Advanced
-#   - 2 deps tables: python_package_configs, dependency_versions (version cache)
+# Total: 109 tables (after 2025-11-25 orphan table consolidation)
+#   - 24 core + 7 security + 5 frameworks + 8 python + 26 node + 18 infrastructure + 9 planning + 8 graphql
+#   - 141 orphan Python tables deleted (see openspec change 'consolidate-python-orphan-tables')
 
 # Verify table count at module load time
-assert len(TABLES) == 250, f"Schema contract violation: Expected 250 tables, got {len(TABLES)}"
+assert len(TABLES) == 109, f"Schema contract violation: Expected 109 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -142,59 +141,27 @@ API_ENDPOINTS = TABLES['api_endpoints']
 API_ENDPOINT_CONTROLS = TABLES['api_endpoint_controls']
 
 # -------------------------
-# PYTHON TABLES (34 tables from schemas/python_schema.py)
+# PYTHON TABLES (8 tables from schemas/python_schema.py)
 # -------------------------
-# Flask/FastAPI/Django ORM
+# ORM - consumers: overfetch.py, discovery.py, schema_cache_adapter.py
 PYTHON_ORM_MODELS = TABLES['python_orm_models']
 PYTHON_ORM_FIELDS = TABLES['python_orm_fields']
+
+# Routes - consumers: boundary_analyzer.py, deadcode_graph.py, query.py
 PYTHON_ROUTES = TABLES['python_routes']
-PYTHON_BLUEPRINTS = TABLES['python_blueprints']
+
+# Validators - consumers: discovery.py (via SchemaMemoryCache)
 PYTHON_VALIDATORS = TABLES['python_validators']
 
-# Python language features
+# Package configs - consumers: deps.py, blueprint.py
+PYTHON_PACKAGE_CONFIGS = TABLES['python_package_configs']
+
+# Decorators - consumers: interceptors.py, deadcode_graph.py, query.py
 PYTHON_DECORATORS = TABLES['python_decorators']
-PYTHON_CONTEXT_MANAGERS = TABLES['python_context_managers']
-PYTHON_ASYNC_FUNCTIONS = TABLES['python_async_functions']
-PYTHON_AWAIT_EXPRESSIONS = TABLES['python_await_expressions']
-PYTHON_ASYNC_GENERATORS = TABLES['python_async_generators']
-PYTHON_GENERATORS = TABLES['python_generators']
 
-# Pytest patterns
-PYTHON_PYTEST_FIXTURES = TABLES['python_pytest_fixtures']
-PYTHON_PYTEST_PARAMETRIZE = TABLES['python_pytest_parametrize']
-PYTHON_PYTEST_MARKERS = TABLES['python_pytest_markers']
-PYTHON_MOCK_PATTERNS = TABLES['python_mock_patterns']
-
-# Type system
-PYTHON_PROTOCOLS = TABLES['python_protocols']
-PYTHON_GENERICS = TABLES['python_generics']
-PYTHON_TYPED_DICTS = TABLES['python_typed_dicts']
-PYTHON_LITERALS = TABLES['python_literals']
-PYTHON_OVERLOADS = TABLES['python_overloads']
-
-# Django framework
+# Django - consumers: interceptors.py
 PYTHON_DJANGO_VIEWS = TABLES['python_django_views']
-PYTHON_DJANGO_FORMS = TABLES['python_django_forms']
-PYTHON_DJANGO_FORM_FIELDS = TABLES['python_django_form_fields']
-PYTHON_DJANGO_ADMIN = TABLES['python_django_admin']
 PYTHON_DJANGO_MIDDLEWARE = TABLES['python_django_middleware']
-
-# Marshmallow framework
-PYTHON_MARSHMALLOW_SCHEMAS = TABLES['python_marshmallow_schemas']
-PYTHON_MARSHMALLOW_FIELDS = TABLES['python_marshmallow_fields']
-
-# Django REST Framework
-PYTHON_DRF_SERIALIZERS = TABLES['python_drf_serializers']
-PYTHON_DRF_SERIALIZER_FIELDS = TABLES['python_drf_serializer_fields']
-
-# WTForms framework
-PYTHON_WTFORMS_FORMS = TABLES['python_wtforms_forms']
-PYTHON_WTFORMS_FIELDS = TABLES['python_wtforms_fields']
-
-# Celery framework
-PYTHON_CELERY_TASKS = TABLES['python_celery_tasks']
-PYTHON_CELERY_TASK_CALLS = TABLES['python_celery_task_calls']
-PYTHON_CELERY_BEAT_SCHEDULES = TABLES['python_celery_beat_schedules']
 
 # -------------------------
 # NODE TABLES (17 tables from schemas/node_schema.py)

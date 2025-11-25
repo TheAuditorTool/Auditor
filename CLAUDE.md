@@ -215,7 +215,7 @@ TheAuditor is an offline-first, AI-centric SAST (Static Application Security Tes
 **repo_index.db (181MB)**: Raw extracted facts from AST parsing - symbols, calls, assignments, etc.
 - Updated: Every `aud full` (regenerated fresh during indexing phase)
 - Used by: Everything (rules, taint, FCE, context queries)
-- Tables: 251 normalized tables across 8 schema domains
+- Tables: 109 normalized tables across 8 schema domains (Python: 8, Node: 29, Core: 24, others)
 
 **graphs.db (126MB)**: Pre-computed graph structures built FROM repo_index.db
 - Updated: During `aud full` via `aud graph build` phase (automatic)

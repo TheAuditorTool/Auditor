@@ -55,7 +55,10 @@ class BaseDatabaseManager:
             batch_size: Size of batches for insert operations
         """
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        # WAL mode + timeout for parallel track concurrency (Side Quest fix 2025-11-25)
+        self.conn = sqlite3.connect(db_path, timeout=60)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
 
         # Validate and set batch size
         if batch_size <= 0:
