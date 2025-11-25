@@ -191,13 +191,7 @@ class JSSemanticParser:
         for sandbox_base in sandbox_locations:
             if not sandbox_base.exists():
                 continue
-                
-            # Check for TypeScript in sandbox
-            tsc_paths = [
-                sandbox_base / ".bin" / "tsc",
-                sandbox_base / ".bin" / "tsc.cmd",  # Windows
-            ]
-            
+
             # Also check for the actual TypeScript compiler JS file
             tsc_js_path = sandbox_base / "typescript" / "lib" / "tsc.js"
             

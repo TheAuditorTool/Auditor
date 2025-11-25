@@ -217,7 +217,6 @@ def summary(root, raw_dir, out):
 
     # Phase 9-10: Graph analysis
     graph_analysis = load_json(raw_path / "graph_analysis.json")
-    graph_metrics = load_json(raw_path / "graph_metrics.json")
     if graph_analysis:
         summary_data = graph_analysis.get("summary", {})
         audit_summary["metrics_by_phase"]["graph"] = {

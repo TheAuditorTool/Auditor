@@ -43,9 +43,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional
-
-from ..base import get_node_name
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -121,22 +119,9 @@ def extract_operators(context: FileContext) -> list[dict[str, Any]]:
         ast.FloorDiv: '//', ast.Mod: '%', ast.Pow: '**', ast.MatMult: '@',
     }
 
-    comparison_ops = {
-        ast.Lt: '<', ast.Gt: '>', ast.LtE: '<=', ast.GtE: '>=',
-        ast.Eq: '==', ast.NotEq: '!=', ast.Is: 'is', ast.IsNot: 'is not',
-    }
-
-    logical_ops = {
-        ast.And: 'and', ast.Or: 'or',
-    }
-
     bitwise_ops = {
         ast.BitAnd: '&', ast.BitOr: '|', ast.BitXor: '^',
         ast.LShift: '<<', ast.RShift: '>>',
-    }
-
-    unary_ops = {
-        ast.Not: 'not', ast.UAdd: '+', ast.USub: '-', ast.Invert: '~',
     }
 
     for node in context.find_nodes(ast.BinOp):

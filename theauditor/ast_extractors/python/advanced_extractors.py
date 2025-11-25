@@ -18,7 +18,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 import ast
-from typing import Dict, List, Any
+from typing import Any
 
 
 # ============================================================================

@@ -178,7 +178,6 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
             # Token percentage of Claude's context
             # Claude has 200k context, but practical limit is ~160k for user content
             # (leaving room for system prompts, conversation history, response)
-            claude_total_context = 200000  # Total context window
             claude_usable_context = 160000  # Practical limit for user content
             token_percent = (total_tokens / claude_usable_context * 100) if total_tokens > 0 else 0
             

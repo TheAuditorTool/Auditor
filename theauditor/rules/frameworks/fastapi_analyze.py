@@ -8,8 +8,6 @@ This replaces fastapi_analyzer.py with a faster, cleaner implementation.
 
 
 import sqlite3
-from typing import List
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 from theauditor.indexer.schema import build_query

@@ -14,9 +14,6 @@ This implementation:
 
 
 import sqlite3
-from typing import List, Set, Dict, Optional, Tuple
-from pathlib import Path
-from enum import Enum
 
 from theauditor.rules.base import (
     StandardRuleContext,

@@ -64,9 +64,6 @@ class AWSCdkAnalyzer:
         Returns:
             List of CdkFinding objects
         """
-        # Build rule context
-        context = self._build_rule_context()
-
         # Get orchestrator and run CDK rules
         project_root = self.db_path.parent
         if project_root.name == ".pf":

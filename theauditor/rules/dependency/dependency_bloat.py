@@ -73,8 +73,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 except json.JSONDecodeError:
                     pass
 
-            total_count = prod_count + dev_count
-
             # Check production dependencies
             if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:
                 findings.append(StandardFinding(

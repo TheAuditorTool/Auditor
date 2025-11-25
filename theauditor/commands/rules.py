@@ -244,7 +244,7 @@ def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
                         if pattern_names:
                             results[category][file] = pattern_names
 
-                except (yaml.YAMLError, OSError) as e:
+                except (yaml.YAMLError, OSError):
                     # Skip files that can't be parsed
                     continue
 

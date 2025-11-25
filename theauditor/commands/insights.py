@@ -513,7 +513,6 @@ def print_insights_summary(summary: Dict[str, Any]) -> None:
     if "taint" in summary:
         if summary["taint"]["status"] == "success":
             risk = summary["taint"].get("risk_level", "unknown")
-            color = "red" if risk == "critical" else "yellow" if risk == "high" else "green"
             click.echo(f"\n[TAINT] Security Risk:")
             click.echo(f"  • Risk level: {risk.upper()}")
         else:

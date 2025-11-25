@@ -19,7 +19,7 @@ This is a deliberate architectural decision to maintain extraction purity.
 
 
 import ast
-from typing import Any, List, Optional
+from typing import Any
 from pathlib import Path
 
 

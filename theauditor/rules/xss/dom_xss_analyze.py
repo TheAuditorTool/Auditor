@@ -99,7 +99,6 @@ def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
 
     try:
         # Run checks that require function_call_args or assignments

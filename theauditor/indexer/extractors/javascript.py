@@ -100,7 +100,6 @@ class JavaScriptExtractor(BaseExtractor):
         # If batch processing provided extracted_data, use it directly
         # CRITICAL FIX: Check TOP-LEVEL tree dict first (batch results),
         # then fallback to nested tree (individual file parsing)
-        used_phase5_symbols = False  # Track if we used pre-extracted symbols
         if isinstance(tree, dict):
             # Try top-level first (batch results have extracted_data at same level as "tree")
             extracted_data = tree.get("extracted_data")
@@ -112,8 +111,6 @@ class JavaScriptExtractor(BaseExtractor):
                     extracted_data = actual_tree.get("extracted_data")
 
             if extracted_data and isinstance(extracted_data, dict):
-                used_phase5_symbols = True  # Mark that we're using Phase 5 data
-
                 # DEBUG: Log Phase 5 data usage
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] {file_info['path']}: Using Phase 5 extracted_data")

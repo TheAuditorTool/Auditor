@@ -587,9 +587,6 @@ def trace_frontend_to_backend(
 
     if not backend_match:
         # Try pattern matching (e.g., /api/users/* matches /api/users/:id)
-        # Convert URL to SQL LIKE pattern
-        like_pattern = url_path.replace('*', '%')
-
         cursor.execute("""
             SELECT file, line, method, pattern
             FROM api_endpoints

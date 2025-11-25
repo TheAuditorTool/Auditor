@@ -10,7 +10,6 @@ cleanup detection, and component boundaries from the database.
 
 import sqlite3
 import json
-from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -431,14 +430,12 @@ class ReactHooksAnalyzer:
     def _has_order_issue(self, hooks: list[tuple]) -> bool:
         """Check if hooks have order issues."""
         # Simplified check: state hooks should come before effect hooks
-        state_seen = False
         effect_seen = False
 
         for hook, _ in hooks:
             if hook in ['useState', 'useReducer', 'useRef']:
                 if effect_seen:
                     return True  # State hook after effect
-                state_seen = True
             elif hook in ['useEffect', 'useLayoutEffect']:
                 effect_seen = True
 

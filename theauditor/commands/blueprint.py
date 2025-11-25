@@ -1256,7 +1256,6 @@ def _show_taint_drilldown(data: Dict, cursor):
         taint_findings = cursor.fetchall()
         if taint_findings:
             for i, finding in enumerate(taint_findings, 1):
-                rule = finding['rule'] or 'taint'
                 category = finding['category'] or 'unknown'
                 file = finding['file']
                 line = finding['line']

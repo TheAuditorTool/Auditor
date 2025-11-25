@@ -541,8 +541,6 @@ class TaintDiscovery:
         Returns:
             Risk level: 'critical', 'high', 'medium', or 'low'
         """
-        query_lower = query_text.lower()
-
         # Critical: String concatenation with user input
         if any(op in query_text for op in ['+', '${', 'f"', "f'", '`${', '".', "'."]):
             return 'critical'

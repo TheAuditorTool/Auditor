@@ -25,9 +25,8 @@ by providing O(1) line-to-function lookups for accurate scope resolution.
 """
 
 
-import os
 import sys
-from typing import Any, List, Dict, Optional
+from typing import Any
 
 
 def _strip_comment_prefix(text: str | None) -> str:
@@ -643,7 +642,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
             "type": "function",
             "kind": kind,
         }
-        base_name_for_enrichment = ""
 
         # Pattern 1: Standard FunctionDeclaration
         if kind == "FunctionDeclaration":
@@ -654,7 +652,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
                     func_name = child.get("text", "")
                     break
-            base_name_for_enrichment = func_name
 
         # Pattern 2: MethodDeclaration (class methods)
         elif kind == "MethodDeclaration":
@@ -665,7 +662,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
                     method_name = child.get("text", "")
                     break
-            base_name_for_enrichment = method_name
             func_name = f"{class_stack[-1]}.{method_name}" if class_stack else method_name
 
         # Pattern 3: PropertyDeclaration with ArrowFunction/FunctionExpression (CRITICAL FIX)
@@ -696,7 +692,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                         if isinstance(child, dict) and child.get("kind") == "Identifier":
                             prop_name = child.get("text", "")
                             break
-                    base_name_for_enrichment = prop_name
                     func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
 
         # Pattern 4: Constructor, GetAccessor, SetAccessor
@@ -711,7 +706,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
                         accessor_name = child.get("text", "")
                         break
-            base_name_for_enrichment = accessor_name
             prefix = ""
             if kind == "GetAccessor": prefix = "get "
             if kind == "SetAccessor": prefix = "set "

@@ -28,9 +28,6 @@ def lint_command(
     Returns:
         Dictionary with success status and statistics
     """
-    # AUTO-FIX DEPRECATED: Force disabled to prevent version mismatch issues
-    auto_fix = False
-
     # Load workset files if in workset mode
     workset_files = None
     if workset_path is not None:

@@ -148,14 +148,12 @@ class WorkflowChecker:
         Returns:
             True if query used appropriately, False otherwise
         """
-        query_run = False
-
         for call in sequence:
             # Check if query was run
             if call.tool_name == 'Bash':
                 command = call.input_params.get('command', '')
                 if 'aud query' in command or 'aud context' in command:
-                    query_run = True
+                    pass  # Query was run - noted but not acted upon yet
 
             # Check if edits happened
             if call.tool_name in ['Edit', 'Write']:

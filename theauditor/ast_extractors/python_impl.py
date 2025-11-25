@@ -58,7 +58,6 @@ from theauditor.ast_extractors.python import (
     # Specialized extractors
     cfg_extractor,
     cdk_extractor,
-    task_graphql_extractors,
 )
 
 
@@ -75,12 +74,6 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     Returns:
         Dictionary containing all extracted data, organized by table name
     """
-    import sys
-    # print(f"[PYTHON_IMPL ENTRY] extract_all_python_data() called", file=sys.stderr)
-    # print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
-    # print(f"[PYTHON_IMPL ENTRY] Context.tree: {type(context.tree) if hasattr(context, 'tree') else 'NO TREE'}", file=sys.stderr)
-    # print(f"[PYTHON_IMPL ENTRY] Context.file_path: {context.file_path if hasattr(context, 'file_path') else 'NO PATH'}", file=sys.stderr)
-
     result = {
         # Core language features
         'imports': [],

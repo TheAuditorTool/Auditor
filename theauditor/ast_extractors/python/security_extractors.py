@@ -25,7 +25,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..base import get_node_name
 
@@ -440,7 +440,6 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
         # Extract algorithm
         algorithm = None
         mode = None
-        key_size = None
 
         if 'AES' in func_name:
             algorithm = 'AES'

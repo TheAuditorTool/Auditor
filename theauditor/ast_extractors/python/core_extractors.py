@@ -23,7 +23,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 import ast
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..base import (
     get_node_name,
@@ -897,12 +897,7 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return generators
 
-    # Track which function we're currently in
-    current_function = None
-
     for node in context.find_nodes(ast.FunctionDef):
-        current_function = node.name
-
         # Check if function is a generator (contains yield)
         has_yield = False
         has_yield_from = False

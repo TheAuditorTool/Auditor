@@ -46,7 +46,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 import ast
 import logging
 import os
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from ..base import get_node_name
 
@@ -480,7 +480,6 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
         analyzed_functions.add(node)
 
         func_name = node.name if hasattr(node, 'name') else f'lambda_{node.lineno}'
-        is_lambda = isinstance(node, ast.Lambda)
 
         # Track this function's hierarchy
         function_hierarchy[func_name] = parent_func
@@ -801,7 +800,6 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
     # Walk entire tree looking for conditionals
     for node in context.find_nodes(ast.If):
         condition = get_condition_expr(node.test)
-        in_function = get_function_name(node.lineno)
 
         # Check for guard clause pattern (early return)
         is_guard = False

@@ -19,8 +19,6 @@ Detects:
 
 
 import sqlite3
-import json
-from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata

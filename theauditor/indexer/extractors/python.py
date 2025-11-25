@@ -84,8 +84,8 @@ class PythonExtractor(BaseExtractor):
                 try:
                     context = build_file_context(actual_tree, content, str(file_info['path']))
                     # print(f"[PYTHON.PY BUILD] ✓ Context built successfully", file=sys.stderr)
-                except Exception as e:
-                    # print(f"[PYTHON.PY BUILD] ✗ build_file_context FAILED: {e}", file=sys.stderr)
+                except Exception:
+                    # print(f"[PYTHON.PY BUILD] ✗ build_file_context FAILED", file=sys.stderr)
                     import traceback
                     traceback.print_exc(file=sys.stderr)
             # else:

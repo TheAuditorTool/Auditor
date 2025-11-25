@@ -433,7 +433,6 @@ def _find_direct_dom_manipulation(cursor, vue_files: set[str]) -> list[StandardF
     findings = []
 
     dom_ops = list(EXPENSIVE_DOM_OPS)
-    ops_placeholders = ','.join('?' * len(dom_ops))
     file_placeholders = ','.join('?' * len(vue_files))
 
     cursor.execute(f"""

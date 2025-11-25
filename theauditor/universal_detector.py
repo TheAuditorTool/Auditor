@@ -411,11 +411,6 @@ class UniversalPatternDetector:
         
         try:
             # Run database rules through orchestrator
-            context = RuleContext(
-                db_path=str(self.project_path / ".pf" / "repo_index.db"),
-                project_path=self.project_path
-            )
-            
             db_findings = self.orchestrator.run_database_rules()
             
             # Convert to Finding objects

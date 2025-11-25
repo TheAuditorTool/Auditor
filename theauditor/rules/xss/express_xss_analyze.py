@@ -71,7 +71,6 @@ def find_express_xss(context: StandardRuleContext) -> list[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
 
     try:
         # Only run if Express is detected

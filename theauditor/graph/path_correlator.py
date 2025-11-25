@@ -146,7 +146,6 @@ class PathCorrelator:
         if len(finding_blocks) > COMPLEXITY_THRESHOLD:
             # Algorithm selection: Use fast clustering for complex functions
             # This is NOT a fallback - it's choosing the right algorithm for input size
-            func_name = cfg.get('function_name', 'unknown')
             # Note: Explicit metadata in result distinguishes this from high-precision mode
             return self._fast_block_clustering(findings_to_blocks)
 
@@ -155,7 +154,6 @@ class PathCorrelator:
 
         # Build adjacency list for efficient graph traversal
         graph = self._build_cfg_graph(cfg)
-        blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
 
         # Check each pair of findings for path connectivity
         for i, block_a in enumerate(finding_blocks):
@@ -176,7 +174,6 @@ class PathCorrelator:
                 if path:
                     # Found a correlation - collect all findings on this path
                     findings_on_path = []
-                    path_blocks_set = set(path)
 
                     for block_id in path:
                         if block_id in findings_to_blocks:

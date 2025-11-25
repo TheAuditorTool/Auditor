@@ -128,9 +128,6 @@ from .framework_extractors import (
     extract_celery_tasks,
     extract_celery_task_calls,
     extract_celery_beat_schedules,
-    # Constants and helpers (for backward compatibility)
-    FASTAPI_HTTP_METHODS,
-    _extract_fastapi_dependencies,
 )
 
 from .flask_extractors import (
