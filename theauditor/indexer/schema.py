@@ -11,7 +11,7 @@ The actual table definitions have been split into:
 - schemas/core_schema.py (21 tables - language-agnostic core patterns)
 - schemas/security_schema.py (5 tables - cross-language security patterns)
 - schemas/frameworks_schema.py (5 tables - cross-language framework patterns)
-- schemas/python_schema.py (8 tables - Python-specific patterns with verified consumers)
+- schemas/python_schema.py (28 tables - Python-specific: 8 original + 20 consolidated)
 - schemas/node_schema.py (17 tables - Node/React/Vue/TypeScript)
 - schemas/infrastructure_schema.py (18 tables - Docker/Terraform/CDK/GitHub Actions)
 - schemas/planning_schema.py (5 tables - Planning/meta-system)
@@ -71,19 +71,19 @@ TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
     **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
-    **PYTHON_TABLES,         # 8 tables (Python-specific with verified consumers)
+    **PYTHON_TABLES,         # 28 tables (Python-specific: 8 original + 20 consolidated)
     **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
     **PLANNING_TABLES,       # 9 tables (Planning/meta-system + refactor candidates + Eric's Framework)
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 109 tables (after 2025-11-25 orphan table consolidation)
-#   - 24 core + 7 security + 5 frameworks + 8 python + 26 node + 18 infrastructure + 9 planning + 8 graphql
-#   - 141 orphan Python tables deleted (see openspec change 'consolidate-python-orphan-tables')
+# Total: 129 tables (after 2025-11-25 wire-extractors-to-consolidated-schema)
+#   - 24 core + 7 security + 5 frameworks + 28 python + 26 node + 18 infrastructure + 9 planning + 8 graphql
+#   - Python: 8 original + 20 consolidated (141 orphan tables deleted earlier)
 
 # Verify table count at module load time
-assert len(TABLES) == 109, f"Schema contract violation: Expected 109 tables, got {len(TABLES)}"
+assert len(TABLES) == 129, f"Schema contract violation: Expected 129 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -141,8 +141,9 @@ API_ENDPOINTS = TABLES['api_endpoints']
 API_ENDPOINT_CONTROLS = TABLES['api_endpoint_controls']
 
 # -------------------------
-# PYTHON TABLES (8 tables from schemas/python_schema.py)
+# PYTHON TABLES (28 tables from schemas/python_schema.py)
 # -------------------------
+# ORIGINAL TABLES (8 with verified consumers)
 # ORM - consumers: overfetch.py, discovery.py, schema_cache_adapter.py
 PYTHON_ORM_MODELS = TABLES['python_orm_models']
 PYTHON_ORM_FIELDS = TABLES['python_orm_fields']
@@ -162,6 +163,35 @@ PYTHON_DECORATORS = TABLES['python_decorators']
 # Django - consumers: interceptors.py
 PYTHON_DJANGO_VIEWS = TABLES['python_django_views']
 PYTHON_DJANGO_MIDDLEWARE = TABLES['python_django_middleware']
+
+# CONSOLIDATED TABLES (20 new - wire-extractors-to-consolidated-schema)
+# Group 1: Control & Data Flow
+PYTHON_LOOPS = TABLES['python_loops']
+PYTHON_BRANCHES = TABLES['python_branches']
+PYTHON_FUNCTIONS_ADVANCED = TABLES['python_functions_advanced']
+PYTHON_IO_OPERATIONS = TABLES['python_io_operations']
+PYTHON_STATE_MUTATIONS = TABLES['python_state_mutations']
+
+# Group 2: Object-Oriented & Types
+PYTHON_CLASS_FEATURES = TABLES['python_class_features']
+PYTHON_PROTOCOLS = TABLES['python_protocols']
+PYTHON_DESCRIPTORS = TABLES['python_descriptors']
+PYTHON_TYPE_DEFINITIONS = TABLES['python_type_definitions']
+PYTHON_LITERALS = TABLES['python_literals']
+
+# Group 3: Security & Testing
+PYTHON_SECURITY_FINDINGS = TABLES['python_security_findings']
+PYTHON_TEST_CASES = TABLES['python_test_cases']
+PYTHON_TEST_FIXTURES = TABLES['python_test_fixtures']
+PYTHON_FRAMEWORK_CONFIG = TABLES['python_framework_config']
+PYTHON_VALIDATION_SCHEMAS = TABLES['python_validation_schemas']
+
+# Group 4: Low-Level & Misc
+PYTHON_OPERATORS = TABLES['python_operators']
+PYTHON_COLLECTIONS = TABLES['python_collections']
+PYTHON_STDLIB_USAGE = TABLES['python_stdlib_usage']
+PYTHON_IMPORTS_ADVANCED = TABLES['python_imports_advanced']
+PYTHON_EXPRESSIONS = TABLES['python_expressions']
 
 # -------------------------
 # NODE TABLES (17 tables from schemas/node_schema.py)
