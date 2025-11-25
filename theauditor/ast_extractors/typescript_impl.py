@@ -35,7 +35,7 @@ CONSUMERS:
 
 import os
 import sys
-from typing import Any, List, Dict, Optional
+from typing import Any
 
 from .base import extract_vars_from_typescript_node  # Source variable extraction
 from .typescript_impl_structure import (
@@ -43,16 +43,6 @@ from .typescript_impl_structure import (
     _canonical_callee_from_call,  # Call name resolution
     _strip_comment_prefix,        # Text cleaning
     detect_jsx_in_node,          # JSX detection
-    # Re-export structural extractors for orchestrator backward compatibility
-    extract_typescript_functions,
-    extract_typescript_functions_for_symbols,
-    extract_typescript_function_nodes,
-    extract_typescript_classes,
-    extract_typescript_calls,
-    extract_typescript_imports,
-    extract_typescript_exports,
-    extract_typescript_properties,
-    extract_semantic_ast_symbols,
 )
 
 def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, Any]]:
@@ -522,11 +512,9 @@ def extract_typescript_calls_with_args(tree: dict, function_params: dict[str, li
                 children = node.get("children", [])
                 if not children:
                     # Fallback to old structure
-                    expression = node.get("expression", {})
                     arguments = node.get("arguments", [])
                 else:
                     # New structure: first child is function, rest are arguments
-                    expression = children[0] if len(children) > 0 else {}
                     arguments = children[1:] if len(children) > 1 else []
                 
                 # Get function name from expression (canonicalised)
@@ -668,9 +656,6 @@ def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
                     first_child = expr_node.get("children", [{}])[0]
                     if isinstance(first_child, dict):
                         return_expr = first_child.get("text", "")
-
-                # Check expr_node kind for JSX detection
-                expr_kind = expr_node.get("kind", "")
 
                 # Check for JSX elements in return statement
                 has_jsx, returns_component = detect_jsx_in_node(expr_node)
@@ -819,9 +804,6 @@ def extract_typescript_object_literals(tree: dict, parser_self) -> list[dict[str
     ast_root = actual_tree.get("ast", {})
     if not ast_root:
         return object_literals
-
-    # For text extraction, we need the original content
-    content = tree.get("content", "")
 
     # Build scope map for accurate function context
     scope_map = build_scope_map(ast_root)

@@ -1434,10 +1434,10 @@ def _upgrade_requirements_txt(
         safe_path = sanitize_path(str(path), ".")
     except SecurityError:
         return 0  # Skip files outside project root
-    
+
     # Create versioned backup
-    backup_path = _create_versioned_backup(safe_path)
-    
+    _create_versioned_backup(safe_path)
+
     # Read current file
     with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
@@ -1490,10 +1490,10 @@ def _upgrade_package_json(
         safe_path = sanitize_path(str(path), ".")
     except SecurityError:
         return 0  # Skip files outside project root
-    
+
     # Create versioned backup
-    backup_path = _create_versioned_backup(safe_path)
-    
+    _create_versioned_backup(safe_path)
+
     # Read current file
     with open(safe_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -1535,10 +1535,10 @@ def _upgrade_pyproject_toml(
         safe_path = sanitize_path(str(path), ".")
     except SecurityError:
         return 0  # Skip files outside project root
-    
+
     # Create versioned backup
-    backup_path = _create_versioned_backup(safe_path)
-    
+    _create_versioned_backup(safe_path)
+
     # Read entire file as string for regex replacement
     with open(safe_path, encoding="utf-8") as f:
         content = f.read()
@@ -1622,7 +1622,7 @@ def _upgrade_docker_compose(
         return 0  # Skip files outside project root
 
     # Create versioned backup
-    backup_path = _create_versioned_backup(safe_path)
+    _create_versioned_backup(safe_path)
 
     # Read current file
     with open(safe_path, encoding="utf-8") as f:
@@ -1712,7 +1712,7 @@ def _upgrade_dockerfile(
         return 0  # Skip files outside project root
 
     # Create versioned backup
-    backup_path = _create_versioned_backup(safe_path)
+    _create_versioned_backup(safe_path)
 
     # Read current file
     with open(safe_path, encoding="utf-8") as f:

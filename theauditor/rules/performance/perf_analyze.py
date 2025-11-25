@@ -405,7 +405,6 @@ def _find_inefficient_string_concat(cursor) -> list[StandardFinding]:
 
             # Check if var_name or expr suggests string operation
             var_lower = var_name.lower()
-            expr_lower = expr.lower()
 
             is_string_var = any(pattern in var_lower for pattern in string_var_patterns)
             has_string_literal = any(quote in expr for quote in ['"', "'", '`'])

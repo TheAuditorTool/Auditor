@@ -138,7 +138,6 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         store = XGraphStore(db_path=db)
         
         # Load workset if provided
-        file_filter = None
         workset_files = set()
         if workset:
             workset_path = Path(workset)

@@ -29,10 +29,7 @@ def _regexp_adapter(expr: str, item: str) -> bool:
     """
     if item is None:
         return False
-    try:
-        return re.search(expr, item, re.IGNORECASE) is not None
-    except Exception:
-        return False
+    return re.search(expr, item, re.IGNORECASE) is not None
 
 # ============================================================================
 # PATTERNS - DETECT SQL INJECTION
@@ -243,36 +240,30 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     # ========================================================================
 
     # Check template literals table for SQL content
-    try:
-        query = build_query('template_literals',
-                           ['file', 'line', 'content'],
-                           order_by="file, line")
-        cursor.execute(query)
+    query = build_query('template_literals',
+                       ['file', 'line', 'content'],
+                       order_by="file, line")
+    cursor.execute(query)
 
-        for file, line, content in cursor.fetchall():
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            if not content:
-                continue
+    for file, line, content in cursor.fetchall():
+        if not content:
+            continue
 
-            # Check if template contains SQL keywords
-            content_upper = content.upper()
-            has_sql = any(kw in content_upper for kw in patterns.SQL_KEYWORDS)
+        # Check if template contains SQL keywords
+        content_upper = content.upper()
+        has_sql = any(kw in content_upper for kw in patterns.SQL_KEYWORDS)
 
-            if has_sql and '${' in content:
-                findings.append(StandardFinding(
-                    rule_name='sql-injection-template-literal',
-                    message='Template literal contains SQL with interpolation',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='security',
-                    snippet=content[:100] + '...' if len(content) > 100 else content,
-                    cwe_id='CWE-89'
-                ))
-    except sqlite3.OperationalError:
-        # Table might not exist for some languages
-        pass
+        if has_sql and '${' in content:
+            findings.append(StandardFinding(
+                rule_name='sql-injection-template-literal',
+                message='Template literal contains SQL with interpolation',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=content[:100] + '...' if len(content) > 100 else content,
+                cwe_id='CWE-89'
+            ))
 
     # ========================================================================
     # CHECK 6: STORED PROCEDURES WITH DYNAMIC INPUT

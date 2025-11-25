@@ -23,7 +23,6 @@ import json
 import math
 import re
 import sqlite3
-from typing import List, Optional
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata

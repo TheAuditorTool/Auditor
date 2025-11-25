@@ -234,20 +234,15 @@ class CodeQueryEngine:
         definition_tables = ['symbols', 'symbols_jsx', 'react_components']
 
         for table in definition_tables:
-            try:
-                # Search for names containing the input (case-insensitive via LIKE)
-                cursor.execute(f"""
-                    SELECT DISTINCT name FROM {table}
-                    WHERE name LIKE ?
-                    LIMIT ?
-                """, (f"%{input_name}%", limit))
+            # Search for names containing the input (case-insensitive via LIKE)
+            cursor.execute(f"""
+                SELECT DISTINCT name FROM {table}
+                WHERE name LIKE ?
+                LIMIT ?
+            """, (f"%{input_name}%", limit))
 
-                for row in cursor.fetchall():
-                    suggestions.add(row['name'])
-
-            except sqlite3.OperationalError:
-                # Table might not exist (e.g., no React in Python projects)
-                continue
+            for row in cursor.fetchall():
+                suggestions.add(row['name'])
 
         return list(suggestions)[:limit]
 
@@ -288,107 +283,92 @@ class CodeQueryEngine:
         # 1. Check DEFINITIONS (symbols tables) - "Does this symbol exist?"
         # This catches function/class/variable declarations
         for table in ['symbols', 'symbols_jsx']:
-            try:
-                # Exact match (highest priority)
-                cursor.execute(f"""
-                    SELECT DISTINCT name FROM {table} WHERE name = ?
-                """, (input_name,))
-                for row in cursor.fetchall():
-                    found_symbols.add(row['name'])
-
-                # Suffix match (e.g., "save" matches "User.save")
-                cursor.execute(f"""
-                    SELECT DISTINCT name FROM {table} WHERE name LIKE ?
-                """, (f"%.{input_name}",))
-                for row in cursor.fetchall():
-                    found_symbols.add(row['name'])
-
-                # FIX: If input is qualified (has dots), also try matching just the last segment
-                # This handles: "OrderController.getAllOrders" -> try "%.getAllOrders"
-                if '.' in input_name:
-                    last_segment = input_name.split('.')[-1]
-                    cursor.execute(f"""
-                        SELECT DISTINCT name FROM {table} WHERE name LIKE ?
-                    """, (f"%.{last_segment}",))
-                    for row in cursor.fetchall():
-                        found_symbols.add(row['name'])
-
-            except sqlite3.OperationalError:
-                continue
-
-        # 2. Check react_components (React-specific definitions)
-        try:
-            # FIX: Removed "OR name LIKE %...%"
-            # Resolution should be exact. Partial matches belong in suggestions, not resolution.
-            cursor.execute("""
-                SELECT DISTINCT name FROM react_components WHERE name = ?
+            # Exact match (highest priority)
+            cursor.execute(f"""
+                SELECT DISTINCT name FROM {table} WHERE name = ?
             """, (input_name,))
             for row in cursor.fetchall():
                 found_symbols.add(row['name'])
-        except sqlite3.OperationalError:
-            pass
+
+            # Suffix match (e.g., "save" matches "User.save")
+            cursor.execute(f"""
+                SELECT DISTINCT name FROM {table} WHERE name LIKE ?
+            """, (f"%.{input_name}",))
+            for row in cursor.fetchall():
+                found_symbols.add(row['name'])
+
+            # FIX: If input is qualified (has dots), also try matching just the last segment
+            # This handles: "OrderController.getAllOrders" -> try "%.getAllOrders"
+            if '.' in input_name:
+                last_segment = input_name.split('.')[-1]
+                cursor.execute(f"""
+                    SELECT DISTINCT name FROM {table} WHERE name LIKE ?
+                """, (f"%.{last_segment}",))
+                for row in cursor.fetchall():
+                    found_symbols.add(row['name'])
+
+        # 2. Check react_components (React-specific definitions)
+        # FIX: Removed "OR name LIKE %...%"
+        # Resolution should be exact. Partial matches belong in suggestions, not resolution.
+        cursor.execute("""
+            SELECT DISTINCT name FROM react_components WHERE name = ?
+        """, (input_name,))
+        for row in cursor.fetchall():
+            found_symbols.add(row['name'])
 
         # 3. Check USAGE - direct calls (callee_function column)
         # This catches: foo(), obj.method(), Class.staticMethod()
         for table in ['function_call_args', 'function_call_args_jsx']:
-            try:
-                # Exact match
-                cursor.execute(f"""
-                    SELECT DISTINCT callee_function FROM {table} WHERE callee_function = ?
-                """, (input_name,))
-                for row in cursor.fetchall():
-                    found_symbols.add(row['callee_function'])
+            # Exact match
+            cursor.execute(f"""
+                SELECT DISTINCT callee_function FROM {table} WHERE callee_function = ?
+            """, (input_name,))
+            for row in cursor.fetchall():
+                found_symbols.add(row['callee_function'])
 
-                # Suffix match
+            # Suffix match
+            cursor.execute(f"""
+                SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
+            """, (f"%.{input_name}",))
+            for row in cursor.fetchall():
+                found_symbols.add(row['callee_function'])
+
+            # FIX: If input is qualified, also try last segment
+            if '.' in input_name:
+                last_segment = input_name.split('.')[-1]
                 cursor.execute(f"""
                     SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
-                """, (f"%.{input_name}",))
+                """, (f"%.{last_segment}",))
                 for row in cursor.fetchall():
                     found_symbols.add(row['callee_function'])
-
-                # FIX: If input is qualified, also try last segment
-                if '.' in input_name:
-                    last_segment = input_name.split('.')[-1]
-                    cursor.execute(f"""
-                        SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
-                    """, (f"%.{last_segment}",))
-                    for row in cursor.fetchall():
-                        found_symbols.add(row['callee_function'])
-
-            except sqlite3.OperationalError:
-                continue
 
         # 4. Check USAGE - callbacks (argument_expr column) - THE CRITICAL FIX
         # This catches: router.get('/path', handler) where handler is passed as data
         for table in ['function_call_args', 'function_call_args_jsx']:
-            try:
-                # Exact match and suffix match in argument expressions
+            # Exact match and suffix match in argument expressions
+            cursor.execute(f"""
+                SELECT DISTINCT argument_expr FROM {table}
+                WHERE argument_expr = ? OR argument_expr LIKE ?
+            """, (input_name, f"%.{input_name}"))
+
+            for row in cursor.fetchall():
+                expr = row['argument_expr']
+                # Filter: only add if it looks like an identifier (not complex expression)
+                # Complex expressions like "x + y" or "foo(bar)" aren't symbol references
+                if expr and not any(c in expr for c in ['+', '-', '*', '/', '(', ')', ' ']):
+                    found_symbols.add(expr)
+
+            # FIX: If input is qualified, also try last segment
+            if '.' in input_name:
+                last_segment = input_name.split('.')[-1]
                 cursor.execute(f"""
                     SELECT DISTINCT argument_expr FROM {table}
-                    WHERE argument_expr = ? OR argument_expr LIKE ?
-                """, (input_name, f"%.{input_name}"))
-
+                    WHERE argument_expr LIKE ?
+                """, (f"%.{last_segment}",))
                 for row in cursor.fetchall():
                     expr = row['argument_expr']
-                    # Filter: only add if it looks like an identifier (not complex expression)
-                    # Complex expressions like "x + y" or "foo(bar)" aren't symbol references
                     if expr and not any(c in expr for c in ['+', '-', '*', '/', '(', ')', ' ']):
                         found_symbols.add(expr)
-
-                # FIX: If input is qualified, also try last segment
-                if '.' in input_name:
-                    last_segment = input_name.split('.')[-1]
-                    cursor.execute(f"""
-                        SELECT DISTINCT argument_expr FROM {table}
-                        WHERE argument_expr LIKE ?
-                    """, (f"%.{last_segment}",))
-                    for row in cursor.fetchall():
-                        expr = row['argument_expr']
-                        if expr and not any(c in expr for c in ['+', '-', '*', '/', '(', ')', ' ']):
-                            found_symbols.add(expr)
-
-            except sqlite3.OperationalError:
-                continue
 
         # RESULT HANDLING
         if not found_symbols:
@@ -436,23 +416,19 @@ class CodeQueryEngine:
                 query += " AND type = ?"
                 params.append(type_filter)
 
-            try:
-                cursor.execute(query, params)
+            cursor.execute(query, params)
 
-                for row in cursor.fetchall():
-                    results.append(SymbolInfo(
-                        name=row['name'],
-                        type=row['type'],
-                        file=row['path'],  # Map path -> file
-                        line=row['line'],
-                        end_line=row['end_line'] or row['line'],
-                        signature=row['type_annotation'],
-                        is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
-                        framework_type=None  # Not in current schema
-                    ))
-            except sqlite3.OperationalError:
-                # Table might not exist (e.g., no JSX in Python projects)
-                continue
+            for row in cursor.fetchall():
+                results.append(SymbolInfo(
+                    name=row['name'],
+                    type=row['type'],
+                    file=row['path'],  # Map path -> file
+                    line=row['line'],
+                    end_line=row['end_line'] or row['line'],
+                    signature=row['type_annotation'],
+                    is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
+                    framework_type=None  # Not in current schema
+                ))
 
         # [FIX] Deduplicate results by file and line to be 100% safe
         unique_results = {}
@@ -550,36 +526,31 @@ class CodeQueryEngine:
                 # Params: (symbol, symbol, %.symbol) for exact and qualified match
                 params = (current_symbol, current_symbol, f"%.{current_symbol}")
 
-                try:
-                    cursor.execute(query, params)
+                cursor.execute(query, params)
 
-                    for row in cursor.fetchall():
-                        call_site = CallSite(
-                            caller_file=row['file'],
-                            caller_line=row['line'],
-                            caller_function=row['caller_function'],
-                            callee_function=row['callee_function'],
-                            arguments=[row['argument_expr']] if row['argument_expr'] else []
-                        )
+                for row in cursor.fetchall():
+                    call_site = CallSite(
+                        caller_file=row['file'],
+                        caller_line=row['line'],
+                        caller_function=row['caller_function'],
+                        callee_function=row['callee_function'],
+                        arguments=[row['argument_expr']] if row['argument_expr'] else []
+                    )
 
-                        # Track unique callers (avoid duplicates)
-                        caller_key = (
-                            call_site.caller_function,
-                            call_site.caller_file,
-                            call_site.caller_line
-                        )
+                    # Track unique callers (avoid duplicates)
+                    caller_key = (
+                        call_site.caller_function,
+                        call_site.caller_file,
+                        call_site.caller_line
+                    )
 
-                        if caller_key not in visited:
-                            visited.add(caller_key)
-                            all_callers.append(call_site)
+                    if caller_key not in visited:
+                        visited.add(caller_key)
+                        all_callers.append(call_site)
 
-                            # Add to queue for next depth level
-                            if current_depth + 1 < depth and call_site.caller_function:
-                                queue.append((call_site.caller_function, current_depth + 1))
-
-                except sqlite3.OperationalError:
-                    # Table might not exist (e.g., no JSX in Python projects)
-                    continue
+                        # Add to queue for next depth level
+                        if current_depth + 1 < depth and call_site.caller_function:
+                            queue.append((call_site.caller_function, current_depth + 1))
 
         return all_callers
 
@@ -612,21 +583,16 @@ class CodeQueryEngine:
                 ORDER BY line
             """
 
-            try:
-                cursor.execute(query, (f'%{symbol_name}%',))
+            cursor.execute(query, (f'%{symbol_name}%',))
 
-                for row in cursor.fetchall():
-                    callees.append(CallSite(
-                        caller_file=row['file'],
-                        caller_line=row['line'],
-                        caller_function=row['caller_function'],
-                        callee_function=row['callee_function'],
-                        arguments=[row['argument_expr']] if row['argument_expr'] else []
-                    ))
-
-            except sqlite3.OperationalError:
-                # Table might not exist
-                continue
+            for row in cursor.fetchall():
+                callees.append(CallSite(
+                    caller_file=row['file'],
+                    caller_line=row['line'],
+                    caller_function=row['caller_function'],
+                    callee_function=row['callee_function'],
+                    arguments=[row['argument_expr']] if row['argument_expr'] else []
+                ))
 
         return callees
 
@@ -773,53 +739,46 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
 
         # Component definition with hooks from junction table
-        try:
-            cursor.execute("""
-                SELECT
-                    rc.file, rc.name, rc.type, rc.start_line, rc.end_line,
-                    rc.has_jsx, rc.props_type,
-                    GROUP_CONCAT(rch.hook_name) as hooks_concat
-                FROM react_components rc
-                LEFT JOIN react_component_hooks rch
-                    ON rc.file = rch.component_file AND rc.name = rch.component_name
-                WHERE rc.name = ?
-                GROUP BY rc.file, rc.name, rc.type, rc.start_line, rc.end_line, rc.has_jsx, rc.props_type
-            """, (component_name,))
+        cursor.execute("""
+            SELECT
+                rc.file, rc.name, rc.type, rc.start_line, rc.end_line,
+                rc.has_jsx, rc.props_type,
+                GROUP_CONCAT(rch.hook_name) as hooks_concat
+            FROM react_components rc
+            LEFT JOIN react_component_hooks rch
+                ON rc.file = rch.component_file AND rc.name = rch.component_name
+            WHERE rc.name = ?
+            GROUP BY rc.file, rc.name, rc.type, rc.start_line, rc.end_line, rc.has_jsx, rc.props_type
+        """, (component_name,))
 
-            row = cursor.fetchone()
-            if not row:
-                # FIX: Add fuzzy suggestions when component not found
-                msg = f'Component not found: {component_name}'
-                suggestions = self._find_similar_symbols(component_name)
-                if suggestions:
-                    msg += f". Did you mean: {', '.join(suggestions)}?"
-                return {'error': msg}
+        row = cursor.fetchone()
+        if not row:
+            # FIX: Add fuzzy suggestions when component not found
+            msg = f'Component not found: {component_name}'
+            suggestions = self._find_similar_symbols(component_name)
+            if suggestions:
+                msg += f". Did you mean: {', '.join(suggestions)}?"
+            return {'error': msg}
 
-            result = dict(row)
+        result = dict(row)
 
-            # Parse hooks from GROUP_CONCAT result (comma-separated or NULL)
-            hooks_concat = result.pop('hooks_concat', None)
-            if hooks_concat:
-                result['hooks'] = hooks_concat.split(',')
-            else:
-                result['hooks'] = []
+        # Parse hooks from GROUP_CONCAT result (comma-separated or NULL)
+        hooks_concat = result.pop('hooks_concat', None)
+        if hooks_concat:
+            result['hooks'] = hooks_concat.split(',')
+        else:
+            result['hooks'] = []
 
-            # Child components (components this one renders)
-            try:
-                cursor.execute("""
-                    SELECT DISTINCT callee_function as child_component, line
-                    FROM function_call_args_jsx
-                    WHERE file = ? AND callee_function IN (SELECT name FROM react_components)
-                    ORDER BY line
-                """, (result['file'],))
-                result['children'] = [dict(r) for r in cursor.fetchall()]
-            except sqlite3.OperationalError:
-                result['children'] = []
+        # Child components (components this one renders)
+        cursor.execute("""
+            SELECT DISTINCT callee_function as child_component, line
+            FROM function_call_args_jsx
+            WHERE file = ? AND callee_function IN (SELECT name FROM react_components)
+            ORDER BY line
+        """, (result['file'],))
+        result['children'] = [dict(r) for r in cursor.fetchall()]
 
-            return result
-
-        except sqlite3.OperationalError:
-            return {'error': 'react_components table not found. Project may not use React.'}
+        return result
 
     def get_data_dependencies(self, symbol_name: str) -> dict[str, list[dict]]:
         """Get data dependencies (reads/writes) for a function.
@@ -852,51 +811,43 @@ class CodeQueryEngine:
 
         cursor = self.repo_db.cursor()
 
-        try:
-            # Variables WRITTEN by this function
-            cursor.execute("""
-                SELECT target_var, source_expr, line, file
-                FROM assignments
-                WHERE in_function = ?
-                ORDER BY line
-            """, (symbol_name,))
+        # Variables WRITTEN by this function
+        cursor.execute("""
+            SELECT target_var, source_expr, line, file
+            FROM assignments
+            WHERE in_function = ?
+            ORDER BY line
+        """, (symbol_name,))
 
-            writes = []
-            for row in cursor.fetchall():
-                writes.append({
-                    'variable': row['target_var'],
-                    'expression': row['source_expr'],
-                    'line': row['line'],
-                    'file': row['file']
-                })
+        writes = []
+        for row in cursor.fetchall():
+            writes.append({
+                'variable': row['target_var'],
+                'expression': row['source_expr'],
+                'line': row['line'],
+                'file': row['file']
+            })
 
-            # Variables READ by this function (normalized query, NO JSON PARSING)
-            cursor.execute("""
-                SELECT DISTINCT asrc.source_var_name
-                FROM assignments a
-                JOIN assignment_sources asrc
-                    ON a.file = asrc.assignment_file
-                    AND a.line = asrc.assignment_line
-                    AND a.target_var = asrc.assignment_target
-                WHERE a.in_function = ?
-            """, (symbol_name,))
+        # Variables READ by this function (normalized query, NO JSON PARSING)
+        cursor.execute("""
+            SELECT DISTINCT asrc.source_var_name
+            FROM assignments a
+            JOIN assignment_sources asrc
+                ON a.file = asrc.assignment_file
+                AND a.line = asrc.assignment_line
+                AND a.target_var = asrc.assignment_target
+            WHERE a.in_function = ?
+        """, (symbol_name,))
 
-            all_reads = {row['source_var_name'] for row in cursor.fetchall() if row['source_var_name']}
+        all_reads = {row['source_var_name'] for row in cursor.fetchall() if row['source_var_name']}
 
-            # Deduplicate and sort reads
-            reads = [{'variable': var} for var in sorted(all_reads)]
+        # Deduplicate and sort reads
+        reads = [{'variable': var} for var in sorted(all_reads)]
 
-            return {
-                'reads': reads,
-                'writes': writes
-            }
-
-        except sqlite3.OperationalError as e:
-            if 'no such table' in str(e):
-                return {
-                    'error': 'assignments table not found. Run: aud index'
-                }
-            raise  # Re-raise unexpected errors
+        return {
+            'reads': reads,
+            'writes': writes
+        }
 
     def trace_variable_flow(
         self,
@@ -939,64 +890,54 @@ class CodeQueryEngine:
         queue = deque([(var_name, from_file, 0)])
         visited = set()
 
-        try:
-            while queue:
-                current_var, current_file, current_depth = queue.popleft()
+        while queue:
+            current_var, current_file, current_depth = queue.popleft()
 
-                if current_depth >= depth:
-                    continue
+            if current_depth >= depth:
+                continue
 
-                # Create visited key
-                visit_key = (current_var, current_file)
-                if visit_key in visited:
-                    continue
-                visited.add(visit_key)
+            # Create visited key
+            visit_key = (current_var, current_file)
+            if visit_key in visited:
+                continue
+            visited.add(visit_key)
 
-                # Find assignments that USE this variable (via junction table)
-                # assignment_sources tells us which variables are read in an assignment
-                cursor.execute("""
-                    SELECT
-                        a.target_var,
-                        a.source_expr,
-                        a.file,
-                        a.line,
-                        a.in_function,
-                        asrc.source_var_name
-                    FROM assignments a
-                    JOIN assignment_sources asrc
-                        ON a.file = asrc.assignment_file
-                        AND a.line = asrc.assignment_line
-                        AND a.target_var = asrc.assignment_target
-                    WHERE asrc.source_var_name = ?
-                        AND a.file LIKE ?
-                """, (current_var, f'%{current_file}%'))
+            # Find assignments that USE this variable (via junction table)
+            # assignment_sources tells us which variables are read in an assignment
+            cursor.execute("""
+                SELECT
+                    a.target_var,
+                    a.source_expr,
+                    a.file,
+                    a.line,
+                    a.in_function,
+                    asrc.source_var_name
+                FROM assignments a
+                JOIN assignment_sources asrc
+                    ON a.file = asrc.assignment_file
+                    AND a.line = asrc.assignment_line
+                    AND a.target_var = asrc.assignment_target
+                WHERE asrc.source_var_name = ?
+                    AND a.file LIKE ?
+            """, (current_var, f'%{current_file}%'))
 
-                for row in cursor.fetchall():
-                    flow_step = {
-                        'from_var': current_var,
-                        'to_var': row['target_var'],
-                        'expression': row['source_expr'],
-                        'file': row['file'],
-                        'line': row['line'],
-                        'function': row['in_function'] or 'global',
-                        'depth': current_depth + 1
-                    }
-                    flows.append(flow_step)
+            for row in cursor.fetchall():
+                flow_step = {
+                    'from_var': current_var,
+                    'to_var': row['target_var'],
+                    'expression': row['source_expr'],
+                    'file': row['file'],
+                    'line': row['line'],
+                    'function': row['in_function'] or 'global',
+                    'depth': current_depth + 1
+                }
+                flows.append(flow_step)
 
-                    # Continue BFS to next depth
-                    if current_depth + 1 < depth:
-                        queue.append((row['target_var'], row['file'], current_depth + 1))
+                # Continue BFS to next depth
+                if current_depth + 1 < depth:
+                    queue.append((row['target_var'], row['file'], current_depth + 1))
 
-            return flows
-
-        except sqlite3.OperationalError as e:
-            if 'no such table' in str(e):
-                return [{
-                    'error': 'assignment_sources table not found',
-                    'message': 'Junction table missing - run "aud index" to rebuild database',
-                    'hint': 'Schema normalization may not be complete'
-                }]
-            raise  # Re-raise unexpected errors
+        return flows
 
     def get_cross_function_taint(self, function_name: str) -> list[dict]:
         """Track variables returned from function and assigned elsewhere.
@@ -1026,51 +967,41 @@ class CodeQueryEngine:
 
         cursor = self.repo_db.cursor()
 
-        try:
-            # Find variables returned by this function, then where they're assigned
-            cursor.execute("""
-                SELECT
-                    frs.return_var_name,
-                    frs.return_file,
-                    frs.return_line,
-                    a.target_var AS assignment_var,
-                    a.file AS assignment_file,
-                    a.line AS assignment_line,
-                    a.in_function AS assigned_in_function
-                FROM function_return_sources frs
-                JOIN assignment_sources asrc
-                    ON frs.return_var_name = asrc.source_var_name
-                JOIN assignments a
-                    ON asrc.assignment_file = a.file
-                    AND asrc.assignment_line = a.line
-                    AND asrc.assignment_target = a.target_var
-                WHERE frs.return_function = ?
-                ORDER BY frs.return_line, a.line
-            """, (function_name,))
+        # Find variables returned by this function, then where they're assigned
+        cursor.execute("""
+            SELECT
+                frs.return_var_name,
+                frs.return_file,
+                frs.return_line,
+                a.target_var AS assignment_var,
+                a.file AS assignment_file,
+                a.line AS assignment_line,
+                a.in_function AS assigned_in_function
+            FROM function_return_sources frs
+            JOIN assignment_sources asrc
+                ON frs.return_var_name = asrc.source_var_name
+            JOIN assignments a
+                ON asrc.assignment_file = a.file
+                AND asrc.assignment_line = a.line
+                AND asrc.assignment_target = a.target_var
+            WHERE frs.return_function = ?
+            ORDER BY frs.return_line, a.line
+        """, (function_name,))
 
-            flows = []
-            for row in cursor.fetchall():
-                flows.append({
-                    'return_var': row['return_var_name'],
-                    'return_file': row['return_file'],
-                    'return_line': row['return_line'],
-                    'assignment_var': row['assignment_var'],
-                    'assignment_file': row['assignment_file'],
-                    'assignment_line': row['assignment_line'],
-                    'assigned_in_function': row['assigned_in_function'] or 'global',
-                    'flow_type': 'cross_function_taint'
-                })
+        flows = []
+        for row in cursor.fetchall():
+            flows.append({
+                'return_var': row['return_var_name'],
+                'return_file': row['return_file'],
+                'return_line': row['return_line'],
+                'assignment_var': row['assignment_var'],
+                'assignment_file': row['assignment_file'],
+                'assignment_line': row['assignment_line'],
+                'assigned_in_function': row['assigned_in_function'] or 'global',
+                'flow_type': 'cross_function_taint'
+            })
 
-            return flows
-
-        except sqlite3.OperationalError as e:
-            if 'no such table' in str(e):
-                return [{
-                    'error': 'function_return_sources table not found',
-                    'message': 'Junction table missing - run "aud index" to rebuild database',
-                    'hint': 'Schema normalization may not be complete'
-                }]
-            raise  # Re-raise unexpected errors
+        return flows
 
     def get_api_security_coverage(self, route_pattern: str | None = None) -> list[dict]:
         """Find API endpoints and their authentication controls via junction table.
@@ -1097,72 +1028,62 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
-        try:
-            if route_pattern:
-                # Query with filter (check both pattern and path for flexibility)
-                cursor.execute("""
-                    SELECT
-                        ae.file,
-                        ae.line,
-                        ae.method,
-                        ae.pattern,
-                        ae.path,
-                        ae.handler_function,
-                        GROUP_CONCAT(aec.control_name, ', ') AS controls
-                    FROM api_endpoints ae
-                    LEFT JOIN api_endpoint_controls aec
-                        ON ae.file = aec.endpoint_file
-                        AND ae.line = aec.endpoint_line
-                    WHERE ae.pattern LIKE ? OR ae.path LIKE ?
-                    GROUP BY ae.file, ae.line, ae.method, ae.path
-                    ORDER BY ae.path, ae.method
-                """, (f'%{route_pattern}%', f'%{route_pattern}%'))
-            else:
-                # Query all
-                cursor.execute("""
-                    SELECT
-                        ae.file,
-                        ae.line,
-                        ae.method,
-                        ae.pattern,
-                        ae.path,
-                        ae.handler_function,
-                        GROUP_CONCAT(aec.control_name, ', ') AS controls
-                    FROM api_endpoints ae
-                    LEFT JOIN api_endpoint_controls aec
-                        ON ae.file = aec.endpoint_file
-                        AND ae.line = aec.endpoint_line
-                    GROUP BY ae.file, ae.line, ae.method, ae.path
-                    ORDER BY ae.path, ae.method
-                """)
+        if route_pattern:
+            # Query with filter (check both pattern and path for flexibility)
+            cursor.execute("""
+                SELECT
+                    ae.file,
+                    ae.line,
+                    ae.method,
+                    ae.pattern,
+                    ae.path,
+                    ae.handler_function,
+                    GROUP_CONCAT(aec.control_name, ', ') AS controls
+                FROM api_endpoints ae
+                LEFT JOIN api_endpoint_controls aec
+                    ON ae.file = aec.endpoint_file
+                    AND ae.line = aec.endpoint_line
+                WHERE ae.pattern LIKE ? OR ae.path LIKE ?
+                GROUP BY ae.file, ae.line, ae.method, ae.path
+                ORDER BY ae.path, ae.method
+            """, (f'%{route_pattern}%', f'%{route_pattern}%'))
+        else:
+            # Query all
+            cursor.execute("""
+                SELECT
+                    ae.file,
+                    ae.line,
+                    ae.method,
+                    ae.pattern,
+                    ae.path,
+                    ae.handler_function,
+                    GROUP_CONCAT(aec.control_name, ', ') AS controls
+                FROM api_endpoints ae
+                LEFT JOIN api_endpoint_controls aec
+                    ON ae.file = aec.endpoint_file
+                    AND ae.line = aec.endpoint_line
+                GROUP BY ae.file, ae.line, ae.method, ae.path
+                ORDER BY ae.path, ae.method
+            """)
 
-            endpoints = []
-            for row in cursor.fetchall():
-                controls_str = row['controls'] or ''
-                controls_list = [c.strip() for c in controls_str.split(',') if c.strip()]
+        endpoints = []
+        for row in cursor.fetchall():
+            controls_str = row['controls'] or ''
+            controls_list = [c.strip() for c in controls_str.split(',') if c.strip()]
 
-                endpoints.append({
-                    'file': row['file'],
-                    'line': row['line'],
-                    'method': row['method'],
-                    'pattern': row['pattern'],
-                    'path': row['path'],
-                    'handler_function': row['handler_function'],
-                    'controls': controls_list,
-                    'control_count': len(controls_list),
-                    'has_auth': len(controls_list) > 0
-                })
+            endpoints.append({
+                'file': row['file'],
+                'line': row['line'],
+                'method': row['method'],
+                'pattern': row['pattern'],
+                'path': row['path'],
+                'handler_function': row['handler_function'],
+                'controls': controls_list,
+                'control_count': len(controls_list),
+                'has_auth': len(controls_list) > 0
+            })
 
-            return endpoints
-
-        except sqlite3.OperationalError as e:
-            if 'no such table' in str(e):
-                return [{
-                    'error': 'api_endpoints or api_endpoint_controls table not found',
-                    'message': 'Run "aud index" to build API endpoint data',
-                    'hint': 'API analysis requires REST framework detection'
-                }]
-            raise  # Re-raise unexpected errors
+        return endpoints
 
     def get_findings(
         self,
@@ -1206,78 +1127,67 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
-        try:
-            where_clauses = []
-            params = []
+        where_clauses = []
+        params = []
 
-            if file_path:
-                where_clauses.append("file LIKE ?")
-                params.append(f'%{file_path}%')
+        if file_path:
+            where_clauses.append("file LIKE ?")
+            params.append(f'%{file_path}%')
 
-            if tool:
-                where_clauses.append("tool = ?")
-                params.append(tool)
+        if tool:
+            where_clauses.append("tool = ?")
+            params.append(tool)
 
-            if severity:
-                where_clauses.append("severity = ?")
-                params.append(severity)
+        if severity:
+            where_clauses.append("severity = ?")
+            params.append(severity)
 
-            if rule:
-                where_clauses.append("rule LIKE ?")
-                params.append(f'%{rule}%')
+        if rule:
+            where_clauses.append("rule LIKE ?")
+            params.append(f'%{rule}%')
 
-            if category:
-                where_clauses.append("category = ?")
-                params.append(category)
+        if category:
+            where_clauses.append("category = ?")
+            params.append(category)
 
-            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-            cursor.execute(f"""
-                SELECT file, line, column, rule, tool, message, severity,
-                       category, confidence, cwe, details_json
-                FROM findings_consolidated
-                WHERE {where_sql}
-                ORDER BY severity DESC, file, line
-                LIMIT 1000
-            """, params)
+        cursor.execute(f"""
+            SELECT file, line, column, rule, tool, message, severity,
+                   category, confidence, cwe, details_json
+            FROM findings_consolidated
+            WHERE {where_sql}
+            ORDER BY severity DESC, file, line
+            LIMIT 1000
+        """, params)
 
-            findings = []
-            for row in cursor.fetchall():
-                finding = {
-                    'file': row['file'],
-                    'line': row['line'],
-                    'column': row['column'],
-                    'rule': row['rule'],
-                    'tool': row['tool'],
-                    'message': row['message'],
-                    'severity': row['severity'],
-                    'category': row['category'],
-                    'confidence': row['confidence'],
-                    'cwe': row['cwe']
-                }
+        findings = []
+        for row in cursor.fetchall():
+            finding = {
+                'file': row['file'],
+                'line': row['line'],
+                'column': row['column'],
+                'rule': row['rule'],
+                'tool': row['tool'],
+                'message': row['message'],
+                'severity': row['severity'],
+                'category': row['category'],
+                'confidence': row['confidence'],
+                'cwe': row['cwe']
+            }
 
-                # Parse details_json if present
-                if row['details_json']:
-                    import json
-                    try:
-                        finding['details'] = json.loads(row['details_json'])
-                    except (json.JSONDecodeError, TypeError):
-                        # Malformed JSON - skip details field
-                        pass
+            # Parse details_json if present
+            if row['details_json']:
+                import json
+                try:
+                    finding['details'] = json.loads(row['details_json'])
+                except (json.JSONDecodeError, TypeError):
+                    # Malformed JSON - skip details field
+                    pass
 
-                findings.append(finding)
+            findings.append(finding)
 
-            return findings
-
-        except sqlite3.OperationalError as e:
-            if 'no such table' in str(e):
-                # Graceful degradation with helpful message
-                return [{
-                    'error': 'findings_consolidated table not found',
-                    'message': 'Run "aud full" first to generate findings',
-                    'hint': 'The findings table is created during pattern detection and taint analysis'
-                }]
-            raise  # Re-raise unexpected errors
+        return findings
 
     def pattern_search(
         self,
@@ -1337,23 +1247,19 @@ class CodeQueryEngine:
             query += " ORDER BY path, line"
             query += f" LIMIT {limit}"
 
-            try:
-                cursor.execute(query, params)
+            cursor.execute(query, params)
 
-                for row in cursor.fetchall():
-                    results.append(SymbolInfo(
-                        name=row['name'],
-                        type=row['type'],
-                        file=row['path'],  # Map path -> file
-                        line=row['line'],
-                        end_line=row['end_line'] or row['line'],
-                        signature=row['type_annotation'],
-                        is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
-                        framework_type=None  # Not in current schema
-                    ))
-            except sqlite3.OperationalError:
-                # Table might not exist (e.g., no JSX in Python projects)
-                continue
+            for row in cursor.fetchall():
+                results.append(SymbolInfo(
+                    name=row['name'],
+                    type=row['type'],
+                    file=row['path'],  # Map path -> file
+                    line=row['line'],
+                    end_line=row['end_line'] or row['line'],
+                    signature=row['type_annotation'],
+                    is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
+                    framework_type=None  # Not in current schema
+                ))
 
         return results[:limit]  # Ensure total limit
 
@@ -1396,28 +1302,21 @@ class CodeQueryEngine:
         tables = category_tables.get(category.lower(), [])
 
         for table in tables:
-            try:
-                # Validate table name to prevent SQL injection
-                validated_table = validate_table_name(table)
-                cursor.execute(f"SELECT * FROM {validated_table} LIMIT {limit}")
-                rows = cursor.fetchall()
-                if rows:
-                    results[table] = [dict(row) for row in rows]
-            except (sqlite3.OperationalError, ValueError):
-                # Table doesn't exist or invalid table name, skip
-                continue
+            # Validate table name to prevent SQL injection
+            validated_table = validate_table_name(table)
+            cursor.execute(f"SELECT * FROM {validated_table} LIMIT {limit}")
+            rows = cursor.fetchall()
+            if rows:
+                results[table] = [dict(row) for row in rows]
 
         # Also search findings by category
-        try:
-            cursor.execute(
-                f"SELECT * FROM findings_consolidated WHERE category LIKE ? LIMIT {limit}",
-                (f"%{category}%",)
-            )
-            findings = cursor.fetchall()
-            if findings:
-                results['findings'] = [dict(row) for row in findings]
-        except sqlite3.OperationalError:
-            pass
+        cursor.execute(
+            f"SELECT * FROM findings_consolidated WHERE category LIKE ? LIMIT {limit}",
+            (f"%{category}%",)
+        )
+        findings = cursor.fetchall()
+        if findings:
+            results['findings'] = [dict(row) for row in findings]
 
         # Search symbols by pattern
         pattern_results = self.pattern_search(f"%{category}%", limit=limit)
@@ -1472,39 +1371,34 @@ class CodeQueryEngine:
 
         # Search each table
         for table in include_tables:
-            try:
-                # Validate table name to prevent SQL injection
-                validated_table = validate_table_name(table)
+            # Validate table name to prevent SQL injection
+            validated_table = validate_table_name(table)
 
-                # Get table columns
-                cursor.execute(f"PRAGMA table_info({validated_table})")
-                columns = [row[1] for row in cursor.fetchall()]
+            # Get table columns
+            cursor.execute(f"PRAGMA table_info({validated_table})")
+            columns = [row[1] for row in cursor.fetchall()]
 
-                # Find searchable text columns
-                text_columns = [c for c in columns if c in [
-                    'name', 'file', 'route', 'handler_function', 'callee_function',
-                    'target_var', 'variable_name', 'message', 'rule'
-                ]]
+            # Find searchable text columns
+            text_columns = [c for c in columns if c in [
+                'name', 'file', 'route', 'handler_function', 'callee_function',
+                'target_var', 'variable_name', 'message', 'rule'
+            ]]
 
-                if not text_columns:
-                    continue
-
-                # Build WHERE clause
-                where_parts = [f"{col} LIKE ?" for col in text_columns]
-                where_clause = " OR ".join(where_parts)
-                params = [f"%{search_term}%"] * len(text_columns)
-
-                # Execute query
-                query = f"SELECT * FROM {validated_table} WHERE {where_clause} LIMIT {limit}"
-                cursor.execute(query, params)
-                rows = cursor.fetchall()
-
-                if rows:
-                    results[table] = [dict(row) for row in rows]
-
-            except (sqlite3.OperationalError, ValueError) as e:
-                # Table doesn't exist, invalid table name, or query error, skip
+            if not text_columns:
                 continue
+
+            # Build WHERE clause
+            where_parts = [f"{col} LIKE ?" for col in text_columns]
+            where_clause = " OR ".join(where_parts)
+            params = [f"%{search_term}%"] * len(text_columns)
+
+            # Execute query
+            query = f"SELECT * FROM {validated_table} WHERE {where_clause} LIMIT {limit}"
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            if rows:
+                results[table] = [dict(row) for row in rows]
 
         return results
 
@@ -1541,27 +1435,24 @@ class CodeQueryEngine:
         normalized_path = self._normalize_path(file_path)
 
         for table in ['symbols', 'symbols_jsx']:
-            try:
-                cursor.execute(f"""
-                    SELECT name, type, line, end_line, type_annotation, path
-                    FROM {table}
-                    WHERE path LIKE ?
-                      AND type NOT IN ('call')
-                    ORDER BY line
-                    LIMIT ?
-                """, (f"%{normalized_path}", limit - len(results)))
+            cursor.execute(f"""
+                SELECT name, type, line, end_line, type_annotation, path
+                FROM {table}
+                WHERE path LIKE ?
+                  AND type NOT IN ('call')
+                ORDER BY line
+                LIMIT ?
+            """, (f"%{normalized_path}", limit - len(results)))
 
-                for row in cursor.fetchall():
-                    results.append({
-                        'name': row['name'],
-                        'type': row['type'],
-                        'line': row['line'],
-                        'end_line': row['end_line'] or row['line'],
-                        'signature': row['type_annotation'],
-                        'path': row['path'],
-                    })
-            except sqlite3.OperationalError:
-                continue
+            for row in cursor.fetchall():
+                results.append({
+                    'name': row['name'],
+                    'type': row['type'],
+                    'line': row['line'],
+                    'end_line': row['end_line'] or row['line'],
+                    'signature': row['type_annotation'],
+                    'path': row['path'],
+                })
 
         return results[:limit]
 
@@ -1584,50 +1475,44 @@ class CodeQueryEngine:
         # CRITICAL: Normalize path before querying
         normalized_path = self._normalize_path(file_path)
 
-        # Try react_hooks table first
-        try:
-            cursor.execute("""
-                SELECT DISTINCT hook_name, line
-                FROM react_hooks
-                WHERE file LIKE ?
-                ORDER BY line
-            """, (f"%{normalized_path}",))
+        # Query react_hooks table
+        cursor.execute("""
+            SELECT DISTINCT hook_name, line
+            FROM react_hooks
+            WHERE file LIKE ?
+            ORDER BY line
+        """, (f"%{normalized_path}",))
 
-            for row in cursor.fetchall():
-                hook = row['hook_name']
-                # Filter: only actual React hooks
-                # 1. In explicit whitelist OR
-                # 2. Starts with 'use' + uppercase letter (custom hook convention)
-                is_known_hook = hook in self.REACT_HOOK_NAMES
-                is_custom_hook = (
-                    hook.startswith('use') and
-                    len(hook) > 3 and
-                    hook[3].isupper()
-                )
-                if is_known_hook or is_custom_hook:
-                    results.append({
-                        'hook_name': hook,
-                        'line': row['line'],
-                    })
-        except sqlite3.OperationalError:
-            pass
-
-        # Also try vue_hooks if it exists
-        try:
-            cursor.execute("""
-                SELECT DISTINCT hook_name, line
-                FROM vue_hooks
-                WHERE file LIKE ?
-                ORDER BY line
-            """, (f"%{file_path}",))
-
-            for row in cursor.fetchall():
+        for row in cursor.fetchall():
+            hook = row['hook_name']
+            # Filter: only actual React hooks
+            # 1. In explicit whitelist OR
+            # 2. Starts with 'use' + uppercase letter (custom hook convention)
+            is_known_hook = hook in self.REACT_HOOK_NAMES
+            is_custom_hook = (
+                hook.startswith('use') and
+                len(hook) > 3 and
+                hook[3].isupper()
+            )
+            if is_known_hook or is_custom_hook:
                 results.append({
-                    'hook_name': row['hook_name'],
+                    'hook_name': hook,
                     'line': row['line'],
                 })
-        except sqlite3.OperationalError:
-            pass
+
+        # Also query vue_hooks table
+        cursor.execute("""
+            SELECT DISTINCT hook_name, line
+            FROM vue_hooks
+            WHERE file LIKE ?
+            ORDER BY line
+        """, (f"%{normalized_path}",))
+
+        for row in cursor.fetchall():
+            results.append({
+                'hook_name': row['hook_name'],
+                'line': row['line'],
+            })
 
         return results
 
@@ -1648,21 +1533,18 @@ class CodeQueryEngine:
         # CRITICAL: Normalize path before querying
         normalized_path = self._normalize_path(file_path)
 
-        try:
-            cursor.execute("""
-                SELECT value, kind, line
-                FROM refs
-                WHERE src LIKE ?
-                ORDER BY line
-                LIMIT ?
-            """, (f"%{normalized_path}", limit))
+        cursor.execute("""
+            SELECT value, kind, line
+            FROM refs
+            WHERE src LIKE ?
+            ORDER BY line
+            LIMIT ?
+        """, (f"%{normalized_path}", limit))
 
-            return [
-                {'module': row['value'], 'kind': row['kind'], 'line': row['line']}
-                for row in cursor.fetchall()
-            ]
-        except sqlite3.OperationalError:
-            return []
+        return [
+            {'module': row['value'], 'kind': row['kind'], 'line': row['line']}
+            for row in cursor.fetchall()
+        ]
 
     def get_file_importers(self, file_path: str, limit: int = 50) -> list[dict]:
         """Get files that import this file.
@@ -1684,21 +1566,18 @@ class CodeQueryEngine:
         # CRITICAL: Normalize path before querying
         normalized_path = self._normalize_path(file_path)
 
-        try:
-            cursor.execute("""
-                SELECT source, type, line
-                FROM edges
-                WHERE target LIKE ? AND graph_type = 'import'
-                ORDER BY source
-                LIMIT ?
-            """, (f"%{normalized_path}%", limit))
+        cursor.execute("""
+            SELECT source, type, line
+            FROM edges
+            WHERE target LIKE ? AND graph_type = 'import'
+            ORDER BY source
+            LIMIT ?
+        """, (f"%{normalized_path}%", limit))
 
-            return [
-                {'source_file': row['source'], 'type': row['type'], 'line': row['line'] or 0}
-                for row in cursor.fetchall()
-            ]
-        except sqlite3.OperationalError:
-            return []
+        return [
+            {'source_file': row['source'], 'type': row['type'], 'line': row['line'] or 0}
+            for row in cursor.fetchall()
+        ]
 
     # [FIX] Filter out noise from outgoing calls - built-ins and common plumbing
     NOISE_FUNCTIONS = {
@@ -1748,26 +1627,23 @@ class CodeQueryEngine:
         placeholders = ', '.join(['?'] * len(noise_list))
 
         for table in ['function_call_args', 'function_call_args_jsx']:
-            try:
-                cursor.execute(f"""
-                    SELECT DISTINCT callee_function, line, argument_expr, caller_function, file
-                    FROM {table}
-                    WHERE file LIKE ?
-                      AND callee_function NOT IN ({placeholders})
-                    ORDER BY line
-                    LIMIT ?
-                """, [f"%{normalized_path}"] + noise_list + [limit - len(results)])
+            cursor.execute(f"""
+                SELECT DISTINCT callee_function, line, argument_expr, caller_function, file
+                FROM {table}
+                WHERE file LIKE ?
+                  AND callee_function NOT IN ({placeholders})
+                ORDER BY line
+                LIMIT ?
+            """, [f"%{normalized_path}"] + noise_list + [limit - len(results)])
 
-                for row in cursor.fetchall():
-                    results.append({
-                        'callee_function': row['callee_function'],
-                        'line': row['line'],
-                        'arguments': row['argument_expr'] or '',
-                        'caller_function': row['caller_function'],
-                        'file': row['file'],
-                    })
-            except sqlite3.OperationalError:
-                continue
+            for row in cursor.fetchall():
+                results.append({
+                    'callee_function': row['callee_function'],
+                    'line': row['line'],
+                    'arguments': row['argument_expr'] or '',
+                    'caller_function': row['caller_function'],
+                    'file': row['file'],
+                })
 
         return results[:limit]
 
@@ -1789,50 +1665,43 @@ class CodeQueryEngine:
         normalized_path = self._normalize_path(file_path)
 
         # Step 1: Get symbol names (fast indexed query)
-        try:
-            cursor.execute("""
-                SELECT DISTINCT name FROM symbols
-                WHERE path LIKE ? AND type IN ('function', 'class', 'method')
-            """, (f"%{normalized_path}",))
+        cursor.execute("""
+            SELECT DISTINCT name FROM symbols
+            WHERE path LIKE ? AND type IN ('function', 'class', 'method')
+        """, (f"%{normalized_path}",))
 
-            symbol_names = [row['name'] for row in cursor.fetchall()]
+        symbol_names = [row['name'] for row in cursor.fetchall()]
 
-            if not symbol_names:
-                return []
-
-            # Step 2: Single query with IN clause (replaces 40-query loop)
-            # Build placeholders for IN clause
-            placeholders = ','.join(['?' for _ in symbol_names])
-
-            results = []
-            for table in ['function_call_args', 'function_call_args_jsx']:
-                try:
-                    cursor.execute(f"""
-                        SELECT DISTINCT file, line, caller_function, callee_function
-                        FROM {table}
-                        WHERE callee_function IN ({placeholders})
-                          AND file NOT LIKE ?
-                        ORDER BY file, line
-                        LIMIT ?
-                    """, (*symbol_names, f"%{normalized_path}", limit - len(results)))
-
-                    for row in cursor.fetchall():
-                        results.append({
-                            'caller_file': row['file'],
-                            'caller_line': row['line'],
-                            'caller_function': row['caller_function'],
-                            'callee_function': row['callee_function'],
-                        })
-
-                    if len(results) >= limit:
-                        break
-                except sqlite3.OperationalError:
-                    continue  # JSX table doesn't exist (Python-only project)
-
-            return results[:limit]
-
-        except sqlite3.OperationalError:
+        if not symbol_names:
             return []
+
+        # Step 2: Single query with IN clause (replaces 40-query loop)
+        # Build placeholders for IN clause
+        placeholders = ','.join(['?' for _ in symbol_names])
+
+        results = []
+        for table in ['function_call_args', 'function_call_args_jsx']:
+            cursor.execute(f"""
+                SELECT DISTINCT file, line, caller_function, callee_function
+                FROM {table}
+                WHERE callee_function IN ({placeholders})
+                  AND file NOT LIKE ?
+                ORDER BY file, line
+                LIMIT ?
+            """, (*symbol_names, f"%{normalized_path}", limit - len(results)))
+
+            for row in cursor.fetchall():
+                results.append({
+                    'caller_file': row['file'],
+                    'caller_line': row['line'],
+                    'caller_function': row['caller_function'],
+                    'callee_function': row['callee_function'],
+                })
+
+            if len(results) >= limit:
+                break
+
+        return results[:limit]
 
     def get_file_framework_info(self, file_path: str) -> dict:
         """Get framework-specific information for a file.
@@ -1860,102 +1729,81 @@ class CodeQueryEngine:
 
         # Check for React/Vue components
         if ext in ('tsx', 'jsx', 'vue'):
-            try:
-                cursor.execute("""
-                    SELECT name, type, start_line, end_line, props_type
-                    FROM react_components
-                    WHERE file LIKE ?
-                """, (f"%{normalized_path}",))
-                components = [dict(row) for row in cursor.fetchall()]
-                if components:
-                    result['framework'] = 'react'
-                    result['components'] = components
-            except sqlite3.OperationalError:
-                pass
+            cursor.execute("""
+                SELECT name, type, start_line, end_line, props_type
+                FROM react_components
+                WHERE file LIKE ?
+            """, (f"%{normalized_path}",))
+            components = [dict(row) for row in cursor.fetchall()]
+            if components:
+                result['framework'] = 'react'
+                result['components'] = components
 
             # Vue components
-            try:
-                cursor.execute("""
-                    SELECT name, type, start_line, end_line
-                    FROM vue_components
-                    WHERE file LIKE ?
-                """, (f"%{normalized_path}",))
-                vue_comps = [dict(row) for row in cursor.fetchall()]
-                if vue_comps:
-                    result['framework'] = 'vue'
-                    result['components'] = vue_comps
-            except sqlite3.OperationalError:
-                pass
+            cursor.execute("""
+                SELECT name, type, start_line, end_line
+                FROM vue_components
+                WHERE file LIKE ?
+            """, (f"%{normalized_path}",))
+            vue_comps = [dict(row) for row in cursor.fetchall()]
+            if vue_comps:
+                result['framework'] = 'vue'
+                result['components'] = vue_comps
 
         # Check for Express routes/middleware
         if ext in ('ts', 'js', 'mjs'):
-            try:
-                cursor.execute("""
-                    SELECT method, path, handler_function, line
-                    FROM api_endpoints
-                    WHERE file LIKE ?
-                """, (f"%{normalized_path}",))
-                routes = [dict(row) for row in cursor.fetchall()]
-                if routes:
-                    result['framework'] = result.get('framework') or 'express'
-                    result['routes'] = routes
-            except sqlite3.OperationalError:
-                pass
+            cursor.execute("""
+                SELECT method, path, handler_function, line
+                FROM api_endpoints
+                WHERE file LIKE ?
+            """, (f"%{normalized_path}",))
+            routes = [dict(row) for row in cursor.fetchall()]
+            if routes:
+                result['framework'] = result.get('framework') or 'express'
+                result['routes'] = routes
 
-            try:
-                cursor.execute("""
-                    SELECT route_path, route_method, handler_expr, execution_order
-                    FROM express_middleware_chains
-                    WHERE file LIKE ?
-                    ORDER BY route_path, execution_order
-                """, (f"%{normalized_path}",))
-                middleware = [dict(row) for row in cursor.fetchall()]
-                if middleware:
-                    result['framework'] = result.get('framework') or 'express'
-                    result['middleware'] = middleware
-            except sqlite3.OperationalError:
-                pass
+            cursor.execute("""
+                SELECT route_path, route_method, handler_expr, execution_order
+                FROM express_middleware_chains
+                WHERE file LIKE ?
+                ORDER BY route_path, execution_order
+            """, (f"%{normalized_path}",))
+            middleware = [dict(row) for row in cursor.fetchall()]
+            if middleware:
+                result['framework'] = result.get('framework') or 'express'
+                result['middleware'] = middleware
 
         # Check for Python routes (Flask/FastAPI)
         if ext == 'py':
-            try:
-                cursor.execute("""
-                    SELECT method, pattern, handler_function, framework, line
-                    FROM python_routes
-                    WHERE file LIKE ?
-                """, (f"%{normalized_path}",))
-                routes = [dict(row) for row in cursor.fetchall()]
-                if routes:
-                    result['framework'] = routes[0].get('framework', 'flask')
-                    result['routes'] = routes
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                cursor.execute("""
-                    SELECT decorator_name, target_name, line
-                    FROM python_decorators
-                    WHERE file LIKE ?
-                """, (f"%{normalized_path}",))
-                decorators = [dict(row) for row in cursor.fetchall()]
-                if decorators:
-                    result['decorators'] = decorators
-            except sqlite3.OperationalError:
-                pass
-
-        # Check for ORM models
-        try:
             cursor.execute("""
-                SELECT model_name, table_name, line
-                FROM sequelize_models
+                SELECT method, pattern, handler_function, framework, line
+                FROM python_routes
                 WHERE file LIKE ?
             """, (f"%{normalized_path}",))
-            models = [dict(row) for row in cursor.fetchall()]
-            if models:
-                result['framework'] = result.get('framework') or 'sequelize'
-                result['models'] = models
-        except sqlite3.OperationalError:
-            pass
+            routes = [dict(row) for row in cursor.fetchall()]
+            if routes:
+                result['framework'] = routes[0].get('framework', 'flask')
+                result['routes'] = routes
+
+            cursor.execute("""
+                SELECT decorator_name, target_name, line
+                FROM python_decorators
+                WHERE file LIKE ?
+            """, (f"%{normalized_path}",))
+            decorators = [dict(row) for row in cursor.fetchall()]
+            if decorators:
+                result['decorators'] = decorators
+
+        # Check for ORM models
+        cursor.execute("""
+            SELECT model_name, table_name, line
+            FROM sequelize_models
+            WHERE file LIKE ?
+        """, (f"%{normalized_path}",))
+        models = [dict(row) for row in cursor.fetchall()]
+        if models:
+            result['framework'] = result.get('framework') or 'sequelize'
+            result['models'] = models
 
         return result
 

@@ -535,14 +535,6 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path, 
         table = col_info['table']
         column = col_info['column']
 
-        # Search for table.column or "column" references
-        search_patterns = [
-            f"{table}.{column}",
-            f'"{column}"',
-            f"'{column}'",
-            f"`{column}`"
-        ]
-
         # Search assignments for column references
         cursor.execute("""
             SELECT file, line, target_var, source_expr

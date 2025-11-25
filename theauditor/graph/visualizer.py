@@ -550,7 +550,6 @@ class GraphVisualizer:
         for node in graph.get('nodes', []):
             node_id = node.get('id', '')
             node_file = node.get('file', node_id)
-            node_lang = node.get('lang', 'default')
             node_type = node.get('type', 'module')
             
             # Sanitize node ID
@@ -579,7 +578,6 @@ class GraphVisualizer:
                 penwidth = 1
             
             # Determine node size based on impact radius
-            degrees = self.node_degrees.get(node_id, {'in': 0, 'out': 0})
             if node_id in targets:
                 size = 1.5  # Targets are emphasized
             elif node_id in upstream or node_id in downstream:
@@ -634,8 +632,7 @@ class GraphVisualizer:
         for edge in graph.get('edges', []):
             source = edge.get('source', '')
             target = edge.get('target', '')
-            edge_type = edge.get('type', 'import')
-            
+
             # Skip self-loops unless in options
             if source == target and not options.get('show_self_loops'):
                 continue

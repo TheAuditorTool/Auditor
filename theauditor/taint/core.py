@@ -635,9 +635,6 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         ifds_analyzer.close()
         print(f"[TAINT] IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths", file=sys.stderr)
 
-        # PHASE 6: Merge for deduplication (keeps best path per sink)
-        taint_paths = all_vulnerable_paths  # Use vulnerable paths for backward compatibility
-
         # Step 5: Deduplicate vulnerable paths (keep legacy behavior)
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 

@@ -142,7 +142,6 @@ class SchemaCodeGenerator:
 
         for table_name, schema in sorted(TABLES.items()):
             class_name = f"{cls._to_pascal_case(table_name)}Table"
-            row_type = f"{cls._to_pascal_case(table_name)}Row"
 
             code.append(f"class {class_name}:")
             code.append(f'    """Accessor class for {table_name} table."""')

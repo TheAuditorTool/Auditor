@@ -8,7 +8,7 @@ JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
 
 
-from typing import Any, List, Dict, Optional
+from typing import Any
 
 from .base import (
     find_containing_function_tree_sitter,

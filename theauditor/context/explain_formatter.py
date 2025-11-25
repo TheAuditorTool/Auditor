@@ -384,7 +384,6 @@ class ExplainFormatter:
     def _format_import_item(self, imp: dict, index: int) -> str:
         """Format a single import item."""
         module = imp.get("module", imp.get("value", "(unknown)"))
-        kind = imp.get("kind", "import")
         line_num = imp.get("line", "?")
 
         # [FIX] Smarter internal/external detection

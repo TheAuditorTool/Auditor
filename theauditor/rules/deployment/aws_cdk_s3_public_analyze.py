@@ -11,7 +11,6 @@ Checks:
 
 import logging
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import (
     RuleMetadata,

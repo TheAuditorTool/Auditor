@@ -251,8 +251,7 @@ class MetadataCollector:
                 # Calculate coverage percentage (pure math fact)
                 executed_lines = metrics.get('executed_lines', [])
                 missing_lines = metrics.get('missing_lines', [])
-                excluded_lines = metrics.get('excluded_lines', [])
-                
+
                 # Total executable lines (excluding comments, blank lines, etc.)
                 total_lines = len(executed_lines) + len(missing_lines)
                 

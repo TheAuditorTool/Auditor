@@ -42,9 +42,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional, Set
-
-from ..base import get_node_name
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +124,6 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
             # Check for StopIteration
             raises_stopiteration = False
             if '__next__' in methods:
-                next_method = methods['__next__']
                 for subnode in context.find_nodes(ast.Raise):
                     if isinstance(subnode.exc, ast.Call):
                         if isinstance(subnode.exc.func, ast.Name):
@@ -139,7 +136,6 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
             # Check if __iter__ is a generator
             is_generator = False
             if '__iter__' in methods:
-                iter_method = methods['__iter__']
                 for subnode in context.find_nodes((ast.Yield, ast.YieldFrom)):
                     is_generator = True
                     break

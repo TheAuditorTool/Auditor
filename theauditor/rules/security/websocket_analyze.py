@@ -6,7 +6,7 @@ instead of traversing AST structures.
 
 
 import sqlite3
-from typing import List, Set
+
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
 

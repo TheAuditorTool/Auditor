@@ -552,9 +552,6 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[Stan
     """
     findings = []
 
-    # Build tenant pattern for SQL filtering
-    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
-
     # Push JOIN detection to SQL - NO MORE checked_count breaks
     # Note: Complex ON clause extraction still in Python (parsing SQL in regex is brittle)
     cursor.execute("""

@@ -24,7 +24,6 @@ import re
 import sqlite3
 from functools import lru_cache
 from typing import List, Set, Dict, Optional, Tuple
-from pathlib import Path
 from enum import Enum
 
 from theauditor.rules.base import (

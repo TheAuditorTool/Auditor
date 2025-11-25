@@ -23,9 +23,7 @@ Detects 15+ real-world CORS vulnerabilities:
 
 import sqlite3
 import re
-from typing import List, Dict, Optional, Set
 from dataclasses import dataclass
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 

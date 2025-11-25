@@ -26,8 +26,6 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 
 import json
 import sqlite3
-from typing import List, Dict, Any, Set, Optional
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
@@ -266,11 +264,8 @@ def analyze_service(row: tuple) -> list[StandardFinding]:
         cap_add_json = row[9]
         cap_drop_json = row[10]
         security_opt_json = row[11]
-        restart = row[12]
         command_json = row[13]
         entrypoint_json = row[14]
-        depends_on_json = row[15]
-        healthcheck_json = row[16]
 
         # Parse JSON fields
         ports = json.loads(ports_json) if ports_json else []

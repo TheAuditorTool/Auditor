@@ -274,7 +274,7 @@ def aggregate_statistics(manifest_path: str, db_path: str) -> dict[str, Any]:
                 pass
                 
             conn.close()
-        except Exception as e:
+        except Exception:
             # Database might be empty or malformed
             pass
     

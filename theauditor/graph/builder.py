@@ -362,14 +362,11 @@ class XGraphBuilder:
             source_dir = source_file.parent
             # Handle case where source_file might already be relative or might be from manifest
             try:
-                source_rel = str(source_file.relative_to(self.project_root)).replace("\\", "/")
+                str(source_file.relative_to(self.project_root)).replace("\\", "/")
             except ValueError:
                 # If source_file is already relative or from a different root, use it as is
-                source_rel = str(source_file).replace("\\", "/")
-            
-            # Handle different import patterns
-            resolved_path = None
-            
+                pass
+
             # 1. Handle TypeScript path aliases using ModuleResolver (database-driven)
             if import_str.startswith("@"):
                 # [FIX] Dynamic Context Discovery (The Fix for Bug #2)
