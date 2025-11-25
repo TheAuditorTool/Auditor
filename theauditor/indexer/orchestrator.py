@@ -43,6 +43,8 @@ from .extractors import ExtractorRegistry
 from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
+from .fidelity import reconcile_fidelity
+from .exceptions import DataFidelityError
 
 logger = logging.getLogger(__name__)
 
@@ -748,12 +750,33 @@ class IndexerOrchestrator:
         This method now delegates all storage operations to the DataStorer class.
         The God Method (1,169 lines) has been refactored into 66 focused handler methods.
 
+        Includes DATA FIDELITY CHECK: compares extraction manifest vs storage receipt
+        to detect silent data loss. See: theauditor/indexer/fidelity.py
+
         Args:
             file_path: Path to the source file
             extracted: Dictionary of extracted data
         """
-        # Delegate to DataStorer
-        self.data_storer.store(file_path, extracted, jsx_pass=False)
+        # 1. Store data and get the receipt (counts of items actually stored)
+        receipt = self.data_storer.store(file_path, extracted, jsx_pass=False)
+
+        # 2. Check for Extraction Manifest (inserted by python_impl.py)
+        manifest = extracted.get('_extraction_manifest')
+
+        # 3. Run Fidelity Reconciliation (if manifest exists)
+        # We skip this for extractors that don't produce manifests (e.g., python_deps.py)
+        if manifest:
+            try:
+                reconcile_fidelity(
+                    manifest=manifest,
+                    receipt=receipt,
+                    file_path=file_path,
+                    strict=True  # CRASH ON DATA LOSS - ZERO FALLBACK POLICY
+                )
+            except DataFidelityError as e:
+                # Log and re-raise to halt the indexer
+                logger.error(f"[FATAL] Fidelity Check Failed for {file_path}: {e}")
+                raise
 
     # === REMOVED: 1,150 lines of inline storage logic ===
     # All storage handlers migrated to storage.py (DataStorer class)
