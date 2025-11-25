@@ -11,7 +11,6 @@ legacy TerraformFinding format plus database dual-writes.
 import json
 import sqlite3
 from pathlib import Path
-from typing import List, Optional
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, Severity

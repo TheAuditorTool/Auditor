@@ -12,7 +12,7 @@ Returns compliance score and list of violations.
 import logging
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any
 
 from theauditor.session.parser import Session, ToolCall
 
