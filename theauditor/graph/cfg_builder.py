@@ -10,8 +10,7 @@ during the indexing phase. It provides analysis capabilities including:
 
 
 import sqlite3
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Any
 from collections import defaultdict
 
 

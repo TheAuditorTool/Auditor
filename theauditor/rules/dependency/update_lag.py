@@ -23,7 +23,6 @@ Database Tables Used:
 import json
 import sqlite3
 from pathlib import Path
-from typing import List
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.indexer.schema import build_query
 

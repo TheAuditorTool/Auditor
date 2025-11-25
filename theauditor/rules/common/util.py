@@ -20,7 +20,6 @@ Status: No refactor needed - correct as-is
 import base64
 import binascii
 import math
-from typing import Optional, Dict, Set
 from dataclasses import dataclass
 from enum import Enum
 

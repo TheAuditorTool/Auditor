@@ -12,8 +12,6 @@ Follows v1.1+ gold standard patterns:
 
 
 import sqlite3
-from typing import List, Set
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 

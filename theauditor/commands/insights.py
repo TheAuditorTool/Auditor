@@ -7,7 +7,7 @@ on top of existing raw audit data, generating insights and predictions.
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 import click
 

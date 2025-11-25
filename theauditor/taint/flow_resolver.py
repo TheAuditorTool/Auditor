@@ -18,8 +18,7 @@ Architecture:
 import json
 import sqlite3
 from collections import defaultdict
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from theauditor.utils.logger import setup_logger
 from .sanitizer_util import SanitizerRegistry
@@ -119,7 +118,6 @@ class FlowResolver:
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
 
         # Forward BFS from each entry point
-        import sys
         for i, entry_id in enumerate(entry_nodes):
             # print(f"[FLOW] >> Entry {i+1}/{len(entry_nodes)}: {entry_id[:80]}...", file=sys.stderr, flush=True)
 

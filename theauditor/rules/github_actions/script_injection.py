@@ -16,7 +16,6 @@ CWE-77: Improper Neutralization of Special Elements used in a Command
 import json
 import logging
 import sqlite3
-from typing import List, Set
 
 from theauditor.rules.base import (
     RuleMetadata,

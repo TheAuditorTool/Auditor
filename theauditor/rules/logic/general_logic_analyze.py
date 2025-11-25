@@ -19,8 +19,6 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 
 
 import sqlite3
-from typing import List
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 from theauditor.indexer.schema import build_query

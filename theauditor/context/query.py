@@ -31,7 +31,6 @@ Usage:
 
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Optional, Set
 from dataclasses import dataclass, asdict
 from collections import deque
 

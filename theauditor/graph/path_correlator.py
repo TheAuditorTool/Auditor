@@ -6,8 +6,7 @@ relationships about which findings execute together on the same paths.
 
 
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Any
 from collections import defaultdict
 
 from theauditor.graph.cfg_builder import CFGBuilder

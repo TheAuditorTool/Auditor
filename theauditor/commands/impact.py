@@ -124,7 +124,6 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
     Note: Requires 'aud index' to be run first."""
     # Import directly to avoid __init__.py which has missing taint module
-    import sys
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "impact_analyzer",

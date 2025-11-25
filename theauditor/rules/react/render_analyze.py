@@ -8,7 +8,6 @@ Focuses on render optimization and performance bottlenecks.
 
 
 import sqlite3
-from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -131,8 +130,6 @@ class ReactRenderAnalyzer:
 
     def _check_expensive_operations(self):
         """Check for expensive operations in render methods."""
-        from theauditor.indexer.schema import build_query
-
         # Fetch all function_call_args with components, filter in Python
         self.cursor.execute("""
             SELECT DISTINCT f.file, f.line, f.callee_function,

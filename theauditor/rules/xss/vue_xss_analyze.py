@@ -16,8 +16,6 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 # Single Source of Truth - all Vue XSS constants from constants.py
 from theauditor.rules.xss.constants import (
-    VUE_DANGEROUS_DIRECTIVES,
-    VUE_SAFE_DIRECTIVES,
     VUE_INPUT_SOURCES,
     VUE_COMPILE_METHODS,
     VUE_TARGET_EXTENSIONS,

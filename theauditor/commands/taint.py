@@ -1,10 +1,8 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
 
-import sys
 import platform
 import click
 from pathlib import Path
-from datetime import datetime, UTC
 from theauditor.utils.error_handler import handle_exceptions
 
 # Detect if running on Windows for character encoding
@@ -258,9 +256,9 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
+    from theauditor.taint import trace_taint, normalize_taint_path
     from theauditor.config_runtime import load_runtime_config
-    from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
+    from theauditor.rules.orchestrator import RulesOrchestrator
     from theauditor.taint import TaintRegistry
     from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib

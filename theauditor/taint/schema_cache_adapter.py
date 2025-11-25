@@ -7,8 +7,7 @@ This will be removed in Phase 4 when we refactor the taint code directly.
 """
 
 
-from typing import Dict, List, Any, Optional
-import sys
+from typing import Any
 
 
 class SchemaMemoryCacheAdapter:

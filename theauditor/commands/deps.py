@@ -71,7 +71,7 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
 
     Note: Respects proxy settings and npm/pip configurations."""
     from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps, generate_grouped_report
-    from theauditor.vulnerability_scanner import scan_dependencies, write_vulnerabilities_json, format_vulnerability_report
+    from theauditor.vulnerability_scanner import scan_dependencies, format_vulnerability_report
     import sys
     
     # Parse dependencies

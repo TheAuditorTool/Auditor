@@ -6,7 +6,6 @@ Uses database-only approach with React component awareness.
 
 
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 

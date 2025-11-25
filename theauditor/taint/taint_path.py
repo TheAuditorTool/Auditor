@@ -5,7 +5,7 @@ This is a pure data model with no external dependencies.
 """
 
 
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 
 class TaintPath:

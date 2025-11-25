@@ -9,7 +9,6 @@ Section 1: Access Paths - page 3
 
 
 from dataclasses import dataclass
-from typing import Tuple, Optional, Set
 
 
 @dataclass(frozen=True)
