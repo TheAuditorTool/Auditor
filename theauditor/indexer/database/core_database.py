@@ -5,9 +5,6 @@ Handles 21 core tables including files, symbols, assignments, function calls, CF
 """
 
 
-from typing import List, Optional
-
-
 class CoreDatabaseMixin:
     """Mixin providing add_* methods for CORE_TABLES.
 

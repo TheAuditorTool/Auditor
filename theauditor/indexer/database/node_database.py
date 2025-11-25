@@ -6,7 +6,6 @@ Handles 17 Node.js tables including TypeScript, React, Vue, and package manageme
 
 
 import json
-from typing import Optional, Dict, List
 
 
 class NodeDatabaseMixin:

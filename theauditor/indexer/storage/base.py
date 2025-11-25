@@ -9,8 +9,6 @@ All domain storage modules (CoreStorage, PythonStorage, etc.) inherit from
 this base class to access shared dependencies without duplication.
 """
 
-import os
-
 
 class BaseStorage:
     """Base class for domain-specific storage handlers."""

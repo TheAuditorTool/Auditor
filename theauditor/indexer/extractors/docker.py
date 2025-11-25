@@ -8,9 +8,8 @@ Follows gold standard: Facts only, direct DB writes, no intermediate dicts.
 """
 
 
-import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from . import BaseExtractor
 

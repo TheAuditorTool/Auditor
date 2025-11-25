@@ -6,21 +6,15 @@ detection.
 
 
 import os
-import json
 import sqlite3
 import fnmatch
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional, Set
+from typing import Any
 
 from theauditor.utils import compute_file_hash, count_lines_in_file
-from theauditor.config_runtime import load_runtime_config
 from .config import (
-    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES,
-    COMPOSE_PATTERNS, DOCKERFILE_PATTERNS, NGINX_PATTERNS
+    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES
 )
-
-# Import ASTCache from the new unified cache module
-from ..cache.ast_cache import ASTCache
 
 
 def is_text_file(file_path: Path) -> bool:
