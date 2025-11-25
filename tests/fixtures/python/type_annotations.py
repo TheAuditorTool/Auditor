@@ -280,7 +280,7 @@ def combine_tuples(
     Combine two variadic tuples.
     Tests: Multiple variadic tuples.
     """
-    return [(s, i) for s, i in zip(first, second)]
+    return [(s, i) for s, i in zip(first, second)]  # noqa: B905 - intentional truncation demo for variadic tuples
 
 
 def complex_tuple_processing(

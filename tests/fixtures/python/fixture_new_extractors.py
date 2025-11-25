@@ -10,7 +10,7 @@ for i in range(10):
 for key, value in enumerate(["a", "b", "c"]):
     pass
 
-for x, y in zip([1, 2], [3, 4]):
+for x, y in zip([1, 2], [3, 4]):  # noqa: B905 - test fixture
     pass
 
 for key, value in {"a": 1, "b": 2}.items():

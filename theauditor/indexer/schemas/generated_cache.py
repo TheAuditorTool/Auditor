@@ -1,5 +1,5 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: db80c727142bbb7319c5efd79d50162c6ba2fbde4dcdc892ffcc46fb68cc76f0
+# SCHEMA_HASH: 5c4c110e1df245c25d815d7db36e261d6614a159f07382fa0d75905570ebb5c4
 from typing import Any
 from collections import defaultdict
 import sqlite3
@@ -43,7 +43,7 @@ class SchemaMemoryCache:
         query = build_query(table_name, col_names)
         cursor.execute(query)
         rows = cursor.fetchall()
-        return [dict(zip(col_names, row)) for row in rows]
+        return [dict(zip(col_names, row, strict=True)) for row in rows]
 
     def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:
         """Build an index on a column for fast lookups."""

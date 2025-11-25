@@ -150,7 +150,7 @@ class SchemaCodeGenerator:
             code.append(f'        """Get all rows from {table_name}."""')
             code.append(f"        query = build_query('{table_name}', {col_list_str})")
             code.append(f"        cursor.execute(query)")
-            code.append(f"        return [dict(zip({col_list_str}, row)) for row in cursor.fetchall()]")
+            code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
             code.append("")
 
             # Generate get_by_{column} for indexed columns
@@ -166,7 +166,7 @@ class SchemaCodeGenerator:
                         code.append(f'        """Get rows by {col_name}."""')
                         code.append(f"        query = build_query('{table_name}', {col_list_str}, where=\"{col_name} = ?\")")
                         code.append(f"        cursor.execute(query, ({col_name},))")
-                        code.append(f"        return [dict(zip({col_list_str}, row)) for row in cursor.fetchall()]")
+                        code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
                         code.append("")
 
             code.append("")
@@ -228,7 +228,7 @@ class SchemaCodeGenerator:
         code.append("        query = build_query(table_name, col_names)")
         code.append("        cursor.execute(query)")
         code.append("        rows = cursor.fetchall()")
-        code.append("        return [dict(zip(col_names, row)) for row in rows]")
+        code.append("        return [dict(zip(col_names, row, strict=True)) for row in rows]")
         code.append("")
         code.append("    def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:")
         code.append('        """Build an index on a column for fast lookups."""')

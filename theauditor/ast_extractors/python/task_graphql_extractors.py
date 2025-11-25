@@ -322,7 +322,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
             if isinstance(target, ast.Attribute) and target.attr == 'beat_schedule':
                 # Parse the dictionary value
                 if isinstance(node.value, ast.Dict):
-                    for i, (key_node, value_node) in enumerate(zip(node.value.keys, node.value.values)):
+                    for i, (key_node, value_node) in enumerate(zip(node.value.keys, node.value.values)):  # noqa: B905 - AST guarantees equal length
                         if not isinstance(key_node, ast.Constant):
                             continue
 
@@ -337,7 +337,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
                             kwargs_expr = None
 
                             # Parse the schedule config dict
-                            for sched_key, sched_value in zip(value_node.keys, value_node.values):
+                            for sched_key, sched_value in zip(value_node.keys, value_node.values):  # noqa: B905 - AST guarantees equal length
                                 if not isinstance(sched_key, ast.Constant):
                                     continue
 
