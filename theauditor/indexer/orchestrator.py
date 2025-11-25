@@ -34,7 +34,8 @@ from .config import (
     DEFAULT_BATCH_SIZE, JS_BATCH_SIZE,
     SUPPORTED_AST_EXTENSIONS
 )
-from .core import FileWalker, ASTCache
+from .core import FileWalker
+from ..cache.ast_cache import ASTCache
 from .database import DatabaseManager
 from .storage import DataStorer
 from .extractors import ExtractorRegistry

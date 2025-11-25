@@ -6,10 +6,9 @@ The journal tracks all pipeline events, file touches, and results for ML trainin
 
 
 import json
-import os
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 
 class JournalWriter:

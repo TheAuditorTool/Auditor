@@ -17,15 +17,13 @@ CRITICAL:
 
 import ast
 import hashlib
-import json
 import os
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, List, Dict, Union
+from typing import Any
 
-from theauditor.js_semantic_parser import get_semantic_ast, get_semantic_ast_batch
+from theauditor.js_semantic_parser import get_semantic_ast_batch
 from theauditor.ast_patterns import ASTPatternMixin
 
 

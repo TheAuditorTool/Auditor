@@ -5,7 +5,7 @@ import json
 import yaml
 import configparser
 from pathlib import Path
-from typing import Any, List, Dict, Optional, Union
+from typing import Any
 
 
 class ManifestParser:

@@ -1,8 +1,7 @@
 """Initialization module for TheAuditor - handles project setup and initialization."""
 
 
-from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 from theauditor.security import sanitize_config_path, SecurityError
 
 

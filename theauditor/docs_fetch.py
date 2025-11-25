@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
 
 try:

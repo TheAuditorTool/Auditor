@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 # Try to import json5 for better tsconfig parsing
 try:

@@ -8,19 +8,15 @@
 
 
 import asyncio
-import json
 import os
 import platform
 import shutil
 import signal
-import subprocess
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Tuple, Optional
+from typing import Any, Optional
 
-from collections.abc import Callable
 from theauditor.events import PipelineObserver
 
 # Windows compatibility

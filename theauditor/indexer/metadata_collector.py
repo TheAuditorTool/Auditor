@@ -9,8 +9,8 @@ Maintains Truth Courier principles - reports only facts, no interpretation.
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone, UTC
+from typing import Any
+from datetime import datetime, UTC
 
 
 class MetadataCollector:
