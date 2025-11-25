@@ -7,11 +7,8 @@ WSL2/Windows permission issues by creating temp files within the project's
 
 
 import os
-import shutil
-import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional, Tuple
 
 
 class TempManager:
