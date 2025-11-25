@@ -27,16 +27,16 @@ def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
     """
     if project_root is None:
         project_root = "."
-    
+
     # Resolve both paths to absolute
     root = Path(project_root).resolve()
-    
+
     # Handle relative paths - make them relative to project root
     if not Path(path_str).is_absolute():
         target = (root / path_str).resolve()
     else:
         target = Path(path_str).resolve()
-    
+
     # Check if the resolved path is within the project root
     try:
         # This will raise ValueError if target is not relative to root
@@ -44,7 +44,7 @@ def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
     except ValueError:
         # Path is outside project root - this is a security violation
         raise SecurityError(f"Path traversal attempt detected: {path_str} resolves outside project root")
-    
+
     return target
 
 
@@ -93,28 +93,28 @@ def validate_package_name(name: str, manager: str) -> bool:
         True if the name is valid, False otherwise
     """
     import re
-    
+
     if not name or len(name) > 214:  # npm max length is 214
         return False
-    
+
     if manager == "npm":
         # npm package names: lowercase, alphanumeric, hyphens, underscores, dots
         # Can be scoped: @scope/package
         pattern = r'^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$'
         return bool(re.match(pattern, name))
-    
+
     elif manager == "py":
         # PyPI package names: alphanumeric, hyphens, underscores, dots
         # Case insensitive but typically lowercase
         pattern = r'^[a-zA-Z0-9][\w.-]*$'
         return bool(re.match(pattern, name))
-    
+
     elif manager == "docker":
         # Docker image names: lowercase, alphanumeric, hyphens, underscores, dots, slashes
         # Can include registry and namespace
         pattern = r'^[a-z0-9][\w./:-]*$'
         return bool(re.match(pattern, name))
-    
+
     return False
 
 
@@ -139,12 +139,12 @@ def sanitize_config_path(config_value: str, config_section: str, config_key: str
     """
     if not config_value:
         raise SecurityError(f"Empty path in config[{config_section}][{config_key}]")
-    
+
     # Special handling for known config paths that should always be under .pf/
     if config_section == "paths" and config_key in ["manifest", "db", "workset", "pf_dir"]:
         # These should always be under .pf/ directory
         if not config_value.startswith("./.pf/") and not config_value.startswith(".pf/"):
             # Force it to be under .pf/ for safety
             config_value = f"./.pf/{Path(config_value).name}"
-    
+
     return sanitize_path(config_value, project_root)

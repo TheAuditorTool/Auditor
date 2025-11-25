@@ -249,7 +249,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=f'{func}({arg[:50]}...)' if len(arg) > 50 else f'{func}({arg})',
                 cwe_id='CWE-682'
             ))
-        
+
         # ========================================================
         # CHECK 2: Timezone-Naive Datetime Usage
         # ========================================================
@@ -277,7 +277,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=f'{datetime_func}({args[:30]}...)' if len(args) > 30 else f'{datetime_func}({args})',
                 cwe_id='CWE-20'
             ))
-        
+
         # ========================================================
         # CHECK 3: Email Regex Validation (Anti-pattern)
         # ========================================================
@@ -305,7 +305,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=pattern[:100] if len(pattern) > 100 else pattern,
                 cwe_id='CWE-20'
             ))
-        
+
         # ========================================================
         # CHECK 4: Division by Zero Risks
         # ========================================================
@@ -355,7 +355,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                     snippet=expr[:100] if len(expr) > 100 else expr,
                     cwe_id='CWE-369'
                 ))
-        
+
         # ========================================================
         # CHECK 5: File Handles Not Closed (Resource Leak)
         # ========================================================
@@ -424,7 +424,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                     snippet=f'{open_func}(...) in {in_function}',
                     cwe_id='CWE-404'
                 ))
-        
+
         # ========================================================
         # CHECK 6: Database Connections Without Cleanup
         # ========================================================
@@ -470,7 +470,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=connect_func,
                 cwe_id='CWE-404'
             ))
-        
+
         # ========================================================
         # CHECK 7: Transactions Without Commit/Rollback
         # ========================================================
@@ -503,7 +503,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=trans_func,
                 cwe_id='CWE-404'
             ))
-        
+
         # ========================================================
         # CHECK 8: Sockets Without Cleanup
         # ========================================================
@@ -545,7 +545,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=socket_func,
                 cwe_id='CWE-404'
             ))
-        
+
         # ========================================================
         # CHECK 9: Percentage Calculation Errors
         # ========================================================
@@ -572,7 +572,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=expr[:100] if len(expr) > 100 else expr,
                 cwe_id='CWE-682'
             ))
-        
+
         # ========================================================
         # CHECK 10: Stream Operations Without Cleanup
         # ========================================================
@@ -610,7 +610,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=stream_func,
                 cwe_id='CWE-404'
             ))
-        
+
         # ========================================================
         # CHECK 11: Async Operations Without Error Handling
         # ========================================================
@@ -651,7 +651,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=async_func,
                 cwe_id='CWE-248'
             ))
-        
+
         # ========================================================
         # CHECK 12: Lock/Mutex Without Release
         # ========================================================
@@ -694,10 +694,10 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
                 snippet=lock_func,
                 cwe_id='CWE-667'
             ))
-    
+
     finally:
         conn.close()
-    
+
     return findings
 
 
@@ -713,10 +713,10 @@ def register_taint_patterns(taint_registry):
         'Date.now', 'new Date', 'Date.parse',
         'time.time', 'time.localtime', 'time.gmtime'
     ]
-    
+
     for pattern in DATETIME_SOURCES:
         taint_registry.register_source(pattern, 'datetime', 'any')
-    
+
     # Register resource operation sinks (need proper cleanup)
     RESOURCE_SINKS = [
         'open', 'createReadStream', 'createWriteStream',
@@ -724,24 +724,24 @@ def register_taint_patterns(taint_registry):
         'begin_transaction', 'start_transaction', 'beginTransaction',
         'acquire', 'lock', 'getLock'
     ]
-    
+
     for pattern in RESOURCE_SINKS:
         taint_registry.register_sink(pattern, 'resource', 'any')
-    
+
     # Register money/financial operation sinks (precision-sensitive)
     MONEY_SINKS = [
         'parseFloat', 'float', 'toFixed', 'toPrecision',
         'price', 'cost', 'amount', 'total', 'balance',
         'payment', 'fee', 'money', 'charge', 'refund'
     ]
-    
+
     for pattern in MONEY_SINKS:
         taint_registry.register_sink(pattern, 'financial', 'any')
-    
+
     # Register division operations as sinks (divide by zero risk)
     DIVISION_SINKS = [
         'divide', 'div', 'quotient', 'average', 'mean'
     ]
-    
+
     for pattern in DIVISION_SINKS:
         taint_registry.register_sink(pattern, 'division', 'any')

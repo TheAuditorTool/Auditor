@@ -73,11 +73,11 @@ def parse_sql_query(query_text: str) -> tuple[str, list[str]] | None:
 
 class SQLExtractor(BaseExtractor):
     """Extractor for SQL files."""
-    
+
     def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.sql', '.psql', '.ddl']
-    
+
     def extract(self, file_info: dict[str, Any], content: str, 
                 tree: Any | None = None) -> dict[str, Any]:
         """Extract all relevant information from a SQL file.

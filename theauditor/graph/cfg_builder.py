@@ -111,14 +111,14 @@ class CFGBuilder:
             CFG dictionary with blocks, edges, and metadata
         """
         cursor = self.conn.cursor()
-        
+
         # Get all blocks for this function
         cursor.execute("""
             SELECT * FROM cfg_blocks 
             WHERE file = ? AND function_name = ?
             ORDER BY start_line
         """, (file_path, function_name))
-        
+
         blocks = []
         block_map = {}
         for row in cursor.fetchall():
@@ -132,7 +132,7 @@ class CFGBuilder:
             }
             blocks.append(block)
             block_map[row['id']] = block
-        
+
         # Get statements for each block
         for block in blocks:
             cursor.execute("""
@@ -140,20 +140,20 @@ class CFGBuilder:
                 WHERE block_id = ?
                 ORDER BY line
             """, (block['id'],))
-            
+
             for row in cursor.fetchall():
                 block['statements'].append({
                     'type': row['statement_type'],
                     'line': row['line'],
                     'text': row['statement_text']
                 })
-        
+
         # Get edges
         cursor.execute("""
             SELECT * FROM cfg_edges
             WHERE file = ? AND function_name = ?
         """, (file_path, function_name))
-        
+
         edges = []
         for row in cursor.fetchall():
             edges.append({
@@ -161,7 +161,7 @@ class CFGBuilder:
                 'target': row['target_block_id'],
                 'type': row['edge_type']
             })
-        
+
         return {
             'function_name': function_name,
             'file': file_path,
@@ -169,7 +169,7 @@ class CFGBuilder:
             'edges': edges,
             'metrics': self._calculate_metrics(blocks, edges)
         }
-    
+
     def get_all_functions(self, file_path: str | None = None) -> list[dict[str, str]]:
         """Get list of all functions with CFG data.
         
@@ -180,7 +180,7 @@ class CFGBuilder:
             List of function metadata dictionaries
         """
         cursor = self.conn.cursor()
-        
+
         if file_path:
             cursor.execute("""
                 SELECT DISTINCT file, function_name, COUNT(*) as block_count
@@ -194,7 +194,7 @@ class CFGBuilder:
                 FROM cfg_blocks
                 GROUP BY file, function_name
             """)
-        
+
         functions = []
         for row in cursor.fetchall():
             functions.append({
@@ -202,9 +202,9 @@ class CFGBuilder:
                 'function_name': row['function_name'],
                 'block_count': row['block_count']
             })
-        
+
         return functions
-    
+
     def analyze_complexity(self, file_path: str | None = None,
                           threshold: int = 10) -> list[dict[str, Any]]:
         """Find functions with high cyclomatic complexity.
@@ -260,7 +260,7 @@ class CFGBuilder:
         # Sort by complexity descending
         complex_functions.sort(key=lambda x: x['complexity'], reverse=True)
         return complex_functions
-    
+
     def find_dead_code(self, file_path: str | None = None) -> list[dict[str, Any]]:
         """Find unreachable code blocks.
 
@@ -305,7 +305,7 @@ class CFGBuilder:
                         })
 
         return dead_blocks
-    
+
     def _calculate_metrics(self, blocks: list[dict], edges: list[dict]) -> dict[str, Any]:
         """Calculate CFG metrics.
         
@@ -319,16 +319,16 @@ class CFGBuilder:
         # Cyclomatic complexity = E - N + 2P
         # Where E = edges, N = nodes, P = connected components (usually 1)
         cyclomatic = len(edges) - len(blocks) + 2
-        
+
         # Check for loops (back edges)
         has_loops = any(e['type'] == 'back_edge' for e in edges)
-        
+
         # Calculate maximum nesting depth
         max_nesting = self._calculate_max_nesting(blocks, edges)
-        
+
         # Count decision points
         decision_points = sum(1 for b in blocks if b['type'] in ['condition', 'loop_condition'])
-        
+
         return {
             'cyclomatic_complexity': cyclomatic,
             'has_loops': has_loops,
@@ -337,7 +337,7 @@ class CFGBuilder:
             'block_count': len(blocks),
             'edge_count': len(edges)
         }
-    
+
     def _find_unreachable_blocks(self, blocks: list[dict], edges: list[dict]) -> set[int]:
         """Find blocks that cannot be reached from entry.
         
@@ -352,28 +352,28 @@ class CFGBuilder:
         graph = defaultdict(list)
         for edge in edges:
             graph[edge['source']].append(edge['target'])
-        
+
         # Find entry block
         entry_blocks = [b['id'] for b in blocks if b['type'] == 'entry']
         if not entry_blocks:
             return set()
-        
+
         # DFS from entry to find reachable blocks
         reachable = set()
         stack = entry_blocks.copy()
-        
+
         while stack:
             current = stack.pop()
             if current not in reachable:
                 reachable.add(current)
                 stack.extend(graph[current])
-        
+
         # Find unreachable blocks
         all_blocks = {b['id'] for b in blocks}
         unreachable = all_blocks - reachable
-        
+
         return unreachable
-    
+
     def _calculate_max_nesting(self, blocks: list[dict], edges: list[dict]) -> int:
         """Calculate maximum nesting depth in the CFG.
         
@@ -388,43 +388,43 @@ class CFGBuilder:
         graph = defaultdict(list)
         for edge in edges:
             graph[edge['source']].append(edge['target'])
-        
+
         # Track nesting depth for condition/loop blocks
         max_depth = 0
         entry_blocks = [b['id'] for b in blocks if b['type'] == 'entry']
-        
+
         if not entry_blocks:
             return 0
-        
+
         # BFS with depth tracking
         queue = [(entry_blocks[0], 0)]
         visited = set()
-        
+
         while queue:
             block_id, depth = queue.pop(0)
-            
+
             if block_id in visited:
                 continue
             visited.add(block_id)
-            
+
             # Find the block
             block = next((b for b in blocks if b['id'] == block_id), None)
             if not block:
                 continue
-            
+
             # Increase depth for nesting structures
             new_depth = depth
             if block['type'] in ['condition', 'loop_condition', 'try']:
                 new_depth = depth + 1
                 max_depth = max(max_depth, new_depth)
-            
+
             # Add neighbors to queue
             for neighbor in graph[block_id]:
                 if neighbor not in visited:
                     queue.append((neighbor, new_depth))
-        
+
         return max_depth
-    
+
     def get_execution_paths(self, file_path: str, function_name: str, 
                            max_paths: int = 100) -> list[list[int]]:
         """Get all execution paths through a function.
@@ -438,40 +438,40 @@ class CFGBuilder:
             List of paths (each path is a list of block IDs)
         """
         cfg = self.get_function_cfg(file_path, function_name)
-        
+
         # Build adjacency list
         graph = defaultdict(list)
         for edge in cfg['edges']:
             # Skip back edges to avoid infinite loops
             if edge['type'] != 'back_edge':
                 graph[edge['source']].append(edge['target'])
-        
+
         # Find entry and exit blocks
         entry_blocks = [b['id'] for b in cfg['blocks'] if b['type'] == 'entry']
         exit_blocks = [b['id'] for b in cfg['blocks'] if b['type'] in ['exit', 'return']]
-        
+
         if not entry_blocks or not exit_blocks:
             return []
-        
+
         # DFS to find all paths
         paths = []
         stack = [(entry_blocks[0], [entry_blocks[0]])]
-        
+
         while stack and len(paths) < max_paths:
             current, path = stack.pop()
-            
+
             if current in exit_blocks:
                 paths.append(path)
                 continue
-            
+
             # Add all neighbors
             for neighbor in graph[current]:
                 # Avoid cycles in path
                 if neighbor not in path:
                     stack.append((neighbor, path + [neighbor]))
-        
+
         return paths
-    
+
     def export_dot(self, file_path: str, function_name: str) -> str:
         """Export CFG as Graphviz DOT format.
         
@@ -483,17 +483,17 @@ class CFGBuilder:
             DOT format string
         """
         cfg = self.get_function_cfg(file_path, function_name)
-        
+
         dot_lines = ['digraph CFG {']
         dot_lines.append('  rankdir=TB;')
         dot_lines.append('  node [shape=box];')
-        
+
         # Add nodes
         for block in cfg['blocks']:
             label = f"{block['type']}\\n{block['start_line']}-{block['end_line']}"
             if block['condition']:
                 label += f"\\n{block['condition'][:20]}..."
-            
+
             color = 'lightblue'
             if block['type'] == 'entry':
                 color = 'lightgreen'
@@ -501,9 +501,9 @@ class CFGBuilder:
                 color = 'lightcoral'
             elif block['type'] in ['condition', 'loop_condition']:
                 color = 'lightyellow'
-            
+
             dot_lines.append(f'  {block["id"]} [label="{label}", fillcolor={color}, style=filled];')
-        
+
         # Add edges
         for edge in cfg['edges']:
             label = edge['type']
@@ -512,13 +512,13 @@ class CFGBuilder:
                 style = 'dashed'
             elif edge['type'] in ['true', 'false']:
                 label = 'T' if edge['type'] == 'true' else 'F'
-            
+
             dot_lines.append(f'  {edge["source"]} -> {edge["target"]} [label="{label}", style={style}];')
-        
+
         dot_lines.append('}')
-        
+
         return '\n'.join(dot_lines)
-    
+
     def close(self):
         """Close database connection."""
         if self.conn:

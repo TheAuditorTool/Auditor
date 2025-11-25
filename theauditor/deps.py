@@ -92,7 +92,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
         if debug:
             print(f"Debug: Loaded {len(python_deps)} Python dependencies from database")
         deps.extend(python_deps)
-    
+
     # Parse Docker Compose files
     docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
     if debug and docker_compose_files:
@@ -104,7 +104,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
         except SecurityError as e:
             if debug:
                 print(f"Debug: Security error with {compose_file}: {e}")
-    
+
     # Parse Dockerfiles
     dockerfiles = list(root.glob("**/Dockerfile"))
     if debug and dockerfiles:
@@ -392,16 +392,16 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        
+
         # Check if services key exists
         if not data or "services" not in data:
             return deps
-        
+
         # Iterate through services
         for service_name, service_config in data["services"].items():
             if not isinstance(service_config, dict):
                 continue
-            
+
             # Extract image if present
             if "image" in service_config:
                 image_spec = service_config["image"]
@@ -411,7 +411,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
                 else:
                     name = image_spec
                     tag = "latest"
-                
+
                 # Handle registry prefixes (e.g., docker.io/library/postgres)
                 if "/" in name:
                     # Take the last part as the image name
@@ -423,7 +423,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
                         else:
                             # Keep org/image format
                             name = "/".join(name_parts[-2:])
-                
+
                 deps.append({
                     "name": name,
                     "version": tag,
@@ -433,7 +433,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
                 })
     except (yaml.YAMLError, KeyError, AttributeError) as e:
         print(f"Warning: Could not parse {path}: {e}")
-    
+
     return deps
 
 
@@ -811,7 +811,7 @@ def check_latest_versions(
     cache = _load_deps_cache(root_path)
     latest_info = {}
     needs_check = []
-    
+
     # FIRST PASS: Check what's in cache and still valid
     for dep in deps:
         # UNIVERSAL KEY: Include version for ALL managers (Tweak 2)
@@ -838,7 +838,7 @@ def check_latest_versions(
             latest_info[key] = cache[key]
         else:
             needs_check.append(dep)
-    
+
     # Early exit if everything is cached
     if not needs_check:
         return latest_info
@@ -882,7 +882,7 @@ def check_latest_versions(
                     "error": error_msg or "Not found",
                     "last_checked": datetime.now().isoformat()
                 }
-    
+
     # Save updated cache
     _save_deps_cache(latest_info, root_path)
 
@@ -1242,7 +1242,7 @@ def write_deps_latest_json(
     try:
         output = sanitize_path(output_path, ".")
         output.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output, "w", encoding="utf-8") as f:
             json.dump(latest_info, f, indent=2, sort_keys=True)
     except SecurityError as e:
@@ -1261,12 +1261,12 @@ def _create_versioned_backup(path: Path) -> Path:
     Returns the path to the created backup.
     """
     base_backup = path.with_suffix(path.suffix + ".bak")
-    
+
     # If no backup exists, use the base name
     if not base_backup.exists():
         shutil.copy2(path, base_backup)
         return base_backup
-    
+
     # Find the next available backup number
     counter = 1
     while True:
@@ -1297,7 +1297,7 @@ def upgrade_all_deps(
         "package.json": 0,
         "pyproject.toml": 0
     }
-    
+
     # Group deps by source file (including workspace path for monorepos)
     deps_by_source = {}
     for dep in deps_list:
@@ -1306,17 +1306,17 @@ def upgrade_all_deps(
             source_key = dep["workspace_package"]
         else:
             source_key = dep.get("source", "")
-        
+
         if source_key not in deps_by_source:
             deps_by_source[source_key] = []
         deps_by_source[source_key].append(dep)
-    
+
     # Upgrade requirements*.txt files (including in subdirectories)
     all_req_files = list(root.glob("requirements*.txt"))
     all_req_files.extend(root.glob("*/requirements*.txt"))
     all_req_files.extend(root.glob("services/*/requirements*.txt"))
     all_req_files.extend(root.glob("apps/*/requirements*.txt"))
-    
+
     for req_file in all_req_files:
         # Use relative path as key for deps_by_source
         try:
@@ -1324,7 +1324,7 @@ def upgrade_all_deps(
             source_key = str(rel_path).replace("\\", "/")
         except ValueError:
             source_key = req_file.name
-        
+
         if source_key in deps_by_source:
             count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[source_key])
             upgraded["requirements.txt"] += count
@@ -1332,13 +1332,13 @@ def upgrade_all_deps(
             # Fallback to just filename for backward compatibility
             count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[req_file.name])
             upgraded["requirements.txt"] += count
-    
+
     # Upgrade all package.json files (root and workspaces)
     for source_key, source_deps in deps_by_source.items():
         # Skip non-npm dependencies
         if not source_deps or source_deps[0].get("manager") != "npm":
             continue
-            
+
         # Determine the actual file path
         if source_key == "package.json":
             # Root package.json
@@ -1348,11 +1348,11 @@ def upgrade_all_deps(
             package_path = root / source_key
         else:
             continue
-            
+
         if package_path.exists():
             count = _upgrade_package_json(package_path, latest_info, source_deps)
             upgraded["package.json"] += count
-    
+
     # Upgrade all pyproject.toml files (root and subdirectories)
     all_pyproject_files = [root / "pyproject.toml"] if (root / "pyproject.toml").exists() else []
     all_pyproject_files.extend(root.glob("*/pyproject.toml"))
@@ -1440,41 +1440,41 @@ def _upgrade_requirements_txt(
     # Read current file
     with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
-    
+
     # Build package name to latest version map
     latest_versions = {}
     for dep in deps:
         key = f"py:{dep['name']}"
         if key in latest_info:
             latest_versions[dep['name']] = latest_info[key]['latest']
-    
+
     # Rewrite lines with latest versions
     updated_lines = []
     count = 0
-    
+
     for line in lines:
         original_line = line
         line = line.strip()
-        
+
         # Skip comments and empty lines
         if not line or line.startswith("#") or line.startswith("-"):
             updated_lines.append(original_line)
             continue
-        
+
         # Parse package name
         name, _ = _parse_python_dep_spec(line)
-        
+
         if name and name in latest_versions:
             # Replace with latest version
             updated_lines.append(f"{name}=={latest_versions[name]}\n")
             count += 1
         else:
             updated_lines.append(original_line)
-    
+
     # Write updated file
     with open(safe_path, "w", encoding="utf-8") as f:
         f.writelines(updated_lines)
-    
+
     return count
 
 
@@ -1496,9 +1496,9 @@ def _upgrade_package_json(
     # Read current file
     with open(safe_path, encoding="utf-8") as f:
         data = json.load(f)
-    
+
     count = 0
-    
+
     # Update dependencies
     if "dependencies" in data:
         for name in data["dependencies"]:
@@ -1506,7 +1506,7 @@ def _upgrade_package_json(
             if key in latest_info:
                 data["dependencies"][name] = latest_info[key]["latest"]
                 count += 1
-    
+
     # Update devDependencies
     if "devDependencies" in data:
         for name in data["devDependencies"]:
@@ -1514,12 +1514,12 @@ def _upgrade_package_json(
             if key in latest_info:
                 data["devDependencies"][name] = latest_info[key]["latest"]
                 count += 1
-    
+
     # Write updated file
     with open(safe_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")  # Add trailing newline
-    
+
     return count
 
 
@@ -1541,15 +1541,15 @@ def _upgrade_pyproject_toml(
     # Read entire file as string for regex replacement
     with open(safe_path, encoding="utf-8") as f:
         content = f.read()
-    
+
     count = 0
     updated_packages = {}  # Track all updates: package -> [(old, new)]
-    
+
     # For each package in latest_info
     for key, info in latest_info.items():
         if not key.startswith("py:"):
             continue
-        
+
         package_name = key[3:]  # Remove "py:" prefix
         latest_version = info.get("latest")
 
@@ -1579,19 +1579,19 @@ def _upgrade_pyproject_toml(
                 # Keep the original operator and extras notation
                 return f'"{package_name}{extras}{old_operator}{latest_version}"'
             return match.group(0)  # No change
-        
+
         # Replace all occurrences in one pass
         new_content = re.sub(pattern, replacer, content)
-        
+
         # Update count only if package was actually updated
         if package_name in updated_packages and content != new_content:
             count += 1
             content = new_content
-    
+
     # Write updated content
     with open(safe_path, "w", encoding="utf-8") as f:
         f.write(content)
-    
+
     # Report what was updated
     total_occurrences = 0
     # Use ASCII characters on Windows
@@ -1603,7 +1603,7 @@ def _upgrade_pyproject_toml(
             print(f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]}")
         else:
             print(f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]} ({len(updates)} occurrences)")
-    
+
     # Return total occurrences updated, not just unique packages
     return total_occurrences
 

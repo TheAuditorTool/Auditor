@@ -221,7 +221,7 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
     """
     if not exclude_self_enabled:
         return []
-    
+
     # Exclude all TheAuditor's own directories
     patterns = [
         "theauditor/**",
@@ -231,7 +231,7 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
         ".venv_wsl/**",
         ".auditor_venv/**",
     ]
-    
+
     # Exclude ALL root-level files to prevent framework/project detection
     # This makes TheAuditor think there's no project at root level
     root_files_to_exclude = [
@@ -258,5 +258,5 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
         ".editorconfig",
     ]
     patterns.extend(root_files_to_exclude)
-    
+
     return patterns

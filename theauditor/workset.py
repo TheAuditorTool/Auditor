@@ -73,10 +73,10 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
         # Use temp files to avoid buffer overflow
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \
              tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
-            
+
             stdout_path = stdout_fp.name
             stderr_path = stderr_fp.name
-            
+
             # Validate and parse diff spec to prevent command injection
             diff_parts = validate_diff_spec(diff_spec)
 
@@ -91,17 +91,17 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
                 check=True,
                 shell=False  # No shell needed - works on both Windows and Unix
             )
-        
+
         # Read the outputs back
         with open(stdout_path, encoding='utf-8') as f:
             stdout_content = f.read()
         with open(stderr_path, encoding='utf-8') as f:
             stderr_content = f.read()
-        
+
         # Clean up temp files
         os.unlink(stdout_path)
         os.unlink(stderr_path)
-        
+
         files = stdout_content.strip().split("\n") if stdout_content.strip() else []
         return [normalize_path(f) for f in files]
     except subprocess.CalledProcessError as e:

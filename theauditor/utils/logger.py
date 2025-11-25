@@ -17,21 +17,21 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
         Configured logger instance
     """
     logger = logging.getLogger(name)
-    
+
     if not logger.handlers:
         # Create console handler
         handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(level)
-        
+
         # Create formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         handler.setFormatter(formatter)
-        
+
         # Add handler to logger
         logger.addHandler(handler)
         logger.setLevel(level)
-    
+
     return logger

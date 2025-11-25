@@ -133,27 +133,27 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     except KeyboardInterrupt:
         click.echo("\n[INFO] Pipeline stopped by user.", err=True)
         sys.exit(130)  # Standard exit code for Ctrl+C
-    
+
     # Display clear status message based on results
     findings = result.get("findings", {})
     critical = findings.get("critical", 0)
     high = findings.get("high", 0)
     medium = findings.get("medium", 0)
     low = findings.get("low", 0)
-    
+
     click.echo("\n" + "=" * 60)
     click.echo("AUDIT FINAL STATUS")
     click.echo("=" * 60)
-    
+
     # Determine overall status and exit code
     exit_code = ExitCodes.SUCCESS
-    
+
     # Check for pipeline failures first
     if result["failed_phases"] > 0:
         click.echo(f"[WARNING] Pipeline completed with {result['failed_phases']} phase failures")
         click.echo("Some analysis phases could not complete successfully.")
         exit_code = ExitCodes.TASK_INCOMPLETE  # Exit code for pipeline failures
-    
+
     # Then check for security findings
     if critical > 0:
         click.echo(f"\nSTATUS: [CRITICAL] - Audit complete. Found {critical} critical vulnerabilities.")
@@ -170,7 +170,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     else:
         click.echo("\nSTATUS: [CLEAN] - No critical or high-severity issues found.")
         click.echo("Codebase meets security and quality standards.")
-    
+
     # Show findings breakdown if any exist
     if critical + high + medium + low > 0:
         click.echo("\nFindings breakdown:")
@@ -182,10 +182,10 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             click.echo(f"  - Medium: {medium}")
         if low > 0:
             click.echo(f"  - Low: {low}")
-    
+
     click.echo("\nReview the chunked data in .pf/readthis/ for complete findings.")
     click.echo("=" * 60)
-    
+
     # Exit with appropriate code for CI/CD automation
     # Using standardized exit codes from ExitCodes class
     if exit_code != ExitCodes.SUCCESS:

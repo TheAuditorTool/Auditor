@@ -131,12 +131,12 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
     Note: Must run 'aud index' first to build manifest."""
     from theauditor.graph.builder import XGraphBuilder
     from theauditor.graph.store import XGraphStore
-    
+
     try:
         # Initialize builder and store
         builder = XGraphBuilder(batch_size=batch_size, exclude_patterns=[], project_root=root)
         store = XGraphStore(db_path=db)
-        
+
         # Load workset if provided
         workset_files = set()
         if workset:
@@ -147,11 +147,11 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
                     # Extract file paths from workset
                     workset_files = {p["path"] for p in workset_data.get("paths", [])}
                     click.echo(f"Loaded workset with {len(workset_files)} files")
-        
+
         # Clear checkpoint if not resuming
         if not resume and builder.checkpoint_file.exists():
             builder.checkpoint_file.unlink()
-        
+
         # Load manifest.json if it exists to use as file list
         file_list = None
         config = load_runtime_config(root)
@@ -160,7 +160,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             click.echo("Loading file manifest...")
             with open(manifest_path, 'r', encoding='utf-8') as f:
                 manifest_data = json.load(f)
-            
+
             # Apply workset filtering if active
             if workset_files:
                 file_list = [f for f in manifest_data if f.get("path") in workset_files]
@@ -170,7 +170,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
                 click.echo(f"  Found {len(file_list)} files in manifest")
         else:
             click.echo("No manifest found, using filesystem walk")
-        
+
         # Build import graph
         click.echo("Building import graph...")
         import_graph = builder.build_import_graph(
@@ -178,13 +178,13 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             langs=list(langs) if langs else None,
             file_list=file_list,
         )
-        
+
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_import_graph(import_graph)
 
         click.echo(f"  Nodes: {len(import_graph['nodes'])}")
         click.echo(f"  Edges: {len(import_graph['edges'])}")
-        
+
         # Build call graph
         click.echo("Building call graph...")
         call_graph = builder.build_call_graph(
@@ -192,14 +192,14 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             langs=list(langs) if langs else None,
             file_list=file_list,
         )
-        
+
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_call_graph(call_graph)
 
         # Call graph uses 'nodes' for functions and 'edges' for calls
         click.echo(f"  Functions: {len(call_graph.get('nodes', []))}")
         click.echo(f"  Calls: {len(call_graph.get('edges', []))}")
-        
+
         click.echo(f"\nGraphs saved to database: {db}")
 
     except Exception as e:
@@ -351,7 +351,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
         Solution: Use --workset to analyze subset, increase --max-depth cautiously"""
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
-    
+
     # Try to import insights module (optional)
     insights = None
     if not no_insights:
@@ -361,27 +361,27 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
         except ImportError:
             click.echo("Note: Insights module not available. Running basic analysis only.")
             insights = None
-    
+
     try:
         # Load graphs from database
         store = XGraphStore(db_path=db)
         import_graph = store.load_import_graph()
         call_graph = store.load_call_graph()
-        
+
         if not import_graph["nodes"]:
             click.echo("No graphs found. Run 'aud graph build' first.")
             return
-        
+
         # Initialize analyzer
         analyzer = XGraphAnalyzer()
-        
+
         # Detect cycles
         click.echo("Detecting cycles...")
         cycles = analyzer.detect_cycles(import_graph)
         click.echo(f"  Found {len(cycles)} cycles")
         if cycles and len(cycles) > 0:
             click.echo(f"  Largest cycle: {cycles[0]['size']} nodes")
-        
+
         # Rank hotspots (if insights available)
         hotspots = []
         if insights:
@@ -402,7 +402,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             click.echo(f"  Top 10 most connected nodes:")
             for i, (node, connections) in enumerate(connected, 1):
                 click.echo(f"    {i}. {node[:50]} ({connections} connections)")
-        
+
         # Calculate change impact if workset provided
         impact = None
         if workset:
@@ -411,7 +411,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                 with open(workset_path, encoding='utf-8') as f:
                     workset_data = json.load(f)
                     targets = workset_data.get("seed_files", [])
-                    
+
                     if targets:
                         click.echo(f"\nCalculating impact for {len(targets)} targets...")
                         impact = analyzer.impact_of_change(
@@ -423,7 +423,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                         click.echo(f"  Upstream impact: {len(impact['upstream'])} files")
                         click.echo(f"  Downstream impact: {len(impact['downstream'])} files")
                         click.echo(f"  Total impacted: {impact['total_impacted']}")
-        
+
         # Generate summary
         summary = {}
         if insights:
@@ -434,7 +434,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                 cycles=cycles,
                 hotspots=hotspots,
             )
-            
+
             click.echo(f"  Graph density: {summary['import_graph'].get('density', 0):.4f}")
             click.echo(f"  Health grade: {summary['health_metrics'].get('health_grade', 'N/A')}")
             click.echo(f"  Fragility score: {summary['health_metrics'].get('fragility_score', 0):.2f}")
@@ -444,7 +444,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             nodes_count = len(import_graph.get("nodes", []))
             edges_count = len(import_graph.get("edges", []))
             density = edges_count / (nodes_count * (nodes_count - 1)) if nodes_count > 1 else 0
-            
+
             summary = {
                 "import_graph": {
                     "nodes": nodes_count,
@@ -456,18 +456,18 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                     "largest": cycles[0]["size"] if cycles else 0,
                 },
             }
-            
+
             if call_graph:
                 summary["call_graph"] = {
                     "nodes": len(call_graph.get("nodes", [])),
                     "edges": len(call_graph.get("edges", [])),
                 }
-            
+
             click.echo(f"  Nodes: {nodes_count}")
             click.echo(f"  Edges: {edges_count}")
             click.echo(f"  Density: {density:.4f}")
             click.echo(f"  Cycles: {len(cycles)}")
-        
+
         # Save analysis results
         analysis = {
             "cycles": cycles,
@@ -507,7 +507,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             json.dump(analysis, f, indent=2)
 
         click.echo(f"\nAnalysis saved to {out}")
-        
+
         # Save metrics for ML consumption (if insights available)
         if insights and hotspots:
             metrics = {}
@@ -518,14 +518,14 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             with open(metrics_path, "w") as f:
                 json.dump(metrics, f, indent=2)
             click.echo(f"  Saved graph metrics to {metrics_path}")
-        
+
         # Create AI-readable summary
         graph_summary = analyzer.get_graph_summary(import_graph)
         summary_path = Path(root) / ".pf" / "raw" / "graph_summary.json"
         with open(summary_path, "w") as f:
             json.dump(graph_summary, f, indent=2)
         click.echo(f"  Saved graph summary to {summary_path}")
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e
@@ -541,7 +541,7 @@ def graph_query(db, uses, calls, nearest_path, format):
     """Query graph relationships."""
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
-    
+
     # Check if any query options were provided
     if not any([uses, calls, nearest_path]):
         click.echo("Please specify a query option:")
@@ -550,66 +550,66 @@ def graph_query(db, uses, calls, nearest_path, format):
         click.echo("  --nearest-path SOURCE TARGET  Find path between nodes")
         click.echo("\nExample: aud graph query --uses theauditor.cli")
         return
-    
+
     try:
         # Load graphs
         store = XGraphStore(db_path=db)
-        
+
         results = {}
-        
+
         if uses:
             # Find who uses this node
             deps = store.query_dependencies(uses, direction="upstream")
             call_deps = store.query_calls(uses, direction="callers")
-            
+
             all_users = sorted(set(deps.get("upstream", []) + call_deps.get("callers", [])))
             results["uses"] = {
                 "node": uses,
                 "used_by": all_users,
                 "count": len(all_users),
             }
-            
+
             if format == "table":
                 click.echo(f"\n{uses} is used by {len(all_users)} nodes:")
                 for user in all_users[:20]:  # Show first 20
                     click.echo(f"  - {user}")
                 if len(all_users) > 20:
                     click.echo(f"  ... and {len(all_users) - 20} more")
-        
+
         if calls:
             # Find what this node calls/depends on
             deps = store.query_dependencies(calls, direction="downstream")
             call_deps = store.query_calls(calls, direction="callees")
-            
+
             all_deps = sorted(set(deps.get("downstream", []) + call_deps.get("callees", [])))
             results["calls"] = {
                 "node": calls,
                 "depends_on": all_deps,
                 "count": len(all_deps),
             }
-            
+
             if format == "table":
                 click.echo(f"\n{calls} depends on {len(all_deps)} nodes:")
                 for dep in all_deps[:20]:  # Show first 20
                     click.echo(f"  - {dep}")
                 if len(all_deps) > 20:
                     click.echo(f"  ... and {len(all_deps) - 20} more")
-        
+
         if nearest_path:
             # Find shortest path
             source, target = nearest_path
             import_graph = store.load_import_graph()
-            
+
             analyzer = XGraphAnalyzer()
             path = analyzer.find_shortest_path(source, target, import_graph)
-            
+
             results["path"] = {
                 "source": source,
                 "target": target,
                 "path": path,
                 "length": len(path) if path else None,
             }
-            
+
             if format == "table":
                 if path:
                     click.echo(f"\nPath from {source} to {target} ({len(path)} steps):")
@@ -618,10 +618,10 @@ def graph_query(db, uses, calls, nearest_path, format):
                         click.echo(f"{prefix}{node}")
                 else:
                     click.echo(f"\nNo path found from {source} to {target}")
-        
+
         if format == "json":
             click.echo(json.dumps(results, indent=2))
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e
@@ -681,11 +681,11 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
     """
     from theauditor.graph.store import XGraphStore
     from theauditor.graph.visualizer import GraphVisualizer
-    
+
     try:
         # Load the appropriate graph
         store = XGraphStore(db_path=db)
-        
+
         if graph_type == "import":
             graph = store.load_import_graph()
             output_name = "import_graph"
@@ -694,11 +694,11 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
             graph = store.load_call_graph()
             output_name = "call_graph"
             default_title = "Function Call Graph"
-        
+
         if not graph or not graph.get("nodes"):
             click.echo(f"No {graph_type} graph found. Run 'aud graph build' first.")
             return
-        
+
         # Load analysis if requested
         analysis = {}
         if include_analysis:
@@ -715,33 +715,33 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                 click.echo(f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots")
             else:
                 click.echo("No analysis found. Run 'aud graph analyze' first for richer visualization.")
-        
+
         # Create output directory
         out_path = Path(out_dir)
         out_path.mkdir(parents=True, exist_ok=True)
-        
+
         if format == "json":
             # Simple JSON output (original behavior)
             json_file = out_path / f"{output_name}.json"
             with open(json_file, "w") as f:
                 json.dump({"nodes": graph["nodes"], "edges": graph["edges"]}, f, indent=2)
-            
+
             click.echo(f"[OK] JSON saved to: {json_file}")
             click.echo(f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}")
         else:
             # Use new visualizer for DOT/SVG/PNG
             visualizer = GraphVisualizer()
-            
+
             # Set visualization options
             options = {
                 'max_nodes': limit_nodes,
                 'title': title or default_title,
                 'show_self_loops': show_self_loops
             }
-            
+
             # Generate DOT with visual intelligence based on view mode
             click.echo(f"Generating {format.upper()} visualization (view: {view})...")
-            
+
             if view == "cycles":
                 # Cycles-only view
                 cycles = analysis.get('cycles', [])
@@ -757,7 +757,7 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                 else:
                     click.echo(f"  Showing {len(cycles)} cycles")
                     dot_content = visualizer.generate_cycles_only_view(graph, cycles, options)
-                    
+
             elif view == "hotspots":
                 # Hotspots-only view
                 if not analysis.get('hotspots'):
@@ -768,12 +768,12 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                     click.echo(f"  Calculated {len(hotspots)} hotspots")
                 else:
                     hotspots = analysis['hotspots']
-                
+
                 click.echo(f"  Showing top {top_hotspots} hotspots")
                 dot_content = visualizer.generate_hotspots_only_view(
                     graph, hotspots, options, top_n=top_hotspots
                 )
-                
+
             elif view == "layers":
                 # Architectural layers view
                 from theauditor.graph.analyzer import XGraphAnalyzer
@@ -785,17 +785,17 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                     if layer_num is not None:
                         click.echo(f"    Layer {layer_num}: {len(nodes)} nodes")
                 dot_content = visualizer.generate_dot_with_layers(graph, layers, analysis, options)
-                
+
             elif view == "impact":
                 # Impact analysis view
                 if not impact_target:
                     click.echo("[ERROR] --impact-target required for impact view")
                     raise click.ClickException("Missing --impact-target for impact view")
-                
+
                 from theauditor.graph.analyzer import XGraphAnalyzer
                 analyzer = XGraphAnalyzer()
                 impact = analyzer.analyze_impact(graph, [impact_target])
-                
+
                 if not impact['targets']:
                     click.echo(f"[WARN] Target '{impact_target}' not found in graph")
                     click.echo("       Showing full graph instead...")
@@ -806,36 +806,36 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                     click.echo(f"  Downstream: {len(impact['downstream'])} nodes")
                     click.echo(f"  Total impact: {len(impact['all_impacted'])} nodes")
                     dot_content = visualizer.generate_impact_visualization(graph, impact, options)
-                
+
             else:  # view == "full" or default
                 # Full graph view
                 click.echo(f"  Nodes: {len(graph['nodes'])} (limit: {limit_nodes})")
                 click.echo(f"  Edges: {len(graph['edges'])}")
                 dot_content = visualizer.generate_dot(graph, analysis, options)
-            
+
             # Save DOT file with view suffix
             if view != "full":
                 output_filename = f"{output_name}_{view}"
             else:
                 output_filename = output_name
-            
+
             dot_file = out_path / f"{output_filename}.dot"
             with open(dot_file, "w") as f:
                 f.write(dot_content)
             click.echo(f"[OK] DOT file saved to: {dot_file}")
-            
+
             # Generate image if requested
             if format in ["svg", "png"]:
                 try:
                     import subprocess
-                    
+
                     # Check if Graphviz is installed
                     result = subprocess.run(
                         ["dot", "-V"],
                         capture_output=True,
                         text=True
                     )
-                    
+
                     if result.returncode == 0:
                         # Generate image
                         output_file = out_path / f"{output_filename}.{format}"
@@ -844,7 +844,7 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                             check=True
                         )
                         click.echo(f"[OK] {format.upper()} image saved to: {output_file}")
-                        
+
                         # For SVG, also mention AI readability
                         if format == "svg":
                             click.echo("  ✓ SVG is AI-readable and can be analyzed for patterns")
@@ -854,46 +854,46 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
                         click.echo("  macOS: brew install graphviz")
                         click.echo("  Windows: choco install graphviz")
                         click.echo(f"\n  Manual generation: dot -T{format} {dot_file} -o {output_filename}.{format}")
-                        
+
                 except FileNotFoundError:
                     click.echo(f"[WARN] Graphviz not installed. Cannot generate {format.upper()}.")
                     click.echo(f"  Install graphviz and run: dot -T{format} {dot_file} -o {output_filename}.{format}")
                 except subprocess.CalledProcessError as e:
                     click.echo(f"[ERROR] Failed to generate {format.upper()}: {e}")
-            
+
             # Provide visual encoding legend based on view
             click.echo("\nVisual Encoding:")
-            
+
             if view == "cycles":
                 click.echo("  • Red Nodes: Part of dependency cycles")
                 click.echo("  • Red Edges: Cycle connections")
                 click.echo("  • Subgraphs: Individual cycles grouped")
-                
+
             elif view == "hotspots":
                 click.echo("  • Node Color: Red gradient (darker = higher rank)")
                 click.echo("  • Node Size: Total connections")
                 click.echo("  • Gray Nodes: Connected but not hotspots")
                 click.echo("  • Labels: Show in/out degree counts")
-                
+
             elif view == "layers":
                 click.echo("  • Subgraphs: Architectural layers")
                 click.echo("  • Node Color: Programming language")
                 click.echo("  • Border Width: Code churn (thicker = more changes)")
                 click.echo("  • Node Size: Importance (in-degree)")
-                
+
             elif view == "impact":
                 click.echo("  • Red Nodes: Impact targets")
                 click.echo("  • Orange Nodes: Upstream dependencies")
                 click.echo("  • Blue Nodes: Downstream dependencies")
                 click.echo("  • Purple Nodes: Both upstream and downstream")
                 click.echo("  • Gray Nodes: Unaffected")
-                
+
             else:  # full view
                 click.echo("  • Node Color: Programming language")
                 click.echo("  • Node Size: Importance (larger = more dependencies)")
                 click.echo("  • Red Edges: Part of dependency cycles")
                 click.echo("  • Node Shape: box=module, ellipse=function")
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e

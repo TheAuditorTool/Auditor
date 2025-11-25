@@ -15,7 +15,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from theauditor.events import PipelineObserver
 
@@ -58,14 +58,14 @@ def get_command_timeout(cmd: list[str]) -> int:
     # Extract command name from the command array
     # Format: [python, -m, theauditor.cli, COMMAND_NAME, ...]
     cmd_str = " ".join(cmd)
-    
+
     # Check for specific command patterns
     for cmd_name, timeout in COMMAND_TIMEOUTS.items():
         if cmd_name in cmd_str:
             # Check for environment variable override for specific command
             env_key = f'THEAUDITOR_TIMEOUT_{cmd_name.upper().replace("-", "_")}_SECONDS'
             return int(os.environ.get(env_key, timeout))
-    
+
     # Default timeout if command not recognized
     return DEFAULT_TIMEOUT
 
@@ -167,7 +167,7 @@ async def run_chain_async(
     commands: list[tuple[str, list[str]]],
     root: str,
     chain_name: str,
-    observer: Optional[PipelineObserver] = None
+    observer: PipelineObserver | None = None
 ) -> dict:
     """Execute a chain of commands asynchronously.
 
@@ -274,7 +274,7 @@ async def run_full_pipeline(
     use_subprocess_for_taint: bool = False,  # default to in-process for performance
     wipe_cache: bool = False,  # force cache rebuild (for corruption recovery)
     index_only: bool = False,  # Run only Stage 1 + 2 (indexing, skip heavy analysis)
-    observer: Optional[PipelineObserver] = None
+    observer: PipelineObserver | None = None
 ) -> dict[str, Any]:
     """
     Run complete audit pipeline in exact order specified in teamsop.md.
@@ -319,7 +319,7 @@ async def run_full_pipeline(
 
     # Track all created files throughout execution
     all_created_files = []
-    
+
     # CRITICAL FIX: Open log file immediately for real-time writing
     # This ensures we don't lose logs if the pipeline crashes
     # Write directly to .pf root, not in readthis (which gets recreated by extraction)
@@ -328,17 +328,17 @@ async def run_full_pipeline(
     log_file_path = pf_dir / "pipeline.log"
     error_log_path = pf_dir / "error.log"  # CI/CD failure detection
     log_lines = []  # Keep for return value
-    
+
     # Open log file in write mode with line buffering for immediate writes
     # Hard dependency - log file MUST open or pipeline fails
     log_file = open(log_file_path, 'w', encoding='utf-8', buffering=1)
-    
+
     # CRITICAL: Create the .pf/raw/ directory for ground truth preservation
     # This directory will store immutable copies of all analysis artifacts
     # Hard dependency - raw dir MUST be created or pipeline fails
     raw_dir = Path(root) / ".pf" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Ensure readthis directory exists for fresh chunks
     # Archive has already moved old content to history
     readthis_dir = Path(root) / ".pf" / "readthis"
@@ -363,10 +363,10 @@ async def run_full_pipeline(
 
     # Dynamically discover available commands from CLI registration (Courier principle)
     from theauditor.cli import cli
-    
+
     # Get all registered commands, excluding internal (_) and special commands
     available_commands = sorted(cli.commands.keys())
-    
+
     # Define execution order and arguments for known commands
     # This provides the order and arguments, but dynamically adapts to available commands
     command_order = [
@@ -396,11 +396,11 @@ async def run_full_pipeline(
         ("session", ["analyze"]),  # Tier 5: AI agent behavior analysis
         ("report", []),
     ]
-    
+
     # Build command list from available commands in the defined order
     commands = []
     phase_num = 0
-    
+
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
         if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands) or (cmd_name == "workflows" and "workflows" in available_commands) or (cmd_name == "session" and "session" in available_commands):
@@ -474,7 +474,7 @@ async def run_full_pipeline(
             else:
                 # Generic description for any new commands
                 description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
-            
+
             # Build command array - use project's sandboxed aud if available
             # CRITICAL: Use project's sandbox to ensure complete isolation
             venv_dir = Path(root) / ".auditor_venv"
@@ -512,42 +512,42 @@ async def run_full_pipeline(
                 log_file.write(warning_msg + "\n")
                 log_file.flush()
             log_lines.append(warning_msg)
-    
+
     total_phases = len(commands)
     current_phase = 0
     failed_phases = 0
     phases_with_warnings = 0  # Track phases that completed but had errors in output
     pipeline_start = time.time()
-    
+
     def collect_created_files():
         """Collect all files created during execution."""
         files = []
-        
+
         # Core files
         if (Path(root) / "manifest.json").exists():
             files.append("manifest.json")
         if (Path(root) / "repo_index.db").exists():
             files.append("repo_index.db")
-        
+
         # .pf directory files
         pf_dir = Path(root) / ".pf"
         if pf_dir.exists():
             for item in pf_dir.rglob("*"):
                 if item.is_file():
                     files.append(item.relative_to(Path(root)).as_posix())
-        
+
         # docs directory files (in .pf/docs)
         docs_dir = Path(root) / ".pf" / "docs"
         if docs_dir.exists():
             for item in docs_dir.rglob("*"):
                 if item.is_file():
                     files.append(item.relative_to(Path(root)).as_posix())
-        
+
         return sorted(set(files))
-    
+
     # PARALLEL PIPELINE IMPLEMENTATION - REBALANCED 4-STAGE STRUCTURE
     # Reorganize commands into stages for optimal parallel execution
-    
+
     # Stage categorization
     foundation_commands = []     # Stage 1: Must run first sequentially
     data_prep_commands = []      # Stage 2: Data preparation (sequential)
@@ -555,17 +555,17 @@ async def run_full_pipeline(
     track_b_commands = []        # Stage 3B: Static & graph analysis
     track_c_commands = []        # Stage 3C: Network I/O (deps, docs)
     final_commands = []          # Stage 4: Must run last sequentially
-    
+
     # Categorize each command into appropriate stage/track
     for phase_name, cmd in commands:
         cmd_str = " ".join(cmd)
-        
+
         # Stage 1: Foundation (must complete first)
         if "index" in cmd_str:
             foundation_commands.append((phase_name, cmd))
         elif "detect-frameworks" in cmd_str:
             foundation_commands.append((phase_name, cmd))
-        
+
         # Stage 2: Data Preparation (sequential, enables parallel work)
         elif "workset" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
@@ -586,12 +586,12 @@ async def run_full_pipeline(
             data_prep_commands.append((phase_name, cmd))
         elif "metadata" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
-        
+
         # Stage 3: Heavy Parallel Analysis
         # Track A: Taint analysis (isolated heavy task)
         elif "taint" in cmd_str:
             track_a_commands.append((phase_name, cmd))
-        
+
         # Track B: Static & graph analysis
         elif "lint" in cmd_str:
             track_b_commands.append((phase_name, cmd))
@@ -613,7 +613,7 @@ async def run_full_pipeline(
         elif "docs" in cmd_str:
             if not offline:  # Skip docs if offline mode
                 track_c_commands.append((phase_name, cmd))
-        
+
         # Stage 4: Final aggregation (must run last)
         elif "fce" in cmd_str:
             final_commands.append((phase_name, cmd))
@@ -651,7 +651,7 @@ async def run_full_pipeline(
     log_lines.append("\n" + "="*60)
     log_lines.append("[STAGE 1] FOUNDATION - Sequential Execution")
     log_lines.append("="*60)
-    
+
     for phase_name, cmd in foundation_commands:
         current_phase += 1
         if observer:
@@ -863,7 +863,7 @@ async def run_full_pipeline(
         log_lines.append("[STAGE 2] DATA PREPARATION - Sequential Execution")
         log_lines.append("="*60)
         log_lines.append("Preparing data structures for parallel analysis...")
-        
+
         for phase_name, cmd in data_prep_commands:
             current_phase += 1
             if observer:
@@ -974,7 +974,7 @@ async def run_full_pipeline(
                     pass  # Ensure logging failure doesn't crash the pipeline
 
                 break
-    
+
     # Only proceed to parallel stage if foundation and data prep succeeded (skip in index_only mode)
     if failed_phases == 0 and not index_only and (track_a_commands or track_b_commands or track_c_commands):
         # STAGE 3: Heavy Parallel Analysis (Rebalanced)
@@ -1015,7 +1015,7 @@ async def run_full_pipeline(
             log_lines.append("  Track C: Network I/O (version checks, docs)")
         elif offline:
             log_lines.append("  [OFFLINE MODE] Track C skipped")
-        
+
         # Execute parallel tracks using asyncio (2025 Modern)
         parallel_results = []
         tasks = []
@@ -1314,7 +1314,7 @@ async def run_full_pipeline(
                         log_file.flush()
                     log_lines.append(err_hdr)
                     log_lines.append(result["errors"])
-    
+
     # STAGE 4: Final Aggregation (Sequential) - skip in index_only mode
     if failed_phases == 0 and not index_only and final_commands:
         if observer:
@@ -1480,11 +1480,11 @@ async def run_full_pipeline(
                     if observer:
                         observer.on_log(error_msg, is_error=True)
                     log_lines.append(error_msg)
-    
+
     # After all commands complete, collect all created files
     pipeline_elapsed = time.time() - pipeline_start
     all_created_files = collect_created_files()
-    
+
     # Create allfiles.md in .pf root (not in readthis which gets deleted/recreated)
     pf_dir = Path(root) / ".pf"
     allfiles_path = pf_dir / "allfiles.md"
@@ -1492,7 +1492,7 @@ async def run_full_pipeline(
         f.write("# All Files Created by `aud full` Command\n\n")
         f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total files: {len(all_created_files)}\n\n")
-        
+
         # Group files by directory
         files_by_dir = {}
         for file_path in all_created_files:
@@ -1500,7 +1500,7 @@ async def run_full_pipeline(
             if dir_name not in files_by_dir:
                 files_by_dir[dir_name] = []
             files_by_dir[dir_name].append(file_path)
-        
+
         # Write files grouped by directory
         for dir_name in sorted(files_by_dir.keys()):
             f.write(f"\n## {dir_name}/\n\n")
@@ -1509,12 +1509,12 @@ async def run_full_pipeline(
                 if Path(file_path).exists():
                     file_size = Path(file_path).stat().st_size
                 f.write(f"- `{Path(file_path).name}` ({file_size:,} bytes)\n")
-        
+
         f.write(f"\n---\n")
         f.write(f"Total execution time: {pipeline_elapsed:.1f} seconds ({pipeline_elapsed/60:.1f} minutes)\n")
         f.write(f"Commands executed: {total_phases}\n")
         f.write(f"Failed commands: {failed_phases}\n")
-    
+
     # Display final summary
     def write_summary(msg):
         if observer:
@@ -1544,13 +1544,13 @@ async def run_full_pipeline(
     write_summary("\n" + "="*60)
     write_summary("[FILES] ALL CREATED FILES")
     write_summary("="*60)
-    
+
     # Count files by category
     pf_files = [f for f in all_created_files if f.startswith(".pf/")]
     readthis_files = [f for f in all_created_files if f.startswith(".pf/readthis/")]
     docs_files = [f for f in all_created_files if f.startswith(".pf/docs/")]
     root_files = [f for f in all_created_files if "/" not in f]
-    
+
     write_summary(f"\n[STATS] Summary:")
     write_summary(f"  Total files created: {len(all_created_files)}")
     write_summary(f"  .pf/ files: {len(pf_files)}")
@@ -1580,7 +1580,7 @@ async def run_full_pipeline(
     else:
         write_summary("[COMPLETE] AUDIT SUITE EXECUTION COMPLETE")
     write_summary("="*60)
-    
+
     # Close the log file (already written throughout execution)
     if log_file:
         try:
@@ -1588,44 +1588,44 @@ async def run_full_pipeline(
             log_file = None
         except Exception as e:
             print(f"[CRITICAL] Failed to close log file: {e}", file=sys.stderr)
-    
+
     # Move files from temp to readthis if needed
     temp_dir = Path(root) / ".pf" / "temp"
     readthis_final = Path(root) / ".pf" / "readthis"
-    
+
     # Ensure readthis exists
     readthis_final.mkdir(parents=True, exist_ok=True)
-    
+
     # Move pipeline.log if it's in temp
     temp_log = temp_dir / "pipeline.log"
     final_log = readthis_final / "pipeline.log"
-    
+
     if temp_log.exists() and not final_log.exists():
         try:
             shutil.move(str(temp_log), str(final_log))
             log_file_path = final_log
         except Exception as e:
             print(f"[WARNING] Could not move log to final location: {e}", file=sys.stderr)
-    
+
     # Move allfiles.md if it's in temp
     temp_allfiles = temp_dir / "allfiles.md"
     final_allfiles = readthis_final / "allfiles.md"
-    
+
     if temp_allfiles.exists() and not final_allfiles.exists():
         try:
             shutil.move(str(temp_allfiles), str(final_allfiles))
             allfiles_path = final_allfiles
         except Exception as e:
             print(f"[WARNING] Could not move allfiles.md to final location: {e}", file=sys.stderr)
-    
+
     print(f"\n[SAVED] Full pipeline log saved to: {log_file_path}")
-    
+
     # Add allfiles.md and pipeline.log to the list of created files for completeness
     all_created_files.append(str(allfiles_path))
     all_created_files.append(str(log_file_path))
-    
+
     # Note: No temp file cleanup needed - asyncio uses memory pipes
-    
+
     # Clean up status files
     status_dir = Path(root) / ".pf" / "status"
     if status_dir.exists():
@@ -1637,14 +1637,14 @@ async def run_full_pipeline(
                 status_dir.rmdir()
         except Exception as e:
             print(f"[WARNING] Could not clean status files: {e}", file=sys.stderr)
-    
+
     # Collect findings summary from generated reports
     critical_findings = 0
     high_findings = 0
     medium_findings = 0
     low_findings = 0
     total_vulnerabilities = 0
-    
+
     # Try to read taint analysis results
     taint_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
     if taint_path.exists():
@@ -1662,7 +1662,7 @@ async def run_full_pipeline(
         except Exception as e:
             print(f"[WARNING] Could not read taint analysis results from {taint_path}: {e}", file=sys.stderr)
             # Non-critical - continue without taint stats
-    
+
     # Try to read vulnerability scan results
     vuln_path = Path(root) / ".pf" / "raw" / "vulnerabilities.json"
     if vuln_path.exists():
@@ -1684,7 +1684,7 @@ async def run_full_pipeline(
         except Exception as e:
             print(f"[WARNING] Could not read vulnerability scan results from {vuln_path}: {e}", file=sys.stderr)
             # Non-critical - continue without vulnerability stats
-    
+
     # Try to read pattern detection results
     # NO FALLBACK: Use canonical path only (findings.json is the standard output)
     patterns_path = Path(root) / ".pf" / "raw" / "findings.json"

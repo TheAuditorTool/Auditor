@@ -235,7 +235,7 @@ def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
     else:
         python_exe = venv_path / "bin" / "python"
         aud_exe = venv_path / "bin" / "aud"
-    
+
     return python_exe, aud_exe
 
 
@@ -251,7 +251,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
         Path to the created venv directory
     """
     venv_path = target_dir / ".auditor_venv"
-    
+
     # Check if venv exists AND is functional (has python executable)
     if venv_path.exists() and not force:
         python_exe, _ = get_venv_paths(venv_path)
@@ -269,9 +269,9 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
                 print(f"[ERROR] Failed to remove broken venv: {e}")
                 print(f"[TIP] Manually delete {venv_path} and retry")
                 raise RuntimeError(f"Cannot remove broken venv: {e}")
-    
+
     print(f"Creating venv at {venv_path}...", flush=True)
-    
+
     # Create venv using stdlib
     builder = venv.EnvBuilder(
         system_site_packages=False,
@@ -281,11 +281,11 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
         with_pip=True,
         prompt=f"[{target_dir.name}]"
     )
-    
+
     builder.create(venv_path)
     check_mark = "[OK]"
     print(f"{check_mark} Created venv: {venv_path}")
-    
+
     return venv_path
 
 
@@ -302,25 +302,25 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
     """
     if theauditor_root is None:
         theauditor_root = find_theauditor_root()
-    
+
     python_exe, aud_exe = get_venv_paths(venv_path)
-    
+
     if not python_exe.exists():
         raise RuntimeError(
             f"Venv Python not found: {python_exe}\n"
             f"The venv appears to be broken. Try running with --sync flag to recreate it:\n"
             f"  aud setup-ai --target . --sync"
         )
-    
+
     # Check if already installed
     try:
         stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
             str(venv_path.parent), "pip_show"
         )
-        
+
         with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
              open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-            
+
             result = subprocess.run(
                 [str(python_exe), "-m", "pip", "show", "theauditor"],
                 stdout=stdout_fp,
@@ -328,19 +328,19 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
                 text=True,
                 timeout=30
             )
-        
+
         with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
         with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
-        
+
         # Clean up temp files
         try:
             Path(stdout_path).unlink()
             Path(stderr_path).unlink()
         except (OSError, PermissionError):
             pass
-        
+
         if result.returncode == 0:
             check_mark = "[OK]"
             print(f"{check_mark} TheAuditor already installed in {venv_path}")
@@ -348,10 +348,10 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             print("  Upgrading to ensure latest version...")
     except subprocess.TimeoutExpired:
         print("Warning: pip show timed out, proceeding with install")
-    
+
     # Install in editable mode
     print(f"Installing TheAuditor from {theauditor_root}...", flush=True)
-    
+
     cmd = [
         str(python_exe),
         "-m", "pip",
@@ -361,15 +361,15 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
         # This ensures the sandbox has everything needed for analysis + development
         f"-e", f"{theauditor_root}[all]"
     ]
-    
+
     try:
         stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
             str(venv_path.parent), "pip_install"
         )
-        
+
         with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
              open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-            
+
             result = subprocess.run(
                 cmd,
                 stdout=stdout_fp,
@@ -378,27 +378,27 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
                 timeout=120,
                 cwd=str(venv_path.parent)
             )
-        
+
         with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
         with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
-        
+
         # Clean up temp files
         try:
             Path(stdout_path).unlink()
             Path(stderr_path).unlink()
         except (OSError, PermissionError):
             pass
-        
+
         if result.returncode != 0:
             print(f"Error installing TheAuditor:")
             print(result.stderr)
             return False
-        
+
         check_mark = "[OK]"
         print(f"{check_mark} Installed TheAuditor (editable) from {theauditor_root}")
-        
+
         # Verify installation
         if aud_exe.exists():
             check_mark = "[OK]"
@@ -408,10 +408,10 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(venv_path.parent), "verify"
             )
-            
+
             with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
                  open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-                
+
                 verify_result = subprocess.run(
                     [str(python_exe), "-m", "theauditor.cli", "--version"],
                     stdout=stdout_fp,
@@ -419,27 +419,27 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
                     text=True,
                     timeout=10
                 )
-            
+
             with open(stdout_path, encoding='utf-8') as f:
                 verify_result.stdout = f.read()
             with open(stderr_path, encoding='utf-8') as f:
                 verify_result.stderr = f.read()
-            
+
             # Clean up temp files
             try:
                 Path(stdout_path).unlink()
                 Path(stderr_path).unlink()
             except (OSError, PermissionError):
                 pass
-            
+
             if verify_result.returncode == 0:
                 check_mark = "[OK]"
                 print(f"{check_mark} Module available: python -m theauditor.cli")
             else:
                 print("Warning: Could not verify TheAuditor installation")
-        
+
         return True
-        
+
     except subprocess.TimeoutExpired:
         print("Error: Installation timed out after 120 seconds")
         return False
@@ -561,13 +561,13 @@ def download_portable_node(sandbox_dir: Path) -> Path:
     import hashlib
     import zipfile
     import tarfile
-    
+
     node_runtime_dir = sandbox_dir / "node-runtime"
-    
+
     # Determine platform and architecture
     system = platform.system()
     machine = platform.machine().lower()
-    
+
     # Build archive name based on platform
     if system == "Windows":
         node_exe = node_runtime_dir / "node.exe"
@@ -589,30 +589,30 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         archive_type = "tar"
     else:
         raise RuntimeError(f"Unsupported platform: {system}")
-    
+
     # Check if already installed
     if node_exe.exists():
         check_mark = "[OK]"
         print(f"    {check_mark} Node.js runtime already installed at {node_runtime_dir}")
         return node_exe
-    
+
     # Use hardcoded checksums (immutable for a specific version)
     expected_checksum = NODE_CHECKSUMS.get(archive_name)
-    
+
     if not expected_checksum:
         raise RuntimeError(
             f"No checksum available for {archive_name}. "
             f"Update NODE_CHECKSUMS in venv_install.py"
         )
-    
+
     # Build download URL
     node_url = f"{NODE_BASE_URL}/{NODE_VERSION}/{archive_name}"
     print(f"    Downloading Node.js {NODE_VERSION} for {system} {machine}...", flush=True)
     print(f"    URL: {node_url}")
-    
+
     try:
         download_path = sandbox_dir / "node_download"
-        
+
         # Download with progress indicator
         def download_hook(block_num, block_size, total_size):
             """Progress indicator for download."""
@@ -623,10 +623,10 @@ def download_portable_node(sandbox_dir: Path) -> Path:
                 filled = int(bar_length * percent / 100)
                 bar = '=' * filled + '-' * (bar_length - filled)
                 print(f"\r    Progress: [{bar}] {percent:.1f}%", end='', flush=True)
-        
+
         urllib.request.urlretrieve(node_url, str(download_path), reporthook=download_hook)
         print()  # New line after progress bar
-        
+
         # Verify SHA-256 checksum for security
         print(f"    Verifying SHA-256 checksum...")
         sha256_hash = hashlib.sha256()
@@ -634,7 +634,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
             # Read in 8KB chunks for memory efficiency
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256_hash.update(chunk)
-        
+
         actual_checksum = sha256_hash.hexdigest()
         if actual_checksum != expected_checksum:
             download_path.unlink()  # Remove corrupted/tampered download
@@ -644,10 +644,10 @@ def download_portable_node(sandbox_dir: Path) -> Path:
                 f"    Actual:   {actual_checksum}\n"
                 f"    This may indicate a corrupted download or security issue."
             )
-        
+
         check_mark = "[OK]"
         print(f"    {check_mark} Checksum verified: {actual_checksum[:16]}...")
-        
+
         # Extract based on archive type
         print(f"    Extracting Node.js runtime...", flush=True)
         if archive_type == "zip":
@@ -674,14 +674,14 @@ def download_portable_node(sandbox_dir: Path) -> Path:
                 shutil.move(str(extracted), str(node_runtime_dir))
                 if temp_extract.exists():
                     temp_extract.rmdir()
-        
+
         # Clean up download file
         download_path.unlink()
-        
+
         check_mark = "[OK]"
         print(f"    {check_mark} Node.js runtime installed at {node_runtime_dir}")
         return node_exe
-        
+
     except urllib.error.URLError as e:
         print(f"    ❌ Network error downloading Node.js: {e}")
         raise RuntimeError(f"Failed to download Node.js: {e}")
@@ -977,10 +977,10 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         (venv_path, success) tuple
     """
     target_dir = Path(target_dir).resolve()
-    
+
     if not target_dir.exists():
         raise ValueError(f"Target directory does not exist: {target_dir}")
-    
+
     try:
         # Create venv (will auto-fix broken venvs)
         venv_path = create_venv(target_dir, force)
@@ -988,16 +988,16 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         # If venv creation fails completely, return failure
         print(f"[ERROR] Failed to create venv: {e}")
         return target_dir / ".auditor_venv", False
-    
+
     # Install TheAuditor
     success = install_theauditor_editable(venv_path)
-    
+
     if success:
         # Install Python linting tools from pyproject.toml
         print("\nInstalling Python linting tools...", flush=True)
         python_exe, aud_exe = get_venv_paths(venv_path)
         theauditor_root = find_theauditor_root()
-        
+
         # First, run aud deps --upgrade-all to get latest versions!
         print("  Checking for latest linter versions...", flush=True)
         try:
@@ -1006,10 +1006,10 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                     str(target_dir), "deps_upgrade"
                 )
-                
+
                 with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
                      open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-                    
+
                     result = subprocess.run(
                         [str(aud_exe), "deps", "--upgrade-all", "--root", str(theauditor_root)],
                         stdout=stdout_fp,
@@ -1017,25 +1017,25 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                         text=True,
                         timeout=300  # Increased to 5 minutes for checking many dependencies
                     )
-                
+
                 with open(stdout_path, encoding='utf-8') as f:
                     result.stdout = f.read()
                 with open(stderr_path, encoding='utf-8') as f:
                     result.stderr = f.read()
-                
+
                 # Clean up temp files
                 try:
                     Path(stdout_path).unlink()
                     Path(stderr_path).unlink()
                 except (OSError, PermissionError):
                     pass
-                
+
                 if result.returncode == 0:
                     check_mark = "[OK]"
                     print(f"    {check_mark} Updated to latest package versions")
         except Exception as e:
             print(f"    ⚠ Could not update versions: {e}")
-        
+
         # Install linters AND ast tools as separate packages (not extras)
         # This avoids version conflicts with already-installed TheAuditor
         try:
@@ -1063,19 +1063,19 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     text=True,
                     timeout=300  # Increased to 5 minutes for slower systems
                 )
-            
+
             with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
             with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
-            
+
             # Clean up temp files
             try:
                 Path(stdout_path).unlink()
                 Path(stderr_path).unlink()
             except (OSError, PermissionError):
                 pass
-            
+
             if result.returncode == 0:
                 check_mark = "[OK]"
                 print(f"    {check_mark} Python linters installed")
@@ -1127,22 +1127,22 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 print(f"    ⚠ Some linters failed to install: {result.stderr[:200]}")
         except Exception as e:
             print(f"    ⚠ Error installing tools: {e}")
-        
+
         # ALWAYS install JavaScript tools in SANDBOXED location
         # These are core TheAuditor tools needed for any project analysis
         print("\nSetting up JavaScript/TypeScript tools in sandboxed environment...", flush=True)
-        
+
         # Create sandboxed directory inside venv for TheAuditor's tools
         sandbox_dir = venv_path / ".theauditor_tools"
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         sandbox_package_json = sandbox_dir / "package.json"
-        
+
         # Copy package.json from TheAuditor source
         print(f"  Creating sandboxed tools directory: {sandbox_dir}", flush=True)
-        
+
         # Look for package.json in linters directory
         package_source = theauditor_root / "theauditor" / "linters" / "package.json"
-        
+
         if package_source.exists():
             # Copy the package.json file
             with open(package_source) as f:
@@ -1161,15 +1161,15 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     "typescript": "^5.6.3"
                 }
             }
-        
+
         # Write package.json to sandboxed location
         with open(sandbox_package_json, "w") as f:
             json.dump(package_data, f, indent=2)
-        
+
         # Copy ESLint v9 flat config from TheAuditor source
         eslint_config_source = theauditor_root / "theauditor" / "linters" / "eslint.config.cjs"
         eslint_config_dest = sandbox_dir / "eslint.config.cjs"
-        
+
         if eslint_config_source.exists():
             # Copy the ESLint v9 flat config file
             import shutil
@@ -1269,18 +1269,18 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         }
         with open(tsconfig, "w") as f:
             json.dump(tsconfig_data, f, indent=2)
-        
+
         # PARALLEL EXECUTION: Track A does package updates, Track B downloads Node.js
         import concurrent.futures
-        
+
         node_exe = None
         node_error = None
-        
+
         def track_a_package_updates():
             """Track A: Update package.json with latest versions."""
             print("  [Track A] Checking for latest tool versions...", flush=True)
             _self_update_package_json(sandbox_package_json)
-        
+
         def track_b_node_download():
             """Track B: ONLY download Node.js, nothing else."""
             nonlocal node_exe, node_error
@@ -1289,24 +1289,24 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 node_exe = download_portable_node(sandbox_dir)
             except Exception as e:
                 node_error = e
-        
+
         # Run both tracks in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             track_a_future = executor.submit(track_a_package_updates)
             track_b_future = executor.submit(track_b_node_download)
-            
+
             # Wait for both to complete
             concurrent.futures.wait([track_a_future, track_b_future])
-        
+
         # Check if Node.js download failed
         if node_error:
             raise RuntimeError(f"Failed to download Node.js: {node_error}")
         if not node_exe:
             raise RuntimeError("Node.js download completed but executable not found")
-        
+
         try:
             node_runtime_dir = sandbox_dir / "node-runtime"
-            
+
             # Platform-specific npm command construction
             if os.name == "nt":
                 # Windows: node.exe runs npm-cli.js directly
@@ -1322,18 +1322,18 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 # Unix: use npm shell script from Node.js bundle
                 npm_script = node_runtime_dir / "bin" / "npm"
                 npm_cmd = [str(npm_script)]
-            
+
             print(f"  Installing JS/TS linters using bundled Node.js...", flush=True)
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "npm_install"
             )
-            
+
             with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
                  open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-                
+
                 # Build full command with "install" argument
                 full_cmd = npm_cmd + ["install"]
-                
+
                 result = subprocess.run(
                     full_cmd,
                     cwd=str(sandbox_dir),  # Install in sandbox, NOT in user's project!
@@ -1343,25 +1343,25 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     timeout=120,
                     shell=False  # No shell needed with absolute paths!
                 )
-            
+
             with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
             with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
-            
+
             # Clean up temp files
             try:
                 Path(stdout_path).unlink()
                 Path(stderr_path).unlink()
             except (OSError, PermissionError):
                 pass
-            
+
             if result.returncode == 0:
                 check_mark = "[OK]"
                 print(f"    {check_mark} JavaScript/TypeScript tools installed in sandbox")
                 print(f"    {check_mark} Tools isolated from project: {sandbox_dir}")
                 print(f"    {check_mark} Using bundled Node.js - no system dependency!")
-                
+
                 # Verify tools are installed
                 eslint_path = sandbox_dir / "node_modules" / ".bin" / ("eslint.cmd" if os.name == "nt" else "eslint")
                 if eslint_path.exists():
@@ -1369,7 +1369,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
             else:
                 print(f"    ⚠ npm install failed: {result.stderr[:500]}")
                 print(f"    ⚠ This may be a network issue. Try running setup again.")
-                
+
         except RuntimeError as e:
             print(f"    ⚠ Could not set up bundled Node.js: {e}")
             print("    ⚠ JavaScript/TypeScript linting will not be available")

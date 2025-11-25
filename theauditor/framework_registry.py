@@ -141,7 +141,7 @@ FRAMEWORK_REGISTRY = {
         },
         "import_patterns": ["from sanic", "import sanic"],
     },
-    
+
     # JavaScript/TypeScript frameworks
     "express": {
         "language": "javascript",
@@ -364,7 +364,7 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "codeigniter4/framework",
         "file_markers": ["spark"],
     },
-    
+
     # Go frameworks
     "gin": {
         "language": "go",
@@ -414,7 +414,7 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "github.com/gorilla/mux",
         "import_patterns": ["github.com/gorilla/mux"],
     },
-    
+
     # Java frameworks
     "spring": {
         "language": "java",
@@ -465,7 +465,7 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "com.typesafe.play",
         "content_patterns": ["com.typesafe.play"],
     },
-    
+
     # Rust frameworks
     "actix-web": {
         "language": "rust",

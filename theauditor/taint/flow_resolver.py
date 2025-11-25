@@ -18,7 +18,6 @@ Architecture:
 import json
 import sqlite3
 from collections import defaultdict
-from typing import Dict, List, Tuple
 
 from theauditor.utils.logger import setup_logger
 from .sanitizer_util import SanitizerRegistry
@@ -56,14 +55,14 @@ class FlowResolver:
 
         # TURBO MODE: In-memory graph cache for O(1) traversal
         # Eliminates millions of SQLite round-trips during graph walking
-        self.adjacency_list: Dict[str, List[str]] = defaultdict(list)
-        self.edge_types: Dict[Tuple[str, str], str] = {}
+        self.adjacency_list: dict[str, list[str]] = defaultdict(list)
+        self.edge_types: dict[tuple[str, str], str] = {}
         self._preload_graph()
 
         # In-Memory Deduplication Cache (King of the Hill)
         # Eliminates millions of DB reads for path comparison
         # Key: (source_file, source_pattern, sink_file, sink_pattern, status, sanitizer) -> path_length
-        self.best_paths_cache: Dict[Tuple, int] = {}
+        self.best_paths_cache: dict[tuple, int] = {}
 
     def _preload_graph(self):
         """Pre-load the entire data flow graph into memory for O(1) traversal.

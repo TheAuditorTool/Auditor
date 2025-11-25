@@ -213,13 +213,13 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
             else:
                 # Parse if not cached
                 deps_list = parse_dependencies()
-            
+
             # Set up allowlist
             allowlist = DEFAULT_ALLOWLIST.copy()
             if not allow_non_gh_readmes:
                 # Already restricted to GitHub by default
                 pass
-            
+
             # Check for policy file
             policy_file = Path(".pf/policy.yml")
             allow_net = True
@@ -233,7 +233,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                                 break
                 except Exception:
                     pass  # Default to True
-            
+
             # Fetch docs
             result = fetch_docs(
                 deps_list,
@@ -242,7 +242,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                 offline=offline,
                 output_dir=docs_dir
             )
-            
+
             if not print_stats:
                 if result["mode"] == "offline":
                     click.echo("Running in offline mode - no documentation fetched")
@@ -275,7 +275,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                                 click.echo(f"    ... and {len(packages) - 20} more")
 
             click.echo("\n[TIP] Use 'aud docs view <package_name> --raw' to view a specific doc")
-        
+
         elif action == "view":
             if not package_name:
                 click.echo("Error: Package name required for view action")
@@ -361,7 +361,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                         if packages:
                             click.echo(f"  {ecosystem.upper()}: {', '.join(packages)}")
                 click.echo("\nUse 'aud docs list' to see all available docs")
-    
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e

@@ -237,19 +237,19 @@ def extract_treesitter_imports(tree: dict, parser_self, language: str) -> list[d
 def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any]]:
     """Extract imports from Tree-sitter AST with language-specific handling."""
     imports = []
-    
+
     if node is None:
         return imports
-    
+
     # Import node types per language
     import_types = {
         "javascript": ["import_statement", "import_clause", "require_call"],
         "typescript": ["import_statement", "import_clause", "require_call", "import_type"],
         "python": ["import_statement", "import_from_statement"],
     }
-    
+
     node_types = import_types.get(language, [])
-    
+
     if node.type in node_types:
         # Parse based on node type
         if node.type == "import_statement":
@@ -289,7 +289,7 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any
                     "names": named_imports,
                     "text": None,
                 })
-        
+
         elif node.type == "require_call":
             # Handle: const foo = require('bar')
             for child in node.children:
@@ -306,11 +306,11 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any
                         "default": None,
                         "text": None,
                     })
-    
+
     # Recursively search children
     for child in node.children:
         imports.extend(_extract_tree_sitter_imports(child, language))
-    
+
     return imports
 
 
@@ -331,25 +331,25 @@ def extract_treesitter_exports(tree: dict, parser_self, language: str) -> list[d
 def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any]]:
     """Extract exports from Tree-sitter AST."""
     exports = []
-    
+
     if node is None:
         return exports
-    
+
     # Export node types per language
     export_types = {
         "javascript": ["export_statement", "export_default_declaration"],
         "typescript": ["export_statement", "export_default_declaration", "export_type"],
     }
-    
+
     node_types = export_types.get(language, [])
-    
+
     if node.type in node_types:
         is_default = "default" in node.type
-        
+
         # Extract exported name
         name = "unknown"
         export_type = "unknown"
-        
+
         for child in node.children:
             if child.type in ["identifier", "type_identifier"]:
                 name = child.text.decode("utf-8", errors="ignore")
@@ -365,18 +365,18 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any
                     if subchild.type in ["identifier", "type_identifier"]:
                         name = subchild.text.decode("utf-8", errors="ignore")
                         break
-        
+
         exports.append({
             "name": name,
             "type": export_type,
             "line": node.start_point[0] + 1,
             "default": is_default
         })
-    
+
     # Recursively search children
     for child in node.children:
         exports.extend(_extract_tree_sitter_exports(child, language))
-    
+
     return exports
 
 
@@ -397,23 +397,23 @@ def extract_treesitter_properties(tree: dict, parser_self, language: str) -> lis
 def _extract_tree_sitter_properties(node: Any, language: str) -> list[dict]:
     """Extract property accesses from Tree-sitter AST."""
     properties = []
-    
+
     if node is None:
         return properties
-    
+
     # Property access node types per language
     property_types = {
         "javascript": ["member_expression", "property_access_expression"],
         "typescript": ["member_expression", "property_access_expression"],
         "python": ["attribute"],
     }
-    
+
     node_types = property_types.get(language, [])
-    
+
     if node.type in node_types:
         # Extract the full property access chain
         prop_text = node.text.decode("utf-8", errors="ignore") if node.text else ""
-        
+
         # Filter for patterns that look like taint sources (req.*, request.*, ctx.*, etc.)
         if any(pattern in prop_text for pattern in ["req.", "request.", "ctx.", "body", "query", "params", "headers", "cookies"]):
             properties.append({
@@ -422,11 +422,11 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> list[dict]:
                 "column": node.start_point[1],
                 "type": "property"
             })
-    
+
     # Recursively search children
     for child in node.children:
         properties.extend(_extract_tree_sitter_properties(child, language))
-    
+
     return properties
 
 
@@ -452,10 +452,10 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
     import sys
     debug = os.environ.get("THEAUDITOR_DEBUG")
     assignments = []
-    
+
     if node is None:
         return assignments
-    
+
     # Assignment node types per language
     assignment_types = {
         # Don't include variable_declarator - it's handled inside lexical_declaration/variable_declaration
@@ -463,14 +463,14 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
         "typescript": ["assignment_expression", "lexical_declaration", "variable_declaration"],
         "python": ["assignment"],
     }
-    
+
     node_types = assignment_types.get(language, [])
-    
+
     if node.type in node_types:
         target_var = None
         source_expr = None
         source_vars = []
-        
+
         if node.type in ["lexical_declaration", "variable_declaration"]:
             # Handle lexical_declaration (const/let) and variable_declaration (var)
             # Both contain variable_declarator children
@@ -479,7 +479,7 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 if child.type == "variable_declarator":
                     name_node = child.child_by_field_name('name')
                     value_node = child.child_by_field_name('value')
-                    
+
                     if name_node and value_node:
                         in_function = find_containing_function_tree_sitter(child, content, language) or "global"
                         if debug:
@@ -492,19 +492,19 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                             # AST purity enforced: traverse value_node AST, not text parsing
                             "source_vars": []
                         })
-        
+
         elif node.type == "assignment_expression":
             # x = value (JavaScript/TypeScript) - Use field-based API
             left_node = node.child_by_field_name('left')
             right_node = node.child_by_field_name('right')
-            
+
             if left_node:
                 target_var = left_node.text.decode("utf-8", errors="ignore")
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore")
                 # AST purity enforced: traverse right_node AST, not text parsing
                 source_vars = []
-        
+
         elif node.type == "assignment":
             # x = value (Python)
             # Python assignment has structure: [target, "=", value]
@@ -515,18 +515,18 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                     left_node = child
                 elif child.type != "=" and left_node is not None:
                     right_node = child
-            
+
             if left_node:
                 target_var = left_node.text.decode("utf-8", errors="ignore") if left_node.text else ""
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore") if right_node.text else ""
-        
+
         # Only create assignment record if we have both target and source
         # (Skip lexical_declaration/variable_declaration as they're handled above with their children)
         if target_var and source_expr and node.type not in ["lexical_declaration", "variable_declaration"]:
             # Find containing function
             in_function = find_containing_function_tree_sitter(node, content, language)
-            
+
             assignments.append({
                 "target_var": target_var,
                 "source_expr": source_expr,
@@ -535,7 +535,7 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 # AST purity enforced: traverse AST node, not text parsing
                 "source_vars": source_vars if source_vars else []
             })
-    
+
     # Recursively search children
     for child in node.children:
         assignments.extend(_extract_tree_sitter_assignments(child, language, content))
@@ -572,30 +572,30 @@ def extract_treesitter_function_params(tree: dict, parser_self, language: str) -
 def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, list[str]]:
     """Extract function parameters from Tree-sitter AST."""
     func_params = {}
-    
+
     if node is None:
         return func_params
-    
+
     # Function definition node types
     if language in ["javascript", "typescript"]:
         if node.type in ["function_declaration", "function_expression", "arrow_function", "method_definition"]:
             func_name = "anonymous"
             params = []
-            
+
             # Use field-based API for function nodes
             name_node = node.child_by_field_name('name')
             params_node = node.child_by_field_name('parameters')
-            
+
             if name_node:
                 func_name = name_node.text.decode("utf-8", errors="ignore")
-            
+
             # Fall back to child iteration if field access fails
             if not params_node:
                 for child in node.children:
                     if child.type in ["formal_parameters", "parameters"]:
                         params_node = child
                         break
-            
+
             if params_node:
                 # Extract parameter names
                 for param_child in params_node.children:
@@ -607,15 +607,15 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
                             pattern_node = param_child.child_by_field_name('pattern')
                             if pattern_node and pattern_node.type == "identifier":
                                 params.append(pattern_node.text.decode("utf-8", errors="ignore"))
-            
+
             if func_name and params:
                 func_params[func_name] = params
-    
+
     elif language == "python":
         if node.type == "function_definition":
             func_name = None
             params = []
-            
+
             for child in node.children:
                 if child.type == "identifier":
                     func_name = child.text.decode("utf-8", errors="ignore")
@@ -623,14 +623,14 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
                     for param_child in child.children:
                         if param_child.type == "identifier":
                             params.append(param_child.text.decode("utf-8", errors="ignore"))
-            
+
             if func_name:
                 func_params[func_name] = params
-    
+
     # Recursively search children
     for child in node.children:
         func_params.update(_extract_tree_sitter_function_params(child, language))
-    
+
     return func_params
 
 
@@ -659,16 +659,16 @@ def _extract_tree_sitter_calls_with_args(
 ) -> list[dict[str, Any]]:
     """Extract function calls with arguments from Tree-sitter AST."""
     calls = []
-    
+
     if node is None:
         return calls
-    
+
     # Call expression node types
     if language in ["javascript", "typescript"] and node.type == "call_expression":
         # Extract function name using field-based API
         func_node = node.child_by_field_name('function')
         func_name = "unknown"
-        
+
         if func_node:
             func_name = func_node.text.decode("utf-8", errors="ignore") if func_node.text else "unknown"
         else:
@@ -682,20 +682,20 @@ def _extract_tree_sitter_calls_with_args(
 
         # Find caller function
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
-        
+
         # Get callee parameters
         callee_params = function_params.get(func_name.split(".")[-1], [])
-        
+
         # Extract arguments using field-based API
         args_node = node.child_by_field_name('arguments')
         arg_index = 0
-        
+
         if args_node:
             for arg_child in args_node.children:
                 if arg_child.type not in ["(", ")", ","]:
                     arg_expr = arg_child.text.decode("utf-8", errors="ignore") if arg_child.text else ""
                     param_name = callee_params[arg_index] if arg_index < len(callee_params) else f"arg{arg_index}"
-                    
+
                     calls.append({
                         "line": node.start_point[0] + 1,
                         "caller_function": caller_function,
@@ -705,7 +705,7 @@ def _extract_tree_sitter_calls_with_args(
                         "param_name": param_name
                     })
                     arg_index += 1
-    
+
     elif language == "python" and node.type == "call":
         # Similar logic for Python
         func_name = "unknown"
@@ -715,10 +715,10 @@ def _extract_tree_sitter_calls_with_args(
                 break
 
         func_name = sanitize_call_name(func_name)
-        
+
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
         callee_params = function_params.get(func_name.split(".")[-1], [])
-        
+
         arg_index = 0
         for child in node.children:
             if child.type == "argument_list":
@@ -726,7 +726,7 @@ def _extract_tree_sitter_calls_with_args(
                     if arg_child.type not in ["(", ")", ","]:
                         arg_expr = arg_child.text.decode("utf-8", errors="ignore") if arg_child.text else ""
                         param_name = callee_params[arg_index] if arg_index < len(callee_params) else f"arg{arg_index}"
-                        
+
                         calls.append({
                             "line": node.start_point[0] + 1,
                             "caller_function": caller_function,
@@ -736,11 +736,11 @@ def _extract_tree_sitter_calls_with_args(
                             "param_name": param_name
                         })
                         arg_index += 1
-    
+
     # Recursively search children
     for child in node.children:
         calls.extend(_extract_tree_sitter_calls_with_args(child, language, content, function_params))
-    
+
     return calls
 
 
@@ -763,22 +763,22 @@ def extract_treesitter_returns(tree: dict, parser_self, language: str) -> list[d
 def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list[dict[str, Any]]:
     """Extract return statements from Tree-sitter AST."""
     returns = []
-    
+
     if node is None:
         return returns
-    
+
     # Return statement node types
     if language in ["javascript", "typescript"] and node.type == "return_statement":
         # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
-        
+
         # Extract return expression
         return_expr = ""
         for child in node.children:
             if child.type != "return":
                 return_expr = child.text.decode("utf-8", errors="ignore") if child.text else ""
                 break
-        
+
         if not return_expr:
             return_expr = "undefined"
 
@@ -793,14 +793,14 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list
     elif language == "python" and node.type == "return_statement":
         # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
-        
+
         # Extract return expression
         return_expr = ""
         for child in node.children:
             if child.type != "return":
                 return_expr = child.text.decode("utf-8", errors="ignore") if child.text else ""
                 break
-        
+
         if not return_expr:
             return_expr = "None"
 
