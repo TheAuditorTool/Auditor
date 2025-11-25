@@ -37,7 +37,8 @@ See also:
 from .orchestrator import IndexerOrchestrator
 
 # Core components
-from .core import FileWalker, ASTCache
+from .core import FileWalker
+from ..cache.ast_cache import ASTCache
 from .database import DatabaseManager
 from .extractors import ExtractorRegistry
 

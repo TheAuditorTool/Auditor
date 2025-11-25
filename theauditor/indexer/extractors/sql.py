@@ -6,8 +6,7 @@ Handles extraction of SQL-specific elements including:
 """
 
 
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
 
 from . import BaseExtractor
 

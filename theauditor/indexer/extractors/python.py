@@ -18,16 +18,12 @@ This separation ensures single source of truth for file paths.
 """
 
 import ast
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import BaseExtractor
-from .sql import parse_sql_query
 from theauditor.ast_extractors.python_impl import extract_all_python_data
 from theauditor.ast_extractors.python.utils.context import build_file_context
-from theauditor.ast_extractors import python as python_impl
-from theauditor.ast_extractors.base import get_node_name
 
 
 class PythonExtractor(BaseExtractor):

@@ -8,7 +8,6 @@ web frameworks (Django, DRF), and task queues (Celery).
 
 
 import json
-from typing import List, Optional
 
 
 class PythonDatabaseMixin:

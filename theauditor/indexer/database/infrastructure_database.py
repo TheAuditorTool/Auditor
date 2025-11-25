@@ -7,7 +7,6 @@ Handles 18 infrastructure tables including Docker, Terraform, AWS CDK, and GitHu
 
 import json
 import os
-from typing import Optional, Dict, List
 
 
 class InfrastructureDatabaseMixin:

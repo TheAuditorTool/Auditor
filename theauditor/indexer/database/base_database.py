@@ -15,8 +15,6 @@ import sqlite3
 import json
 import os
 import sys
-from typing import Any, List, Dict, Optional
-from pathlib import Path
 from collections import defaultdict
 
 from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE

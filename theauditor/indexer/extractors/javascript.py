@@ -20,7 +20,7 @@ This separation ensures single source of truth for file paths.
 """
 
 
-from typing import Dict, Any, List, Optional
+from typing import Any
 import os
 
 from . import BaseExtractor
