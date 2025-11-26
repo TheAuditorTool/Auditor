@@ -27,6 +27,10 @@ class NodeStorage(BaseStorage):
             'vue_hooks': self._store_vue_hooks,
             'vue_directives': self._store_vue_directives,
             'vue_provide_inject': self._store_vue_provide_inject,
+            # Vue junction arrays (normalize-node-extractor-output)
+            'vue_component_props': self._store_vue_component_props,
+            'vue_component_emits': self._store_vue_component_emits,
+            'vue_component_setup_returns': self._store_vue_component_setup_returns,
             'sequelize_models': self._store_sequelize_models,
             'sequelize_associations': self._store_sequelize_associations,
             'bullmq_queues': self._store_bullmq_queues,
@@ -36,6 +40,12 @@ class NodeStorage(BaseStorage):
             'angular_modules': self._store_angular_modules,
             'angular_guards': self._store_angular_guards,
             'di_injections': self._store_di_injections,
+            # Angular junction arrays (normalize-node-extractor-output)
+            'angular_component_styles': self._store_angular_component_styles,
+            'angular_module_declarations': self._store_angular_module_declarations,
+            'angular_module_imports': self._store_angular_module_imports,
+            'angular_module_providers': self._store_angular_module_providers,
+            'angular_module_exports': self._store_angular_module_exports,
             'lock_analysis': self._store_lock_analysis,
             'import_styles': self._store_import_styles,
             'frontend_api_calls': self._store_frontend_api_calls
@@ -58,7 +68,13 @@ class NodeStorage(BaseStorage):
             self.counts['react_hooks'] += 1
 
     def _store_vue_components(self, file_path: str, vue_components: list, jsx_pass: bool):
-        """Store Vue-specific data."""
+        """Store Vue component PARENT RECORDS ONLY.
+
+        Junction data (props, emits, setup_returns) stored via dedicated handlers:
+        - _store_vue_component_props()
+        - _store_vue_component_emits()
+        - _store_vue_component_setup_returns()
+        """
         for component in vue_components:
             self.db_manager.add_vue_component(
                 file_path,
@@ -68,10 +84,9 @@ class NodeStorage(BaseStorage):
                 component['end_line'],
                 component.get('has_template', False),
                 component.get('has_style', False),
-                component.get('composition_api_used', False),
-                component.get('props_definition'),
-                component.get('emits_definition'),
-                component.get('setup_return')
+                component.get('composition_api_used', False)
+                # REMOVED: props_definition, emits_definition, setup_return
+                # Junction data now via dedicated handlers
             )
             if 'vue_components' not in self.counts:
                 self.counts['vue_components'] = 0
@@ -205,17 +220,22 @@ class NodeStorage(BaseStorage):
             self.counts['angular_services'] = self.counts.get('angular_services', 0) + 1
 
     def _store_angular_modules(self, file_path: str, angular_modules: list, jsx_pass: bool):
-        """Store Angular module definitions."""
+        """Store Angular module PARENT RECORDS ONLY.
+
+        Junction data (declarations, imports, providers, exports) stored via dedicated handlers:
+        - _store_angular_module_declarations()
+        - _store_angular_module_imports()
+        - _store_angular_module_providers()
+        - _store_angular_module_exports()
+        """
         for module in angular_modules:
             # NOTE: extractor returns 'name', we map to 'module_name'
             self.db_manager.add_angular_module(
                 file_path,
                 module.get('line', 0),
-                module.get('name', ''),
-                module.get('declarations'),
-                module.get('imports'),
-                module.get('providers'),
-                module.get('exports')
+                module.get('name', '')
+                # REMOVED: declarations, imports, providers, exports
+                # Junction data now via dedicated handlers
             )
             self.counts['angular_modules'] = self.counts.get('angular_modules', 0) + 1
 
@@ -290,3 +310,98 @@ class NodeStorage(BaseStorage):
             if 'frontend_api_calls' not in self.counts:
                 self.counts['frontend_api_calls'] = 0
             self.counts['frontend_api_calls'] += 1
+
+    # =========================================================================
+    # Vue Junction Array Handlers (normalize-node-extractor-output)
+    # =========================================================================
+
+    def _store_vue_component_props(self, file_path: str, vue_component_props: list, jsx_pass: bool):
+        """Store Vue component props from flat junction array."""
+        for prop in vue_component_props:
+            self.db_manager.add_vue_component_prop(
+                file_path,
+                prop.get('component_name', ''),
+                prop.get('prop_name', ''),
+                prop.get('prop_type'),
+                prop.get('is_required', 0),
+                prop.get('default_value')
+            )
+            self.counts['vue_component_props'] = self.counts.get('vue_component_props', 0) + 1
+
+    def _store_vue_component_emits(self, file_path: str, vue_component_emits: list, jsx_pass: bool):
+        """Store Vue component emits from flat junction array."""
+        for emit in vue_component_emits:
+            self.db_manager.add_vue_component_emit(
+                file_path,
+                emit.get('component_name', ''),
+                emit.get('emit_name', ''),
+                emit.get('payload_type')
+            )
+            self.counts['vue_component_emits'] = self.counts.get('vue_component_emits', 0) + 1
+
+    def _store_vue_component_setup_returns(self, file_path: str, vue_component_setup_returns: list, jsx_pass: bool):
+        """Store Vue component setup returns from flat junction array."""
+        for ret in vue_component_setup_returns:
+            self.db_manager.add_vue_component_setup_return(
+                file_path,
+                ret.get('component_name', ''),
+                ret.get('return_name', ''),
+                ret.get('return_type')
+            )
+            self.counts['vue_component_setup_returns'] = self.counts.get('vue_component_setup_returns', 0) + 1
+
+    # =========================================================================
+    # Angular Junction Array Handlers (normalize-node-extractor-output)
+    # =========================================================================
+
+    def _store_angular_component_styles(self, file_path: str, angular_component_styles: list, jsx_pass: bool):
+        """Store Angular component styles from flat junction array."""
+        for style in angular_component_styles:
+            self.db_manager.add_angular_component_style(
+                file_path,
+                style.get('component_name', ''),
+                style.get('style_path', '')
+            )
+            self.counts['angular_component_styles'] = self.counts.get('angular_component_styles', 0) + 1
+
+    def _store_angular_module_declarations(self, file_path: str, angular_module_declarations: list, jsx_pass: bool):
+        """Store Angular module declarations from flat junction array."""
+        for decl in angular_module_declarations:
+            self.db_manager.add_angular_module_declaration(
+                file_path,
+                decl.get('module_name', ''),
+                decl.get('declaration_name', ''),
+                decl.get('declaration_type')
+            )
+            self.counts['angular_module_declarations'] = self.counts.get('angular_module_declarations', 0) + 1
+
+    def _store_angular_module_imports(self, file_path: str, angular_module_imports: list, jsx_pass: bool):
+        """Store Angular module imports from flat junction array."""
+        for imp in angular_module_imports:
+            self.db_manager.add_angular_module_import(
+                file_path,
+                imp.get('module_name', ''),
+                imp.get('imported_module', '')
+            )
+            self.counts['angular_module_imports'] = self.counts.get('angular_module_imports', 0) + 1
+
+    def _store_angular_module_providers(self, file_path: str, angular_module_providers: list, jsx_pass: bool):
+        """Store Angular module providers from flat junction array."""
+        for prov in angular_module_providers:
+            self.db_manager.add_angular_module_provider(
+                file_path,
+                prov.get('module_name', ''),
+                prov.get('provider_name', ''),
+                prov.get('provider_type')
+            )
+            self.counts['angular_module_providers'] = self.counts.get('angular_module_providers', 0) + 1
+
+    def _store_angular_module_exports(self, file_path: str, angular_module_exports: list, jsx_pass: bool):
+        """Store Angular module exports from flat junction array."""
+        for exp in angular_module_exports:
+            self.db_manager.add_angular_module_export(
+                file_path,
+                exp.get('module_name', ''),
+                exp.get('exported_name', '')
+            )
+            self.counts['angular_module_exports'] = self.counts.get('angular_module_exports', 0) + 1

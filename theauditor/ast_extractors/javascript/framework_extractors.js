@@ -281,10 +281,218 @@ function findFirstVueMacroCall(functionCallArgs, macroName) {
     return null;
 }
 
+/**
+ * Parse Vue defineProps() argument into flat prop records.
+ * Handles: { foo: String }, { foo: { type: String, required: true } }, ['foo', 'bar']
+ *
+ * @param {string|null} propsString - Raw defineProps() argument expression
+ * @param {string} componentName - Parent component name for junction FK
+ * @returns {Array} - Flat array of { component_name, prop_name, prop_type, is_required, default_value }
+ */
+function parseVuePropsDefinition(propsString, componentName) {
+    if (!propsString || typeof propsString !== 'string') {
+        return [];
+    }
+
+    const props = [];
+    const trimmed = propsString.trim();
+
+    // Handle array syntax: ['foo', 'bar']
+    if (trimmed.startsWith('[')) {
+        const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
+        if (arrayMatch && arrayMatch[1]) {
+            const items = arrayMatch[1].split(',').map(s => s.trim().replace(/['"]/g, ''));
+            for (const item of items) {
+                if (item) {
+                    props.push({
+                        component_name: componentName,
+                        prop_name: item,
+                        prop_type: null,
+                        is_required: 0,
+                        default_value: null
+                    });
+                }
+            }
+        }
+        return props;
+    }
+
+    // Handle object syntax: { foo: String } or { foo: { type: String, required: true } }
+    if (trimmed.startsWith('{')) {
+        // Extract top-level key-value pairs using regex
+        // Pattern: propName: Type or propName: { ... }
+        const propPattern = /(\w+)\s*:\s*({[^{}]*(?:{[^{}]*}[^{}]*)*}|[^,}]+)/g;
+        let match;
+
+        while ((match = propPattern.exec(trimmed)) !== null) {
+            const propName = match[1];
+            const propValue = match[2].trim();
+
+            let propType = null;
+            let isRequired = 0;
+            let defaultValue = null;
+
+            // Check if value is an object config: { type: String, required: true }
+            if (propValue.startsWith('{')) {
+                // Extract type
+                const typeMatch = propValue.match(/type\s*:\s*(\w+)/);
+                if (typeMatch) {
+                    propType = typeMatch[1];
+                }
+                // Extract required
+                const reqMatch = propValue.match(/required\s*:\s*(true|false)/);
+                if (reqMatch && reqMatch[1] === 'true') {
+                    isRequired = 1;
+                }
+                // Extract default
+                const defMatch = propValue.match(/default\s*:\s*([^,}]+)/);
+                if (defMatch) {
+                    defaultValue = defMatch[1].trim();
+                }
+            } else {
+                // Shorthand syntax: foo: String
+                propType = propValue;
+            }
+
+            props.push({
+                component_name: componentName,
+                prop_name: propName,
+                prop_type: propType,
+                is_required: isRequired,
+                default_value: defaultValue
+            });
+        }
+    }
+
+    return props;
+}
+
+/**
+ * Parse Vue defineEmits() argument into flat emit records.
+ * Handles: ['update', 'delete'] or { update: null, submit: (payload: string) => void }
+ *
+ * @param {string|null} emitsString - Raw defineEmits() argument expression
+ * @param {string} componentName - Parent component name for junction FK
+ * @returns {Array} - Flat array of { component_name, emit_name, payload_type }
+ */
+function parseVueEmitsDefinition(emitsString, componentName) {
+    if (!emitsString || typeof emitsString !== 'string') {
+        return [];
+    }
+
+    const emits = [];
+    const trimmed = emitsString.trim();
+
+    // Handle array syntax: ['update', 'delete']
+    if (trimmed.startsWith('[')) {
+        const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
+        if (arrayMatch && arrayMatch[1]) {
+            const items = arrayMatch[1].split(',').map(s => s.trim().replace(/['"]/g, ''));
+            for (const item of items) {
+                if (item) {
+                    emits.push({
+                        component_name: componentName,
+                        emit_name: item,
+                        payload_type: null
+                    });
+                }
+            }
+        }
+        return emits;
+    }
+
+    // Handle object syntax: { update: null, submit: (payload: string) => void }
+    if (trimmed.startsWith('{')) {
+        // Extract emit names (keys) - simpler pattern for emit objects
+        const emitPattern = /(\w+)\s*:/g;
+        let match;
+
+        while ((match = emitPattern.exec(trimmed)) !== null) {
+            const emitName = match[1];
+            // Try to extract payload type from function signature
+            const afterColon = trimmed.slice(match.index + match[0].length);
+            let payloadType = null;
+
+            // Check for function signature: (payload: Type) => void
+            const funcMatch = afterColon.match(/^\s*\(\s*(\w+)\s*:\s*(\w+)/);
+            if (funcMatch) {
+                payloadType = funcMatch[2];
+            }
+
+            emits.push({
+                component_name: componentName,
+                emit_name: emitName,
+                payload_type: payloadType
+            });
+        }
+    }
+
+    return emits;
+}
+
+/**
+ * Parse Vue setup() return expression into flat return records.
+ * Handles: { count, increment, user } or { count: countRef, ... }
+ *
+ * @param {string|null} returnExpr - Raw setup return expression
+ * @param {string} componentName - Parent component name for junction FK
+ * @returns {Array} - Flat array of { component_name, return_name, return_type }
+ */
+function parseSetupReturn(returnExpr, componentName) {
+    if (!returnExpr || typeof returnExpr !== 'string') {
+        return [];
+    }
+
+    const returns = [];
+    const trimmed = returnExpr.trim();
+
+    // Handle object syntax: { count, increment } or { count: countRef }
+    if (trimmed.startsWith('{')) {
+        // Remove outer braces and split by comma
+        const inner = trimmed.slice(1, -1).trim();
+        if (!inner) return returns;
+
+        // Split carefully (handle nested objects)
+        const parts = inner.split(',');
+        for (const part of parts) {
+            const cleaned = part.trim();
+            if (!cleaned) continue;
+
+            // Check for key: value or shorthand
+            const colonIndex = cleaned.indexOf(':');
+            let returnName;
+
+            if (colonIndex > 0) {
+                // key: value syntax
+                returnName = cleaned.slice(0, colonIndex).trim();
+            } else {
+                // Shorthand: just identifier
+                returnName = cleaned.split(/[^a-zA-Z0-9_$]/)[0];
+            }
+
+            if (returnName && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(returnName)) {
+                returns.push({
+                    component_name: componentName,
+                    return_name: returnName,
+                    return_type: null  // Type inference not available from raw expression
+                });
+            }
+        }
+    }
+
+    return returns;
+}
+
 function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
     if (!vueMeta || !vueMeta.descriptor) {
         const fallbackName = inferVueComponentName(null, filePath);
-        return { components: [], primaryName: fallbackName };
+        return {
+            vue_components: [],
+            vue_component_props: [],
+            vue_component_emits: [],
+            vue_component_setup_returns: [],
+            primaryName: fallbackName
+        };
     }
 
     const componentName = inferVueComponentName(vueMeta, filePath);
@@ -292,6 +500,7 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
     const startLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.start.line : 1;
     const endLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.end.line : startLine;
 
+    // Get raw macro expressions
     const propsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineProps');
     const emitsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineEmits');
 
@@ -316,8 +525,13 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
         }
     }
 
+    // Parse raw expressions into flat junction arrays
+    const parsedProps = parseVuePropsDefinition(propsDefinition, componentName);
+    const parsedEmits = parseVueEmitsDefinition(emitsDefinition, componentName);
+    const parsedReturns = parseSetupReturn(setupReturnExpr, componentName);
+
     return {
-        components: [
+        vue_components: [
             {
                 name: componentName,
                 type: componentType,
@@ -325,12 +539,13 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
                 end_line: endLine,
                 has_template: Boolean(vueMeta.descriptor.template),
                 has_style: Boolean(vueMeta.hasStyle),
-                composition_api_used: usesCompositionApi,
-                props_definition: propsDefinition,
-                emits_definition: emitsDefinition,
-                setup_return: setupReturnExpr
+                composition_api_used: usesCompositionApi
+                // REMOVED: props_definition, emits_definition, setup_return (now in junction arrays)
             }
         ],
+        vue_component_props: parsedProps,
+        vue_component_emits: parsedEmits,
+        vue_component_setup_returns: parsedReturns,
         primaryName: componentName
     };
 }

@@ -24,9 +24,40 @@
  * 2. _detectAngularLifecycleHooks() - Check for lifecycle hook methods
  * 3. _extractAngularDI() - Extract dependency injection (STUB - needs AST)
  * 4. _detectGuardType() - Determine guard interface type
+ * 5. _inferDeclarationType() - Infer type of NgModule declaration
+ * 6. _inferProviderType() - Infer type of NgModule provider
  *
  * Current size: 170 lines (2025-10-31)
+ * Updated: 2025-11-26 - Added junction array flattening for normalize-node-extractor-output
  */
+
+/**
+ * Infer the type of an NgModule declaration from its name.
+ * @param {string|Object} decl - Declaration name or object
+ * @returns {string|null} - 'component', 'directive', 'pipe', or null
+ */
+function _inferDeclarationType(decl) {
+    const name = typeof decl === 'string' ? decl : (decl && decl.name) || '';
+    if (name.endsWith('Component')) return 'component';
+    if (name.endsWith('Directive')) return 'directive';
+    if (name.endsWith('Pipe')) return 'pipe';
+    return null;
+}
+
+/**
+ * Infer the type of an NgModule provider from its structure.
+ * @param {string|Object} prov - Provider name or config object
+ * @returns {string|null} - 'class', 'value', 'factory', 'existing', or null
+ */
+function _inferProviderType(prov) {
+    if (typeof prov === 'string') return 'class';
+    if (!prov || typeof prov !== 'object') return null;
+    if (prov.useValue !== undefined) return 'value';
+    if (prov.useFactory !== undefined) return 'factory';
+    if (prov.useClass !== undefined) return 'class';
+    if (prov.useExisting !== undefined) return 'existing';
+    return null;
+}
 
 /**
  * Extract Angular components, services, modules, and dependency injection.
@@ -49,7 +80,13 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         guards: [],
         pipes: [],
         directives: [],
-        di_injections: []
+        di_injections: [],
+        // Junction arrays for normalized data (normalize-node-extractor-output)
+        angular_component_styles: [],
+        angular_module_declarations: [],
+        angular_module_imports: [],
+        angular_module_providers: [],
+        angular_module_exports: []
     };
 
     // Check if Angular is imported
@@ -118,6 +155,29 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
                     }
                 }
 
+                // Extract styleUrls from @Component decorator arguments
+                // Handles both styleUrls: ['...'] and styleUrl: '...' (Angular 17+)
+                if (componentDecorator.arguments && componentDecorator.arguments[0]) {
+                    const config = componentDecorator.arguments[0];
+                    if (typeof config === 'object') {
+                        let styleUrls = [];
+                        if (Array.isArray(config.styleUrls)) {
+                            styleUrls = config.styleUrls;
+                        } else if (config.styleUrl) {
+                            styleUrls = [config.styleUrl];
+                        }
+                        // Populate junction array
+                        for (const stylePath of styleUrls) {
+                            if (stylePath && typeof stylePath === 'string') {
+                                results.angular_component_styles.push({
+                                    component_name: className,
+                                    style_path: stylePath
+                                });
+                            }
+                        }
+                    }
+                }
+
                 results.components.push({
                     name: className,
                     line: cls.line,
@@ -167,24 +227,58 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         const ngModuleDecorator = cls.decorators && cls.decorators.find(d => d.name === 'NgModule');
 
         if (ngModuleDecorator) {
-            const moduleConfig = {};
-
-            // Extract module configuration from decorator arguments
+            // Extract module configuration and flatten to junction arrays
             if (ngModuleDecorator.arguments && ngModuleDecorator.arguments[0]) {
                 const config = ngModuleDecorator.arguments[0];
                 if (typeof config === 'object') {
-                    moduleConfig.declarations = config.declarations || [];
-                    moduleConfig.imports = config.imports || [];
-                    moduleConfig.providers = config.providers || [];
-                    moduleConfig.exports = config.exports || [];
-                    moduleConfig.bootstrap = config.bootstrap || [];
+                    // Flatten declarations to junction array
+                    const declarations = config.declarations || [];
+                    for (const decl of declarations) {
+                        const declName = typeof decl === 'string' ? decl : (decl && decl.name) || 'unknown';
+                        results.angular_module_declarations.push({
+                            module_name: className,
+                            declaration_name: declName,
+                            declaration_type: _inferDeclarationType(decl)
+                        });
+                    }
+
+                    // Flatten imports to junction array
+                    const imports = config.imports || [];
+                    for (const imp of imports) {
+                        const impName = typeof imp === 'string' ? imp : (imp && imp.name) || 'unknown';
+                        results.angular_module_imports.push({
+                            module_name: className,
+                            imported_module: impName
+                        });
+                    }
+
+                    // Flatten providers to junction array
+                    const providers = config.providers || [];
+                    for (const prov of providers) {
+                        const provName = typeof prov === 'string' ? prov : (prov && (prov.provide || prov.name)) || 'unknown';
+                        results.angular_module_providers.push({
+                            module_name: className,
+                            provider_name: provName,
+                            provider_type: _inferProviderType(prov)
+                        });
+                    }
+
+                    // Flatten exports to junction array
+                    const exports = config.exports || [];
+                    for (const exp of exports) {
+                        const expName = typeof exp === 'string' ? exp : (exp && exp.name) || 'unknown';
+                        results.angular_module_exports.push({
+                            module_name: className,
+                            exported_name: expName
+                        });
+                    }
                 }
             }
 
+            // Module parent record - NO nested arrays (now in junction arrays)
             results.modules.push({
                 name: className,
-                line: cls.line,
-                ...moduleConfig
+                line: cls.line
             });
         }
 
