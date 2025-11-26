@@ -135,10 +135,12 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         successful_checks = sum(1 for info in latest_info.values() if info.get("latest") is not None)
 
         if failed_checks > 0:
-            click.echo(f"\n  [WARN] Only {successful_checks}/{len(latest_info)} packages checked successfully")
-            click.echo(f"  [FAIL] Cannot upgrade with {failed_checks} failed checks")
-            click.echo("  Fix network issues and try again")
-            return
+            click.echo(f"\n  [WARN] {failed_checks} packages failed to check (will be skipped):")
+            # Show which packages failed and why
+            errors = [(k.split(":")[1], v.get("error", "Unknown")) for k, v in latest_info.items() if v.get("error")]
+            for pkg, err in errors:
+                click.echo(f"     - {pkg}: {err}")
+            click.echo(f"  [OK] Proceeding with {successful_checks} packages that checked successfully")
 
         # Upgrade all dependency files
         upgraded = upgrade_all_deps(root_path=root, latest_info=latest_info, deps_list=deps_list)
