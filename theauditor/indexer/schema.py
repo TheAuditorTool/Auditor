@@ -77,12 +77,13 @@ TABLES: dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 136 tables (after 2025-11-26 python-extractor-consolidation-fidelity Phase 5)
-#   - 24 core + 7 security + 5 frameworks + 35 python + 26 node + 18 infrastructure + 9 planning + 8 graphql
+# Total: 144 tables (after 2025-11-26 node-schema-normalization)
+#   - 24 core + 7 security + 5 frameworks + 35 python + 34 node + 18 infrastructure + 9 planning + 8 graphql
 #   - Python: 8 original + 20 consolidated + 2 decomposed + 5 junction (protocol_methods, typeddict_fields, fixture_params, framework_methods, schema_validators)
+#   - Node: 26 original + 8 junction (vue_component_props, vue_component_emits, vue_component_setup_returns, angular_component_styles, angular_module_declarations, angular_module_imports, angular_module_providers, angular_module_exports)
 
 # Verify table count at module load time
-assert len(TABLES) == 136, f"Schema contract violation: Expected 136 tables, got {len(TABLES)}"
+assert len(TABLES) == 144, f"Schema contract violation: Expected 144 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

@@ -16,7 +16,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
 # ============================================================================
 # NODE/JAVASCRIPT SYMBOL TABLES
 # ============================================================================
@@ -158,9 +157,8 @@ VUE_COMPONENTS = TableSchema(
         Column("has_template", "BOOLEAN", default="0"),
         Column("has_style", "BOOLEAN", default="0"),
         Column("composition_api_used", "BOOLEAN", default="0"),
-        Column("props_definition", "TEXT"),
-        Column("emits_definition", "TEXT"),
-        Column("setup_return", "TEXT"),
+        # NOTE: props_definition, emits_definition, setup_return REMOVED
+        # -> vue_component_props, vue_component_emits, vue_component_setup_returns junction tables
     ],
     indexes=[
         ("idx_vue_components_file", ["file"]),
@@ -340,7 +338,7 @@ ANGULAR_COMPONENTS = TableSchema(
         Column("component_name", "TEXT", nullable=False),
         Column("selector", "TEXT", nullable=True),  # Can be NULL for abstract components
         Column("template_path", "TEXT", nullable=True),
-        Column("style_paths", "TEXT", nullable=True),  # JSON array of style file paths
+        # NOTE: style_paths REMOVED -> angular_component_styles junction table
         Column("has_lifecycle_hooks", "BOOLEAN", default="0"),
     ],
     primary_key=["file", "component_name"],
@@ -373,10 +371,9 @@ ANGULAR_MODULES = TableSchema(
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("module_name", "TEXT", nullable=False),
-        Column("declarations", "TEXT", nullable=True),  # JSON array of component/directive names
-        Column("imports", "TEXT", nullable=True),  # JSON array of imported modules
-        Column("providers", "TEXT", nullable=True),  # JSON array of service providers
-        Column("exports", "TEXT", nullable=True),  # JSON array of exported declarations
+        # NOTE: declarations, imports, providers, exports REMOVED
+        # -> angular_module_declarations, angular_module_imports,
+        #    angular_module_providers, angular_module_exports junction tables
     ],
     primary_key=["file", "module_name"],
     indexes=[
@@ -618,6 +615,133 @@ FRONTEND_API_CALLS = TableSchema(
 )
 
 # ============================================================================
+# VUE JUNCTION TABLES (JSON blob normalization)
+# ============================================================================
+
+# Junction table for vue_components.props_definition (JSON blob removed)
+VUE_COMPONENT_PROPS = TableSchema(
+    name="vue_component_props",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("prop_name", "TEXT", nullable=False),
+        Column("prop_type", "TEXT"),
+        Column("is_required", "INTEGER", default="0"),
+        Column("default_value", "TEXT"),
+    ],
+    indexes=[
+        ("idx_vue_component_props_file", ["file"]),
+        ("idx_vue_component_props_component", ["component_name"]),
+    ]
+)
+
+# Junction table for vue_components.emits_definition (JSON blob removed)
+VUE_COMPONENT_EMITS = TableSchema(
+    name="vue_component_emits",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("emit_name", "TEXT", nullable=False),
+        Column("payload_type", "TEXT"),
+    ],
+    indexes=[
+        ("idx_vue_component_emits_file", ["file"]),
+        ("idx_vue_component_emits_component", ["component_name"]),
+    ]
+)
+
+# Junction table for vue_components.setup_return (JSON blob removed)
+VUE_COMPONENT_SETUP_RETURNS = TableSchema(
+    name="vue_component_setup_returns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("return_name", "TEXT", nullable=False),
+        Column("return_type", "TEXT"),
+    ],
+    indexes=[
+        ("idx_vue_component_setup_returns_file", ["file"]),
+        ("idx_vue_component_setup_returns_component", ["component_name"]),
+    ]
+)
+
+# ============================================================================
+# ANGULAR JUNCTION TABLES (JSON blob normalization)
+# ============================================================================
+
+# Junction table for angular_components.style_paths (JSON blob removed)
+ANGULAR_COMPONENT_STYLES = TableSchema(
+    name="angular_component_styles",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("style_path", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_angular_component_styles_file", ["file"]),
+        ("idx_angular_component_styles_component", ["component_name"]),
+    ]
+)
+
+# Junction table for angular_modules.declarations (JSON blob removed)
+ANGULAR_MODULE_DECLARATIONS = TableSchema(
+    name="angular_module_declarations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("module_name", "TEXT", nullable=False),
+        Column("declaration_name", "TEXT", nullable=False),
+        Column("declaration_type", "TEXT"),  # component, directive, pipe
+    ],
+    indexes=[
+        ("idx_angular_module_declarations_file", ["file"]),
+        ("idx_angular_module_declarations_module", ["module_name"]),
+    ]
+)
+
+# Junction table for angular_modules.imports (JSON blob removed)
+ANGULAR_MODULE_IMPORTS = TableSchema(
+    name="angular_module_imports",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("module_name", "TEXT", nullable=False),
+        Column("imported_module", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_angular_module_imports_file", ["file"]),
+        ("idx_angular_module_imports_module", ["module_name"]),
+    ]
+)
+
+# Junction table for angular_modules.providers (JSON blob removed)
+ANGULAR_MODULE_PROVIDERS = TableSchema(
+    name="angular_module_providers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("module_name", "TEXT", nullable=False),
+        Column("provider_name", "TEXT", nullable=False),
+        Column("provider_type", "TEXT"),  # class, useValue, useFactory, useExisting
+    ],
+    indexes=[
+        ("idx_angular_module_providers_file", ["file"]),
+        ("idx_angular_module_providers_module", ["module_name"]),
+    ]
+)
+
+# Junction table for angular_modules.exports (JSON blob removed)
+ANGULAR_MODULE_EXPORTS = TableSchema(
+    name="angular_module_exports",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("module_name", "TEXT", nullable=False),
+        Column("exported_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_angular_module_exports_file", ["file"]),
+        ("idx_angular_module_exports_module", ["module_name"]),
+    ]
+)
+
+# ============================================================================
 # NODE TABLES REGISTRY
 # ============================================================================
 
@@ -636,6 +760,9 @@ NODE_TABLES: dict[str, TableSchema] = {
 
     # Vue
     "vue_components": VUE_COMPONENTS,
+    "vue_component_props": VUE_COMPONENT_PROPS,
+    "vue_component_emits": VUE_COMPONENT_EMITS,
+    "vue_component_setup_returns": VUE_COMPONENT_SETUP_RETURNS,
     "vue_hooks": VUE_HOOKS,
     "vue_directives": VUE_DIRECTIVES,
     "vue_provide_inject": VUE_PROVIDE_INJECT,
@@ -671,8 +798,13 @@ NODE_TABLES: dict[str, TableSchema] = {
 
     # Angular Framework
     "angular_components": ANGULAR_COMPONENTS,
+    "angular_component_styles": ANGULAR_COMPONENT_STYLES,
     "angular_services": ANGULAR_SERVICES,
     "angular_modules": ANGULAR_MODULES,
+    "angular_module_declarations": ANGULAR_MODULE_DECLARATIONS,
+    "angular_module_imports": ANGULAR_MODULE_IMPORTS,
+    "angular_module_providers": ANGULAR_MODULE_PROVIDERS,
+    "angular_module_exports": ANGULAR_MODULE_EXPORTS,
     "angular_guards": ANGULAR_GUARDS,
     "di_injections": DI_INJECTIONS,
 }
