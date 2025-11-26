@@ -3,36 +3,61 @@ from typing import Any
 import sqlite3
 from ..schema import build_query
 
+class AngularComponentStylesTable:
+    """Accessor class for angular_component_styles table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from angular_component_styles."""
+        query = build_query('angular_component_styles', ['file', 'component_name', 'style_path'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'component_name', 'style_path'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('angular_component_styles', ['file', 'component_name', 'style_path'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'component_name', 'style_path'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_component_name(cursor: sqlite3.Cursor, component_name: str) -> list[dict[str, Any]]:
+        """Get rows by component_name."""
+        query = build_query('angular_component_styles', ['file', 'component_name', 'style_path'], where="component_name = ?")
+        cursor.execute(query, (component_name,))
+        return [dict(zip(['file', 'component_name', 'style_path'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class AngularComponentsTable:
     """Accessor class for angular_components table."""
 
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from angular_components."""
-        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'])
+        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], where="file = ?")
+        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_component_name(cursor: sqlite3.Cursor, component_name: str) -> list[dict[str, Any]]:
         """Get rows by component_name."""
-        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], where="component_name = ?")
+        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], where="component_name = ?")
         cursor.execute(query, (component_name,))
-        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_selector(cursor: sqlite3.Cursor, selector: str) -> list[dict[str, Any]]:
         """Get rows by selector."""
-        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], where="selector = ?")
+        query = build_query('angular_components', ['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], where="selector = ?")
         cursor.execute(query, (selector,))
-        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'style_paths', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class AngularGuardsTable:
@@ -67,29 +92,129 @@ class AngularGuardsTable:
         return [dict(zip(['file', 'line', 'guard_name', 'guard_type', 'implements_interface'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class AngularModuleDeclarationsTable:
+    """Accessor class for angular_module_declarations table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from angular_module_declarations."""
+        query = build_query('angular_module_declarations', ['file', 'module_name', 'declaration_name', 'declaration_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'module_name', 'declaration_name', 'declaration_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('angular_module_declarations', ['file', 'module_name', 'declaration_name', 'declaration_type'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'module_name', 'declaration_name', 'declaration_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
+        """Get rows by module_name."""
+        query = build_query('angular_module_declarations', ['file', 'module_name', 'declaration_name', 'declaration_type'], where="module_name = ?")
+        cursor.execute(query, (module_name,))
+        return [dict(zip(['file', 'module_name', 'declaration_name', 'declaration_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class AngularModuleExportsTable:
+    """Accessor class for angular_module_exports table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from angular_module_exports."""
+        query = build_query('angular_module_exports', ['file', 'module_name', 'exported_name'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'module_name', 'exported_name'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('angular_module_exports', ['file', 'module_name', 'exported_name'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'module_name', 'exported_name'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
+        """Get rows by module_name."""
+        query = build_query('angular_module_exports', ['file', 'module_name', 'exported_name'], where="module_name = ?")
+        cursor.execute(query, (module_name,))
+        return [dict(zip(['file', 'module_name', 'exported_name'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class AngularModuleImportsTable:
+    """Accessor class for angular_module_imports table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from angular_module_imports."""
+        query = build_query('angular_module_imports', ['file', 'module_name', 'imported_module'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'module_name', 'imported_module'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('angular_module_imports', ['file', 'module_name', 'imported_module'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'module_name', 'imported_module'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
+        """Get rows by module_name."""
+        query = build_query('angular_module_imports', ['file', 'module_name', 'imported_module'], where="module_name = ?")
+        cursor.execute(query, (module_name,))
+        return [dict(zip(['file', 'module_name', 'imported_module'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class AngularModuleProvidersTable:
+    """Accessor class for angular_module_providers table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from angular_module_providers."""
+        query = build_query('angular_module_providers', ['file', 'module_name', 'provider_name', 'provider_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'module_name', 'provider_name', 'provider_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('angular_module_providers', ['file', 'module_name', 'provider_name', 'provider_type'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'module_name', 'provider_name', 'provider_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
+        """Get rows by module_name."""
+        query = build_query('angular_module_providers', ['file', 'module_name', 'provider_name', 'provider_type'], where="module_name = ?")
+        cursor.execute(query, (module_name,))
+        return [dict(zip(['file', 'module_name', 'provider_name', 'provider_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class AngularModulesTable:
     """Accessor class for angular_modules table."""
 
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from angular_modules."""
-        query = build_query('angular_modules', ['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'])
+        query = build_query('angular_modules', ['file', 'line', 'module_name'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'module_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('angular_modules', ['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'], where="file = ?")
+        query = build_query('angular_modules', ['file', 'line', 'module_name'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'module_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
         """Get rows by module_name."""
-        query = build_query('angular_modules', ['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'], where="module_name = ?")
+        query = build_query('angular_modules', ['file', 'line', 'module_name'], where="module_name = ?")
         cursor.execute(query, (module_name,))
-        return [dict(zip(['file', 'line', 'module_name', 'declarations', 'imports', 'providers', 'exports'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'module_name'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class AngularServicesTable:
@@ -3800,36 +3925,111 @@ class VariableUsageTable:
         return [dict(zip(['file', 'line', 'variable_name', 'usage_type', 'in_component', 'in_hook', 'scope_level'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class VueComponentEmitsTable:
+    """Accessor class for vue_component_emits table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from vue_component_emits."""
+        query = build_query('vue_component_emits', ['file', 'component_name', 'emit_name', 'payload_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'component_name', 'emit_name', 'payload_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('vue_component_emits', ['file', 'component_name', 'emit_name', 'payload_type'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'component_name', 'emit_name', 'payload_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_component_name(cursor: sqlite3.Cursor, component_name: str) -> list[dict[str, Any]]:
+        """Get rows by component_name."""
+        query = build_query('vue_component_emits', ['file', 'component_name', 'emit_name', 'payload_type'], where="component_name = ?")
+        cursor.execute(query, (component_name,))
+        return [dict(zip(['file', 'component_name', 'emit_name', 'payload_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class VueComponentPropsTable:
+    """Accessor class for vue_component_props table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from vue_component_props."""
+        query = build_query('vue_component_props', ['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('vue_component_props', ['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_component_name(cursor: sqlite3.Cursor, component_name: str) -> list[dict[str, Any]]:
+        """Get rows by component_name."""
+        query = build_query('vue_component_props', ['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'], where="component_name = ?")
+        cursor.execute(query, (component_name,))
+        return [dict(zip(['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class VueComponentSetupReturnsTable:
+    """Accessor class for vue_component_setup_returns table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from vue_component_setup_returns."""
+        query = build_query('vue_component_setup_returns', ['file', 'component_name', 'return_name', 'return_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'component_name', 'return_name', 'return_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('vue_component_setup_returns', ['file', 'component_name', 'return_name', 'return_type'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'component_name', 'return_name', 'return_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_component_name(cursor: sqlite3.Cursor, component_name: str) -> list[dict[str, Any]]:
+        """Get rows by component_name."""
+        query = build_query('vue_component_setup_returns', ['file', 'component_name', 'return_name', 'return_type'], where="component_name = ?")
+        cursor.execute(query, (component_name,))
+        return [dict(zip(['file', 'component_name', 'return_name', 'return_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class VueComponentsTable:
     """Accessor class for vue_components table."""
 
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from vue_components."""
-        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'])
+        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'])
         cursor.execute(query)
-        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], where="file = ?")
+        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
         """Get rows by name."""
-        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], where="name = ?")
+        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], where="name = ?")
         cursor.execute(query, (name,))
-        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_type(cursor: sqlite3.Cursor, type: str) -> list[dict[str, Any]]:
         """Get rows by type."""
-        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], where="type = ?")
+        query = build_query('vue_components', ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], where="type = ?")
         cursor.execute(query, (type,))
-        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used', 'props_definition', 'emits_definition', 'setup_return'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class VueDirectivesTable:

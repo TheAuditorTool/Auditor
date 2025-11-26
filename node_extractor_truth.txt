@@ -1,0 +1,198 @@
+================================================================================
+NODE EXTRACTOR OUTPUT AUDIT - TRUTH SERUM
+================================================================================
+
+This audit runs the JavaScriptExtractor against a comprehensive sample
+and reports the ACTUAL dictionary keys and value samples it returns.
+
+[SCHEMA] Loaded 144 tables
+[INFO] Writing sample code to: C:\Users\santa\AppData\Local\Temp\theauditor_audit\kitchen_sink.tsx
+[INFO] Initializing JSSemanticParser...
+[INFO] Initializing JavaScriptExtractor...
+[INFO] Parsing sample code...
+[DEBUG] Parser returned tree with keys: ['success', 'error', 'ast', 'diagnostics', 'symbols', 'jsx_mode']
+[DEBUG] Parser error: TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-ai' to install tools.
+[INFO] TypeScript compiler not available - showing expected schema instead.
+
+================================================================================
+EXPECTED SCHEMA STRUCTURE (from node_schema.py)
+================================================================================
+
+This is the Ground Truth for what the database layer expects.
+The schema was normalized in node-schema-normalization to replace
+JSON blob columns with proper junction tables.
+
+================================================================================
+1. NEW JUNCTION TABLES (node-schema-normalization)
+================================================================================
+
+These tables replace JSON blob columns with normalized relational data.
+Each row represents one item from what was previously a JSON array.
+
+vue_component_props:
+    file: TEXT NOT NULL
+    component_name: TEXT NOT NULL
+    prop_name: TEXT NOT NULL
+    prop_type: TEXT NULL
+    is_required: INTEGER NULL
+    default_value: TEXT NULL
+
+vue_component_emits:
+    file: TEXT NOT NULL
+    component_name: TEXT NOT NULL
+    emit_name: TEXT NOT NULL
+    payload_type: TEXT NULL
+
+vue_component_setup_returns:
+    file: TEXT NOT NULL
+    component_name: TEXT NOT NULL
+    return_name: TEXT NOT NULL
+    return_type: TEXT NULL
+
+angular_component_styles:
+    file: TEXT NOT NULL
+    component_name: TEXT NOT NULL
+    style_path: TEXT NOT NULL
+
+angular_module_declarations:
+    file: TEXT NOT NULL
+    module_name: TEXT NOT NULL
+    declaration_name: TEXT NOT NULL
+    declaration_type: TEXT NULL
+
+angular_module_imports:
+    file: TEXT NOT NULL
+    module_name: TEXT NOT NULL
+    imported_module: TEXT NOT NULL
+
+angular_module_providers:
+    file: TEXT NOT NULL
+    module_name: TEXT NOT NULL
+    provider_name: TEXT NOT NULL
+    provider_type: TEXT NULL
+
+angular_module_exports:
+    file: TEXT NOT NULL
+    module_name: TEXT NOT NULL
+    exported_name: TEXT NOT NULL
+
+================================================================================
+2. PARENT TABLES (JSON columns REMOVED)
+================================================================================
+
+These tables had JSON blob columns that are now in junction tables:
+  - vue_components: props_definition, emits_definition, setup_return REMOVED
+  - angular_components: style_paths REMOVED
+  - angular_modules: declarations, imports, providers, exports REMOVED
+
+vue_components: (8 columns)
+    file: TEXT
+    name: TEXT
+    type: TEXT
+    start_line: INTEGER
+    end_line: INTEGER
+    has_template: BOOLEAN
+    has_style: BOOLEAN
+    composition_api_used: BOOLEAN
+
+angular_components: (6 columns)
+    file: TEXT
+    line: INTEGER
+    component_name: TEXT
+    selector: TEXT
+    template_path: TEXT
+    has_lifecycle_hooks: BOOLEAN
+
+angular_modules: (3 columns)
+    file: TEXT
+    line: INTEGER
+    module_name: TEXT
+
+================================================================================
+3. REACT TABLES
+================================================================================
+
+react_components: ['file', 'name', 'type', 'start_line', 'end_line', 'has_jsx', 'props_type']
+
+react_component_hooks: ['id', 'component_file', 'component_name', 'hook_name']
+
+react_hooks: ['file', 'line', 'component_name', 'hook_name', 'dependency_array', 'callback_body', 'has_cleanup', 'cleanup_type']
+
+react_hook_dependencies: ['id', 'hook_file', 'hook_line', 'hook_component', 'dependency_name']
+
+================================================================================
+4. VUE TABLES (including junction)
+================================================================================
+
+vue_components: ['file', 'name', 'type', 'start_line', 'end_line', 'has_template', 'has_style', 'composition_api_used']
+
+vue_hooks: ['file', 'line', 'component_name', 'hook_name', 'hook_type', 'dependencies', 'return_value', 'is_async']
+
+vue_directives: ['file', 'line', 'directive_name', 'expression', 'in_component', 'has_key', 'modifiers']
+
+vue_provide_inject: ['file', 'line', 'component_name', 'operation_type', 'key_name', 'value_expr', 'is_reactive']
+
+vue_component_props [JUNCTION]: ['file', 'component_name', 'prop_name', 'prop_type', 'is_required', 'default_value']
+
+vue_component_emits [JUNCTION]: ['file', 'component_name', 'emit_name', 'payload_type']
+
+vue_component_setup_returns [JUNCTION]: ['file', 'component_name', 'return_name', 'return_type']
+
+================================================================================
+5. ANGULAR TABLES (including junction)
+================================================================================
+
+angular_components: ['file', 'line', 'component_name', 'selector', 'template_path', 'has_lifecycle_hooks']
+
+angular_services: ['file', 'line', 'service_name', 'is_injectable', 'provided_in']
+
+angular_modules: ['file', 'line', 'module_name']
+
+angular_guards: ['file', 'line', 'guard_name', 'guard_type', 'implements_interface']
+
+di_injections: ['file', 'line', 'target_class', 'injected_service', 'injection_type']
+
+angular_component_styles [JUNCTION]: ['file', 'component_name', 'style_path']
+
+angular_module_declarations [JUNCTION]: ['file', 'module_name', 'declaration_name', 'declaration_type']
+
+angular_module_imports [JUNCTION]: ['file', 'module_name', 'imported_module']
+
+angular_module_providers [JUNCTION]: ['file', 'module_name', 'provider_name', 'provider_type']
+
+angular_module_exports [JUNCTION]: ['file', 'module_name', 'exported_name']
+
+================================================================================
+6. OTHER NODE TABLES
+================================================================================
+
+sequelize_models: ['file', 'line', 'model_name', 'table_name', 'extends_model']
+
+sequelize_associations: ['file', 'line', 'model_name', 'association_type', 'target_model', 'foreign_key', 'through_table']
+
+bullmq_queues: ['file', 'line', 'queue_name', 'redis_config']
+
+bullmq_workers: ['file', 'line', 'queue_name', 'worker_function', 'processor_path']
+
+express_middleware_chains: ['id', 'file', 'route_line', 'route_path', 'route_method', 'execution_order', 'handler_expr', 'handler_type', 'handler_file', 'handler_function', 'handler_line']
+
+frontend_api_calls: ['file', 'line', 'method', 'url_literal', 'body_variable', 'function_name']
+
+================================================================================
+SUMMARY
+================================================================================
+Total NODE_TABLES: 37
+Junction tables: 8
+React tables: 4
+Vue tables: 4
+Angular tables: 5
+
+ARCHITECTURE NOTE:
+  - Extractors produce dictionaries with these key names
+  - Storage handlers (node_storage.py) dispatch to add_*() methods
+  - Database mixin (node_database.py) batches records to generic_batches
+  - Schema (node_schema.py) defines table structures
+
+For live extraction testing, ensure TypeScript compiler is available:
+  aud setup-ai --sync
+

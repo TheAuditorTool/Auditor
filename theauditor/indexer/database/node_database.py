@@ -120,15 +120,82 @@ class NodeDatabaseMixin:
                          start_line: int, end_line: int, has_template: bool = False,
                          has_style: bool = False, composition_api_used: bool = False,
                          props_definition: dict | None = None,
-                         emits_definition: dict | None = None,
-                         setup_return: str | None = None):
-        """Add a Vue component to the batch."""
-        props_json = json.dumps(props_definition) if props_definition else None
-        emits_json = json.dumps(emits_definition) if emits_definition else None
-        self.generic_batches['vue_components'].append((file_path, name, component_type,
-                                                       start_line, end_line, has_template, has_style,
-                                                       composition_api_used, props_json, emits_json,
-                                                       setup_return))
+                         emits_definition: dict | list | None = None,
+                         setup_return: dict | str | None = None):
+        """Add a Vue component to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationships.
+        - Phase 1: Batch parent component record (NO JSON columns)
+        - Phase 2-4: Batch junction records for props, emits, setup returns
+
+        NO FALLBACKS. If data is malformed, hard fail.
+        """
+        # Phase 1: Parent record (8 params - removed props_json, emits_json, setup_return)
+        self.generic_batches['vue_components'].append((
+            file_path, name, component_type, start_line, end_line,
+            1 if has_template else 0, 1 if has_style else 0,
+            1 if composition_api_used else 0
+        ))
+
+        # Phase 2: Junction records for props
+        # Handles both Detailed format {"name": {"type": "String", "required": true}}
+        # and Simple format {"name": "String"} (Options API)
+        if props_definition and isinstance(props_definition, dict):
+            for prop_name, prop_info in props_definition.items():
+                if isinstance(prop_info, dict):
+                    # Detailed format: {"type": "String", "required": true, ...}
+                    prop_type = prop_info.get('type')
+                    is_required = prop_info.get('required', False)
+                    default_value = prop_info.get('default')
+                    if default_value is not None and not isinstance(default_value, str):
+                        default_value = str(default_value)
+                else:
+                    # Simple format: "String" or None
+                    prop_type = str(prop_info) if prop_info else None
+                    is_required = False
+                    default_value = None
+                self.generic_batches['vue_component_props'].append((
+                    file_path, name, prop_name, prop_type,
+                    1 if is_required else 0, default_value
+                ))
+
+        # Phase 3: Junction records for emits
+        # Handles array format ["update", "delete"] and object format {"update": {payload_type: ...}}
+        if emits_definition:
+            emits_dict = emits_definition
+            if isinstance(emits_definition, list):
+                # Convert array to dict: ["update", "delete"] -> {"update": {}, "delete": {}}
+                emits_dict = {emit: {} for emit in emits_definition}
+            if isinstance(emits_dict, dict):
+                for emit_name, emit_info in emits_dict.items():
+                    payload_type = None
+                    if isinstance(emit_info, dict):
+                        payload_type = emit_info.get('payload_type')
+                    self.generic_batches['vue_component_emits'].append((
+                        file_path, name, emit_name, payload_type
+                    ))
+
+        # Phase 4: Junction records for setup returns
+        # Handles dict format {"count": {"type": "ref<number>"}, "increment": "function"}
+        if setup_return:
+            setup_dict = setup_return
+            # If string (legacy format), try to parse as JSON
+            if isinstance(setup_return, str):
+                try:
+                    setup_dict = json.loads(setup_return)
+                except (json.JSONDecodeError, TypeError):
+                    # Single value string - skip junction table
+                    setup_dict = None
+            if setup_dict and isinstance(setup_dict, dict):
+                for return_name, return_info in setup_dict.items():
+                    return_type = None
+                    if isinstance(return_info, dict):
+                        return_type = return_info.get('type')
+                    elif return_info:
+                        return_type = str(return_info)
+                    self.generic_batches['vue_component_setup_returns'].append((
+                        file_path, name, return_name, return_type
+                    ))
 
     def add_vue_hook(self, file_path: str, line: int, component_name: str,
                     hook_name: str, hook_type: str, dependencies: list[str] | None = None,
@@ -152,6 +219,33 @@ class NodeDatabaseMixin:
         """Add a Vue provide/inject operation to the batch."""
         self.generic_batches['vue_provide_inject'].append((file_path, line, component_name,
                                                            operation_type, key_name, value_expr, is_reactive))
+
+    # ========================================================
+    # VUE JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_vue_component_prop(self, file: str, component_name: str, prop_name: str,
+                               prop_type: str | None = None, is_required: bool = False,
+                               default_value: str | None = None):
+        """Add a Vue component prop to the batch."""
+        self.generic_batches['vue_component_props'].append((
+            file, component_name, prop_name, prop_type,
+            1 if is_required else 0, default_value
+        ))
+
+    def add_vue_component_emit(self, file: str, component_name: str, emit_name: str,
+                               payload_type: str | None = None):
+        """Add a Vue component emit to the batch."""
+        self.generic_batches['vue_component_emits'].append((
+            file, component_name, emit_name, payload_type
+        ))
+
+    def add_vue_component_setup_return(self, file: str, component_name: str,
+                                       return_name: str, return_type: str | None = None):
+        """Add a Vue component setup return to the batch."""
+        self.generic_batches['vue_component_setup_returns'].append((
+            file, component_name, return_name, return_type
+        ))
 
     # ========================================================
     # SEQUELIZE ORM BATCH METHODS
@@ -199,12 +293,37 @@ class NodeDatabaseMixin:
 
     def add_angular_component(self, file: str, line: int, component_name: str,
                               selector: str | None = None, template_path: str | None = None,
-                              style_paths: str | None = None, has_lifecycle_hooks: bool = False):
-        """Add an Angular component to the batch."""
+                              style_paths: list | str | None = None, has_lifecycle_hooks: bool = False):
+        """Add an Angular component to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationships.
+        - Phase 1: Batch parent component record (NO style_paths column)
+        - Phase 2: Batch junction records for each style path
+
+        NO FALLBACKS. If data is malformed, hard fail.
+        """
+        # Phase 1: Parent record (6 params - removed style_paths)
         self.generic_batches['angular_components'].append((
-            file, line, component_name, selector, template_path, style_paths,
+            file, line, component_name, selector, template_path,
             1 if has_lifecycle_hooks else 0
         ))
+
+        # Phase 2: Junction records for style paths
+        if style_paths:
+            paths_list = style_paths
+            # Handle JSON string format (legacy)
+            if isinstance(style_paths, str):
+                try:
+                    paths_list = json.loads(style_paths)
+                except (json.JSONDecodeError, TypeError):
+                    # Single path as string
+                    paths_list = [style_paths]
+            if isinstance(paths_list, list):
+                for style_path in paths_list:
+                    if style_path:  # Skip empty strings
+                        self.generic_batches['angular_component_styles'].append((
+                            file, component_name, style_path
+                        ))
 
     def add_angular_service(self, file: str, line: int, service_name: str,
                             is_injectable: bool = True, provided_in: str | None = None):
@@ -214,18 +333,116 @@ class NodeDatabaseMixin:
         ))
 
     def add_angular_module(self, file: str, line: int, module_name: str,
-                           declarations: str | None = None, imports: str | None = None,
-                           providers: str | None = None, exports: str | None = None):
-        """Add an Angular module to the batch."""
+                           declarations: list | str | None = None,
+                           imports: list | str | None = None,
+                           providers: list | str | None = None,
+                           exports: list | str | None = None):
+        """Add an Angular module to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationships.
+        - Phase 1: Batch parent module record (NO JSON columns)
+        - Phase 2-5: Batch junction records for declarations, imports, providers, exports
+
+        NO FALLBACKS. If data is malformed, hard fail.
+        """
+        # Phase 1: Parent record (3 params - removed declarations, imports, providers, exports)
         self.generic_batches['angular_modules'].append((
-            file, line, module_name, declarations, imports, providers, exports
+            file, line, module_name
         ))
+
+        # Helper to parse JSON string or return list directly
+        def parse_array(value):
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return value
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    return parsed if isinstance(parsed, list) else []
+                except (json.JSONDecodeError, TypeError):
+                    return []
+            return []
+
+        # Phase 2: Junction records for declarations
+        for declaration in parse_array(declarations):
+            if declaration:  # Skip empty strings
+                # Declaration can be a string or dict with name/type
+                decl_name = declaration if isinstance(declaration, str) else declaration.get('name', '')
+                decl_type = None if isinstance(declaration, str) else declaration.get('type')
+                if decl_name:
+                    self.generic_batches['angular_module_declarations'].append((
+                        file, module_name, decl_name, decl_type
+                    ))
+
+        # Phase 3: Junction records for imports
+        for imported in parse_array(imports):
+            if imported:  # Skip empty strings
+                import_name = imported if isinstance(imported, str) else str(imported)
+                self.generic_batches['angular_module_imports'].append((
+                    file, module_name, import_name
+                ))
+
+        # Phase 4: Junction records for providers
+        for provider in parse_array(providers):
+            if provider:  # Skip empty strings
+                # Provider can be a string or dict with name/type
+                prov_name = provider if isinstance(provider, str) else provider.get('name', str(provider))
+                prov_type = None if isinstance(provider, str) else provider.get('type')
+                if prov_name:
+                    self.generic_batches['angular_module_providers'].append((
+                        file, module_name, prov_name, prov_type
+                    ))
+
+        # Phase 5: Junction records for exports
+        for exported in parse_array(exports):
+            if exported:  # Skip empty strings
+                export_name = exported if isinstance(exported, str) else str(exported)
+                self.generic_batches['angular_module_exports'].append((
+                    file, module_name, export_name
+                ))
 
     def add_angular_guard(self, file: str, line: int, guard_name: str,
                           guard_type: str, implements_interface: str | None = None):
         """Add an Angular guard to the batch."""
         self.generic_batches['angular_guards'].append((
             file, line, guard_name, guard_type, implements_interface
+        ))
+
+    # ========================================================
+    # ANGULAR JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_angular_component_style(self, file: str, component_name: str, style_path: str):
+        """Add an Angular component style path to the batch."""
+        self.generic_batches['angular_component_styles'].append((
+            file, component_name, style_path
+        ))
+
+    def add_angular_module_declaration(self, file: str, module_name: str,
+                                       declaration_name: str, declaration_type: str | None = None):
+        """Add an Angular module declaration to the batch."""
+        self.generic_batches['angular_module_declarations'].append((
+            file, module_name, declaration_name, declaration_type
+        ))
+
+    def add_angular_module_import(self, file: str, module_name: str, imported_module: str):
+        """Add an Angular module import to the batch."""
+        self.generic_batches['angular_module_imports'].append((
+            file, module_name, imported_module
+        ))
+
+    def add_angular_module_provider(self, file: str, module_name: str,
+                                    provider_name: str, provider_type: str | None = None):
+        """Add an Angular module provider to the batch."""
+        self.generic_batches['angular_module_providers'].append((
+            file, module_name, provider_name, provider_type
+        ))
+
+    def add_angular_module_export(self, file: str, module_name: str, exported_name: str):
+        """Add an Angular module export to the batch."""
+        self.generic_batches['angular_module_exports'].append((
+            file, module_name, exported_name
         ))
 
     # ========================================================

@@ -1,6 +1,12 @@
 # Auto-generated TypedDict definitions from schema
 from typing import TypedDict, Any
 
+class AngularComponentStylesRow(TypedDict):
+    """Row type for angular_component_styles table."""
+    file: str
+    component_name: str
+    style_path: str
+
 class AngularComponentsRow(TypedDict):
     """Row type for angular_components table."""
     file: str
@@ -8,7 +14,6 @@ class AngularComponentsRow(TypedDict):
     component_name: str
     selector: str | None
     template_path: str | None
-    style_paths: str | None
     has_lifecycle_hooks: bool | None
 
 class AngularGuardsRow(TypedDict):
@@ -19,15 +24,37 @@ class AngularGuardsRow(TypedDict):
     guard_type: str
     implements_interface: str | None
 
+class AngularModuleDeclarationsRow(TypedDict):
+    """Row type for angular_module_declarations table."""
+    file: str
+    module_name: str
+    declaration_name: str
+    declaration_type: str | None
+
+class AngularModuleExportsRow(TypedDict):
+    """Row type for angular_module_exports table."""
+    file: str
+    module_name: str
+    exported_name: str
+
+class AngularModuleImportsRow(TypedDict):
+    """Row type for angular_module_imports table."""
+    file: str
+    module_name: str
+    imported_module: str
+
+class AngularModuleProvidersRow(TypedDict):
+    """Row type for angular_module_providers table."""
+    file: str
+    module_name: str
+    provider_name: str
+    provider_type: str | None
+
 class AngularModulesRow(TypedDict):
     """Row type for angular_modules table."""
     file: str
     line: int
     module_name: str
-    declarations: str | None
-    imports: str | None
-    providers: str | None
-    exports: str | None
 
 class AngularServicesRow(TypedDict):
     """Row type for angular_services table."""
@@ -1544,6 +1571,29 @@ class VariableUsageRow(TypedDict):
     in_hook: str | None
     scope_level: int | None
 
+class VueComponentEmitsRow(TypedDict):
+    """Row type for vue_component_emits table."""
+    file: str
+    component_name: str
+    emit_name: str
+    payload_type: str | None
+
+class VueComponentPropsRow(TypedDict):
+    """Row type for vue_component_props table."""
+    file: str
+    component_name: str
+    prop_name: str
+    prop_type: str | None
+    is_required: int | None
+    default_value: str | None
+
+class VueComponentSetupReturnsRow(TypedDict):
+    """Row type for vue_component_setup_returns table."""
+    file: str
+    component_name: str
+    return_name: str
+    return_type: str | None
+
 class VueComponentsRow(TypedDict):
     """Row type for vue_components table."""
     file: str
@@ -1554,9 +1604,6 @@ class VueComponentsRow(TypedDict):
     has_template: bool | None
     has_style: bool | None
     composition_api_used: bool | None
-    props_definition: str | None
-    emits_definition: str | None
-    setup_return: str | None
 
 class VueDirectivesRow(TypedDict):
     """Row type for vue_directives table."""
