@@ -1,35 +1,65 @@
-"""Documentation fetcher for version-correct package docs."""
+"""Documentation fetcher for version-correct package docs.
 
+ARCHITECTURE (v2 - Async Rewrite):
+- Async HTTP with httpx for parallel fetching
+- Smart URL probing (HEAD before GET)
+- Reduced URL pattern explosion (240 -> 15 patterns)
+- Shared rate limiting with deps.py
+- Aggressive timeouts (2s probe, 5s fetch)
 
+The old synchronous version was a denial-of-service attack against our own runtime:
+- 240 URL patterns per package
+- 10s timeout per failed guess
+- Sequential blocking
+Result: 300-400s for 80 packages = pipeline killer
+"""
+
+import asyncio
+import hashlib
 import json
 import re
-import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
+
+from theauditor.security import (
+    SecurityError,
+    sanitize_path,
+    sanitize_url_component,
+    validate_package_name,
+)
+from theauditor.utils.rate_limiter import (
+    RATE_LIMIT_BACKOFF,
+    TIMEOUT_CRAWL,
+    TIMEOUT_FETCH,
+    TIMEOUT_PROBE,
+    get_rate_limiter,
+)
 
 try:
     from bs4 import BeautifulSoup
     from markdownify import markdownify as md
+
     BEAUTIFULSOUP_AVAILABLE = True
 except ImportError:
     BEAUTIFULSOUP_AVAILABLE = False
 
+try:
+    import httpx
+
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+
 
 # Default allowlist for registries and documentation sites
 DEFAULT_ALLOWLIST = [
-    # Package registries
     "https://registry.npmjs.org/",
     "https://pypi.org/",
     "https://raw.githubusercontent.com/",
-    # Documentation hosting platforms
     "https://readthedocs.io/",
     "https://readthedocs.org/",
     "https://docs.python.org/",
-    # Common documentation site patterns
     "https://flask.palletsprojects.com/",
     "https://docs.sqlalchemy.org/",
     "https://numpy.org/doc/",
@@ -40,12 +70,7 @@ DEFAULT_ALLOWLIST = [
     "https://fastapi.tiangolo.com/",
     "https://django.readthedocs.io/",
     "https://www.django-rest-framework.org/",
-    # Generic GitHub Pages pattern (will be extended per-package)
 ]
-
-# Rate limiting configuration - optimized for minimal runtime
-RATE_LIMIT_DELAY = 0.15  # Average delay between requests (balanced for npm/PyPI)
-RATE_LIMIT_BACKOFF = 15  # Backoff on 429/disconnect (15s gives APIs time to reset)
 
 
 def fetch_docs(
@@ -53,18 +78,20 @@ def fetch_docs(
     allow_net: bool = True,
     allowlist: list[str] | None = None,
     offline: bool = False,
-    output_dir: str = "./.pf/context/docs"
+    output_dir: str = "./.pf/context/docs",
 ) -> dict[str, Any]:
     """
     Fetch version-correct documentation for dependencies.
-    
+
+    This is the sync wrapper that calls the async engine.
+
     Args:
         deps: List of dependency objects from deps.py
         allow_net: Whether network access is allowed
         allowlist: List of allowed URL prefixes (uses DEFAULT_ALLOWLIST if None)
         offline: Force offline mode
         output_dir: Base directory for cached docs
-    
+
     Returns:
         Summary of fetch operations
     """
@@ -74,7 +101,17 @@ def fetch_docs(
             "fetched": 0,
             "cached": 0,
             "skipped": len(deps),
-            "errors": []
+            "errors": [],
+        }
+
+    if not HTTPX_AVAILABLE:
+        return {
+            "mode": "error",
+            "error": "httpx not installed. Run: pip install httpx",
+            "fetched": 0,
+            "cached": 0,
+            "skipped": len(deps),
+            "errors": ["httpx not installed"],
         }
 
     if allowlist is None:
@@ -89,23 +126,38 @@ def fetch_docs(
             "error": f"Invalid output directory: {e}",
             "fetched": 0,
             "cached": 0,
-            "skipped": len(deps)
+            "skipped": len(deps),
+            "errors": [str(e)],
         }
 
+    # Run the async engine
+    return asyncio.run(_fetch_docs_async(deps, output_path, allowlist))
+
+
+async def _fetch_docs_async(
+    deps: list[dict[str, Any]],
+    output_path: Path,
+    allowlist: list[str],
+) -> dict[str, Any]:
+    """
+    Async documentation fetcher.
+
+    Architecture:
+    - First pass: Check cache (no network)
+    - Second pass: Fetch missing docs in parallel with rate limiting
+    """
     stats = {
         "mode": "online",
         "fetched": 0,
         "cached": 0,
         "skipped": 0,
-        "errors": []
+        "errors": [],
     }
 
-    # FIRST PASS: Check what's cached
+    # FIRST PASS: Check what's cached (no network, fast)
     needs_fetch = []
     for dep in deps:
-        # Quick cache check without network
-        cache_result = _check_cache_for_dep(dep, output_path)
-        if cache_result["cached"]:
+        if _is_cached(dep, output_path):
             stats["cached"] += 1
         else:
             needs_fetch.append(dep)
@@ -114,963 +166,595 @@ def fetch_docs(
     if not needs_fetch:
         return stats
 
-    # SECOND PASS: Fetch only what we need, with per-service rate limiting
-    npm_rate_limited_until = 0
-    pypi_rate_limited_until = 0
+    # SECOND PASS: Async parallel fetch with rate limiting
+    # Semaphore: 20 concurrent (docs are IO heavy, can go wider than deps)
+    semaphore = asyncio.Semaphore(20)
 
-    for i, dep in enumerate(needs_fetch):
-        try:
-            current_time = time.time()
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(TIMEOUT_FETCH, connect=5.0),
+        follow_redirects=True,
+        headers={"User-Agent": "TheAuditor/1.0 (docs fetcher)"},
+    ) as client:
+        tasks = [
+            _fetch_one_doc(client, dep, output_path, allowlist, semaphore)
+            for dep in needs_fetch
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Check if this service is rate limited
-            if dep["manager"] == "npm" and current_time < npm_rate_limited_until:
+        for dep, result in zip(needs_fetch, results):
+            if isinstance(result, Exception):
+                stats["errors"].append(f"{dep['name']}: {type(result).__name__}")
                 stats["skipped"] += 1
-                stats["errors"].append(f"{dep['name']}: Skipped (npm rate limited)")
-                continue
-            elif dep["manager"] == "py" and current_time < pypi_rate_limited_until:
-                stats["skipped"] += 1
-                stats["errors"].append(f"{dep['name']}: Skipped (PyPI rate limited)")
-                continue
-
-            # Fetch the documentation
-            if dep["manager"] == "npm":
-                result = _fetch_npm_docs(dep, output_path, allowlist)
-            elif dep["manager"] == "py":
-                result = _fetch_pypi_docs(dep, output_path, allowlist)
-            else:
-                stats["skipped"] += 1
-                continue
-
-            if result["status"] == "fetched":
+            elif result == "fetched":
                 stats["fetched"] += 1
-                # Rate limiting: delay after successful fetch to be server-friendly
-                # npm and PyPI both have rate limits (npm: 100/min, PyPI: 60/min)
-                time.sleep(RATE_LIMIT_DELAY)  # Be server-friendly
-            elif result["status"] == "cached":
-                stats["cached"] += 1  # Shouldn't happen here but handle it
-            elif result.get("reason") == "rate_limited":
-                stats["errors"].append(f"{dep['name']}: Rate limited - backing off {RATE_LIMIT_BACKOFF}s")
-                stats["skipped"] += 1
-                # Set rate limit expiry for this service
-                if dep["manager"] == "npm":
-                    npm_rate_limited_until = time.time() + RATE_LIMIT_BACKOFF
-                elif dep["manager"] == "py":
-                    pypi_rate_limited_until = time.time() + RATE_LIMIT_BACKOFF
+            elif result == "cached":
+                stats["cached"] += 1
             else:
                 stats["skipped"] += 1
-
-        except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "rate" in error_msg.lower():
-                stats["errors"].append(f"{dep['name']}: Rate limited - backing off {RATE_LIMIT_BACKOFF}s")
-                # Set rate limit expiry for this service
-                if dep["manager"] == "npm":
-                    npm_rate_limited_until = time.time() + RATE_LIMIT_BACKOFF
-                elif dep["manager"] == "py":
-                    pypi_rate_limited_until = time.time() + RATE_LIMIT_BACKOFF
-            else:
-                stats["errors"].append(f"{dep['name']}: {error_msg}")
 
     return stats
 
 
-def _check_cache_for_dep(dep: dict[str, Any], output_dir: Path) -> dict[str, bool]:
-    """
-    Quick cache check for a dependency without making network calls.
-    Returns {"cached": True/False}
-    """
-    name = dep["name"]
-    version = dep["version"]
-    manager = dep["manager"]
+async def _fetch_one_doc(
+    client: "httpx.AsyncClient",
+    dep: dict[str, Any],
+    output_path: Path,
+    allowlist: list[str],
+    semaphore: asyncio.Semaphore,
+) -> str:
+    """Fetch documentation for a single dependency."""
+    manager = dep.get("manager", "")
+    limiter = get_rate_limiter("docs")
 
-    # Build the cache file path
-    if manager == "npm":
-        # Handle git versions
-        if version.startswith("git") or "://" in version:
-            import hashlib
-            version_hash = hashlib.md5(version.encode()).hexdigest()[:8]
-            safe_version = f"git-{version_hash}"
-        else:
-            safe_version = version.replace(":", "_").replace("/", "_").replace("\\", "_")
-        safe_name = name.replace("@", "_at_").replace("/", "_")
-        pkg_dir = output_dir / "npm" / f"{safe_name}@{safe_version}"
-    elif manager == "py":
-        safe_version = version.replace(":", "_").replace("/", "_").replace("\\", "_")
-        safe_name = name.replace("/", "_").replace("\\", "_")
-        pkg_dir = output_dir / "py" / f"{safe_name}@{safe_version}"
-    else:
-        return {"cached": False}
+    async with semaphore:
+        await limiter.acquire()
 
+        try:
+            if manager == "npm":
+                return await _fetch_npm_docs_async(client, dep, output_path, allowlist)
+            elif manager == "py":
+                return await _fetch_pypi_docs_async(client, dep, output_path, allowlist)
+            else:
+                return "skipped"
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                # Rate limited - sleep and skip (don't retry in this batch)
+                await asyncio.sleep(RATE_LIMIT_BACKOFF)
+                return "rate_limited"
+            return "error"
+        except Exception:
+            return "error"
+
+
+def _is_cached(dep: dict[str, Any], output_dir: Path) -> bool:
+    """Quick cache check without network calls."""
+    name = dep.get("name", "")
+    version = dep.get("version", "")
+    manager = dep.get("manager", "")
+
+    pkg_dir = _get_pkg_dir(output_dir, manager, name, version)
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
 
-    # Check cache validity
-    if doc_file.exists() and meta_file.exists():
-        try:
-            with open(meta_file, encoding="utf-8") as f:
-                meta = json.load(f)
-            # Cache for 7 days
-            last_checked = datetime.fromisoformat(meta["last_checked"])
-            if (datetime.now() - last_checked).days < 7:
-                return {"cached": True}
-        except (json.JSONDecodeError, KeyError):
-            pass
+    if not (doc_file.exists() and meta_file.exists()):
+        return False
 
-    return {"cached": False}
+    try:
+        with open(meta_file, encoding="utf-8") as f:
+            meta = json.load(f)
+        last_checked = datetime.fromisoformat(meta["last_checked"])
+        # Cache valid for 7 days
+        return (datetime.now() - last_checked).days < 7
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return False
 
 
-def _fetch_npm_docs(
-    dep: dict[str, Any],
-    output_dir: Path,
-    allowlist: list[str]
-) -> dict[str, Any]:
-    """Fetch documentation for an npm package."""
-    name = dep["name"]
-    version = dep["version"]
-
-    # Validate package name
-    if not validate_package_name(name, "npm"):
-        return {"status": "skipped", "reason": "Invalid package name"}
-
-    # Sanitize version for filesystem (handle git URLs)
+def _get_pkg_dir(output_dir: Path, manager: str, name: str, version: str) -> Path:
+    """Get the package-specific cache directory."""
+    # Sanitize version for filesystem
     if version.startswith("git") or "://" in version:
-        # For git dependencies, use a hash of the URL as version
-        import hashlib
         version_hash = hashlib.md5(version.encode()).hexdigest()[:8]
         safe_version = f"git-{version_hash}"
     else:
-        # For normal versions, just replace problematic characters
-        safe_version = version.replace(":", "_").replace("/", "_").replace("\\", "_")
+        safe_version = re.sub(r'[:/\\]', '_', version)
 
-    # Create package-specific directory with sanitized name
-    # Replace @ and / in scoped packages for filesystem safety
-    safe_name = name.replace("@", "_at_").replace("/", "_")
-    try:
-        pkg_dir = output_dir / "npm" / f"{safe_name}@{safe_version}"
-        pkg_dir.mkdir(parents=True, exist_ok=True)
-    except (OSError, SecurityError) as e:
-        return {"status": "error", "error": f"Cannot create package directory: {e}"}
-
-    doc_file = pkg_dir / "doc.md"
-    meta_file = pkg_dir / "meta.json"
-
-    # Check cache
-    if doc_file.exists() and meta_file.exists():
-        # Check if cache is still valid (simple time-based for now)
-        try:
-            with open(meta_file, encoding="utf-8") as f:
-                meta = json.load(f)
-            # Cache for 7 days
-            last_checked = datetime.fromisoformat(meta["last_checked"])
-            if (datetime.now() - last_checked).days < 7:
-                return {"status": "cached"}
-        except (json.JSONDecodeError, KeyError):
-            pass  # Invalid cache, refetch
-
-    # Fetch from registry with sanitized package name
-    safe_url_name = sanitize_url_component(name)
-    safe_url_version = sanitize_url_component(version)
-    url = f"https://registry.npmjs.org/{safe_url_name}/{safe_url_version}"
-    if not _is_url_allowed(url, allowlist):
-        return {"status": "skipped", "reason": "URL not in allowlist"}
-
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read())
-
-        readme = data.get("readme", "")
-        repository = data.get("repository", {})
-        homepage = data.get("homepage", "")
-
-        # Priority 1: Try to get README from GitHub if available
-        github_fetched = False
-        if isinstance(repository, dict):
-            repo_url = repository.get("url", "")
-            github_readme = _fetch_github_readme(repo_url, allowlist)
-            if github_readme and len(github_readme) > 500:  # Only use if substantial
-                readme = github_readme
-                github_fetched = True
-
-        # Priority 2: If no good GitHub README, try homepage if it's GitHub
-        if not github_fetched and homepage and "github.com" in homepage:
-            github_readme = _fetch_github_readme(homepage, allowlist)
-            if github_readme and len(github_readme) > 500:
-                readme = github_readme
-                github_fetched = True
-
-        # Priority 3: Use npm README if it's substantial
-        if not github_fetched and len(readme) < 500:
-            # The npm README is too short, try to enhance it
-            readme = _enhance_npm_readme(data, readme)
-
-        # Write documentation
-        with open(doc_file, "w", encoding="utf-8") as f:
-            f.write(f"# {name}@{version}\n\n")
-            f.write(f"**Package**: [{name}](https://www.npmjs.com/package/{name})\n")
-            f.write(f"**Version**: {version}\n")
-            if homepage:
-                f.write(f"**Homepage**: {homepage}\n")
-            f.write("\n---\n\n")
-            f.write(readme)
-
-            # Add usage examples if not in README
-            if "## Usage" not in readme and "## Example" not in readme:
-                f.write(f"\n\n## Installation\n\n```bash\nnpm install {name}\n```\n")
-
-        # Write metadata
-        meta = {
-            "source_url": url,
-            "last_checked": datetime.now().isoformat(),
-            "etag": response.headers.get("ETag"),
-            "repository": repository,
-            "from_github": github_fetched
-        }
-        with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2)
-
-        return {"status": "fetched"}
-
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            return {"status": "error", "reason": "rate_limited", "error": "HTTP 429: Rate limited"}
-        return {"status": "error", "error": f"HTTP {e.code}: {str(e)}"}
-    except (urllib.error.URLError, json.JSONDecodeError) as e:
-        return {"status": "error", "error": str(e)}
-
-
-def _fetch_pypi_docs(
-    dep: dict[str, Any],
-    output_dir: Path,
-    allowlist: list[str]
-) -> dict[str, Any]:
-    """Fetch documentation for a PyPI package."""
-    name = dep["name"].strip()  # Strip any whitespace from name
-    version = dep["version"]
-
-    # Validate package name
-    if not validate_package_name(name, "py"):
-        return {"status": "skipped", "reason": "Invalid package name"}
-
-    # Sanitize package name for URL
-    safe_url_name = sanitize_url_component(name)
-
-    # Handle special versions
-    if version in ["latest", "git"]:
-        # For latest, fetch current version first
-        if version == "latest":
-            url = f"https://pypi.org/pypi/{safe_url_name}/json"
-        else:
-            return {"status": "skipped", "reason": "git dependency"}
+    # Sanitize name for filesystem
+    if manager == "npm":
+        safe_name = name.replace("@", "_at_").replace("/", "_")
     else:
-        safe_url_version = sanitize_url_component(version)
-        url = f"https://pypi.org/pypi/{safe_url_name}/{safe_url_version}/json"
+        safe_name = re.sub(r'[/\\]', '_', name)
 
-    if not _is_url_allowed(url, allowlist):
-        return {"status": "skipped", "reason": "URL not in allowlist"}
-
-    # Sanitize version for filesystem
-    safe_version = version.replace(":", "_").replace("/", "_").replace("\\", "_")
-
-    # Create package-specific directory with sanitized name
-    safe_name = name.replace("/", "_").replace("\\", "_")
-    try:
-        pkg_dir = output_dir / "py" / f"{safe_name}@{safe_version}"
-        pkg_dir.mkdir(parents=True, exist_ok=True)
-    except (OSError, SecurityError) as e:
-        return {"status": "error", "error": f"Cannot create package directory: {e}"}
-
-    doc_file = pkg_dir / "doc.md"
-    meta_file = pkg_dir / "meta.json"
-
-    # Check cache
-    if doc_file.exists() and meta_file.exists():
-        try:
-            with open(meta_file, encoding="utf-8") as f:
-                meta = json.load(f)
-            last_checked = datetime.fromisoformat(meta["last_checked"])
-            if (datetime.now() - last_checked).days < 7:
-                return {"status": "cached"}
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read())
-
-        info = data.get("info", {})
-        description = info.get("description", "")
-        summary = info.get("summary", "")
-
-        # Priority 1: Try to get README from project URLs (GitHub, GitLab, etc.)
-        github_fetched = False
-        project_urls = info.get("project_urls", {})
-
-        # Check all possible URL sources for GitHub
-        all_urls = []
-        for key, proj_url in project_urls.items():
-            if proj_url:
-                all_urls.append(proj_url)
-
-        # Also check home_page and download_url
-        home_page = info.get("home_page", "")
-        if home_page:
-            all_urls.append(home_page)
-        download_url = info.get("download_url", "")
-        if download_url:
-            all_urls.append(download_url)
-
-        # Try GitHub first
-        for url in all_urls:
-            if "github.com" in url.lower():
-                github_readme = _fetch_github_readme(url, allowlist)
-                if github_readme and len(github_readme) > 500:
-                    description = github_readme
-                    github_fetched = True
-                    break
-
-        # Priority 2: Try ReadTheDocs if available
-        if not github_fetched:
-            for url in all_urls:
-                if "readthedocs" in url.lower():
-                    rtd_content = _fetch_readthedocs(url, allowlist)
-                    if rtd_content and len(rtd_content) > 500:
-                        description = rtd_content
-                        github_fetched = True  # Mark as fetched from external source
-                        break
-
-        # Priority 3: Try to scrape PyPI web page (not API) for full README
-        if not github_fetched and len(description) < 1000:
-            pypi_readme = _fetch_pypi_web_readme(name, version, allowlist)
-            if pypi_readme and len(pypi_readme) > len(description):
-                description = pypi_readme
-                github_fetched = True  # Mark as fetched from external source
-
-        # Priority 4: Use PyPI description (often contains full README)
-        # PyPI descriptions can be quite good if properly uploaded
-        if not github_fetched and len(description) < 500 and summary:
-            # If description is too short, enhance it
-            description = _enhance_pypi_description(info, description, summary)
-
-        # Try to crawl documentation site if available
-        crawled_docs = {}
-        doc_site_url = None
-
-        # Look for ReadTheDocs or other doc sites in project URLs
-        for key, proj_url in project_urls.items():
-            if proj_url and ("readthedocs" in proj_url.lower() or "docs" in key.lower()):
-                # Found a documentation site - try to crawl it
-                doc_site_url = proj_url
-                try:
-                    # Add common doc sites to allowlist
-                    extended_allowlist = allowlist + [
-                        "https://docs.python.org/",
-                        f"https://{name}.readthedocs.io/",
-                        f"https://{name}.readthedocs.org/",
-                        f"https://{name}.github.io/",
-                        f"https://www.{name}.org/",
-                    ]
-                    crawled_docs = _crawl_docs_site(
-                        proj_url.rstrip("/"),
-                        name,
-                        version,
-                        max_pages=5,  # Limit to 5 pages for PyPI
-                        allowlist=extended_allowlist
-                    )
-                    if crawled_docs:
-                        break  # Successfully crawled
-                except Exception:
-                    pass  # Crawling failed, fall back to README only
-
-        # Write documentation - multiple files if crawled, single file otherwise
-        source_urls = {}
-
-        if crawled_docs:
-            # Multi-file storage: README.md + crawled pages
-            # Write README.md
-            readme_file = pkg_dir / "README.md"
-            with open(readme_file, "w", encoding="utf-8") as f:
-                f.write(f"# {name}@{version}\n\n")
-                f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
-                f.write(f"**Version**: {version}\n")
-
-                if project_urls:
-                    f.write("\n**Links**:\n")
-                    for key, proj_url in list(project_urls.items())[:5]:
-                        if proj_url:
-                            f.write(f"- {key}: {proj_url}\n")
-
-                f.write("\n---\n\n")
-
-                if summary and summary not in description:
-                    f.write(f"**Summary**: {summary}\n\n")
-
-                f.write(description)
-
-                if "pip install" not in description.lower():
-                    f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
-
-            source_urls["README"] = url  # PyPI API URL
-
-            # Write crawled documentation pages
-            for page_name, content in crawled_docs.items():
-                page_file = pkg_dir / f"{page_name}.md"
-                with open(page_file, "w", encoding="utf-8") as f:
-                    f.write(f"# {name}@{version} - {page_name.replace('_', ' ').title()}\n\n")
-                    f.write(content)
-                source_urls[page_name] = doc_site_url or "crawled"
-
-        else:
-            # Single-file storage (legacy format for backward compatibility)
-            with open(doc_file, "w", encoding="utf-8") as f:
-                f.write(f"# {name}@{version}\n\n")
-                f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
-                f.write(f"**Version**: {version}\n")
-
-                if project_urls:
-                    f.write("\n**Links**:\n")
-                    for key, proj_url in list(project_urls.items())[:5]:
-                        if proj_url:
-                            f.write(f"- {key}: {proj_url}\n")
-
-                f.write("\n---\n\n")
-
-                if summary and summary not in description:
-                    f.write(f"**Summary**: {summary}\n\n")
-
-                f.write(description)
-
-                if "pip install" not in description.lower():
-                    f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
-
-                if len(description) < 200:
-                    f.write(f"\n\n## Basic Usage\n\n```python\nimport {name.replace('-', '_')}\n```\n")
-
-            source_urls["doc"] = url
-
-        # Write metadata
-        meta = {
-            "package": name,
-            "version": version,
-            "ecosystem": "py",
-            "source_url": url,
-            "source_urls": source_urls,
-            "file_count": len(source_urls),
-            "last_checked": datetime.now().isoformat(),
-            "etag": response.headers.get("ETag"),
-            "project_urls": project_urls,
-            "from_github": github_fetched,
-            "crawled": len(crawled_docs) > 0
-        }
-        with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2)
-
-        return {"status": "fetched"}
-
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            return {"status": "error", "reason": "rate_limited", "error": "HTTP 429: Rate limited"}
-        return {"status": "error", "error": f"HTTP {e.code}: {str(e)}"}
-    except (urllib.error.URLError, json.JSONDecodeError) as e:
-        return {"status": "error", "error": str(e)}
-
-
-def _fetch_github_readme(repo_url: str, allowlist: list[str]) -> str | None:
-    """
-    Fetch README from GitHub repository.
-    Converts repository URL to raw GitHub URL for README.
-    """
-    if not repo_url:
-        return None
-
-    # Extract owner/repo from various GitHub URL formats
-    patterns = [
-        r'github\.com[:/]([^/]+)/([^/\s]+)',
-        r'git\+https://github\.com/([^/]+)/([^/\s]+)',
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, repo_url)
-        if match:
-            owner, repo = match.groups()
-            # Clean repo name
-            repo = repo.replace(".git", "")
-
-            # Try common README filenames
-            readme_files = ["README.md", "readme.md", "README.rst", "README.txt"]
-
-            # Sanitize owner and repo for URL
-            safe_owner = sanitize_url_component(owner)
-            safe_repo = sanitize_url_component(repo)
-
-            for readme_name in readme_files:
-                safe_readme = sanitize_url_component(readme_name)
-                raw_url = f"https://raw.githubusercontent.com/{safe_owner}/{safe_repo}/main/{safe_readme}"
-
-                if not _is_url_allowed(raw_url, allowlist):
-                    continue
-
-                try:
-                    with urllib.request.urlopen(raw_url, timeout=5) as response:
-                        return response.read().decode("utf-8")
-                except urllib.error.HTTPError:
-                    # Try master branch
-                    raw_url = f"https://raw.githubusercontent.com/{safe_owner}/{safe_repo}/master/{safe_readme}"
-                    try:
-                        with urllib.request.urlopen(raw_url, timeout=5) as response:
-                            return response.read().decode("utf-8")
-                    except urllib.error.URLError:
-                        continue
-                except urllib.error.URLError:
-                    continue
-
-    return None
+    return output_dir / manager / f"{safe_name}@{safe_version}"
 
 
 def _is_url_allowed(url: str, allowlist: list[str]) -> bool:
     """Check if URL is in the allowlist."""
-    for allowed in allowlist:
-        if url.startswith(allowed):
-            return True
-    return False
+    return any(url.startswith(allowed) for allowed in allowlist)
 
 
-def _enhance_npm_readme(data: dict[str, Any], readme: str) -> str:
-    """Enhance minimal npm README with package metadata."""
-    enhanced = readme if readme else ""
-
-    # Add description if not in README
-    description = data.get("description", "")
-    if description and description not in enhanced:
-        enhanced = f"{description}\n\n{enhanced}"
-
-    # Add keywords
-    keywords = data.get("keywords", [])
-    if keywords and "keywords" not in enhanced.lower():
-        enhanced += f"\n\n## Keywords\n\n{', '.join(keywords)}"
-
-    # Add main entry point info
-    main = data.get("main", "")
-    if main:
-        enhanced += f"\n\n## Entry Point\n\nMain file: `{main}`"
-
-    # Add dependencies info if substantial
-    deps = data.get("dependencies", {})
-    if len(deps) > 0 and len(deps) <= 10:  # Only if reasonable number
-        enhanced += "\n\n## Dependencies\n\n"
-        for dep, ver in deps.items():
-            enhanced += f"- {dep}: {ver}\n"
-
-    return enhanced
+# =============================================================================
+# NPM DOCS FETCHER
+# =============================================================================
 
 
-def _fetch_and_convert_html(url: str, allowlist: list[str], timeout: int = 10) -> str | None:
-    """
-    Fetch HTML from URL and convert to clean markdown using BeautifulSoup.
+async def _fetch_npm_docs_async(
+    client: "httpx.AsyncClient",
+    dep: dict[str, Any],
+    output_dir: Path,
+    allowlist: list[str],
+) -> str:
+    """Fetch documentation for an npm package."""
+    name = dep["name"]
+    version = dep["version"]
 
-    This replaces the old regex-based HTML parsing with proper DOM parsing.
-    Falls back to regex if BeautifulSoup is not available.
+    if not validate_package_name(name, "npm"):
+        return "skipped"
 
-    Args:
-        url: URL to fetch
-        allowlist: List of allowed URL prefixes
-        timeout: Request timeout in seconds
+    pkg_dir = _get_pkg_dir(output_dir, "npm", name, version)
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    doc_file = pkg_dir / "doc.md"
+    meta_file = pkg_dir / "meta.json"
 
-    Returns:
-        Cleaned markdown content or None on error
-    """
-    if not url or not _is_url_allowed(url, allowlist):
-        return None
-
-    try:
-        req = urllib.request.Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (compatible; TheAuditor/1.0)'
-        })
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            html_content = response.read().decode("utf-8", errors="ignore")
-
-        if not BEAUTIFULSOUP_AVAILABLE:
-            # Fallback to old regex method if BeautifulSoup not installed
-            return _convert_html_regex(html_content)
-
-        # Parse HTML with BeautifulSoup
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        # Remove unwanted elements
-        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form']):
-            element.decompose()
-
-        # Try to find main content area (common selectors)
-        main_content = None
-        content_selectors = [
-            'article',
-            'main',
-            '[role="main"]',
-            '.document',  # ReadTheDocs
-            '.rst-content',  # ReadTheDocs
-            '.project-description',  # PyPI
-            '.content',
-            '.main-content',
-            '#content',
-            '#main'
-        ]
-
-        for selector in content_selectors:
-            main_content = soup.select_one(selector)
-            if main_content:
-                break
-
-        # If no main content found, use body
-        if not main_content:
-            main_content = soup.find('body')
-
-        if not main_content:
-            return None
-
-        # Convert to markdown using markdownify
-        markdown = md(
-            str(main_content),
-            heading_style="ATX",  # Use # style headings
-            bullets="-",  # Use - for lists
-            code_language_callback=lambda el: el.get('class', [''])[0] if el.get('class') else '',
-            strip=['a']  # Remove link formatting but keep text
-        )
-
-        # Clean up excessive whitespace
-        markdown = re.sub(r'\n{3,}', '\n\n', markdown)
-        markdown = markdown.strip()
-
-        return markdown if len(markdown) > 100 else None
-
-    except Exception:
-        return None
-
-
-def _convert_html_regex(html_content: str) -> str:
-    """
-    Fallback regex-based HTML to markdown conversion.
-    Used when BeautifulSoup is not available.
-    """
-    # Remove script and style tags
-    html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
-    html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL)
-
-    # Convert basic HTML tags to markdown
-    html_content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```', html_content, flags=re.DOTALL | re.IGNORECASE)
-    html_content = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', html_content, flags=re.IGNORECASE)
-    html_content = re.sub(r'<[^>]+>', '', html_content)
-
-    # Clean up whitespace
-    html_content = re.sub(r'\n{3,}', '\n\n', html_content)
-
-    return html_content.strip()
-
-
-def _crawl_docs_site(
-    base_url: str,
-    package_name: str,
-    version: str,
-    max_pages: int = 10,
-    allowlist: list[str] | None = None
-) -> dict[str, str]:
-    """
-    Crawl documentation site for multiple pages.
-
-    Fetches priority pages (quickstart, API, examples, etc.) in order,
-    trying multiple version-specific URL patterns for each.
-
-    Args:
-        base_url: Base documentation URL (e.g., https://flask.palletsprojects.com)
-        package_name: Package name (e.g., "flask")
-        version: Semantic version (e.g., "3.1.0")
-        max_pages: Maximum pages to fetch (default 10)
-        allowlist: List of allowed URL prefixes (uses DEFAULT_ALLOWLIST if None)
-
-    Returns:
-        Dict mapping page names to markdown content:
-        {
-            "README": "...",
-            "quickstart": "...",
-            "api_reference": "..."
-        }
-    """
-    if allowlist is None:
-        allowlist = DEFAULT_ALLOWLIST
-
-    results: dict[str, str] = {}
-    pages_fetched = 0
-
-    # Priority pages to fetch (in order of importance)
-    priority_pages = [
-        ("quickstart", ["quickstart", "getting-started", "tutorial", "getting_started"]),
-        ("api_reference", ["api", "api-reference", "reference", "api_reference"]),
-        ("guide", ["guide", "user-guide", "userguide", "user_guide"]),
-        ("examples", ["examples", "example", "cookbook"]),
-        ("migration", ["migration", "upgrading", "changelog", "changes", "whatsnew"]),
-    ]
-
-    # Extract version components for URL patterns
-    version_parts = version.split(".")
-    major = version_parts[0] if len(version_parts) > 0 else "1"
-    major_minor = ".".join(version_parts[:2]) if len(version_parts) >= 2 else version
-
-    for page_canonical_name, page_variants in priority_pages:
-        if pages_fetched >= max_pages:
-            break
-
-        # Try each variant of the page name
-        for page_name in page_variants:
-            if pages_fetched >= max_pages:
-                break
-
-            # Try multiple URL patterns for this page
-            url_patterns = [
-                f"{base_url}/en/{version}/{page_name}/",       # /en/3.1.0/quickstart/
-                f"{base_url}/en/{major_minor}/{page_name}/",   # /en/3.1/quickstart/
-                f"{base_url}/en/{major_minor}.x/{page_name}/", # /en/3.1.x/quickstart/ (Flask style)
-                f"{base_url}/en/{major}.x/{page_name}/",       # /en/3.x/quickstart/
-                f"{base_url}/{version}/{page_name}/",          # /3.1.0/quickstart/
-                f"{base_url}/{major_minor}/{page_name}/",      # /3.1/quickstart/
-                f"{base_url}/v{version}/{page_name}/",         # /v3.1.0/quickstart/
-                f"{base_url}/v{major_minor}/{page_name}/",     # /v3.1/quickstart/
-                f"{base_url}/docs/{page_name}/",               # /docs/quickstart/
-                f"{base_url}/user/{page_name}/",               # /user/quickstart/
-                f"{base_url}/{page_name}.html",                # /quickstart.html
-                f"{base_url}/docs/{page_name}.html",           # /docs/quickstart.html
-            ]
-
-            for url in url_patterns:
-                if not _is_url_allowed(url, allowlist):
-                    continue
-
-                # Try to fetch and convert this URL
-                markdown = _fetch_and_convert_html(url, allowlist, timeout=10)
-
-                if markdown and len(markdown) > 200:  # Only accept substantial content
-                    # Store under canonical name
-                    results[page_canonical_name] = markdown
-                    pages_fetched += 1
-
-                    # Rate limiting - be server-friendly
-                    time.sleep(0.5)
-                    break  # Found working URL for this page, move to next page
-
-            # If we found this page variant, stop trying other variants
-            if page_canonical_name in results:
-                break
-
-    return results
-
-
-def _fetch_readthedocs(url: str, allowlist: list[str]) -> str | None:
-    """
-    Fetch documentation from ReadTheDocs.
-    Tries to get the main index page content.
-    """
-    if not url or not _is_url_allowed(url, allowlist):
-        return None
-
-    # Ensure we're getting the latest version
-    if not url.endswith("/"):
-        url += "/"
-
-    # Try to fetch the main page
-    try:
-        # Add en/latest if not already in URL
-        if "/en/latest" not in url and "/en/stable" not in url:
-            url = url.rstrip("/") + "/en/latest/"
-
-        with urllib.request.urlopen(url, timeout=10) as response:
-            html_content = response.read().decode("utf-8")
-
-        # Basic HTML to markdown conversion (very simplified)
-        # Remove script and style tags
-        html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
-        html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL)
-
-        # Extract main content (look for common RTD content divs)
-        content_match = re.search(r'<div[^>]*class="[^"]*document[^"]*"[^>]*>(.*?)</div>', html_content, re.DOTALL)
-        if content_match:
-            html_content = content_match.group(1)
-
-        # Convert basic HTML tags to markdown
-        html_content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', html_content)
-        html_content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', html_content)
-        html_content = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', html_content)
-        html_content = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', html_content)
-        html_content = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```', html_content, flags=re.DOTALL)
-        html_content = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', html_content)
-        html_content = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', html_content)
-        html_content = re.sub(r'<[^>]+>', '', html_content)  # Remove remaining HTML tags
-
-        # Clean up whitespace
-        html_content = re.sub(r'\n{3,}', '\n\n', html_content)
-
-        return html_content.strip()
-    except Exception:
-        return None
-
-
-def _fetch_pypi_web_readme(name: str, version: str, allowlist: list[str]) -> str | None:
-    """
-    Fetch the rendered README from PyPI's web interface.
-    The web interface shows the full README that's often missing from the API.
-    """
-    # Validate package name
-    if not validate_package_name(name, "py"):
-        return None
-
-    # Sanitize for URL
+    # Fetch from npm registry
     safe_name = sanitize_url_component(name)
     safe_version = sanitize_url_component(version)
+    url = f"https://registry.npmjs.org/{safe_name}/{safe_version}"
 
-    # PyPI web URLs
-    urls_to_try = [
-        f"https://pypi.org/project/{safe_name}/{safe_version}/",
-        f"https://pypi.org/project/{safe_name}/"
-    ]
+    if not _is_url_allowed(url, allowlist):
+        return "skipped"
+
+    response = await client.get(url, timeout=TIMEOUT_FETCH)
+    response.raise_for_status()
+    data = response.json()
+
+    readme = data.get("readme", "")
+    repository = data.get("repository", {})
+    homepage = data.get("homepage", "")
+
+    # Try GitHub README if npm readme is short
+    if len(readme) < 500:
+        github_readme = await _fetch_github_readme_async(
+            client, repository, homepage, allowlist
+        )
+        if github_readme and len(github_readme) > len(readme):
+            readme = github_readme
+
+    # Enhance if still short
+    if len(readme) < 500:
+        readme = _enhance_npm_readme(data, readme)
+
+    # Write doc file
+    with open(doc_file, "w", encoding="utf-8") as f:
+        f.write(f"# {name}@{version}\n\n")
+        f.write(f"**Package**: [{name}](https://www.npmjs.com/package/{name})\n")
+        f.write(f"**Version**: {version}\n")
+        if homepage:
+            f.write(f"**Homepage**: {homepage}\n")
+        f.write("\n---\n\n")
+        f.write(readme)
+        if "## Usage" not in readme and "## Example" not in readme:
+            f.write(f"\n\n## Installation\n\n```bash\nnpm install {name}\n```\n")
+
+    # Write metadata
+    meta = {
+        "source_url": url,
+        "last_checked": datetime.now().isoformat(),
+        "repository": repository,
+    }
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    return "fetched"
+
+
+# =============================================================================
+# PYPI DOCS FETCHER
+# =============================================================================
+
+
+async def _fetch_pypi_docs_async(
+    client: "httpx.AsyncClient",
+    dep: dict[str, Any],
+    output_dir: Path,
+    allowlist: list[str],
+) -> str:
+    """Fetch documentation for a PyPI package."""
+    name = dep["name"].strip()
+    version = dep["version"]
+
+    if not validate_package_name(name, "py"):
+        return "skipped"
+
+    pkg_dir = _get_pkg_dir(output_dir, "py", name, version)
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    doc_file = pkg_dir / "doc.md"
+    meta_file = pkg_dir / "meta.json"
+
+    # Handle special versions
+    safe_name = sanitize_url_component(name)
+    if version in ["latest", "git"]:
+        if version == "git":
+            return "skipped"
+        url = f"https://pypi.org/pypi/{safe_name}/json"
+    else:
+        safe_version = sanitize_url_component(version)
+        url = f"https://pypi.org/pypi/{safe_name}/{safe_version}/json"
+
+    if not _is_url_allowed(url, allowlist):
+        return "skipped"
+
+    response = await client.get(url, timeout=TIMEOUT_FETCH)
+    response.raise_for_status()
+    data = response.json()
+
+    info = data.get("info", {})
+    description = info.get("description", "")
+    summary = info.get("summary", "")
+    project_urls = info.get("project_urls", {}) or {}
+
+    # Try to get better README from GitHub
+    if len(description) < 500:
+        github_readme = await _try_github_from_project_urls(
+            client, project_urls, info, allowlist
+        )
+        if github_readme and len(github_readme) > len(description):
+            description = github_readme
+
+    # Try crawling docs site (REDUCED patterns)
+    if len(description) < 1000:
+        crawled = await _crawl_docs_smart(client, project_urls, name, version, allowlist)
+        if crawled:
+            # Write crawled pages as separate files
+            for page_name, content in crawled.items():
+                page_file = pkg_dir / f"{page_name}.md"
+                with open(page_file, "w", encoding="utf-8") as f:
+                    f.write(f"# {name}@{version} - {page_name.title()}\n\n")
+                    f.write(content)
+
+    # Write main doc file
+    with open(doc_file, "w", encoding="utf-8") as f:
+        f.write(f"# {name}@{version}\n\n")
+        f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
+        f.write(f"**Version**: {version}\n")
+        if project_urls:
+            f.write("\n**Links**:\n")
+            for key, proj_url in list(project_urls.items())[:5]:
+                if proj_url:
+                    f.write(f"- {key}: {proj_url}\n")
+        f.write("\n---\n\n")
+        if summary and summary not in description:
+            f.write(f"**Summary**: {summary}\n\n")
+        f.write(description)
+        if "pip install" not in description.lower():
+            f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
+
+    # Write metadata
+    meta = {
+        "package": name,
+        "version": version,
+        "source_url": url,
+        "last_checked": datetime.now().isoformat(),
+        "project_urls": project_urls,
+    }
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    return "fetched"
+
+
+# =============================================================================
+# GITHUB README FETCHER
+# =============================================================================
+
+
+async def _fetch_github_readme_async(
+    client: "httpx.AsyncClient",
+    repository: dict | str,
+    homepage: str,
+    allowlist: list[str],
+) -> str | None:
+    """Fetch README from GitHub repository."""
+    # Extract repo URL
+    if isinstance(repository, dict):
+        repo_url = repository.get("url", "")
+    else:
+        repo_url = repository or ""
+
+    # Try homepage if no repo URL
+    urls_to_try = [repo_url, homepage] if homepage else [repo_url]
 
     for url in urls_to_try:
-        if not _is_url_allowed(url, allowlist):
+        if not url or "github.com" not in url.lower():
             continue
 
-        try:
-            req = urllib.request.Request(url, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; TheAuditor/1.0)'
-            })
-            with urllib.request.urlopen(req, timeout=10) as response:
-                html_content = response.read().decode("utf-8")
-
-            # Look for the project description div
-            # PyPI uses a specific class for the README content
-            readme_match = re.search(
-                r'<div[^>]*class="[^"]*project-description[^"]*"[^>]*>(.*?)</div>',
-                html_content,
-                re.DOTALL | re.IGNORECASE
-            )
-
-            if not readme_match:
-                # Try alternative patterns
-                readme_match = re.search(
-                    r'<div[^>]*class="[^"]*description[^"]*"[^>]*>(.*?)</div>',
-                    html_content,
-                    re.DOTALL | re.IGNORECASE
-                )
-
-            if readme_match:
-                readme_html = readme_match.group(1)
-
-                # Convert HTML to markdown (simplified)
-                # Headers
-                readme_html = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', readme_html, flags=re.IGNORECASE)
-                readme_html = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', readme_html, flags=re.IGNORECASE)
-                readme_html = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', readme_html, flags=re.IGNORECASE)
-
-                # Code blocks
-                readme_html = re.sub(r'<pre[^>]*><code[^>]*>(.*?)</code></pre>', r'```\n\1\n```', readme_html, flags=re.DOTALL | re.IGNORECASE)
-                readme_html = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', readme_html, flags=re.IGNORECASE)
-
-                # Lists
-                readme_html = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1\n', readme_html, flags=re.IGNORECASE)
-
-                # Links
-                readme_html = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', readme_html, flags=re.IGNORECASE)
-
-                # Paragraphs and line breaks
-                readme_html = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', readme_html, flags=re.DOTALL | re.IGNORECASE)
-                readme_html = re.sub(r'<br[^>]*>', '\n', readme_html, flags=re.IGNORECASE)
-
-                # Remove remaining HTML tags
-                readme_html = re.sub(r'<[^>]+>', '', readme_html)
-
-                # Decode HTML entities
-                readme_html = readme_html.replace('&lt;', '<')
-                readme_html = readme_html.replace('&gt;', '>')
-                readme_html = readme_html.replace('&amp;', '&')
-                readme_html = readme_html.replace('&quot;', '"')
-                readme_html = readme_html.replace('&#39;', "'")
-
-                # Clean up whitespace
-                readme_html = re.sub(r'\n{3,}', '\n\n', readme_html)
-                readme_html = readme_html.strip()
-
-                if len(readme_html) > 100:  # Only return if we got substantial content
-                    return readme_html
-        except Exception:
+        # Extract owner/repo
+        match = re.search(r'github\.com[:/]([^/]+)/([^/\s]+)', url)
+        if not match:
             continue
+
+        owner, repo = match.groups()
+        repo = repo.replace(".git", "").rstrip("/")
+        safe_owner = sanitize_url_component(owner)
+        safe_repo = sanitize_url_component(repo)
+
+        # Try main branch first, then master (only 2 attempts, not 8)
+        for branch in ["main", "master"]:
+            raw_url = f"https://raw.githubusercontent.com/{safe_owner}/{safe_repo}/{branch}/README.md"
+
+            if not _is_url_allowed(raw_url, allowlist):
+                continue
+
+            try:
+                # Use HEAD probe first
+                head_resp = await client.head(raw_url, timeout=TIMEOUT_PROBE)
+                if head_resp.status_code != 200:
+                    continue
+
+                # Fetch content
+                resp = await client.get(raw_url, timeout=TIMEOUT_CRAWL)
+                if resp.status_code == 200:
+                    return resp.text
+            except Exception:
+                continue
 
     return None
 
 
-def _enhance_pypi_description(info: dict[str, Any], description: str, summary: str) -> str:
-    """Enhance minimal PyPI description with package metadata."""
-    enhanced = description if description else ""
+async def _try_github_from_project_urls(
+    client: "httpx.AsyncClient",
+    project_urls: dict,
+    info: dict,
+    allowlist: list[str],
+) -> str | None:
+    """Try to find and fetch GitHub README from project URLs."""
+    all_urls = list(project_urls.values())
+    all_urls.append(info.get("home_page", ""))
+    all_urls.append(info.get("download_url", ""))
 
-    # Start with summary if description is empty
-    if not enhanced and summary:
-        enhanced = f"{summary}\n\n"
+    for url in all_urls:
+        if url and "github.com" in url.lower():
+            readme = await _fetch_github_readme_async(client, url, "", allowlist)
+            if readme and len(readme) > 500:
+                return readme
 
-    # Add author info
-    author = info.get("author", "")
-    author_email = info.get("author_email", "")
-    if author and "author" not in enhanced.lower():
-        author_info = f"\n\n## Author\n\n{author}"
-        if author_email:
-            author_info += f" ({author_email})"
-        enhanced += author_info
+    return None
 
-    # Add license
-    license_info = info.get("license", "")
-    if license_info and "license" not in enhanced.lower():
-        enhanced += f"\n\n## License\n\n{license_info}"
 
-    # Add classifiers (limited)
-    classifiers = info.get("classifiers", [])
-    relevant_classifiers = [
-        c for c in classifiers
-        if "Programming Language" in c or "Framework" in c or "Topic" in c
-    ][:5]  # Limit to 5
-    if relevant_classifiers:
-        enhanced += "\n\n## Classifiers\n\n"
-        for classifier in relevant_classifiers:
-            enhanced += f"- {classifier}\n"
+# =============================================================================
+# SMART DOC CRAWLER (Reduced patterns)
+# =============================================================================
 
-    # Add requires_python if specified
-    requires_python = info.get("requires_python", "")
-    if requires_python:
-        enhanced += f"\n\n## Python Version\n\nRequires Python {requires_python}"
+
+async def _crawl_docs_smart(
+    client: "httpx.AsyncClient",
+    project_urls: dict,
+    package_name: str,
+    version: str,
+    allowlist: list[str],
+) -> dict[str, str]:
+    """
+    Smart documentation crawler with REDUCED URL patterns.
+
+    Old approach: 5 pages x 4 variants x 12 patterns = 240 attempts
+    New approach: Probe root first, then try 3-5 likely pages = 5-10 attempts
+    """
+    results = {}
+
+    # Find doc site URL from project_urls
+    doc_url = None
+    for key, url in project_urls.items():
+        if url and ("readthedocs" in url.lower() or "docs" in key.lower()):
+            doc_url = url.rstrip("/")
+            break
+
+    if not doc_url:
+        return results
+
+    # Extend allowlist for this package's docs
+    extended_allowlist = allowlist + [
+        doc_url,
+        f"https://{package_name}.readthedocs.io/",
+        f"https://{package_name}.readthedocs.org/",
+    ]
+
+    # PROBE: Check if root exists before wasting time
+    if not await _probe_url(client, doc_url, extended_allowlist):
+        return results
+
+    # SMART PATTERNS: Only try the most common ones (5 patterns, not 240)
+    version_parts = version.split(".")
+    major_minor = ".".join(version_parts[:2]) if len(version_parts) >= 2 else version
+
+    root_patterns = [
+        f"{doc_url}/en/stable/",
+        f"{doc_url}/en/latest/",
+        f"{doc_url}/en/{major_minor}/",
+        doc_url + "/",
+    ]
+
+    # Find working root
+    working_root = None
+    for pattern in root_patterns:
+        if await _probe_url(client, pattern, extended_allowlist):
+            working_root = pattern
+            break
+
+    if not working_root:
+        working_root = doc_url + "/"
+
+    # FETCH: Only the most valuable pages (3 pages, not 5x4=20)
+    priority_pages = ["quickstart", "api", "tutorial"]
+
+    limiter = get_rate_limiter("docs")
+
+    for page in priority_pages:
+        await limiter.acquire()
+
+        page_url = f"{working_root}{page}/"
+        content = await _fetch_and_convert_async(client, page_url, extended_allowlist)
+
+        if content and len(content) > 200:
+            results[page] = content
+
+        # Also try .html variant
+        if page not in results:
+            page_url_html = f"{working_root}{page}.html"
+            content = await _fetch_and_convert_async(
+                client, page_url_html, extended_allowlist
+            )
+            if content and len(content) > 200:
+                results[page] = content
+
+    return results
+
+
+async def _probe_url(
+    client: "httpx.AsyncClient",
+    url: str,
+    allowlist: list[str],
+) -> bool:
+    """Fast HEAD probe to check if URL exists."""
+    if not _is_url_allowed(url, allowlist):
+        return False
+
+    try:
+        resp = await client.head(url, timeout=TIMEOUT_PROBE)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+async def _fetch_and_convert_async(
+    client: "httpx.AsyncClient",
+    url: str,
+    allowlist: list[str],
+) -> str | None:
+    """Fetch HTML and convert to markdown."""
+    if not _is_url_allowed(url, allowlist):
+        return None
+
+    try:
+        resp = await client.get(url, timeout=TIMEOUT_CRAWL)
+        if resp.status_code != 200:
+            return None
+
+        html_content = resp.text
+
+        if BEAUTIFULSOUP_AVAILABLE:
+            return _convert_html_bs4(html_content)
+        else:
+            return _convert_html_regex(html_content)
+
+    except Exception:
+        return None
+
+
+def _convert_html_bs4(html_content: str) -> str | None:
+    """Convert HTML to markdown using BeautifulSoup."""
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # Remove unwanted elements
+    for element in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
+        element.decompose()
+
+    # Find main content
+    main_content = None
+    for selector in ["article", "main", ".document", ".rst-content", ".content", "#content"]:
+        main_content = soup.select_one(selector)
+        if main_content:
+            break
+
+    if not main_content:
+        main_content = soup.find("body")
+
+    if not main_content:
+        return None
+
+    # Convert to markdown
+    markdown = md(
+        str(main_content),
+        heading_style="ATX",
+        bullets="-",
+        strip=["a"],
+    )
+
+    # Clean up
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+    return markdown.strip() if len(markdown) > 100 else None
+
+
+def _convert_html_regex(html_content: str) -> str:
+    """Fallback regex-based HTML to markdown conversion."""
+    # Remove script and style
+    html_content = re.sub(r"<script[^>]*>.*?</script>", "", html_content, flags=re.DOTALL)
+    html_content = re.sub(r"<style[^>]*>.*?</style>", "", html_content, flags=re.DOTALL)
+
+    # Convert tags
+    html_content = re.sub(r"<h1[^>]*>(.*?)</h1>", r"# \1\n", html_content, flags=re.I)
+    html_content = re.sub(r"<h2[^>]*>(.*?)</h2>", r"## \1\n", html_content, flags=re.I)
+    html_content = re.sub(r"<h3[^>]*>(.*?)</h3>", r"### \1\n", html_content, flags=re.I)
+    html_content = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", html_content, flags=re.I)
+    html_content = re.sub(
+        r"<pre[^>]*>(.*?)</pre>", r"```\n\1\n```", html_content, flags=re.DOTALL | re.I
+    )
+    html_content = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", html_content, flags=re.I)
+    html_content = re.sub(r"<[^>]+>", "", html_content)
+
+    # Clean up
+    html_content = re.sub(r"\n{3,}", "\n\n", html_content)
+    return html_content.strip()
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def _enhance_npm_readme(data: dict[str, Any], readme: str) -> str:
+    """Enhance minimal npm README with package metadata."""
+    enhanced = readme or ""
+
+    description = data.get("description", "")
+    if description and description not in enhanced:
+        enhanced = f"{description}\n\n{enhanced}"
+
+    keywords = data.get("keywords", [])
+    if keywords and "keywords" not in enhanced.lower():
+        enhanced += f"\n\n## Keywords\n\n{', '.join(keywords)}"
+
+    main = data.get("main", "")
+    if main:
+        enhanced += f"\n\n## Entry Point\n\nMain file: `{main}`"
 
     return enhanced
+
+
+# =============================================================================
+# LEGACY SYNC WRAPPER (for check_latest compatibility)
+# =============================================================================
 
 
 def check_latest(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
-    output_path: str = "./.pf/deps_latest.json"
+    output_path: str = "./.pf/deps_latest.json",
 ) -> dict[str, Any]:
     """
     Check latest versions and compare to locked versions.
-    
+
     This is a wrapper around deps.check_latest_versions for consistency.
     """
     from .deps import check_latest_versions, write_deps_latest_json
 
     if offline or not allow_net:
-        return {
-            "mode": "offline",
-            "checked": 0,
-            "outdated": 0
-        }
+        return {"mode": "offline", "checked": 0, "outdated": 0}
 
-    latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline, root_path=".")
+    latest_info = check_latest_versions(
+        deps, allow_net=allow_net, offline=offline, root_path="."
+    )
 
     if latest_info:
-        # Sanitize output path before writing
         try:
             safe_output_path = str(sanitize_path(output_path, "."))
             write_deps_latest_json(latest_info, safe_output_path)
@@ -1079,14 +763,14 @@ def check_latest(
                 "mode": "error",
                 "error": f"Invalid output path: {e}",
                 "checked": 0,
-                "outdated": 0
+                "outdated": 0,
             }
 
-    outdated = sum(1 for info in latest_info.values() if info["is_outdated"])
+    outdated = sum(1 for info in latest_info.values() if info.get("is_outdated"))
 
     return {
         "mode": "online",
         "checked": len(latest_info),
         "outdated": outdated,
-        "output": output_path
+        "output": output_path,
     }
