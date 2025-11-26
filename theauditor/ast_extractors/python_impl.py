@@ -75,7 +75,6 @@ def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
     Returns:
         Dictionary containing all extracted data, organized by table name
     """
-    import sys
     # print(f"[PYTHON_IMPL ENTRY] extract_all_python_data() called", file=sys.stderr)
     # print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
     # print(f"[PYTHON_IMPL ENTRY] Context.tree: {type(context.tree) if hasattr(context, 'tree') else 'NO TREE'}", file=sys.stderr)

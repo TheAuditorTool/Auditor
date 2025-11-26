@@ -23,6 +23,8 @@ TABLE HISTORY:
 - Current: 28 tables (8 original + 20 consolidated)
 """
 
+from typing import Dict
+
 from .utils import Column, TableSchema
 
 

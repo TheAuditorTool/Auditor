@@ -21,7 +21,6 @@ False positive fixes (2025-11-22):
 
 import sqlite3
 import re
-from typing import List, Optional
 
 from theauditor.rules.base import (
     StandardRuleContext,
