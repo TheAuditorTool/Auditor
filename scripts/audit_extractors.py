@@ -404,6 +404,9 @@ Mode = Literal['r', 'w', 'a']
 from os.path import join as path_join
 # from . import relative_module  # Would fail in standalone file
 # from ..parent import something  # Would fail in standalone file
+
+# Export patterns (Phase 6 verification - triggers extract_python_exports)
+__all__ = ['process_data', 'User', 'vulnerable_func']
 '''
 
 
@@ -465,6 +468,17 @@ def audit():
                             print(f"\n{name}:")
                             print(f"  COUNT: {len(results)}")
                             print(f"  KEYS: {keys}")
+
+                            # VALUE SAMPLING for Fidelity Check (Truth Serum Upgrade)
+                            sample_keys = [k for k in keys if k.endswith('_type') or k in ('operation', 'operator', 'name', 'kind')]
+                            if sample_keys:
+                                print("  VALUE SAMPLES (discriminators):")
+                                for k in sample_keys:
+                                    # Get unique values for this key across all results, limit to 8
+                                    values = sorted(list(set(str(r.get(k, '')) for r in results if r.get(k))))[:8]
+                                    if values:
+                                        print(f"    {k}: {values}")
+
                             all_results[f"{module_name}.{name}"] = {
                                 "count": len(results),
                                 "keys": keys
