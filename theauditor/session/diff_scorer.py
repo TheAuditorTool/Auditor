@@ -10,15 +10,11 @@ Aggregate scores into a single risk metric (0.0-1.0).
 """
 
 
-import json
 import logging
-import sqlite3
-import subprocess
 import tempfile
 from dataclasses import dataclass, asdict
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
 from theauditor.session.parser import ToolCall
 

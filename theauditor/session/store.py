@@ -12,12 +12,8 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass, asdict
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-
-from theauditor.session.diff_scorer import DiffScore
-from theauditor.session.workflow_checker import WorkflowCompliance
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

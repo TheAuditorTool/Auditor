@@ -9,7 +9,6 @@ Truth Courier Design: Reports facts about tenant isolation patterns, not recomme
 
 import re
 import sqlite3
-from typing import List
 from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
@@ -551,9 +550,6 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[Stan
     FIXED: Removed checked_count break and moved filters to SQL.
     """
     findings = []
-
-    # Build tenant pattern for SQL filtering
-    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
 
     # Push JOIN detection to SQL - NO MORE checked_count breaks
     # Note: Complex ON clause extraction still in Python (parsing SQL in regex is brittle)

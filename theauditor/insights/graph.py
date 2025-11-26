@@ -21,7 +21,7 @@ class GraphInsights:
     graph topology. All methods here involve interpretation and scoring,
     not just raw data extraction.
     """
-    
+
     # Weights for hotspot scoring (configurable)
     DEFAULT_WEIGHTS = {
         "in_degree": 0.3,
@@ -30,7 +30,7 @@ class GraphInsights:
         "churn": 0.1,
         "loc": 0.1,
     }
-    
+
     def __init__(self, weights: dict[str, float] | None = None):
         """
         Initialize insights analyzer with optional weight configuration.
@@ -39,7 +39,7 @@ class GraphInsights:
             weights: Custom weights for hotspot scoring
         """
         self.weights = weights or self.DEFAULT_WEIGHTS
-    
+
     def rank_hotspots(
         self, 
         import_graph: dict[str, Any], 
@@ -61,32 +61,32 @@ class GraphInsights:
         # Calculate in/out degrees for import graph
         in_degree = defaultdict(int)
         out_degree = defaultdict(int)
-        
+
         for edge in import_graph.get("edges", []):
             out_degree[edge["source"]] += 1
             in_degree[edge["target"]] += 1
-        
+
         # Add call graph degrees if available
         if call_graph:
             for edge in call_graph.get("edges", []):
                 out_degree[edge["source"]] += 1
                 in_degree[edge["target"]] += 1
-        
+
         # Calculate centrality (simplified betweenness centrality approximation)
         centrality = self._calculate_centrality(import_graph)
-        
+
         # Build node metrics with INTERPRETED SCORING
         hotspots = []
         for node in import_graph.get("nodes", []):
             node_id = node["id"]
-            
+
             # Normalize metrics
             in_deg = in_degree[node_id]
             out_deg = out_degree[node_id]
             cent = centrality.get(node_id, 0)
             churn = node.get("churn", 0) or 0
             loc = node.get("loc", 0) or 0
-            
+
             # INTERPRETATION: Calculate weighted score
             score = (
                 self.weights["in_degree"] * in_deg +
@@ -95,7 +95,7 @@ class GraphInsights:
                 self.weights["churn"] * (churn / 100) +  # Normalize churn
                 self.weights["loc"] * (loc / 1000)  # Normalize LOC
             )
-            
+
             hotspots.append({
                 "id": node_id,
                 "in_degree": in_deg,
@@ -105,12 +105,12 @@ class GraphInsights:
                 "loc": loc,
                 "score": score,  # INTERPRETED METRIC
             })
-        
+
         # Sort by interpreted score (highest first)
         hotspots.sort(key=lambda h: h["score"], reverse=True)
-        
+
         return hotspots
-    
+
     def _calculate_centrality(self, graph: dict[str, Any]) -> dict[str, float]:
         """
         Calculate centrality scores using PageRank-like algorithm.
@@ -127,17 +127,17 @@ class GraphInsights:
         # Build adjacency list
         adj = defaultdict(list)
         nodes = set()
-        
+
         for edge in graph.get("edges", []):
             adj[edge["source"]].append(edge["target"])
             nodes.add(edge["source"])
             nodes.add(edge["target"])
-        
+
         # Initialize scores
         scores = {node: 1.0 for node in nodes}
         damping = 0.85
         iterations = 10
-        
+
         # Power iteration (PageRank algorithm)
         for _ in range(iterations):
             new_scores = {}
@@ -149,15 +149,15 @@ class GraphInsights:
                         score += damping * scores[source] / out_count
                 new_scores[node] = score
             scores = new_scores
-        
+
         # Normalize scores to [0, 1]
         if scores:
             max_score = max(scores.values())
             if max_score > 0:
                 scores = {k: v / max_score for k, v in scores.items()}
-        
+
         return scores
-    
+
     def calculate_health_metrics(
         self,
         import_graph: dict[str, Any],
@@ -186,25 +186,25 @@ class GraphInsights:
         edges_count = len(import_graph.get("edges", []))
         max_edges = nodes_count * (nodes_count - 1) if nodes_count > 1 else 1
         density = edges_count / max_edges if max_edges > 0 else 0
-        
+
         # INTERPRETATION: Calculate health score
         health_score = 100
-        
+
         # SUBJECTIVE PENALTY: Penalize for cycles
         if cycles:
             cycle_penalty = min(len(cycles) * 5, 30)
             health_score -= cycle_penalty
-        
+
         # SUBJECTIVE PENALTY: Penalize for high density (too coupled)
         if density > 0.3:
             density_penalty = min((density - 0.3) * 100, 20)
             health_score -= density_penalty
-        
+
         # SUBJECTIVE PENALTY: Penalize for hotspots with very high degree
         if hotspots and hotspots[0]["in_degree"] > 50:
             hotspot_penalty = min(hotspots[0]["in_degree"] // 10, 20)
             health_score -= hotspot_penalty
-        
+
         # INTERPRETATION: Assign letter grade
         health_grade = (
             "A" if health_score >= 90
@@ -213,22 +213,22 @@ class GraphInsights:
             else "D" if health_score >= 60
             else "F"
         )
-        
+
         # INTERPRETATION: Calculate fragility score (0-100, higher is worse)
         fragility = 0
-        
+
         # Hotspots increase fragility
         if hotspots:
             top_hotspot_score = hotspots[0]["score"]
             fragility += min(top_hotspot_score * 10, 40)
-        
+
         # Cycles increase fragility
         if cycles:
             fragility += min(len(cycles) * 3, 30)
-        
+
         # High coupling increases fragility
         fragility += min(density * 100, 30)
-        
+
         return {
             "health_score": max(health_score, 0),
             "health_grade": health_grade,
@@ -239,7 +239,7 @@ class GraphInsights:
             "loosely_coupled": density < 0.2,
             "no_god_objects": not hotspots or hotspots[0]["in_degree"] < 30,
         }
-    
+
     def generate_recommendations(
         self,
         import_graph: dict[str, Any],
@@ -263,36 +263,36 @@ class GraphInsights:
             List of recommendation strings
         """
         recommendations = []
-        
+
         # Calculate density for recommendations
         nodes_count = len(import_graph.get("nodes", []))
         edges_count = len(import_graph.get("edges", []))
         max_edges = nodes_count * (nodes_count - 1) if nodes_count > 1 else 1
         density = edges_count / max_edges if max_edges > 0 else 0
-        
+
         # INTERPRETATION: Generate recommendations
         if cycles and len(cycles) > 0:
             recommendations.append(
                 f"Break {len(cycles)} dependency cycles to improve maintainability"
             )
-        
+
         if density > 0.3:
             recommendations.append(
                 f"Reduce coupling between modules (current density: {density:.2f})"
             )
-        
+
         if hotspots and len(hotspots) > 0 and hotspots[0]["in_degree"] > 30:
             recommendations.append(
                 f"Refactor hotspot '{hotspots[0]['id']}' with {hotspots[0]['in_degree']} dependencies"
             )
-        
+
         if layers and len(layers) <= 2:
             recommendations.append(
                 "Consider introducing more architectural layers for better separation"
             )
-        
+
         return recommendations
-    
+
     def summarize(
         self,
         import_graph: dict[str, Any],
@@ -317,10 +317,10 @@ class GraphInsights:
             Summary dict with metrics, health scores, and recommendations
         """
         from theauditor.graph.analyzer import XGraphAnalyzer
-        
+
         # Use base analyzer for pure algorithms
         analyzer = XGraphAnalyzer()
-        
+
         # Get pure metrics
         summary = {
             "import_graph": {
@@ -328,25 +328,25 @@ class GraphInsights:
                 "edges": len(import_graph.get("edges", [])),
             }
         }
-        
+
         # Add call graph metrics if available
         if call_graph:
             summary["call_graph"] = {
                 "nodes": len(call_graph.get("nodes", [])),
                 "edges": len(call_graph.get("edges", [])),
             }
-        
+
         # Calculate graph density
         nodes_count = len(import_graph.get("nodes", []))
         edges_count = len(import_graph.get("edges", []))
         max_edges = nodes_count * (nodes_count - 1) if nodes_count > 1 else 1
         density = edges_count / max_edges if max_edges > 0 else 0
         summary["import_graph"]["density"] = density
-        
+
         # Add cycle metrics
         if cycles is None:
             cycles = analyzer.detect_cycles(import_graph)
-        
+
         summary["cycles"] = {
             "total": len(cycles),
             "largest": cycles[0]["size"] if cycles else 0,
@@ -354,36 +354,36 @@ class GraphInsights:
                 {node for cycle in cycles for node in cycle["nodes"]}
             ),
         }
-        
+
         # Add hotspot metrics
         if hotspots is None:
             hotspots = self.rank_hotspots(import_graph, call_graph)
-        
+
         summary["hotspots"] = {
             "top_5": [h["id"] for h in hotspots[:5]],
             "max_in_degree": max((h["in_degree"] for h in hotspots), default=0),
             "max_out_degree": max((h["out_degree"] for h in hotspots), default=0),
         }
-        
+
         # Identify layers
         layers = analyzer.identify_layers(import_graph)
         summary["layers"] = {
             "count": len(layers),
             "distribution": {k: len(v) for k, v in layers.items()},
         }
-        
+
         # Add INTERPRETED health metrics
         summary["health_metrics"] = self.calculate_health_metrics(
             import_graph, cycles, hotspots, layers
         )
-        
+
         # Add INTERPRETED recommendations
         summary["recommendations"] = self.generate_recommendations(
             import_graph, cycles, hotspots, layers
         )
-        
+
         return summary
-    
+
     def interpret_graph_summary(self, graph_data: dict[str, Any]) -> dict[str, Any]:
         """
         Add interpretive labels to graph summary data.
@@ -401,7 +401,7 @@ class GraphInsights:
         stats = graph_data.get("statistics", {})
         density = stats.get("graph_density", 0)
         hotspots = graph_data.get("top_hotspots", [])
-        
+
         # Add interpretive insights
         insights = {
             "coupling_level": (
@@ -418,12 +418,12 @@ class GraphInsights:
                 if h.get("total_connections", 0) > 20
             ]),
         }
-        
+
         # Merge with original data
         graph_data["architectural_insights"] = insights
-        
+
         return graph_data
-    
+
     def calculate_impact_ratio(
         self,
         targets: list[str],
@@ -446,7 +446,7 @@ class GraphInsights:
         """
         if total_nodes == 0:
             return 0.0
-        
+
         return len(all_impacted) / total_nodes
 
 

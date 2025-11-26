@@ -12,14 +12,13 @@ import sys
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Any, Optional, TYPE_CHECKING, Tuple
+from typing import Any, TYPE_CHECKING
 from collections import defaultdict
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
 from theauditor.indexer.schema import build_query
-from .taint_path import TaintPath
 # ARCHITECTURAL FIX (2025-11-09): TaintFlowAnalyzer removed (dormant engine)
 # analysis.py renamed to analysis.py.backup per Priority 1 directive
 # Only IFDSTaintAnalyzer is active (ifds_analyzer.py)
@@ -480,10 +479,10 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             if category not in merged_sinks:
                 merged_sinks[category] = []
             merged_sinks[category].extend(patterns)
-    
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # CRITICAL: Cache is MANDATORY (ZERO FALLBACK POLICY)
     # Database is regenerated fresh every run - if cache fails, pipeline is broken
     if cache is None:
@@ -635,9 +634,6 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         ifds_analyzer.close()
         print(f"[TAINT] IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths", file=sys.stderr)
 
-        # PHASE 6: Merge for deduplication (keeps best path per sink)
-        taint_paths = all_vulnerable_paths  # Use vulnerable paths for backward compatibility
-
         # Step 5: Deduplicate vulnerable paths (keep legacy behavior)
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 
@@ -760,7 +756,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         # Debug: Check multi-file counts before returning
         multi_file_in_dicts = sum(1 for p in path_dicts if p['source']['file'] != p['sink']['file'])
         print(f"[CORE] Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)", file=sys.stderr)
-        
+
         # Create summary for pipeline integration
         summary = {
             "total_count": len(unique_paths),
@@ -810,7 +806,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             print(f"[TAINT]   resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized", file=sys.stderr)
 
         return result
-        
+
     except sqlite3.OperationalError as e:
         if "no such table" in str(e):
             return {
@@ -870,7 +866,7 @@ def save_taint_analysis(analysis_result: dict[str, Any], output_path: str = "./.
     """Save taint analysis results to JSON file with normalized structure."""
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Normalize all paths before saving
     if "taint_paths" in analysis_result:
         analysis_result["taint_paths"] = [
@@ -880,7 +876,7 @@ def save_taint_analysis(analysis_result: dict[str, Any], output_path: str = "./.
         analysis_result["paths"] = [
             normalize_taint_path(p) for p in analysis_result.get("paths", [])
         ]
-    
+
     with open(output, "w") as f:
         json.dump(analysis_result, f, indent=2, sort_keys=True)
 

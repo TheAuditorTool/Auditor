@@ -3,11 +3,11 @@
 
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Any, Set
+from typing import Any
 from dataclasses import dataclass, field
-from collections import Counter, defaultdict
+from collections import Counter
 
-from .parser import Session, ToolCall
+from .parser import Session
 
 
 @dataclass

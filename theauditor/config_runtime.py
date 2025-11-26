@@ -13,7 +13,7 @@ DEFAULTS = {
         "manifest": "./.pf/manifest.json",
         "db": "./.pf/repo_index.db",
         "workset": "./.pf/workset.json",
-        
+
         # Directories
         "pf_dir": "./.pf",
         "capsules_dir": "./.pf/capsules",
@@ -24,7 +24,7 @@ DEFAULTS = {
         "graphs_dir": "./.pf/graphs",
         "model_dir": "./.pf/ml",
         "claude_dir": "./.claude",
-        
+
         # Core artifacts
         "journal": "./.pf/journal.ndjson",
         "checkpoint": "./.pf/checkpoint.json",
@@ -46,19 +46,19 @@ DEFAULTS = {
     "limits": {
         # File size limits
         "max_file_size": 2 * 1024 * 1024,  # 2 MiB
-        
+
         # Chunking limits for extraction
         "max_chunks_per_file": 3,  # Maximum number of chunks per extracted file
         "max_chunk_size": 56320,  # Maximum size per chunk in bytes (55KB)
-        
+
         # Batch processing
         "default_batch_size": 200,
         "evidence_batch_size": 100,
-        
+
         # ML and analysis windows
         "ml_window": 50,
         "git_churn_window_days": 30,
-        
+
         # Graph analysis
         "max_graph_depth": 3,
         "high_risk_threshold": 0.5,
@@ -68,19 +68,19 @@ DEFAULTS = {
     "timeouts": {
         # Tool detection (quick checks)
         "tool_detection": 5,
-        
+
         # Network operations
         "url_fetch": 10,
         "venv_check": 30,
-        
+
         # Build/test operations
         "test_run": 60,
         "venv_install": 120,
-        
+
         # Analysis operations
         "lint_timeout": 300,
         "orchestrator_timeout": 300,
-        
+
         # FCE and long operations
         "fce_timeout": 600,
     },
@@ -111,14 +111,14 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
     # Start with deep copy of defaults
     import copy
     cfg = copy.deepcopy(DEFAULTS)
-    
+
     # Try to load user config from .pf/config.json
     path = Path(root) / ".pf" / "config.json"
     try:
         if path.exists():
             with open(path, encoding="utf-8") as f:
                 user = json.load(f)
-                
+
             # Merge each section if present
             if isinstance(user, dict):
                 for section in ["paths", "limits", "timeouts", "report"]:
@@ -132,7 +132,7 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
         print(f"[WARNING] Could not load config file from {path}: {e}")
         print("[INFO] Continuing with default configuration")
         # Continue with defaults - config file is optional
-    
+
     # Environment variable overrides (flattened namespace)
     # Format: THEAUDITOR_SECTION_KEY (e.g., THEAUDITOR_PATHS_MANIFEST)
     for section in cfg:
@@ -156,5 +156,5 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                     print(f"[WARNING] Invalid value for environment variable {env_var}: '{value}' - {e}")
                     print(f"[INFO] Using default value: {cfg[section][key]}")
                     # Continue with default value - env vars are optional overrides
-    
+
     return cfg

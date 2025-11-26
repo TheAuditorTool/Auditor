@@ -11,7 +11,6 @@ Language extractors should use AST-based extraction, not regex.
 
 import os
 import re
-from typing import Set, List, Tuple
 
 # =============================================================================
 # PERFORMANCE CONFIGURATION

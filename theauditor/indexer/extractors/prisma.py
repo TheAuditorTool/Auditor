@@ -9,7 +9,7 @@ Populates prisma_models table for use by rules/orm/prisma_analyze.py.
 
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from . import BaseExtractor
 

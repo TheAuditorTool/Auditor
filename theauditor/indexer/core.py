@@ -6,21 +6,15 @@ detection.
 
 
 import os
-import json
 import sqlite3
 import fnmatch
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Optional, Set
+from typing import Any
 
 from theauditor.utils import compute_file_hash, count_lines_in_file
-from theauditor.config_runtime import load_runtime_config
 from .config import (
-    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES,
-    COMPOSE_PATTERNS, DOCKERFILE_PATTERNS, NGINX_PATTERNS
+    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES
 )
-
-# Import ASTCache from the new unified cache module
-from ..cache.ast_cache import ASTCache
 
 
 def is_text_file(file_path: Path) -> bool:
@@ -83,7 +77,7 @@ def load_gitignore_patterns(root_path: Path) -> set[str]:
     """
     gitignore_path = root_path / ".gitignore"
     patterns = set()
-    
+
     if gitignore_path.exists():
         try:
             with open(gitignore_path, encoding='utf-8') as f:
@@ -98,13 +92,13 @@ def load_gitignore_patterns(root_path: Path) -> set[str]:
                             patterns.add(pattern)
         except Exception:
             pass  # Ignore errors reading .gitignore
-    
+
     return patterns
 
 
 class FileWalker:
     """Handles directory walking with monorepo detection and filtering."""
-    
+
     def __init__(self, root_path: Path, config: dict[str, Any], 
                  follow_symlinks: bool = False, exclude_patterns: list[str] | None = None):
         """Initialize the file walker.
@@ -119,11 +113,11 @@ class FileWalker:
         self.config = config
         self.follow_symlinks = follow_symlinks
         self.exclude_patterns = exclude_patterns or []
-        
+
         # Load gitignore patterns and combine with default skip dirs
         gitignore_patterns = load_gitignore_patterns(root_path)
         self.skip_dirs = SKIP_DIRS | gitignore_patterns
-        
+
         # Stats tracking
         self.stats = {
             "total_files": 0,
@@ -132,7 +126,7 @@ class FileWalker:
             "large_files": 0,
             "skipped_dirs": 0,
         }
-    
+
     def detect_monorepo(self) -> tuple[bool, list[Path], list[Path]]:
         """Detect if project is a monorepo and return source directories.
         
@@ -141,7 +135,7 @@ class FileWalker:
         """
         monorepo_dirs = []
         monorepo_detected = False
-        
+
         # Check which monorepo directories exist
         for base_dir, src_dir in STANDARD_MONOREPO_PATHS:
             base_path = self.root_path / base_dir
@@ -160,7 +154,7 @@ class FileWalker:
                             if src_path.exists() and src_path.is_dir():
                                 monorepo_dirs.append(src_path)
                                 monorepo_detected = True
-        
+
         # Check for root-level entry files in monorepo
         root_entry_files = []
         if monorepo_detected:
@@ -168,9 +162,9 @@ class FileWalker:
                 entry_path = self.root_path / entry_file
                 if entry_path.exists() and entry_path.is_file():
                     root_entry_files.append(entry_path)
-        
+
         return monorepo_detected, monorepo_dirs, root_entry_files
-    
+
     def process_file(self, file: Path, exclude_file_patterns: list[str]) -> dict[str, Any] | None:
         """Process a single file and return its info.
         
@@ -189,7 +183,7 @@ class FileWalker:
                 # Check both the filename and the full relative path
                 if fnmatch.fnmatch(filename, pattern) or fnmatch.fnmatch(relative_path, pattern):
                     return None
-        
+
         # Skip symlinks if not following
         try:
             if not self.follow_symlinks and file.is_symlink():
@@ -197,26 +191,26 @@ class FileWalker:
         except (OSError, PermissionError):
             # On Windows, is_symlink() can fail on certain paths
             return None
-        
+
         try:
             file_size = file.stat().st_size
-            
+
             # Skip large files
             if file_size >= self.config["limits"]["max_file_size"]:
                 self.stats["large_files"] += 1
                 return None
-            
+
             # Check if text file
             if not is_text_file(file):
                 self.stats["binary_files"] += 1
                 return None
-            
+
             self.stats["text_files"] += 1
-            
+
             # Compute metadata
             relative_path = file.relative_to(self.root_path)
             posix_path = relative_path.as_posix()
-            
+
             file_info = {
                 "path": posix_path,
                 "sha256": compute_file_hash(file),
@@ -225,13 +219,13 @@ class FileWalker:
                 "loc": count_lines_in_file(file),
                 "first_lines": get_first_lines(file),
             }
-            
+
             return file_info
-            
+
         except (FileNotFoundError, PermissionError, UnicodeDecodeError, sqlite3.Error, OSError):
             # Skip files we can't read
             return None
-    
+
     def walk(self) -> tuple[list[dict], dict[str, Any]]:
         """Walk directory and collect file information.
         
@@ -239,7 +233,7 @@ class FileWalker:
             Tuple of (files_list, statistics)
         """
         files = []
-        
+
         # Separate file and directory patterns from exclude_patterns
         exclude_file_patterns = []
         if self.exclude_patterns:
@@ -256,7 +250,7 @@ class FileWalker:
                 else:
                     # File pattern (e.g., "*.md", "pyproject.toml")
                     exclude_file_patterns.append(pattern)
-        
+
         # Detect if this is a monorepo (for metadata only, NOT as whitelist)
         monorepo_detected, monorepo_dirs, root_entry_files = self.detect_monorepo()
 
@@ -297,8 +291,8 @@ class FileWalker:
                 file_info = self.process_file(file, exclude_file_patterns)
                 if file_info:
                         files.append(file_info)
-        
+
         # Sort by path for deterministic output
         files.sort(key=lambda x: x["path"])
-        
+
         return files, self.stats

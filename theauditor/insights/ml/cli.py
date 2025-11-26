@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import features, intelligence, loaders, models
+from . import features, loaders, models
 
 
 def learn(

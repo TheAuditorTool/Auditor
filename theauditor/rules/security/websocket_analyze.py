@@ -6,7 +6,7 @@ instead of traversing AST structures.
 
 
 import sqlite3
-from typing import List, Set
+
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
 
@@ -88,34 +88,34 @@ def find_websocket_issues(context: StandardRuleContext) -> list[StandardFinding]
         List of StandardFinding objects
     """
     findings = []
-    
+
     if not context.db_path:
         return findings
-    
+
     try:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
-        
+
         # Pattern 1: WebSocket without authentication handshake
         findings.extend(_find_websocket_no_auth(cursor))
-        
+
         # Pattern 2: WebSocket message handling without validation
         findings.extend(_find_websocket_no_validation(cursor))
-        
+
         # Pattern 3: WebSocket without rate limiting
         findings.extend(_find_websocket_no_rate_limit(cursor))
-        
+
         # Pattern 4: Broadcasting sensitive data
         findings.extend(_find_websocket_broadcast_sensitive(cursor))
-        
+
         # Pattern 5: Plain WebSocket without TLS
         findings.extend(_find_websocket_no_tls(cursor))
-        
+
         conn.close()
-        
+
     except Exception:
         pass  # Return empty findings on error
-    
+
     return findings
 
 
@@ -187,7 +187,7 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
                 snippet=f'{func}("connection", ...)',
                 cwe_id='CWE-862'
             ))
-    
+
     # Check for Python async WebSocket handlers
     cursor.execute("""
         SELECT path AS file, line, name
@@ -235,7 +235,7 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
                 snippet=f'def {name}(...)',
                 cwe_id='CWE-862'
             ))
-    
+
     return findings
 
 
@@ -287,7 +287,7 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
                 snippet=f'{func}("message", ...)',
                 cwe_id='CWE-20'
             ))
-    
+
     # Check Python message handlers
     cursor.execute("""
         SELECT path AS file, line, name
@@ -335,7 +335,7 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
                 snippet=f'def {name}(...)',
                 cwe_id='CWE-20'
             ))
-    
+
     return findings
 
 
@@ -425,7 +425,7 @@ def _find_websocket_no_rate_limit(cursor) -> list[StandardFinding]:
                 snippet='on("message", handler)',
                 cwe_id='CWE-770'
             ))
-    
+
     return findings
 
 
@@ -508,7 +508,7 @@ def _find_websocket_broadcast_sensitive(cursor) -> list[StandardFinding]:
                     snippet=f'{func}(variable)',
                     cwe_id='CWE-200'
                 ))
-    
+
     return findings
 
 

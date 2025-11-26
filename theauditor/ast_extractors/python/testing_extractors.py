@@ -19,7 +19,7 @@ File path context is provided by the INDEXER layer when storing to database.
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..base import get_node_name
 from .utils.context import FileContext

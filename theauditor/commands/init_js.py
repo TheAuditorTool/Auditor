@@ -188,12 +188,12 @@ def init_js(path, add_hooks):
             click.echo("  Check devDependencies for PIN_ME placeholders")
         else:
             click.echo(f"No changes needed - {path} already configured")
-        
+
         # Add hooks if requested
         if add_hooks:
             click.echo("\nAdding TheAuditor hooks to npm scripts...")
             hook_res = add_auditor_hooks(path)
-            
+
             if hook_res["status"] == "hooks_added":
                 click.echo("[OK] Added TheAuditor hooks to package.json:")
                 for change in hook_res["details"]:
@@ -202,7 +202,7 @@ def init_js(path, add_hooks):
                 click.echo("No changes needed - all hooks already present")
             elif hook_res["status"] == "error":
                 click.echo(f"Error adding hooks: {hook_res['message']}", err=True)
-                
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e

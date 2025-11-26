@@ -17,7 +17,6 @@ These tables are populated by multiple extractors:
 - JWT_PATTERNS: Python extractor, Node extractor
 """
 
-from typing import Dict
 from .utils import Column, TableSchema, ForeignKey
 
 

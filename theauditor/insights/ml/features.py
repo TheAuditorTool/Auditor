@@ -14,7 +14,6 @@ Extracts 50+ semantic features from repo_index.db tables:
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 
 def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:

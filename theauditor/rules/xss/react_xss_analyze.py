@@ -6,7 +6,6 @@ Uses database-only approach with React component awareness.
 
 
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
@@ -77,7 +76,6 @@ def find_react_xss(context: StandardRuleContext) -> list[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
 
     try:
         # Only run if React is detected

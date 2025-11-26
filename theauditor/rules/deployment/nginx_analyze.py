@@ -21,11 +21,10 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 import json
 import sqlite3
 import re
-from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
 # ============================================================================
@@ -185,7 +184,6 @@ class NginxAnalyzer:
         block_type = row[1]
         block_context = row[2]
         directives_json = row[3]
-        level = row[4]
 
         # Parse directives
         try:

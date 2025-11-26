@@ -12,8 +12,6 @@ Follows v1.1+ gold standard patterns:
 
 
 import sqlite3
-from typing import List, Set
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
@@ -193,7 +191,6 @@ def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find direct props mutations (anti-pattern in Vue)."""
     findings = []
 
-    props_patterns = list(IMMUTABLE_PROPS)
     placeholders = ','.join('?' * len(vue_files))
 
     # Find assignments to props

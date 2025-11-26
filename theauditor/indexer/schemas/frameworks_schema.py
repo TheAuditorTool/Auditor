@@ -18,7 +18,6 @@ These tables are populated by multiple extractors:
 - PRISMA_MODELS: Node extractor (Prisma)
 """
 
-from typing import Dict
 from .utils import Column, TableSchema, ForeignKey
 
 

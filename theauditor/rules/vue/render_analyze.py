@@ -12,8 +12,6 @@ Follows v1.1+ gold standard patterns:
 
 
 import sqlite3
-from typing import List, Set
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
@@ -433,7 +431,6 @@ def _find_direct_dom_manipulation(cursor, vue_files: set[str]) -> list[StandardF
     findings = []
 
     dom_ops = list(EXPENSIVE_DOM_OPS)
-    ops_placeholders = ','.join('?' * len(dom_ops))
     file_placeholders = ','.join('?' * len(vue_files))
 
     cursor.execute(f"""

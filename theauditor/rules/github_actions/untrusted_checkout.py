@@ -16,7 +16,6 @@ CWE-284: Improper Access Control
 import json
 import logging
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import (
     RuleMetadata,

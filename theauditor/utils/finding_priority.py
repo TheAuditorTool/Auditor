@@ -30,30 +30,30 @@ TOOL_IMPORTANCE = {
     "sql-injection": 0,
     "xss-detector": 0,
     "docker-analyzer": 0,  # Docker security findings
-    
+
     # Pattern detection
     "pattern-detector": 1,
     "orm": 1,
     "database-rules": 1,
-    
+
     # Testing and validation
     "fce": 2,
     "test": 2,
     "pytest": 2,
     "jest": 2,
-    
+
     # Analysis tools
     "ml": 3,
     "graph": 3,
     "dependency": 3,
     "deps": 3,
-    
+
     # Code quality
     "ruff": 4,
     "mypy": 4,
     "bandit": 4,
     "pylint": 4,
-    
+
     # Style tools - lowest importance
     "eslint": 5,
     "prettier": 6,
@@ -70,7 +70,7 @@ SEVERITY_MAPPINGS = {
     2: "medium",
     1: "low",
     0: "info",      # Sometimes used for informational
-    
+
     # String alternatives from various tools
     "error": "high",        # ESLint, many linters
     "warning": "medium",    # Standard warning
@@ -83,13 +83,13 @@ SEVERITY_MAPPINGS = {
     "major": "high",        
     "minor": "low",
     "trivial": "low",
-    
+
     # Pass-through for already normalized
     "critical": "critical",
     "high": "high",
     "medium": "medium",
     "low": "low",
-    
+
     # Style-specific (for prettier/eslint)
     "style": "style",
     "formatting": "style"
@@ -109,7 +109,7 @@ def normalize_severity(severity_value):
     """
     if severity_value is None:
         return "warning"  # Default for missing severity
-    
+
     # Handle numeric types
     if isinstance(severity_value, (int, float)):
         # ML confidence scores (0.0-1.0)
@@ -124,14 +124,14 @@ def normalize_severity(severity_value):
                 return "low"
         # Integer severity (Docker style, CVE scores)
         return SEVERITY_MAPPINGS.get(int(severity_value), "warning")
-    
+
     # Handle string types
     severity_str = str(severity_value).lower().strip()
-    
+
     # Check if it's already a valid normalized severity
     if severity_str in PRIORITY_ORDER:
         return severity_str
-    
+
     # Try to map it
     return SEVERITY_MAPPINGS.get(severity_str, "warning")
 
@@ -148,10 +148,10 @@ def get_sort_key(finding):
     """
     # Normalize severity to handle all formats
     normalized_severity = normalize_severity(finding.get("severity"))
-    
+
     # Get tool name, handle missing
     tool_name = str(finding.get("tool", "unknown")).lower()
-    
+
     # Build sort key with defaults for missing fields
     return (
         PRIORITY_ORDER.get(normalized_severity, 7),      # Severity priority
@@ -175,5 +175,5 @@ def sort_findings(findings):
     """
     if not findings:
         return findings
-    
+
     return sorted(findings, key=get_sort_key)

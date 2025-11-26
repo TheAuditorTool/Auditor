@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Any, List, Tuple
+from typing import Any
 
 # Import helper templates for JavaScript/Node.js scripts
 from theauditor.ast_extractors import js_helper_templates
@@ -40,7 +40,7 @@ _cache_stats = {'hits': 0, 'misses': 0}
 
 class JSSemanticParser:
     """Semantic parser for JavaScript/TypeScript using the TypeScript Compiler API."""
-    
+
     def __init__(self, project_root: str = None):
         """Initialize the semantic parser.
 
@@ -64,15 +64,15 @@ class JSSemanticParser:
             print(f"[DEBUG] Created JSSemanticParser for project: {self.project_root}")
             if self.project_module_type == "module":
                 print(f"[DEBUG] Detected ES module project (package.json has 'type': 'module')")
-        
+
         # CRITICAL: Reuse cached ModuleResolver (stateless, database-driven)
         global _module_resolver_cache
         if _module_resolver_cache is None:
             from theauditor.module_resolver import ModuleResolver
             _module_resolver_cache = ModuleResolver()  # No project_root needed!
-        
+
         self.module_resolver = _module_resolver_cache
-        
+
         # CRITICAL FIX: Find the sandboxed node executable (like linters do)
         # Platform-agnostic: Check multiple possible locations
         # Look for .auditor_venv by traversing up from project_root
@@ -95,7 +95,7 @@ class JSSemanticParser:
             sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools"
 
         node_runtime = sandbox_base / "node-runtime"
-        
+
         # Check all possible node locations (Windows or Unix layout)
         possible_node_paths = [
             node_runtime / "node.exe",     # Windows binary in root
@@ -103,7 +103,7 @@ class JSSemanticParser:
             node_runtime / "bin" / "node",  # Unix binary in bin/
             node_runtime / "bin" / "node.exe",  # Windows binary in bin/ (unusual but possible)
         ]
-        
+
         self.node_exe = None
         for node_path in possible_node_paths:
             if node_path.exists():
@@ -111,7 +111,7 @@ class JSSemanticParser:
                 # Track if we're using Windows node on WSL
                 self.using_windows_node = str(node_path).endswith('.exe') and str(node_path).startswith('/')
                 break
-        
+
         # If not found, will trigger proper error messages
 
         self.tsc_available = self._check_tsc_availability()
@@ -158,7 +158,7 @@ class JSSemanticParser:
             except:
                 pass  # Fall back to original path
         return path_str
-        
+
     def _check_tsc_availability(self) -> bool:
         """Check if TypeScript compiler is available in our sandbox.
 
@@ -184,23 +184,17 @@ class JSSemanticParser:
         # Fallback to project_root if not found
         if sandbox_base is None:
             sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools" / "node_modules"
-        
+
         # Check if sandbox exists at the absolute location
         sandbox_locations = [sandbox_base]
-        
+
         for sandbox_base in sandbox_locations:
             if not sandbox_base.exists():
                 continue
-                
-            # Check for TypeScript in sandbox
-            tsc_paths = [
-                sandbox_base / ".bin" / "tsc",
-                sandbox_base / ".bin" / "tsc.cmd",  # Windows
-            ]
-            
+
             # Also check for the actual TypeScript compiler JS file
             tsc_js_path = sandbox_base / "typescript" / "lib" / "tsc.js"
-            
+
             # If we have node and the TypeScript compiler JS file, we can use it
             if self.node_exe and tsc_js_path.exists():
                 try:
@@ -221,13 +215,13 @@ class JSSemanticParser:
                              tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
                             stdout_path = stdout_fp.name
                             stderr_path = stderr_fp.name
-                    
+
                     with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
                          open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-                        
+
                         # Convert paths for Windows node if needed
                         tsc_path_str = self._convert_path_for_node(tsc_js_path)
-                        
+
                         # Run TypeScript through node.exe
                         result = subprocess.run(
                             [str(self.node_exe), tsc_path_str, "--version"],
@@ -238,12 +232,12 @@ class JSSemanticParser:
                             env={**os.environ, "NODE_PATH": str(absolute_sandbox)},
                             shell=False  # Never use shell when we have full path
                         )
-                        
+
                         with open(stdout_path, encoding='utf-8') as f:
                             result.stdout = f.read()
                         with open(stderr_path, encoding='utf-8') as f:
                             result.stderr = f.read()
-                        
+
                     os.unlink(stdout_path)
                     os.unlink(stderr_path)
                     if result.returncode == 0:
@@ -252,10 +246,10 @@ class JSSemanticParser:
                         return True
                 except (subprocess.SubprocessError, FileNotFoundError, OSError):
                     pass  # TypeScript check failed
-        
+
         # No sandbox TypeScript found - this is expected on first run
         return False
-    
+
     def _create_helper_script(self) -> Path:
         """DEPRECATED: Single-file mode removed in Phase 5.
 
@@ -266,7 +260,7 @@ class JSSemanticParser:
             "Single-file mode removed in Phase 5. Single-file templates serialize full AST (512MB crash). "
             "Use _create_batch_helper_script() instead (sets ast: null)."
         )
-    
+
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
 
@@ -291,7 +285,7 @@ class JSSemanticParser:
 
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
-    
+
     def get_semantic_ast_batch(
         self,
         file_paths: list[str],
@@ -318,7 +312,7 @@ class JSSemanticParser:
         # Validate all files exist
         results = {}
         valid_files = []
-        
+
         normalized_tsconfig_map: dict[str, str] = {}
         tsconfig_map = tsconfig_map or {}
 
@@ -348,10 +342,10 @@ class JSSemanticParser:
                 config_path = tsconfig_map.get(file_path) or tsconfig_map.get(str(file_path)) or tsconfig_map.get(normalized_path)
                 if config_path:
                     normalized_tsconfig_map[normalized_path] = str(Path(config_path).resolve()).replace('\\', '/')
-        
+
         if not valid_files:
             return results
-        
+
         if not self.tsc_available:
             for file_path in valid_files:
                 results[file_path] = {
@@ -362,7 +356,7 @@ class JSSemanticParser:
                     "symbols": []
                 }
             return results
-        
+
         try:
             # Create batch request
             batch_request = {
@@ -372,7 +366,7 @@ class JSSemanticParser:
                 "configMap": normalized_tsconfig_map
                 # PHASE 5: No cfgOnly flag - single-pass extraction includes CFG
             }
-            
+
             # Write batch request to temp file
             if TempManager:
                 request_path, req_fd = TempManager.create_temp_file(str(self.project_root), suffix='_request.json')
@@ -385,26 +379,26 @@ class JSSemanticParser:
                     request_path = tmp_req.name
                 with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False, encoding='utf-8') as tmp_out:
                     output_path = tmp_out.name
-            
+
             # Write batch request data
             with open(request_path, 'w', encoding='utf-8') as f:
                 json.dump(batch_request, f)
-            
+
             # Calculate timeout based on batch size
             # 5 seconds base + 2 seconds per file
             dynamic_timeout = min(5 + (len(valid_files) * 2), 120)
-            
+
             try:
                 # Run batch helper script
                 # Convert paths for Windows node if needed
                 helper_path = self._convert_path_for_node(self.batch_helper_script.resolve())
                 request_path_converted = self._convert_path_for_node(Path(request_path))
                 output_path_converted = self._convert_path_for_node(Path(output_path))
-                
+
                 # CRITICAL FIX: Use sandboxed node executable, not system "node"
                 if not self.node_exe:
                     raise RuntimeError("Node.js runtime not found. Run 'aud setup-ai' to install tools.")
-                
+
                 result = subprocess.run(
                     [str(self.node_exe), helper_path, request_path_converted, output_path_converted],
                     capture_output=False,
@@ -414,12 +408,12 @@ class JSSemanticParser:
                     cwd=self.project_root,
                     shell=IS_WINDOWS  # Windows compatibility fix
                 )
-                
+
                 if result.returncode != 0:
                     error_msg = f"Batch TypeScript compiler failed (exit code {result.returncode})"
                     if result.stderr:
                         error_msg += f": {result.stderr.strip()[:500]}"
-                    
+
                     for file_path in valid_files:
                         results[file_path] = {
                             "success": False,
@@ -495,7 +489,7 @@ class JSSemanticParser:
                 for temp_path in [request_path, output_path]:
                     if Path(temp_path).exists():
                         Path(temp_path).unlink()
-            
+
         except subprocess.TimeoutExpired:
             for file_path in valid_files:
                 results[file_path] = {
@@ -514,9 +508,9 @@ class JSSemanticParser:
                     "diagnostics": [],
                     "symbols": []
                 }
-        
+
         return results
-    
+
     def get_semantic_ast(
         self,
         file_path: str,
@@ -572,7 +566,7 @@ class JSSemanticParser:
                 "symbols": [],
                 "jsx_mode": jsx_mode
             }
-        
+
         # Check if it's a JavaScript, TypeScript, or Vue file
         if file.suffix.lower() not in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']:
             return {
@@ -583,7 +577,7 @@ class JSSemanticParser:
                 "symbols": [],
                 "jsx_mode": jsx_mode
             }
-        
+
         # CRITICAL: No fallbacks allowed - fail fast with clear error
         if not self.tsc_available:
             return {
@@ -594,23 +588,23 @@ class JSSemanticParser:
                 "symbols": [],
                 "jsx_mode": jsx_mode
             }
-        
+
         try:
             # CRITICAL: No automatic installation - user must install TypeScript manually
             # This enforces fail-fast philosophy
-            
+
             # Run the helper script with Node.js - use POSIX paths for Windows compatibility
             # NO LONGER NEED NODE_PATH - we use absolute paths in the helper script
-            
+
             # CRITICAL: Use absolute path for helper script since cwd changes
             # On Windows, use forward slashes for Node.js paths
             helper_absolute = str(self.helper_script.resolve()).replace('\\', '/')
-            
+
             # Calculate dynamic timeout based on file size
             # Base timeout of 10 seconds + 1 second per 10KB
             file_size_kb = file.stat().st_size / 1024
             dynamic_timeout = min(10 + (file_size_kb / 10), 60)  # Cap at 60 seconds
-            
+
             # Create temporary file for output to avoid pipe buffer limits
             if TempManager:
                 tmp_output_path, out_fd = TempManager.create_temp_file(str(self.project_root), suffix='_ast_output.json')
@@ -619,7 +613,7 @@ class JSSemanticParser:
                 # Fallback to regular tempfile
                 with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False, encoding='utf-8') as tmp_out:
                     tmp_output_path = tmp_out.name
-            
+
             # CRITICAL FIX: Use sandboxed node executable, not system "node"
             if not self.node_exe:
                 return {
@@ -630,12 +624,12 @@ class JSSemanticParser:
                     "symbols": [],
                     "jsx_mode": jsx_mode
                 }
-            
+
             # Convert paths for Windows node if needed
             helper_path_converted = self._convert_path_for_node(Path(helper_absolute))
             file_path_converted = self._convert_path_for_node(file.resolve())
             output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
-            
+
             # Pass projectRoot as the fourth argument and jsx_mode as fifth
             project_root_converted = self._convert_path_for_node(self.project_root)
             tsconfig_path_converted = ""
@@ -662,13 +656,13 @@ class JSSemanticParser:
                 cwd=file.parent,  # Run in the file's directory for proper module resolution
                 shell=IS_WINDOWS  # Windows compatibility fix
             )
-            
+
             # Handle the result - read from file instead of stdout
             try:
                 if result.returncode != 0:
                     # Consolidate error information from stderr (stdout is not captured)
                     error_json = None
-                    
+
                     # Try to parse error output as JSON from stderr
                     if result.stderr and result.stderr.strip():
                         try:
@@ -676,7 +670,7 @@ class JSSemanticParser:
                         except json.JSONDecodeError:
                             # Not JSON, will use as plain text
                             pass
-                    
+
                     if error_json and isinstance(error_json, dict):
                         error_msg = error_json.get("error", "Unknown error from TypeScript compiler")
                     else:
@@ -686,9 +680,9 @@ class JSSemanticParser:
                             error_details.append(f"stderr: {result.stderr.strip()[:500]}")
                         if not error_details:
                             error_details.append("No error output from TypeScript compiler")
-                        
+
                         error_msg = f"TypeScript compiler failed (exit code {result.returncode}). " + " | ".join(error_details)
-                    
+
                     return {
                         "success": False,
                         "error": error_msg,
@@ -708,11 +702,11 @@ class JSSemanticParser:
                             "symbols": [],
                             "jsx_mode": jsx_mode
                         }
-                    
+
                     try:
                         with open(tmp_output_path, encoding='utf-8') as f:
                             ast_data = json.load(f)
-                        
+
                         # Add jsx_mode to the response
                         ast_data["jsx_mode"] = jsx_mode
                         return ast_data
@@ -731,7 +725,7 @@ class JSSemanticParser:
                 # Clean up temporary output file
                 if Path(tmp_output_path).exists():
                     Path(tmp_output_path).unlink()
-                
+
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
@@ -759,8 +753,8 @@ class JSSemanticParser:
                 "symbols": [],
                 "jsx_mode": jsx_mode
             }
-    
-    
+
+
     def resolve_imports(self, ast_data: dict[str, Any], current_file: str) -> dict[str, str]:
         """Resolve import statements in the AST using ModuleResolver.
         
@@ -772,17 +766,17 @@ class JSSemanticParser:
             Dictionary mapping import statements to resolved file paths
         """
         resolved_imports = {}
-        
+
         if not ast_data.get("success") or not ast_data.get("ast"):
             return resolved_imports
-        
+
         # Extract import statements from AST
         def find_imports(node, depth=0):
             if depth > 100 or not isinstance(node, dict):
                 return
-            
+
             kind = node.get("kind")
-            
+
             # Check for import declarations
             if kind == "ImportDeclaration":
                 # Extract module specifier
@@ -796,7 +790,7 @@ class JSSemanticParser:
                             resolved_imports[import_path] = resolved
                         elif os.environ.get("THEAUDITOR_DEBUG"):
                             print(f"[RESOLVER_DEBUG] Failed to resolve '{import_path}' from '{current_file}'", file=sys.stderr)
-            
+
             # Check for require calls
             elif kind == "CallExpression":
                 expression = node.get("expression", {})
@@ -811,20 +805,20 @@ class JSSemanticParser:
                                 resolved_imports[import_path] = resolved
                             elif os.environ.get("THEAUDITOR_DEBUG"):
                                 print(f"[RESOLVER_DEBUG] Failed to resolve require('{import_path}') from '{current_file}'", file=sys.stderr)
-            
+
             # Recurse through children
             for child in node.get("children", []):
                 find_imports(child, depth + 1)
-        
+
         find_imports(ast_data.get("ast", {}))
-        
+
         if os.environ.get("THEAUDITOR_DEBUG") and resolved_imports:
             print(f"[RESOLVER_DEBUG] Resolved {len(resolved_imports)} imports in {current_file}", file=sys.stderr)
             for imp, resolved in list(resolved_imports.items())[:3]:  # Show first 3
                 print(f"[RESOLVER_DEBUG]   '{imp}' -> '{resolved}'", file=sys.stderr)
-        
+
         return resolved_imports
-    
+
     def extract_type_issues(self, ast_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Extract type-related issues from the semantic AST.
         
@@ -835,10 +829,10 @@ class JSSemanticParser:
             List of type issues found (any types, type suppressions, unsafe casts)
         """
         issues = []
-        
+
         if not ast_data.get("success") or not ast_data.get("ast"):
             return issues
-        
+
         # Check symbols for 'any' types
         for symbol in ast_data.get("symbols", []):
             if symbol.get("type") == "any":
@@ -849,7 +843,7 @@ class JSSemanticParser:
                     "severity": "warning",
                     "message": f"Symbol '{symbol.get('name')}' has type 'any'"
                 })
-        
+
         # Check diagnostics for type errors
         for diagnostic in ast_data.get("diagnostics", []):
             if diagnostic.get("category") == "Error":
@@ -861,12 +855,12 @@ class JSSemanticParser:
                     "message": diagnostic.get("message"),
                     "code": diagnostic.get("code")
                 })
-        
+
         # Recursively search AST for problematic patterns
         def search_ast(node, depth=0):
             if depth > 100 or not isinstance(node, dict):
                 return
-            
+
             # Check for 'any' keyword
             if node.get("kind") == "AnyKeyword":
                 issues.append({
@@ -877,7 +871,7 @@ class JSSemanticParser:
                     "message": "Explicit 'any' type annotation",
                     "text": node.get("text", "")[:100]
                 })
-            
+
             # Check for type assertions (as any, as unknown)
             if node.get("kind") == "AsExpression":
                 type_node = node.get("type", {})
@@ -890,7 +884,7 @@ class JSSemanticParser:
                         "message": f"Unsafe type assertion to '{type_node.get('kind')}'",
                         "text": node.get("text", "")[:100]
                     })
-            
+
             # Check for @ts-ignore and @ts-nocheck comments
             text = node.get("text", "")
             if "@ts-ignore" in text or "@ts-nocheck" in text:
@@ -902,13 +896,13 @@ class JSSemanticParser:
                     "message": "TypeScript error suppression comment",
                     "text": text[:100]
                 })
-            
+
             # Recursively check children
             for child in node.get("children", []):
                 search_ast(child, depth + 1)
-        
+
         search_ast(ast_data.get("ast", {}))
-        
+
         return issues
 
 

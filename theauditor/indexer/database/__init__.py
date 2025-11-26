@@ -31,7 +31,6 @@ DatabaseManager uses multiple inheritance to combine all capabilities.
 
 import sqlite3
 from collections import defaultdict
-from typing import Optional
 
 from .base_database import BaseDatabaseManager
 from .core_database import CoreDatabaseMixin

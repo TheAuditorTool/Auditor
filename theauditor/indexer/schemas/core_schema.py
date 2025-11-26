@@ -15,8 +15,6 @@ Design Philosophy:
 - Security-critical patterns (SQL, JWT, taint analysis)
 """
 
-from typing import Dict, List, Optional
-import sqlite3
 from .utils import Column, ForeignKey, TableSchema
 
 

@@ -15,7 +15,6 @@ CWE-829: Inclusion of Functionality from Untrusted Control Sphere
 import json
 import logging
 import sqlite3
-from typing import List, Set
 
 from theauditor.rules.base import (
     RuleMetadata,

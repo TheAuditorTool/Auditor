@@ -10,13 +10,13 @@ Clean architecture after stub removal:
 # Core functionality
 from .core import (
     trace_taint,
-    TaintPath,
     TaintRegistry,          # Pattern accumulator (owned by taint/core.py)
     save_taint_analysis,
     normalize_taint_path,
     has_sanitizer_between,  # Moved from propagation.py
     deduplicate_paths,      # Moved from propagation.py
 )
+from .taint_path import TaintPath
 
 # Analyzers
 # ARCHITECTURAL FIX (2025-11-09): TaintFlowAnalyzer removed (dormant engine)

@@ -1,8 +1,6 @@
 """FileContext: Shared extraction context with NodeIndex."""
 import ast
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Optional, Union, Type
-from pathlib import Path
 
 from .node_index import NodeIndex
 

@@ -44,19 +44,19 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         # No previous run to archive
         print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)
         return
-    
+
     # Determine destination base path based on run type
     if run_type == "full":
         dest_base = history_dir / "full"
     else:  # run_type == "diff"
         dest_base = history_dir / "diff"
-    
+
     # Create destination base directory if it doesn't exist
     dest_base.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate timestamp for archive directory
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Create unique directory name
     if run_type == "diff" and diff_spec:
         # Sanitize diff spec for directory name
@@ -68,17 +68,17 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         safe_spec = safe_spec.replace(" ", "_")
         safe_spec = safe_spec.replace("~", "_")
         safe_spec = safe_spec.replace("^", "_")
-        
+
         # Create descriptive name like "main_HEAD_20250819_090015"
         dir_name = f"{safe_spec}_{timestamp_str}"
     else:
         # Simple timestamp for full runs
         dir_name = timestamp_str
-    
+
     # Create the archive destination directory
     archive_dest = dest_base / dir_name
     archive_dest.mkdir(exist_ok=True)
-    
+
     # Move all top-level items from pf_dir to archive_dest
     archived_count = 0
     skipped_count = 0
@@ -103,7 +103,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             # Log error but don't stop the archiving process
             print(f"[WARNING] Could not archive {item.name}: {e}", file=sys.stderr)
             skipped_count += 1
-    
+
     # Log summary
     if archived_count > 0:
         click.echo(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
@@ -116,7 +116,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             click.echo(f"[ARCHIVE] No artifacts to archive (only caches remain)")
         else:
             click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
-    
+
     # Create a metadata file in the archive to track run type and context
     metadata = {
         "run_type": run_type,
@@ -128,7 +128,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         "caches_preserved": preserved_count,
         "wipe_cache_requested": wipe_cache,
     }
-    
+
     try:
         import json
         metadata_path = archive_dest / "_metadata.json"

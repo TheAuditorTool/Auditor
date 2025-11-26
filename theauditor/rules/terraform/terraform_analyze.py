@@ -15,7 +15,7 @@ StandardFinding so orchestrator and CLI can share a single source of truth.
 import json
 import logging
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from theauditor.rules.base import (
     RuleMetadata,

@@ -1,8 +1,7 @@
 """Initialization module for TheAuditor - handles project setup and initialization."""
 
 
-from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 from theauditor.security import sanitize_config_path, SecurityError
 
 
@@ -74,7 +73,7 @@ def initialize_project(
         stats["index"] = {"success": False, "error": str(e)}
         if progress_callback:
             progress_callback(f"  ✗ Failed: {str(e)[:60]}")
-    
+
     # 2. Workset
     if progress_callback:
         progress_callback("\n[2/4] Creating workset...")
@@ -91,7 +90,7 @@ def initialize_project(
             db_path = str(sanitize_config_path(config["paths"]["db"], "paths", "db", "."))
             manifest_path = str(sanitize_config_path(config["paths"]["manifest"], "paths", "manifest", "."))
             output_path = str(sanitize_config_path(config["paths"]["workset"], "paths", "workset", "."))
-            
+
             result = compute_workset(
                 all_files=True,
                 root_path=".",
@@ -114,14 +113,14 @@ def initialize_project(
         stats["workset"] = {"success": False, "error": str(e)}
         if progress_callback:
             progress_callback(f"  ✗ Failed: {str(e)[:60]}")
-    
+
     # 3. Dependencies
     if not skip_deps and not offline:
         if progress_callback:
             progress_callback("\n[3/4] Checking dependencies...")
         try:
             deps_list = parse_dependencies(root_path=".")
-            
+
             if deps_list:
                 latest_info = check_latest_versions(deps_list, allow_net=True, offline=False)
                 outdated = sum(1 for info in latest_info.values() if info["is_outdated"])
@@ -142,21 +141,21 @@ def initialize_project(
                 progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     else:
         stats["deps"] = {"skipped": True}
-    
+
     # 4. Documentation
     if not skip_docs and not offline:
         if progress_callback:
             progress_callback("\n[4/4] Fetching documentation...")
         try:
             deps_list = parse_dependencies(root_path=".")
-            
+
             if deps_list:
                 # Limit to first 250 deps for init command to avoid excessive runtime
                 if len(deps_list) > 250:
                     deps_list = deps_list[:250]
                     if progress_callback:
                         progress_callback("  ℹ Limiting to first 250 packages for speed...")
-                
+
                 # Fetch with progress indicator
                 fetch_result = fetch_docs(deps_list)
                 fetched = fetch_result.get('fetched', 0)
@@ -185,16 +184,16 @@ def initialize_project(
                 progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     else:
         stats["docs"] = {"skipped": True}
-    
+
     # Code capsules feature has been removed - the command was deleted
     # Multi-file documentation fetched by 'aud docs fetch' and stored in .pf/context/docs/
-    
+
     # Check if initialization was successful
     has_failures = any(
         not stats.get(step, {}).get("success", False) and not stats.get(step, {}).get("skipped", False)
         for step in ["index", "workset", "deps", "docs"]
     )
-    
+
     # Determine next steps
     next_steps = []
     if stats.get("workset", {}).get("files", 0) > 0:
@@ -203,7 +202,7 @@ def initialize_project(
             "aud ast-verify --workset",
             "aud report"
         ]
-    
+
     return {
         "stats": stats,
         "success": not has_failures,

@@ -1,7 +1,6 @@
 """Metadata collection commands for churn and coverage analysis."""
 
 import click
-from pathlib import Path
 from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -101,21 +100,21 @@ def analyze_churn(root, days, output):
         aud metadata churn --output analysis/churn.json
     """
     from theauditor.indexer.metadata_collector import MetadataCollector
-    
+
     try:
         click.echo(f"Analyzing git history for last {days} days...")
-        
+
         collector = MetadataCollector(root_path=root)
         result = collector.collect_churn(days=days, output_path=output)
-        
+
         if 'error' in result:
             click.echo(f"[WARNING] {result['error']}", err=True)
             if not result.get('files'):
                 return
-        
+
         total_files = result.get('total_files_analyzed', 0)
         click.echo(f"[OK] Analyzed {total_files} files")
-        
+
         if result.get('files'):
             # Show top 5 most active files
             click.echo("\nTop 5 most active files:")
@@ -124,9 +123,9 @@ def analyze_churn(root, days, output):
                 click.echo(f"     Commits: {file_data['commits_90d']}, "
                           f"Authors: {file_data['unique_authors']}, "
                           f"Last modified: {file_data['days_since_modified']} days ago")
-        
+
         click.echo(f"\n[SAVED] Churn analysis saved to {output}")
-        
+
     except Exception as e:
         logger.error(f"Churn analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
@@ -162,31 +161,31 @@ def analyze_coverage(root, coverage_file, output):
         aud metadata coverage --coverage-file coverage/coverage-final.json
     """
     from theauditor.indexer.metadata_collector import MetadataCollector
-    
+
     try:
         if coverage_file:
             click.echo(f"Loading coverage from: {coverage_file}")
         else:
             click.echo("Auto-detecting coverage file...")
-        
+
         collector = MetadataCollector(root_path=root)
         result = collector.collect_coverage(
             coverage_file=coverage_file,
             output_path=output
         )
-        
+
         if 'error' in result:
             click.echo(f"[ERROR] {result['error']}", err=True)
             if not result.get('files'):
                 raise click.ClickException(result['error'])
-        
+
         format_detected = result.get('format_detected', 'unknown')
         total_files = result.get('total_files_analyzed', 0)
         avg_coverage = result.get('average_coverage', 0)
-        
+
         click.echo(f"[OK] Parsed {format_detected} coverage for {total_files} files")
         click.echo(f"     Average coverage: {avg_coverage}%")
-        
+
         if result.get('files'):
             # Show 5 least covered files
             click.echo("\nLeast covered files:")
@@ -198,9 +197,9 @@ def analyze_coverage(root, coverage_file, output):
                     covered = file_data.get('statements_executed', 0)
                     total = file_data.get('statements_total', 0)
                     click.echo(f"     Statements: {covered}/{total} covered")
-        
+
         click.echo(f"\n[SAVED] Coverage analysis saved to {output}")
-        
+
     except Exception as e:
         logger.error(f"Coverage analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
@@ -230,10 +229,10 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
         aud metadata analyze --skip-coverage
     """
     from theauditor.indexer.metadata_collector import MetadataCollector
-    
+
     try:
         collector = MetadataCollector(root_path=root)
-        
+
         # Run churn analysis
         if not skip_churn:
             click.echo(f"[1/2] Analyzing git history for last {days} days...")
@@ -241,7 +240,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
                 days=days,
                 output_path="./.pf/raw/churn_analysis.json"
             )
-            
+
             if 'error' in churn_result:
                 click.echo(f"  [WARNING] Churn: {churn_result['error']}", err=True)
             else:
@@ -249,7 +248,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
                 click.echo(f"  [OK] Churn: Analyzed {total} files")
         else:
             click.echo("[1/2] Skipping churn analysis")
-        
+
         # Run coverage analysis
         if not skip_coverage:
             click.echo("[2/2] Analyzing test coverage...")
@@ -257,7 +256,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
                 coverage_file=coverage_file,
                 output_path="./.pf/raw/coverage_analysis.json"
             )
-            
+
             if 'error' in coverage_result:
                 click.echo(f"  [WARNING] Coverage: {coverage_result['error']}", err=True)
             else:
@@ -267,11 +266,11 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
                 click.echo(f"  [OK] Coverage: {format_type} format, {total} files, {avg}% average")
         else:
             click.echo("[2/2] Skipping coverage analysis")
-        
+
         click.echo("\n[COMPLETE] Metadata analysis finished")
         click.echo("  Output: .pf/raw/churn_analysis.json")
         click.echo("  Output: .pf/raw/coverage_analysis.json")
-        
+
     except Exception as e:
         logger.error(f"Metadata analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)

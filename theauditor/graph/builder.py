@@ -4,8 +4,6 @@
 import os
 import platform
 import sqlite3
-import subprocess
-import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,10 +48,10 @@ class GraphEdge:
 @dataclass
 class Cycle:
     """Represents a cycle in the dependency graph."""
-    
+
     nodes: list[str]
     size: int
-    
+
     def __init__(self, nodes: list[str]):
         self.nodes = nodes
         self.size = len(nodes)
@@ -62,7 +60,7 @@ class Cycle:
 @dataclass
 class Hotspot:
     """Represents a hotspot node with high connectivity."""
-    
+
     id: str
     in_degree: int
     out_degree: int
@@ -73,7 +71,7 @@ class Hotspot:
 @dataclass  
 class ImpactAnalysis:
     """Results of change impact analysis."""
-    
+
     targets: list[str]
     upstream: list[str]  # What depends on targets
     downstream: list[str]  # What targets depend on
@@ -178,7 +176,7 @@ class XGraphBuilder:
         for part in file_path.parts:
             if part in SKIP_DIRS:
                 return True
-        
+
         # Second, check against exclude_patterns
         path_str = str(file_path)
         for pattern in self.exclude_patterns:
@@ -262,8 +260,6 @@ class XGraphBuilder:
 
     def resolve_import_path(self, import_str: str, source_file: Path, lang: str) -> str:
         """Resolve import string to a normalized module path that matches actual files in the graph."""
-        import sqlite3
-
         # Clean up the import string (remove quotes, semicolons, etc.)
         import_str = import_str.strip().strip('"\'`;')
 
@@ -362,14 +358,11 @@ class XGraphBuilder:
             source_dir = source_file.parent
             # Handle case where source_file might already be relative or might be from manifest
             try:
-                source_rel = str(source_file.relative_to(self.project_root)).replace("\\", "/")
+                str(source_file.relative_to(self.project_root)).replace("\\", "/")
             except ValueError:
                 # If source_file is already relative or from a different root, use it as is
-                source_rel = str(source_file).replace("\\", "/")
-            
-            # Handle different import patterns
-            resolved_path = None
-            
+                pass
+
             # 1. Handle TypeScript path aliases using ModuleResolver (database-driven)
             if import_str.startswith("@"):
                 # [FIX] Dynamic Context Discovery (The Fix for Bug #2)
@@ -393,7 +386,7 @@ class XGraphBuilder:
 
                 # If cache couldn't find it, return the resolved guess (might be external/broken)
                 return resolved
-            
+
             # 2. Handle relative imports (./foo, ../bar/baz)
             elif import_str.startswith("."):
                 # Resolve relative to source file
@@ -423,12 +416,12 @@ class XGraphBuilder:
 
                 except (ValueError, OSError):
                     pass
-            
+
             # 3. Handle node_modules imports (just return as-is, they're external)
             else:
                 # For npm packages, just return the package name
                 return import_str
-            
+
             # If nothing worked, return original
             return import_str
         else:

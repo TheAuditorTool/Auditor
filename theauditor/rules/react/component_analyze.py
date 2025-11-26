@@ -10,8 +10,8 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
 
 import sqlite3
 from collections import defaultdict
-from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
+from typing import Any
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 

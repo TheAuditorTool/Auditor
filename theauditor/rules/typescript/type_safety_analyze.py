@@ -17,7 +17,6 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 
 import sqlite3
 import logging
-from typing import List, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
 logger = logging.getLogger(__name__)
@@ -62,10 +61,10 @@ def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFindin
         List of StandardFinding objects
     """
     findings = []
-    
+
     if not context.db_path:
         return findings
-    
+
     try:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
@@ -80,7 +79,7 @@ def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFindin
 
         if not ts_files:
             return findings  # No TypeScript files in project
-        
+
         # All patterns execute unconditionally (schema contract guarantees table existence)
 
         # Pattern 1: Explicit 'any' types
@@ -137,7 +136,7 @@ def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFindin
         # Log database errors but don't crash
         logger.warning(f"TypeScript type safety analysis failed: {e}")
         return findings
-    
+
     return findings
 
 

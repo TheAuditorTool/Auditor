@@ -1,10 +1,8 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
 
-import sys
 import platform
 import click
 from pathlib import Path
-from datetime import datetime, UTC
 from theauditor.utils.error_handler import handle_exceptions
 
 # Detect if running on Windows for character encoding
@@ -258,25 +256,25 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
+    from theauditor.taint import trace_taint, normalize_taint_path
     from theauditor.config_runtime import load_runtime_config
-    from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
+    from theauditor.rules.orchestrator import RulesOrchestrator
     from theauditor.taint import TaintRegistry
     from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
-    
+
     # Auto-detect memory limit if not specified
     if memory_limit is None:
         memory_limit = get_recommended_memory_limit()
         click.echo(f"[MEMORY] Using auto-detected memory limit: {memory_limit}MB")
-    
+
     # Load configuration for default paths
     config = load_runtime_config(".")
-    
+
     # Use default database path if not provided
     if db is None:
         db = config["paths"]["db"]
-    
+
     # Verify database exists
     db_path = Path(db)
     if not db_path.exists():
@@ -329,28 +327,28 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         click.echo("Initializing security analysis infrastructure...")
         registry = TaintRegistry()
         orchestrator = RulesOrchestrator(project_path=Path("."), db_path=db_path)
-        
+
         # CRITICAL: Collect patterns from all rules and register them with the taint registry
         # This allows rules to contribute their patterns (ws.broadcast, Math.random, etc.)
         orchestrator.collect_rule_patterns(registry)
-        
+
         # Track all findings
         all_findings = []
-        
+
         # STAGE 2: Run standalone infrastructure rules
         click.echo("Running infrastructure and configuration analysis...")
         infra_findings = orchestrator.run_standalone_rules()
         all_findings.extend(infra_findings)
         click.echo(f"  Found {len(infra_findings)} infrastructure issues")
-        
+
         # STAGE 3: Run discovery rules to populate registry
         click.echo("Discovering framework-specific patterns...")
         discovery_findings = orchestrator.run_discovery_rules(registry)
         all_findings.extend(discovery_findings)
-        
+
         stats = registry.get_stats()
         click.echo(f"  Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources")
-        
+
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
         # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
@@ -366,14 +364,14 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
             memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
             mode=mode
         )
-        
+
         # Extract taint paths
         taint_paths = result.get("taint_paths", result.get("paths", []))
         click.echo(f"  Found {len(taint_paths)} taint flow vulnerabilities")
-        
+
         # STAGE 5: Run taint-dependent rules
         click.echo("Running advanced security analysis...")
-        
+
         # Create taint checker from results
         def taint_checker(var_name, line_num=None):
             """Check if variable is in any taint path."""
@@ -389,20 +387,20 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
                     if isinstance(step, dict) and step.get("name") == var_name:
                         return True
             return False
-        
+
         advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
         all_findings.extend(advanced_findings)
         click.echo(f"  Found {len(advanced_findings)} advanced security issues")
-        
+
         # STAGE 6: Consolidate all findings
         click.echo(f"\nTotal vulnerabilities found: {len(all_findings) + len(taint_paths)}")
-        
+
         # Add all non-taint findings to result
         result["infrastructure_issues"] = infra_findings
         result["discovery_findings"] = discovery_findings
         result["advanced_findings"] = advanced_findings
         result["all_rule_findings"] = all_findings
-        
+
         # Update total count
         result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
     else:
@@ -447,12 +445,12 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
                 severity == "high" and path["severity"].lower() in ["critical", "high"]
             ):
                 filtered_paths.append(path)
-        
+
         # Update counts
         result["taint_paths"] = filtered_paths
         result["paths"] = filtered_paths  # Keep both keys synchronized
         result["total_vulnerabilities"] = len(filtered_paths)
-        
+
         # Recalculate vulnerability types
         from collections import defaultdict
         vuln_counts = defaultdict(int)
@@ -460,7 +458,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
             # Path is already normalized from filtering above
             vuln_counts[path.get("vulnerability_type", "Unknown")] += 1
         result["vulnerabilities_by_type"] = dict(vuln_counts)
-        
+
         # CRITICAL FIX: Recalculate summary with filtered paths
         from theauditor.taint.insights import generate_summary
         result["summary"] = generate_summary(filtered_paths)

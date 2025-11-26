@@ -30,3 +30,11 @@ try:
 except ImportError:
     get_semantic_ast_batch = None
 
+__all__ = [
+    'python_impl',
+    'typescript_impl',
+    'treesitter_impl',
+    'detect_language',
+    'get_semantic_ast_batch',
+]
+

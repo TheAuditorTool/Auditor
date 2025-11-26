@@ -21,9 +21,6 @@ Tree-sitter Rust Node Types:
 """
 
 
-from typing import List, Dict, Any, Optional, Tuple
-import json
-
 # Import shared utilities from base
 from .base import extract_vars_from_rust_node
 

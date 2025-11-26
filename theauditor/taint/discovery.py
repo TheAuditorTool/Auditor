@@ -8,8 +8,7 @@ database evolves.
 """
 
 
-from typing import Dict, List, Any, Optional, Tuple
-import sys
+from typing import Any
 import sqlite3
 
 
@@ -541,8 +540,6 @@ class TaintDiscovery:
         Returns:
             Risk level: 'critical', 'high', 'medium', or 'low'
         """
-        query_lower = query_text.lower()
-
         # Critical: String concatenation with user input
         if any(op in query_text for op in ['+', '${', 'f"', "f'", '`${', '".', "'."]):
             return 'critical'

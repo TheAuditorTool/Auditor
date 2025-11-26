@@ -1,11 +1,10 @@
 """Explain TheAuditor concepts and terminology."""
 
 import click
-from typing import Dict
 
 
 # Concept explanations database
-EXPLANATIONS: Dict[str, Dict[str, str]] = {
+EXPLANATIONS: dict[str, dict[str, str]] = {
     "taint": {
         "title": "Taint Analysis",
         "summary": "Tracks untrusted data flow from sources to dangerous sinks",

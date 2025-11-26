@@ -7,15 +7,13 @@ Pattern: Follows progress.md rules - analyze() function, execution_scope='databa
 """
 
 
-import sqlite3
-from typing import List
 from theauditor.rules.base import (
     StandardRuleContext,
     StandardFinding,
     Severity,
     RuleMetadata
 )
-from theauditor.context.deadcode_graph import detect_isolated_modules, DEFAULT_EXCLUSIONS
+from theauditor.context.deadcode_graph import DEFAULT_EXCLUSIONS
 
 
 METADATA = RuleMetadata(
