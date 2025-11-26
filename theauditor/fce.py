@@ -343,31 +343,49 @@ def load_graphql_findings_from_db(db_path: str) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Query all GraphQL findings from cache
-    # Schema: finding_type, schema_file, field_path, line, severity, confidence, description, metadata_json
+    # Query GraphQL findings with JOINs to get schema_file and field_path
+    # Actual schema columns: finding_id, field_id, resolver_symbol_id, rule, severity, details_json, provenance
     cursor.execute("""
-        SELECT finding_type, schema_file, field_path, line, severity, confidence, description, metadata_json
-        FROM graphql_findings_cache
+        SELECT
+            fc.rule,
+            gt.schema_path,
+            CASE
+                WHEN gt.type_name IS NOT NULL AND gf.field_name IS NOT NULL
+                THEN gt.type_name || '.' || gf.field_name
+                ELSE fc.rule
+            END as field_path,
+            gf.line,
+            fc.severity,
+            fc.details_json,
+            fc.provenance
+        FROM graphql_findings_cache fc
+        LEFT JOIN graphql_fields gf ON fc.field_id = gf.field_id
+        LEFT JOIN graphql_types gt ON gf.type_id = gt.type_id
     """)
 
     for row in cursor.fetchall():
-        finding_type, schema_file, field_path, line, severity, confidence, description, metadata_json = row
+        rule, schema_path, field_path, line, severity, details_json, provenance = row
 
-        # Parse metadata JSON if available
-        metadata = {}
-        if metadata_json:
-            metadata = json.loads(metadata_json)
+        # Parse details JSON for additional metadata
+        details = {}
+        if details_json:
+            details = json.loads(details_json)
+
+        # Extract description and confidence from details if available
+        description = details.get('description', details.get('message', f'GraphQL finding: {rule}'))
+        confidence = details.get('confidence', 'medium')
 
         graphql_findings.append({
-            'finding_type': finding_type,
-            'schema_file': schema_file,
-            'field_path': field_path,
+            'finding_type': rule,
+            'schema_file': schema_path or '',
+            'field_path': field_path or rule,
             'line': line or 0,
-            'severity': severity,
+            'severity': severity.lower() if severity else 'medium',
             'confidence': confidence,
             'description': description,
-            'metadata': metadata,
-            'category': 'graphql'
+            'metadata': details,
+            'category': 'graphql',
+            'provenance': provenance
         })
 
     conn.close()
@@ -568,7 +586,6 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
 
         # Append any errors to the global error.log
         if stderr.strip():
-            from pathlib import Path
             error_log = Path(root_path) / ".pf" / "error.log"
             error_log.parent.mkdir(parents=True, exist_ok=True)
             with open(error_log, 'a') as f:
@@ -1096,7 +1113,7 @@ def run_fce(
                 query = """
                 SELECT name, type, line
                 FROM symbols
-                WHERE file = ?
+                WHERE path = ?
                   AND line <= ?
                   AND type IN ('function', 'class')
                 ORDER BY line DESC
