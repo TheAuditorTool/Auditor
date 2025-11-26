@@ -110,17 +110,17 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         aud cfg analyze --function process_payment --output payment_cfg.json
     """
     from theauditor.graph.cfg_builder import CFGBuilder
-    
+
     try:
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
-        
+
         # Initialize CFG builder
         builder = CFGBuilder(str(db_path))
-        
+
         # Load workset if requested
         target_files = None
         if workset:
@@ -130,7 +130,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                     workset_data = json.load(f)
                     target_files = {p["path"] for p in workset_data.get("paths", [])}
                     click.echo(f"Analyzing {len(target_files)} workset files")
-        
+
         # Get all functions or filter
         if function:
             # Find specific function
@@ -149,13 +149,13 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         else:
             # Get all functions
             functions = builder.get_all_functions()
-            
+
             # Filter by workset if requested
             if target_files:
                 functions = [f for f in functions if f['file'] in target_files]
-        
+
         click.echo(f"Analyzing {len(functions)} functions...")
-        
+
         results = {
             "total_functions": len(functions),
             "complex_functions": [],
@@ -166,21 +166,21 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                 "functions_above_threshold": 0
             }
         }
-        
+
         # Analyze complexity
         complex_functions = builder.analyze_complexity(
             file_path=file, 
             threshold=complexity_threshold
         )
-        
+
         results["complex_functions"] = complex_functions
         results["statistics"]["functions_above_threshold"] = len(complex_functions)
-        
+
         if complex_functions:
             complexities = [f['complexity'] for f in complex_functions]
             results["statistics"]["max_complexity"] = max(complexities)
             results["statistics"]["avg_complexity"] = sum(complexities) / len(complexities)
-        
+
         # Display complex functions
         if complex_functions:
             click.echo(f"\n[COMPLEXITY] Found {len(complex_functions)} functions above threshold {complexity_threshold}:")
@@ -189,16 +189,16 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                 click.echo(f"    Complexity: {func['complexity']}, Blocks: {func['block_count']}, Has loops: {func['has_loops']}")
         else:
             click.echo(f"[OK] No functions exceed complexity threshold {complexity_threshold}")
-        
+
         # Find dead code if requested
         if find_dead_code:
             click.echo("\n[DEAD CODE] Searching for unreachable blocks...")
             dead_blocks = builder.find_dead_code(file_path=file)
             results["dead_code"] = dead_blocks
-            
+
             if dead_blocks:
                 click.echo(f"Found {len(dead_blocks)} unreachable blocks:")
-                
+
                 # Group by function
                 by_function = {}
                 for block in dead_blocks:
@@ -206,14 +206,14 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                     if key not in by_function:
                         by_function[key] = []
                     by_function[key].append(block)
-                
+
                 for func_key, blocks in list(by_function.items())[:5]:  # Show first 5 functions
                     click.echo(f"  • {func_key}: {len(blocks)} unreachable blocks")
                     for block in blocks[:2]:  # Show first 2 blocks per function
                         click.echo(f"    - {block['block_type']} block at lines {block['start_line']}-{block['end_line']}")
             else:
                 click.echo("[OK] No unreachable code detected")
-        
+
         # DUAL-WRITE PATTERN: Write to database for FCE performance + JSON for AI consumption
         from theauditor.utils.meta_findings import format_complexity_finding
         from theauditor.indexer.database import DatabaseManager
@@ -242,7 +242,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         with open(output_path, "w") as f:
             json.dump(results, f, indent=2)
         click.echo(f"\n[OK] CFG analysis saved to {output_path}")
-        
+
         # Summary statistics
         click.echo("\n[SUMMARY]")
         click.echo(f"  Total functions analyzed: {len(functions)}")
@@ -252,10 +252,10 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             click.echo(f"  Average complexity of complex functions: {results['statistics']['avg_complexity']:.1f}")
         if find_dead_code:
             click.echo(f"  Unreachable blocks found: {len(results['dead_code'])}")
-        
+
         # Close database connection
         builder.close()
-        
+
     except Exception as e:
         logger.error(f"CFG analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
@@ -284,28 +284,28 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         aud cfg viz --file src/api.py --function handle_request --highlight-paths
     """
     from theauditor.graph.cfg_builder import CFGBuilder
-    
+
     try:
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
-        
+
         # Initialize CFG builder
         builder = CFGBuilder(str(db_path))
-        
+
         # Get CFG for the function
         click.echo(f"Loading CFG for {function} in {file}...")
         cfg = builder.get_function_cfg(file, function)
-        
+
         if not cfg['blocks']:
             click.echo(f"No CFG data found for {function} in {file}")
             click.echo("Make sure the function was indexed with 'aud full'")
             return
-        
+
         click.echo(f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges")
-        
+
         # Generate DOT with enhanced visualization
         if show_statements:
             # Enhance DOT with statement details
@@ -321,7 +321,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                     dot_content = dot_content.replace(old_label, new_label)
         else:
             dot_content = builder.export_dot(file, function)
-        
+
         # Highlight paths if requested
         if highlight_paths:
             paths = builder.get_execution_paths(file, function, max_paths=5)
@@ -330,15 +330,15 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                 # Add path highlighting to DOT
                 for i, path in enumerate(paths[:5]):
                     click.echo(f"  Path {i+1}: {' → '.join(map(str, path))}")
-        
+
         # Determine output file
         if not output:
             output = f"{function}_cfg.{format}"
         elif not output.endswith(f".{format}"):
             output = f"{output}.{format}"
-        
+
         output_path = Path(output)
-        
+
         # Save DOT file
         if format == "dot":
             with open(output_path, 'w') as f:
@@ -348,12 +348,12 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         else:
             # Generate image format
             import subprocess
-            
+
             # First save DOT
             dot_path = output_path.with_suffix('.dot')
             with open(dot_path, 'w') as f:
                 f.write(dot_content)
-            
+
             try:
                 # Convert to requested format
                 result = subprocess.run(
@@ -361,7 +361,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                     capture_output=True,
                     text=True
                 )
-                
+
                 if result.returncode == 0:
                     click.echo(f"[OK] {format.upper()} saved to {output_path}")
                     # Clean up temporary DOT file
@@ -376,7 +376,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                 click.echo("  Windows: choco install graphviz")
                 click.echo(f"\n  DOT file saved to {dot_path}")
                 click.echo(f"  Manual generation: dot -T{format} {dot_path} -o {output_path}")
-        
+
         # Display metrics
         metrics = cfg['metrics']
         click.echo("\n[METRICS]")
@@ -384,10 +384,10 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         click.echo(f"  Decision Points: {metrics['decision_points']}")
         click.echo(f"  Maximum Nesting: {metrics['max_nesting_depth']}")
         click.echo(f"  Has Loops: {metrics['has_loops']}")
-        
+
         # Close database connection
         builder.close()
-        
+
     except Exception as e:
         logger.error(f"CFG visualization failed: {e}")
         click.echo(f"Error: {e}", err=True)

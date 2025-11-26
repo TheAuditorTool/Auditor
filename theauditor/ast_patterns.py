@@ -6,7 +6,7 @@ It provides pattern-based search capabilities across different AST types.
 
 
 import ast
-from typing import Any, Optional, List, Dict, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ else:
 
 class ASTPatternMixin:
     """Mixin class providing pattern matching capabilities for AST analysis."""
-    
+
     def __init__(self):
         """Initialize pattern mixin."""
         super().__init__()
@@ -43,10 +43,10 @@ class ASTPatternMixin:
             List of ASTMatch objects.
         """
         matches = []
-        
+
         if not tree:
             return matches
-        
+
         # Handle Tree-sitter AST with queries
         if tree.get("type") == "tree_sitter" and self.has_tree_sitter:
             language = tree["language"]
@@ -58,31 +58,31 @@ class ASTPatternMixin:
                     # 2. Create QueryCursor from the query
                     # 3. Call matches() on the cursor, not the query
                     from tree_sitter import Query, QueryCursor
-                    
+
                     # Create Query object using the language and query string
                     query = Query(self.languages[language], query_string)
-                    
+
                     # Create QueryCursor from the query
                     query_cursor = QueryCursor(query)
-                    
+
                     # Call matches() on the cursor (not the query!)
                     query_matches = query_cursor.matches(tree["tree"].root_node)
-                    
+
                     for match in query_matches:
                         # Each match is a tuple: (pattern_index, captures_dict)
                         pattern_index, captures = match
-                        
+
                         # Process captures dictionary
                         for capture_name, nodes in captures.items():
                             # Handle both single node and list of nodes
                             if not isinstance(nodes, list):
                                 nodes = [nodes]
-                            
+
                             for node in nodes:
                                 start_point = node.start_point
                                 end_point = node.end_point
                                 snippet = node.text.decode("utf-8", errors="ignore") if node.text else ""
-                                
+
                                 ast_match = ASTMatch(
                                     node_type=node.type,
                                     start_line=start_point[0] + 1,
@@ -94,14 +94,14 @@ class ASTPatternMixin:
                                 matches.append(ast_match)
                 except Exception as e:
                     print(f"Query error: {e}")
-        
+
         # For Python AST, fall back to pattern matching
         elif tree.get("type") == "python_ast":
             # Convert query to pattern and use existing method
             pattern = self._query_to_pattern(query_string)
             if pattern:
                 matches = self.find_ast_matches(tree, pattern)
-        
+
         return matches
 
     def _query_to_pattern(self, query_string: str) -> dict | None:
@@ -142,7 +142,7 @@ class ASTPatternMixin:
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             actual_tree = tree.get("tree")
-            
+
             if tree_type == "tree_sitter" and self.has_tree_sitter:
                 matches.extend(self._find_tree_sitter_matches(actual_tree.root_node, ast_pattern))
             elif tree_type == "python_ast":
@@ -154,7 +154,7 @@ class ASTPatternMixin:
                 # Handle ESLint AST (legacy, now replaced by semantic_ast)
                 # For now, we treat it similarly to regex_ast but with higher confidence
                 matches.extend(self._find_eslint_ast_matches(actual_tree, ast_pattern))
-        
+
         # Handle direct AST objects (legacy support)
         elif isinstance(tree, ast.AST):
             matches.extend(self._find_python_ast_matches(tree, ast_pattern))
@@ -173,7 +173,7 @@ class ASTPatternMixin:
 
         # Check if node type matches
         node_type = pattern.get("node_type", "")
-        
+
         # Special handling for type annotations
         if node_type == "type_annotation" and "any" in pattern.get("contains", []):
             # Look for TypeScript/JavaScript any type annotations
@@ -182,7 +182,7 @@ class ASTPatternMixin:
                 if node_text == "any" or ": any" in node_text:
                     start_point = node.start_point
                     end_point = node.end_point
-                    
+
                     match = ASTMatch(
                         node_type=node.type,
                         start_line=start_point[0] + 1,
@@ -191,7 +191,7 @@ class ASTPatternMixin:
                         snippet=node_text[:200]
                     )
                     matches.append(match)
-        
+
         # General pattern matching
         elif node.type == node_type or node_type == "*":
             contains = pattern.get("contains", [])
@@ -215,20 +215,20 @@ class ASTPatternMixin:
             matches.extend(self._find_tree_sitter_matches(child, pattern))
 
         return matches
-    
+
     def _find_semantic_ast_matches(self, tree: dict[str, Any], pattern: dict) -> list[ASTMatch]:
         """Find matches in Semantic AST from TypeScript Compiler API.
         
         This provides the highest fidelity analysis with full type information.
         """
         matches = []
-        
+
         if not tree or not tree.get("ast"):
             return matches
-        
+
         # Handle type-related patterns
         node_type = pattern.get("node_type", "")
-        
+
         if node_type == "type_annotation" and "any" in pattern.get("contains", []):
             # PHASE 5: Search AST nodes for inline type information
             # serializeNode now includes is_any flag directly in nodes
@@ -266,9 +266,9 @@ class ASTPatternMixin:
                     search_ast_for_any(child, depth + 1)
 
             search_ast_for_any(tree.get("ast", {}))
-        
+
         return matches
-    
+
     def _find_eslint_ast_matches(self, tree: dict[str, Any], pattern: dict) -> list[ASTMatch]:
         """Find matches in ESLint AST.
         
@@ -276,17 +276,17 @@ class ASTPatternMixin:
         This provides accurate pattern matching for JS/TS code.
         """
         matches = []
-        
+
         # ESLint AST follows the ESTree specification
         # Future enhancement: properly traverse the ESTree AST structure
-        
+
         if not tree:
             return matches
-        
+
         # Basic implementation - will be enhanced in future iterations
         # to properly traverse the ESTree AST structure
         return matches
-    
+
 
     def _find_python_ast_matches(self, node: ast.AST, pattern: dict) -> list[ASTMatch]:
         """Find matches in Python built-in AST."""
@@ -330,7 +330,7 @@ class ASTPatternMixin:
                         snippet=node_source[:200]
                     )
                     matches.append(match)
-        
+
         # General pattern matching
         elif expected_type and isinstance(node, expected_type):
             contains = pattern.get("contains", [])
@@ -412,6 +412,6 @@ class ASTPatternMixin:
                 """,
             }
         }
-        
+
         language_queries = queries.get(language, {})
         return language_queries.get(pattern, "")

@@ -4,7 +4,7 @@
 
 from dataclasses import dataclass, field
 import sqlite3
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from collections.abc import Iterable
 

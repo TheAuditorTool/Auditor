@@ -16,7 +16,6 @@ CWE-269: Improper Privilege Management
 import json
 import logging
 import sqlite3
-from typing import List, Set
 
 from theauditor.rules.base import (
     RuleMetadata,

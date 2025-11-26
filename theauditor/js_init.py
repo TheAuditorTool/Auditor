@@ -95,31 +95,31 @@ def add_auditor_hooks(path: str) -> dict[str, str]:
         {"status": "error", "message": <error>} if error occurred
     """
     package_path = Path(path)
-    
+
     # Check if file exists
     if not package_path.exists():
         return {"status": "error", "message": f"File not found: {path}"}
-    
+
     try:
         # Read existing package.json
         with open(package_path) as f:
             package_data = json.load(f)
-        
+
         # Ensure scripts object exists
         if "scripts" not in package_data:
             package_data["scripts"] = {}
-        
+
         scripts = package_data["scripts"]
-        
+
         # Define desired Auditor hooks
         auditor_hooks = {
             "pretest": "aud lint --workset",
             "prebuild": "aud ast-verify",
             "prepush": "aud taint-analyze"
         }
-        
+
         changes = []
-        
+
         for hook_name, auditor_cmd in auditor_hooks.items():
             if hook_name not in scripts:
                 # Hook doesn't exist, add it
@@ -127,28 +127,28 @@ def add_auditor_hooks(path: str) -> dict[str, str]:
                 changes.append(f"Added {hook_name}: {auditor_cmd}")
             else:
                 existing_cmd = scripts[hook_name]
-                
+
                 # Check if Auditor command is already present
                 if auditor_cmd in existing_cmd:
                     # Already has the command, skip
                     continue
-                
+
                 # Prepend Auditor command with &&
                 new_cmd = f"{auditor_cmd} && {existing_cmd}"
                 scripts[hook_name] = new_cmd
                 changes.append(f"Modified {hook_name}: prepended {auditor_cmd}")
-        
+
         if not changes:
             return {"status": "unchanged"}
-        
+
         # Write modified package.json with 2-space indent
         with open(package_path, 'w') as f:
             json.dump(package_data, f, indent=2)
             # Add trailing newline for consistency with npm
             f.write('\n')
-        
+
         return {"status": "hooks_added", "details": changes}
-        
+
     except json.JSONDecodeError as e:
         return {"status": "error", "message": f"Invalid JSON in {path}: {e}"}
     except Exception as e:

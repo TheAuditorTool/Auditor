@@ -21,8 +21,7 @@ False positive fixes (2025-11-22):
 
 import sqlite3
 import re
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional
 
 from theauditor.rules.base import (
     StandardRuleContext,
@@ -159,7 +158,7 @@ SECURITY_KEYWORDS = frozenset([
 _CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
 
 
-def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+def _split_identifier_tokens(value: str | None) -> list[str]:
     """Split identifiers into normalized, lowercase tokens.
 
     Handles camelCase, snake_case, kebab-case, and mixed patterns.
@@ -174,7 +173,7 @@ def _split_identifier_tokens(value: Optional[str]) -> List[str]:
     if not value:
         return []
 
-    tokens: List[str] = []
+    tokens: list[str] = []
 
     for chunk in re.split(r'[^0-9A-Za-z]+', value):
         if not chunk:
@@ -471,7 +470,7 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
 # PATTERN 3: Weak Encryption Algorithms
 # ============================================================================
 
-def _contains_alias(text: Optional[str], alias: str) -> bool:
+def _contains_alias(text: str | None, alias: str) -> bool:
     """Check if the identifier or argument contains a crypto alias token.
 
     Uses token-based matching to prevent false positives from substring collisions.

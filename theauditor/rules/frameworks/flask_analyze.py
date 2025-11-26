@@ -11,11 +11,8 @@ Follows schema contract architecture (v1.1+):
 """
 
 
-import json
 import sqlite3
-from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 from theauditor.indexer.schema import build_query

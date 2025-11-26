@@ -4,10 +4,8 @@ Direct SQL queries over TheAuditor's indexed code relationships.
 NO file reading, NO parsing, NO inference - just exact database lookups.
 """
 
-import json
 import sqlite3
 from pathlib import Path
-from typing import Optional
 
 import click
 

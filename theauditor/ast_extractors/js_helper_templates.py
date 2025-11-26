@@ -156,7 +156,6 @@ def _load_javascript_modules():
     if len(parts) != 2:
         raise RuntimeError(f"Expected exactly one {es_separator} separator, found {len(parts)-1}")
 
-    header_section = parts[0]  # File header (not used in assembled output)
     remaining = parts[1]
 
     # Split ES Module and CommonJS sections

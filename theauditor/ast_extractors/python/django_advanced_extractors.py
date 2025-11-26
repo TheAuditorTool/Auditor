@@ -19,7 +19,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 from theauditor.ast_extractors.base import get_node_name
 import ast
 import json
-from typing import Dict, List, Any
+from typing import Any
 
 
 def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
@@ -156,8 +156,6 @@ def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
     # Find all functions with @receiver decorator
     for node in context.find_nodes(ast.FunctionDef):
         for decorator in node.decorator_list:
-            decorator_name = get_node_name(decorator)
-
             # Check for @receiver decorator
             if isinstance(decorator, ast.Call):
                 func_name = get_node_name(decorator.func)

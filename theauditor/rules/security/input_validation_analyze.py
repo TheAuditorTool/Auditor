@@ -13,8 +13,6 @@ Follows v1.1+ schema contract compliance:
 
 
 import sqlite3
-import json
-from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata

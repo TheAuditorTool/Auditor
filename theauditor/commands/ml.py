@@ -211,9 +211,9 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
     unreliable. Re-train models weekly to incorporate new findings and patterns.
     """
     from theauditor.insights.ml import learn as ml_learn
-    
+
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
-    
+
     # Show session analysis if requested
     if session_analysis and session_dir:
         import sqlite3
@@ -531,9 +531,9 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     review. Re-train models weekly to keep predictions accurate as code evolves.
     """
     from theauditor.insights.ml import suggest as ml_suggest
-    
+
     click.echo("[ML] Generating suggestions from trained models...")
-    
+
     result = ml_suggest(
         db_path=db_path,
         manifest_path=manifest,
@@ -543,7 +543,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
         out_path=out,
         print_plan=print_plan,
     )
-    
+
     if result.get("success"):
         click.echo(f"[OK] Suggestions generated")
         click.echo(f"  * Workset size: {result.get('workset_size', 0)} files")
@@ -751,31 +751,31 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
     (high-risk predictions that were clean, or low-risk predictions that had bugs).
     """
     from theauditor.insights.ml import learn as ml_learn
-    
+
     # Validate feedback file exists
     if not Path(feedback_file).exists():
         click.echo(f"[FAIL] Feedback file not found: {feedback_file}", err=True)
         raise click.ClickException(f"Feedback file not found: {feedback_file}")
-    
+
     # Validate feedback file format
     try:
         import json
         with open(feedback_file) as f:
             feedback_data = json.load(f)
-        
+
         if not isinstance(feedback_data, dict):
             raise ValueError("Feedback file must contain a JSON object")
-        
+
         # Count feedback entries
         feedback_count = len(feedback_data)
         click.echo(f"[ML] Loading human feedback for {feedback_count} files...")
-        
+
     except Exception as e:
         click.echo(f"[FAIL] Invalid feedback file format: {e}", err=True)
         raise click.ClickException(f"Invalid feedback file: {e}")
-    
+
     click.echo(f"[ML] Re-training models with human feedback (using {train_on} runs)...")
-    
+
     result = ml_learn(
         db_path=db_path,
         manifest_path=manifest,
@@ -786,7 +786,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
         # Use default paths for historical data from .pf/history
         enable_git=False,  # Disable git for speed in feedback mode
     )
-    
+
     if result.get("success"):
         stats = result.get("stats", {})
         click.echo(f"[OK] Models re-trained with human feedback")

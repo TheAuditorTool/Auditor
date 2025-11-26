@@ -21,7 +21,6 @@ Detects:
 
 
 import sqlite3
-from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -327,7 +326,6 @@ class CryptoAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if var is a key variable
-            var_lower = var.lower()
             if var not in self.patterns.KEY_VARIABLES and not (var.endswith('_key') or var.endswith('_secret') or var.endswith('_password')):
                 continue
             # Check if it's a literal string (hardcoded)

@@ -19,7 +19,6 @@ Migration path:
     snapshot_id, sha = manager.create_snapshot(plan_id, name, repo_root, files, task_id)
 """
 
-import json
 import warnings
 from pathlib import Path
 from datetime import datetime, UTC

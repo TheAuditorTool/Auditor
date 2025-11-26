@@ -10,9 +10,6 @@ this base class to access shared dependencies without duplication.
 """
 
 
-from typing import Dict, Any
-
-
 class BaseStorage:
     """Base class for domain-specific storage handlers."""
 

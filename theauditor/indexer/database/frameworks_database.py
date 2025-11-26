@@ -5,9 +5,6 @@ Handles 5 framework tables including API endpoints, ORM relationships, and Prism
 """
 
 
-from typing import List, Optional
-
-
 class FrameworksDatabaseMixin:
     """Mixin providing add_* methods for FRAMEWORKS_TABLES.
 

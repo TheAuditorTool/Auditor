@@ -96,15 +96,15 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
     Disable with --no-ast for quick scans."""
     from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
-    
+
     try:
         # Initialize detector
         project_path = Path(project_path).resolve()
         pattern_loader = PatternLoader()
-        
+
         # Get exclusion patterns using centralized function
         exclude_patterns = get_self_exclusion_patterns(exclude_self)
-        
+
         detector = UniversalPatternDetector(
             project_path, 
             pattern_loader,
@@ -112,7 +112,7 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
             with_frameworks=with_frameworks,
             exclude_patterns=exclude_patterns
         )
-        
+
         # Run detection
         categories = list(patterns) if patterns else None
         findings = detector.detect_patterns(categories=categories, file_filter=file_filter)
@@ -153,30 +153,30 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
         output_path = Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
         detector.to_json(output_path)
         click.echo(f"[OK] Patterns analysis saved to {output_path}")
-        
+
         # Display table
         table = detector.format_table(max_rows=max_rows)
         click.echo(table)
-        
+
         # Print statistics if requested
         if print_stats:
             stats = detector.get_summary_stats()
             click.echo("\n--- Summary Statistics ---")
             click.echo(f"Total findings: {stats['total_findings']}")
             click.echo(f"Files affected: {stats['files_affected']}")
-            
+
             if stats['by_severity']:
                 click.echo("\nBy severity:")
                 for severity, count in sorted(stats['by_severity'].items()):
                     click.echo(f"  {severity}: {count}")
-            
+
             if stats['by_category']:
                 click.echo("\nBy category:")
                 for category, count in sorted(stats['by_category'].items()):
                     click.echo(f"  {category}: {count}")
-        
+
         # Successfully completed - found and reported all issues
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e

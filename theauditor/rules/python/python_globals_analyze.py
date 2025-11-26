@@ -2,7 +2,6 @@
 
 
 import sqlite3
-from typing import List
 from dataclasses import dataclass
 
 from theauditor.rules.base import (

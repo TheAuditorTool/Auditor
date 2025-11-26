@@ -10,7 +10,7 @@ Architecture:
 """
 
 
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 def _get_body_node(block_node: Any) -> Any | None:

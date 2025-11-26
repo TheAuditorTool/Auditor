@@ -7,7 +7,6 @@ Philosophy: SAST tools need RAM. If you're running complex analysis, allocate ac
 
 import os
 import platform
-import sys
 
 from .logger import setup_logger
 from .constants import (
@@ -81,18 +80,18 @@ def get_recommended_memory_limit() -> int:
             kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
 
             total_mb = memory_status.ullTotalPhys // (1024 * 1024)
-            
+
         else:
             # Linux/Mac - try multiple methods
             total_mb = None
-            
+
             # Method 1: Try psutil if available
             try:
                 import psutil
                 total_mb = psutil.virtual_memory().total // (1024 * 1024)
             except ImportError:
                 pass
-            
+
             # Method 2: Read from /proc/meminfo (Linux)
             if not total_mb and platform.system() == 'Linux':
                 try:
@@ -105,7 +104,7 @@ def get_recommended_memory_limit() -> int:
                                 break
                 except Exception:
                     pass
-            
+
             # Method 3: Use sysctl (Mac)
             if not total_mb and platform.system() == 'Darwin':
                 try:
@@ -117,10 +116,10 @@ def get_recommended_memory_limit() -> int:
                         total_mb = bytes_total // (1024 * 1024)
                 except Exception:
                     pass
-            
+
             if not total_mb:
                 raise Exception("Could not detect system memory")
-                
+
     except Exception as e:
         # Fallback if detection fails - assume modern system
         logger.warning(f"Could not detect system RAM: {e}")
@@ -162,7 +161,7 @@ def get_available_memory() -> int:
                 return psutil.virtual_memory().available // (1024 * 1024)
             except ImportError:
                 pass
-            
+
             # Linux fallback
             if platform.system() == 'Linux':
                 with open('/proc/meminfo') as f:
@@ -172,5 +171,5 @@ def get_available_memory() -> int:
                             return kb // 1024
     except Exception:
         pass
-    
+
     return -1  # Cannot detect

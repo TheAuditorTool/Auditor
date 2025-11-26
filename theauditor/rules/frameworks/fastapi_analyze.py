@@ -8,8 +8,6 @@ This replaces fastapi_analyzer.py with a faster, cleaner implementation.
 
 
 import sqlite3
-from typing import List
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 from theauditor.indexer.schema import build_query
@@ -99,7 +97,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
         if not fastapi_files:
             return findings  # Not a FastAPI project
-        
+
         # ========================================================
         # CHECK 1: Synchronous Operations in Routes (DEGRADED)
         # ========================================================
@@ -141,7 +139,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     confidence=Confidence.LOW,  # Low confidence without async detection
                     cwe_id='CWE-407'
                 ))
-        
+
         # ========================================================
         # CHECK 2: Direct Database Access Without Dependency Injection
         # ========================================================
@@ -182,7 +180,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.MEDIUM,
                 cwe_id='CWE-1061'
             ))
-        
+
         # ========================================================
         # CHECK 3: Missing CORS Middleware
         # ========================================================
@@ -207,7 +205,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.MEDIUM,
                 cwe_id='CWE-346'
             ))
-        
+
         # ========================================================
         # CHECK 4: Blocking File Operations (DEGRADED)
         # ========================================================
@@ -238,7 +236,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.LOW,  # Low confidence without async detection
                 cwe_id='CWE-407'
             ))
-        
+
         # ========================================================
         # CHECK 5: Raw SQL in Route Handlers
         # ========================================================
@@ -267,7 +265,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.HIGH,
                 cwe_id='CWE-89'
             ))
-        
+
         # ========================================================
         # CHECK 6: Background Tasks Without Error Handling
         # ========================================================
@@ -297,7 +295,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     confidence=Confidence.MEDIUM,
                     cwe_id='CWE-248'
                 ))
-        
+
         # ========================================================
         # CHECK 7: WebSocket Endpoints Without Authentication
         # ========================================================
@@ -341,7 +339,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     confidence=Confidence.MEDIUM,
                     cwe_id='CWE-306'
                 ))
-        
+
         # ========================================================
         # CHECK 8: Exposed Debug Endpoints
         # ========================================================
@@ -365,7 +363,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.HIGH,
                 cwe_id='CWE-489'
             ))
-        
+
         # ========================================================
         # CHECK 9: Form Data Used in File Operations (Path Traversal Risk)
         # ========================================================
@@ -399,7 +397,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.MEDIUM,
                 cwe_id='CWE-22'
             ))
-        
+
         # ========================================================
         # CHECK 10: Missing Request Timeout Configuration
         # ========================================================
@@ -419,7 +417,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                                where="value IN ('slowapi', 'timeout_middleware')")
             cursor.execute(query)
             has_timeout_middleware = cursor.fetchone() is not None
-            
+
             if not has_timeout_middleware:
                 findings.append(StandardFinding(
                     rule_name='fastapi-missing-timeout',
@@ -431,7 +429,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     confidence=Confidence.MEDIUM,
                     cwe_id='CWE-400'
                 ))
-        
+
         # ========================================================
         # CHECK 11: Unhandled Exceptions in Routes
         # ========================================================
@@ -459,10 +457,10 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 confidence=Confidence.LOW,
                 cwe_id='CWE-209'
             ))
-    
+
     finally:
         conn.close()
-    
+
     return findings
 
 
@@ -480,24 +478,24 @@ def register_taint_patterns(taint_registry):
         'JSONResponse', 'HTMLResponse', 'PlainTextResponse',
         'StreamingResponse', 'FileResponse', 'RedirectResponse'
     ]
-    
+
     for pattern in FASTAPI_RESPONSE_SINKS:
         taint_registry.register_sink(pattern, 'response', 'python')
-    
+
     # FastAPI input sources
     FASTAPI_INPUT_SOURCES = [
         'Request', 'Body', 'Query', 'Path', 'Form',
         'File', 'Header', 'Cookie', 'Depends'
     ]
-    
+
     for pattern in FASTAPI_INPUT_SOURCES:
         taint_registry.register_source(pattern, 'user_input', 'python')
-    
+
     # FastAPI-specific SQL sinks
     FASTAPI_SQL_SINKS = [
         'execute', 'executemany', 'execute_async',
         'fetch', 'fetchone', 'fetchall'
     ]
-    
+
     for pattern in FASTAPI_SQL_SINKS:
         taint_registry.register_sink(pattern, 'sql', 'python')

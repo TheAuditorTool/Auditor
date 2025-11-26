@@ -18,7 +18,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any
 
 from ..base import get_node_name
 
@@ -344,8 +344,6 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                 # Don't create inverse relationship for back_populates
                 # Each side will define its own forward relationship
                 # This prevents duplicate relationships when both sides have back_populates
-                back_populates_node = _keyword_arg(value, "back_populates")
-                # Note: back_populates is handled by each side defining its own relationship
 
                 backref_node = _keyword_arg(value, "backref")
                 if backref_node and target_model:

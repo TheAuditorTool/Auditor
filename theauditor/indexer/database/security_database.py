@@ -5,9 +5,6 @@ Handles 5 security tables including SQL injection detection, JWT patterns, and e
 """
 
 
-from typing import List, Optional
-
-
 class SecurityDatabaseMixin:
     """Mixin providing add_* methods for SECURITY_TABLES.
 

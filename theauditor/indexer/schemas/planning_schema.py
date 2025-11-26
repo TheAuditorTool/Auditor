@@ -12,7 +12,6 @@ Design Philosophy:
 - Change history tracking
 """
 
-from typing import Dict
 from .utils import Column, ForeignKey, TableSchema
 
 

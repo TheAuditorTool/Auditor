@@ -26,7 +26,6 @@ Database Locations:
 See: CLAUDE.md "WHY TWO DATABASES" section for architectural rationale
 """
 
-from typing import Dict
 from .utils import Column, TableSchema
 
 

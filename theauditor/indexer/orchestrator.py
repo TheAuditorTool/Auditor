@@ -23,20 +23,19 @@ CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
 
 import os
 import sys
-import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any
 
 from theauditor.config_runtime import load_runtime_config
 from theauditor.ast_parser import ASTParser
 
 from .config import (
     DEFAULT_BATCH_SIZE, JS_BATCH_SIZE,
-    SUPPORTED_AST_EXTENSIONS, SQL_EXTENSIONS,
-    DOCKERFILE_PATTERNS
+    SUPPORTED_AST_EXTENSIONS
 )
-from .core import FileWalker, ASTCache
+from .core import FileWalker
+from ..cache.ast_cache import ASTCache
 from .database import DatabaseManager
 from .storage import DataStorer
 from .extractors import ExtractorRegistry

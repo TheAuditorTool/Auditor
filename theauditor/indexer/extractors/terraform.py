@@ -23,7 +23,7 @@ Graph relationships (variable → resource → output) are built in Phase 4 by g
 import json
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from . import BaseExtractor
 from ...utils.logger import setup_logger

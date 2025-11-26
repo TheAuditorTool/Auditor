@@ -3,7 +3,7 @@
 
 import json
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal
 
 
 AgentType = Literal['claude-code', 'codex', 'unknown']
@@ -79,8 +79,6 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
             return None
 
         # Check first line of recent sessions for cwd match
-        root_str = str(root_path.resolve())
-
         for session_file in session_files[:50]:  # Check last 50 sessions
             try:
                 with open(session_file) as f:
@@ -115,7 +113,6 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
         List of .jsonl files with matching cwd
     """
     matching = []
-    root_str = str(root_path.resolve())
 
     for session_file in sessions_dir.rglob('*.jsonl'):
         try:

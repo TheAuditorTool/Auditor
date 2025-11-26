@@ -10,21 +10,17 @@ This module provides a central orchestrator that:
 
 import importlib
 import inspect
-import json
 import os
-import pkgutil
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set
+from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # Import standardized contracts (Phase 1 addition)
 try:
     from theauditor.rules.base import (
-        StandardRuleContext, 
-        StandardFinding, 
         validate_rule_signature,
         convert_old_context
     )
@@ -66,7 +62,7 @@ class RuleContext:
 
 class RulesOrchestrator:
     """Unified orchestrator for ALL rule execution."""
-    
+
     def __init__(self, project_path: Path, db_path: Path = None):
         """Initialize the orchestrator.
         
@@ -78,13 +74,13 @@ class RulesOrchestrator:
         self.db_path = Path(db_path) if db_path else self.project_path / ".pf" / "repo_index.db"
         self._debug = os.environ.get("THEAUDITOR_DEBUG", "").lower() == "true"
         self.rules = self._discover_all_rules()
-        
+
         # NEW: Initialize taint infrastructure for rules that need it
         # Lazy imports to avoid circular dependencies
         self.taint_registry = None
         self._taint_trace_func = None
         self._taint_conn = None  # Lazy-load database connection
-        
+
         # PHASE 1: Track migration progress
         self.migration_stats = {
             'standardized_rules': 0,
@@ -92,7 +88,7 @@ class RulesOrchestrator:
             'categories_migrated': set(),
             'categories_pending': set()
         }
-        
+
         # Count rules by type
         for category, rules in self.rules.items():
             for rule in rules:
@@ -102,13 +98,13 @@ class RulesOrchestrator:
                 else:
                     self.migration_stats['legacy_rules'] += 1
                     self.migration_stats['categories_pending'].add(category)
-        
+
         if self._debug:
             total_rules = sum(len(r) for r in self.rules.values())
             print(f"[ORCHESTRATOR] Discovered {total_rules} rules across {len(self.rules)} categories")
             if STANDARD_CONTRACTS_AVAILABLE:
                 print(f"[ORCHESTRATOR] Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy")
-    
+
     def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
         """Dynamically discover ALL rules in /rules directory.
         
@@ -116,30 +112,30 @@ class RulesOrchestrator:
             Dictionary mapping category name to list of RuleInfo objects
         """
         rules_by_category = {}
-        
+
         # Get the rules package directory
         import theauditor.rules as rules_package
         rules_dir = Path(rules_package.__file__).parent
-        
+
         # Walk all subdirectories
         for subdir in rules_dir.iterdir():
             if not subdir.is_dir() or subdir.name.startswith('__'):
                 continue
-                
+
             category = subdir.name
             rules_by_category[category] = []
-            
+
             # Process all Python files in the subdirectory
             for py_file in subdir.glob("*.py"):
                 if py_file.name.startswith('__'):
                     continue
-                
+
                 module_name = f"theauditor.rules.{category}.{py_file.stem}"
-                
+
                 try:
                     # Import the module
                     module = importlib.import_module(module_name)
-                    
+
                     # Find all find_* functions
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
                         if name.startswith('find_'):
@@ -147,49 +143,49 @@ class RulesOrchestrator:
                             if obj.__module__ == module_name:
                                 rule_info = self._analyze_rule(name, obj, module, module_name, category)
                                 rules_by_category[category].append(rule_info)
-                                
+
                                 if self._debug:
                                     print(f"[ORCHESTRATOR] Found rule: {category}/{name} with {rule_info.param_count} params")
-                                    
+
                 except ImportError as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Error processing {module_name}: {e}")
-        
+
         # Also check for top-level rule files (not in subdirectories)
         for py_file in rules_dir.glob("*.py"):
             if py_file.name.startswith('__') or py_file.is_dir():
                 continue
-            
+
             # SKIP OLD BACKUP FILES during refactor
             if py_file.name.endswith('_analyzer.py') or py_file.name.endswith('_detector.py'):
                 continue  # These are old backups, not the new refactored rules
-            
+
             module_name = f"theauditor.rules.{py_file.stem}"
             category = "general"  # Top-level rules go in general category
-            
+
             if category not in rules_by_category:
                 rules_by_category[category] = []
-            
+
             try:
                 module = importlib.import_module(module_name)
-                
+
                 for name, obj in inspect.getmembers(module, inspect.isfunction):
                     if name.startswith('find_'):
                         if obj.__module__ == module_name:
                             rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
-                            
+
             except ImportError:
                 pass  # Silent skip for non-importable files
             except Exception as e:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Warning: Error processing {module_name}: {e}")
-        
+
         return rules_by_category
-    
+
     def _analyze_rule(self, name: str, func: Callable, module_obj: Any, module_name: str, category: str) -> "RuleInfo":
         """Analyze a rule function to determine its requirements.
 
@@ -298,17 +294,17 @@ class RulesOrchestrator:
                 db_path=str(self.db_path),
                 project_path=self.project_path
             )
-        
+
         all_findings = []
         total_executed = 0
-        
+
         for category, rules in self.rules.items():
             if not rules:
                 continue
-                
+
             if self._debug:
                 print(f"[ORCHESTRATOR] Running {len(rules)} rules in category: {category}")
-            
+
             for rule in rules:
                 if rule.execution_scope == 'database' and context.file_path:
                     continue
@@ -334,12 +330,12 @@ class RulesOrchestrator:
                     print(f" FAILED: {e}", file=sys.stderr, flush=True)
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Rule {rule.name} failed: {e}")
-        
+
         if self._debug:
             print(f"[ORCHESTRATOR] Executed {total_executed} rules, found {len(all_findings)} issues")
-        
+
         return all_findings
-    
+
     def _should_run_rule_on_file(self, rule_module: Any, file_path: Path) -> bool:
         """Check if a rule should run on a specific file based on its METADATA.
 
@@ -424,7 +420,7 @@ class RulesOrchestrator:
                         print(f"[ORCHESTRATOR] Rule {rule.name} failed for file: {e}")
 
         return findings
-    
+
     def get_rules_by_type(self, rule_type: str) -> list[RuleInfo]:
         """Get all rules of a specific type.
         
@@ -440,7 +436,7 @@ class RulesOrchestrator:
                 if rule.rule_type == rule_type:
                     rules_of_type.append(rule)
         return rules_of_type
-    
+
     def run_discovery_rules(self, registry) -> list[dict[str, Any]]:
         """Run all discovery rules that populate the taint registry.
         
@@ -454,29 +450,29 @@ class RulesOrchestrator:
             db_path=str(self.db_path),
             project_path=self.project_path
         )
-        
+
         findings = []
         discovery_rules = self.get_rules_by_type("discovery")
-        
+
         for rule in discovery_rules:
             try:
                 # Pass registry to the rule
                 kwargs = self._build_rule_kwargs(rule, context)
                 kwargs['taint_registry'] = registry
-                
+
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-                    
+
                 if self._debug:
                     print(f"[ORCHESTRATOR] Discovery rule {rule.name}: {len(rule_findings) if rule_findings else 0} findings")
-                    
+
             except Exception as e:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Discovery rule {rule.name} failed: {e}")
-        
+
         return findings
-    
+
     def run_standalone_rules(self) -> list[dict[str, Any]]:
         """Run all standalone rules that don't need taint data.
         
@@ -487,23 +483,23 @@ class RulesOrchestrator:
             db_path=str(self.db_path),
             project_path=self.project_path
         )
-        
+
         findings = []
         standalone_rules = self.get_rules_by_type("standalone")
-        
+
         for rule in standalone_rules:
             try:
                 kwargs = self._build_rule_kwargs(rule, context)
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-                    
+
             except Exception as e:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Standalone rule {rule.name} failed: {e}")
-        
+
         return findings
-    
+
     def run_taint_dependent_rules(self, taint_checker) -> list[dict[str, Any]]:
         """Run all rules that depend on taint analysis results.
         
@@ -517,26 +513,26 @@ class RulesOrchestrator:
             db_path=str(self.db_path),
             project_path=self.project_path
         )
-        
+
         findings = []
         taint_rules = self.get_rules_by_type("taint-dependent")
-        
+
         for rule in taint_rules:
             try:
                 kwargs = self._build_rule_kwargs(rule, context)
                 if 'taint_checker' in rule.param_names:
                     kwargs['taint_checker'] = taint_checker
-                
+
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-                    
+
             except Exception as e:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Taint-dependent rule {rule.name} failed: {e}")
-        
+
         return findings
-    
+
     def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> dict[str, Any]:
         """Build keyword arguments for a rule based on its requirements.
         
@@ -548,7 +544,7 @@ class RulesOrchestrator:
             Dictionary of keyword arguments for the rule
         """
         kwargs = {}
-        
+
         for param_name in rule.param_names:
             if param_name in ['db_path', 'database']:
                 kwargs[param_name] = context.db_path or str(self.db_path)
@@ -565,9 +561,9 @@ class RulesOrchestrator:
                 kwargs[param_name] = str(context.project_path or self.project_path)
             elif param_name == 'language':
                 kwargs[param_name] = context.language
-        
+
         return kwargs
-    
+
     def run_database_rules(self) -> list[dict[str, Any]]:
         """Run rules that operate on the database.
         
@@ -578,9 +574,9 @@ class RulesOrchestrator:
             db_path=str(self.db_path),
             project_path=self.project_path
         )
-        
+
         findings = []
-        
+
         # Filter rules that need database
         for category, rules in self.rules.items():
             for rule in rules:
@@ -595,9 +591,9 @@ class RulesOrchestrator:
                 except Exception as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Database rule {rule.name} failed: {e}")
-        
+
         return findings
-    
+
     def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> list[dict[str, Any]]:
         """Execute a single rule with appropriate parameters.
         
@@ -616,24 +612,24 @@ class RulesOrchestrator:
             try:
                 # Convert old context to standardized format
                 std_context = convert_old_context(context, self.project_path)
-                
+
                 # Execute standardized rule
                 findings = rule.function(std_context)
-                
+
                 # Convert StandardFinding objects to dicts if needed
                 if findings and hasattr(findings[0], 'to_dict'):
                     return [f.to_dict() for f in findings]
                 return findings if findings else []
-                
+
             except Exception as e:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Standardized rule {rule.name} failed: {e}")
                 return []
-        
+
         # LEGACY PATH - Keep existing complex logic
         # Build arguments based on what the rule needs
         kwargs = {}
-        
+
         for param_name in rule.param_names:
             # NEW: Provide taint infrastructure to rules that need it
             if param_name == 'taint_registry':
@@ -642,43 +638,43 @@ class RulesOrchestrator:
                     from theauditor.taint import TaintRegistry
                     self.taint_registry = TaintRegistry()
                 kwargs['taint_registry'] = self.taint_registry
-                
+
             elif param_name == 'taint_checker':
                 # Provide a function that checks if variable is tainted
                 kwargs['taint_checker'] = self._create_taint_checker(context)
-                
+
             elif param_name == 'trace_taint':
                 # Provide inter-procedural tracking function
                 kwargs['trace_taint'] = self._get_taint_tracer()
-                
+
             # Map parameter names to context values
             elif param_name in ['ast', 'tree', 'ast_tree', 'python_ast']:
                 if context.ast_tree:
                     kwargs[param_name] = context.ast_tree
                 else:
                     return []  # Skip if AST required but not available
-                    
+
             elif param_name in ['db_path', 'database']:
                 kwargs[param_name] = context.db_path or str(self.db_path)
-                
+
             elif param_name in ['file_path', 'filepath', 'path', 'filename']:
                 if context.file_path:
                     kwargs[param_name] = str(context.file_path)
                 else:
                     return []  # Skip if file required but not available
-                    
+
             elif param_name in ['content', 'source', 'code', 'text']:
                 if context.content:
                     kwargs[param_name] = context.content
                 else:
                     return []  # Skip if content required but not available
-                    
+
             elif param_name == 'project_path':
                 kwargs[param_name] = str(context.project_path or self.project_path)
-                
+
             elif param_name == 'language':
                 kwargs[param_name] = context.language
-            
+
             # Some rules might have other parameters - try to handle gracefully
             else:
                 # Check if parameter has a default value
@@ -691,11 +687,11 @@ class RulesOrchestrator:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Don't know how to fill parameter '{param_name}' for rule {rule.name}")
                     return []
-        
+
         # Execute the rule
         try:
             result = rule.function(**kwargs)
-            
+
             # Normalize result to list of dicts
             if result is None:
                 return []
@@ -707,12 +703,12 @@ class RulesOrchestrator:
                 if self._debug:
                     print(f"[ORCHESTRATOR] Warning: Rule {rule.name} returned unexpected type: {type(result)}")
                 return []
-                
+
         except Exception as e:
             if self._debug:
                 print(f"[ORCHESTRATOR] Error executing rule {rule.name}: {e}")
             return []
-    
+
     def get_rule_stats(self) -> dict[str, Any]:
         """Get statistics about discovered rules.
         
@@ -731,7 +727,7 @@ class RulesOrchestrator:
             }
         }
         return stats
-    
+
     def _create_taint_checker(self, context: RuleContext):
         """Check taint using REAL taint analysis results.
         
@@ -753,7 +749,7 @@ class RulesOrchestrator:
             if self._debug:
                 total = len(self._taint_results.get("taint_paths", []))
                 print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
-        
+
         def is_tainted(var_name: str, line: int) -> bool:
             """Check if variable is in any taint path.
             
@@ -774,9 +770,9 @@ class RulesOrchestrator:
                         if var_name in str(step):
                             return True
             return False
-        
+
         return is_tainted
-    
+
     def collect_rule_patterns(self, registry):
         """Collect and register all taint patterns from rules that define them.
 
@@ -873,7 +869,7 @@ class RulesOrchestrator:
             print(f"[ORCHESTRATOR] Pattern statistics: {stats}")
 
         return registry
-    
+
     def _get_taint_tracer(self):
         """Get cached taint analysis results for rules to query.
         
@@ -893,7 +889,7 @@ class RulesOrchestrator:
                 if self._debug:
                     total = len(self._taint_results.get("taint_paths", []))
                     print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
-            
+
             def get_taint_for_location(source_var: str, source_file: str, source_line: int, source_function: str = "unknown"):
                 """Return cached taint paths relevant to location.
                 
@@ -918,9 +914,9 @@ class RulesOrchestrator:
                                 relevant_paths.append(path)
                                 break
                 return relevant_paths
-            
+
             self._taint_trace_func = get_taint_for_location
-        
+
         return self._taint_trace_func
 
 
@@ -936,10 +932,10 @@ def run_all_rules(project_path: str, db_path: str = None) -> list[dict[str, Any]
         List of all findings
     """
     orchestrator = RulesOrchestrator(Path(project_path))
-    
+
     context = RuleContext(
         db_path=db_path or str(orchestrator.db_path),
         project_path=Path(project_path)
     )
-    
+
     return orchestrator.run_all_rules(context)

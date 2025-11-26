@@ -16,7 +16,6 @@ HISTORY:
 
 
 import json
-from typing import List, Optional
 
 
 class PythonDatabaseMixin:

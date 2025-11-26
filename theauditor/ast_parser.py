@@ -17,15 +17,13 @@ CRITICAL:
 
 import ast
 import hashlib
-import json
 import os
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, List, Dict, Union
+from typing import Any
 
-from theauditor.js_semantic_parser import get_semantic_ast, get_semantic_ast_batch
+from theauditor.js_semantic_parser import get_semantic_ast_batch
 from theauditor.ast_patterns import ASTPatternMixin
 
 
@@ -50,7 +48,7 @@ class ASTParser(ASTPatternMixin):
         self.parsers = {}
         self.languages = {}
         self.project_type = None  # Cache project type detection
-        
+
         # Try to import tree-sitter and language bindings
         try:
             import tree_sitter
@@ -69,11 +67,11 @@ class ASTParser(ASTPatternMixin):
         """Initialize Tree-sitter language parsers with proper bindings."""
         if not self.has_tree_sitter:
             return
-        
+
         # Use tree-sitter-language-pack for all languages
         try:
             from tree_sitter_language_pack import get_language, get_parser
-            
+
             # ============================================================================
             # CRITICAL ARCHITECTURAL DECISION: PYTHON IS NEVER PARSED BY TREE-SITTER
             # ============================================================================
@@ -116,7 +114,7 @@ class ASTParser(ASTPatternMixin):
                     "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
                     "Or install with AST support: pip install -e '.[ast]'"
                 )
-            
+
             # TypeScript parser (CRITICAL - must fail fast)
             try:
                 ts_lang = get_language("typescript")
@@ -166,14 +164,14 @@ class ASTParser(ASTPatternMixin):
         """
         if self.project_type is not None:
             return self.project_type
-        
+
         # Check all manifest files first
         has_js = Path("package.json").exists()
         has_python = (Path("requirements.txt").exists() or 
                       Path("pyproject.toml").exists() or 
                       Path("setup.py").exists())
         has_go = Path("go.mod").exists()
-        
+
         # Determine project type based on combinations
         if has_js and has_python:
             self.project_type = "polyglot"  # NEW: Properly handle mixed projects
@@ -189,7 +187,7 @@ class ASTParser(ASTPatternMixin):
             self.project_type = "go"
         else:
             self.project_type = "unknown"
-        
+
         return self.project_type
 
     def parse_file(self, file_path: Path, language: str = None, root_path: str = None, jsx_mode: str = 'transformed') -> Any:
@@ -212,7 +210,7 @@ class ASTParser(ASTPatternMixin):
                 content = f.read()
 
             tsconfig_path = self._find_tsconfig_for_file(file_path, root_path)
-            
+
             # Compute content hash for caching
             content_hash = hashlib.md5(content).hexdigest()
 
@@ -339,7 +337,7 @@ class ASTParser(ASTPatternMixin):
             return ast.parse(content)
         except SyntaxError:
             return None
-    
+
     @lru_cache(maxsize=10000)
     def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
         """Parse Python code with caching based on content hash.
@@ -352,7 +350,7 @@ class ASTParser(ASTPatternMixin):
             Parsed AST or None if parsing fails
         """
         return self._parse_python_builtin(content)
-    
+
     @lru_cache(maxsize=10000)
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
         """Parse code using Tree-sitter with caching based on content hash.
@@ -367,8 +365,8 @@ class ASTParser(ASTPatternMixin):
         """
         parser = self.parsers[language]
         return parser.parse(content)
-    
-    
+
+
     def supports_language(self, language: str) -> bool:
         """Check if a language is supported for AST parsing.
 
@@ -391,7 +389,7 @@ class ASTParser(ASTPatternMixin):
             return True
 
         return False
-    
+
     def parse_content(self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = 'transformed') -> Any:
         """Parse in-memory content into AST.
 
@@ -408,11 +406,11 @@ class ASTParser(ASTPatternMixin):
             Dictionary with parsed AST or None if parsing fails
         """
         import tempfile
-        
+
         # Hash for caching
         content_bytes = content.encode('utf-8')
         content_hash = hashlib.md5(content_bytes).hexdigest()
-        
+
         # JavaScript/TypeScript REQUIRE semantic parser - NO FALLBACKS
         # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
         if language in ["javascript", "typescript"]:
@@ -477,7 +475,7 @@ class ASTParser(ASTPatternMixin):
             python_ast = self._parse_python_cached(content_hash, content)
             if python_ast:
                 return {"type": "python_ast", "tree": python_ast, "language": language, "content": content}
-        
+
         return None
 
     def parse_files_batch(self, file_paths: list[Path], root_path: str = None, jsx_mode: str = 'transformed') -> dict[str, Any]:

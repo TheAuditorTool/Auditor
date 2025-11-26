@@ -14,10 +14,8 @@ CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
 """
 
 
-import json
 import logging
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import (
     RuleMetadata,

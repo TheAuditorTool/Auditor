@@ -23,8 +23,6 @@ False positive fixes (2025-11-22):
 import re
 import sqlite3
 from functools import lru_cache
-from typing import List, Set, Dict, Optional, Tuple
-from pathlib import Path
 from enum import Enum
 
 from theauditor.rules.base import (
@@ -821,7 +819,7 @@ def _organize_pii_patterns() -> dict[str, set[str]]:
 _CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
 
 
-def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+def _split_identifier_tokens(value: str | None) -> list[str]:
     """Split an identifier or arbitrary string into normalized tokens.
 
     Handles camelCase, snake_case, kebab-case, and mixed patterns.
@@ -836,7 +834,7 @@ def _split_identifier_tokens(value: Optional[str]) -> List[str]:
     if not value:
         return []
 
-    tokens: List[str] = []
+    tokens: list[str] = []
 
     for chunk in re.split(r'[^0-9A-Za-z]+', value):
         if not chunk:
@@ -847,12 +845,12 @@ def _split_identifier_tokens(value: Optional[str]) -> List[str]:
 
 
 @lru_cache(maxsize=4096)
-def _pattern_tokens(pattern: str) -> Tuple[str, ...]:
+def _pattern_tokens(pattern: str) -> tuple[str, ...]:
     """Cached version of token splitting for PII patterns."""
     return tuple(_split_identifier_tokens(pattern))
 
 
-def _match_pattern_tokens(tokens: Set[str], pattern: str) -> bool:
+def _match_pattern_tokens(tokens: set[str], pattern: str) -> bool:
     """Check if identifier tokens match a PII pattern.
 
     Uses token-based matching to avoid substring collisions.
@@ -865,7 +863,7 @@ def _match_pattern_tokens(tokens: Set[str], pattern: str) -> bool:
     return all(token in tokens for token in pattern_tokens)
 
 
-def _detect_pii_matches(text: Optional[str], pii_categories: Dict[str, Set[str]]) -> List[Tuple[str, str]]:
+def _detect_pii_matches(text: str | None, pii_categories: dict[str, set[str]]) -> list[tuple[str, str]]:
     """Detect PII patterns in text using token-based matching.
 
     Returns list of (pattern, category) tuples for all matches.
@@ -874,7 +872,7 @@ def _detect_pii_matches(text: Optional[str], pii_categories: Dict[str, Set[str]]
     if not tokens:
         return []
 
-    matches: List[Tuple[str, str]] = []
+    matches: list[tuple[str, str]] = []
 
     for category, patterns in pii_categories.items():
         for pattern in patterns:
@@ -884,7 +882,7 @@ def _detect_pii_matches(text: Optional[str], pii_categories: Dict[str, Set[str]]
     return matches
 
 
-def _detect_specific_pattern(text: Optional[str], patterns: Set[str]) -> Optional[str]:
+def _detect_specific_pattern(text: str | None, patterns: set[str]) -> str | None:
     """Detect if text matches any pattern from a specific set.
 
     Returns the first matching pattern, or None.

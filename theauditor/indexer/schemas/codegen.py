@@ -24,15 +24,10 @@ Usage:
 """
 
 
-from typing import Dict, List, Optional, Set, Any
-import textwrap
-from collections import defaultdict
-import sqlite3
 import hashlib
 from pathlib import Path
 
-from ..schema import TABLES, build_query
-from .utils import TableSchema, Column
+from ..schema import TABLES
 
 
 class SchemaCodeGenerator:
@@ -108,7 +103,7 @@ class SchemaCodeGenerator:
         """
         code = []
         code.append("# Auto-generated TypedDict definitions from schema")
-        code.append("from typing import TypedDict, Optional, Any")
+        code.append("from typing import TypedDict, Any")
         code.append("")
 
         for table_name, schema in sorted(TABLES.items()):
@@ -119,7 +114,7 @@ class SchemaCodeGenerator:
             for col in schema.columns:
                 field_type = cls._python_type(col.type)
                 if col.nullable and not col.primary_key:
-                    field_type = f"Optional[{field_type}]"
+                    field_type = f"{field_type} | None"
                 code.append(f"    {col.name}: {field_type}")
 
             code.append("")
@@ -135,14 +130,13 @@ class SchemaCodeGenerator:
         """
         code = []
         code.append("# Auto-generated accessor classes from schema")
-        code.append("from typing import List, Optional, Dict, Any")
+        code.append("from typing import Any")
         code.append("import sqlite3")
         code.append("from ..schema import build_query")
         code.append("")
 
         for table_name, schema in sorted(TABLES.items()):
             class_name = f"{cls._to_pascal_case(table_name)}Table"
-            row_type = f"{cls._to_pascal_case(table_name)}Row"
 
             code.append(f"class {class_name}:")
             code.append(f'    """Accessor class for {table_name} table."""')
@@ -152,11 +146,11 @@ class SchemaCodeGenerator:
             col_names = [col.name for col in schema.columns]
             col_list_str = str(col_names)
             code.append(f"    @staticmethod")
-            code.append(f"    def get_all(cursor: sqlite3.Cursor) -> List[Dict[str, Any]]:")
+            code.append(f"    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:")
             code.append(f'        """Get all rows from {table_name}."""')
             code.append(f"        query = build_query('{table_name}', {col_list_str})")
             code.append(f"        cursor.execute(query)")
-            code.append(f"        return [dict(zip({col_list_str}, row)) for row in cursor.fetchall()]")
+            code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
             code.append("")
 
             # Generate get_by_{column} for indexed columns
@@ -168,11 +162,11 @@ class SchemaCodeGenerator:
                     if col_def:
                         param_type = cls._python_type(col_def.type)
                         code.append(f"    @staticmethod")
-                        code.append(f"    def get_by_{col_name}(cursor: sqlite3.Cursor, {col_name}: {param_type}) -> List[Dict[str, Any]]:")
+                        code.append(f"    def get_by_{col_name}(cursor: sqlite3.Cursor, {col_name}: {param_type}) -> list[dict[str, Any]]:")
                         code.append(f'        """Get rows by {col_name}."""')
                         code.append(f"        query = build_query('{table_name}', {col_list_str}, where=\"{col_name} = ?\")")
                         code.append(f"        cursor.execute(query, ({col_name},))")
-                        code.append(f"        return [dict(zip({col_list_str}, row)) for row in cursor.fetchall()]")
+                        code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
                         code.append("")
 
             code.append("")
@@ -191,7 +185,7 @@ class SchemaCodeGenerator:
         schema_hash = cls.get_schema_hash()
         code.append("# AUTO-GENERATED FILE - DO NOT EDIT")
         code.append(f"# SCHEMA_HASH: {schema_hash}")
-        code.append("from typing import Dict, List, Any, Optional, DefaultDict")
+        code.append("from typing import Any")
         code.append("from collections import defaultdict")
         code.append("import sqlite3")
         code.append("from ..schema import TABLES, build_query")
@@ -228,15 +222,15 @@ class SchemaCodeGenerator:
         code.append("")
         code.append("        conn.close()")
         code.append("")
-        code.append("    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> List[Dict[str, Any]]:")
+        code.append("    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> list[dict[str, Any]]:")
         code.append('        """Load a table into memory as list of dicts."""')
         code.append("        col_names = [col.name for col in schema.columns]")
         code.append("        query = build_query(table_name, col_names)")
         code.append("        cursor.execute(query)")
         code.append("        rows = cursor.fetchall()")
-        code.append("        return [dict(zip(col_names, row)) for row in rows]")
+        code.append("        return [dict(zip(col_names, row, strict=True)) for row in rows]")
         code.append("")
-        code.append("    def _build_index(self, data: List[Dict[str, Any]], table_name: str, col_name: str, schema: Any) -> Dict[Any, List[Dict[str, Any]]]:")
+        code.append("    def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:")
         code.append('        """Build an index on a column for fast lookups."""')
         code.append("        index = defaultdict(list)")
         code.append("        for row in data:")
@@ -251,7 +245,7 @@ class SchemaCodeGenerator:
         code.append("            return len(getattr(self, table_name))")
         code.append("        return 0")
         code.append("")
-        code.append("    def get_cache_stats(self) -> Dict[str, int]:")
+        code.append("    def get_cache_stats(self) -> dict[str, int]:")
         code.append('        """Get statistics about cached data."""')
         code.append("        stats = {}")
         code.append("        for table_name in TABLES.keys():")
@@ -269,7 +263,7 @@ class SchemaCodeGenerator:
         """
         code = []
         code.append("# Auto-generated validators from schema")
-        code.append("from typing import Any, Callable, Dict")
+        code.append("from typing import Any, Callable")
         code.append("from functools import wraps")
         code.append("from ..schema import TABLES")
         code.append("from .codegen import SchemaCodeGenerator")
@@ -297,7 +291,7 @@ class SchemaCodeGenerator:
         code.append("    return decorator")
         code.append("")
         code.append("")
-        code.append("def validate_column_types(table_name: str, data: Dict[str, Any]) -> None:")
+        code.append("def validate_column_types(table_name: str, data: dict[str, Any]) -> None:")
         code.append('    """Validate column types match schema."""')
         code.append("    if table_name not in TABLES:")
         code.append(f"        raise ValueError(f'Unknown table: {{table_name}}')")
@@ -341,9 +335,6 @@ class SchemaCodeGenerator:
         Args:
             output_dir: Directory to write files to (defaults to same dir as codegen.py)
         """
-        import os
-        from pathlib import Path
-
         if output_dir is None:
             output_dir = Path(__file__).parent
         else:

@@ -16,7 +16,6 @@ Database Tables Used:
 
 import sqlite3
 import json
-from typing import List
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.indexer.schema import build_query
 from .config import DependencyThresholds
@@ -72,8 +71,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                         dev_count = len(dev_dict)
                 except json.JSONDecodeError:
                     pass
-
-            total_count = prod_count + dev_count
 
             # Check production dependencies
             if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:

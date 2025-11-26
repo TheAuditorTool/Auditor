@@ -1,7 +1,6 @@
 """NodeIndex: O(1) node lookup by type for AST trees."""
 import ast
 from collections import defaultdict
-from typing import Union, Type, List, Tuple, Dict
 
 
 class NodeIndex:

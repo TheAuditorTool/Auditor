@@ -14,7 +14,6 @@ Database-First Architecture (v1.1+):
 
 import sqlite3
 import json
-from typing import List, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
 

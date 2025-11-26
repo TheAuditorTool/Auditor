@@ -16,9 +16,7 @@ Follows v1.1+ schema contract compliance for database queries:
 
 
 import sqlite3
-import json
 from pathlib import Path
-from typing import List, Optional, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata

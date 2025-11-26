@@ -46,11 +46,10 @@ Schema Contract:
 """
 
 
-from typing import Dict, List, Optional, Tuple
 import sqlite3
 
 # Import utility classes from schemas/utils.py
-from .schemas.utils import Column, ForeignKey, TableSchema
+from .schemas.utils import TableSchema
 
 # Import all table registries
 from .schemas.core_schema import CORE_TABLES
@@ -430,7 +429,7 @@ def build_join_query(
             )
 
         # Build JOIN conditions from foreign key
-        join_on = list(zip(fk.foreign_columns, fk.local_columns))
+        join_on = list(zip(fk.foreign_columns, fk.local_columns, strict=True))
 
     # Validate JOIN ON columns
     for base_col, join_col in join_on:

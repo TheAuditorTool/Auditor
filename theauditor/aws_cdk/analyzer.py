@@ -10,11 +10,10 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 from dataclasses import dataclass
 
 from ..rules.orchestrator import RulesOrchestrator
-from ..rules.base import StandardRuleContext, StandardFinding, Severity
+from ..rules.base import StandardRuleContext, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +63,6 @@ class AWSCdkAnalyzer:
         Returns:
             List of CdkFinding objects
         """
-        # Build rule context
-        context = self._build_rule_context()
-
         # Get orchestrator and run CDK rules
         project_root = self.db_path.parent
         if project_root.name == ".pf":

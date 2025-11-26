@@ -5,9 +5,6 @@ Handles 8 GraphQL tables including schemas, types, fields, resolvers, and execut
 """
 
 
-from typing import List, Optional
-
-
 class GraphQLDatabaseMixin:
     """Mixin providing add_* methods for GRAPHQL_TABLES.
 

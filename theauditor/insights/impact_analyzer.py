@@ -3,7 +3,7 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set, Tuple
+from typing import Any
 
 
 def classify_risk(impact_list: list[dict[str, Any]]) -> dict[str, Any]:
@@ -91,17 +91,17 @@ def analyze_impact(
         target_file = Path(target_file).as_posix()
         if target_file.startswith("./"):
             target_file = target_file[2:]
-        
+
         # Check if cross-stack analysis is requested
         if trace_to_backend and target_file.endswith(('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')):
             # Attempt cross-stack tracing
             cross_stack_trace = trace_frontend_to_backend(cursor, target_file, target_line)
-            
+
             if cross_stack_trace:
                 # Found a backend endpoint - analyze its downstream impact
                 backend_file = cross_stack_trace["backend"]["file"]
                 backend_line = cross_stack_trace["backend"]["line"]
-                
+
                 # Find the backend function/class at the traced location
                 cursor.execute("""
                     SELECT name, type, line, col
@@ -112,9 +112,9 @@ def analyze_impact(
                     ORDER BY line DESC, col DESC
                     LIMIT 1
                 """, (backend_file, backend_line))
-                
+
                 backend_result = cursor.fetchone()
-                
+
                 if backend_result:
                     backend_name, backend_type, backend_def_line, backend_col = backend_result
 
@@ -166,7 +166,7 @@ def analyze_impact(
                             "details": risk_data["breakdown"]
                         }
                     }
-        
+
         # Step 1: Find the target symbol at the specified location
         # Look for function or class definition at or near the target line
         cursor.execute("""
@@ -178,9 +178,9 @@ def analyze_impact(
             ORDER BY line DESC, col DESC
             LIMIT 1
         """, (target_file, target_line))
-        
+
         target_result = cursor.fetchone()
-        
+
         if not target_result:
             # No function/class found, return empty analysis
             return {
@@ -194,15 +194,15 @@ def analyze_impact(
                     "total_impact": 0
                 }
             }
-        
+
         target_name, target_type, target_def_line, target_col = target_result
-        
+
         # Step 2: Find upstream dependencies (who calls this symbol)
         upstream = find_upstream_dependencies(cursor, target_file, target_name, target_type)
-        
+
         # Step 3: Find downstream dependencies (what this symbol calls)
         downstream = find_downstream_dependencies(cursor, target_file, target_def_line, target_name)
-        
+
         # Step 4: Calculate transitive impact (recursive dependencies)
         upstream_transitive = calculate_transitive_impact(cursor, upstream, "upstream")
         downstream_transitive = calculate_transitive_impact(cursor, downstream, "downstream")
@@ -439,22 +439,22 @@ def calculate_transitive_impact(
     """
     if max_depth <= 0 or not direct_deps:
         return []
-    
+
     if visited is None:
         visited = set()
-    
+
     transitive = []
-    
+
     for dep in direct_deps:
         # Skip external dependencies
         if dep["file"] == "external":
             continue
-            
+
         dep_key = (dep["file"], dep["symbol"])
         if dep_key in visited:
             continue
         visited.add(dep_key)
-        
+
         if direction == "upstream":
             # Find who calls this dependency
             next_level = find_upstream_dependencies(
@@ -465,18 +465,18 @@ def calculate_transitive_impact(
             next_level = find_downstream_dependencies(
                 cursor, dep["file"], dep["line"], dep["symbol"]
             )
-        
+
         # Add current level
         for next_dep in next_level:
             next_dep["depth"] = max_depth
             transitive.append(next_dep)
-        
+
         # Recurse
         recursive_deps = calculate_transitive_impact(
             cursor, next_level, direction, max_depth - 1, visited
         )
         transitive.extend(recursive_deps)
-    
+
     return transitive
 
 
@@ -587,9 +587,6 @@ def trace_frontend_to_backend(
 
     if not backend_match:
         # Try pattern matching (e.g., /api/users/* matches /api/users/:id)
-        # Convert URL to SQL LIKE pattern
-        like_pattern = url_path.replace('*', '%')
-
         cursor.execute("""
             SELECT file, line, method, pattern
             FROM api_endpoints
@@ -825,17 +822,17 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
         Formatted string report
     """
     lines = []
-    
+
     # Header
     lines.append("=" * 60)
     lines.append("IMPACT ANALYSIS REPORT")
     lines.append("=" * 60)
-    
+
     # Target symbol
     if impact_data.get("error"):
         lines.append(f"\nError: {impact_data['error']}")
         return "\n".join(lines)
-    
+
     # Check for cross-stack trace
     if impact_data.get("cross_stack_trace"):
         trace = impact_data["cross_stack_trace"]
@@ -852,7 +849,7 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
         lines.append(f"  Pattern: {trace['backend']['pattern']}")
         if trace['backend'].get('controls') and trace['backend']['controls'] != '[]':
             lines.append(f"  Security Controls: {trace['backend']['controls']}")
-        
+
         # Show backend symbol as the primary target
         if impact_data.get("backend_symbol"):
             backend = impact_data["backend_symbol"]
@@ -862,7 +859,7 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
         target = impact_data["target_symbol"]
         lines.append(f"\nTarget Symbol: {target['name']} ({target['type']})")
         lines.append(f"Location: {target['file']}:{target['line']}")
-    
+
     # Impact summary
     summary = impact_data["impact_summary"]
     lines.append(f"\n{'─' * 40}")
@@ -874,7 +871,7 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
     lines.append(f"Total Downstream (including transitive): {summary['total_downstream']}")
     lines.append(f"Total Impact Radius: {summary['total_impact']} symbols")
     lines.append(f"Affected Files: {summary['affected_files']}")
-    
+
     # Upstream dependencies
     if impact_data["upstream"]:
         lines.append(f"\n{'─' * 40}")
@@ -884,7 +881,7 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
             lines.append(f"  • {dep['symbol']} ({dep['type']}) in {dep['file']}:{dep['line']}")
         if len(impact_data["upstream"]) > 10:
             lines.append(f"  ... and {len(impact_data['upstream']) - 10} more")
-    
+
     # Downstream dependencies
     if impact_data["downstream"]:
         lines.append(f"\n{'─' * 40}")
@@ -897,7 +894,7 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
                 lines.append(f"  • {dep['symbol']} (external/built-in)")
         if len(impact_data["downstream"]) > 10:
             lines.append(f"  ... and {len(impact_data['downstream']) - 10} more")
-    
+
     # Risk assessment - use smart classification if available
     lines.append(f"\n{'─' * 40}")
     lines.append("RISK ASSESSMENT")
@@ -928,5 +925,5 @@ def format_impact_report(impact_data: dict[str, Any]) -> str:
         lines.append("  Ensure all callers are updated if the interface changes")
 
     lines.append("=" * 60)
-    
+
     return "\n".join(lines)

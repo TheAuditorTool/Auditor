@@ -26,7 +26,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..base import get_node_name
 
@@ -442,7 +442,6 @@ def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
             if 'CORS' in func_name:
                 # Extract origins if specified
                 origins = None
-                resources_node = _keyword_arg(node.value, 'resources')
                 origins_node = _keyword_arg(node.value, 'origins')
 
                 if origins_node:

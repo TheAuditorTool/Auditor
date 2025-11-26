@@ -11,7 +11,6 @@ Stores results to session_executions table via SessionExecutionStore.
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from theauditor.session.parser import Session
 from theauditor.session.diff_scorer import DiffScorer

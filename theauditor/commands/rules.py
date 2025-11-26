@@ -5,7 +5,6 @@ import yaml
 import importlib
 import inspect
 from pathlib import Path
-from typing import Dict, List, Any
 
 import click
 
@@ -195,7 +194,7 @@ def rules_command(summary: bool) -> None:
     raise SystemExit(ExitCodes.SUCCESS)
 
 
-def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
+def scan_yaml_patterns(patterns_path: Path) -> dict[str, dict[str, list[str]]]:
     """Scan YAML pattern files and extract pattern names.
 
     Args:
@@ -244,14 +243,14 @@ def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
                         if pattern_names:
                             results[category][file] = pattern_names
 
-                except (yaml.YAMLError, OSError) as e:
+                except (yaml.YAMLError, OSError):
                     # Skip files that can't be parsed
                     continue
 
     return results
 
 
-def scan_python_rules(rules_path: Path) -> Dict[str, List[str]]:
+def scan_python_rules(rules_path: Path) -> dict[str, list[str]]:
     """Scan Python rule files and find all find_* functions.
 
     Args:

@@ -8,7 +8,7 @@ for dual-write pattern: database (FCE performance) + JSON (AI consumption).
 
 
 from datetime import datetime, UTC
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 
 def format_meta_finding(

@@ -170,9 +170,6 @@ def _check_unsafe_template_syntax(cursor: sqlite3.Cursor) -> list[StandardFindin
                         ))
 
     # Specific check for triple mustache in Handlebars/Mustache
-    # Patterns for complete unescaped output syntax
-    unescaped_patterns = ['{{{', '}}}', '<%-%>%', '!{', '}']
-
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
@@ -413,14 +410,6 @@ def _check_server_side_template_injection(cursor: sqlite3.Cursor) -> list[Standa
         '{{config', '{{self', '{{request',
         '${__', '#{__'  # These contain underscores - will be escaped!
     ]
-
-    # Template rendering functions for proximity checks
-    RENDER_FUNCTIONS = frozenset([
-        'render_template_string', 'render_template', 'render',
-        'ejs.render', 'ejs.compile', 'pug.compile',
-        'Handlebars.compile', 'tera.render_str', 'tera.render',
-        'compile', 'Template'
-    ])
 
     # Fetch all assignments for pattern checking
     cursor.execute("""

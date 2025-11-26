@@ -20,7 +20,6 @@ Database Tables Used:
 
 
 import sqlite3
-from typing import List, Dict, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.indexer.schema import build_query
 from .config import FRONTEND_FRAMEWORKS, META_FRAMEWORKS

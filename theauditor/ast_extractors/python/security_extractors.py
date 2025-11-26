@@ -25,7 +25,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..base import get_node_name
 
@@ -440,7 +440,6 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
         # Extract algorithm
         algorithm = None
         mode = None
-        key_size = None
 
         if 'AES' in func_name:
             algorithm = 'AES'
@@ -493,7 +492,7 @@ def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
     Returns:
         List of SQL query dicts with command, tables, and source info
     """
-    from theauditor.indexer.extractors.python import parse_sql_query
+    from theauditor.indexer.extractors.sql import parse_sql_query
 
     queries = []
     if not isinstance(context.tree, ast.AST):

@@ -38,9 +38,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 import ast
 import logging
-from typing import Any, Dict, List, Optional, Set
-
-from ..base import get_node_name
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

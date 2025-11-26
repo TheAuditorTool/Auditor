@@ -71,19 +71,19 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
 
     Note: Respects proxy settings and npm/pip configurations."""
     from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps, generate_grouped_report
-    from theauditor.vulnerability_scanner import scan_dependencies, write_vulnerabilities_json, format_vulnerability_report
+    from theauditor.vulnerability_scanner import scan_dependencies, format_vulnerability_report
     import sys
-    
+
     # Parse dependencies
     deps_list = parse_dependencies(root_path=root)
-        
+
     if not deps_list:
         click.echo("No dependency files found (package.json, pyproject.toml, requirements.txt)")
         click.echo("  Searched in: " + str(Path(root).resolve()))
         return
-        
+
     write_deps_json(deps_list, output_path=out)
-    
+
     # Vulnerability scanning
     if vuln_scan:
         click.echo(f"\n[SCAN] Running native vulnerability scanners...")
@@ -105,7 +105,7 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
             report = format_vulnerability_report(vulnerabilities)
             click.echo("\n" + report)
             click.echo(f"\nDetailed report written to {vuln_output}")
-            
+
             # Exit with error code if critical vulnerabilities found
             critical_count = sum(1 for v in vulnerabilities if v["severity"] == "critical")
             if critical_count > 0:
@@ -113,10 +113,10 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
                 sys.exit(ExitCodes.CRITICAL_SEVERITY)
         else:
             click.echo(f"  [OK] No known vulnerabilities found in dependencies")
-        
+
         # Don't continue with other operations after vuln scan
         return
-    
+
     # YOLO MODE: Upgrade all to latest
     if upgrade_all and not offline:
         click.echo("[YOLO MODE] Upgrading ALL packages to latest versions...")
@@ -129,29 +129,29 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         if not latest_info:
             click.echo("  [FAIL] Failed to fetch latest versions")
             return
-        
+
         # Check if all packages were successfully checked
         failed_checks = sum(1 for info in latest_info.values() if info.get("error") is not None)
         successful_checks = sum(1 for info in latest_info.values() if info.get("latest") is not None)
-        
+
         if failed_checks > 0:
             click.echo(f"\n  [WARN] Only {successful_checks}/{len(latest_info)} packages checked successfully")
             click.echo(f"  [FAIL] Cannot upgrade with {failed_checks} failed checks")
             click.echo("  Fix network issues and try again")
             return
-            
+
         # Upgrade all dependency files
         upgraded = upgrade_all_deps(root_path=root, latest_info=latest_info, deps_list=deps_list)
-        
+
         # Count unique packages that were upgraded
         unique_upgraded = len([1 for k, v in latest_info.items() if v.get("is_outdated", False)])
         total_updated = sum(upgraded.values())
-        
+
         click.echo(f"\n[UPGRADED] Dependency files:")
         for file_type, count in upgraded.items():
             if count > 0:
                 click.echo(f"  [OK] {file_type}: {count} dependency entries updated")
-        
+
         # Show what was actually upgraded
         click.echo(f"\n[CHANGES] Packages upgraded:")
         upgraded_packages = [
@@ -159,27 +159,27 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
             for k, v in latest_info.items()
             if v.get("is_outdated", False) and v.get("latest") is not None
         ]
-        
+
         # Sort by package name for consistent output
         upgraded_packages.sort(key=lambda x: x[0].lower())
-        
+
         # Show ALL upgrades with details (no truncation)
         for name, old_ver, new_ver, delta in upgraded_packages:
             delta_marker = " [MAJOR]" if delta == "major" else ""
             # Use arrow character that works on Windows
             arrow = "->" if IS_WINDOWS else "→"
             click.echo(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}")
-        
+
         # Show summary that matches the "Outdated: 10/29" format
         if total_updated > unique_upgraded:
             click.echo(f"\n  Summary: {unique_upgraded} unique packages updated across {total_updated} occurrences")
-        
+
         click.echo("\n[NEXT STEPS]:")
         click.echo("  1. Run: pip install -r requirements.txt")
         click.echo("  2. Or: npm install")
         click.echo("  3. Pray it still works")
         return
-        
+
     # Check latest versions if requested
     latest_info = {}
     if check_latest and not offline:
@@ -191,7 +191,7 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
             if key not in unique_packages:
                 unique_packages[key] = 0
             unique_packages[key] += 1
-        
+
         click.echo(f"Checking {len(deps_list)} dependencies for updates...")
         click.echo(f"  Unique packages to check: {len(unique_packages)}")
 
@@ -209,11 +209,11 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         latest_info = check_latest_versions(deps_list, allow_net=True, offline=offline, allow_prerelease=allow_prerelease)
         if latest_info:
             write_deps_latest_json(latest_info, output_path=out.replace("deps.json", "deps_latest.json"))
-            
+
             # Count successful vs failed checks
             successful_checks = sum(1 for info in latest_info.values() if info.get("latest") is not None)
             failed_checks = sum(1 for info in latest_info.values() if info.get("error") is not None)
-            
+
             click.echo(f"  [OK] Checked {successful_checks}/{len(unique_packages)} unique packages")
             if failed_checks > 0:
                 click.echo(f"  [WARN] {failed_checks} packages failed to check")
@@ -223,10 +223,10 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
                     click.echo(f"     - {pkg}: {err}")
         else:
             click.echo("  [FAIL] Failed to check versions (network issue or offline mode)")
-    
+
     # Always show output
     click.echo(f"Dependencies written to {out}")
-    
+
     # Count by manager
     npm_count = sum(1 for d in deps_list if d["manager"] == "npm")
     py_count = sum(1 for d in deps_list if d["manager"] == "py")
@@ -242,11 +242,11 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         click.echo(f"  Docker: {docker_count}")
     if cargo_count > 0:
         click.echo(f"  Cargo/Rust: {cargo_count}")
-    
+
     if latest_info:
         # Always use grouped report (only sane output format)
         generate_grouped_report(deps_list, latest_info, hide_up_to_date=True)
-    
+
     # Add a helpful hint if no network operation was performed
     if not check_latest and not upgrade_all:
         click.echo("\nTIP: Run with --check-latest to check for outdated packages.")

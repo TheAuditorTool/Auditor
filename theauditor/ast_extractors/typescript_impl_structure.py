@@ -25,9 +25,8 @@ by providing O(1) line-to-function lookups for accurate scope resolution.
 """
 
 
-import os
 import sys
-from typing import Any, List, Dict, Optional
+from typing import Any
 
 
 def _strip_comment_prefix(text: str | None) -> str:
@@ -152,9 +151,9 @@ def extract_semantic_ast_symbols(node, depth=0):
     symbols = []
     if depth > 100 or not isinstance(node, dict):
         return symbols
-    
+
     kind = node.get("kind")
-    
+
     # PropertyAccessExpression: req.body, req.params, res.send, etc.
     if kind == "PropertyAccessExpression":
         full_name = _canonical_member_name(node)
@@ -166,18 +165,18 @@ def extract_semantic_ast_symbols(node, depth=0):
 
             # Default all property accesses as "property" type
             db_type = "property"
-            
+
             # Override only for known sink patterns that should be "call" type
             if any(sink in full_name for sink in ["res.send", "res.render", "res.json", "response.write", "innerHTML", "outerHTML", "exec", "eval", "system", "spawn"]):
                 db_type = "call"  # Taint analyzer looks for sinks as calls
-            
+
             symbols.append({
                 "name": full_name,
                 "line": node.get("line", 0),
                 "column": node.get("column", 0),
                 "type": db_type
             })
-    
+
     # CallExpression: function calls including method calls
     elif kind == "CallExpression":
         name = _canonical_callee_from_call(node)
@@ -200,14 +199,14 @@ def extract_semantic_ast_symbols(node, depth=0):
             # Check for sink patterns
             if any(sink in text for sink in ["res.send", "res.render", "res.json", "response.write"]):
                 db_type = "call"
-            
+
             symbols.append({
                 "name": text,
                 "line": node.get("line", 0),
                 "column": node.get("column", 0),
                 "type": db_type
             })
-    
+
     # Recurse through children
     for child in node.get("children", []):
         symbols.extend(extract_semantic_ast_symbols(child, depth + 1))
@@ -643,7 +642,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
             "type": "function",
             "kind": kind,
         }
-        base_name_for_enrichment = ""
 
         # Pattern 1: Standard FunctionDeclaration
         if kind == "FunctionDeclaration":
@@ -654,7 +652,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
                     func_name = child.get("text", "")
                     break
-            base_name_for_enrichment = func_name
 
         # Pattern 2: MethodDeclaration (class methods)
         elif kind == "MethodDeclaration":
@@ -665,7 +662,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
                     method_name = child.get("text", "")
                     break
-            base_name_for_enrichment = method_name
             func_name = f"{class_stack[-1]}.{method_name}" if class_stack else method_name
 
         # Pattern 3: PropertyDeclaration with ArrowFunction/FunctionExpression (CRITICAL FIX)
@@ -696,7 +692,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                         if isinstance(child, dict) and child.get("kind") == "Identifier":
                             prop_name = child.get("text", "")
                             break
-                    base_name_for_enrichment = prop_name
                     func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
 
         # Pattern 4: Constructor, GetAccessor, SetAccessor
@@ -711,7 +706,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
                         accessor_name = child.get("text", "")
                         break
-            base_name_for_enrichment = accessor_name
             prefix = ""
             if kind == "GetAccessor": prefix = "get "
             if kind == "SetAccessor": prefix = "set "
@@ -774,24 +768,24 @@ def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
     which is essential for Control Flow Graph construction.
     """
     functions = []
-    
+
     # Get the actual AST tree, not the symbols
     # The AST can be in different locations depending on how it was parsed
     ast_root = tree.get("ast", {})
     if not ast_root and "tree" in tree and isinstance(tree["tree"], dict):
         # For semantic_ast type, the AST is nested at tree['tree']['ast']
         ast_root = tree["tree"].get("ast", {})
-    
+
     if not ast_root:
         return []
-    
+
     def traverse_for_functions(node, depth=0):
         """Recursively find all function nodes in the AST."""
         if depth > 100 or not isinstance(node, dict):
             return
-        
+
         kind = node.get("kind")
-        
+
         # These are the TypeScript AST node types for functions
         function_kinds = [
             "FunctionDeclaration",
@@ -802,7 +796,7 @@ def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
             "GetAccessor",
             "SetAccessor"
         ]
-        
+
         if kind in function_kinds:
             # Return the ENTIRE node - it contains everything including body
             functions.append(node)
@@ -813,7 +807,7 @@ def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
             # Not a function, keep looking in children
             for child in node.get("children", []):
                 traverse_for_functions(child, depth + 1)
-    
+
     traverse_for_functions(ast_root)
     return functions
 
@@ -998,7 +992,7 @@ def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
                 import_entry["text"] = f"import '{module}'"
 
         imports.append(import_entry)
-    
+
     return imports
 
 
@@ -1013,7 +1007,7 @@ def extract_typescript_exports(tree: dict, parser_self) -> list[dict[str, Any]]:
 def extract_typescript_properties(tree: dict, parser_self) -> list[dict]:
     """Extract property accesses from TypeScript semantic AST."""
     properties = []
-    
+
     # Already handled in extract_calls via extract_semantic_ast_symbols
     # But we can also extract them specifically here
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -1023,6 +1017,6 @@ def extract_typescript_properties(tree: dict, parser_self) -> list[dict]:
             symbols = extract_semantic_ast_symbols(ast_root)
             # Filter for property accesses only
             properties = [s for s in symbols if s.get("type") == "property"]
-    
+
     return properties
 

@@ -16,7 +16,6 @@ Database Tables Used:
 
 import json
 import sqlite3
-from typing import List, Dict
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.indexer.schema import build_query
 

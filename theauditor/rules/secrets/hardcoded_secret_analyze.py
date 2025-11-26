@@ -24,7 +24,6 @@ import sqlite3
 import re
 import base64
 import math
-from typing import List, Optional
 from pathlib import Path
 from collections import Counter
 
@@ -253,7 +252,7 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding
 # DATABASE-BASED DETECTION FUNCTIONS
 # ============================================================================
 
-def _extract_string_literal(expr: str) -> Optional[str]:
+def _extract_string_literal(expr: str) -> str | None:
     """Extract the inner value of a string literal expression.
 
     Supports Python prefixes (r/u/b/f) and JavaScript/TypeScript string forms.

@@ -84,7 +84,7 @@ class PatternLoader:
             rel_path = yaml_file.relative_to(self.patterns_dir)
             # Category is the path without extension (e.g., "frameworks/react" for "frameworks/react.yml")
             category = str(rel_path.with_suffix(''))
-            
+
             # Skip if category filtering is enabled and this isn't included
             if categories and category not in categories:
                 continue

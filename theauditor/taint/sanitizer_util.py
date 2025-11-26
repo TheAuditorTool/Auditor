@@ -9,7 +9,6 @@ NO FALLBACKS. NO EXCEPTIONS. Database-first architecture.
 
 
 import sys
-from typing import Dict, List, Optional, Set, Any
 
 
 class SanitizerRegistry:

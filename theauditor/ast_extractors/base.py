@@ -19,7 +19,7 @@ This is a deliberate architectural decision to maintain extraction purity.
 
 
 import ast
-from typing import Any, List, Optional
+from typing import Any
 from pathlib import Path
 
 
@@ -154,7 +154,7 @@ def sanitize_call_name(name: Any) -> str:
 def find_containing_function_python(tree: ast.AST, line: int) -> str | None:
     """Find the function containing a given line in Python AST."""
     containing_func = None
-    
+
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -162,7 +162,7 @@ def find_containing_function_python(tree: ast.AST, line: int) -> str | None:
                     # Check if this is more specific than current containing_func
                     if containing_func is None or node.lineno > containing_func[1]:
                         containing_func = (node.name, node.lineno)
-    
+
     return containing_func[0] if containing_func else None
 
 
@@ -199,7 +199,7 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
                 "generator_function",        # function* foo() {}
                 "async_function",           # async function foo() {}
             ]
-            
+
             if current.type in function_types:
                 # Special handling for arrow functions FIRST
                 # They need different logic than regular functions
@@ -231,21 +231,21 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
                     # The arrow function should be tracked as within "outer", not "anonymous"
                     # Let the while loop continue to find outer function
                     continue  # Skip the rest and continue searching upward
-                
+
                 # For non-arrow functions, try field-based API first
                 if hasattr(current, 'child_by_field_name'):
                     name_node = current.child_by_field_name('name')
                     if name_node and name_node.text:
                         return name_node.text.decode("utf-8", errors="ignore")
-                
+
                 # Fallback to child iteration for regular functions
                 for child in current.children:
                     if child.type in ["identifier", "property_identifier"]:
                         return child.text.decode("utf-8", errors="ignore")
-                
+
                 # If still no name found for this regular function, it's anonymous
                 return "anonymous"
-                
+
         elif language == "python":
             if current.type == "function_definition":
                 # Try field-based API first
@@ -257,7 +257,7 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
                 for child in current.children:
                     if child.type == "identifier":
                         return child.text.decode("utf-8", errors="ignore")
-    
+
     # If no function found, return "global" instead of None for better tracking
     return "global"
 

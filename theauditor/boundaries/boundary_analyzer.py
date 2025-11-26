@@ -26,7 +26,6 @@ Examples of Violations:
 
 
 import sqlite3
-from typing import List, Dict
 from theauditor.boundaries.distance import find_all_paths_to_controls, measure_boundary_quality
 
 

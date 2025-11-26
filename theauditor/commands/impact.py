@@ -124,7 +124,6 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
     Note: Requires 'aud index' to be run first."""
     # Import directly to avoid __init__.py which has missing taint module
-    import sys
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "impact_analyzer",
@@ -135,7 +134,6 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
     analyze_impact = impact_module.analyze_impact
     format_impact_report = impact_module.format_impact_report
     format_planning_context = impact_module.format_planning_context
-    classify_risk = impact_module.classify_risk
     from theauditor.config_runtime import load_runtime_config
     import json as json_lib
     import sqlite3
@@ -259,7 +257,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
     if not file.exists():
         click.echo(f"Warning: File {file} not found in filesystem", err=True)
         click.echo("Proceeding with analysis using indexed data...", err=True)
-    
+
     # Perform impact analysis
     try:
         result = analyze_impact(
@@ -268,7 +266,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
             target_line=line,
             trace_to_backend=trace_to_backend
         )
-        
+
         # Output results
         if json:
             # JSON output for programmatic use
@@ -281,13 +279,13 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
             # Human-readable report
             report = format_impact_report(result)
             click.echo(report)
-            
+
             # Additional verbose output
             if verbose and not result.get("error"):
                 click.echo("\n" + "=" * 60)
                 click.echo("DETAILED DEPENDENCY INFORMATION")
                 click.echo("=" * 60)
-                
+
                 # Show transitive upstream
                 if result.get("upstream_transitive"):
                     click.echo(f"\nTransitive Upstream Dependencies ({len(result['upstream_transitive'])} total):")
@@ -297,7 +295,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
                         click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}")
                     if len(result["upstream_transitive"]) > 20:
                         click.echo(f"  ... and {len(result['upstream_transitive']) - 20} more")
-                
+
                 # Show transitive downstream
                 if result.get("downstream_transitive"):
                     click.echo(f"\nTransitive Downstream Dependencies ({len(result['downstream_transitive'])} total):")
@@ -311,18 +309,18 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
                             click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} (external)")
                     if len(result["downstream_transitive"]) > 20:
                         click.echo(f"  ... and {len(result['downstream_transitive']) - 20} more")
-        
+
         # Exit with appropriate code
         if result.get("error"):
             # Error already displayed in the report, just exit with code
             exit(3)  # Exit code 3 for analysis errors
-        
+
         # Warn if high impact
         summary = result.get("impact_summary", {})
         if summary.get("total_impact", 0) > 20:
             click.echo("\n[!] WARNING: High impact change detected!", err=True)
             exit(1)  # Non-zero exit for CI/CD integration
-            
+
     except Exception as e:
         # Only show this for unexpected exceptions, not for already-handled errors
         if "No function or class found at" not in str(e):

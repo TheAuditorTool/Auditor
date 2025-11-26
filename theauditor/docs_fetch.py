@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
 
 try:
@@ -109,19 +109,19 @@ def fetch_docs(
             stats["cached"] += 1
         else:
             needs_fetch.append(dep)
-    
+
     # Early exit if everything is cached
     if not needs_fetch:
         return stats
-    
+
     # SECOND PASS: Fetch only what we need, with per-service rate limiting
     npm_rate_limited_until = 0
     pypi_rate_limited_until = 0
-    
+
     for i, dep in enumerate(needs_fetch):
         try:
             current_time = time.time()
-            
+
             # Check if this service is rate limited
             if dep["manager"] == "npm" and current_time < npm_rate_limited_until:
                 stats["skipped"] += 1
@@ -131,7 +131,7 @@ def fetch_docs(
                 stats["skipped"] += 1
                 stats["errors"].append(f"{dep['name']}: Skipped (PyPI rate limited)")
                 continue
-            
+
             # Fetch the documentation
             if dep["manager"] == "npm":
                 result = _fetch_npm_docs(dep, output_path, allowlist)
@@ -182,7 +182,7 @@ def _check_cache_for_dep(dep: dict[str, Any], output_dir: Path) -> dict[str, boo
     name = dep["name"]
     version = dep["version"]
     manager = dep["manager"]
-    
+
     # Build the cache file path
     if manager == "npm":
         # Handle git versions
@@ -200,10 +200,10 @@ def _check_cache_for_dep(dep: dict[str, Any], output_dir: Path) -> dict[str, boo
         pkg_dir = output_dir / "py" / f"{safe_name}@{safe_version}"
     else:
         return {"cached": False}
-    
+
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
-    
+
     # Check cache validity
     if doc_file.exists() and meta_file.exists():
         try:
@@ -215,7 +215,7 @@ def _check_cache_for_dep(dep: dict[str, Any], output_dir: Path) -> dict[str, boo
                 return {"cached": True}
         except (json.JSONDecodeError, KeyError):
             pass
-    
+
     return {"cached": False}
 
 
@@ -227,7 +227,7 @@ def _fetch_npm_docs(
     """Fetch documentation for an npm package."""
     name = dep["name"]
     version = dep["version"]
-    
+
     # Validate package name
     if not validate_package_name(name, "npm"):
         return {"status": "skipped", "reason": "Invalid package name"}
@@ -346,14 +346,14 @@ def _fetch_pypi_docs(
     """Fetch documentation for a PyPI package."""
     name = dep["name"].strip()  # Strip any whitespace from name
     version = dep["version"]
-    
+
     # Validate package name
     if not validate_package_name(name, "py"):
         return {"status": "skipped", "reason": "Invalid package name"}
 
     # Sanitize package name for URL
     safe_url_name = sanitize_url_component(name)
-    
+
     # Handle special versions
     if version in ["latest", "git"]:
         # For latest, fetch current version first
@@ -370,7 +370,7 @@ def _fetch_pypi_docs(
 
     # Sanitize version for filesystem
     safe_version = version.replace(":", "_").replace("/", "_").replace("\\", "_")
-    
+
     # Create package-specific directory with sanitized name
     safe_name = name.replace("/", "_").replace("\\", "_")
     try:
@@ -923,11 +923,11 @@ def _fetch_pypi_web_readme(name: str, version: str, allowlist: list[str]) -> str
     # Validate package name
     if not validate_package_name(name, "py"):
         return None
-    
+
     # Sanitize for URL
     safe_name = sanitize_url_component(name)
     safe_version = sanitize_url_component(version)
-    
+
     # PyPI web URLs
     urls_to_try = [
         f"https://pypi.org/project/{safe_name}/{safe_version}/",

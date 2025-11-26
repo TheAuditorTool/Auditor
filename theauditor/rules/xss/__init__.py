@@ -6,8 +6,6 @@ Dramatically reduces false positives by understanding framework context.
 
 
 import sqlite3
-from typing import List
-from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding
 

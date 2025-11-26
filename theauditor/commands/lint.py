@@ -28,9 +28,6 @@ def lint_command(
     Returns:
         Dictionary with success status and statistics
     """
-    # AUTO-FIX DEPRECATED: Force disabled to prevent version mismatch issues
-    auto_fix = False
-
     # Load workset files if in workset mode
     workset_files = None
     if workset_path is not None:
@@ -168,10 +165,10 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
     Auto-fix is deprecated - use native linter fix commands instead:
       eslint --fix, ruff --fix, prettier --write, black ."""
     from theauditor.config_runtime import load_runtime_config
-    
+
     # Load configuration
     config = load_runtime_config(root)
-    
+
     # Use config defaults if not provided
     if manifest is None:
         manifest = config["paths"]["manifest"]
@@ -182,7 +179,7 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
 
     # Use workset path only if --workset flag is set
     actual_workset_path = workset_path if workset else None
-    
+
     result = lint_command(
         root_path=root,
         workset_path=actual_workset_path,

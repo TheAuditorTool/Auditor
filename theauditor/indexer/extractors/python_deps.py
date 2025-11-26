@@ -11,7 +11,7 @@ Stores in python_package_configs table for fast dependency checking.
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import BaseExtractor
 

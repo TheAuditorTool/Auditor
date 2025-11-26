@@ -6,7 +6,6 @@ These are particularly dangerous as they can bypass server-side protections.
 
 
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
@@ -99,7 +98,6 @@ def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
 
     try:
         # Run checks that require function_call_args or assignments

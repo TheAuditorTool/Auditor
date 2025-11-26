@@ -13,7 +13,7 @@ from theauditor.utils.validation_debug import log_validation
 
 class FrameworkDetector:
     """Detects frameworks and libraries used in a project."""
-    
+
     # Note: Framework detection now uses the centralized FRAMEWORK_REGISTRY
     # from framework_registry.py instead of the old FRAMEWORK_SIGNATURES
 
@@ -44,7 +44,7 @@ class FrameworkDetector:
 
         # Use unified manifest detection
         self._detect_from_manifests()
-        
+
         # Also detect from monorepo workspaces (keep existing logic)
         self._detect_from_workspaces()
 
@@ -115,7 +115,7 @@ class FrameworkDetector:
     def _detect_from_manifests(self):
         """Unified manifest detection using registry and ManifestParser - now directory-aware."""
         parser = ManifestParser()
-        
+
         # Manifest file names to search for
         manifest_names = [
             "pyproject.toml",
@@ -134,7 +134,7 @@ class FrameworkDetector:
             "build.gradle.kts",
             "composer.json",
         ]
-        
+
         # Recursively find all manifest files in the project
         manifests = {}
         for manifest_name in manifest_names:
@@ -144,29 +144,29 @@ class FrameworkDetector:
                 try:
                     relative_path = manifest_path.relative_to(self.project_path)
                     should_skip = False
-                    
+
                     # Check common skip directories
                     for part in relative_path.parts[:-1]:  # Don't check the filename itself
                         if part in ["node_modules", "venv", ".venv", ".auditor_venv", "vendor", 
                                    "dist", "build", "__pycache__", ".git", ".tox", ".pytest_cache"]:
                             should_skip = True
                             break
-                    
+
                     if should_skip:
                         continue
-                    
+
                     # Calculate the directory path relative to project root
                     dir_path = manifest_path.parent.relative_to(self.project_path)
                     dir_str = str(dir_path) if dir_path != Path('.') else '.'
-                    
+
                     # Create a unique key for this manifest
                     manifest_key = f"{dir_str}/{manifest_name}" if dir_str != '.' else manifest_name
                     manifests[manifest_key] = manifest_path
-                    
+
                 except ValueError:
                     # File is outside project path somehow, skip it
                     continue
-        
+
         # Parse each manifest that exists
         parsed_data = {}
         for manifest_key, path in manifests.items():
@@ -174,7 +174,7 @@ class FrameworkDetector:
                 try:
                     # Extract just the filename for parsing logic
                     filename = path.name
-                    
+
                     if filename.endswith('.toml'):
                         parsed_data[manifest_key] = parser.parse_toml(path)
                     elif filename.endswith('.json'):
@@ -198,7 +198,7 @@ class FrameworkDetector:
                             parsed_data[manifest_key] = f.read()
                 except Exception as e:
                     print(f"Warning: Failed to parse {manifest_key}: {e}")
-        
+
         # Check each framework against all manifests
         for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
             for required_manifest_name, search_configs in fw_config.get("detection_sources", {}).items():
@@ -207,13 +207,13 @@ class FrameworkDetector:
                     # Check if this manifest matches the required type
                     if not manifest_key.endswith(required_manifest_name):
                         continue
-                    
+
                     # Extract the directory path from the manifest key
                     if '/' in manifest_key:
                         dir_path = '/'.join(manifest_key.split('/')[:-1])
                     else:
                         dir_path = '.'
-                    
+
                     if search_configs == "line_search":
                         # Simple text search for requirements.txt style or Gemfile
                         if isinstance(manifest_data, list):
@@ -249,17 +249,17 @@ class FrameworkDetector:
                                 pattern = fw_config["package_pattern"]
                             else:
                                 pattern = fw_name
-                            
+
                             # Try different version patterns
                             version_match = re.search(rf'{re.escape(pattern)}["\']?\s*[,:]?\s*["\']?([\d.]+)', manifest_data)
                             if not version_match:
                                 version_match = re.search(rf'{re.escape(pattern)}\s+v([\d.]+)', manifest_data)
                             if not version_match:
                                 version_match = re.search(rf'gem\s+["\']?{re.escape(pattern)}["\']?\s*,\s*["\']([\d.]+)["\']', manifest_data)
-                            
+
                             if version_match:
                                 version = version_match.group(1)
-                            
+
                             self.detected_frameworks.append({
                                 "framework": fw_name,
                                 "version": version,
@@ -267,7 +267,7 @@ class FrameworkDetector:
                                 "path": dir_path,
                                 "source": manifest_key
                             })
-                            
+
                     elif search_configs == "content_search":
                         # Content search for text-based files
                         if isinstance(manifest_data, str):
@@ -284,7 +284,7 @@ class FrameworkDetector:
                             # Fallback to framework name
                             elif fw_name in manifest_data:
                                 found = True
-                                
+
                             if found:
                                 # Try to extract version
                                 version = "unknown"
@@ -293,7 +293,7 @@ class FrameworkDetector:
                                 version_match = re.search(rf'{re.escape(pattern)}.*?[>v]([\d.]+)', manifest_data, re.DOTALL)
                                 if version_match:
                                     version = version_match.group(1)
-                                
+
                                 self.detected_frameworks.append({
                                     "framework": fw_name,
                                     "version": version,
@@ -301,7 +301,7 @@ class FrameworkDetector:
                                     "path": dir_path,
                                     "source": manifest_key
                                 })
-                            
+
                     elif search_configs == "exists":
                         # Just check if file exists (for go.mod with go test framework)
                         self.detected_frameworks.append({
@@ -311,7 +311,7 @@ class FrameworkDetector:
                             "path": dir_path,
                             "source": manifest_key
                         })
-                    
+
                     else:
                         # Structured search for JSON/TOML/YAML
                         for key_path in search_configs:
@@ -336,32 +336,32 @@ class FrameworkDetector:
                                         "source": manifest_key
                                     })
                                     break
-    
+
     def _detect_from_workspaces(self):
         """Detect frameworks from monorepo workspace packages."""
         # This preserves the existing monorepo detection logic
         package_json = self.project_path / "package.json"
         if not package_json.exists():
             return
-            
+
         parser = ManifestParser()
         try:
             data = parser.parse_json(package_json)
-            
+
             # Check for workspaces field (Yarn/npm workspaces)
             workspaces = data.get("workspaces", [])
-            
+
             # Handle different workspace formats
             if isinstance(workspaces, dict):
                 # npm 7+ format: {"packages": ["packages/*"]}
                 workspaces = workspaces.get("packages", [])
-            
+
             if workspaces and isinstance(workspaces, list):
                 # This is a monorepo - check workspace packages
                 for pattern in workspaces:
                     # Convert workspace pattern to absolute path pattern
                     abs_pattern = str(self.project_path / pattern)
-                    
+
                     # Handle glob patterns
                     if "*" in abs_pattern:
                         matched_paths = glob.glob(abs_pattern)
@@ -381,30 +381,30 @@ class FrameworkDetector:
                                 self._check_workspace_package(workspace_pkg, parser)
         except Exception as e:
             print(f"Warning: Failed to check workspaces: {e}")
-    
+
     def _check_workspace_package(self, pkg_path: Path, parser: ManifestParser):
         """Check a single workspace package.json for frameworks."""
         try:
             data = parser.parse_json(pkg_path)
-            
+
             # Check dependencies
             all_deps = {}
             if "dependencies" in data:
                 all_deps.update(data["dependencies"])
             if "devDependencies" in data:
                 all_deps.update(data["devDependencies"])
-            
+
             # Check each JavaScript framework
             for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
                 if fw_config["language"] != "javascript":
                     continue
-                    
+
                 package_name = fw_config.get("package_pattern", fw_name)
                 if package_name in all_deps:
                     version = all_deps[package_name]
                     # Clean version
                     version = re.sub(r'^[~^>=<]+', '', str(version)).strip()
-                    
+
                     # Calculate relative path for path field
                     try:
                         rel_path = pkg_path.parent.relative_to(self.project_path)
@@ -413,7 +413,7 @@ class FrameworkDetector:
                     except ValueError:
                         path = '.'
                         source = str(pkg_path)
-                    
+
                     self.detected_frameworks.append({
                         "framework": fw_name,
                         "version": version,
@@ -423,7 +423,7 @@ class FrameworkDetector:
                     })
         except Exception as e:
             print(f"Warning: Failed to parse workspace package {pkg_path}: {e}")
-    
+
         # Stub method kept for backward compatibility - actual logic moved to _detect_from_manifests
         pass
 
@@ -460,7 +460,7 @@ class FrameworkDetector:
                     for part in ["node_modules", "venv", ".venv", ".auditor_venv", "vendor", "dist", "build", "__pycache__", ".git"]
                 ):
                     continue
-                
+
                 # Check exclude patterns
                 relative_path = file_path.relative_to(self.project_path)
                 should_skip = False
@@ -481,7 +481,7 @@ class FrameworkDetector:
                     elif str(relative_path) == pattern:
                         should_skip = True
                         break
-                
+
                 if should_skip:
                     continue
 
@@ -496,14 +496,14 @@ class FrameworkDetector:
                         # Only check frameworks for this language
                         if fw_config["language"] != language:
                             continue
-                            
+
                         if "import_patterns" in fw_config:
                             for import_pattern in fw_config["import_patterns"]:
                                 if import_pattern in content:
                                     # Check if not already detected in this directory
                                     file_dir = file_path.parent.relative_to(self.project_path)
                                     dir_str = str(file_dir).replace("\\", "/") if file_dir != Path('.') else '.'
-                                    
+
                                     if not any(
                                         fw["framework"] == fw_name and fw["language"] == language and fw.get("path", ".") == dir_str
                                         for fw in self.detected_frameworks
@@ -582,7 +582,7 @@ class FrameworkDetector:
                         deps_list = data
                     else:
                         deps_list = data.get("dependencies", [])
-                    
+
                     for dep in deps_list:
                         # Store by name for quick lookup
                         self.deps_cache[dep["name"]] = dep
@@ -679,7 +679,7 @@ class FrameworkDetector:
             source = fw["source"]
 
             lines.append(f"{framework} {language} {path} {version} {source}")
-            
+
             # Track if any are from imports only
             if fw["source"] == "imports" and fw["version"] == "unknown":
                 imports_only.append(fw["framework"])
@@ -701,7 +701,7 @@ class FrameworkDetector:
             JSON string.
         """
         return json.dumps(self.detected_frameworks, indent=2, sort_keys=True)
-    
+
     def save_to_file(self, output_path: Path) -> None:
         """Save detected frameworks to a JSON file.
         

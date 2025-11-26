@@ -6,8 +6,7 @@ relationships about which findings execute together on the same paths.
 
 
 import sqlite3
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Any
 from collections import defaultdict
 
 from theauditor.graph.cfg_builder import CFGBuilder
@@ -18,7 +17,7 @@ class PathCorrelator:
     
     Reports structural facts about control flow relationships, not interpretations.
     """
-    
+
     def __init__(self, db_path: str):
         """Initialize with database connection.
         
@@ -29,7 +28,7 @@ class PathCorrelator:
         self.cfg_builder = CFGBuilder(self.db_path)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
-    
+
     def correlate(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Find findings that co-exist on same execution paths.
         
@@ -42,7 +41,7 @@ class PathCorrelator:
         # Group findings by function
         findings_by_function = self._group_findings_by_function(findings)
         path_clusters = []
-        
+
         for (file_path, func_name), func_findings in findings_by_function.items():
             if len(func_findings) < 2:
                 continue  # Need at least 2 findings to correlate
@@ -67,9 +66,9 @@ class PathCorrelator:
                 cluster["file"] = file_path
 
             path_clusters.extend(clusters)
-        
+
         return path_clusters
-    
+
     def _group_findings_by_function(self, findings: list[dict]) -> dict[tuple[str, str], list]:
         """Group findings by their containing function.
         
@@ -77,14 +76,14 @@ class PathCorrelator:
         """
         grouped = defaultdict(list)
         cursor = self.conn.cursor()
-        
+
         for finding in findings:
             file_path = finding.get("file", "")
             line = finding.get("line", 0)
-            
+
             if not file_path or line <= 0:
                 continue
-            
+
             # Find containing function
             cursor.execute("""
                 SELECT name, type
@@ -95,29 +94,29 @@ class PathCorrelator:
                 ORDER BY line DESC
                 LIMIT 1
             """, (file_path, line))
-            
+
             result = cursor.fetchone()
             if result:
                 func_name = result["name"]
                 grouped[(file_path, func_name)].append(finding)
-        
+
         return dict(grouped)
-    
+
     def _map_findings_to_blocks(self, cfg: dict, findings: list) -> dict[int, list]:
         """Map each finding to its CFG block ID."""
         block_findings = defaultdict(list)
-        
+
         for finding in findings:
             line = finding.get("line", 0)
-            
+
             # Find block containing this line
             for block in cfg.get("blocks", []):
                 if block["start_line"] <= line <= block["end_line"]:
                     block_findings[block["id"]].append(finding)
                     break
-        
+
         return dict(block_findings)
-    
+
     def _find_finding_paths_with_conditions(self, cfg: dict, findings_to_blocks: dict,
                                            all_findings: list) -> list[dict]:
         """Find execution paths containing multiple findings with path conditions.
@@ -146,7 +145,6 @@ class PathCorrelator:
         if len(finding_blocks) > COMPLEXITY_THRESHOLD:
             # Algorithm selection: Use fast clustering for complex functions
             # This is NOT a fallback - it's choosing the right algorithm for input size
-            func_name = cfg.get('function_name', 'unknown')
             # Note: Explicit metadata in result distinguishes this from high-precision mode
             return self._fast_block_clustering(findings_to_blocks)
 
@@ -155,7 +153,6 @@ class PathCorrelator:
 
         # Build adjacency list for efficient graph traversal
         graph = self._build_cfg_graph(cfg)
-        blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
 
         # Check each pair of findings for path connectivity
         for i, block_a in enumerate(finding_blocks):
@@ -176,7 +173,6 @@ class PathCorrelator:
                 if path:
                     # Found a correlation - collect all findings on this path
                     findings_on_path = []
-                    path_blocks_set = set(path)
 
                     for block_id in path:
                         if block_id in findings_to_blocks:
@@ -307,27 +303,27 @@ class PathCorrelator:
         conditions = []
         blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
         edges_dict = defaultdict(list)
-        
+
         # Build edge lookup
         for edge in cfg.get("edges", []):
             edges_dict[edge["source"]].append({
                 "target": edge["target"],
                 "type": edge["type"]
             })
-        
+
         # Walk the path and collect literal conditions
         for i, block_id in enumerate(path_blocks):
             block = blocks_dict.get(block_id)
             if not block:
                 continue
-            
+
             # If this is a condition block, report the literal condition
             if block["type"] in ["condition", "loop_condition"]:
                 if block.get("condition"):
                     # Look at next block to determine branch taken
                     if i + 1 < len(path_blocks):
                         next_block = path_blocks[i + 1]
-                        
+
                         # Find edge type to next block
                         for edge in edges_dict.get(block_id, []):
                             if edge["target"] == next_block:
@@ -335,7 +331,7 @@ class PathCorrelator:
                                 cond = block["condition"]
                                 if len(cond) > 50:
                                     cond = cond[:47] + "..."
-                                
+
                                 # Report factual branch taken
                                 if edge["type"] == "true":
                                     conditions.append(f"if ({cond})")
@@ -344,7 +340,7 @@ class PathCorrelator:
                                 elif block["type"] == "loop_condition":
                                     conditions.append(f"while ({cond})")
                                 break
-        
+
         return conditions
 
     def close(self):
