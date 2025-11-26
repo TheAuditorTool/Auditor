@@ -449,6 +449,10 @@ async function main() {
                     let vueHooks = [];
                     let vueDirectives = [];
                     let vueProvideInject = [];
+                    // Junction arrays for normalized Vue data (normalize-node-extractor-output)
+                    let vueComponentProps = [];
+                    let vueComponentEmits = [];
+                    let vueComponentSetupReturns = [];
 
                     if (fileInfo.vueMeta) {
                         const vueComponentData = extractVueComponents(
@@ -457,7 +461,11 @@ async function main() {
                             functionCallArgs,
                             returns
                         );
-                        vueComponents = vueComponentData.components;
+                        // Use new normalized key (vue_components instead of components)
+                        vueComponents = vueComponentData.vue_components || [];
+                        vueComponentProps = vueComponentData.vue_component_props || [];
+                        vueComponentEmits = vueComponentData.vue_component_emits || [];
+                        vueComponentSetupReturns = vueComponentData.vue_component_setup_returns || [];
                         const activeComponentName = vueComponentData.primaryName;
                         vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
                         vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
@@ -519,8 +527,18 @@ async function main() {
                             angular_modules: angularData.modules || [],
                             angular_guards: angularData.guards || [],
                             di_injections: angularData.di_injections || [],
+                            // Angular junction arrays (normalize-node-extractor-output)
+                            angular_component_styles: angularData.angular_component_styles || [],
+                            angular_module_declarations: angularData.angular_module_declarations || [],
+                            angular_module_imports: angularData.angular_module_imports || [],
+                            angular_module_providers: angularData.angular_module_providers || [],
+                            angular_module_exports: angularData.angular_module_exports || [],
                             frontend_api_calls: frontendApiCalls,
                             vue_components: vueComponents,
+                            // Vue junction arrays (normalize-node-extractor-output)
+                            vue_component_props: vueComponentProps,
+                            vue_component_emits: vueComponentEmits,
+                            vue_component_setup_returns: vueComponentSetupReturns,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
                             vue_provide_inject: vueProvideInject,
@@ -977,6 +995,10 @@ try {
                 let vueHooks = [];
                 let vueDirectives = [];
                 let vueProvideInject = [];
+                // Junction arrays for normalized Vue data (normalize-node-extractor-output)
+                let vueComponentProps = [];
+                let vueComponentEmits = [];
+                let vueComponentSetupReturns = [];
 
                 if (fileInfo.vueMeta) {
                     const vueComponentData = extractVueComponents(
@@ -985,7 +1007,11 @@ try {
                         functionCallArgs,
                         returns
                     );
-                    vueComponents = vueComponentData.components;
+                    // Use new normalized key (vue_components instead of components)
+                    vueComponents = vueComponentData.vue_components || [];
+                    vueComponentProps = vueComponentData.vue_component_props || [];
+                    vueComponentEmits = vueComponentData.vue_component_emits || [];
+                    vueComponentSetupReturns = vueComponentData.vue_component_setup_returns || [];
                     const activeComponentName = vueComponentData.primaryName;
                     vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
                     vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
@@ -1040,13 +1066,23 @@ try {
                         sequelize_associations: sequelizeModels.sequelize_associations || [],
                         bullmq_queues: bullmqJobs.bullmq_queues || [],
                         bullmq_workers: bullmqJobs.bullmq_workers || [],
-                        angular_components: angularData.components,
-                        angular_services: angularData.services,
-                        angular_modules: angularData.modules,
-                        angular_guards: angularData.guards,
+                        angular_components: angularData.components || [],
+                        angular_services: angularData.services || [],
+                        angular_modules: angularData.modules || [],
+                        angular_guards: angularData.guards || [],
                         di_injections: angularData.di_injections || [],
+                        // Angular junction arrays (normalize-node-extractor-output)
+                        angular_component_styles: angularData.angular_component_styles || [],
+                        angular_module_declarations: angularData.angular_module_declarations || [],
+                        angular_module_imports: angularData.angular_module_imports || [],
+                        angular_module_providers: angularData.angular_module_providers || [],
+                        angular_module_exports: angularData.angular_module_exports || [],
                         frontend_api_calls: frontendApiCalls,
                         vue_components: vueComponents,
+                        // Vue junction arrays (normalize-node-extractor-output)
+                        vue_component_props: vueComponentProps,
+                        vue_component_emits: vueComponentEmits,
+                        vue_component_setup_returns: vueComponentSetupReturns,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,
                         vue_provide_inject: vueProvideInject,

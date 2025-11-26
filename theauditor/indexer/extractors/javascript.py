@@ -89,6 +89,16 @@ class JavaScriptExtractor(BaseExtractor):
             'angular_modules': [],
             'angular_guards': [],
             'di_injections': [],
+            # Angular junction arrays (normalize-node-extractor-output)
+            'angular_component_styles': [],
+            'angular_module_declarations': [],
+            'angular_module_imports': [],
+            'angular_module_providers': [],
+            'angular_module_exports': [],
+            # Vue junction arrays (normalize-node-extractor-output)
+            'vue_component_props': [],
+            'vue_component_emits': [],
+            'vue_component_setup_returns': [],
             # Express framework
             'express_middleware_chains': []  # PHASE 5: Middleware execution chains
         }
@@ -140,11 +150,21 @@ class JavaScriptExtractor(BaseExtractor):
                     'vue_hooks': 'vue_hooks',
                     'vue_directives': 'vue_directives',
                     'vue_provide_inject': 'vue_provide_inject',
+                    # Vue junction arrays (normalize-node-extractor-output)
+                    'vue_component_props': 'vue_component_props',
+                    'vue_component_emits': 'vue_component_emits',
+                    'vue_component_setup_returns': 'vue_component_setup_returns',
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
                     'express_middleware_chains': 'express_middleware_chains',  # PHASE 5: Middleware execution chains
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
                     'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
+                    # Angular junction arrays (normalize-node-extractor-output)
+                    'angular_component_styles': 'angular_component_styles',
+                    'angular_module_declarations': 'angular_module_declarations',
+                    'angular_module_imports': 'angular_module_imports',
+                    'angular_module_providers': 'angular_module_providers',
+                    'angular_module_exports': 'angular_module_exports',
                 }
 
                 for js_key, python_key in key_mappings.items():
