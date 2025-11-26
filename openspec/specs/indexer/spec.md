@@ -1,5 +1,8 @@
-## ADDED Requirements
+# indexer Specification
 
+## Purpose
+TBD - created by archiving change node-schema-normalization. Update Purpose after archive.
+## Requirements
 ### Requirement: Vue Component Props Junction Table
 
 The Node schema SHALL include a `vue_component_props` junction table to store individual prop definitions extracted from Vue components.
@@ -108,37 +111,3 @@ Contract tests SHALL verify:
 - **THEN** test passes if no `cursor.execute` calls found in node_storage.py
 - **AND** test fails if direct cursor access is detected
 
-## REMOVED Requirements
-
-### Requirement: JSON Blob Storage for Vue Props
-
-The `vue_components` table SHALL NOT contain a `props_definition` TEXT column for storing JSON blobs.
-
-**Replacement:** Use `vue_component_props` junction table.
-
-#### Scenario: Vue component stored without JSON blob
-- **WHEN** a Vue component is stored via `add_vue_component()`
-- **THEN** no `props_definition` JSON is written to `vue_components`
-- **AND** individual props are written to `vue_component_props`
-
-### Requirement: JSON Blob Storage for Vue Emits and Setup Returns
-
-The `vue_components` table SHALL NOT contain `emits_definition` or `setup_return` TEXT columns for storing JSON blobs.
-
-**Replacement:** Use `vue_component_emits` and `vue_component_setup_returns` junction tables.
-
-#### Scenario: Vue component stored without emits/setup JSON blobs
-- **WHEN** a Vue component is stored via `add_vue_component()`
-- **THEN** no `emits_definition` or `setup_return` JSON is written to `vue_components`
-- **AND** individual entries are written to respective junction tables
-
-### Requirement: JSON Blob Storage for Angular Module Arrays
-
-The `angular_modules` table SHALL NOT contain TEXT columns for `declarations`, `imports`, `providers`, or `exports`.
-
-**Replacement:** Use four separate junction tables.
-
-#### Scenario: Angular module stored without JSON blobs
-- **WHEN** an Angular module is stored via `add_angular_module()`
-- **THEN** no JSON blobs are written to `angular_modules`
-- **AND** individual entries are written to respective junction tables
