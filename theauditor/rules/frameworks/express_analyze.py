@@ -13,6 +13,7 @@ Follows schema contract architecture (v1.1+):
 
 import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 from theauditor.indexer.schema import build_query

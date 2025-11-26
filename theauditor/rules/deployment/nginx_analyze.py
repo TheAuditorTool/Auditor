@@ -22,6 +22,7 @@ import json
 import sqlite3
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
