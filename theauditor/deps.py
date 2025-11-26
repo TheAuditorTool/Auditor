@@ -24,12 +24,74 @@ def _canonicalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-# Rate limiting configuration - optimized for minimal runtime
-# Based on actual API rate limits and industry standards
-RATE_LIMIT_NPM = 0.1      # npm registry: 600 req/min (well under any limit)
-RATE_LIMIT_PYPI = 0.2     # PyPI: 300 req/min (safe margin) 
-RATE_LIMIT_DOCKER = 0.2   # Docker Hub: 300 req/min for tag checks
-RATE_LIMIT_BACKOFF = 15   # Backoff on 429/disconnect (15s gives APIs time to reset)
+# Rate limiting configuration - balanced for speed vs ban risk
+# Now that we handle 429s gracefully, we can be more aggressive
+RATE_LIMIT_NPM = 0.05     # npm: 20 req/sec (they're tolerant, we back off if needed)
+RATE_LIMIT_PYPI = 0.1     # PyPI: 10 req/sec (was 5, but 429 recovery makes this safe)
+RATE_LIMIT_DOCKER = 0.15  # Docker Hub: ~7 req/sec (pickier than others)
+RATE_LIMIT_BACKOFF = 10   # Initial backoff on 429 (exponential: 10s, 20s, 40s)
+
+
+# =============================================================================
+# ASYNC RATE LIMITER - Throttled Concurrency for Registry APIs
+# =============================================================================
+# Semaphore limits WIDTH (how many concurrent), this limits SPEED (how fast).
+# Without this, Semaphore(10) fires 10 requests in 10ms = looks like DDoS.
+# With this, 10 requests over 1 second = looks like normal traffic.
+
+
+class AsyncRateLimiter:
+    """
+    Lightweight async rate limiter that ensures minimum delay between requests.
+
+    Unlike Semaphore which limits concurrency (width), this limits frequency (speed).
+    Uses non-blocking asyncio.sleep so other tasks can run while waiting.
+    """
+
+    def __init__(self, delay: float):
+        """
+        Args:
+            delay: Minimum seconds between requests (e.g., 0.1 = 10 req/sec)
+        """
+        self.delay = delay
+        self.last_request = 0.0
+        self._lock = None  # Lazy init to avoid event loop issues
+
+    async def acquire(self):
+        """Wait until enough time has passed since last request."""
+        import asyncio
+        import time
+
+        # Lazy init lock (must be created in async context)
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_request
+            wait = self.delay - elapsed
+
+            if wait > 0:
+                await asyncio.sleep(wait)
+
+            self.last_request = time.time()
+
+
+# Per-registry rate limiters (resurrect the dead constants)
+_rate_limiters: dict[str, AsyncRateLimiter] = {}
+
+
+def _get_rate_limiter(manager: str) -> AsyncRateLimiter:
+    """Get or create rate limiter for a registry."""
+    if manager not in _rate_limiters:
+        delays = {
+            'npm': RATE_LIMIT_NPM,
+            'py': RATE_LIMIT_PYPI,
+            'docker': RATE_LIMIT_DOCKER,
+        }
+        delay = delays.get(manager, 0.2)  # Default 0.2s
+        _rate_limiters[manager] = AsyncRateLimiter(delay)
+    return _rate_limiters[manager]
 
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
@@ -708,7 +770,12 @@ async def _check_latest_batch_async(
     Check latest versions for a batch of dependencies using async HTTP.
 
     This is the modern async engine that replaces the slow synchronous loop.
-    Uses httpx with a semaphore to limit concurrent requests.
+    Uses BOTH:
+    - Semaphore: limits WIDTH (concurrent requests) to 10
+    - RateLimiter: limits SPEED (request frequency) per registry
+
+    Without rate limiting, Semaphore(10) fires 10 requests in 10ms = DDoS pattern.
+    With rate limiting, 10 requests spread over ~1 second = normal traffic.
 
     Args:
         deps_to_check: List of dependency objects to check
@@ -724,33 +791,61 @@ async def _check_latest_batch_async(
         return {}
 
     results = {}
-    # Semaphore: limit to 10 concurrent requests to be polite to registries
     import asyncio
+
+    # Semaphore: limit WIDTH (how many concurrent sockets)
     semaphore = asyncio.Semaphore(10)
 
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
 
         async def check_one(dep: dict) -> tuple[str, str | None, str | None]:
-            """Check a single dependency and return (key, latest, error)."""
+            """Check a single dependency with rate limiting and 429 backoff."""
             # Universal key format
             key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+            manager = dep["manager"]
+
+            # Get per-registry rate limiter
+            limiter = _get_rate_limiter(manager)
 
             async with semaphore:
-                try:
-                    latest = None
-                    if dep["manager"] == "npm":
-                        latest = await _fetch_npm_async(client, dep["name"])
-                    elif dep["manager"] == "py":
-                        latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
-                    elif dep["manager"] == "docker":
-                        current_tag = dep.get("version", "")
-                        latest = await _fetch_docker_async(client, dep["name"], current_tag, allow_prerelease)
+                # Retry loop with exponential backoff for 429s
+                max_retries = 3
+                backoff = RATE_LIMIT_BACKOFF
 
-                    return key, latest, None
-                except Exception as e:
-                    return key, None, f"{type(e).__name__}: {str(e)[:50]}"
+                for attempt in range(max_retries):
+                    try:
+                        # Rate limit: ensure minimum delay between requests to same registry
+                        await limiter.acquire()
 
-        # Fire off all tasks concurrently
+                        latest = None
+                        if manager == "npm":
+                            latest = await _fetch_npm_async(client, dep["name"])
+                        elif manager == "py":
+                            latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
+                        elif manager == "docker":
+                            current_tag = dep.get("version", "")
+                            latest = await _fetch_docker_async(
+                                client, dep["name"], current_tag, allow_prerelease
+                            )
+
+                        return key, latest, None
+
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code == 429:
+                            # Rate limited - exponential backoff
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(backoff)
+                                backoff *= 2  # Exponential backoff
+                                continue
+                            return key, None, "Rate limited (429) after retries"
+                        return key, None, f"HTTP {e.response.status_code}"
+
+                    except Exception as e:
+                        return key, None, f"{type(e).__name__}: {str(e)[:50]}"
+
+                return key, None, "Max retries exceeded"
+
+        # Fire off all tasks concurrently (but rate-limited per registry)
         tasks = [check_one(dep) for dep in deps_to_check]
         batch_results = await asyncio.gather(*tasks)
 
