@@ -24,74 +24,8 @@ def _canonicalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-# Rate limiting configuration - balanced for speed vs ban risk
-# Now that we handle 429s gracefully, we can be more aggressive
-RATE_LIMIT_NPM = 0.05     # npm: 20 req/sec (they're tolerant, we back off if needed)
-RATE_LIMIT_PYPI = 0.1     # PyPI: 10 req/sec (was 5, but 429 recovery makes this safe)
-RATE_LIMIT_DOCKER = 0.15  # Docker Hub: ~7 req/sec (pickier than others)
-RATE_LIMIT_BACKOFF = 10   # Initial backoff on 429 (exponential: 10s, 20s, 40s)
-
-
-# =============================================================================
-# ASYNC RATE LIMITER - Throttled Concurrency for Registry APIs
-# =============================================================================
-# Semaphore limits WIDTH (how many concurrent), this limits SPEED (how fast).
-# Without this, Semaphore(10) fires 10 requests in 10ms = looks like DDoS.
-# With this, 10 requests over 1 second = looks like normal traffic.
-
-
-class AsyncRateLimiter:
-    """
-    Lightweight async rate limiter that ensures minimum delay between requests.
-
-    Unlike Semaphore which limits concurrency (width), this limits frequency (speed).
-    Uses non-blocking asyncio.sleep so other tasks can run while waiting.
-    """
-
-    def __init__(self, delay: float):
-        """
-        Args:
-            delay: Minimum seconds between requests (e.g., 0.1 = 10 req/sec)
-        """
-        self.delay = delay
-        self.last_request = 0.0
-        self._lock = None  # Lazy init to avoid event loop issues
-
-    async def acquire(self):
-        """Wait until enough time has passed since last request."""
-        import asyncio
-        import time
-
-        # Lazy init lock (must be created in async context)
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-
-        async with self._lock:
-            now = time.time()
-            elapsed = now - self.last_request
-            wait = self.delay - elapsed
-
-            if wait > 0:
-                await asyncio.sleep(wait)
-
-            self.last_request = time.time()
-
-
-# Per-registry rate limiters (resurrect the dead constants)
-_rate_limiters: dict[str, AsyncRateLimiter] = {}
-
-
-def _get_rate_limiter(manager: str) -> AsyncRateLimiter:
-    """Get or create rate limiter for a registry."""
-    if manager not in _rate_limiters:
-        delays = {
-            'npm': RATE_LIMIT_NPM,
-            'py': RATE_LIMIT_PYPI,
-            'docker': RATE_LIMIT_DOCKER,
-        }
-        delay = delays.get(manager, 0.2)  # Default 0.2s
-        _rate_limiters[manager] = AsyncRateLimiter(delay)
-    return _rate_limiters[manager]
+# Rate limiting - imported from shared module
+from theauditor.utils.rate_limiter import get_rate_limiter, RATE_LIMIT_BACKOFF
 
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
@@ -805,7 +739,7 @@ async def _check_latest_batch_async(
             manager = dep["manager"]
 
             # Get per-registry rate limiter
-            limiter = _get_rate_limiter(manager)
+            limiter = get_rate_limiter(manager)
 
             async with semaphore:
                 # Retry loop with exponential backoff for 429s
