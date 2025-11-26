@@ -1,6 +1,6 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: 5d24ab77858fca6cbc3d7153f28671d04a9849cbcf4132d5ac97274c8f96eb29
-from typing import Dict, List, Any, Optional, DefaultDict
+# SCHEMA_HASH: 2c6d574a74a3a60095c13d5f2715a088b62e7d741f8017298f6c98a7ebb1ee6a
+from typing import Any
 from collections import defaultdict
 import sqlite3
 from ..schema import TABLES, build_query
@@ -37,15 +37,15 @@ class SchemaMemoryCache:
 
         conn.close()
 
-    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> List[Dict[str, Any]]:
+    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> list[dict[str, Any]]:
         """Load a table into memory as list of dicts."""
         col_names = [col.name for col in schema.columns]
         query = build_query(table_name, col_names)
         cursor.execute(query)
         rows = cursor.fetchall()
-        return [dict(zip(col_names, row)) for row in rows]
+        return [dict(zip(col_names, row, strict=True)) for row in rows]
 
-    def _build_index(self, data: List[Dict[str, Any]], table_name: str, col_name: str, schema: Any) -> Dict[Any, List[Dict[str, Any]]]:
+    def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:
         """Build an index on a column for fast lookups."""
         index = defaultdict(list)
         for row in data:
@@ -60,7 +60,7 @@ class SchemaMemoryCache:
             return len(getattr(self, table_name))
         return 0
 
-    def get_cache_stats(self) -> Dict[str, int]:
+    def get_cache_stats(self) -> dict[str, int]:
         """Get statistics about cached data."""
         stats = {}
         for table_name in TABLES.keys():
