@@ -16,23 +16,30 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--root", default=".", help="Root directory")
 @click.option("--check-latest", is_flag=True, help="Check for latest versions from registries")
 @click.option("--upgrade-all", is_flag=True, help="YOLO mode: Update ALL packages to latest versions")
+@click.option("--upgrade-py", is_flag=True, help="Upgrade Python deps (requirements*.txt + pyproject.toml)")
+@click.option("--upgrade-npm", is_flag=True, help="Upgrade npm deps (package.json files)")
+@click.option("--upgrade-docker", is_flag=True, help="Upgrade Docker images (docker-compose*.yml + Dockerfile)")
+@click.option("--upgrade-cargo", is_flag=True, help="Upgrade Rust deps (Cargo.toml)")
 @click.option("--allow-prerelease", is_flag=True, help="Allow alpha/beta/rc versions (default: stable only)")
 @click.option("--offline", is_flag=True, help="Force offline mode (no network)")
 @click.option("--out", default="./.pf/raw/deps.json", help="Output dependencies file")
 @click.option("--print-stats", is_flag=True, help="Print dependency statistics")
 @click.option("--vuln-scan", is_flag=True, help="Scan dependencies for known vulnerabilities")
-def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_stats, vuln_scan):
+def deps(root, check_latest, upgrade_all, upgrade_py, upgrade_npm, upgrade_docker, upgrade_cargo,
+         allow_prerelease, offline, out, print_stats, vuln_scan):
     """Analyze dependencies for vulnerabilities and updates.
 
     Comprehensive dependency analysis supporting Python (pip/poetry) and
     JavaScript/TypeScript (npm/yarn). Can check for outdated packages,
-    known vulnerabilities, and even auto-upgrade everything (YOLO mode).
+    known vulnerabilities, and selectively upgrade by ecosystem.
 
     Supported Files:
       - package.json / package-lock.json (npm/yarn)
       - pyproject.toml (Poetry/setuptools)
       - requirements.txt / requirements-*.txt (pip)
       - setup.py / setup.cfg (setuptools)
+      - docker-compose*.yml / Dockerfile (Docker)
+      - Cargo.toml (Rust)
 
     Operation Modes:
       Default:        Parse and inventory all dependencies
@@ -40,9 +47,18 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
       --vuln-scan:    Run security scanners (npm audit + OSV-Scanner)
       --upgrade-all:  YOLO mode - upgrade everything to latest
 
+    Selective Upgrades (use after --check-latest to see what's outdated):
+      --upgrade-py:     Only requirements*.txt + pyproject.toml
+      --upgrade-npm:    Only package.json files
+      --upgrade-docker: Only docker-compose*.yml + Dockerfile
+      --upgrade-cargo:  Only Cargo.toml
+      (Combine flags to upgrade multiple ecosystems)
+
     Examples:
       aud deps                              # Basic dependency inventory
       aud deps --check-latest               # Check for outdated packages (grouped by file)
+      aud deps --upgrade-py                 # Upgrade only Python dependencies
+      aud deps --upgrade-py --upgrade-npm   # Upgrade Python and npm
       aud deps --vuln-scan                  # Security vulnerability scan
       aud deps --upgrade-all                # DANGEROUS: Upgrade everything
       aud deps --offline                    # Skip all network operations
@@ -180,6 +196,99 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
         click.echo("  1. Run: pip install -r requirements.txt")
         click.echo("  2. Or: npm install")
         click.echo("  3. Pray it still works")
+        return
+
+    # SELECTIVE UPGRADE MODE: Upgrade specific ecosystems only
+    any_selective = upgrade_py or upgrade_npm or upgrade_docker or upgrade_cargo
+    if any_selective and not offline:
+        # Build list of ecosystems to upgrade
+        ecosystems = []
+        if upgrade_py:
+            ecosystems.append("py")
+        if upgrade_npm:
+            ecosystems.append("npm")
+        if upgrade_docker:
+            ecosystems.append("docker")
+        if upgrade_cargo:
+            ecosystems.append("cargo")
+
+        ecosystem_names = {"py": "Python", "npm": "npm", "docker": "Docker", "cargo": "Cargo"}
+        selected = ", ".join(ecosystem_names[e] for e in ecosystems)
+        click.echo(f"[SELECTIVE UPGRADE] Upgrading: {selected}")
+        if allow_prerelease:
+            click.echo("  [WARN] Including alpha/beta/RC versions (--allow-prerelease)")
+
+        # Filter deps to only selected ecosystems
+        filtered_deps = [d for d in deps_list if d["manager"] in ecosystems]
+
+        if not filtered_deps:
+            click.echo(f"  [SKIP] No dependencies found for selected ecosystems")
+            return
+
+        click.echo(f"  Found {len(filtered_deps)} dependencies to check")
+
+        # Get latest versions for filtered deps only
+        latest_info = check_latest_versions(filtered_deps, allow_net=True, offline=offline, allow_prerelease=allow_prerelease)
+        if not latest_info:
+            click.echo("  [FAIL] Failed to fetch latest versions")
+            return
+
+        # Check if all packages were successfully checked
+        failed_checks = sum(1 for info in latest_info.values() if info.get("error") is not None)
+        successful_checks = sum(1 for info in latest_info.values() if info.get("latest") is not None)
+
+        if failed_checks > 0:
+            click.echo(f"\n  [WARN] {failed_checks} packages failed to check (will be skipped):")
+            errors = [(k.split(":")[1], v.get("error", "Unknown")) for k, v in latest_info.items() if v.get("error")]
+            for pkg, err in errors[:5]:  # Show first 5
+                click.echo(f"     - {pkg}: {err}")
+            if failed_checks > 5:
+                click.echo(f"     ... and {failed_checks - 5} more")
+            click.echo(f"  [OK] Proceeding with {successful_checks} packages that checked successfully")
+
+        # Upgrade only selected ecosystems
+        upgraded = upgrade_all_deps(root_path=root, latest_info=latest_info, deps_list=filtered_deps, ecosystems=ecosystems)
+
+        # Count unique packages that were upgraded
+        unique_upgraded = len([1 for k, v in latest_info.items() if v.get("is_outdated", False)])
+        total_updated = sum(upgraded.values())
+
+        if total_updated == 0:
+            click.echo(f"\n  [OK] All {selected} dependencies are already up to date!")
+            return
+
+        click.echo(f"\n[UPGRADED] Dependency files:")
+        for file_type, count in upgraded.items():
+            if count > 0:
+                click.echo(f"  [OK] {file_type}: {count} dependency entries updated")
+
+        # Show what was actually upgraded
+        click.echo(f"\n[CHANGES] Packages upgraded:")
+        upgraded_packages = [
+            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
+            for k, v in latest_info.items()
+            if v.get("is_outdated", False) and v.get("latest") is not None
+        ]
+        upgraded_packages.sort(key=lambda x: x[0].lower())
+
+        for name, old_ver, new_ver, delta in upgraded_packages:
+            delta_marker = " [MAJOR]" if delta == "major" else ""
+            arrow = "->" if IS_WINDOWS else "->"
+            click.echo(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}")
+
+        if total_updated > unique_upgraded:
+            click.echo(f"\n  Summary: {unique_upgraded} unique packages updated across {total_updated} occurrences")
+
+        # Ecosystem-specific next steps
+        click.echo("\n[NEXT STEPS]:")
+        if upgrade_py:
+            click.echo("  - Run: pip install -r requirements.txt")
+        if upgrade_npm:
+            click.echo("  - Run: npm install")
+        if upgrade_cargo:
+            click.echo("  - Run: cargo build")
+        if upgrade_docker:
+            click.echo("  - Run: docker-compose pull")
         return
 
     # Check latest versions if requested
