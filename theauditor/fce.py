@@ -548,8 +548,10 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
     if tool_name.startswith("pytest"):
         pytest_temp = TempManager.get_temp_dir(root_path) / "pytest"
         pytest_temp.mkdir(parents=True, exist_ok=True)
+        # Use absolute path with forward slashes to avoid Windows backslash issues
+        pytest_temp_str = pytest_temp.resolve().as_posix()
         existing_opts = env.get("PYTEST_ADDOPTS", "").strip()
-        extra_opt = f"--basetemp={pytest_temp}"
+        extra_opt = f"--basetemp={pytest_temp_str}"
         env["PYTEST_ADDOPTS"] = f"{existing_opts} {extra_opt}".strip()
 
     with open(stdout_path, 'w', encoding='utf-8') as out_tmp, \
