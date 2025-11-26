@@ -5,6 +5,7 @@ import json
 import platform
 import re
 import shutil
+import sys
 import yaml
 from datetime import datetime
 from pathlib import Path
@@ -197,9 +198,9 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
                         dep_obj["workspace_package"] = workspace_package
                     deps.append(dep_obj)
 
-            except json.JSONDecodeError:
-                if debug:
-                    print(f"Debug: Failed to parse dependencies JSON from {file_path}")
+            except json.JSONDecodeError as e:
+                # ALWAYS warn about data corruption - silent failure is dangerous for auditors
+                print(f"WARNING: Corrupted JSON in database for {file_path}: {e}", file=sys.stderr)
                 continue
 
         conn.close()
@@ -299,9 +300,9 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
                         deps.append(dep_obj)
 
-            except json.JSONDecodeError:
-                if debug:
-                    print(f"Debug: Failed to parse Python dependencies JSON from {file_path}")
+            except json.JSONDecodeError as e:
+                # ALWAYS warn about data corruption - silent failure is dangerous for auditors
+                print(f"WARNING: Corrupted JSON in database for {file_path}: {e}", file=sys.stderr)
                 continue
 
         conn.close()
@@ -636,7 +637,13 @@ async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | 
 
 
 async def _fetch_docker_async(client, name: str, current_tag: str, allow_prerelease: bool) -> str | None:
-    """Fetch latest Docker tag from Docker Hub (async)."""
+    """Fetch latest Docker tag from Docker Hub (async).
+
+    SAFETY RULES:
+    - NEVER return "latest" as a fallback (that's not a version!)
+    - Prefer clean tags (e.g., "3.4.1" over "3.4.1-ubuntu-timestamp")
+    - Respect base image preference (alpine user stays on alpine)
+    """
     if not validate_package_name(name, "docker"):
         return None
     if "/" not in name:
@@ -661,22 +668,19 @@ async def _fetch_docker_async(client, name: str, current_tag: str, allow_prerele
             if parsed:
                 parsed_tags.append(parsed)
 
+        # NO FALLBACK TO "LATEST" - if we can't parse any tags, return None
+        # "latest" is not a version, it's a moving target that breaks reproducibility
         if not parsed_tags:
-            # Fallback to "latest" if no parseable versions
-            for tag in tags:
-                if tag.get("name") == "latest":
-                    return "latest"
             return None
 
-        # Filter by stability
+        # Filter by stability (STRICT - no fallback to unstable)
         if allow_prerelease:
             candidates = parsed_tags
         else:
             candidates = [t for t in parsed_tags if t['stability'] == 'stable']
+            # If no stable candidates, return None - don't silently downgrade to RC/dev
             if not candidates:
-                candidates = [t for t in parsed_tags if t['stability'] in ['stable', 'rc']]
-            if not candidates:
-                candidates = parsed_tags
+                return None
 
         # Filter by base image preference
         if current_tag:
@@ -688,8 +692,14 @@ async def _fetch_docker_async(client, name: str, current_tag: str, allow_prerele
                 else:
                     return None  # Don't suggest upgrade with different base
 
-        # Sort by semantic version
-        candidates.sort(key=lambda x: x['version'], reverse=True)
+        # Sort by: version (highest), then cleanliness (prefer no variant), then shortest tag
+        # This ensures "3.4.1" beats "3.4.1-ubuntu" beats "3.4.1-ubuntu-timestamp"
+        candidates.sort(key=lambda x: (
+            x['version'],           # Highest version first
+            x['is_clean'],          # Clean tags (no variant) preferred
+            -len(x['tag'])          # Shorter tags preferred (less cruft)
+        ), reverse=True)
+
         return candidates[0]['tag'] if candidates else None
     except Exception:
         pass
@@ -806,7 +816,7 @@ def check_latest_versions(
         cache_file: Path to cache file
         allow_prerelease: Allow alpha/beta/rc versions (default: stable only)
 
-    Returns dict keyed by "manager:name" with:
+    Returns dict keyed by "manager:name:version" (Universal Keys) with:
     {
         "locked": str,
         "latest": str,
@@ -814,6 +824,16 @@ def check_latest_versions(
         "is_outdated": bool,
         "last_checked": str (ISO timestamp)
     }
+
+    KNOWN INEFFICIENCY (TODO for future refactor):
+    The cache key includes the locked version (manager:name:version), which means
+    checking the same package at different versions results in redundant network calls.
+    In a monorepo with 50 services using different versions of "requests", we query
+    PyPI 50 times instead of once.
+
+    Better approach: Separate "Remote Package Info" cache (keyed by manager:name only)
+    from "Local Usage Info" (instance-specific). This would reduce network traffic by
+    ~90% in large monorepos. The current design prioritizes correctness over efficiency.
     """
     if offline or not allow_net:
         # Try to load from cache in offline mode
@@ -1137,7 +1157,7 @@ def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
     Parse Docker tag into semantic components for proper version comparison.
 
     Args:
-        tag: Docker tag string (e.g., "17-alpine3.21", "3.15.0a1-windowsservercore")
+        tag: Docker tag string (e.g., "17-alpine3.21", "v3.4.1", "3.15.0a1-windowsservercore")
 
     Returns:
         Dict with version tuple, variant, and stability, or None if unparseable
@@ -1145,16 +1165,20 @@ def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
             'tag': str,              # Original tag
             'version': tuple,        # (major, minor, patch) for semantic comparison
             'variant': str,          # Base image variant (alpine, bookworm, etc)
-            'stability': str         # 'stable', 'alpha', 'beta', 'rc', 'dev'
+            'stability': str,        # 'stable', 'alpha', 'beta', 'rc', 'dev'
+            'is_clean': bool         # True if tag has no variant (prefer these)
         }
     """
     # Skip meta tags
     if tag in ["latest", "alpine", "slim", "bullseye", "bookworm", "main", "master"]:
         return None
 
+    # Handle 'v' prefix (e.g., v3.4.1 -> 3.4.1 for parsing)
+    clean_tag = tag[1:] if tag.startswith('v') else tag
+
     # Extract semantic version (major.minor.patch) FIRST
     # Matches: "17", "17.2", "17.2.1", "3.15.0a1", etc.
-    match = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?', tag)
+    match = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?', clean_tag)
     if not match:
         return None
 
@@ -1162,17 +1186,21 @@ def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
     minor = int(match.group(2) or 0)
     patch = int(match.group(3) or 0)
 
-    # Extract variant (everything after version)
-    variant = tag[match.end():].lstrip('-')
+    # Extract variant (everything after version in clean_tag)
+    variant = clean_tag[match.end():].lstrip('-')
     variant_lower = variant.lower()
 
-    # Detect stability markers ONLY in the variant/suffix (NOT the whole tag)
-    # This prevents "alpine" from triggering "a" marker
+    # Detect stability markers
     stability = 'stable'
 
-    # Check for pre-release markers (CRITICAL for production safety)
-    # Only check the variant portion to avoid false positives like "alpine"
-    if variant_lower.startswith('a') or any(marker in variant_lower for marker in ['alpha', 'a1', 'a2', 'a3']):
+    # 1. TIMESTAMP/BUILD ID DETECTION (CRITICAL)
+    # Tags like "12.4.0-19363970803-ubuntu" contain build timestamps
+    # 8+ consecutive digits = almost certainly a timestamp or build ID = unstable
+    if re.search(r'\d{8,}', variant):
+        stability = 'dev'
+
+    # 2. Explicit pre-release markers
+    elif variant_lower.startswith('a') or any(marker in variant_lower for marker in ['alpha', 'a1', 'a2', 'a3']):
         # Check if it's actually "alpine" (which is stable, not alpha)
         if not variant_lower.startswith('alpine'):
             stability = 'alpha'
@@ -1189,7 +1217,8 @@ def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
         'tag': tag,
         'version': (major, minor, patch),
         'variant': variant,
-        'stability': stability
+        'stability': stability,
+        'is_clean': len(variant) == 0  # Prefer tags with NO variant (e.g., "3.4.1" over "3.4.1-ubuntu")
     }
 
 
@@ -1474,11 +1503,11 @@ def _upgrade_requirements_txt(
     with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
 
-    # Build package name to latest version map
+    # Build package name to latest version map (skip None values)
     latest_versions = {}
     for dep in deps:
         key = f"py:{dep['name']}"
-        if key in latest_info:
+        if key in latest_info and latest_info[key]['latest'] is not None:
             latest_versions[dep['name']] = latest_info[key]['latest']
 
     # Rewrite lines with latest versions
@@ -1532,19 +1561,19 @@ def _upgrade_package_json(
 
     count = 0
 
-    # Update dependencies
+    # Update dependencies (skip None values)
     if "dependencies" in data:
         for name in data["dependencies"]:
             key = f"npm:{name}"
-            if key in latest_info:
+            if key in latest_info and latest_info[key]["latest"] is not None:
                 data["dependencies"][name] = latest_info[key]["latest"]
                 count += 1
 
-    # Update devDependencies
+    # Update devDependencies (skip None values)
     if "devDependencies" in data:
         for name in data["devDependencies"]:
             key = f"npm:{name}"
-            if key in latest_info:
+            if key in latest_info and latest_info[key]["latest"] is not None:
                 data["devDependencies"][name] = latest_info[key]["latest"]
                 count += 1
 
@@ -1592,29 +1621,46 @@ def _upgrade_pyproject_toml(
         # Escape special regex characters in package name (dots, etc.)
         escaped_package_name = re.escape(package_name)
 
-        # Pattern to match this package anywhere in the file
+        # PATTERN 1: PEP 621 inline style (in arrays)
         # Matches: "package==X.Y.Z" OR "package>=X.Y.Z" OR "package[extra]>=X.Y.Z"
-        # Group 1: Optional extras notation [dev], [test], etc.
-        # Group 2: Version operator (>=, ==, ~=, etc.)
-        # Group 3: Version number
-        pattern = rf'"{escaped_package_name}(\[.*?\])?([><=~!]+)([^"]+)"'
+        # Used in: dependencies = ["requests>=2.31.0", ...]
+        pattern_pep621 = rf'"{escaped_package_name}(\[.*?\])?([><=~!]+)([^"]+)"'
 
-        # Replace ALL occurrences at once using re.sub with a function
-        def replacer(match):
-            extras = match.group(1) or ""  # [extra] or empty string
-            old_operator = match.group(2)  # >=, ==, ~=, etc.
+        def replacer_pep621(match):
+            extras = match.group(1) or ""
+            old_operator = match.group(2)
             old_version = match.group(3)
             if old_version != latest_version:
-                # Track the update
                 if package_name not in updated_packages:
                     updated_packages[package_name] = []
                 updated_packages[package_name].append((old_version, latest_version))
-                # Keep the original operator and extras notation
                 return f'"{package_name}{extras}{old_operator}{latest_version}"'
-            return match.group(0)  # No change
+            return match.group(0)
 
-        # Replace all occurrences in one pass
-        new_content = re.sub(pattern, replacer, content)
+        # PATTERN 2: Poetry style (bare key = "version")
+        # Matches: package = "^2.31.0" OR package = ">=2.31.0" OR package = "2.31.0"
+        # Also handles: "package" = "^2.31.0" (quoted key)
+        # Used in: [tool.poetry.dependencies]
+        # Note: Poetry puts operator INSIDE the quotes
+        pattern_poetry = rf'(?:^|\n)"?{escaped_package_name}"?\s*=\s*["\']([><=~!^]*)([\d][^"\']*)["\']'
+
+        def replacer_poetry(match):
+            old_operator = match.group(1) or ""  # ^, ~, >=, etc. (or empty for exact)
+            old_version = match.group(2)
+            if old_version != latest_version:
+                if package_name not in updated_packages:
+                    updated_packages[package_name] = []
+                updated_packages[package_name].append((old_version, latest_version))
+                # Preserve the original quote style by checking what was matched
+                quote_char = '"'  # Default to double quotes
+                return f'{package_name} = {quote_char}{old_operator}{latest_version}{quote_char}'
+            return match.group(0)
+
+        # Apply PEP 621 pattern first (most common in modern Python)
+        new_content = re.sub(pattern_pep621, replacer_pep621, content)
+
+        # Apply Poetry pattern (for Poetry-style pyproject.toml)
+        new_content = re.sub(pattern_poetry, replacer_poetry, new_content, flags=re.MULTILINE)
 
         # Update count only if package was actually updated
         if package_name in updated_packages and content != new_content:
@@ -1660,12 +1706,12 @@ def _upgrade_docker_compose(
     with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
 
-    # Build image name to latest version map
+    # Build image name to latest version map (skip None values)
     latest_versions = {}
     for dep in deps:
         # Docker images use "docker:name:version" as key
         key = f"docker:{dep['name']}:{dep.get('version', '')}"
-        if key in latest_info:
+        if key in latest_info and latest_info[key]['latest'] is not None:
             latest_versions[dep['name']] = latest_info[key]['latest']
 
     # Rewrite lines with latest versions
@@ -1687,6 +1733,12 @@ def _upgrade_docker_compose(
                 # Handle registry prefixes (e.g., docker.io/library/postgres:17)
                 name_part, tag = image_spec.rsplit(":", 1)
 
+                # VARIABLE PROTECTION: Never touch environment variables!
+                # image: postgres:${POSTGRES_TAG} must NOT be overwritten
+                if "$" in tag or "{" in tag:
+                    updated_lines.append(original_line)
+                    continue
+
                 # Extract base image name (last part of path)
                 if "/" in name_part:
                     name_parts = name_part.split("/")
@@ -1701,7 +1753,15 @@ def _upgrade_docker_compose(
                 if base_name in latest_versions:
                     new_tag = latest_versions[base_name]
                     old_tag = tag
-                    if old_tag != new_tag:
+                    # Skip if lookup failed (new_tag is None) or no change needed
+                    if new_tag is not None and old_tag != new_tag:
+                        # NEVER DOWNGRADE: Compare version tuples to ensure upgrade
+                        old_parsed = _parse_docker_tag(old_tag)
+                        new_parsed = _parse_docker_tag(new_tag)
+                        if old_parsed and new_parsed and new_parsed['version'] <= old_parsed['version']:
+                            # Would be a downgrade - skip
+                            updated_lines.append(original_line)
+                            continue
                         # Track the update
                         updated_images[base_name] = (old_tag, new_tag)
                         # Replace with new tag, preserving indentation and registry prefix
@@ -1750,12 +1810,12 @@ def _upgrade_dockerfile(
     with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
 
-    # Build image name to latest version map
+    # Build image name to latest version map (skip None values)
     latest_versions = {}
     for dep in deps:
         # Docker images use "docker:name:version" as key
         key = f"docker:{dep['name']}:{dep.get('version', '')}"
-        if key in latest_info:
+        if key in latest_info and latest_info[key]['latest'] is not None:
             latest_versions[dep['name']] = latest_info[key]['latest']
 
     # Rewrite lines with latest versions
@@ -1793,6 +1853,12 @@ def _upgrade_dockerfile(
             if ":" in image_spec:
                 name_part, tag = image_spec.rsplit(":", 1)
 
+                # VARIABLE PROTECTION: Never touch environment variables!
+                # FROM node:${NODE_VERSION} must NOT become FROM node:20.11.0
+                if "$" in tag or "{" in tag:
+                    updated_lines.append(original_line)
+                    continue
+
                 # Extract base image name
                 if "/" in name_part:
                     name_parts = name_part.split("/")
@@ -1807,7 +1873,15 @@ def _upgrade_dockerfile(
                 if base_name in latest_versions:
                     new_tag = latest_versions[base_name]
                     old_tag = tag
-                    if old_tag != new_tag:
+                    # Skip if lookup failed (new_tag is None) or no change needed
+                    if new_tag is not None and old_tag != new_tag:
+                        # NEVER DOWNGRADE: Compare version tuples to ensure upgrade
+                        old_parsed = _parse_docker_tag(old_tag)
+                        new_parsed = _parse_docker_tag(new_tag)
+                        if old_parsed and new_parsed and new_parsed['version'] <= old_parsed['version']:
+                            # Would be a downgrade - skip
+                            updated_lines.append(original_line)
+                            continue
                         # Track the update
                         updated_images[base_name] = (old_tag, new_tag)
                         # Replace with new tag, preserving registry prefix
