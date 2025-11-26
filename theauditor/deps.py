@@ -1345,12 +1345,19 @@ def _create_versioned_backup(path: Path) -> Path:
 def upgrade_all_deps(
     root_path: str,
     latest_info: dict[str, dict[str, Any]],
-    deps_list: list[dict[str, Any]]
+    deps_list: list[dict[str, Any]],
+    ecosystems: list[str] | None = None
 ) -> dict[str, int]:
     """
-    YOLO MODE: Upgrade all dependencies to latest versions.
-    Rewrites requirements.txt, package.json, and pyproject.toml with latest versions.
-    
+    Upgrade dependencies to latest versions.
+
+    Args:
+        root_path: Project root directory
+        latest_info: Dict from check_latest_versions() with version info
+        deps_list: List of dependency objects to upgrade
+        ecosystems: Optional list of ecosystems to upgrade (py, npm, docker, cargo).
+                   If None, upgrades all ecosystems (YOLO mode).
+
     Returns dict with counts of upgraded packages per file type.
     """
     root = Path(root_path)
@@ -1359,6 +1366,10 @@ def upgrade_all_deps(
         "package.json": 0,
         "pyproject.toml": 0
     }
+
+    # If no ecosystems specified, upgrade all (backward compat with --upgrade-all)
+    if ecosystems is None:
+        ecosystems = ["py", "npm", "docker", "cargo"]
 
     # Group deps by source file (including workspace path for monorepos)
     deps_by_source = {}
@@ -1374,112 +1385,116 @@ def upgrade_all_deps(
         deps_by_source[source_key].append(dep)
 
     # Upgrade requirements*.txt files (including in subdirectories)
-    all_req_files = list(root.glob("requirements*.txt"))
-    all_req_files.extend(root.glob("*/requirements*.txt"))
-    all_req_files.extend(root.glob("services/*/requirements*.txt"))
-    all_req_files.extend(root.glob("apps/*/requirements*.txt"))
+    if "py" in ecosystems:
+        all_req_files = list(root.glob("requirements*.txt"))
+        all_req_files.extend(root.glob("*/requirements*.txt"))
+        all_req_files.extend(root.glob("services/*/requirements*.txt"))
+        all_req_files.extend(root.glob("apps/*/requirements*.txt"))
 
-    for req_file in all_req_files:
-        # Use relative path as key for deps_by_source
-        try:
-            rel_path = req_file.relative_to(root)
-            source_key = str(rel_path).replace("\\", "/")
-        except ValueError:
-            source_key = req_file.name
+        for req_file in all_req_files:
+            # Use relative path as key for deps_by_source
+            try:
+                rel_path = req_file.relative_to(root)
+                source_key = str(rel_path).replace("\\", "/")
+            except ValueError:
+                source_key = req_file.name
 
-        if source_key in deps_by_source:
-            count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[source_key])
-            upgraded["requirements.txt"] += count
-        elif req_file.name in deps_by_source:
-            # Fallback to just filename for backward compatibility
-            count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[req_file.name])
-            upgraded["requirements.txt"] += count
+            if source_key in deps_by_source:
+                count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[source_key])
+                upgraded["requirements.txt"] += count
+            elif req_file.name in deps_by_source:
+                # Fallback to just filename for backward compatibility
+                count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[req_file.name])
+                upgraded["requirements.txt"] += count
 
     # Upgrade all package.json files (root and workspaces)
-    for source_key, source_deps in deps_by_source.items():
-        # Skip non-npm dependencies
-        if not source_deps or source_deps[0].get("manager") != "npm":
-            continue
+    if "npm" in ecosystems:
+        for source_key, source_deps in deps_by_source.items():
+            # Skip non-npm dependencies
+            if not source_deps or source_deps[0].get("manager") != "npm":
+                continue
 
-        # Determine the actual file path
-        if source_key == "package.json":
-            # Root package.json
-            package_path = root / "package.json"
-        elif source_key.endswith("package.json"):
-            # Workspace package.json (e.g., "backend/package.json")
-            package_path = root / source_key
-        else:
-            continue
+            # Determine the actual file path
+            if source_key == "package.json":
+                # Root package.json
+                package_path = root / "package.json"
+            elif source_key.endswith("package.json"):
+                # Workspace package.json (e.g., "backend/package.json")
+                package_path = root / source_key
+            else:
+                continue
 
-        if package_path.exists():
-            count = _upgrade_package_json(package_path, latest_info, source_deps)
-            upgraded["package.json"] += count
+            if package_path.exists():
+                count = _upgrade_package_json(package_path, latest_info, source_deps)
+                upgraded["package.json"] += count
 
     # Upgrade all pyproject.toml files (root and subdirectories)
-    all_pyproject_files = [root / "pyproject.toml"] if (root / "pyproject.toml").exists() else []
-    all_pyproject_files.extend(root.glob("*/pyproject.toml"))
-    all_pyproject_files.extend(root.glob("services/*/pyproject.toml"))
-    all_pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
+    if "py" in ecosystems:
+        all_pyproject_files = [root / "pyproject.toml"] if (root / "pyproject.toml").exists() else []
+        all_pyproject_files.extend(root.glob("*/pyproject.toml"))
+        all_pyproject_files.extend(root.glob("services/*/pyproject.toml"))
+        all_pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
 
-    for pyproject_file in all_pyproject_files:
-        # Use relative path as key
-        try:
-            rel_path = pyproject_file.relative_to(root)
-            source_key = str(rel_path).replace("\\", "/")
-        except ValueError:
-            source_key = "pyproject.toml"
+        for pyproject_file in all_pyproject_files:
+            # Use relative path as key
+            try:
+                rel_path = pyproject_file.relative_to(root)
+                source_key = str(rel_path).replace("\\", "/")
+            except ValueError:
+                source_key = "pyproject.toml"
 
-        if source_key in deps_by_source:
-            count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source[source_key])
-            upgraded["pyproject.toml"] += count
-        elif "pyproject.toml" in deps_by_source and pyproject_file == root / "pyproject.toml":
-            # Backward compatibility for root pyproject.toml
-            count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source["pyproject.toml"])
-            upgraded["pyproject.toml"] += count
+            if source_key in deps_by_source:
+                count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source[source_key])
+                upgraded["pyproject.toml"] += count
+            elif "pyproject.toml" in deps_by_source and pyproject_file == root / "pyproject.toml":
+                # Backward compatibility for root pyproject.toml
+                count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source["pyproject.toml"])
+                upgraded["pyproject.toml"] += count
 
     # Upgrade Docker Compose files
-    docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
-    upgraded["docker-compose"] = 0
+    if "docker" in ecosystems:
+        docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
+        upgraded["docker-compose"] = 0
 
-    for compose_file in docker_compose_files:
-        # Use relative path as key
-        try:
-            rel_path = compose_file.relative_to(root)
-            source_key = str(rel_path).replace("\\", "/")
-        except ValueError:
-            source_key = compose_file.name
+        for compose_file in docker_compose_files:
+            # Use relative path as key
+            try:
+                rel_path = compose_file.relative_to(root)
+                source_key = str(rel_path).replace("\\", "/")
+            except ValueError:
+                source_key = compose_file.name
 
-        # Collect all Docker deps from this file
-        docker_deps = []
-        for source_key_check in [source_key, compose_file.name]:
-            if source_key_check in deps_by_source:
-                docker_deps = [d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"]
-                break
+            # Collect all Docker deps from this file
+            docker_deps = []
+            for source_key_check in [source_key, compose_file.name]:
+                if source_key_check in deps_by_source:
+                    docker_deps = [d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"]
+                    break
 
-        if docker_deps:
-            count = _upgrade_docker_compose(compose_file, latest_info, docker_deps)
-            upgraded["docker-compose"] += count
+            if docker_deps:
+                count = _upgrade_docker_compose(compose_file, latest_info, docker_deps)
+                upgraded["docker-compose"] += count
 
-    # Upgrade Dockerfiles
-    dockerfiles = list(root.glob("**/Dockerfile"))
-    upgraded["dockerfile"] = 0
+        # Upgrade Dockerfiles
+        dockerfiles = list(root.glob("**/Dockerfile"))
+        upgraded["dockerfile"] = 0
 
-    for dockerfile in dockerfiles:
-        # Use relative path as key
-        try:
-            rel_path = dockerfile.relative_to(root)
-            source_key = str(rel_path).replace("\\", "/")
-        except ValueError:
-            source_key = str(dockerfile)
+        for dockerfile in dockerfiles:
+            # Use relative path as key
+            try:
+                rel_path = dockerfile.relative_to(root)
+                source_key = str(rel_path).replace("\\", "/")
+            except ValueError:
+                source_key = str(dockerfile)
 
-        # Collect Docker deps from this file
-        docker_deps = []
-        if source_key in deps_by_source:
-            docker_deps = [d for d in deps_by_source[source_key] if d.get("manager") == "docker"]
+            # Collect Docker deps from this file
+            docker_deps = []
+            if source_key in deps_by_source:
+                docker_deps = [d for d in deps_by_source[source_key] if d.get("manager") == "docker"]
 
-        if docker_deps:
-            count = _upgrade_dockerfile(dockerfile, latest_info, docker_deps)
-            upgraded["dockerfile"] += count
+            if docker_deps:
+                count = _upgrade_dockerfile(dockerfile, latest_info, docker_deps)
+                upgraded["dockerfile"] += count
 
     return upgraded
 
