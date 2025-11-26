@@ -154,6 +154,92 @@ class NodeDatabaseMixin:
                                                            operation_type, key_name, value_expr, is_reactive))
 
     # ========================================================
+    # SEQUELIZE ORM BATCH METHODS
+    # ========================================================
+
+    def add_sequelize_model(self, file: str, line: int, model_name: str,
+                            table_name: str | None = None, extends_model: bool = False):
+        """Add a Sequelize model to the batch."""
+        self.generic_batches['sequelize_models'].append((
+            file, line, model_name, table_name, 1 if extends_model else 0
+        ))
+
+    def add_sequelize_association(self, file: str, line: int, model_name: str,
+                                  association_type: str, target_model: str,
+                                  foreign_key: str | None = None,
+                                  through_table: str | None = None):
+        """Add a Sequelize association to the batch."""
+        self.generic_batches['sequelize_associations'].append((
+            file, line, model_name, association_type, target_model,
+            foreign_key, through_table
+        ))
+
+    # ========================================================
+    # BULLMQ BATCH METHODS
+    # ========================================================
+
+    def add_bullmq_queue(self, file: str, line: int, queue_name: str,
+                         redis_config: str | None = None):
+        """Add a BullMQ queue to the batch."""
+        self.generic_batches['bullmq_queues'].append((
+            file, line, queue_name, redis_config
+        ))
+
+    def add_bullmq_worker(self, file: str, line: int, queue_name: str,
+                          worker_function: str | None = None,
+                          processor_path: str | None = None):
+        """Add a BullMQ worker to the batch."""
+        self.generic_batches['bullmq_workers'].append((
+            file, line, queue_name, worker_function, processor_path
+        ))
+
+    # ========================================================
+    # ANGULAR BATCH METHODS
+    # ========================================================
+
+    def add_angular_component(self, file: str, line: int, component_name: str,
+                              selector: str | None = None, template_path: str | None = None,
+                              style_paths: str | None = None, has_lifecycle_hooks: bool = False):
+        """Add an Angular component to the batch."""
+        self.generic_batches['angular_components'].append((
+            file, line, component_name, selector, template_path, style_paths,
+            1 if has_lifecycle_hooks else 0
+        ))
+
+    def add_angular_service(self, file: str, line: int, service_name: str,
+                            is_injectable: bool = True, provided_in: str | None = None):
+        """Add an Angular service to the batch."""
+        self.generic_batches['angular_services'].append((
+            file, line, service_name, 1 if is_injectable else 0, provided_in
+        ))
+
+    def add_angular_module(self, file: str, line: int, module_name: str,
+                           declarations: str | None = None, imports: str | None = None,
+                           providers: str | None = None, exports: str | None = None):
+        """Add an Angular module to the batch."""
+        self.generic_batches['angular_modules'].append((
+            file, line, module_name, declarations, imports, providers, exports
+        ))
+
+    def add_angular_guard(self, file: str, line: int, guard_name: str,
+                          guard_type: str, implements_interface: str | None = None):
+        """Add an Angular guard to the batch."""
+        self.generic_batches['angular_guards'].append((
+            file, line, guard_name, guard_type, implements_interface
+        ))
+
+    # ========================================================
+    # DEPENDENCY INJECTION BATCH METHODS
+    # ========================================================
+
+    def add_di_injection(self, file: str, line: int, target_class: str,
+                         injected_service: str, injection_type: str = 'constructor'):
+        """Add a DI injection to the batch."""
+        self.generic_batches['di_injections'].append((
+            file, line, target_class, injected_service, injection_type
+        ))
+
+    # ========================================================
     # PACKAGE MANAGEMENT BATCH METHODS
     # ========================================================
 

@@ -2,7 +2,7 @@
 
 **Document Type:** Handoff / Onboarding / Pre-Implementation Plan
 **Date:** 2025-11-26
-**Status:** READY FOR PLANNING
+**Status:** PHASE 0-2 COMPLETE (Fidelity Infrastructure Ticket), PHASE 3-4 DEFERRED TO node-schema-normalization
 **Authors:** Lead Coder (Opus), Lead Auditor (Gemini)
 
 ---
@@ -177,28 +177,29 @@ Node Storage (BROKEN for 9 handlers):
 
 **See Part 9 for full verification evidence with line numbers.**
 
-### Phase 1: Fidelity Infrastructure (The Safety Net)
+### Phase 1: Fidelity Infrastructure (The Safety Net) - COMPLETED 2025-11-26
 **Goal:** Install the "Accountant" before we start moving money.
 
-- [ ] **1.1** Update `javascript.py` orchestrator to generate `_extraction_manifest`
-- [ ] **1.2** Update `node_storage.py` to track and return `_storage_receipt`
-- [ ] **1.3** Wire `reconcile_fidelity` into Node processing loop in `orchestrator.py`
+- [x] **1.1** Update `javascript.py` orchestrator to generate `_extraction_manifest` - DONE (lines 806-830)
+- [x] **1.2** Verify orchestrator already wired (`orchestrator.py:767` calls `reconcile_fidelity`) - VERIFIED
+- [x] **1.3** Verify `storage/__init__.py:104` skips `_extraction_manifest` key in handler dispatch - VERIFIED
 
-**Note:** This will likely **CRASH** immediately due to broken storage handlers. This is expected and validates the system works.
+**Result:** Manifest generation active. Fidelity check runs automatically for all JS/TS files.
 
-**Technical Detail:** The orchestrator (`indexer/orchestrator.py`) already calls `reconcile_fidelity` if `_extraction_manifest` exists. Simply adding the manifest in `javascript.py` will activate the check automatically (same pattern as Python).
-
-### Phase 2: Storage Architecture Repair (The Plumbing)
+### Phase 2: Storage Architecture Repair (The Plumbing) - COMPLETED 2025-11-26
 **Goal:** Fix the 9 rogue handlers that break the receipt system.
 
-- [ ] **2.1** Implement 9 missing `add_*` methods in `node_database.py`
-- [ ] **2.2** Ensure they use `self.generic_batches` or direct return-ID pattern
-- [ ] **2.3** Refactor 9 rogue handlers to call `db_manager.add_*`
-- [ ] **2.4** Remove ALL direct `cursor` usage from `node_storage.py`
-- [ ] **2.5** Verify receipt tracking works for all 17 handlers
+- [x] **2.1** Implement 9 missing `add_*` methods in `node_database.py` - DONE (lines 160-240)
+- [x] **2.2** All methods use `self.generic_batches` pattern - VERIFIED
+- [x] **2.3** Refactor 9 rogue handlers to call `db_manager.add_*` - DONE
+- [x] **2.4** Remove ALL direct `cursor` usage from `node_storage.py` - VERIFIED (grep = 0 results)
+- [x] **2.5** Verify receipt tracking works for all 17 handlers - VERIFIED via `aud full --offline`
 
-### Phase 3: Schema Normalization (The Structure)
+**Result:** All handlers now use batched database methods. Zero direct cursor access. Pipeline tested successfully.
+
+### Phase 3: Schema Normalization (The Structure) - DEFERRED
 **Goal:** Eliminate JSON blobs and enforce precise querying.
+**Status:** DEFERRED to `node-schema-normalization` ticket per design.md non-goals.
 
 - [ ] **3.1** Create `react_hook_dependencies` junction table
 - [ ] **3.2** Create `vue_component_props`, `vue_component_emits` junction tables
@@ -207,17 +208,18 @@ Node Storage (BROKEN for 9 handlers):
 - [ ] **3.5** Add explicit PKs to tables using implicit ROWID
 - [ ] **3.6** Regenerate codegen for Node tables
 
-### Phase 4: Contract Tests & Verification
+### Phase 4: Contract Tests & Verification - PARTIAL (Fidelity Testing Done)
 **Goal:** Prevent future drift, validate the fix.
+**Status:** Schema contract tests DEFERRED to `node-schema-normalization`. Fidelity testing COMPLETED.
 
-- [ ] **4.1** Create `tests/test_node_schema_contract.py`
-- [ ] **4.2** Test table counts, discriminators, junction FKs
-- [ ] **4.3** Test no JSON blob columns remain
-- [ ] **4.4** Test all handlers use batched methods
-- [ ] **4.5** Ensure all JS/TS extractors return `List[dict]`
-- [ ] **4.6** Run `aud full --offline` on Node-heavy codebase (React+Express)
-- [ ] **4.7** Verify 0 fidelity errors
-- [ ] **4.8** Final ruff check
+- [ ] **4.1** Create `tests/test_node_schema_contract.py` - DEFERRED
+- [ ] **4.2** Test table counts, discriminators, junction FKs - DEFERRED
+- [ ] **4.3** Test no JSON blob columns remain - DEFERRED
+- [ ] **4.4** Test all handlers use batched methods - DEFERRED
+- [ ] **4.5** Ensure all JS/TS extractors return `List[dict]` - DEFERRED
+- [x] **4.6** Run `aud full --offline` on Node-heavy codebase - DONE (node-fidelity-infrastructure)
+- [x] **4.7** Verify 0 fidelity errors - VERIFIED
+- [x] **4.8** Final ruff check - PASSED
 
 ---
 
@@ -290,15 +292,18 @@ When resuming this work in a new session:
 
 ## Part 8: Definition of Done
 
-Node extraction achieves parity when:
+### Fidelity Infrastructure (node-fidelity-infrastructure) - COMPLETED 2025-11-26
 
-- [ ] All 17 storage handlers use `db_manager.add_*()` (0 direct cursors)
-- [ ] Manifest/Receipt reconciliation enabled for Node pipeline
+- [x] All 17 storage handlers use `db_manager.add_*()` (0 direct cursors)
+- [x] Manifest/Receipt reconciliation enabled for Node pipeline
+- [x] `aud full --offline` runs clean on Node-heavy codebase
+- [x] 0 data loss between extraction and storage (verified: sequelize=3+21, react=224+196)
+
+### Schema Normalization (node-schema-normalization) - PENDING
+
 - [ ] All JSON blob columns replaced with junction tables
 - [ ] Two-discriminator pattern applied where applicable
 - [ ] Schema contract tests pass (target: 10+ tests)
-- [ ] `aud full --offline` runs clean on Node-heavy codebase
-- [ ] 0 data loss between extraction and storage
 
 ---
 

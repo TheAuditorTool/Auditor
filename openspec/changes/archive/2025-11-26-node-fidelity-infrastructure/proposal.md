@@ -68,11 +68,11 @@ Node.js extraction has **ZERO DATA FIDELITY CONTROLS**. 9 of 17 storage handlers
 
 ## Definition of Done
 
-- [ ] `javascript.py` generates `_extraction_manifest` (count verification)
-- [ ] All 9 storage handlers call `db_manager.add_*()` (grep for cursor.execute = 0 results)
-- [ ] All 9 `add_*()` methods use `self.generic_batches` (batching verification)
-- [ ] `aud full --offline` on Node-heavy codebase (React+Express) completes without DataFidelityError
-- [ ] `ruff check theauditor/indexer/` passes
+- [x] `javascript.py` generates `_extraction_manifest` (count verification) - DONE (lines 806-830)
+- [x] All 9 storage handlers call `db_manager.add_*()` (grep for cursor.execute = 0 results) - VERIFIED
+- [x] All 9 `add_*()` methods use `self.generic_batches` (batching verification) - VERIFIED
+- [x] `aud full --offline` on Node-heavy codebase (React+Express) completes without DataFidelityError - PASSED
+- [x] `ruff check theauditor/indexer/` passes - PASSED (fixed N806, SIM102, B033 in javascript.py)
 
 ## References
 

@@ -20,8 +20,9 @@ This separation ensures single source of truth for file paths.
 """
 
 
-from typing import Any
 import os
+from datetime import datetime
+from typing import Any
 
 from . import BaseExtractor
 from .sql import parse_sql_query
@@ -130,7 +131,7 @@ class JavaScriptExtractor(BaseExtractor):
                     result['function_calls'] = extracted_data['function_call_args']
 
                 # Map all new Phase 5 keys
-                KEY_MAPPINGS = {
+                key_mappings = {
                     'import_styles': 'import_styles',
                     'resolved_imports': 'resolved_imports',
                     'react_components': 'react_components',
@@ -146,7 +147,7 @@ class JavaScriptExtractor(BaseExtractor):
                     'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
                 }
 
-                for js_key, python_key in KEY_MAPPINGS.items():
+                for js_key, python_key in key_mappings.items():
                     if js_key in extracted_data:
                         result[python_key] = extracted_data[js_key]
 
@@ -631,17 +632,16 @@ class JavaScriptExtractor(BaseExtractor):
                                 callback_body = callback_arg[0].get('argument_expr', '')[:500]
 
                                 # Check for cleanup in useEffect
-                                if call_name in ['useEffect', 'useLayoutEffect']:
-                                    if 'return' in callback_body:
-                                        has_cleanup = True
-                                        if 'clearTimeout' in callback_body or 'clearInterval' in callback_body:
-                                            cleanup_type = 'timer_cleanup'
-                                        elif 'removeEventListener' in callback_body:
-                                            cleanup_type = 'event_cleanup'
-                                        elif 'unsubscribe' in callback_body or 'disconnect' in callback_body:
-                                            cleanup_type = 'subscription_cleanup'
-                                        else:
-                                            cleanup_type = 'cleanup_function'
+                                if call_name in ['useEffect', 'useLayoutEffect'] and 'return' in callback_body:
+                                    has_cleanup = True
+                                    if 'clearTimeout' in callback_body or 'clearInterval' in callback_body:
+                                        cleanup_type = 'timer_cleanup'
+                                    elif 'removeEventListener' in callback_body:
+                                        cleanup_type = 'event_cleanup'
+                                    elif 'unsubscribe' in callback_body or 'disconnect' in callback_body:
+                                        cleanup_type = 'subscription_cleanup'
+                                    else:
+                                        cleanup_type = 'cleanup_function'
 
                 result['react_hooks'].append({
                     'line': line,
@@ -661,11 +661,9 @@ class JavaScriptExtractor(BaseExtractor):
             'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy',
             'findOrCreate', 'findAndCountAll', 'bulkCreate', 'upsert',
             # Prisma
-            'findMany', 'findUnique', 'findFirst', 'create', 'update', 'delete',
-            'createMany', 'updateMany', 'deleteMany', 'upsert',
-            # TypeORM
-            'find', 'findOne', 'save', 'remove', 'delete', 'insert', 'update',
-            'createQueryBuilder', 'getRepository', 'getManager'
+            'findMany', 'findUnique', 'findFirst', 'delete',
+            'createMany', 'updateMany', 'deleteMany', # TypeORM
+            'find', 'save', 'remove', 'insert', 'createQueryBuilder', 'getRepository', 'getManager'
         }
 
         for fc in result.get('function_calls', []):
@@ -802,6 +800,32 @@ class JavaScriptExtractor(BaseExtractor):
             if module_name:
                 result['resolved_imports'][module_name] = imp_path
 
+        # ==========================================================================
+        # DATA FIDELITY: GENERATE EXTRACTION MANIFEST
+        # ==========================================================================
+        # Count what the extractor produced. Storage will compare against this
+        # to detect silent data loss. See: theauditor/indexer/fidelity.py
+        manifest = {}
+        total_items = 0
+
+        for key, value in result.items():
+            # Skip metadata keys or non-list items
+            if key.startswith('_') or not isinstance(value, list):
+                continue
+
+            count = len(value)
+            if count > 0:
+                manifest[key] = count
+                total_items += count
+
+        # Add metadata for debugging
+        manifest['_total'] = total_items
+        manifest['_timestamp'] = datetime.utcnow().isoformat()
+        # ARCHITECTURE NOTE: javascript.py uses file_info dict, not context object
+        manifest['_file'] = file_info.get('path', 'unknown')
+
+        result['_extraction_manifest'] = manifest
+
         return result
 
     def _analyze_import_styles(self, imports: list[dict], file_path: str) -> list[dict]:
@@ -895,13 +919,13 @@ class JavaScriptExtractor(BaseExtractor):
             return 'migration_file'  # DDL schemas treated as migrations
 
         # ORM methods (Sequelize, Prisma, TypeORM)
-        ORM_METHODS = frozenset([
+        orm_methods = frozenset([
             'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy',  # Sequelize
             'findMany', 'findUnique', 'findFirst', 'upsert', 'createMany',    # Prisma
             'find', 'save', 'remove', 'createQueryBuilder', 'getRepository'   # TypeORM
         ])
 
-        if method_name in ORM_METHODS:
+        if method_name in orm_methods:
             return 'orm_query'
 
         # Default: direct database execution in code (highest risk)
@@ -926,7 +950,7 @@ class JavaScriptExtractor(BaseExtractor):
         queries = []
 
         # SQL execution method names
-        SQL_METHODS = frozenset([
+        sql_methods = frozenset([
             'execute', 'query', 'raw', 'exec', 'run',
             'executeSql', 'executeQuery', 'execSQL', 'select',
             'insert', 'update', 'delete', 'query_raw'
@@ -938,7 +962,7 @@ class JavaScriptExtractor(BaseExtractor):
             # Check if method name matches SQL execution pattern
             method_name = callee.split('.')[-1] if '.' in callee else callee
 
-            if method_name not in SQL_METHODS:
+            if method_name not in sql_methods:
                 continue
 
             # Only check first argument (SQL query string)
@@ -1013,17 +1037,17 @@ class JavaScriptExtractor(BaseExtractor):
         patterns = []
 
         # JWT method names (frozenset for O(1) lookup)
-        JWT_SIGN_METHODS = frozenset([
+        jwt_sign_methods = frozenset([
             'jwt.sign', 'jsonwebtoken.sign', 'jose.sign',
             'JWT.sign', 'jwt.encode', 'jose.JWT.sign'
         ])
 
-        JWT_VERIFY_METHODS = frozenset([
+        jwt_verify_methods = frozenset([
             'jwt.verify', 'jsonwebtoken.verify', 'jose.verify',
             'JWT.verify', 'jwt.decode', 'jose.JWT.verify'
         ])
 
-        JWT_DECODE_METHODS = frozenset([
+        jwt_decode_methods = frozenset([
             'jwt.decode', 'JWT.decode'
         ])
 
@@ -1036,11 +1060,11 @@ class JavaScriptExtractor(BaseExtractor):
 
             # Determine pattern type
             pattern_type = None
-            if any(method in callee for method in JWT_SIGN_METHODS):
+            if any(method in callee for method in jwt_sign_methods):
                 pattern_type = 'jwt_sign'
-            elif any(method in callee for method in JWT_VERIFY_METHODS):
+            elif any(method in callee for method in jwt_verify_methods):
                 pattern_type = 'jwt_verify'
-            elif any(method in callee for method in JWT_DECODE_METHODS):
+            elif any(method in callee for method in jwt_decode_methods):
                 pattern_type = 'jwt_decode'
 
             if not pattern_type:
@@ -1158,18 +1182,18 @@ class JavaScriptExtractor(BaseExtractor):
         routes = []
 
         # Route definition method names for Express/Fastify
-        ROUTE_METHODS = frozenset([
+        route_methods = frozenset([
             'get', 'post', 'put', 'patch', 'delete', 'options', 'head',
             'all', 'use', 'route'
         ])
 
         # Framework prefixes for route definitions
-        ROUTE_PREFIXES = frozenset([
+        route_prefixes = frozenset([
             'app', 'router', 'Router', 'express', 'fastify', 'server'
         ])
 
         # Authentication middleware patterns
-        AUTH_PATTERNS = frozenset([
+        auth_patterns = frozenset([
             'auth', 'authenticate', 'requireauth', 'isauth', 'verifyauth',
             'checkauth', 'ensureauth', 'passport', 'jwt', 'bearer', 'oauth',
             'protected', 'secure', 'guard', 'authorize'
@@ -1193,7 +1217,7 @@ class JavaScriptExtractor(BaseExtractor):
             method_name = parts[-1]
 
             # Check if this is a route definition
-            if prefix not in ROUTE_PREFIXES or method_name not in ROUTE_METHODS:
+            if prefix not in route_prefixes or method_name not in route_methods:
                 continue
 
             line = call.get('line', 0)
@@ -1229,7 +1253,7 @@ class JavaScriptExtractor(BaseExtractor):
 
                 # Check for authentication middleware
                 arg_lower = arg_expr.lower()
-                if any(auth_pattern in arg_lower for auth_pattern in AUTH_PATTERNS):
+                if any(auth_pattern in arg_lower for auth_pattern in auth_patterns):
                     route_entry['has_auth'] = True
                     route_entry['controls'].append(arg_expr[:100])  # Limit length
 
@@ -1339,9 +1363,9 @@ class JavaScriptExtractor(BaseExtractor):
         Args:
             db_path: Path to repo_index.db database
         """
-        import sqlite3
         import os
         import re
+        import sqlite3
 
         debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
@@ -1555,9 +1579,9 @@ class JavaScriptExtractor(BaseExtractor):
         Args:
             db_path: Path to repo_index.db database
         """
-        import sqlite3
         import json
         import os
+        import sqlite3
 
         logger = None
         if 'logger' in globals():
