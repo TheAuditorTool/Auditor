@@ -125,186 +125,125 @@ class NodeStorage(BaseStorage):
 
     def _store_sequelize_models(self, file_path: str, sequelize_models: list, jsx_pass: bool):
         """Store Sequelize model definitions."""
-        cursor = self.db_manager.conn.cursor()
         for model in sequelize_models:
             # Handle both dict and string formats
-            if isinstance(model, str):
-                # If it's a string, create a basic dict with the model name
-                model_data = {'model_name': model, 'line': 0}
-            else:
-                model_data = model
+            model_data = {'model_name': model, 'line': 0} if isinstance(model, str) else model
 
-            cursor.execute("""
-                INSERT OR REPLACE INTO sequelize_models
-                (file, line, model_name, table_name, extends_model)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            self.db_manager.add_sequelize_model(
                 file_path,
                 model_data.get('line', 0),
                 model_data.get('model_name', ''),
-                model_data.get('table_name'),  # Can be None
+                model_data.get('table_name'),
                 model_data.get('extends_model', False)
-            ))
-            if 'sequelize_models' not in self.counts:
-                self.counts['sequelize_models'] = 0
-            self.counts['sequelize_models'] += 1
+            )
+            self.counts['sequelize_models'] = self.counts.get('sequelize_models', 0) + 1
 
     def _store_sequelize_associations(self, file_path: str, sequelize_associations: list, jsx_pass: bool):
         """Store Sequelize model associations."""
-        cursor = self.db_manager.conn.cursor()
         for assoc in sequelize_associations:
-            cursor.execute("""
-                INSERT OR REPLACE INTO sequelize_associations
-                (file, line, model_name, association_type, target_model, foreign_key, through_table)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
+            self.db_manager.add_sequelize_association(
                 file_path,
                 assoc.get('line', 0),
                 assoc.get('model_name', ''),
                 assoc.get('association_type', ''),
                 assoc.get('target_model', ''),
-                assoc.get('foreign_key'),  # Can be None
-                assoc.get('through_table')  # Can be None
-            ))
-            if 'sequelize_associations' not in self.counts:
-                self.counts['sequelize_associations'] = 0
-            self.counts['sequelize_associations'] += 1
+                assoc.get('foreign_key'),
+                assoc.get('through_table')
+            )
+            self.counts['sequelize_associations'] = self.counts.get('sequelize_associations', 0) + 1
 
     def _store_bullmq_queues(self, file_path: str, bullmq_queues: list, jsx_pass: bool):
         """Store BullMQ queue definitions."""
-        cursor = self.db_manager.conn.cursor()
         for queue in bullmq_queues:
-            cursor.execute("""
-                INSERT OR REPLACE INTO bullmq_queues
-                (file, line, queue_name, redis_config)
-                VALUES (?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'name', we map to 'queue_name'
+            self.db_manager.add_bullmq_queue(
                 file_path,
                 queue.get('line', 0),
-                queue.get('name', ''),  # NOTE: extractor returns 'name', we map to 'queue_name'
+                queue.get('name', ''),
                 queue.get('redis_config')
-            ))
-            if 'bullmq_queues' not in self.counts:
-                self.counts['bullmq_queues'] = 0
-            self.counts['bullmq_queues'] += 1
+            )
+            self.counts['bullmq_queues'] = self.counts.get('bullmq_queues', 0) + 1
 
     def _store_bullmq_workers(self, file_path: str, bullmq_workers: list, jsx_pass: bool):
         """Store BullMQ worker definitions."""
-        cursor = self.db_manager.conn.cursor()
         for worker in bullmq_workers:
-            cursor.execute("""
-                INSERT OR REPLACE INTO bullmq_workers
-                (file, line, queue_name, worker_function, processor_path)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            self.db_manager.add_bullmq_worker(
                 file_path,
                 worker.get('line', 0),
                 worker.get('queue_name', ''),
                 worker.get('worker_function'),
                 worker.get('processor_path')
-            ))
-            if 'bullmq_workers' not in self.counts:
-                self.counts['bullmq_workers'] = 0
-            self.counts['bullmq_workers'] += 1
+            )
+            self.counts['bullmq_workers'] = self.counts.get('bullmq_workers', 0) + 1
 
     def _store_angular_components(self, file_path: str, angular_components: list, jsx_pass: bool):
         """Store Angular component definitions."""
-        cursor = self.db_manager.conn.cursor()
         for component in angular_components:
-            cursor.execute("""
-                INSERT OR REPLACE INTO angular_components
-                (file, line, component_name, selector, template_path, style_paths, has_lifecycle_hooks)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'name', we map to 'component_name'
+            self.db_manager.add_angular_component(
                 file_path,
                 component.get('line', 0),
                 component.get('name', ''),
                 component.get('selector'),
                 component.get('template_path'),
-                component.get('style_paths'),  # Already stringified by extractor
+                component.get('style_paths'),
                 component.get('has_lifecycle_hooks', False)
-            ))
-            if 'angular_components' not in self.counts:
-                self.counts['angular_components'] = 0
-            self.counts['angular_components'] += 1
+            )
+            self.counts['angular_components'] = self.counts.get('angular_components', 0) + 1
 
     def _store_angular_services(self, file_path: str, angular_services: list, jsx_pass: bool):
         """Store Angular service definitions."""
-        cursor = self.db_manager.conn.cursor()
         for service in angular_services:
-            cursor.execute("""
-                INSERT OR REPLACE INTO angular_services
-                (file, line, service_name, is_injectable, provided_in)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'name', we map to 'service_name'
+            self.db_manager.add_angular_service(
                 file_path,
                 service.get('line', 0),
                 service.get('name', ''),
                 service.get('is_injectable', True),
                 service.get('provided_in')
-            ))
-            if 'angular_services' not in self.counts:
-                self.counts['angular_services'] = 0
-            self.counts['angular_services'] += 1
+            )
+            self.counts['angular_services'] = self.counts.get('angular_services', 0) + 1
 
     def _store_angular_modules(self, file_path: str, angular_modules: list, jsx_pass: bool):
         """Store Angular module definitions."""
-        cursor = self.db_manager.conn.cursor()
         for module in angular_modules:
-            cursor.execute("""
-                INSERT OR REPLACE INTO angular_modules
-                (file, line, module_name, declarations, imports, providers, exports)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'name', we map to 'module_name'
+            self.db_manager.add_angular_module(
                 file_path,
                 module.get('line', 0),
                 module.get('name', ''),
-                module.get('declarations'),  # Already stringified
+                module.get('declarations'),
                 module.get('imports'),
                 module.get('providers'),
                 module.get('exports')
-            ))
-            if 'angular_modules' not in self.counts:
-                self.counts['angular_modules'] = 0
-            self.counts['angular_modules'] += 1
+            )
+            self.counts['angular_modules'] = self.counts.get('angular_modules', 0) + 1
 
     def _store_angular_guards(self, file_path: str, angular_guards: list, jsx_pass: bool):
         """Store Angular guard definitions."""
-        cursor = self.db_manager.conn.cursor()
         for guard in angular_guards:
-            cursor.execute("""
-                INSERT OR REPLACE INTO angular_guards
-                (file, line, guard_name, guard_type, implements_interface)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'name', we map to 'guard_name'
+            self.db_manager.add_angular_guard(
                 file_path,
                 guard.get('line', 0),
                 guard.get('name', ''),
                 guard.get('guard_type', ''),
                 guard.get('implements_interface')
-            ))
-            if 'angular_guards' not in self.counts:
-                self.counts['angular_guards'] = 0
-            self.counts['angular_guards'] += 1
+            )
+            self.counts['angular_guards'] = self.counts.get('angular_guards', 0) + 1
 
     def _store_di_injections(self, file_path: str, di_injections: list, jsx_pass: bool):
         """Store Dependency Injection patterns."""
-        cursor = self.db_manager.conn.cursor()
         for injection in di_injections:
-            cursor.execute("""
-                INSERT OR REPLACE INTO di_injections
-                (file, line, target_class, injected_service, injection_type)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            # NOTE: extractor returns 'service', we map to 'injected_service'
+            self.db_manager.add_di_injection(
                 file_path,
                 injection.get('line', 0),
                 injection.get('target_class', ''),
-                injection.get('service', ''),  # NOTE: extractor returns 'service', map to 'injected_service'
+                injection.get('service', ''),
                 injection.get('injection_type', 'constructor')
-            ))
-            if 'di_injections' not in self.counts:
-                self.counts['di_injections'] = 0
-            self.counts['di_injections'] += 1
+            )
+            self.counts['di_injections'] = self.counts.get('di_injections', 0) + 1
 
     def _store_lock_analysis(self, file_path: str, lock_analysis: list, jsx_pass: bool):
         """Store lock analysis."""
