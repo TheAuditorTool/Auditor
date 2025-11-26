@@ -5,7 +5,7 @@ Node.js extraction has **ZERO DATA FIDELITY CONTROLS**. 9 of 17 storage handlers
 **Evidence from Lead Auditor Verification (2025-11-26):**
 - `node_storage.py` lines 126-307: 9 handlers access `self.db_manager.conn.cursor()` directly
 - `node_database.py`: Missing 9 corresponding `add_*()` methods
-- `javascript.py` line 93: Returns plain dict, NO manifest generation
+- `javascript.py:49-93` initializes result dict, `line 805` returns it - NO manifest generation
 - Partial counting creates FALSE CONFIDENCE - items counted but inserts fail silently
 
 **Risk:** Production data loss with zero detection mechanism. Same 22MB bug that hit Python.
@@ -14,7 +14,7 @@ Node.js extraction has **ZERO DATA FIDELITY CONTROLS**. 9 of 17 storage handlers
 
 ### Phase 1: Fidelity Infrastructure (The Accountant)
 1. **Modify `javascript.py`** - Add `_extraction_manifest` generation at end of `extract()`
-   - Copy exact pattern from `python_impl.py:1180-1204`
+   - Copy exact pattern from `theauditor/ast_extractors/python_impl.py:1180-1204`
    - Count all list items, add `_total`, `_timestamp`, `_file` metadata
 
 2. **Verify orchestrator wiring** - `orchestrator.py:767` already calls `reconcile_fidelity()` if manifest exists

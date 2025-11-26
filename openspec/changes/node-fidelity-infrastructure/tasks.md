@@ -2,45 +2,26 @@
 
 - [x] **0.1** Confirm 9 rogue handlers in `node_storage.py` (lines 126-307) - VERIFIED by Lead Auditor
 - [x] **0.2** Confirm 9 missing methods in `node_database.py` - VERIFIED by Lead Auditor
-- [x] **0.3** Confirm no manifest generation in `javascript.py` line 93 - VERIFIED by Lead Auditor
+- [x] **0.3** Confirm no manifest generation in `javascript.py` (dict init lines 49-93, return at line 805) - VERIFIED by Lead Auditor
 - [x] **0.4** Confirm orchestrator already wired (`orchestrator.py:767` calls `reconcile_fidelity`) - VERIFIED
-- [x] **0.5** Read `python_impl.py:1180-1204` for manifest pattern - VERIFIED
+- [x] **0.5** Read `theauditor/ast_extractors/python_impl.py:1180-1204` for manifest pattern - VERIFIED
 - [x] **0.6** Read `python_database.py` for `add_*()` method pattern - VERIFIED
 - [x] **0.7** Read `python_storage.py` for handler pattern - VERIFIED
 
 ## 1. Phase 1: Fidelity Infrastructure
 
 ### 1.1 Add Manifest Generation to JavaScript Extractor
-- [ ] **1.1.1** Open `theauditor/indexer/extractors/javascript.py`
-- [ ] **1.1.2** Locate `extract()` method return statement (approx line 805)
-- [ ] **1.1.3** Add manifest generation code BEFORE the return:
-  ```python
-  # DATA FIDELITY: GENERATE EXTRACTION MANIFEST
-  manifest = {}
-  total_items = 0
-
-  for key, value in result.items():
-      if key.startswith('_') or not isinstance(value, list):
-          continue
-      count = len(value)
-      if count > 0:
-          manifest[key] = count
-          total_items += count
-
-  from datetime import datetime
-  manifest['_total'] = total_items
-  manifest['_timestamp'] = datetime.utcnow().isoformat()
-  manifest['_file'] = file_info.get('path', 'unknown')
-
-  result['_extraction_manifest'] = manifest
-  ```
-- [ ] **1.1.4** Verify import `datetime` is added if not present
-- [ ] **1.1.5** Run `ruff check theauditor/indexer/extractors/javascript.py`
+- [x] **1.1.1** Open `theauditor/indexer/extractors/javascript.py` - DONE
+- [x] **1.1.2** Locate `extract()` method return statement (approx line 805) - DONE
+- [x] **1.1.3** Add manifest generation code BEFORE the return - DONE (lines 806-830)
+- [x] **1.1.4** Verify import `datetime` is added if not present - DONE (line 24)
+- [x] **1.1.5** Run `ruff check theauditor/indexer/extractors/javascript.py` - PASSED
+- [x] **BONUS** Fixed pre-existing I001 import sorting errors at lines 1369, 1585
 
 ### 1.2 Verify Orchestrator Wiring (Read-Only)
-- [ ] **1.2.1** Confirm `orchestrator.py:763` reads manifest from `extracted.get('_extraction_manifest')`
-- [ ] **1.2.2** Confirm `orchestrator.py:769` calls `reconcile_fidelity()` with `strict=True`
-- [ ] **1.2.3** Confirm `storage/__init__.py:103` skips `_extraction_manifest` key in handler dispatch
+- [x] **1.2.1** Confirm `orchestrator.py:763` reads manifest from `extracted.get('_extraction_manifest')` - VERIFIED
+- [x] **1.2.2** Confirm `orchestrator.py:769` calls `reconcile_fidelity()` with `strict=True` - VERIFIED
+- [x] **1.2.3** Confirm `storage/__init__.py:104` skips `_extraction_manifest` key in handler dispatch - VERIFIED
 
 ## 2. Phase 2: Storage Architecture Repair
 
@@ -140,62 +121,34 @@ def add_di_injection(self, file: str, line: int, target_class: str,
     ))
 ```
 
-- [ ] **2.1.1** Add `add_sequelize_model()` method
-- [ ] **2.1.2** Add `add_sequelize_association()` method
-- [ ] **2.1.3** Add `add_bullmq_queue()` method
-- [ ] **2.1.4** Add `add_bullmq_worker()` method
-- [ ] **2.1.5** Add `add_angular_component()` method
-- [ ] **2.1.6** Add `add_angular_service()` method
-- [ ] **2.1.7** Add `add_angular_module()` method
-- [ ] **2.1.8** Add `add_angular_guard()` method
-- [ ] **2.1.9** Add `add_di_injection()` method
-- [ ] **2.1.10** Run `ruff check theauditor/indexer/database/node_database.py`
+- [x] **2.1.1** Add `add_sequelize_model()` method - DONE (lines 160-165)
+- [x] **2.1.2** Add `add_sequelize_association()` method - DONE (lines 167-175)
+- [x] **2.1.3** Add `add_bullmq_queue()` method - DONE (lines 181-186)
+- [x] **2.1.4** Add `add_bullmq_worker()` method - DONE (lines 188-194)
+- [x] **2.1.5** Add `add_angular_component()` method - DONE (lines 200-207)
+- [x] **2.1.6** Add `add_angular_service()` method - DONE (lines 209-214)
+- [x] **2.1.7** Add `add_angular_module()` method - DONE (lines 216-222)
+- [x] **2.1.8** Add `add_angular_guard()` method - DONE (lines 224-229)
+- [x] **2.1.9** Add `add_di_injection()` method - DONE (lines 235-240)
+- [x] **2.1.10** Run `ruff check theauditor/indexer/database/node_database.py` - PASSED
 
 ### 2.2 Refactor Storage Handlers
 
-**Handler Pattern (before -> after):**
-
-BEFORE (WRONG - direct cursor):
-```python
-def _store_sequelize_models(self, file_path: str, sequelize_models: list, jsx_pass: bool):
-    cursor = self.db_manager.conn.cursor()
-    for model in sequelize_models:
-        cursor.execute("""INSERT...""", (...))
-        self.counts['sequelize_models'] += 1
-```
-
-AFTER (CORRECT - batched method):
-```python
-def _store_sequelize_models(self, file_path: str, sequelize_models: list, jsx_pass: bool):
-    for model in sequelize_models:
-        if isinstance(model, str):
-            model_data = {'model_name': model, 'line': 0}
-        else:
-            model_data = model
-        self.db_manager.add_sequelize_model(
-            file_path,
-            model_data.get('line', 0),
-            model_data.get('model_name', ''),
-            model_data.get('table_name'),
-            model_data.get('extends_model', False)
-        )
-        self.counts['sequelize_models'] = self.counts.get('sequelize_models', 0) + 1
-```
-
-- [ ] **2.2.1** Refactor `_store_sequelize_models` (line 126)
-- [ ] **2.2.2** Refactor `_store_sequelize_associations` (line 152)
-- [ ] **2.2.3** Refactor `_store_bullmq_queues` (line 173)
-- [ ] **2.2.4** Refactor `_store_bullmq_workers` (line 191)
-- [ ] **2.2.5** Refactor `_store_angular_components` (line 210)
-- [ ] **2.2.6** Refactor `_store_angular_services` (line 231)
-- [ ] **2.2.7** Refactor `_store_angular_modules` (line 250)
-- [ ] **2.2.8** Refactor `_store_angular_guards` (line 271)
-- [ ] **2.2.9** Refactor `_store_di_injections` (line 290)
-- [ ] **2.2.10** Run `ruff check theauditor/indexer/storage/node_storage.py`
+- [x] **2.2.1** Refactor `_store_sequelize_models` - DONE (lines 126-142)
+- [x] **2.2.2** Refactor `_store_sequelize_associations` - DONE (lines 144-156)
+- [x] **2.2.3** Refactor `_store_bullmq_queues` - DONE (lines 158-168)
+- [x] **2.2.4** Refactor `_store_bullmq_workers` - DONE (lines 170-180)
+- [x] **2.2.5** Refactor `_store_angular_components` - DONE (lines 182-195)
+- [x] **2.2.6** Refactor `_store_angular_services` - DONE (lines 197-208)
+- [x] **2.2.7** Refactor `_store_angular_modules` - DONE (lines 210-223)
+- [x] **2.2.8** Refactor `_store_angular_guards` - DONE (lines 225-236)
+- [x] **2.2.9** Refactor `_store_di_injections` - DONE (lines 238-249)
+- [x] **2.2.10** Run `ruff check theauditor/indexer/storage/node_storage.py` - PASSED
+- [x] **BONUS** Fixed SIM108 ternary and W292 trailing newline
 
 ### 2.3 Verify No Direct Cursor Access Remains
-- [ ] **2.3.1** Run: `grep -n "cursor = self.db_manager.conn.cursor()" node_storage.py` - expect 0 results
-- [ ] **2.3.2** Run: `grep -n "cursor.execute" node_storage.py` - expect 0 results
+- [x] **2.3.1** Run: `grep "cursor = self.db_manager.conn.cursor()" node_storage.py` - **0 results** (VERIFIED)
+- [x] **2.3.2** Run: `grep "cursor.execute" node_storage.py` - **0 results** (VERIFIED)
 
 ## 3. Integration Testing
 

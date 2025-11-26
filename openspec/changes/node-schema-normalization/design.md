@@ -95,6 +95,90 @@ def add_vue_component(self, ..., props_definition: dict | None = None, ...):
 3. **Integration:** Handlers and methods exist for all tables
 4. **Consistency:** Node and Python patterns align
 
+### Decision 5: Handle multiple Vue extractor output formats
+
+**Why:** TypeScript extractor produces different JSON structures based on Vue syntax variant. Implementation must handle all.
+
+**Vue Props Format Variants (Ground Truth from typescript_impl.py):**
+
+**Format 1: TypeScript defineProps with object syntax**
+```json
+{
+  "name": { "type": "String", "required": true, "default": null },
+  "age": { "type": "Number", "required": false, "default": 18 }
+}
+```
+
+**Format 2: Options API with simple types**
+```json
+{
+  "name": "String",
+  "age": "Number"
+}
+```
+
+**Format 3: Mixed (some detailed, some simple)**
+```json
+{
+  "name": { "type": "String", "required": true },
+  "count": "Number"
+}
+```
+
+**Implementation Pattern (handle all formats):**
+```python
+for prop_name, prop_info in props_definition.items():
+    if isinstance(prop_info, dict):
+        # Detailed format: {"type": "String", "required": true, ...}
+        prop_type = prop_info.get('type')
+        is_required = prop_info.get('required', False)
+        default_value = prop_info.get('default')
+    else:
+        # Simple format: "String"
+        prop_type = str(prop_info) if prop_info else None
+        is_required = False
+        default_value = None
+```
+
+**Vue Emits Format Variants:**
+
+**Format 1: Array of strings** (most common)
+```json
+["update", "delete", "change"]
+```
+Note: When emits is array, convert to dict: `{"update": {}, "delete": {}, "change": {}}`
+
+**Format 2: Object with payload types**
+```json
+{
+  "update": { "payload_type": "UpdatePayload" },
+  "delete": null
+}
+```
+
+**Vue Setup Returns Format:**
+
+Always a dict mapping return names to their types:
+```json
+{
+  "count": { "type": "ref<number>" },
+  "increment": { "type": "function" },
+  "user": "ComputedRef<User>"
+}
+```
+
+**Angular Module Arrays Format:**
+
+All four arrays (declarations, imports, providers, exports) are simple string arrays:
+```json
+{
+  "declarations": ["AppComponent", "HeaderComponent"],
+  "imports": ["CommonModule", "FormsModule"],
+  "providers": ["AuthService", "ApiService"],
+  "exports": ["SharedComponent"]
+}
+```
+
 ## Risks / Trade-offs
 
 ### Risk 1: Extractor output doesn't match expected JSON structure

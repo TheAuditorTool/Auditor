@@ -1,3 +1,31 @@
+## Prerequisites Verification (BLOCKING)
+
+**This ticket CANNOT start until `node-fidelity-infrastructure` is 100% complete.**
+
+Before implementation, verify ALL of the following:
+
+```bash
+# 1. Check prerequisite ticket status
+openspec list | grep node-fidelity-infrastructure
+# REQUIRED: 52/52 tasks (100% complete)
+
+# 2. Verify 9 add_* methods exist in node_database.py
+grep -c "def add_sequelize_model\|def add_sequelize_association\|def add_bullmq_queue\|def add_bullmq_worker\|def add_angular_component\|def add_angular_service\|def add_angular_module\|def add_angular_guard\|def add_di_injection" theauditor/indexer/database/node_database.py
+# REQUIRED: 9 (all methods created by prerequisite)
+
+# 3. Verify no direct cursor access in node_storage.py
+grep -c "cursor = self.db_manager.conn.cursor()" theauditor/indexer/storage/node_storage.py
+# REQUIRED: 0 (all handlers refactored by prerequisite)
+
+# 4. Verify fidelity infrastructure active
+grep -c "_extraction_manifest" theauditor/indexer/extractors/javascript.py
+# REQUIRED: 1+ (manifest generation added by prerequisite)
+```
+
+**If ANY check fails: STOP. Complete `node-fidelity-infrastructure` first.**
+
+---
+
 ## Why
 
 After `node-fidelity-infrastructure` completes, Node extraction will have fidelity control but still have **SCHEMA QUALITY ISSUES** that block SQL joins and precise querying:
