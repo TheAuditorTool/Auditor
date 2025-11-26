@@ -96,6 +96,8 @@ def add_angular_module_export(self, file: str, module_name: str, exported_name: 
 - [ ] **1.1.2** Add `add_vue_component_prop()` method to `node_database.py`
 - [ ] **1.1.3** Modify `add_vue_component()` to parse `props_definition` JSON and call `add_vue_component_prop()` for each
 - [ ] **1.1.4** Remove `props_definition` column from `VUE_COMPONENTS` schema
+  - **File**: `theauditor/indexer/schemas/node_schema.py`
+  - **Line to remove**: Line 161 (`Column("props_definition", "TEXT"),`)
 
 ### 1.2 Vue Component Emits Junction Table
 - [ ] **1.2.1** Add `VUE_COMPONENT_EMITS` table to `node_schema.py`:
@@ -117,6 +119,8 @@ def add_angular_module_export(self, file: str, module_name: str, exported_name: 
 - [ ] **1.2.2** Add `add_vue_component_emit()` method to `node_database.py`
 - [ ] **1.2.3** Modify `add_vue_component()` to parse `emits_definition` JSON and call `add_vue_component_emit()` for each
 - [ ] **1.2.4** Remove `emits_definition` column from `VUE_COMPONENTS` schema
+  - **File**: `theauditor/indexer/schemas/node_schema.py`
+  - **Line to remove**: Line 162 (`Column("emits_definition", "TEXT"),`)
 
 ### 1.3 Vue Component Setup Returns Junction Table
 - [ ] **1.3.1** Add `VUE_COMPONENT_SETUP_RETURNS` table to `node_schema.py`:
@@ -138,6 +142,94 @@ def add_angular_module_export(self, file: str, module_name: str, exported_name: 
 - [ ] **1.3.2** Add `add_vue_component_setup_return()` method to `node_database.py`
 - [ ] **1.3.3** Modify `add_vue_component()` to parse `setup_return` JSON and call `add_vue_component_setup_return()` for each
 - [ ] **1.3.4** Remove `setup_return` column from `VUE_COMPONENTS` schema
+  - **File**: `theauditor/indexer/schemas/node_schema.py`
+  - **Line to remove**: Line 163 (`Column("setup_return", "TEXT"),`)
+
+### 1.3.5 Complete add_vue_component() Transformation (Reference)
+
+**BEFORE** (`node_database.py:119-131` - current state):
+```python
+def add_vue_component(self, file_path: str, name: str, component_type: str,
+                     start_line: int, end_line: int, has_template: bool = False,
+                     has_style: bool = False, composition_api_used: bool = False,
+                     props_definition: dict | None = None,
+                     emits_definition: dict | None = None,
+                     setup_return: str | None = None):
+    """Add a Vue component to the batch."""
+    props_json = json.dumps(props_definition) if props_definition else None
+    emits_json = json.dumps(emits_definition) if emits_definition else None
+    self.generic_batches['vue_components'].append((file_path, name, component_type,
+                                                   start_line, end_line, has_template, has_style,
+                                                   composition_api_used, props_json, emits_json,
+                                                   setup_return))
+```
+
+**AFTER** (junction table pattern - target state):
+```python
+def add_vue_component(self, file_path: str, name: str, component_type: str,
+                     start_line: int, end_line: int, has_template: bool = False,
+                     has_style: bool = False, composition_api_used: bool = False,
+                     props_definition: dict | None = None,
+                     emits_definition: dict | None = None,
+                     setup_return: dict | None = None):
+    """Add a Vue component to the batch.
+
+    ARCHITECTURE: Normalized many-to-many relationships.
+    - Phase 1: Batch parent component record (NO JSON columns)
+    - Phase 2-4: Batch junction records for props, emits, setup returns
+
+    NO FALLBACKS. If data is malformed, hard fail.
+    """
+    # Phase 1: Parent record (8 params - removed props_json, emits_json, setup_return)
+    self.generic_batches['vue_components'].append((file_path, name, component_type,
+                                                   start_line, end_line, has_template, has_style,
+                                                   composition_api_used))
+
+    # Phase 2: Junction records for props
+    if props_definition:
+        for prop_name, prop_info in props_definition.items():
+            if isinstance(prop_info, dict):
+                prop_type = prop_info.get('type')
+                is_required = prop_info.get('required', False)
+                default_value = prop_info.get('default')
+            else:
+                # Simple format: {"name": "String"}
+                prop_type = str(prop_info) if prop_info else None
+                is_required = False
+                default_value = None
+            self.generic_batches['vue_component_props'].append((
+                file_path, name, prop_name, prop_type,
+                1 if is_required else 0, default_value
+            ))
+
+    # Phase 3: Junction records for emits
+    if emits_definition:
+        for emit_name, emit_info in emits_definition.items():
+            payload_type = None
+            if isinstance(emit_info, dict):
+                payload_type = emit_info.get('payload_type')
+            self.generic_batches['vue_component_emits'].append((
+                file_path, name, emit_name, payload_type
+            ))
+
+    # Phase 4: Junction records for setup returns
+    if setup_return and isinstance(setup_return, dict):
+        for return_name, return_info in setup_return.items():
+            return_type = None
+            if isinstance(return_info, dict):
+                return_type = return_info.get('type')
+            elif return_info:
+                return_type = str(return_info)
+            self.generic_batches['vue_component_setup_returns'].append((
+                file_path, name, return_name, return_type
+            ))
+```
+
+**Key Changes:**
+1. Parent tuple reduced from 11 params to 8 (removed JSON columns)
+2. Props: Handle both `{"name": {"type": "String"}}` and `{"name": "String"}` formats
+3. Emits: Extract payload_type if dict format
+4. Setup returns: Parameter type changed from `str` to `dict` for proper parsing
 
 ### 1.4 Angular Component Styles Junction Table
 - [ ] **1.4.1** Add `ANGULAR_COMPONENT_STYLES` table to `node_schema.py`:
@@ -158,6 +250,20 @@ def add_angular_module_export(self, file: str, module_name: str, exported_name: 
 - [ ] **1.4.2** Add `add_angular_component_style()` method to `node_database.py`
 - [ ] **1.4.3** Modify `add_angular_component()` to parse `style_paths` JSON and call `add_angular_component_style()` for each
 - [ ] **1.4.4** Remove `style_paths` column from `ANGULAR_COMPONENTS` schema
+  - **File**: `theauditor/indexer/schemas/node_schema.py`
+  - **Line to remove**: Line 343 (`Column("style_paths", "TEXT", nullable=True),  # JSON array`)
+
+### 1.4.X Angular Methods Prerequisite Check (BLOCKING)
+
+**Before proceeding with Angular junction tables, verify prerequisite methods exist:**
+
+```bash
+# Verify add_angular_component() and add_angular_module() exist
+grep -c "def add_angular_component\|def add_angular_module" theauditor/indexer/database/node_database.py
+# REQUIRED: 2 (both methods created by node-fidelity-infrastructure Phase 2)
+```
+
+**If check returns 0:** STOP. Complete `node-fidelity-infrastructure` tasks 2.1.5-2.1.7 first.
 
 ### 1.5 Angular Module Declarations Junction Table
 - [ ] **1.5.1** Add `ANGULAR_MODULE_DECLARATIONS` table to `node_schema.py`:
@@ -240,6 +346,13 @@ def add_angular_module_export(self, file: str, module_name: str, exported_name: 
   - Parse `providers` JSON and call `add_angular_module_provider()` for each
   - Parse `exports` JSON and call `add_angular_module_export()` for each
 - [ ] **1.9.2** Remove JSON columns from `ANGULAR_MODULES` schema
+  - **File**: `theauditor/indexer/schemas/node_schema.py`
+  - **Lines to remove**:
+    - Line 376: `Column("declarations", "TEXT", nullable=True),  # JSON array`
+    - Line 377: `Column("imports", "TEXT", nullable=True),  # JSON array`
+    - Line 378: `Column("providers", "TEXT", nullable=True),  # JSON array`
+    - Line 379: `Column("exports", "TEXT", nullable=True),  # JSON array`
+  - **After removal**: `ANGULAR_MODULES` tuple has 3 params (file, line, module_name)
 - [ ] **1.9.3** Update `_store_angular_modules` handler if needed
 
 ### 1.10 Register New Tables
