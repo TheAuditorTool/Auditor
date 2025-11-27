@@ -57,7 +57,7 @@ def create_token(user_id, username, roles):
 def verify_token(token):
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-    except:
+    except:  # noqa: E722 - Intentional vulnerable pattern (error suppression)
         return None
 
 # Password hashing - mix of secure and insecure

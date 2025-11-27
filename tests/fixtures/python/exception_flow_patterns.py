@@ -115,7 +115,7 @@ def bare_except():
     """Test bare except clause."""
     try:
         risky()
-    except:  # Expected: exception_types='Exception' (catches all)
+    except:  # noqa: E722 - Expected: exception_types='Exception' (catches all)
         pass
 
 
