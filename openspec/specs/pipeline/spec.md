@@ -123,13 +123,27 @@ The JavaScript batch template SHALL aggregate all junction arrays from individua
 ### Requirement: Python Storage Direct Iteration
 The Python storage layer SHALL iterate junction arrays directly without JSON parsing.
 
-#### Scenario: Vue junction storage
-- **WHEN** `vue_component_props` array is provided to storage
-- **THEN** storage SHALL call `add_vue_component_prop()` for each record
+#### Scenario: Core language junction storage
+- **WHEN** `func_params` array is provided to storage
+- **THEN** storage SHALL call `add_func_param()` for each record
 - **AND** storage SHALL NOT parse JSON strings
+- **STATUS:** PENDING (Phase 9)
 
-#### Scenario: Angular junction storage
-- **WHEN** `angular_module_declarations` array is provided to storage
-- **THEN** storage SHALL call `add_angular_module_declaration()` for each record
+#### Scenario: Data flow junction storage
+- **WHEN** `assignment_source_vars` array is provided to storage
+- **THEN** storage SHALL call `add_assignment_source_var()` for each record
 - **AND** storage SHALL NOT parse JSON strings
+- **STATUS:** PENDING (Phase 9)
+
+#### Scenario: Import junction storage
+- **WHEN** `import_specifiers` array is provided to storage
+- **THEN** storage SHALL call `add_import_specifier()` for each record
+- **AND** storage SHALL NOT parse JSON strings
+- **STATUS:** PENDING (Phase 9)
+
+#### Scenario: Sequelize junction storage
+- **WHEN** `sequelize_model_fields` array is provided to storage
+- **THEN** storage SHALL call `add_sequelize_model_field()` for each record
+- **AND** storage SHALL NOT parse JSON strings
+- **STATUS:** PENDING (Phase 9)
 

@@ -111,3 +111,95 @@ Contract tests SHALL verify:
 - **THEN** test passes if no `cursor.execute` calls found in node_storage.py
 - **AND** test fails if direct cursor access is detected
 
+### Requirement: Function Parameter Junction Table
+The Node.js schema SHALL include a junction table for function parameters.
+
+#### Scenario: func_params table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `func_params` table SHALL exist
+- **AND** columns SHALL include: file, function_line, function_name, param_index, param_name, param_type
+- **AND** indexes SHALL exist for function lookup and param_name search
+- **STATUS:** IMPLEMENTED (node_schema.py:750-764)
+
+### Requirement: Function Decorator Junction Tables
+The Node.js schema SHALL include junction tables for function decorators and their arguments.
+
+#### Scenario: func_decorators table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `func_decorators` table SHALL exist
+- **AND** columns SHALL include: file, function_line, function_name, decorator_index, decorator_name, decorator_line
+- **STATUS:** IMPLEMENTED (node_schema.py:766-781)
+
+#### Scenario: func_decorator_args table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `func_decorator_args` table SHALL exist
+- **AND** columns SHALL include: file, function_line, function_name, decorator_index, arg_index, arg_value
+- **STATUS:** IMPLEMENTED (node_schema.py:783-797)
+
+### Requirement: Function Parameter Decorator Junction Table
+The Node.js schema SHALL include a junction table for function parameter decorators (NestJS @Body, @Param, etc.).
+
+#### Scenario: func_param_decorators table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `func_param_decorators` table SHALL exist
+- **AND** columns SHALL include: file, function_line, function_name, param_index, decorator_name, decorator_args
+- **AND** indexes SHALL exist for function lookup and decorator_name search
+- **STATUS:** IMPLEMENTED (node_schema.py:799-814)
+
+### Requirement: Class Decorator Junction Tables
+The Node.js schema SHALL include junction tables for class decorators and their arguments.
+
+#### Scenario: class_decorators table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `class_decorators` table SHALL exist
+- **AND** columns SHALL include: file, class_line, class_name, decorator_index, decorator_name, decorator_line
+- **STATUS:** IMPLEMENTED (node_schema.py:816-831)
+
+#### Scenario: class_decorator_args table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `class_decorator_args` table SHALL exist
+- **AND** columns SHALL include: file, class_line, class_name, decorator_index, arg_index, arg_value
+- **STATUS:** IMPLEMENTED (node_schema.py:833-847)
+
+### Requirement: Assignment Source Variables Junction Table
+The Node.js schema SHALL include a junction table for assignment source variables.
+
+#### Scenario: assignment_source_vars table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `assignment_source_vars` table SHALL exist
+- **AND** columns SHALL include: file, line, target_var, source_var, var_index
+- **AND** indexes SHALL exist for assignment lookup and source_var search
+- **STATUS:** IMPLEMENTED (node_schema.py:854-868)
+
+### Requirement: Return Source Variables Junction Table
+The Node.js schema SHALL include a junction table for return statement source variables.
+
+#### Scenario: return_source_vars table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `return_source_vars` table SHALL exist
+- **AND** columns SHALL include: file, line, function_name, source_var, var_index
+- **AND** indexes SHALL exist for return lookup and source_var search
+- **STATUS:** IMPLEMENTED (node_schema.py:870-884)
+
+### Requirement: Import Specifiers Junction Table
+The Node.js schema SHALL include a junction table for ES6 import specifiers.
+
+#### Scenario: import_specifiers table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `import_specifiers` table SHALL exist
+- **AND** columns SHALL include: file, import_line, specifier_name, original_name, is_default, is_namespace, is_named
+- **AND** indexes SHALL exist for import lookup and specifier_name search
+- **STATUS:** IMPLEMENTED (node_schema.py:891-907)
+
+### Requirement: Sequelize Model Fields Junction Table
+The Node.js schema SHALL include a junction table for Sequelize ORM model field definitions.
+
+#### Scenario: sequelize_model_fields table schema
+- **WHEN** the database schema is initialized
+- **THEN** the `sequelize_model_fields` table SHALL exist
+- **AND** columns SHALL include: file, model_name, field_name, data_type, is_primary_key, is_nullable, is_unique, default_value
+- **AND** indexes SHALL exist for model lookup and data_type search
+- **STATUS:** IMPLEMENTED (node_schema.py:914-931)
+
+---
+
