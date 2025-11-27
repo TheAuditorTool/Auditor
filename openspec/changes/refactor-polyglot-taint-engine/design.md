@@ -499,3 +499,201 @@ CREATE TABLE api_endpoints (
 -- TypeResolver.is_controller_file() query:
 SELECT 1 FROM api_endpoints WHERE file = ? LIMIT 1;
 ```
+
+### F. validation_framework_usage Schema (Anchored)
+
+```sql
+-- Source: theauditor/indexer/schemas/node_schema.py:550-566
+-- TableSchema for validation framework usage tracking
+
+CREATE TABLE validation_framework_usage (
+    file_path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    framework TEXT NOT NULL,           -- 'zod', 'joi', 'yup'
+    method TEXT NOT NULL,              -- 'parse', 'parseAsync', 'validate'
+    variable_name TEXT,                -- 'schema', 'userSchema' or NULL for direct calls
+    is_validator BOOLEAN DEFAULT 1,    -- True for validators, False for schema builders
+    argument_expr TEXT                 -- Expression being validated (e.g., 'req.body')
+);
+
+-- Indexes:
+CREATE INDEX idx_validation_framework_file_line ON validation_framework_usage(file_path, line);
+CREATE INDEX idx_validation_framework_method ON validation_framework_usage(framework, method);
+CREATE INDEX idx_validation_is_validator ON validation_framework_usage(is_validator);
+```
+
+### G. frameworks Schema (Anchored)
+
+```sql
+-- Source: theauditor/indexer/schemas/node_schema.py:522-536
+-- TableSchema for detected frameworks
+
+CREATE TABLE frameworks (
+    id INTEGER PRIMARY KEY,            -- Auto-increment
+    name TEXT NOT NULL,                -- 'express', 'flask', 'django'
+    version TEXT,                      -- Framework version if detected
+    language TEXT NOT NULL,            -- 'javascript', 'python', 'rust'
+    path TEXT DEFAULT '.',             -- Path within repo
+    source TEXT,                       -- Detection source (package.json, requirements.txt)
+    package_manager TEXT,              -- 'npm', 'pip', 'cargo'
+    is_primary BOOLEAN DEFAULT 0       -- Primary framework for the project
+);
+
+-- Unique constraint:
+CREATE UNIQUE INDEX idx_frameworks_unique ON frameworks(name, language, path);
+```
+
+### H. express_middleware_chains Schema (Anchored)
+
+```sql
+-- Source: theauditor/indexer/schemas/node_schema.py:572-593
+-- TableSchema for Express middleware chain tracking
+
+CREATE TABLE express_middleware_chains (
+    id INTEGER PRIMARY KEY,            -- AUTOINCREMENT handled by SQLite
+    file TEXT NOT NULL,                -- Route file (e.g., account.routes.ts)
+    route_line INTEGER NOT NULL,       -- Line where router.METHOD called
+    route_path TEXT NOT NULL,          -- Endpoint path (e.g., "/account")
+    route_method TEXT NOT NULL,        -- HTTP method (GET, POST, etc.)
+    execution_order INTEGER NOT NULL,  -- 1, 2, 3... (order in argument list)
+    handler_expr TEXT NOT NULL,        -- Function expression (e.g., "validateBody(...)")
+    handler_type TEXT NOT NULL,        -- 'middleware' or 'controller'
+    handler_file TEXT,                 -- Resolved file (if possible)
+    handler_function TEXT,             -- Resolved function name
+    handler_line INTEGER               -- Resolved line number
+);
+
+-- Indexes:
+CREATE INDEX idx_express_middleware_chains_file ON express_middleware_chains(file);
+CREATE INDEX idx_express_middleware_chains_route ON express_middleware_chains(route_line);
+CREATE INDEX idx_express_middleware_chains_path ON express_middleware_chains(route_path);
+CREATE INDEX idx_express_middleware_chains_method ON express_middleware_chains(route_method);
+CREATE INDEX idx_express_middleware_chains_handler_type ON express_middleware_chains(handler_type);
+```
+
+### I. DFGEdge and create_bidirectional_edges (Anchored)
+
+```python
+# Source: theauditor/graph/types.py:31-42
+@dataclass
+class DFGEdge:
+    """Represents a data flow edge in the graph."""
+
+    source: str  # Source variable ID
+    target: str  # Target variable ID
+    file: str    # File containing this edge
+    line: int    # Line number
+    type: str = "assignment"  # assignment, return, parameter, orm_relationship
+    expression: str = ""      # The assignment expression
+    function: str = ""        # Function context
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# Source: theauditor/graph/types.py:45-112
+def create_bidirectional_edges(
+    source: str,
+    target: str,
+    edge_type: str,
+    file: str,
+    line: int,
+    expression: str,
+    function: str,
+    metadata: dict[str, Any] = None,
+) -> list[DFGEdge]:
+    """
+    Helper to create both a FORWARD edge and a REVERSE edge.
+
+    Forward: Source -> Target (type)
+    Reverse: Target -> Source (type_reverse)
+
+    This enables backward traversal algorithms (IFDS) to navigate the graph
+    by querying outgoing edges from a sink.
+
+    Args:
+        source: Source node ID (format: "file::function::variable")
+        target: Target node ID (format: "file::function::variable")
+        edge_type: Type of edge (assignment, return, parameter, orm_relationship)
+        file: File containing this edge
+        line: Line number
+        expression: Expression for this edge (truncated to 200 chars)
+        function: Function context
+        metadata: Additional metadata dict (model, target_model, foreign_key, etc.)
+
+    Returns:
+        List containing both forward and reverse DFGEdge objects
+    """
+    if metadata is None:
+        metadata = {}
+
+    edges = []
+
+    # 1. Forward Edge (Standard)
+    forward = DFGEdge(
+        source=source, target=target, type=edge_type,
+        file=file, line=line, expression=expression,
+        function=function, metadata=metadata,
+    )
+    edges.append(forward)
+
+    # 2. Reverse Edge (Back-pointer for IFDS traversal)
+    reverse_meta = metadata.copy()
+    reverse_meta["is_reverse"] = True
+    reverse_meta["original_type"] = edge_type
+
+    reverse = DFGEdge(
+        source=target, target=source,  # Swapped
+        type=f"{edge_type}_reverse",
+        file=file, line=line,
+        expression=f"REV: {expression[:190]}" if expression else "REVERSE",
+        function=function, metadata=reverse_meta,
+    )
+    edges.append(reverse)
+
+    return edges
+```
+
+### J. TaintRegistry.register_sanitizer Method (Anchored)
+
+```python
+# Source: theauditor/taint/core.py:81-92
+def register_sanitizer(self, pattern: str, language: str = None):
+    """Register a sanitizer pattern, optionally language-specific.
+
+    Args:
+        pattern: Sanitizer function name (e.g., 'sanitize', 'escape', 'validateBody')
+        language: Optional language identifier (None = applies to all languages)
+                  Values: 'python', 'javascript', 'rust', or None for 'global'
+    """
+    lang_key = language if language else 'global'
+    if lang_key not in self.sanitizers:
+        self.sanitizers[lang_key] = []
+    if pattern not in self.sanitizers[lang_key]:
+        self.sanitizers[lang_key].append(pattern)
+```
+
+### K. Current DFGBuilder Strategy List (Anchored)
+
+```python
+# Source: theauditor/graph/dfg_builder.py:51-57
+# Current strategy list that will be modified to add NodeOrmStrategy
+
+class DFGBuilder:
+    def __init__(self, db_path: str):
+        self.db_path = Path(db_path)
+
+        # Strategy Pattern: Language-specific builders
+        # Add new strategies here when supporting new languages (Rust, Go, etc.)
+        self.strategies = [
+            PythonOrmStrategy(),
+            NodeExpressStrategy(),
+            InterceptorStrategy(),
+        ]
+
+# Target modification:
+        self.strategies = [
+            PythonOrmStrategy(),
+            NodeOrmStrategy(),       # <-- INSERT HERE (after PythonOrm, before NodeExpress)
+            NodeExpressStrategy(),
+            InterceptorStrategy(),
+        ]
+```
