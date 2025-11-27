@@ -4,7 +4,7 @@
 
 **Verified By**: AI Coder (Opus)
 
-**Verification Date**: 2025-11-24
+**Verification Date**: 2025-11-27 (re-verified)
 
 **Protocol**: TEAMSOP v4.20 Prime Directive
 
@@ -42,7 +42,7 @@ const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
 ```
 
-**CommonJS Variant (lines 673-674)**:
+**CommonJS Variant (lines 750-751)**:
 ```javascript
 const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
@@ -79,7 +79,7 @@ Read `theauditor/indexer/extractors/javascript.py` import resolution logic.
 
 **File**: `theauditor/indexer/extractors/javascript.py`
 
-**Lines 800-803**:
+**Lines 855-858**:
 ```python
 # Simplistic module name extraction (preserve previous behavior)
 module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
@@ -233,7 +233,7 @@ The Vue disk I/O and import resolution issues STILL EXIST within this new archit
 | Issue | Original Proposal | Reality | Impact |
 |-------|------------------|---------|--------|
 | batch_templates.js path | `theauditor/extractors/js/` | `theauditor/ast_extractors/javascript/` | **P0** - Would cause file not found |
-| Import resolution lines | 748-768 | 800-803 | **P1** - Would edit wrong code |
+| Import resolution lines | 748-768 | 855-858 | **P1** - Would edit wrong code |
 | Parent proposal | `performance-revolution-now` | Does not exist | **P1** - Broken dependency chain |
 | Task coordination | AI #3, AI #4 | N/A | **P2** - Stale references |
 
@@ -290,5 +290,6 @@ Before implementation, the proposal was rewritten (v2.0) with:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-27 | 2.1 | Re-verified after schema normalization - line numbers updated |
 | 2025-11-24 | 2.0 | Complete verification with corrected paths |
 | Original | 1.0 | Initial verification (incomplete) |

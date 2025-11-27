@@ -86,10 +86,22 @@ The taint analysis engine is currently "Express-locked" - it works well for Node
 - `sequelize_models` - Node.js Sequelize ORM models
 - `sequelize_associations` - Sequelize relationships (hasMany, belongsTo)
 - `sequelize_model_fields` - Sequelize field definitions
-- `python_orm_models` - Python SQLAlchemy/Django models
-- `python_orm_relationships` - Python ORM relationships
+- `python_orm_models` - Python SQLAlchemy/Django models (columns: file, line, model_name, table_name, orm_type)
+- `orm_relationships` - ORM relationships (NOT `python_orm_relationships`!)
 
 **Full schema definitions: See design.md Appendix F-H**
+
+### Known Bugs to Fix During This Refactor
+
+**BUG: sanitizer_util.py:58 queries non-existent column**
+```python
+# Current code (BROKEN):
+SELECT DISTINCT pattern FROM framework_safe_sinks  # 'pattern' doesn't exist!
+
+# Should be:
+SELECT DISTINCT sink_pattern FROM framework_safe_sinks
+```
+This bug is masked because the table is empty in most projects. Will be fixed in Phase 3.3 when we refactor to use TaintRegistry.
 
 ### Risk Assessment
 

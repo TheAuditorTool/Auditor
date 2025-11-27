@@ -16,7 +16,7 @@
 
 - [ ] 1.1.1 Read `graph/strategies/python_orm.py` fully
   - Verify it contains ORM relationship expansion logic
-  - Verify it queries `python_orm_models`, `python_orm_relationships`
+  - Verify it queries `python_orm_models`, `orm_relationships` (NOT `python_orm_relationships`)
   - Document which methods come from `orm_utils.py`
 
 - [ ] 1.1.2 Inline `PythonOrmContext` into `python_orm.py`
@@ -37,10 +37,11 @@
 
       def _load_models(self):
           """Load from python_orm_models table.
-          Schema: python_orm_models(file, line, model_name, table_name, base_class)
+          Schema: python_orm_models(file, line, model_name, table_name, orm_type)
+          Note: Column is 'orm_type' NOT 'base_class' after 2025-11-26 schema normalization
           """
           self.cursor.execute("""
-              SELECT file, line, model_name, table_name, base_class
+              SELECT file, line, model_name, table_name, orm_type
               FROM python_orm_models
           """)
           for row in self.cursor.fetchall():
@@ -48,25 +49,26 @@
                   'file': row['file'],
                   'line': row['line'],
                   'table': row['table_name'],
-                  'base': row['base_class']
+                  'orm_type': row['orm_type']
               }
 
       def _load_relationships(self):
-          """Load from python_orm_relationships table.
-          Schema: python_orm_relationships(file, line, model_name, rel_type, target_model, backref)
+          """Load from orm_relationships table (NOT python_orm_relationships).
+          Schema: orm_relationships(file, line, source_model, target_model, relationship_type, foreign_key, cascade_delete, as_name)
+          Note: Column names changed in 2025-11-26 schema normalization
           """
           self.cursor.execute("""
-              SELECT file, line, model_name, rel_type, target_model, backref
-              FROM python_orm_relationships
+              SELECT file, line, source_model, target_model, relationship_type, as_name
+              FROM orm_relationships
           """)
           for row in self.cursor.fetchall():
-              model = row['model_name']
+              model = row['source_model']
               if model not in self.relationships:
                   self.relationships[model] = []
               self.relationships[model].append({
-                  'type': row['rel_type'],
+                  'type': row['relationship_type'],
                   'target': row['target_model'],
-                  'backref': row['backref']
+                  'alias': row['as_name'] or row['target_model']
               })
 
       def get_model_for_variable(self, file: str, func: str, var_name: str) -> str | None:
@@ -302,10 +304,21 @@
   - Returns both global and language-specific sanitizers
 
 - [ ] 2.1.7 Seed default patterns for Python/Node/Rust
-  - Add SQL migration or seed script
-  - Python: `request.args`, `request.form`, `request.json`
-  - JavaScript: `req.body`, `req.params`, `req.query`, `ctx.request.body`
-  - Rust: `web::Json`, `web::Query`, `web::Path`
+  - **Location**: Add to `theauditor/indexer/storage.py` in `_seed_defaults()` method
+  - **Alternative**: Create `theauditor/indexer/migrations/002_seed_taint_patterns.sql`
+  - Python sources: `request.args`, `request.form`, `request.json`, `request.data`
+  - JavaScript sources: `req.body`, `req.params`, `req.query`, `ctx.request.body`
+  - Rust sources: `web::Json`, `web::Query`, `web::Path`, `web::Form`
+
+  **Implementation:**
+  ```python
+  # In storage.py _seed_defaults() or TaintRegistry.seed_defaults()
+  DEFAULT_SOURCES = {
+      'python': ['request.args', 'request.form', 'request.json', 'request.data', 'request.files'],
+      'javascript': ['req.body', 'req.params', 'req.query', 'req.headers', 'ctx.request.body'],
+      'rust': ['web::Json', 'web::Query', 'web::Path', 'web::Form'],
+  }
+  ```
 
 ### 2.2 Type Resolver (The "Identity Card")
 
