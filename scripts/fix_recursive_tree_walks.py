@@ -27,11 +27,10 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set, Union
+from typing import Set
 
 import libcst as cst
 from libcst import matchers as m
-from libcst.codemod import CodemodContext
 
 # ============================================================================
 # Statistics Tracking

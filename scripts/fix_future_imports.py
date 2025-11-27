@@ -3,7 +3,6 @@
 Fix the order of imports - from __future__ must come first
 """
 
-import re
 from pathlib import Path
 
 

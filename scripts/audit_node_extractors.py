@@ -11,7 +11,6 @@ Usage:
     python scripts/audit_node_extractors.py > node_extractor_truth.txt
 """
 
-import json
 import os
 import sys
 import tempfile
