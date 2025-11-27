@@ -168,8 +168,11 @@ class ReactHooksAnalyzer:
             for var in used_vars:
                 var_clean = var.split(".")[0] if "." in var else var
 
-                if var_clean and var_clean not in declared_deps:
-                    if var_clean not in [
+                if (
+                    var_clean
+                    and var_clean not in declared_deps
+                    and var_clean
+                    not in [
                         "console",
                         "window",
                         "document",
@@ -179,8 +182,9 @@ class ReactHooksAnalyzer:
                         "Array",
                         "undefined",
                         "null",
-                    ]:
-                        missing.append(var_clean)
+                    ]
+                ):
+                    missing.append(var_clean)
 
             if missing:
                 self.findings.append(
@@ -234,21 +238,25 @@ class ReactHooksAnalyzer:
                     )
                 )
 
-            elif has_cleanup and cleanup_type and not needs_cleanup:
-                if cleanup_type not in ["cleanup_function", "unknown"]:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="react-unnecessary-cleanup",
-                            message=f"useEffect has {cleanup_type} but no subscription detected",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.LOW,
-                            category="react-hooks",
-                            snippet=f"useEffect with {cleanup_type}",
-                            confidence=Confidence.LOW,
-                            cwe_id="CWE-398",
-                        )
+            elif (
+                has_cleanup
+                and cleanup_type
+                and not needs_cleanup
+                and cleanup_type not in ["cleanup_function", "unknown"]
+            ):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-unnecessary-cleanup",
+                        message=f"useEffect has {cleanup_type} but no subscription detected",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.LOW,
+                        category="react-hooks",
+                        snippet=f"useEffect with {cleanup_type}",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-398",
                     )
+                )
 
     def _check_conditional_hooks(self):
         """Check for hooks called conditionally - USING CFG DATA!"""

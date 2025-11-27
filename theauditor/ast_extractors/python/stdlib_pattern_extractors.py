@@ -111,11 +111,9 @@ def extract_regex_patterns(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         operation = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "re":
-                    if node.func.attr in REGEX_FUNCTIONS:
-                        operation = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "re" and node.func.attr in REGEX_FUNCTIONS):
+            operation = node.func.attr
 
         if operation:
             has_flags = False
@@ -158,17 +156,12 @@ def extract_json_operations(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         operation = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "json":
-                    if node.func.attr in JSON_FUNCTIONS:
-                        operation = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "json" and node.func.attr in JSON_FUNCTIONS):
+            operation = node.func.attr
 
         if operation:
-            if operation in ("dumps", "dump"):
-                direction = "serialize"
-            else:
-                direction = "deserialize"
+            direction = "serialize" if operation in ("dumps", "dump") else "deserialize"
 
             json_data = {
                 "line": node.lineno,
@@ -204,15 +197,14 @@ def extract_datetime_operations(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         datetime_type = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "datetime":
-                    if node.func.attr in DATETIME_TYPES:
-                        datetime_type = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "datetime" and
+            node.func.attr in DATETIME_TYPES):
+            datetime_type = node.func.attr
 
-        elif isinstance(node.func, ast.Name):
-            if node.func.id in DATETIME_TYPES:
-                datetime_type = node.func.id
+        elif isinstance(node.func, ast.Name) and node.func.id in DATETIME_TYPES:
+            datetime_type = node.func.id
 
         if datetime_type:
             datetime_data = {
@@ -259,11 +251,11 @@ def extract_path_operations(context: FileContext) -> list[dict[str, Any]]:
                 operation = node.func.attr
                 path_type = "pathlib"
 
-            if isinstance(node.func.value, ast.Attribute):
-                if isinstance(node.func.value.value, ast.Name):
-                    if node.func.value.value.id == "os" and node.func.value.attr == "path":
-                        operation = node.func.attr
-                        path_type = "os.path"
+            if (isinstance(node.func.value, ast.Attribute) and
+                isinstance(node.func.value.value, ast.Name) and
+                node.func.value.value.id == "os" and node.func.value.attr == "path"):
+                operation = node.func.attr
+                path_type = "os.path"
 
         if operation:
             path_data = {
@@ -334,15 +326,15 @@ def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         threading_type = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id in ("threading", "multiprocessing"):
-                    if node.func.attr in THREADING_TYPES or node.func.attr == "Process":
-                        threading_type = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id in ("threading", "multiprocessing") and
+            (node.func.attr in THREADING_TYPES or node.func.attr == "Process")):
+            threading_type = node.func.attr
 
-        elif isinstance(node.func, ast.Name):
-            if node.func.id in THREADING_TYPES or node.func.id == "Process":
-                threading_type = node.func.id
+        elif (isinstance(node.func, ast.Name) and
+            node.func.id in THREADING_TYPES or node.func.id == "Process"):
+            threading_type = node.func.id
 
         if threading_type:
             threading_data = {
@@ -380,11 +372,11 @@ def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
             if isinstance(decorator, ast.Name):
                 if decorator.id in CONTEXTLIB_DECORATORS:
                     pattern = decorator.id
-            elif isinstance(decorator, ast.Attribute):
-                if isinstance(decorator.value, ast.Name):
-                    if decorator.value.id == "contextlib":
-                        if decorator.attr in CONTEXTLIB_DECORATORS:
-                            pattern = decorator.attr
+            elif (isinstance(decorator, ast.Attribute) and
+                isinstance(decorator.value, ast.Name) and
+                decorator.value.id == "contextlib" and
+                decorator.attr in CONTEXTLIB_DECORATORS):
+                pattern = decorator.attr
 
             if pattern:
                 contextlib_data = {
@@ -398,15 +390,14 @@ def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         pattern = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "contextlib":
-                    if node.func.attr in CONTEXTLIB_DECORATORS:
-                        pattern = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "contextlib" and
+            node.func.attr in CONTEXTLIB_DECORATORS):
+            pattern = node.func.attr
 
-        elif isinstance(node.func, ast.Name):
-            if node.func.id in CONTEXTLIB_DECORATORS:
-                pattern = node.func.id
+        elif isinstance(node.func, ast.Name) and node.func.id in CONTEXTLIB_DECORATORS:
+            pattern = node.func.id
 
         if pattern:
             contextlib_data = {
@@ -443,9 +434,9 @@ def extract_type_checking(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         check_type = None
 
-        if isinstance(node.func, ast.Name):
-            if node.func.id in ("isinstance", "issubclass", "type"):
-                check_type = node.func.id
+        if (isinstance(node.func, ast.Name) and
+            node.func.id in ("isinstance", "issubclass", "type")):
+            check_type = node.func.id
 
         if check_type:
             type_check_data = {

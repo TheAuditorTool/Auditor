@@ -153,12 +153,10 @@ def _check_unsafe_template_syntax(cursor: sqlite3.Cursor) -> list[StandardFindin
 
                     if has_user_input:
                         normalized = (source or "").replace(" ", "")
-                        if engine == "mako" and unsafe_pattern.lower() == "|n":
-                            if "|n" not in normalized:
-                                continue
-                        if engine == "mako" and unsafe_pattern.lower() == "|h":
-                            if "|h" not in normalized:
-                                continue
+                        if engine == "mako" and unsafe_pattern.lower() == "|n" and "|n" not in normalized:
+                            continue
+                        if engine == "mako" and unsafe_pattern.lower() == "|h" and "|h" not in normalized:
+                            continue
 
                         findings.append(
                             StandardFinding(

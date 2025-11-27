@@ -219,10 +219,7 @@ class MetadataCollector:
 
                 total_lines = len(executed_lines) + len(missing_lines)
 
-                if total_lines > 0:
-                    coverage_pct = (len(executed_lines) / total_lines) * 100
-                else:
-                    coverage_pct = 100.0
+                coverage_pct = len(executed_lines) / total_lines * 100 if total_lines > 0 else 100.0
 
                 files.append(
                     {

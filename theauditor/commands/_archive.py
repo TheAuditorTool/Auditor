@@ -48,10 +48,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)
         return
 
-    if run_type == "full":
-        dest_base = history_dir / "full"
-    else:
-        dest_base = history_dir / "diff"
+    dest_base = history_dir / "full" if run_type == "full" else history_dir / "diff"
 
     dest_base.mkdir(parents=True, exist_ok=True)
 

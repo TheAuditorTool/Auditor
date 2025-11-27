@@ -206,21 +206,23 @@ class ReactStateAnalyzer:
             if "useState" not in source_str:
                 continue
 
-            if "true" in source_str.lower() or "false" in source_str.lower():
-                if not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES):
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="react-state-naming",
-                            message=f"Boolean state {var_name} should use is/has/should prefix",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.LOW,
-                            category="react-state",
-                            snippet=f"const [{var_name}, ...] = useState",
-                            confidence=Confidence.LOW,
-                            cwe_id="CWE-1078",
-                        )
+            if (
+                ("true" in source_str.lower() or "false" in source_str.lower())
+                and not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES)
+            ):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-state-naming",
+                        message=f"Boolean state {var_name} should use is/has/should prefix",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"const [{var_name}, ...] = useState",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1078",
                     )
+                )
 
     def _check_multiple_state_updates(self):
         """Check for multiple state updates in single function."""
@@ -246,21 +248,23 @@ class ReactStateAnalyzer:
 
         for (file, function), setters in updates_by_function.items():
             count = len(setters)
-            if count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION:
-                if all("set" in s.lower() for s in setters):
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="react-multiple-updates",
-                            message=f"Function {function} updates state {count} times",
-                            file_path=file,
-                            line=1,
-                            severity=Severity.LOW,
-                            category="react-state",
-                            snippet=f"{count} setState calls",
-                            confidence=Confidence.LOW,
-                            cwe_id="CWE-1050",
-                        )
+            if (
+                count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION
+                and all("set" in s.lower() for s in setters)
+            ):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-multiple-updates",
+                        message=f"Function {function} updates state {count} times",
+                        file_path=file,
+                        line=1,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"{count} setState calls",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1050",
                     )
+                )
 
     def _check_prop_drilling(self):
         """Check for potential prop drilling patterns."""

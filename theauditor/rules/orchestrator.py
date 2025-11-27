@@ -131,17 +131,16 @@ class RulesOrchestrator:
                     module = importlib.import_module(module_name)
 
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        if name.startswith("find_"):
-                            if obj.__module__ == module_name:
-                                rule_info = self._analyze_rule(
-                                    name, obj, module, module_name, category
-                                )
-                                rules_by_category[category].append(rule_info)
+                        if name.startswith("find_") and obj.__module__ == module_name:
+                            rule_info = self._analyze_rule(
+                                name, obj, module, module_name, category
+                            )
+                            rules_by_category[category].append(rule_info)
 
-                                if self._debug:
-                                    print(
-                                        f"[ORCHESTRATOR] Found rule: {category}/{name} with {rule_info.param_count} params"
-                                    )
+                            if self._debug:
+                                print(
+                                    f"[ORCHESTRATOR] Found rule: {category}/{name} with {rule_info.param_count} params"
+                                )
 
                 except ImportError as e:
                     if self._debug:
@@ -167,10 +166,9 @@ class RulesOrchestrator:
                 module = importlib.import_module(module_name)
 
                 for name, obj in inspect.getmembers(module, inspect.isfunction):
-                    if name.startswith("find_"):
-                        if obj.__module__ == module_name:
-                            rule_info = self._analyze_rule(name, obj, module, module_name, category)
-                            rules_by_category[category].append(rule_info)
+                    if name.startswith("find_") and obj.__module__ == module_name:
+                        rule_info = self._analyze_rule(name, obj, module, module_name, category)
+                        rules_by_category[category].append(rule_info)
 
             except ImportError:
                 pass
@@ -360,15 +358,13 @@ class RulesOrchestrator:
                 if pattern in file_path_str:
                     return False
 
-        if metadata.target_extensions:
-            if file_path.suffix.lower() not in metadata.target_extensions:
-                return False
+        if metadata.target_extensions and file_path.suffix.lower() not in metadata.target_extensions:
+            return False
 
-        if metadata.target_file_patterns:
-            if not any(pattern in file_path_str for pattern in metadata.target_file_patterns):
-                return False
-
-        return True
+        return not (
+            metadata.target_file_patterns
+            and not any(pattern in file_path_str for pattern in metadata.target_file_patterns)
+        )
 
     def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
         """Run rules applicable to a specific file, WITH METADATA FILTERING.

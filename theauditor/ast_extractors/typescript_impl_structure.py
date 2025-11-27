@@ -376,17 +376,17 @@ def analyze_create_element_component(node):
 
     Components have capital letters or are passed as references.
     """
-    if "arguments" in node and isinstance(node["arguments"], list):
-        if len(node["arguments"]) > 0:
-            first_arg = node["arguments"][0]
-            if isinstance(first_arg, dict):
-                if first_arg.get("kind") == "StringLiteral":
-                    text = first_arg.get("text", "")
-                    return text and text[0].isupper()
+    if ("arguments" in node and isinstance(node["arguments"], list) and
+        len(node["arguments"]) > 0):
+        first_arg = node["arguments"][0]
+        if isinstance(first_arg, dict):
+            if first_arg.get("kind") == "StringLiteral":
+                text = first_arg.get("text", "")
+                return text and text[0].isupper()
 
-                elif first_arg.get("kind") == "Identifier":
-                    text = first_arg.get("escapedText", "")
-                    return text and text[0].isupper()
+            elif first_arg.get("kind") == "Identifier":
+                text = first_arg.get("escapedText", "")
+                return text and text[0].isupper()
     return False
 
 

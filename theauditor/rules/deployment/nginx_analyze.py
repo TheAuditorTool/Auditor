@@ -315,9 +315,8 @@ class NginxAnalyzer:
             location_lower = location_pattern.lower()
 
             for sensitive in self.patterns.SENSITIVE_PATHS:
-                if sensitive in location_lower:
-                    if not self._is_path_protected(location):
-                        self.findings.append(
+                if sensitive in location_lower and not self._is_path_protected(location):
+                    self.findings.append(
                             StandardFinding(
                                 rule_name="nginx-exposed-path",
                                 message=f"Potentially exposed sensitive path: {location_pattern}",

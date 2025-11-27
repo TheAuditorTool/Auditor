@@ -291,24 +291,22 @@ class PathCorrelator:
             if not block:
                 continue
 
-            if block["type"] in ["condition", "loop_condition"]:
-                if block.get("condition"):
-                    if i + 1 < len(path_blocks):
-                        next_block = path_blocks[i + 1]
+            if block["type"] in ["condition", "loop_condition"] and block.get("condition") and i + 1 < len(path_blocks):
+                next_block = path_blocks[i + 1]
 
-                        for edge in edges_dict.get(block_id, []):
-                            if edge["target"] == next_block:
-                                cond = block["condition"]
-                                if len(cond) > 50:
-                                    cond = cond[:47] + "..."
+                for edge in edges_dict.get(block_id, []):
+                    if edge["target"] == next_block:
+                        cond = block["condition"]
+                        if len(cond) > 50:
+                            cond = cond[:47] + "..."
 
-                                if edge["type"] == "true":
-                                    conditions.append(f"if ({cond})")
-                                elif edge["type"] == "false":
-                                    conditions.append(f"if not ({cond})")
-                                elif block["type"] == "loop_condition":
-                                    conditions.append(f"while ({cond})")
-                                break
+                        if edge["type"] == "true":
+                            conditions.append(f"if ({cond})")
+                        elif edge["type"] == "false":
+                            conditions.append(f"if not ({cond})")
+                        elif block["type"] == "loop_condition":
+                            conditions.append(f"while ({cond})")
+                        break
 
         return conditions
 

@@ -219,13 +219,13 @@ class ExtractorAnalyzer(ast.NodeVisitor):
 
                 # Pattern 3: Nested ast.walk
                 for child in ast.walk(node):
-                    if child != node and isinstance(child, ast.For):
-                        if (isinstance(child.iter, ast.Call) and
-                            isinstance(child.iter.func, ast.Attribute) and
-                            child.iter.func.attr == "walk"):
-                            pattern = f"Line {self.current_line}: Nested ast.walk loops"
-                            self.complex_walks.append(pattern)
-                            break
+                    if (child != node and isinstance(child, ast.For) and
+                        isinstance(child.iter, ast.Call) and
+                        isinstance(child.iter.func, ast.Attribute) and
+                        child.iter.func.attr == "walk"):
+                        pattern = f"Line {self.current_line}: Nested ast.walk loops"
+                        self.complex_walks.append(pattern)
+                        break
 
         self.generic_visit(node)
 

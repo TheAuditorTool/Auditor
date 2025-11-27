@@ -88,16 +88,16 @@ def extract_generics(context: FileContext) -> list[dict[str, Any]]:
         type_params = []
 
         for base in node.bases:
-            if isinstance(base, ast.Subscript):
-                if isinstance(base.value, ast.Name) and base.value.id == "Generic":
-                    has_generic = True
+            if (isinstance(base, ast.Subscript) and
+                isinstance(base.value, ast.Name) and base.value.id == "Generic"):
+                has_generic = True
 
-                    if isinstance(base.slice, ast.Tuple):
-                        for elt in base.slice.elts:
-                            if isinstance(elt, ast.Name):
-                                type_params.append(elt.id)
-                    elif isinstance(base.slice, ast.Name):
-                        type_params.append(base.slice.id)
+                if isinstance(base.slice, ast.Tuple):
+                    for elt in base.slice.elts:
+                        if isinstance(elt, ast.Name):
+                            type_params.append(elt.id)
+                elif isinstance(base.slice, ast.Name):
+                    type_params.append(base.slice.id)
 
         if has_generic:
             generics.append(
@@ -160,10 +160,11 @@ def extract_typed_dicts(context: FileContext) -> list[dict[str, Any]]:
 
 def _is_literal_annotation(annotation_node) -> bool:
     """Check if AST node represents a Literal type annotation."""
-    if isinstance(annotation_node, ast.Subscript):
-        if isinstance(annotation_node.value, ast.Name) and annotation_node.value.id == "Literal":
-            return True
-    return False
+    return (
+        isinstance(annotation_node, ast.Subscript)
+        and isinstance(annotation_node.value, ast.Name)
+        and annotation_node.value.id == "Literal"
+    )
 
 
 def _get_literal_type_string(annotation_node) -> str:

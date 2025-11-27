@@ -607,9 +607,8 @@ class ExpressAnalyzer:
             config_lower = config.lower()
 
             issues = []
-            if "secret" in config_lower:
-                if any(weak in config_lower for weak in ["secret", "keyboard cat", "default"]):
-                    issues.append("weak secret")
+            if "secret" in config_lower and any(weak in config_lower for weak in ["secret", "keyboard cat", "default"]):
+                issues.append("weak secret")
 
             if "cookie" in config_lower:
                 if "httponly" not in config_lower:

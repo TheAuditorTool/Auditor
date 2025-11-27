@@ -343,10 +343,9 @@ class FlaskAnalyzer:
             for save_file, save_line, _save_callee, _save_arg in save_calls:
                 has_file_input = False
                 for file, line, _callee, arg_expr in all_calls:
-                    if file == save_file and abs(line - save_line) <= 10:
-                        if "request.files" in arg_expr:
-                            has_file_input = True
-                            break
+                    if file == save_file and abs(line - save_line) <= 10 and "request.files" in arg_expr:
+                        has_file_input = True
+                        break
 
                 if not has_file_input:
                     continue
@@ -396,8 +395,8 @@ class FlaskAnalyzer:
             cursor.execute(query)
 
             for file, line, query_text in cursor.fetchall():
-                if not ("%" in query_text and "%" in query_text[query_text.index("%") + 1 :]):
-                    if ".format(" not in query_text:
+                if not ("%" in query_text and "%" in query_text[query_text.index("%") + 1 :]):  # noqa: SIM102
+                    if ".format(" not in query_text:  # noqa: SIM102
                         if 'f"' not in query_text and "f'" not in query_text:
                             continue
                 self.findings.append(

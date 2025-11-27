@@ -213,10 +213,7 @@ def scan_yaml_patterns(patterns_path: Path) -> dict[str, dict[str, list[str]]]:
 
                 rel_path = file_path.relative_to(patterns_path)
 
-                if rel_path.parent == Path("."):
-                    category = "."
-                else:
-                    category = str(rel_path.parent)
+                category = "." if rel_path.parent == Path(".") else str(rel_path.parent)
 
                 if category not in results:
                     results[category] = {}

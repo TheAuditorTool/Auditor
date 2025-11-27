@@ -610,10 +610,13 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
                 [file, var],
             )
             assign_line = cursor.fetchone()
-            if assign_line and abs(assign_line[0] - line) <= 10:
-                if "salt" in (var or "").lower() or "salt" in (expr or "").lower():
-                    has_salt_nearby = True
-                    break
+            if (
+                assign_line
+                and abs(assign_line[0] - line) <= 10
+                and ("salt" in (var or "").lower() or "salt" in (expr or "").lower())
+            ):
+                has_salt_nearby = True
+                break
 
         has_salt_in_args = "salt" in args.lower() if args else False
 

@@ -116,10 +116,7 @@ def analyze(root, db, severity, output_format, output):
     """
     from ..aws_cdk.analyzer import AWSCdkAnalyzer
 
-    if Path(db).is_absolute():
-        db_path = Path(db)
-    else:
-        db_path = (Path(root) / db).resolve()
+    db_path = Path(db) if Path(db).is_absolute() else (Path(root) / db).resolve()
 
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)

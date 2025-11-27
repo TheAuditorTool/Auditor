@@ -269,10 +269,13 @@ def _find_missing_list_keys(cursor, vue_files: set[str]) -> list[StandardFinding
 
         has_key = False
         for file2, line2, name2 in all_symbols:
-            if file2 == file and abs(line2 - line) <= 2:
-                if ":key" in name2 or "v-bind:key" in name2 or "key=" in name2:
-                    has_key = True
-                    break
+            if (
+                file2 == file
+                and abs(line2 - line) <= 2
+                and (":key" in name2 or "v-bind:key" in name2 or "key=" in name2)
+            ):
+                has_key = True
+                break
 
         if not has_key:
             findings.append(

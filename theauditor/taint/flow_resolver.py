@@ -547,9 +547,8 @@ class FlowResolver:
         cache_key = (source_file, source_pattern, sink_file, sink_pattern, status, sanitizer_method)
 
         cached_length = self.best_paths_cache.get(cache_key)
-        if cached_length is not None:
-            if cached_length <= current_length:
-                return
+        if cached_length is not None and cached_length <= current_length:
+            return
 
         self.best_paths_cache[cache_key] = current_length
 

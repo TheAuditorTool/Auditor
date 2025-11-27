@@ -120,7 +120,7 @@ class CFGBuilder:
 
         cursor.execute(
             """
-            SELECT * FROM cfg_blocks 
+            SELECT * FROM cfg_blocks
             WHERE file = ? AND function_name = ?
             ORDER BY start_line
         """,

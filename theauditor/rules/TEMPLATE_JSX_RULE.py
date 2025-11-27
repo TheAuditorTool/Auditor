@@ -1,3 +1,4 @@
+# ruff: noqa: N999 - UPPERCASE name is intentional for template visibility
 """RULE TEMPLATE: JSX-Specific Rule (Requires Preserved JSX Pass).
 
 ================================================================================

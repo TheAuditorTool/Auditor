@@ -480,7 +480,7 @@ def audit():
                     results = func(context)
                     if results and len(results) > 0:
                         if isinstance(results[0], dict):
-                            keys = sorted(list(results[0].keys()))
+                            keys = sorted(results[0].keys())
                             print(f"\n{name}:")
                             print(f"  COUNT: {len(results)}")
                             print(f"  KEYS: {keys}")
@@ -491,7 +491,7 @@ def audit():
                                 print("  VALUE SAMPLES (discriminators):")
                                 for k in sample_keys:
                                     # Get unique values for this key across all results, limit to 8
-                                    values = sorted(list(set(str(r.get(k, '')) for r in results if r.get(k))))[:8]
+                                    values = sorted({str(r.get(k, '')) for r in results if r.get(k)})[:8]
                                     if values:
                                         print(f"    {k}: {values}")
 

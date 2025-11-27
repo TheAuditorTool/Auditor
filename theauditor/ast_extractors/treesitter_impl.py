@@ -629,21 +629,20 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
             if func_name and params:
                 func_params[func_name] = params
 
-    elif language == "python":
-        if node.type == "function_definition":
-            func_name = None
-            params = []
+    elif language == "python" and node.type == "function_definition":
+        func_name = None
+        params = []
 
-            for child in node.children:
-                if child.type == "identifier":
-                    func_name = child.text.decode("utf-8", errors="ignore")
-                elif child.type == "parameters":
-                    for param_child in child.children:
-                        if param_child.type == "identifier":
-                            params.append(param_child.text.decode("utf-8", errors="ignore"))
+        for child in node.children:
+            if child.type == "identifier":
+                func_name = child.text.decode("utf-8", errors="ignore")
+            elif child.type == "parameters":
+                for param_child in child.children:
+                    if param_child.type == "identifier":
+                        params.append(param_child.text.decode("utf-8", errors="ignore"))
 
-            if func_name:
-                func_params[func_name] = params
+        if func_name:
+            func_params[func_name] = params
 
     for child in node.children:
         func_params.update(_extract_tree_sitter_function_params(child, language))

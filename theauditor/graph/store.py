@@ -330,7 +330,7 @@ class XGraphStore:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 """
-                SELECT result_json FROM analysis_results 
+                SELECT result_json FROM analysis_results
                 WHERE analysis_type = ?
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -382,7 +382,7 @@ class XGraphStore:
             conn.row_factory = sqlite3.Row
 
             query = """
-                SELECT 
+                SELECT
                     n.id,
                     n.file,
                     n.churn,

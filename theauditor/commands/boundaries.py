@@ -191,10 +191,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         Implication: External data flows to downstream functions without validation gate
     """
 
-    if db is None:
-        db = Path.cwd() / ".pf" / "repo_index.db"
-    else:
-        db = Path(db)
+    db = Path.cwd() / ".pf" / "repo_index.db" if db is None else Path(db)
 
     if not db.exists():
         click.echo(f"Error: Database not found at {db}", err=True)

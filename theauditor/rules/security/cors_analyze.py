@@ -646,9 +646,8 @@ class CORSAnalyzer:
 
         cors_files = {}
         for file, args, line in self.cursor.fetchall():
-            if "Access-Control-Allow-Origin" in args:
-                if file not in cors_files:
-                    cors_files[file] = line
+            if "Access-Control-Allow-Origin" in args and file not in cors_files:
+                cors_files[file] = line
 
         for file, first_line in cors_files.items():
             self.cursor.execute(

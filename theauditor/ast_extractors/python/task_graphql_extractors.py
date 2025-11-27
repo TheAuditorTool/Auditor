@@ -155,9 +155,9 @@ def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
                         elif keyword.arg == "time_limit":
                             if isinstance(keyword.value, ast.Constant):
                                 time_limit = keyword.value.value
-                        elif keyword.arg == "queue":
-                            if isinstance(keyword.value, ast.Constant):
-                                queue = keyword.value.value
+                        elif (keyword.arg == "queue" and
+                            isinstance(keyword.value, ast.Constant)):
+                            queue = keyword.value.value
 
         if not is_celery_task:
             continue
@@ -301,83 +301,83 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
-            if isinstance(target, ast.Attribute) and target.attr == "beat_schedule":
-                if isinstance(node.value, ast.Dict):
-                    for _i, (key_node, value_node) in enumerate(
-                        zip(node.value.keys, node.value.values)
-                    ):  # noqa: B905 - AST guarantees equal length
-                        if not isinstance(key_node, ast.Constant):
-                            continue
+            if (isinstance(target, ast.Attribute) and target.attr == "beat_schedule" and
+                isinstance(node.value, ast.Dict)):
+                for _i, (key_node, value_node) in enumerate(
+                    zip(node.value.keys, node.value.values)  # noqa: B905 - AST guarantees equal length
+                ):
+                    if not isinstance(key_node, ast.Constant):
+                        continue
 
-                        schedule_name = key_node.value
+                    schedule_name = key_node.value
 
-                        if isinstance(value_node, ast.Dict):
-                            task_name = None
-                            schedule_type = None
-                            schedule_expression = None
-                            args_expr = None
-                            kwargs_expr = None
+                    if isinstance(value_node, ast.Dict):
+                        task_name = None
+                        schedule_type = None
+                        schedule_expression = None
+                        args_expr = None
+                        kwargs_expr = None
 
-                            for sched_key, sched_value in zip(value_node.keys, value_node.values):  # noqa: B905 - AST guarantees equal length
-                                if not isinstance(sched_key, ast.Constant):
-                                    continue
+                        for sched_key, sched_value in zip(value_node.keys, value_node.values):  # noqa: B905 - AST guarantees equal length
+                            if not isinstance(sched_key, ast.Constant):
+                                continue
 
-                                key_name = sched_key.value
+                            key_name = sched_key.value
 
-                                if key_name == "task":
-                                    if isinstance(sched_value, ast.Constant):
-                                        task_name = sched_value.value
-                                elif key_name == "schedule":
-                                    if isinstance(sched_value, ast.Call):
-                                        if isinstance(sched_value.func, ast.Name):
-                                            schedule_type = sched_value.func.id
+                            if key_name == "task":
+                                if isinstance(sched_value, ast.Constant):
+                                    task_name = sched_value.value
+                            elif key_name == "schedule":
+                                if isinstance(sched_value, ast.Call):
+                                    if isinstance(sched_value.func, ast.Name):
+                                        schedule_type = sched_value.func.id
 
-                                            if schedule_type == "crontab":
-                                                parts = []
-                                                for keyword in sched_value.keywords:
-                                                    if isinstance(keyword.value, ast.Constant):
-                                                        parts.append(
-                                                            f"{keyword.arg}={keyword.value.value}"
-                                                        )
-                                                schedule_expression = (
-                                                    ", ".join(parts) if parts else "crontab()"
-                                                )
-                                            elif schedule_type == "schedule":
-                                                for keyword in sched_value.keywords:
-                                                    if keyword.arg == "run_every" and isinstance(
-                                                        keyword.value, ast.Constant
-                                                    ):
-                                                        schedule_expression = (
-                                                            f"every {keyword.value.value}s"
-                                                        )
-                                    elif isinstance(sched_value, ast.Constant):
-                                        schedule_type = "interval"
-                                        schedule_expression = f"{sched_value.value} seconds"
-                                elif key_name == "args":
-                                    args_expr = (
-                                        ast.unparse(sched_value)
-                                        if hasattr(ast, "unparse")
-                                        else str(sched_value)
-                                    )
-                                elif key_name == "kwargs":
-                                    kwargs_expr = (
-                                        ast.unparse(sched_value)
-                                        if hasattr(ast, "unparse")
-                                        else str(sched_value)
-                                    )
-
-                            if schedule_name and task_name:
-                                schedules.append(
-                                    {
-                                        "line": node.lineno,
-                                        "schedule_name": schedule_name,
-                                        "task_name": task_name,
-                                        "schedule_type": schedule_type or "unknown",
-                                        "schedule_expression": schedule_expression,
-                                        "args": args_expr,
-                                        "kwargs": kwargs_expr,
-                                    }
+                                        if schedule_type == "crontab":
+                                            parts = []
+                                            for keyword in sched_value.keywords:
+                                                if isinstance(keyword.value, ast.Constant):
+                                                    parts.append(
+                                                        f"{keyword.arg}={keyword.value.value}"
+                                                    )
+                                            schedule_expression = (
+                                                ", ".join(parts) if parts else "crontab()"
+                                            )
+                                        elif schedule_type == "schedule":
+                                            for keyword in sched_value.keywords:
+                                                if keyword.arg == "run_every" and isinstance(
+                                                    keyword.value, ast.Constant
+                                                ):
+                                                    schedule_expression = (
+                                                        f"every {keyword.value.value}s"
+                                                    )
+                                elif isinstance(sched_value, ast.Constant):
+                                    schedule_type = "interval"
+                                    schedule_expression = f"{sched_value.value} seconds"
+                            elif key_name == "args":
+                                args_expr = (
+                                    ast.unparse(sched_value)
+                                    if hasattr(ast, "unparse")
+                                    else str(sched_value)
                                 )
+                            elif key_name == "kwargs":
+                                kwargs_expr = (
+                                    ast.unparse(sched_value)
+                                    if hasattr(ast, "unparse")
+                                    else str(sched_value)
+                                )
+
+                        if schedule_name and task_name:
+                            schedules.append(
+                                {
+                                    "line": node.lineno,
+                                    "schedule_name": schedule_name,
+                                    "task_name": task_name,
+                                    "schedule_type": schedule_type or "unknown",
+                                    "schedule_expression": schedule_expression,
+                                    "args": args_expr,
+                                    "kwargs": kwargs_expr,
+                                }
+                            )
 
         if isinstance(node, ast.FunctionDef):
             for decorator in node.decorator_list:

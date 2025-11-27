@@ -890,16 +890,15 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
             has_yield = True
             yield_count += 1
 
-            if isinstance(child, ast.Call):
-                if isinstance(child.func, ast.Attribute):
-                    if child.func.attr == "send":
-                        has_send = True
+            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) and
+                child.func.attr == "send"):
+                has_send = True
 
-            if isinstance(child, ast.While):
-                if isinstance(child.test, ast.Constant) and child.test.value is True:
-                    for _body_node in context.find_nodes((ast.Yield, ast.YieldFrom)):
-                        is_infinite = True
-                        break
+            if (isinstance(child, ast.While) and
+                isinstance(child.test, ast.Constant) and child.test.value is True):
+                for _body_node in context.find_nodes((ast.Yield, ast.YieldFrom)):
+                    is_infinite = True
+                    break
 
         if has_yield or has_yield_from:
             generators.append(
@@ -938,9 +937,9 @@ def extract_variable_usage(context: FileContext) -> list[dict[str, Any]]:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
                     function_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
-            elif isinstance(node, ast.ClassDef):
-                if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                    class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+            elif (isinstance(node, ast.ClassDef) and
+                hasattr(node, "lineno") and hasattr(node, "end_lineno")):
+                class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
 
         def get_scope(line_no):
             for fname, (start, end) in function_ranges.items():

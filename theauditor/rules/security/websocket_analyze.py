@@ -215,9 +215,8 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
 
         nearby_auth = []
         for callee, func_line in cursor.fetchall():
-            if line - 30 <= func_line <= line + 30:
-                if any(auth in callee for auth in AUTH_PATTERNS):
-                    nearby_auth.append((callee, func_line))
+            if line - 30 <= func_line <= line + 30 and any(auth in callee for auth in AUTH_PATTERNS):
+                nearby_auth.append((callee, func_line))
 
         has_auth = len(nearby_auth) > 0
 
@@ -234,9 +233,8 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
 
             nearby_sym = []
             for name, sym_line in cursor.fetchall():
-                if line - 30 <= sym_line <= line + 30:
-                    if any(auth in name for auth in AUTH_PATTERNS):
-                        nearby_sym.append((name, sym_line))
+                if line - 30 <= sym_line <= line + 30 and any(auth in name for auth in AUTH_PATTERNS):
+                    nearby_sym.append((name, sym_line))
 
             has_auth = len(nearby_sym) > 0
 
@@ -283,9 +281,8 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
 
         auth_in_body = []
         for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 50:
-                if any(auth in callee for auth in AUTH_PATTERNS):
-                    auth_in_body.append((callee, func_line))
+            if line <= func_line <= line + 50 and any(auth in callee for auth in AUTH_PATTERNS):
+                auth_in_body.append((callee, func_line))
 
         has_auth = len(auth_in_body) > 0
 
@@ -336,9 +333,8 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
 
         validation_nearby = []
         for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 20:
-                if any(val in callee for val in VALIDATION_PATTERNS):
-                    validation_nearby.append((callee, func_line))
+            if line <= func_line <= line + 20 and any(val in callee for val in VALIDATION_PATTERNS):
+                validation_nearby.append((callee, func_line))
 
         has_validation = len(validation_nearby) > 0
 
@@ -385,9 +381,8 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
 
         py_validation_nearby = []
         for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 30:
-                if any(val in callee for val in VALIDATION_PATTERNS):
-                    py_validation_nearby.append((callee, func_line))
+            if line <= func_line <= line + 30 and any(val in callee for val in VALIDATION_PATTERNS):
+                py_validation_nearby.append((callee, func_line))
 
         has_validation = len(py_validation_nearby) > 0
 

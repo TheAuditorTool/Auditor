@@ -63,11 +63,11 @@ def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
 
                 providing_args = []
                 for keyword in node.value.keywords:
-                    if keyword.arg == "providing_args":
-                        if isinstance(keyword.value, ast.List):
-                            for elt in keyword.value.elts:
-                                if isinstance(elt, ast.Constant):
-                                    providing_args.append(elt.value)
+                    if (keyword.arg == "providing_args" and
+                        isinstance(keyword.value, ast.List)):
+                        for elt in keyword.value.elts:
+                            if isinstance(elt, ast.Constant):
+                                providing_args.append(elt.value)
 
                 results.append(
                     {
@@ -81,29 +81,28 @@ def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
                 )
 
     for node in context.find_nodes(ast.Call):
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr == "connect":
-                signal_name = get_node_name(node.func.value) or "unknown"
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "connect":
+            signal_name = get_node_name(node.func.value) or "unknown"
 
-                receiver_function = None
-                if node.args:
-                    receiver_function = get_node_name(node.args[0])
+            receiver_function = None
+            if node.args:
+                receiver_function = get_node_name(node.args[0])
 
-                sender = None
-                for keyword in node.keywords:
-                    if keyword.arg == "sender":
-                        sender = get_node_name(keyword.value)
+            sender = None
+            for keyword in node.keywords:
+                if keyword.arg == "sender":
+                    sender = get_node_name(keyword.value)
 
-                results.append(
-                    {
-                        "line": node.lineno,
-                        "signal_name": signal_name,
-                        "signal_type": "connection",
-                        "providing_args": "[]",
-                        "sender": sender,
-                        "receiver_function": receiver_function,
-                    }
-                )
+            results.append(
+                {
+                    "line": node.lineno,
+                    "signal_name": signal_name,
+                    "signal_type": "connection",
+                    "providing_args": "[]",
+                    "sender": sender,
+                    "receiver_function": receiver_function,
+                }
+            )
 
     for node in context.find_nodes(ast.ClassDef):
         for base in node.bases:
@@ -169,9 +168,9 @@ def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
                     for keyword in decorator.keywords:
                         if keyword.arg == "sender":
                             sender = get_node_name(keyword.value)
-                        elif keyword.arg == "weak":
-                            if isinstance(keyword.value, ast.Constant):
-                                is_weak = keyword.value.value is True
+                        elif (keyword.arg == "weak" and
+                            isinstance(keyword.value, ast.Constant)):
+                            is_weak = keyword.value.value is True
 
                     results.append(
                         {
@@ -225,9 +224,9 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
         if manager_base:
             custom_methods = []
             for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    if not item.name.startswith("_") and item.name not in ["get_queryset"]:
-                        custom_methods.append(item.name)
+                if (isinstance(item, ast.FunctionDef) and
+                    not item.name.startswith("_") and item.name not in ["get_queryset"]):
+                    custom_methods.append(item.name)
 
             results.append(
                 {
@@ -241,19 +240,19 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == "objects":
-                if isinstance(node.value, ast.Call):
-                    manager_name = get_node_name(node.value.func)
-                    if manager_name and "Manager" in manager_name:
-                        results.append(
-                            {
-                                "line": node.lineno,
-                                "manager_name": manager_name,
-                                "base_class": "Manager",
-                                "custom_methods": "[]",
-                                "model_assignment": "objects",
-                            }
-                        )
+            if (isinstance(target, ast.Name) and target.id == "objects" and
+                isinstance(node.value, ast.Call)):
+                manager_name = get_node_name(node.value.func)
+                if manager_name and "Manager" in manager_name:
+                    results.append(
+                        {
+                            "line": node.lineno,
+                            "manager_name": manager_name,
+                            "base_class": "Manager",
+                            "custom_methods": "[]",
+                            "model_assignment": "objects",
+                        }
+                    )
 
     return results
 
@@ -299,18 +298,18 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
         if queryset_base:
             custom_methods = []
             for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    if not item.name.startswith("_"):
-                        custom_methods.append(item.name)
+                if (isinstance(item, ast.FunctionDef) and
+                    not item.name.startswith("_")):
+                    custom_methods.append(item.name)
 
             has_as_manager = False
             for call_node in context.find_nodes(ast.Call):
-                if isinstance(call_node.func, ast.Attribute):
-                    if call_node.func.attr == "as_manager":
-                        obj_name = get_node_name(call_node.func.value)
-                        if obj_name == node.name:
-                            has_as_manager = True
-                            break
+                if (isinstance(call_node.func, ast.Attribute) and
+                    call_node.func.attr == "as_manager"):
+                    obj_name = get_node_name(call_node.func.value)
+                    if obj_name == node.name:
+                        has_as_manager = True
+                        break
 
             results.append(
                 {
@@ -337,31 +336,30 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
     ]
 
     for node in context.find_nodes(ast.Call):
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr in queryset_methods:
-                chain_parts = []
-                current = node
-                while isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
-                    if current.func.attr in queryset_methods:
-                        chain_parts.append(current.func.attr)
-                    current = current.func.value
-                    if isinstance(current, ast.Call):
-                        continue
-                    else:
-                        break
+        if isinstance(node.func, ast.Attribute) and node.func.attr in queryset_methods:
+            chain_parts = []
+            current = node
+            while isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
+                if current.func.attr in queryset_methods:
+                    chain_parts.append(current.func.attr)
+                current = current.func.value
+                if isinstance(current, ast.Call):
+                    continue
+                else:
+                    break
 
-                if len(chain_parts) > 1:
-                    method_chain = ".".join(reversed(chain_parts))
-                    results.append(
-                        {
-                            "line": node.lineno,
-                            "queryset_name": "chain",
-                            "base_class": "QuerySet",
-                            "custom_methods": "[]",
-                            "has_as_manager": False,
-                            "method_chain": method_chain,
-                        }
-                    )
+            if len(chain_parts) > 1:
+                method_chain = ".".join(reversed(chain_parts))
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "queryset_name": "chain",
+                        "base_class": "QuerySet",
+                        "custom_methods": "[]",
+                        "has_as_manager": False,
+                        "method_chain": method_chain,
+                    }
+                )
 
     seen = set()
     deduped = []

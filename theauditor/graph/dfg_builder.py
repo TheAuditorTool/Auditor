@@ -359,10 +359,7 @@ class DFGBuilder:
                 if callee_file.endswith(".py") and "." in callee_function:
                     parts = callee_function.split(".")
 
-                    if len(parts) > 2:
-                        callee_func_name = parts[-1]
-                    else:
-                        callee_func_name = callee_function
+                    callee_func_name = parts[-1] if len(parts) > 2 else callee_function
                 else:
                     callee_func_name = callee_function
 
@@ -585,10 +582,7 @@ class DFGBuilder:
                         metadata={"is_frontend_input": True},
                     )
 
-                if method in ("POST", "PUT", "PATCH"):
-                    req_field = "req.body"
-                else:
-                    req_field = "req.params"
+                req_field = "req.body" if method in ("POST", "PUT", "PATCH") else "req.params"
 
                 cursor.execute(
                     """

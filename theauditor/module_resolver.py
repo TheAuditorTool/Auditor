@@ -58,8 +58,8 @@ class ModuleResolver:
 
         try:
             cursor.execute("""
-                SELECT path, content, context_dir 
-                FROM config_files 
+                SELECT path, content, context_dir
+                FROM config_files
                 WHERE type = 'tsconfig'
             """)
 

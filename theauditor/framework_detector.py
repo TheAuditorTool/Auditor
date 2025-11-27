@@ -586,10 +586,7 @@ class FrameworkDetector:
                     data = json.load(f)
                     self.deps_cache = {}
 
-                    if isinstance(data, list):
-                        deps_list = data
-                    else:
-                        deps_list = data.get("dependencies", [])
+                    deps_list = data if isinstance(data, list) else data.get("dependencies", [])
 
                     for dep in deps_list:
                         self.deps_cache[dep["name"]] = dep

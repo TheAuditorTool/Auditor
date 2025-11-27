@@ -496,10 +496,10 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
 
         has_delegation = False
         for child in context.find_nodes(ast.Attribute):
-            if isinstance(child.value, ast.Name) and child.value.id == "self":
-                if child.attr.startswith("_"):
-                    has_delegation = True
-                    break
+            if (isinstance(child.value, ast.Name) and child.value.id == "self" and
+                child.attr.startswith("_")):
+                has_delegation = True
+                break
 
         has_validation = False
         if node.name == "__setattr__":

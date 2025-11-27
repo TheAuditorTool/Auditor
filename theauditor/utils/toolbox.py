@@ -81,10 +81,7 @@ class Toolbox:
         """
         node_runtime = self.sandbox / "node-runtime"
 
-        if IS_WINDOWS:
-            node_exe = node_runtime / "node.exe"
-        else:
-            node_exe = node_runtime / "bin" / "node"
+        node_exe = node_runtime / "node.exe" if IS_WINDOWS else node_runtime / "bin" / "node"
 
         if node_exe.exists():
             return node_exe
@@ -200,10 +197,7 @@ class Toolbox:
         """
         osv_dir = self.sandbox / "osv-scanner"
 
-        if IS_WINDOWS:
-            bundled = osv_dir / "osv-scanner.exe"
-        else:
-            bundled = osv_dir / "osv-scanner"
+        bundled = osv_dir / "osv-scanner.exe" if IS_WINDOWS else osv_dir / "osv-scanner"
 
         if bundled.exists():
             return str(bundled)

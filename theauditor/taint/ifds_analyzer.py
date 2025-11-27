@@ -408,9 +408,8 @@ class IFDSTaintAnalyzer:
             if ap1.file != ap2.file:
                 return False
 
-            if ap1.function != ap2.function:
-                if "Controller." in ap1.function and "Controller." in ap2.function:
-                    return False
+            if ap1.function != ap2.function and "Controller." in ap1.function and "Controller." in ap2.function:
+                return False
 
         if ap1.base == ap2.base and ap1.fields == ap2.fields:
             return True
@@ -543,9 +542,8 @@ class IFDSTaintAnalyzer:
             "request.body",
             "request.params",
         ]
-        if any(pattern in variable for pattern in request_patterns):
-            if "routes" in file_path or "middleware" in file_path or "controller" in file_path:
-                self.repo_cursor.execute(
+        if any(pattern in variable for pattern in request_patterns) and ("routes" in file_path or "middleware" in file_path or "controller" in file_path):
+            self.repo_cursor.execute(
                     """
                     SELECT COUNT(*)
                     FROM express_middleware_chains
@@ -554,14 +552,14 @@ class IFDSTaintAnalyzer:
                     (function_name, f"%{function_name}%"),
                 )
 
-                count = self.repo_cursor.fetchone()[0]
-                if count > 0:
-                    if self.debug:
-                        print(
-                            f"[IFDS] ✓ TRUE ENTRY POINT (middleware chain): {node_id}",
-                            file=sys.stderr,
-                        )
-                    return True
+            count = self.repo_cursor.fetchone()[0]
+            if count > 0:
+                if self.debug:
+                    print(
+                        f"[IFDS] ✓ TRUE ENTRY POINT (middleware chain): {node_id}",
+                        file=sys.stderr,
+                    )
+                return True
 
         if "process.env" in variable or "env." in variable:
             if self.debug:
