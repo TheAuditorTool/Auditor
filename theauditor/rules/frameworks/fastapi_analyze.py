@@ -298,7 +298,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
         background_tasks = cursor.fetchall()
 
-        for file, line, func in background_tasks:
+        for file, line, _func in background_tasks:
             query2 = build_query(
                 "cfg_blocks",
                 ["id"],
@@ -376,7 +376,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query, debug_patterns_list)
 
-        for file, pattern, method in cursor.fetchall():
+        for file, pattern, _method in cursor.fetchall():
             findings.append(
                 StandardFinding(
                     rule_name="fastapi-debug-endpoint-exposed",
@@ -434,7 +434,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         has_timeout = False
-        for callee, arg_expr in cursor.fetchall():
+        for _callee, arg_expr in cursor.fetchall():
             if "timeout" in arg_expr:
                 has_timeout = True
                 break

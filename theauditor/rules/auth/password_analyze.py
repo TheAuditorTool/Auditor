@@ -329,7 +329,7 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query)
 
-    for file, line, caller, args, callee in cursor.fetchall():
+    for file, line, _caller, args, callee in cursor.fetchall():
         args_lower = (args or "").lower()
 
         has_password = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
@@ -366,7 +366,7 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, _var, expr in cursor.fetchall():
         expr_lower = expr.lower()
 
         has_password_length = any(
@@ -415,7 +415,7 @@ def _check_password_in_url(cursor) -> list[StandardFinding]:
 
     url_param_patterns = ["?password=", "&password=", "?passwd=", "&passwd=", "?pwd=", "&pwd="]
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, _var, expr in cursor.fetchall():
         if any(pattern in expr for pattern in url_param_patterns):
             findings.append(
                 StandardFinding(

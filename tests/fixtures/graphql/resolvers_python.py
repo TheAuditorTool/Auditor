@@ -1,6 +1,6 @@
 """Sample Python GraphQL resolvers for testing (Graphene style)."""
 import graphene
-from models import User, Post
+from models import Post, User
 
 
 class Query(graphene.ObjectType):

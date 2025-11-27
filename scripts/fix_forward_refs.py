@@ -12,6 +12,7 @@ import re
 import sys
 from pathlib import Path
 
+
 def fix_forward_references(file_path):
     """Fix forward references in a Python file."""
     content = file_path.read_text(encoding='utf-8')

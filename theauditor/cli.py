@@ -213,7 +213,7 @@ class VerboseGroup(click.Group):
         formatter.write_paragraph()
         formatter.write_text("Commands:")
 
-        for category_id, category_data in self.COMMAND_CATEGORIES.items():
+        for _category_id, category_data in self.COMMAND_CATEGORIES.items():
             formatter.write_text(f"  {category_data['title']}:")
             for cmd_name in category_data["commands"]:
                 if cmd_name not in registered:

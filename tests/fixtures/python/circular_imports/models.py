@@ -9,7 +9,7 @@ Tests extraction when:
 Validates that import resolution doesn't infinite loop or crash.
 """
 
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, List, Optional
 
 # TYPE_CHECKING guard prevents runtime circular import
 # But static analysis tools should still track this import

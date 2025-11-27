@@ -62,7 +62,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
             if version:
                 installed_versions[pkg_name] = version
 
-        for file_path, pkg_name, version, peer_deps_json in packages_with_peers:
+        for file_path, _pkg_name, _version, peer_deps_json in packages_with_peers:
             if not peer_deps_json:
                 continue
 

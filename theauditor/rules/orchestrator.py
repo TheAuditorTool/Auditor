@@ -383,7 +383,7 @@ class RulesOrchestrator:
 
         file_to_check = context.file_path
 
-        for category, rules in self.rules.items():
+        for _category, rules in self.rules.items():
             for rule in rules:
                 if rule.execution_scope == "database":
                     continue
@@ -426,7 +426,7 @@ class RulesOrchestrator:
             List of RuleInfo objects matching the type
         """
         rules_of_type = []
-        for category, rules in self.rules.items():
+        for _category, rules in self.rules.items():
             for rule in rules:
                 if rule.rule_type == rule_type:
                     rules_of_type.append(rule)
@@ -561,7 +561,7 @@ class RulesOrchestrator:
 
         findings = []
 
-        for category, rules in self.rules.items():
+        for _category, rules in self.rules.items():
             for rule in rules:
                 if rule.execution_scope != "database":
                     continue

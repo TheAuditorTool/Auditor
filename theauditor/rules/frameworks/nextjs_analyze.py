@@ -143,7 +143,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query, response_funcs_list)
 
-        for file, line, callee, response_data in cursor.fetchall():
+        for file, line, _callee, response_data in cursor.fetchall():
             if not ("pages/api/" in file or "app/api/" in file):
                 continue
 
@@ -246,7 +246,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, var_name, value in cursor.fetchall():
+        for file, line, var_name, _value in cursor.fetchall():
             if not var_name.startswith("NEXT_PUBLIC_"):
                 continue
 
@@ -324,7 +324,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query, response_funcs_list)
 
-        for file, line, callee, error_data in cursor.fetchall():
+        for file, line, _callee, error_data in cursor.fetchall():
             if not ("pages/" in file or "app/" in file):
                 continue
 
@@ -355,11 +355,11 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         dangerous_html_calls = []
-        for file, line, callee, html_content in cursor.fetchall():
-            if callee == "dangerouslySetInnerHTML" or "dangerouslySetInnerHTML" in html_content:
+        for file, line, _callee, html_content in cursor.fetchall():
+            if _callee == "dangerouslySetInnerHTML" or "dangerouslySetInnerHTML" in html_content:
                 dangerous_html_calls.append((file, line, html_content))
 
-        for file, line, html_content in dangerous_html_calls:
+        for file, line, _html_content in dangerous_html_calls:
             sanitize_list = list(SANITIZATION_FUNCTIONS)
             placeholders = ",".join("?" * len(sanitize_list))
 

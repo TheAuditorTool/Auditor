@@ -42,7 +42,7 @@ def test_no_readthis_references_in_imports():
     """Verify no module tries to import readthis-related code."""
     # This is a sanity check - if extraction.py import fails,
     # and this test passes, we know the removal was clean
-    import theauditor.commands.blueprint  # noqa: F401
     import theauditor.cli  # noqa: F401
+    import theauditor.commands.blueprint  # noqa: F401
     # If we got here without ImportError, the cleanup was successful
     assert True

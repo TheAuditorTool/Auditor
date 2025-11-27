@@ -5,18 +5,24 @@ Test fixture for extract_django_cbvs() - covers all CBV types, permission checks
 queryset overrides, http_method_names restrictions, and template associations.
 """
 
-from django.views.generic import (
-    ListView, DetailView, CreateView, UpdateView, DeleteView,
-    FormView, TemplateView, RedirectView
-)
 from django.contrib.auth.decorators import login_required, permission_required
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
 from django.shortcuts import get_object_or_404
+from django.urls import reverse_lazy
+from django.utils.decorators import method_decorator
+from django.views.generic import (
+    CreateView,
+    DeleteView,
+    DetailView,
+    FormView,
+    ListView,
+    RedirectView,
+    TemplateView,
+    UpdateView,
+)
 
+from ..forms.article_forms import ArticleForm, ArticleSearchForm
 from ..models.article import Article
 from ..models.user import User
-from ..forms.article_forms import ArticleForm, ArticleSearchForm
 
 
 # 1. Basic ListView - no auth, no custom queryset

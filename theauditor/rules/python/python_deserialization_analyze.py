@@ -225,7 +225,7 @@ class DeserializationAnalyzer:
 
         pickle_usages = self.cursor.fetchall()
 
-        for file, line, method, args, caller in pickle_usages:
+        for file, line, method, args, _caller in pickle_usages:
             severity = Severity.CRITICAL
             confidence = Confidence.HIGH
 
@@ -305,7 +305,7 @@ class DeserializationAnalyzer:
             list(self.patterns.MARSHAL_METHODS),
         )
 
-        for file, line, method, args in self.cursor.fetchall():
+        for file, line, method, _args in self.cursor.fetchall():
             self.findings.append(
                 StandardFinding(
                     rule_name="python-marshal-usage",
@@ -331,7 +331,7 @@ class DeserializationAnalyzer:
             list(self.patterns.SHELVE_METHODS),
         )
 
-        for file, line, method, args in self.cursor.fetchall():
+        for file, line, method, _args in self.cursor.fetchall():
             self.findings.append(
                 StandardFinding(
                     rule_name="python-shelve-usage",
@@ -487,7 +487,7 @@ class DeserializationAnalyzer:
                     if "pickle.load" in call_lower or call_method.endswith("loads"):
                         findings_set.add((b64_file, b64_line, b64_method))
 
-        for file, line, method in findings_set:
+        for file, line, _method in findings_set:
             self.findings.append(
                 StandardFinding(
                     rule_name="python-base64-pickle",

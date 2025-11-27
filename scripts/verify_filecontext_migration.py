@@ -17,11 +17,10 @@ Date: November 2025
 import ast
 import re
 import sys
+from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
-from dataclasses import dataclass, field
-from collections import defaultdict
-
 
 # ============================================================================
 # Risk Report Data Classes
@@ -295,7 +294,7 @@ def analyze_extractor_file(file_path: Path, report: VerificationReport) -> None:
     """Analyze a single Python file for extractors."""
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             source_code = f.read()
 
         # Parse the AST
@@ -385,7 +384,7 @@ def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
             processed_files.add(str(py_file))
 
             try:
-                with open(py_file, 'r', encoding='utf-8') as f:
+                with open(py_file, encoding='utf-8') as f:
                     source_code = f.read()
 
                 # Quick check if any extractor names are mentioned

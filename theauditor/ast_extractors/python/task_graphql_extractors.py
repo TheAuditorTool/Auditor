@@ -303,7 +303,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
         for target in node.targets:
             if isinstance(target, ast.Attribute) and target.attr == "beat_schedule":
                 if isinstance(node.value, ast.Dict):
-                    for i, (key_node, value_node) in enumerate(
+                    for _i, (key_node, value_node) in enumerate(
                         zip(node.value.keys, node.value.values)
                     ):  # noqa: B905 - AST guarantees equal length
                         if not isinstance(key_node, ast.Constant):

@@ -27,14 +27,14 @@ Usage:
   python purge_commentsv3.py ./theauditor --preserve-copyright
 """
 
-import libcst as cst
-from libcst.metadata import MetadataWrapper, PositionProvider
 import argparse
 import json
 import os
 import sys
 import time
 
+import libcst as cst
+from libcst.metadata import MetadataWrapper, PositionProvider
 
 # =============================================================================
 # CONFIGURATION
@@ -154,7 +154,7 @@ def read_file_with_fallback(filepath: str) -> tuple[str, str]:
     last_error = None
     for encoding in FILE_ENCODINGS:
         try:
-            with open(filepath, "r", encoding=encoding) as f:
+            with open(filepath, encoding=encoding) as f:
                 content = f.read()
             return content, encoding
         except UnicodeDecodeError as e:

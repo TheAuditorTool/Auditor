@@ -5,11 +5,13 @@ This file is part of the AFTER state (Cognito).
 Demonstrates import chain: middleware → validators → exceptions
 """
 
-import jwt
-from jose import jwk, jwt as jose_jwt
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
+
+import jwt
 import requests
+from exceptions import ExpiredTokenError, InvalidTokenError
+from jose import jwk
+from jose import jwt as jose_jwt
 
 
 def get_cognito_public_keys():

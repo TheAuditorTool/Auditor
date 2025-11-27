@@ -562,7 +562,7 @@ class InputValidationAnalyzer:
             tuple(self.patterns.VALIDATION_FUNCTIONS) + tuple(self.patterns.DB_WRITE_OPS),
         )
 
-        for file, val_line, val_func, db_func, db_line in self.cursor.fetchall():
+        for file, val_line, val_func, db_func, _db_line in self.cursor.fetchall():
             self._add_finding(
                 rule_name="incomplete-validation",
                 message=f"Validation at line {val_line} may not cover all fields used in {db_func}",
@@ -739,7 +739,7 @@ class InputValidationAnalyzer:
 
         for (
             file,
-            retrieve_line,
+            _retrieve_line,
             var,
             source_expr,
             use_func,

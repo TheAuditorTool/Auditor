@@ -1,8 +1,16 @@
 """WTForms form extraction test fixture."""
 
-from wtforms import Form, StringField, IntegerField, PasswordField, TextAreaField, SelectField, BooleanField
-from wtforms.validators import DataRequired, Email, Length, EqualTo, NumberRange
 from flask_wtf import FlaskForm
+from wtforms import (
+    BooleanField,
+    Form,
+    IntegerField,
+    PasswordField,
+    SelectField,
+    StringField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange
 
 
 class RegistrationForm(FlaskForm):

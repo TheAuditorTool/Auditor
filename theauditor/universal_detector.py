@@ -438,7 +438,7 @@ class UniversalPatternDetector:
         )
         lines.append("-" * 80)
 
-        for i, finding in enumerate(sorted_findings[:max_rows]):
+        for _i, finding in enumerate(sorted_findings[:max_rows]):
             pattern = finding.pattern_name[:32].ljust(32)
             file_str = finding.file
             if len(file_str) > 35:

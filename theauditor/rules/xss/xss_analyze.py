@@ -434,7 +434,7 @@ def _check_vue_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY vd.file, vd.line
     """)
 
-    for file, line, directive, expression in cursor.fetchall():
+    for file, line, _directive, expression in cursor.fetchall():
         has_user_input = any(src in (expression or "") for src in COMMON_INPUT_SOURCES)
         has_route = "$route" in (expression or "")
         has_props = "props" in (expression or "")
@@ -763,7 +763,7 @@ def _check_postmessage_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY f.file, f.line
     """)
 
-    for file, line, func, target_origin in cursor.fetchall():
+    for file, line, func, _target_origin in cursor.fetchall():
         if "postMessage" not in func:
             continue
 

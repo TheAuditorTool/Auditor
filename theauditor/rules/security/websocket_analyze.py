@@ -202,7 +202,7 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
         if any(pattern in func for pattern in CONNECTION_PATTERNS):
             websocket_handlers.append((file, line, func, args))
 
-    for file, line, func, args in websocket_handlers:
+    for file, line, func, _args in websocket_handlers:
         cursor.execute(
             """
             SELECT callee_function, line
@@ -323,7 +323,7 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
         if any(pattern in func for pattern in MESSAGE_PATTERNS):
             message_handlers.append((file, line, func, args))
 
-    for file, line, func, args in message_handlers:
+    for file, line, _func, _args in message_handlers:
         cursor.execute(
             """
             SELECT callee_function, line
@@ -641,7 +641,7 @@ def _find_websocket_no_tls(cursor) -> list[StandardFinding]:
             if "https" not in args and "tls" not in args and "ssl" not in args:
                 unencrypted_servers.append((file, line, func, args))
 
-    for file, line, func, args in unencrypted_servers:
+    for file, line, func, _args in unencrypted_servers:
         findings.append(
             StandardFinding(
                 rule_name="websocket-no-tls",

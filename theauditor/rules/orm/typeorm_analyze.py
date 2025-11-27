@@ -340,7 +340,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
         all_calls = cursor.fetchall()
 
-        for file, line, method, args in all_calls:
+        for file, line, method, _args in all_calls:
             method_lower = method.lower()
             if not (
                 "getmany" in method_lower
@@ -498,7 +498,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         join_counts = {}
-        for file, line, method, args in cursor.fetchall():
+        for file, line, method, _args in cursor.fetchall():
             method_lower = method.lower()
             if not (
                 "leftjoin" in method_lower
@@ -511,7 +511,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 join_counts[key] = {"file": file, "line": line, "count": 0}
             join_counts[key]["count"] += 1
 
-        for key, data in join_counts.items():
+        for _key, data in join_counts.items():
             if data["count"] >= 3:
                 limit_query = build_query(
                     "function_call_args",

@@ -1189,7 +1189,7 @@ def run_fce(
 
             file_path = finding.get("file", "")
             line_num = finding.get("line", 0)
-            for func_key, func_data in complex_functions.items():
+            for _func_key, func_data in complex_functions.items():
                 if func_data.get("file") != file_path:
                     continue
                 if not (

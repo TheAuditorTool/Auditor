@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Add 'from __future__ import annotations' to all files with type hints."""
 
-from pathlib import Path
 import re
+from pathlib import Path
+
 
 def has_type_hints(content):
     """Check if file likely has type hints."""
@@ -70,7 +71,7 @@ def main():
     count = 0
     for pyfile in Path('theauditor').rglob('*.py'):
         try:
-            with open(pyfile, 'r', encoding='utf-8') as f:
+            with open(pyfile, encoding='utf-8') as f:
                 content = f.read()
 
             if has_type_hints(content) and not has_future_annotations(content):

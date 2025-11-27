@@ -5,9 +5,9 @@ Test fixture for extract_django_middleware() - covers all middleware hooks
 (process_request, process_response, process_exception, process_view, process_template_response).
 """
 
-from django.utils.deprecation import MiddlewareMixin
-from django.http import HttpResponseForbidden, HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
+from django.utils.deprecation import MiddlewareMixin
 
 
 # 1. Basic middleware with process_request only

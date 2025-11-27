@@ -10,14 +10,14 @@ Test fixture demonstrating:
 - task.s() / task.si() - task signatures
 """
 
-from celery import chain, group, chord
+from celery import chain, chord, group
 from celery_app import app
 from tasks.celery_tasks import (
-    send_email,
-    process_payment,
+    cleanup_old_data,
     generate_report,
+    process_payment,
+    send_email,
     send_sms,
-    cleanup_old_data
 )
 
 

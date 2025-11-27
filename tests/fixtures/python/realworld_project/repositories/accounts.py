@@ -1,10 +1,9 @@
 """In-memory repository used to emulate database interactions."""
 
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional
-
-from collections.abc import Iterable
 
 from ..models.accounts import Organization, Profile, User
 from ..models.audit import AuditLog

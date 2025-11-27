@@ -51,7 +51,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         query = build_query("package_configs", ["file_path", "package_name", "dependencies"])
         cursor.execute(query)
 
-        for file_path, package_name, deps in cursor.fetchall():
+        for file_path, _package_name, deps in cursor.fetchall():
             if not deps:
                 continue
 

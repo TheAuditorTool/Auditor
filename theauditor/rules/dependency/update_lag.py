@@ -64,7 +64,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         package_files = {}
-        for file_path, pkg_name, version in cursor.fetchall():
+        for file_path, pkg_name, _version in cursor.fetchall():
             if "package.json" in file_path:
                 key = f"npm:{pkg_name}"
             elif "requirements.txt" in file_path or "pyproject.toml" in file_path:

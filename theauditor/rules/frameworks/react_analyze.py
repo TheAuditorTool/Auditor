@@ -325,7 +325,7 @@ class ReactAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee, eval_content in cursor.fetchall():
+            for file, line, _callee, eval_content in cursor.fetchall():
                 if not (
                     "<%>" in eval_content
                     or "jsx" in eval_content
@@ -363,7 +363,7 @@ class ReactAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, target, link_code in cursor.fetchall():
+            for file, line, _target, link_code in cursor.fetchall():
                 if not (
                     'target="_blank"' in link_code
                     or "target='_blank'" in link_code
@@ -637,7 +637,7 @@ class ReactAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee, effect_code in cursor.fetchall():
+            for file, line, _callee, effect_code in cursor.fetchall():
                 if "fetch" not in effect_code:
                     continue
                 if "cleanup" in effect_code or "return" in effect_code:
@@ -737,7 +737,7 @@ class ReactAnalyzer:
             cursor.execute(query)
 
             form_elements = []
-            for file, line, target, form_content in cursor.fetchall():
+            for file, line, _target, form_content in cursor.fetchall():
                 if "<form" in form_content:
                     form_elements.append((file, line, form_content))
 
@@ -805,7 +805,7 @@ class ReactAnalyzer:
             cursor.execute(query)
 
             jsx_with_user_input = []
-            for file, line, target, jsx_content in cursor.fetchall():
+            for file, line, _target, jsx_content in cursor.fetchall():
                 if "<%>" not in jsx_content:
                     continue
 

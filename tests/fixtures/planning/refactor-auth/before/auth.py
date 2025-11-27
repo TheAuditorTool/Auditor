@@ -7,11 +7,12 @@ Demonstrates:
 - Taint flow: request token → validation → user lookup → SQL
 """
 
-from auth0 import Auth0Client
-from validators import validate_auth0_token, extract_user_id, extract_permissions
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
 import sqlite3
+
+from auth0 import Auth0Client
+from exceptions import ExpiredTokenError, InvalidTokenError
+from validators import extract_permissions, extract_user_id, validate_auth0_token
 
 
 class AuthService:

@@ -21,18 +21,17 @@ Author: TheAuditor Team (fixing the blind spots)
 Date: November 2025
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Optional, List, Set
+import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Set, Union
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -295,7 +294,7 @@ def process_file(filepath: Path, stats: FixStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if no extractors or context.walk_tree()

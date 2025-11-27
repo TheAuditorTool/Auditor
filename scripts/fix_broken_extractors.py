@@ -19,11 +19,12 @@ Author: Lead Coder (cleaning up the mess)
 Date: November 2025
 """
 
-import sys
-import shutil
-from pathlib import Path
-from datetime import datetime
 import re
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
 
 def fix_file(filepath: Path, dry_run: bool = False, verbose: bool = False) -> tuple[bool, int]:
     """
@@ -33,7 +34,7 @@ def fix_file(filepath: Path, dry_run: bool = False, verbose: bool = False) -> tu
         (was_modified, num_lines_removed)
     """
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             lines = f.readlines()
     except Exception as e:
         print(f"  ERROR reading {filepath}: {e}")

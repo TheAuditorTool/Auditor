@@ -201,7 +201,7 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
         ORDER BY path, line
     """)
 
-    for file, element_name, line, jsx_mode in cursor.fetchall():
+    for file, element_name, line, _jsx_mode in cursor.fetchall():
         if "{" not in element_name:
             continue
 
@@ -351,7 +351,7 @@ def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> list[StandardFindi
         ORDER BY file, line
     """)
 
-    for file, line, directive, value in cursor.fetchall():
+    for file, line, _directive, value in cursor.fetchall():
         if not value:
             continue
 

@@ -9,12 +9,12 @@ This fixture demonstrates:
 - Multi-source assignments in query building
 """
 
-from flask import Blueprint, request, jsonify, g
-from models import Product, db
-from middleware.auth import require_auth, require_role, require_permission, rate_limit
-import sqlite3
 import os
+import sqlite3
 
+from flask import Blueprint, g, jsonify, request
+from middleware.auth import rate_limit, require_auth, require_permission, require_role
+from models import Product, db
 
 products_bp = Blueprint('products', __name__)
 

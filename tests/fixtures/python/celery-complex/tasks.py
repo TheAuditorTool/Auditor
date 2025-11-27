@@ -1,22 +1,28 @@
 """Complex Celery tasks with chains, groups, chords, and advanced patterns."""
 
-from celery import Celery, Task, group, chain, chord, signature
-from celery.utils.log import get_task_logger
-from celery.exceptions import Retry, MaxRetriesExceededError
+import json
+import random
+import time
+from datetime import datetime, timedelta
+from functools import wraps
+from typing import Any, Dict, List, Optional
+
+import redis
+import requests
+from celery import Celery, Task, chain, chord, group, signature
+from celery.exceptions import MaxRetriesExceededError, Retry
 from celery.result import AsyncResult, GroupResult
 from celery.signals import (
-    task_prerun, task_postrun, task_failure, task_success,
-    task_retry, task_revoked, before_task_publish
+    before_task_publish,
+    task_failure,
+    task_postrun,
+    task_prerun,
+    task_retry,
+    task_revoked,
+    task_success,
 )
-from kombu import Queue, Exchange
-from datetime import datetime, timedelta
-import time
-import random
-import requests
-from typing import List, Dict, Any, Optional
-import redis
-import json
-from functools import wraps
+from celery.utils.log import get_task_logger
+from kombu import Exchange, Queue
 
 logger = get_task_logger(__name__)
 

@@ -109,7 +109,7 @@ class FlowResolver:
 
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
 
-        for i, entry_id in enumerate(entry_nodes):
+        for _i, entry_id in enumerate(entry_nodes):
             if self.flows_resolved >= self.max_flows:
                 logger.warning(f"Reached maximum flow limit ({self.max_flows})")
                 break
@@ -260,7 +260,7 @@ class FlowResolver:
             AND file NOT LIKE '%node_modules%'
         """)
 
-        for file, line, func, arg_expr in repo_cursor.fetchall():
+        for file, _line, func, arg_expr in repo_cursor.fetchall():
             if not func:
                 func = "global"
 
@@ -296,7 +296,7 @@ class FlowResolver:
             AND file NOT LIKE '%node_modules%'
         """)
 
-        for file, line, func, arg_expr in repo_cursor.fetchall():
+        for file, _line, func, arg_expr in repo_cursor.fetchall():
             if not func:
                 func = "global"
 
@@ -329,7 +329,7 @@ class FlowResolver:
             AND file NOT LIKE '%node_modules%'
         """)
 
-        for file, line, func, arg_expr in repo_cursor.fetchall():
+        for file, _line, func, arg_expr in repo_cursor.fetchall():
             if not func:
                 func = "global"
 
@@ -378,7 +378,7 @@ class FlowResolver:
             AND file NOT LIKE '%node_modules%'
         """)
 
-        for file, line, func, arg_expr in repo_cursor.fetchall():
+        for file, _line, func, arg_expr in repo_cursor.fetchall():
             if not func:
                 func = "global"
 

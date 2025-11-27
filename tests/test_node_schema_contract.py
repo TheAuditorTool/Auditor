@@ -13,22 +13,22 @@ Purpose: Lock in the JSON blob -> junction table migration
 """
 
 import pytest
+
+from theauditor.indexer.database.node_database import NodeDatabaseMixin
 from theauditor.indexer.schemas.node_schema import (
-    NODE_TABLES,
-    VUE_COMPONENTS,
-    VUE_COMPONENT_PROPS,
-    VUE_COMPONENT_EMITS,
-    VUE_COMPONENT_SETUP_RETURNS,
-    ANGULAR_COMPONENTS,
     ANGULAR_COMPONENT_STYLES,
-    ANGULAR_MODULES,
+    ANGULAR_COMPONENTS,
     ANGULAR_MODULE_DECLARATIONS,
+    ANGULAR_MODULE_EXPORTS,
     ANGULAR_MODULE_IMPORTS,
     ANGULAR_MODULE_PROVIDERS,
-    ANGULAR_MODULE_EXPORTS,
+    ANGULAR_MODULES,
+    NODE_TABLES,
+    VUE_COMPONENT_EMITS,
+    VUE_COMPONENT_PROPS,
+    VUE_COMPONENT_SETUP_RETURNS,
+    VUE_COMPONENTS,
 )
-from theauditor.indexer.database.node_database import NodeDatabaseMixin
-
 
 # Junction tables added in node-schema-normalization
 NODE_JUNCTION_TABLES = {

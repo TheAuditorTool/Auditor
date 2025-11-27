@@ -592,7 +592,7 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[Standa
 
     seen = set()
 
-    for file, line, query, command, tables in cursor.fetchall():
+    for file, line, query, _command, _tables in cursor.fetchall():
         query_lower = query.lower()
 
         for field in patterns.UNINDEXED_FIELD_PATTERNS:

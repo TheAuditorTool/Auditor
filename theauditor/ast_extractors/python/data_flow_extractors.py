@@ -771,7 +771,7 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
         condition_type = "guard" if is_guard else "if"
         walk_conditional_block(node, condition, condition_type, 1)
 
-        for i, elif_node in enumerate(node.orelse):
+        for _i, elif_node in enumerate(node.orelse):
             if isinstance(elif_node, ast.If):
                 elif_condition = get_condition_expr(elif_node.test)
                 walk_conditional_block(elif_node, elif_condition, "elif", 1)

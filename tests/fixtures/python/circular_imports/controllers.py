@@ -13,8 +13,8 @@ Validates that import resolution handles complex circular dependency graphs.
 from typing import List, Optional
 
 # Import from both modules that have circular dependency with each other
-from models import User, Post, Comment
-from services import UserService, PostService, CommentService
+from models import Comment, Post, User
+from services import CommentService, PostService, UserService
 
 
 class UserController:

@@ -307,7 +307,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, regex_func, pattern in cursor.fetchall():
+        for file, line, _regex_func, pattern in cursor.fetchall():
             if "@" not in pattern:
                 continue
             pattern_lower = pattern.lower()
@@ -333,7 +333,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         division_operations = []
-        for file, line, target, expr in cursor.fetchall():
+        for file, line, _target, expr in cursor.fetchall():
             if "/" not in expr:
                 continue
 
@@ -582,7 +582,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, target, expr in cursor.fetchall():
+        for file, line, _target, expr in cursor.fetchall():
             if not ("/ 100 *" in expr or "/100*" in expr or "/ 100.0 *" in expr):
                 continue
 

@@ -580,7 +580,7 @@ def check_image_security(file_path: str, service_name: str, image: str) -> list[
             )
         )
 
-    for vuln_pattern, upgrade_msg in VULNERABLE_IMAGES.items():
+    for vuln_pattern, _upgrade_msg in VULNERABLE_IMAGES.items():
         if image.startswith(vuln_pattern):
             findings.append(
                 StandardFinding(

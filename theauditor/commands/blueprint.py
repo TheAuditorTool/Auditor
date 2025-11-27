@@ -1395,7 +1395,7 @@ def _get_dependencies(cursor) -> dict:
 
             dev_deps = []
             if isinstance(opt_deps_raw, dict):
-                for group_name, group_deps in opt_deps_raw.items():
+                for _group_name, group_deps in opt_deps_raw.items():
                     if isinstance(group_deps, list):
                         dev_deps.extend(group_deps)
 
@@ -1476,7 +1476,7 @@ def _show_deps_drilldown(data: dict, cursor):
 
         if ws.get("prod_deps"):
             click.echo("    Top dependencies:")
-            for i, (name, ver) in enumerate(list(ws["prod_deps"].items())[:5]):
+            for _i, (name, ver) in enumerate(list(ws["prod_deps"].items())[:5]):
                 click.echo(f"      - {name}: {ver}")
             if len(ws["prod_deps"]) > 5:
                 click.echo(f"      ... and {len(ws['prod_deps']) - 5} more")

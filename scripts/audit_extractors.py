@@ -8,24 +8,40 @@ NO GUESSING. NO HALLUCINATING. JUST FACTS.
 """
 
 import ast
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.insert(0, os.getcwd())
 
-from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python import (
-    control_flow_extractors, security_extractors, testing_extractors,
-    async_extractors, state_mutation_extractors, exception_flow_extractors,
-    data_flow_extractors, behavioral_extractors, performance_extractors,
-    fundamental_extractors, operator_extractors, collection_extractors,
-    class_feature_extractors, type_extractors, protocol_extractors,
-    stdlib_pattern_extractors, advanced_extractors, flask_extractors,
-    framework_extractors, django_web_extractors, django_advanced_extractors,
-    validation_extractors, orm_extractors, core_extractors,
-    task_graphql_extractors
+    advanced_extractors,
+    async_extractors,
+    behavioral_extractors,
+    class_feature_extractors,
+    collection_extractors,
+    control_flow_extractors,
+    core_extractors,
+    data_flow_extractors,
+    django_advanced_extractors,
+    django_web_extractors,
+    exception_flow_extractors,
+    flask_extractors,
+    framework_extractors,
+    fundamental_extractors,
+    operator_extractors,
+    orm_extractors,
+    performance_extractors,
+    protocol_extractors,
+    security_extractors,
+    state_mutation_extractors,
+    stdlib_pattern_extractors,
+    task_graphql_extractors,
+    testing_extractors,
+    type_extractors,
+    validation_extractors,
 )
+from theauditor.ast_extractors.python.utils.context import build_file_context
 
 # The "Kitchen Sink" Code Sample - triggers as many extractors as possible
 CODE = '''

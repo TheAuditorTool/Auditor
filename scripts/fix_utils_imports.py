@@ -5,6 +5,7 @@ Fix imports to use correct utils path
 
 from pathlib import Path
 
+
 def fix_utils_imports():
     """Fix utils import paths in all files"""
 

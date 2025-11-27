@@ -27,7 +27,7 @@ class XGraphStore:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            for table_name, schema in GRAPH_TABLES.items():
+            for _table_name, schema in GRAPH_TABLES.items():
                 cursor.execute(schema.create_table_sql())
 
                 for index_sql in schema.create_indexes_sql():

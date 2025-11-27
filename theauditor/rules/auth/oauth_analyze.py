@@ -221,7 +221,7 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
             if any(user_input in args_lower for user_input in USER_INPUT_SOURCES):
                 redirect_calls.append((file, line, func, args))
 
-    for file, line, func, args in redirect_calls:
+    for file, line, _func, _args in redirect_calls:
         val_query = build_query(
             "function_call_args",
             ["callee_function", "argument_expr"],
@@ -334,7 +334,7 @@ def _check_token_in_url(cursor) -> list[StandardFinding]:
 
     all_assignments = cursor.fetchall()
 
-    for file, line, var, expr in all_assignments:
+    for file, line, _var, expr in all_assignments:
         if any(
             pattern in expr
             for pattern in [
@@ -360,7 +360,7 @@ def _check_token_in_url(cursor) -> list[StandardFinding]:
                 )
             )
 
-    for file, line, var, expr in all_assignments:
+    for file, line, _var, expr in all_assignments:
         token_patterns = [
             "?access_token=",
             "&access_token=",
@@ -386,7 +386,7 @@ def _check_token_in_url(cursor) -> list[StandardFinding]:
             )
 
     # CHECK 3C: Implicit flow usage (response_type=token)
-    for file, line, var, expr in all_assignments:
+    for file, line, _var, expr in all_assignments:
         expr_lower = expr.lower()
         if "response_type" in expr_lower and "token" in expr_lower and "code" not in expr_lower:
             findings.append(

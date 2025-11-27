@@ -401,7 +401,7 @@ def _find_memory_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
         list(vue_files),
     )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, _args in cursor.fetchall():
         findings.append(
             StandardFinding(
                 rule_name="vue-large-reactive",

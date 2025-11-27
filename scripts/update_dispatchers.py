@@ -18,6 +18,7 @@ import re
 import shutil
 from pathlib import Path
 
+
 def update_dispatchers():
     # Configuration
     python_extractor_path = Path("theauditor/indexer/extractors/python.py")

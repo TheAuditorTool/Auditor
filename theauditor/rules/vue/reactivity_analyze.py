@@ -179,7 +179,7 @@ def _find_non_reactive_data(cursor) -> list[StandardFinding]:
         WHERE composition_api_used = 0
     """)
 
-    for file, component_name in cursor.fetchall():
+    for file, _component_name in cursor.fetchall():
         cursor.execute(
             """
             SELECT line, name

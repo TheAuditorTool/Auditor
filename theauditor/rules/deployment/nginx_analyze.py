@@ -293,7 +293,7 @@ class NginxAnalyzer:
 
             file_headers = self.security_headers.get(file_path, set())
 
-            for header_name, description in self.patterns.CRITICAL_HEADERS.items():
+            for header_name, _description in self.patterns.CRITICAL_HEADERS.items():
                 if header_name not in file_headers:
                     self.findings.append(
                         StandardFinding(
