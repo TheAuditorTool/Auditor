@@ -2,10 +2,11 @@
 
 **Status**: PROPOSAL - Awaiting Architect Approval
 **Change ID**: `normalize-findings-details-json`
-**Complexity**: MEDIUM (8 breaking lines, 6 writer files, 3 reader files)
+**Complexity**: MEDIUM (10 json.loads calls, 3 writer files, 4 reader files)
 **Estimated Time**: 16 hours
 **Breaking**: YES - Requires `aud full` reindex after deployment
-**Risk Level**: LOW-MEDIUM (77% of rows unaffected, main paths unchanged)
+**Risk Level**: LOW-MEDIUM (79% of rows unaffected, main paths unchanged)
+**Last Updated**: 2025-11-27 (Re-verified after codebase refactors)
 
 ---
 
@@ -55,15 +56,15 @@ Instead of junction tables (complex) or generated columns (slow), flatten the 23
 
 | Change Type | Count | Files |
 |-------------|-------|-------|
-| Schema columns added | 23 | 1 |
-| Schema indexes added | 4 | 1 |
-| Writers updated | 6 | 6 |
-| Readers updated | 8 | 3 |
-| **Total lines changed** | ~300 | ~10 |
+| Schema columns added | 24 (23 + misc_json) | 1 |
+| Schema indexes added | 2 | 1 |
+| Writers updated | 2 | 2 |
+| json.loads removed | 10 | 4 |
+| **Total lines changed** | ~400 | ~7 |
 
 ### Schema Changes (BREAKING)
 
-**File**: `theauditor/indexer/schemas/core_schema.py:490-516`
+**File**: `theauditor/indexer/schemas/core_schema.py:488-514`
 
 **BEFORE** (14 columns):
 ```python
@@ -159,29 +160,29 @@ FINDINGS_CONSOLIDATED = TableSchema(
 )
 ```
 
-### Writer Changes (6 files)
+### Writer Changes (2 files)
 
-| File | Line | Change |
-|------|------|--------|
-| `rules/base.py` | 183-186 | Map `additional_info` to specific columns |
-| `indexer/database/base_database.py` | 688-693 | Update INSERT to include new columns |
-| `terraform/analyzer.py` | 167-196 | Write to `tf_*` columns instead of JSON |
-| `commands/taint.py` | 477-500 | Write to `misc_json` (complex data exception) |
-| `vulnerability_scanner.py` | 650-667 | Update INSERT statement |
-| `aws_cdk/analyzer.py` | 235-252 | Update INSERT statement |
+| File | Lines | Method | Change |
+|------|-------|--------|--------|
+| `base_database.py` | 647-735 | `write_findings_batch()` | Tool-specific column mapping |
+| `terraform/analyzer.py` | 166-195 | Direct INSERT | Write to `tf_*` columns |
 
-### Reader Changes (8 json.loads calls in 3 files)
+Note: `commands/taint.py` uses `write_findings_batch()` which handles taint via `misc_json`.
+
+### Reader Changes (10 json.loads calls in 4 files)
 
 | File | Line | Function | Change |
 |------|------|----------|--------|
-| `fce.py` | 63 | `load_graph_data_from_db()` | SELECT `graph_*` columns directly |
-| `fce.py` | 81 | `load_graph_data_from_db()` | SELECT `graph_*` columns directly |
-| `fce.py` | 130 | `load_cfg_data_from_db()` | SELECT `cfg_*` columns directly |
-| `fce.py` | 171 | `load_churn_data_from_db()` | SELECT `graph_churn` column directly |
-| `fce.py` | 210 | `load_coverage_data_from_db()` | No change (coverage not in details_json) |
-| `fce.py` | 268 | `load_taint_data_from_db()` | **USE taint_flows TABLE INSTEAD** |
-| `context/query.py` | 1231 | `get_findings()` | Map columns to `finding['details']` dict |
-| `aws_cdk/analyzer.py` | 145 | `get_findings()` | Read from columns instead of JSON |
+| `fce.py` | 61 | `load_graph_data_from_db()` | SELECT `graph_*` columns directly |
+| `fce.py` | 75 | `load_graph_data_from_db()` | SELECT `graph_*` columns directly |
+| `fce.py` | 117 | `load_cfg_data_from_db()` | SELECT `cfg_*` columns directly |
+| `fce.py` | 151 | `load_churn_data_from_db()` | DEAD CODE - tool doesn't exist |
+| `fce.py` | 183 | `load_coverage_data_from_db()` | DEAD CODE - tool doesn't exist |
+| `fce.py` | 234 | `load_taint_data_from_db()` | **USE taint_flows TABLE** |
+| `fce.py` | 372 | `load_graphql_findings_from_db()` | Different table, add TODO |
+| `context/query.py` | 1182 | `get_findings()` | Build dict from columns |
+| `aws_cdk/analyzer.py` | 141 | `from_standard_findings()` | Use misc_json fallback |
+| `commands/workflows.py` | 378 | `get_workflow_findings()` | Use misc_json fallback |
 
 ---
 
@@ -191,16 +192,14 @@ FINDINGS_CONSOLIDATED = TableSchema(
 
 | File | LOC Changed | Risk |
 |------|-------------|------|
-| `theauditor/indexer/schemas/core_schema.py` | ~80 | LOW |
-| `theauditor/indexer/database/base_database.py` | ~30 | MEDIUM |
-| `theauditor/fce.py` | ~100 | HIGH |
-| `theauditor/context/query.py` | ~20 | MEDIUM |
-| `theauditor/rules/base.py` | ~30 | LOW |
+| `theauditor/indexer/schemas/core_schema.py` | ~50 | LOW |
+| `theauditor/indexer/database/base_database.py` | ~100 | MEDIUM |
+| `theauditor/fce.py` | ~150 | HIGH |
+| `theauditor/context/query.py` | ~50 | MEDIUM |
 | `theauditor/terraform/analyzer.py` | ~20 | LOW |
-| `theauditor/commands/taint.py` | ~10 | LOW |
-| `theauditor/vulnerability_scanner.py` | ~10 | LOW |
-| `theauditor/aws_cdk/analyzer.py` | ~20 | LOW |
-| **TOTAL** | **~320** | |
+| `theauditor/aws_cdk/analyzer.py` | ~10 | LOW |
+| `theauditor/commands/workflows.py` | ~10 | LOW |
+| **TOTAL** | **~390** | |
 
 ### Breaking Changes
 
@@ -242,14 +241,16 @@ FINDINGS_CONSOLIDATED = TableSchema(
 
 All criteria MUST be met before marking complete:
 
-- [ ] Schema updated with 23 new columns (core_schema.py)
-- [ ] All 6 writers updated to use columns
-- [ ] All 8 json.loads() calls removed from readers
-- [ ] FCE `load_taint_data_from_db()` uses `taint_flows` table
+- [ ] Schema updated with 24 new columns (23 + misc_json) in core_schema.py:488-514
+- [ ] 2 writers updated: base_database.py, terraform/analyzer.py
+- [ ] All 10 json.loads() calls removed/updated (7 in fce.py, 3 in other files)
+- [ ] FCE `load_taint_data_from_db()` uses `taint_flows` table (not details_json)
 - [ ] Zero `json.loads` calls on `details_json` in codebase
+- [ ] ZERO FALLBACK violations fixed in context/query.py, aws_cdk/analyzer.py, commands/workflows.py
+- [ ] Dead code removed: fce.py load_churn_data_from_db(), load_coverage_data_from_db()
 - [ ] All tests passing
 - [ ] Performance: FCE correlation <10ms (down from 125-700ms)
-- [ ] `misc_json` only used for taint complex data (1 row)
+- [ ] `misc_json` only used for taint complex data
 
 ---
 
