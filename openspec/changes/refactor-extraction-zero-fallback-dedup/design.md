@@ -79,10 +79,11 @@ for item in items:
 **Locations**:
 | Method | File | Lines | Identity Key |
 |--------|------|-------|--------------|
-| `_store_assignments` | `core_storage.py` | 294-305 | `(file, line, target_var)` |
-| `_store_returns` | `core_storage.py` | 388-399 | `(file, line, function_name)` |
-| `_store_env_var_usage` | `core_storage.py` | 551-564 | `(file, line, var_name, access_type)` |
-| `add_file` | `core_database.py` | 28-30 | `(path,)` |
+| `_store_assignments` | `core_storage.py` | 351-364 | `(file, line, target_var)` |
+| `_store_returns` | `core_storage.py` | 456-469 | `(file, line, function_name)` |
+| `_store_env_var_usage` | `core_storage.py` | 615-628 | `(file, line, var_name, access_type)` |
+| `add_file` | `core_database.py` | 15-24 | `(path,)` |
+| `add_nginx_config` | `infrastructure_database.py` | 119-122 | `(file, block_type, block_context)` |
 
 ### Decision 2: Explicit Type Assertions (Not Decorators)
 
@@ -158,26 +159,37 @@ FLUSH_ORDER = [
 ]
 ```
 
-**Note**: Current `flush_order` list in `base_database.py:294-437` already exists but may not be strictly enforced. Verification required.
+**Note**: Current `flush_order` list in `base_database.py:266-440` already exists but may not be strictly enforced. Verification required.
 
-### Decision 4: Reuse Existing visited_nodes Pattern for Extractor Fixes
+### Decision 4: Reuse Existing visited_nodes Pattern for Extractor Fixes (POLYGLOT)
 
-**What**: When Phase 1 crashes expose duplicate visits, fix extractors using existing pattern
+**What**: When Phase 1 crashes expose duplicate visits, fix extractors using language-appropriate patterns
 
 **Why**:
-- `typescript_impl.py:493-505` already has `visited_nodes = set()` pattern
+- `typescript_impl.py:535-545` already has `visited_nodes = set()` pattern
 - `module_framework.js:149-163` has equivalent `visitedNodes` Set
 - Proven pattern, consistent with existing codebase
+- **CRITICAL**: Different languages have different AST conventions - must use correct pattern per language
 
-**Reference Implementation** (`typescript_impl.py:493-505`):
+**POLYGLOT PATTERN REFERENCE**:
+
+| Language | Line Access | Column Access | Type Access |
+|----------|-------------|---------------|-------------|
+| TypeScript/JS | `node.get("line")` | `node.get("column", 0)` | `node.get("kind")` |
+| Python | `node.lineno` | `node.col_offset` | `type(node).__name__` |
+| Rust/HCL | `node.start_point[0]` | `node.start_point[1]` | `node.type` |
+
+---
+
+**TypeScript/JavaScript Reference** (`typescript_impl.py:535-545`):
 ```python
 # Track visited nodes by (line, column, kind) to avoid processing same node multiple times
 visited_nodes = set()
 
-for node in nodes:
-    node_id = (node.get('line'), node.get('col'), node.get('kind'))
+def traverse(node, depth=0):
+    node_id = (node.get("line"), node.get("column", 0), node.get("kind"))
     if node_id in visited_nodes:
-        continue  # Already processed
+        return  # Already processed
     visited_nodes.add(node_id)
     # ... process node ...
 ```
@@ -194,6 +206,42 @@ function processNode(node) {
     visitedNodes.add(nodeId);
     // ... process node ...
 }
+```
+
+---
+
+**Python AST Reference** (NEW - apply to `ast_extractors/python/*.py`):
+```python
+import ast
+
+# Track visited nodes - Python AST uses different attributes
+visited_nodes = set()
+
+for node in ast.walk(tree):
+    # Python AST convention: lineno, col_offset, type name
+    node_id = (getattr(node, 'lineno', 0), getattr(node, 'col_offset', 0), type(node).__name__)
+    if node_id in visited_nodes:
+        continue  # Already processed
+    visited_nodes.add(node_id)
+    # ... process node ...
+```
+
+---
+
+**Rust/HCL (tree-sitter) Reference** (apply to `rust_impl.py`, `hcl_impl.py`):
+```python
+# Tree-sitter nodes use start_point tuple and type property
+visited_nodes = set()
+
+def traverse(node):
+    # Tree-sitter convention: (row, column) tuple and type string
+    node_id = (node.start_point[0], node.start_point[1], node.type)
+    if node_id in visited_nodes:
+        return
+    visited_nodes.add(node_id)
+    # ... process node ...
+    for child in node.children:
+        traverse(child)
 ```
 
 ## Risks / Trade-offs

@@ -14,28 +14,30 @@
 
 The pipeline final status reports "[CLEAN] - No critical or high-severity issues found" when the database actually contains **226 critical + 4,177 high severity security findings**. This is a security tool lying about security findings.
 
-### Root Cause (VERIFIED 2025-11-25)
+### Root Cause (VERIFIED 2025-11-28)
 
-**Location**: `theauditor/pipelines.py` lines 1645-1713
+**Location**: `theauditor/pipelines.py` lines 1588-1660
 
-**Bug 1 - Wrong filename**: Line 1694 reads `findings.json` which **DOES NOT EXIST**
+**Bug 1 - Wrong filename**: Line 1638 reads `findings.json` which **DOES NOT EXIST**
 ```python
-# Line 1694 - WRONG: This file doesn't exist
+# Line 1638 - WRONG: This file doesn't exist
 patterns_path = Path(root) / ".pf" / "raw" / "findings.json"
 ```
 The actual file is `patterns.json` (verified via `ls .pf/raw/*.json`)
 
 **Bug 2 - Architecture violation**: Pipeline writes findings to database, then reads from JSON for final status. The database is source of truth, JSON files are write-only artifacts for human inspection.
 
-**Bug 3 - ZERO FALLBACK violation**: Lines 1655-1713 contain 3 try/except blocks that silently swallow errors:
+**Bug 3 - ZERO FALLBACK violation**: Lines 1596-1660 contain 3 try/except blocks that silently swallow errors:
 ```python
-# Lines 1666-1668 - ZERO FALLBACK VIOLATION
+# Lines 1608-1612 - ZERO FALLBACK VIOLATION
 except Exception as e:
     print(f"[WARNING] Could not read taint analysis results: {e}")
-    # Non-critical - continue without taint stats  <-- SILENTLY CONTINUES
+    # Silently continues without taint stats  <-- ZERO FALLBACK VIOLATION
 ```
 
-### Database Reality (VERIFIED)
+### Database Reality (VERIFIED 2025-11-28)
+
+**Note**: Counts vary after schema refactors. Key point: database HAS data, JSON reading yields ZERO.
 
 ```sql
 -- Query: SELECT severity, COUNT(*) FROM findings_consolidated
@@ -43,29 +45,24 @@ except Exception as e:
 --        GROUP BY severity ORDER BY COUNT(*) DESC
 
 SECURITY TOOLS ONLY (patterns, taint, terraform, cdk):
-  high: 4,177
-  medium: 644
-  critical: 226
-  info: 138
-  low: 23
-  TOTAL: 5,208 security findings
+  high: 578
+  info: 147
+  medium: 64
+  critical: 56
+  low: 17
+  TOTAL: 862 security findings
 
 ALL TOOLS (including lint):
-  warning: 11,246  (ruff)
-  high: 4,194
-  error: 2,389     (mypy)
-  info: 1,115
-  medium: 685
-  critical: 232
-  low: 73
-  TOTAL: 19,934 findings
+  TOTAL: 6,758 findings
 ```
+
+**The bug**: Pipeline reads JSON files → gets 0. Database has 862+ security findings → ignored.
 
 ### Consumers of Findings Dict (VERIFIED)
 
 The return dict from `run_full_pipeline()` is consumed by:
-1. `theauditor/commands/full.py:138` - Displays [CLEAN]/[CRITICAL]/[HIGH] status
-2. `theauditor/journal.py:436` - Records total_vulnerabilities for ML training
+1. `theauditor/commands/full.py:155-189` - Displays [CLEAN]/[CRITICAL]/[HIGH] status
+2. `theauditor/journal.py:439` - Records total_vulnerabilities for ML training
 
 **Contract**: Return dict MUST maintain structure:
 ```python
@@ -88,27 +85,27 @@ The return dict from `run_full_pipeline()` is consumed by:
 
 | Change Type | Lines | Location |
 |-------------|-------|----------|
-| Lines deleted | ~70 | pipelines.py:1645-1713 |
+| Lines deleted | ~73 | pipelines.py:1588-1660 |
 | Lines added | ~40 | pipelines.py (same location) |
 | Files changed | 1 | theauditor/pipelines.py |
 
-### Code Location (VERIFIED)
+### Code Location (VERIFIED 2025-11-28)
 
-**Function**: `async def run_full_pipeline()` at `pipelines.py:273`
-**Aggregation code**: Lines 1645-1746
-**Return statement**: Lines 1731-1746
+**Function**: `async def run_full_pipeline()` at `pipelines.py:245`
+**Aggregation code**: Lines 1588-1660
+**Return statement**: Lines 1677-1692
 
 ### Current Code (BROKEN)
 
 ```python
-# pipelines.py lines 1645-1713
+# pipelines.py lines 1588-1660
 
-# Line 1645-1650: Initialize counters
+# Lines 1588-1592: Initialize counters
 critical_findings = 0
 high_findings = 0
 # ...
 
-# Lines 1652-1668: Read taint_analysis.json (exists but may be empty)
+# Lines 1594-1612: Read taint_analysis.json (exists but may be empty)
 taint_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
 if taint_path.exists():
     try:
@@ -118,11 +115,11 @@ if taint_path.exists():
     except Exception as e:
         print(f"[WARNING] ...")  # ZERO FALLBACK VIOLATION
 
-# Lines 1670-1690: Read vulnerabilities.json (exists, 442 bytes, nearly empty)
+# Lines 1614-1636: Read vulnerabilities.json (exists, 442 bytes, nearly empty)
 vuln_path = Path(root) / ".pf" / "raw" / "vulnerabilities.json"
 # ... same pattern
 
-# Lines 1692-1713: Read findings.json (DOES NOT EXIST - BUG!)
+# Lines 1638-1660: Read findings.json (DOES NOT EXIST - BUG!)
 patterns_path = Path(root) / ".pf" / "raw" / "findings.json"  # WRONG FILENAME
 # ... same pattern
 ```
@@ -130,7 +127,7 @@ patterns_path = Path(root) / ".pf" / "raw" / "findings.json"  # WRONG FILENAME
 ### Replacement Code (CORRECT)
 
 ```python
-# pipelines.py - Replace lines 1645-1713
+# pipelines.py - Replace lines 1588-1660
 
 # Tool categories for final status determination
 # Security tools produce security findings (affect exit code)
@@ -176,7 +173,7 @@ def _get_findings_from_db(root: Path) -> dict:
         'total_vulnerabilities': sum(counts.values())
     }
 
-# Usage in run_full_pipeline() around line 1645:
+# Usage in run_full_pipeline() around line 1588:
 findings = _get_findings_from_db(Path(root))
 critical_findings = findings['critical']
 high_findings = findings['high']
@@ -192,6 +189,8 @@ total_vulnerabilities = findings['total_vulnerabilities']
 | Security | patterns, taint, terraform, cdk | YES | Actual vulnerabilities |
 | Quality | ruff, eslint, mypy | NO | Code quality, not security |
 | Analysis | cfg-analysis, graph-analysis | NO | Informational metrics |
+
+**Note**: Not all security tools produce findings on every run. Zero findings for a tool (e.g., taint, cdk) is valid - the query handles this via `counts.get('severity', 0)`.
 
 **Question for Architect**: Should any tools be moved between categories?
 
@@ -255,8 +254,8 @@ total_vulnerabilities = findings['total_vulnerabilities']
 
 All criteria MUST pass before marking complete:
 
-- [ ] `aud full` on TheAuditor codebase shows ~226 critical, ~4177 high (not 0)
-- [ ] No `json.load()` calls in aggregation code (lines 1645-1713)
+- [ ] `aud full` on TheAuditor codebase shows actual findings (critical > 0 OR high > 0), not `[CLEAN]`
+- [ ] No `json.load()` calls in aggregation code (lines 1588-1660)
 - [ ] No try/except blocks in aggregation code
 - [ ] Return dict maintains same structure (critical, high, medium, low, total_vulnerabilities)
 - [ ] `journal.py` receives correct total_vulnerabilities
@@ -273,9 +272,9 @@ All criteria MUST pass before marking complete:
 aud full
 # Output: STATUS: [CLEAN] - No critical or high-severity issues found.
 
-# AFTER: Shows actual counts
+# AFTER: Shows actual counts from database
 aud full
-# Expected: STATUS: [CRITICAL] - Audit complete. Found 226 critical vulnerabilities.
+# Expected: STATUS: [CRITICAL] or [HIGH] with actual finding counts (not 0)
 ```
 
 ### Verification Commands
@@ -296,9 +295,9 @@ for row in c.fetchall():
     print(f'{row[0]}: {row[1]}')
 conn.close()
 "
-# Expected: critical: 226, high: 4177, medium: 644, ...
+# Expected: Shows counts > 0 (exact numbers vary after refactors)
 
-# Verify findings.json doesn't exist
+# Verify findings.json doesn't exist (the bug)
 ls .pf/raw/findings.json  # Should fail - file doesn't exist
 ls .pf/raw/patterns.json  # Should succeed - this is the actual file
 ```
@@ -324,11 +323,11 @@ ls .pf/raw/patterns.json  # Should succeed - this is the actual file
 
 | File | Line | Purpose |
 |------|------|---------|
-| `theauditor/pipelines.py` | 273 | `run_full_pipeline()` function |
-| `theauditor/pipelines.py` | 1645-1713 | Current JSON reading code (TO DELETE) |
-| `theauditor/pipelines.py` | 1731-1746 | Return dict structure (PRESERVE) |
-| `theauditor/commands/full.py` | 137-188 | Status display (NO CHANGE) |
-| `theauditor/journal.py` | 436 | Journal recording (NO CHANGE) |
+| `theauditor/pipelines.py` | 245 | `run_full_pipeline()` function |
+| `theauditor/pipelines.py` | 1588-1660 | Current JSON reading code (TO DELETE) |
+| `theauditor/pipelines.py` | 1677-1692 | Return dict structure (PRESERVE) |
+| `theauditor/commands/full.py` | 155-189 | Status display (NO CHANGE) |
+| `theauditor/journal.py` | 439 | Journal recording (NO CHANGE) |
 
 ---
 

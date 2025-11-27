@@ -1,6 +1,6 @@
 # Implementation Tasks: Pipeline Reporting Refactor
 
-**VERIFIED**: 2025-11-25 against live database and codebase
+**VERIFIED**: 2025-11-28 against live database and codebase
 **Verifier**: Opus (AI Lead Coder)
 **Protocol**: teamsop.md Prime Directive
 
@@ -15,47 +15,51 @@
 
 ---
 
-## VERIFIED DATA (2025-11-25)
+## VERIFIED DATA (2025-11-28)
 
 ### Database Schema
 ```
-findings_consolidated columns:
-  id, file, line, column, rule, tool, message, severity,
-  category, confidence, code_snippet, cwe, timestamp, details_json
+findings_consolidated has 35 columns (expanded in 2025-11 schema refactors).
+This fix only uses: tool, severity
+
+Key columns for this fix:
+  tool TEXT      - e.g., 'patterns', 'taint', 'terraform', 'cdk', 'ruff'
+  severity TEXT  - 'critical', 'high', 'medium', 'low', 'info'
 ```
 
-### Security Tool Severity Counts
+### Security Tool Severity Counts (point-in-time, varies after refactors)
 ```sql
 SELECT severity, COUNT(*) FROM findings_consolidated
 WHERE tool IN ('patterns', 'taint', 'terraform', 'cdk')
 GROUP BY severity ORDER BY COUNT(*) DESC
 
-Result:
-  high: 4,177
-  medium: 644
-  critical: 226
-  info: 138
-  low: 23
+Result (2025-11-28):
+  high: 578
+  info: 147
+  medium: 64
+  critical: 56
+  low: 17
+  TOTAL: 862 security findings
 ```
 
 ### JSON Files in .pf/raw/
 ```
-patterns.json     - 1.7MB - EXISTS (but code reads wrong filename!)
-findings.json     - DOES NOT EXIST (bug: code tries to read this)
-taint_analysis.json - 19KB - EXISTS
+patterns.json       - 307KB - EXISTS (but code reads wrong filename!)
+findings.json       - DOES NOT EXIST (bug: code tries to read this)
+taint_analysis.json - 694B  - EXISTS
 vulnerabilities.json - 442B - EXISTS (nearly empty)
 ```
 
-### Code Locations (VERIFIED)
+### Code Locations (VERIFIED 2025-11-28)
 ```
-pipelines.py:273      - async def run_full_pipeline()
-pipelines.py:1645     - Start of aggregation code (initialize counters)
-pipelines.py:1652-1668 - Read taint_analysis.json (try/except VIOLATION)
-pipelines.py:1670-1690 - Read vulnerabilities.json (try/except VIOLATION)
-pipelines.py:1692-1713 - Read findings.json WRONG FILENAME (try/except VIOLATION)
-pipelines.py:1731-1746 - Return dict with findings
-full.py:171           - Displays "[CLEAN]" based on findings dict
-journal.py:436        - Uses total_vulnerabilities from findings dict
+pipelines.py:245      - async def run_full_pipeline()
+pipelines.py:1588     - Start of aggregation code (initialize counters)
+pipelines.py:1594-1612 - Read taint_analysis.json (try/except VIOLATION)
+pipelines.py:1614-1636 - Read vulnerabilities.json (try/except VIOLATION)
+pipelines.py:1638-1660 - Read findings.json WRONG FILENAME (try/except VIOLATION)
+pipelines.py:1677-1692 - Return dict with findings
+full.py:155-189       - Displays "[CLEAN]" based on findings dict
+journal.py:439        - Uses total_vulnerabilities from findings dict
 ```
 
 ---
@@ -67,24 +71,24 @@ journal.py:436        - Uses total_vulnerabilities from findings dict
 
 **Commands**:
 ```bash
-# Verify line 1645 is start of aggregation
-grep -n "Collect findings summary" theauditor/pipelines.py
-# Expected: 1645:    # Collect findings summary from generated reports
+# Verify line 1588 is start of aggregation
+grep -n "critical_findings = 0" theauditor/pipelines.py
+# Expected: 1588:    critical_findings = 0
 
-# Verify line 1694 has wrong filename
+# Verify line 1638 has wrong filename
 grep -n "findings.json" theauditor/pipelines.py
-# Expected: 1694:    patterns_path = Path(root) / ".pf" / "raw" / "findings.json"
+# Expected: 1638:    patterns_path = Path(root) / ".pf" / "raw" / "findings.json"
 
-# Verify return structure at 1731
+# Verify return structure at 1677
 grep -n "return {" theauditor/pipelines.py | tail -5
-# Expected: 1731:    return {
+# Expected: 1677:    return {
 ```
 
 **If lines don't match**: Update this tasks.md with correct line numbers before proceeding.
 
-- [ ] Line 1645 confirmed as aggregation start
-- [ ] Line 1694 confirmed as wrong filename
-- [ ] Line 1731 confirmed as return statement
+- [ ] Line 1588 confirmed as aggregation start
+- [ ] Line 1638 confirmed as wrong filename
+- [ ] Line 1677 confirmed as return statement
 
 ### Task 0.2: Verify Database Has Expected Data
 **Why**: Ensure DB query will return expected results
@@ -115,14 +119,14 @@ conn.close()
 "
 ```
 
-**Expected output**:
+**Expected output** (exact numbers vary):
 ```
-Total findings: ~19934
+Total findings: > 0 (proves table has data)
 Security tool counts:
-  cdk: 14
-  patterns: 5179
-  taint: 1
-  terraform: 7
+  patterns: > 0  (primary security tool)
+  terraform: >= 0
+  taint: >= 0    (may be 0 if no taint flows detected)
+  cdk: >= 0      (may be 0 if no CDK files)
 ```
 
 - [ ] findings_consolidated table exists
@@ -219,7 +223,7 @@ exec(open('theauditor/pipelines.py').read().split('async def run_full_pipeline')
 result = _get_findings_from_db(Path('.'))
 print(result)
 "
-# Expected: {'critical': 226, 'high': 4177, 'medium': 644, 'low': 23, 'total_vulnerabilities': 5208}
+# Expected: {'critical': N, 'high': N, 'medium': N, 'low': N, 'total_vulnerabilities': N} where N > 0
 ```
 
 - [ ] _get_findings_from_db function added
@@ -231,27 +235,27 @@ print(result)
 
 ### Task 2.1: Delete JSON Reading Code
 **File**: `theauditor/pipelines.py`
-**Location**: Lines 1645-1713 (approximately 70 lines)
+**Location**: Lines 1588-1660 (approximately 73 lines)
 
 **What to DELETE** (verify line numbers first!):
-- Lines 1645-1650: Counter initialization (critical_findings = 0, etc.)
-- Lines 1652-1668: taint_analysis.json reading with try/except
-- Lines 1670-1690: vulnerabilities.json reading with try/except
-- Lines 1692-1713: findings.json reading with try/except (WRONG FILENAME)
+- Lines 1588-1592: Counter initialization (critical_findings = 0, etc.)
+- Lines 1594-1612: taint_analysis.json reading with try/except
+- Lines 1614-1636: vulnerabilities.json reading with try/except
+- Lines 1638-1660: findings.json reading with try/except (WRONG FILENAME)
 
 **BEFORE deletion, verify**:
 ```bash
 # Count lines to delete
-sed -n '1645,1713p' theauditor/pipelines.py | wc -l
-# Expected: ~69 lines
+sed -n '1588,1660p' theauditor/pipelines.py | wc -l
+# Expected: ~73 lines
 ```
 
 - [ ] Verified line range before deletion
-- [ ] JSON reading code deleted (lines 1645-1713)
+- [ ] JSON reading code deleted (lines 1588-1660)
 
 ### Task 2.2: Add Database Query Code
 **File**: `theauditor/pipelines.py`
-**Location**: Where old code was (around line 1645)
+**Location**: Where old code was (around line 1588)
 
 **Code to ADD**:
 ```python
@@ -269,10 +273,10 @@ sed -n '1645,1713p' theauditor/pipelines.py | wc -l
 ```bash
 # Verify no json.load in aggregation section
 grep -n "json.load" theauditor/pipelines.py
-# Expected: Should NOT show lines 1645-1713
+# Expected: Should NOT show lines 1588-1660
 
 # Verify no try/except in aggregation section
-sed -n '1640,1720p' theauditor/pipelines.py | grep -n "try:\|except"
+sed -n '1580,1670p' theauditor/pipelines.py | grep -n "try:\|except"
 # Expected: No matches (or only matches outside aggregation code)
 ```
 
@@ -318,24 +322,25 @@ cd C:/Users/santa/Desktop/TheAuditor && aud full --offline
 ```
 AUDIT FINAL STATUS
 ==============================================================
-STATUS: [CRITICAL] - Audit complete. Found 226 critical vulnerabilities.
-Immediate action required - deployment should be blocked.
+STATUS: [CRITICAL] or [HIGH] - Audit complete. Found N vulnerabilities.
+(actual counts from database, NOT zero)
 
 Findings breakdown:
-  - Critical: 226
-  - High: 4177
-  - Medium: 644
-  - Low: 23
+  - Critical: N  (where N > 0 or high > 0)
+  - High: N
+  - Medium: N
+  - Low: N
 ```
 
 **NOT expected** (this was the bug):
 ```
 STATUS: [CLEAN] - No critical or high-severity issues found.
 ```
+(This is wrong because database has 862+ security findings)
 
 - [ ] Pipeline runs without errors
-- [ ] Status shows [CRITICAL] with ~226 critical findings
-- [ ] Findings breakdown shows actual counts
+- [ ] Status shows [CRITICAL] or [HIGH] (not [CLEAN])
+- [ ] Findings breakdown shows actual counts from database (not zeros)
 
 ### Task 3.3: Verify Journal Recording
 **Command**:
@@ -344,7 +349,7 @@ STATUS: [CLEAN] - No critical or high-severity issues found.
 grep -r "total_findings" .pf/journal*.jsonl | tail -1
 ```
 
-**Expected**: total_findings should be ~5208 (sum of security tool findings)
+**Expected**: total_findings should be > 0 (sum of security tool findings from database)
 
 - [ ] Journal receives correct total_vulnerabilities
 
@@ -363,10 +368,10 @@ grep -n "^import json\|^from.*json" theauditor/pipelines.py
 
 - [ ] Unused imports removed (or confirmed still needed)
 
-### Task 4.2: Update Line 1578 Comment
-**Current** (line 1578):
+### Task 4.2: Update Line 1530 Comment
+**Current** (line 1530):
 ```python
-write_summary(f"  * .pf/findings.json - Pattern detection results")
+write_summary("  * .pf/findings.json - Pattern detection results")
 ```
 
 **This is documentation only** - patterns.json is still written, but the filename in the summary message is wrong. This is a separate cosmetic issue.
@@ -375,7 +380,7 @@ write_summary(f"  * .pf/findings.json - Pattern detection results")
 - If fix now: Change to `patterns.json`
 - If defer: Add to backlog
 
-- [ ] Line 1578 addressed (fixed or deferred)
+- [ ] Line 1530 addressed (fixed or deferred)
 
 ---
 
@@ -400,7 +405,7 @@ write_summary(f"  * .pf/findings.json - Pattern detection results")
 
 ### Phase 4: Cleanup
 - [ ] 4.1 Unused imports removed
-- [ ] 4.2 Line 1578 addressed
+- [ ] 4.2 Line 1530 addressed
 
 ---
 
