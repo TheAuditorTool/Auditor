@@ -61,7 +61,6 @@ def update_dispatchers():
 
         # B. Mass Replace Calls (The tedious part)
         # Pattern matches: extract_anything(tree, self) or extract_anything(tree, parser_self)
-        original_content = content
 
         # Multiple patterns to catch variations
         patterns = [

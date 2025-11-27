@@ -40,7 +40,6 @@ def fix_file(filepath: Path, dry_run: bool = False, verbose: bool = False) -> tu
         print(f"  ERROR reading {filepath}: {e}")
         return False, 0
 
-    original_line_count = len(lines)
     fixed_lines = []
     removed_count = 0
 

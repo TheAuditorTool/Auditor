@@ -265,7 +265,6 @@ class TestCrossBoundaryVectorization:
 
         # Check that /api/users/profile matched (most specific) not /api/users
         edges = result['edges']
-        profile_edges = [e for e in edges if 'profile' in str(e.get('metadata', {}))]
 
         # Should have created edges for the profile endpoint
         assert len(edges) > 0, "Should have created cross-boundary edges"
