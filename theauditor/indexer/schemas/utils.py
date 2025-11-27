@@ -163,11 +163,25 @@ class TableSchema:
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
     def create_indexes_sql(self) -> list[str]:
-        """Generate CREATE INDEX statements."""
+        """Generate CREATE INDEX statements.
+
+        Supports both regular and partial indexes:
+        - Regular: (idx_name, [cols])
+        - Partial: (idx_name, [cols], where_clause)
+        """
         stmts = []
-        for idx_name, idx_cols in self.indexes:
+        for idx_def in self.indexes:
+            if len(idx_def) == 2:
+                idx_name, idx_cols = idx_def
+                where_clause = None
+            else:
+                idx_name, idx_cols, where_clause = idx_def
+
             cols_str = ", ".join(idx_cols)
-            stmts.append(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {self.name} ({cols_str})")
+            stmt = f"CREATE INDEX IF NOT EXISTS {idx_name} ON {self.name} ({cols_str})"
+            if where_clause:
+                stmt += f" WHERE {where_clause}"
+            stmts.append(stmt)
         return stmts
 
     def validate_against_db(self, cursor: sqlite3.Cursor) -> tuple[bool, list[str]]:

@@ -401,33 +401,57 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
-        # Query both main and JSX tables
-        for table in ['symbols', 'symbols_jsx']:
-            # CRITICAL: symbols table uses 'path' column, not 'file'!
-            query = f"""
-                SELECT path, name, type, line, end_line, type_annotation, is_typed
-                FROM {table}
-                WHERE name = ?
-            """
-            params = [name]
+        # Query both main and JSX tables (different schemas!)
+        # symbols: path, name, type, line, col, end_line, type_annotation, parameters, is_typed
+        # symbols_jsx: path, name, type, line, col, jsx_mode, extraction_pass (simpler schema)
 
-            if type_filter:
-                query += " AND type = ?"
-                params.append(type_filter)
+        # Query main symbols table (full schema)
+        query = """
+            SELECT path, name, type, line, end_line, type_annotation, is_typed
+            FROM symbols
+            WHERE name = ?
+        """
+        params = [name]
+        if type_filter:
+            query += " AND type = ?"
+            params.append(type_filter)
 
-            cursor.execute(query, params)
+        cursor.execute(query, params)
+        for row in cursor.fetchall():
+            results.append(SymbolInfo(
+                name=row['name'],
+                type=row['type'],
+                file=row['path'],  # Map path -> file
+                line=row['line'],
+                end_line=row['end_line'] or row['line'],
+                signature=row['type_annotation'],
+                is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
+                framework_type=None
+            ))
 
-            for row in cursor.fetchall():
-                results.append(SymbolInfo(
-                    name=row['name'],
-                    type=row['type'],
-                    file=row['path'],  # Map path -> file
-                    line=row['line'],
-                    end_line=row['end_line'] or row['line'],
-                    signature=row['type_annotation'],
-                    is_exported=bool(row['is_typed']) if row['is_typed'] is not None else False,
-                    framework_type=None  # Not in current schema
-                ))
+        # Query JSX symbols table (simpler schema - no end_line, type_annotation, is_typed)
+        query_jsx = """
+            SELECT path, name, type, line
+            FROM symbols_jsx
+            WHERE name = ?
+        """
+        params_jsx = [name]
+        if type_filter:
+            query_jsx += " AND type = ?"
+            params_jsx.append(type_filter)
+
+        cursor.execute(query_jsx, params_jsx)
+        for row in cursor.fetchall():
+            results.append(SymbolInfo(
+                name=row['name'],
+                type=row['type'],
+                file=row['path'],
+                line=row['line'],
+                end_line=row['line'],  # JSX doesn't track end_line
+                signature=None,  # JSX doesn't track type_annotation
+                is_exported=False,  # JSX doesn't track is_typed
+                framework_type=None
+            ))
 
         # [FIX] Deduplicate results by file and line to be 100% safe
         unique_results = {}
@@ -1153,7 +1177,11 @@ class CodeQueryEngine:
 
         cursor.execute(f"""
             SELECT file, line, column, rule, tool, message, severity,
-                   category, confidence, cwe, details_json
+                   category, confidence, cwe,
+                   cfg_function, cfg_complexity, cfg_block_count,
+                   graph_id, graph_score, graph_centrality,
+                   mypy_error_code, mypy_severity_int,
+                   tf_finding_id, tf_resource_id, tf_remediation
             FROM findings_consolidated
             WHERE {where_sql}
             ORDER BY severity DESC, file, line
@@ -1175,14 +1203,42 @@ class CodeQueryEngine:
                 'cwe': row['cwe']
             }
 
-            # Parse details_json if present
-            if row['details_json']:
-                import json
-                try:
-                    finding['details'] = json.loads(row['details_json'])
-                except (json.JSONDecodeError, TypeError):
-                    # Malformed JSON - skip details field
-                    pass
+            # Build details dict from typed columns (no JSON parsing)
+            details = {}
+            tool = row['tool']
+
+            if tool == 'cfg-analysis':
+                if row['cfg_function']:
+                    details['function'] = row['cfg_function']
+                if row['cfg_complexity'] is not None:
+                    details['complexity'] = row['cfg_complexity']
+                if row['cfg_block_count'] is not None:
+                    details['block_count'] = row['cfg_block_count']
+
+            elif tool == 'graph-analysis':
+                if row['graph_id']:
+                    details['id'] = row['graph_id']
+                if row['graph_score'] is not None:
+                    details['score'] = row['graph_score']
+                if row['graph_centrality'] is not None:
+                    details['centrality'] = row['graph_centrality']
+
+            elif tool == 'mypy':
+                if row['mypy_error_code']:
+                    details['error_code'] = row['mypy_error_code']
+                if row['mypy_severity_int'] is not None:
+                    details['severity'] = row['mypy_severity_int']
+
+            elif tool == 'terraform':
+                if row['tf_finding_id']:
+                    details['finding_id'] = row['tf_finding_id']
+                if row['tf_resource_id']:
+                    details['resource_id'] = row['tf_resource_id']
+                if row['tf_remediation']:
+                    details['remediation'] = row['tf_remediation']
+
+            if details:
+                finding['details'] = details
 
             findings.append(finding)
 

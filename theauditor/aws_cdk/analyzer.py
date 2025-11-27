@@ -133,16 +133,9 @@ class AWSCdkAnalyzer:
         cdk_findings: list["CdkFinding"] = []
 
         for finding in standard_findings:
-            # Parse additional_info from details_json if present
-            import json
-            details_json = finding.get('details_json')
-            if details_json and isinstance(details_json, str):
-                try:
-                    additional = json.loads(details_json)
-                except json.JSONDecodeError:
-                    additional = {}
-            else:
-                additional = finding.get('additional_info') or {}
+            # CDK findings don't use tool-specific columns (ruff/eslint-based)
+            # Additional info comes from additional_info dict if provided by caller
+            additional = finding.get('additional_info') or {}
 
             construct_id = additional.get('construct_id')
             remediation = additional.get('remediation', '')
@@ -225,13 +218,12 @@ class AWSCdkAnalyzer:
                 ))
 
                 # Write to findings_consolidated table (for FCE correlation)
-                # Schema: id (auto-increment), file, line, column, rule, tool, message,
-                #         severity, category, confidence, code_snippet, cwe, timestamp, details_json
+                # CDK findings don't use tool-specific columns (they're linter-based)
                 cursor.execute("""
                     INSERT INTO findings_consolidated (
                         file, line, column, rule, tool, message,
-                        severity, category, confidence, code_snippet, cwe, timestamp, details_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        severity, category, confidence, code_snippet, cwe, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     finding.file_path,
                     finding.line,
@@ -242,10 +234,9 @@ class AWSCdkAnalyzer:
                     finding.severity,
                     finding.category,
                     'high',  # confidence
-                    finding.description[:200] if finding.description else '',  # code_snippet (use description snippet)
+                    finding.description[:200] if finding.description else '',  # code_snippet
                     None,  # CWE can be added later
                     datetime.now().isoformat(),  # timestamp
-                    None   # details_json (additional metadata as JSON)
                 ))
 
             conn.commit()

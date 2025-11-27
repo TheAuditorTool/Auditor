@@ -230,7 +230,9 @@ GRAPHQL_FINDINGS_CACHE = TableSchema(
         Column("resolver_symbol_id", "INTEGER", nullable=True),  # FK to symbols.symbol_id
         Column("rule", "TEXT", nullable=False),
         Column("severity", "TEXT", nullable=False),  # 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
-        Column("details_json", "TEXT", nullable=False),  # JSON object with finding details
+        Column("description", "TEXT"),  # Finding description (normalized from details_json)
+        Column("message", "TEXT"),  # Finding message (normalized from details_json)
+        Column("confidence", "TEXT", default="'medium'"),  # Finding confidence level
         Column("provenance", "TEXT", nullable=False),  # Source of finding (rule name + version)
     ],
     indexes=[
