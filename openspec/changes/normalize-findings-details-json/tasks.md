@@ -1,6 +1,6 @@
 # Implementation Tasks
 
-**Last Updated**: 2025-11-27 (COMPLETED)
+**Last Updated**: 2025-11-28 (COMPLETED - verified with due diligence)
 **Implemented By**: Opus (AI Lead Coder)
 **Approved By**: Architect
 
@@ -15,6 +15,7 @@
 | 3. Readers | 8 tasks | COMPLETE |
 | 4. Validation | 2 tasks | COMPLETE |
 | 5. Bonus Fix | 1 task | COMPLETE |
+| 6. Due Diligence Bugs | 3 tasks | COMPLETE |
 
 **IMPLEMENTATION DEVIATION FROM ORIGINAL PLAN:**
 - NO `misc_json` column added (ZERO FALLBACK - no escape hatches)
@@ -246,20 +247,23 @@ FINDINGS_CONSOLIDATED = TableSchema(
 
 ---
 
-### Task 3.5: Add TODO to load_graphql_findings_from_db()
+### Task 3.5: Normalize graphql_findings_cache table
 
-**File**: `theauditor/fce.py`
-**Location**: Lines 347-354
+**File**: `theauditor/fce.py`, `theauditor/indexer/schemas/graphql_schema.py`
+**Location**: fce.py:324-364, graphql_schema.py:225-249
 
 **Status**: COMPLETE
 
 **Key Changes**:
-- Added TODO comment explaining this reads from graphql_findings_cache (different table)
-- json.loads kept (out of scope for this ticket)
+- Replaced `details_json` column with typed columns: `description`, `message`, `confidence`
+- Updated SELECT to use typed columns directly
+- Removed json.loads call entirely
+- Set metadata to empty dict (no JSON blob needed)
 
 **Acceptance Criteria**:
-- [x] TODO comment added
-- [x] No functional changes (different table)
+- [x] No json.loads on details_json
+- [x] Schema updated with typed columns
+- [x] Reader uses typed columns directly
 
 ---
 
@@ -417,22 +421,106 @@ FCE: 14.1s, 13,361 findings processed
 
 ---
 
+## Phase 6: Due Diligence Bug Fixes - COMPLETE
+
+### Task 6.1: Fix mypy field name mismatch
+
+**File**: `theauditor/indexer/database/base_database.py`
+**Location**: Lines 751-753
+
+**Status**: COMPLETE
+
+**Issue**: mypy columns were all NULL (0/2817 populated)
+
+**Root Cause**: Field name mismatch between linter output and writer expectations
+
+| Linter writes | Writer expected | Fixed to |
+|---------------|-----------------|----------|
+| `mypy_code` | `error_code` | `mypy_code` |
+| `mypy_severity` | `severity` | `mypy_severity` |
+
+**Acceptance Criteria**:
+- [x] Field names match linters.py output
+- [x] mypy_error_code populated for findings with codes
+
+---
+
+### Task 6.2: Fix tool lookup using wrong variable
+
+**File**: `theauditor/indexer/database/base_database.py`
+**Location**: Lines 728-757
+
+**Status**: COMPLETE
+
+**Issue**: Tool-specific column mapping never triggered for linter findings
+
+**Root Cause**: Writer checked `tool_name` parameter ("lint") instead of finding's actual tool
+
+```python
+# BEFORE (broken):
+if tool_name == 'mypy':  # Always false when called from linters!
+
+# AFTER (fixed):
+actual_tool = f.get('tool', tool_name)  # Gets 'mypy' from finding dict
+if actual_tool == 'mypy':
+```
+
+**Acceptance Criteria**:
+- [x] `actual_tool` extracted from finding dict
+- [x] All tool checks use `actual_tool` not `tool_name`
+- [x] Linter findings correctly mapped to tool-specific columns
+
+---
+
+### Task 6.3: Verification of all tool-specific columns
+
+**Status**: COMPLETE
+
+**Results** (2025-11-28):
+```
+Findings by tool:
+  patterns: 5240
+  ruff: 4844
+  mypy: 2817
+  eslint: 461
+  cfg-analysis: 69
+  graph-analysis: 50
+  cdk: 8
+  terraform: 7
+
+Tool-specific columns:
+  cfg-analysis with cfg_complexity: 69/69
+  graph-analysis with graph_score: 50/50
+  terraform with tf_finding_id: 7/7
+  mypy with mypy_error_code: 1861/1861 (956 mypy-notes have no codes - expected)
+```
+
+**Acceptance Criteria**:
+- [x] All cfg_* columns populated for cfg-analysis
+- [x] All graph_* columns populated for graph-analysis
+- [x] All tf_* columns populated for terraform
+- [x] All mypy_* columns populated for mypy (where data exists)
+
+---
+
 ## Summary
 
 | File | Changes | json.loads Removed |
 |------|---------|-------------------|
 | core_schema.py | +23 columns, -details_json | N/A |
-| base_database.py | Rewrite write_findings_batch | 0 (was writer) |
+| graphql_schema.py | +3 typed columns, -details_json | N/A |
+| base_database.py | Rewrite write_findings_batch + bug fixes | 0 (was writer) |
 | terraform/analyzer.py | Direct column INSERT | 0 (was writer) |
 | aws_cdk/analyzer.py | Direct column INSERT + reader fix | 1 call |
-| fce.py | 4 function rewrites + dead code removal | 7 calls |
+| fce.py | 5 function rewrites + dead code removal | 8 calls |
 | context/query.py | get_findings + find_symbol fix | 1 call |
 | commands/workflows.py | Remove details_json SELECT | 1 call |
 
-**Total json.loads removed from findings_consolidated**: 10 calls
+**Total json.loads removed**: 11 calls (10 from findings_consolidated + 1 from graphql_findings_cache)
 **ZERO FALLBACK violations fixed**: 3
 **Dead code functions removed**: 2
 **Bonus issues fixed**: 1 (find_symbol schema mismatch)
+**Due diligence bugs fixed**: 3 (mypy field names, tool lookup, graphql json.loads)
 
 ---
 
