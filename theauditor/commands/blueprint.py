@@ -13,7 +13,7 @@ import click
 
 from theauditor.utils.error_handler import handle_exceptions
 
-# Valid database tables for query safety (prevents SQL injection via table names)
+
 VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
 
 

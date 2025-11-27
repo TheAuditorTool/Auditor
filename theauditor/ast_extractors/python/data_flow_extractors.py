@@ -52,7 +52,7 @@ from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
-# I/O operation type mappings for extract_io_operations()
+
 FILE_OPS = {
     "open": "FILE_WRITE",
     "write": "FILE_WRITE",
@@ -499,8 +499,10 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             body = [body]
 
         for child in ast.walk(node):
-            if (isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and
-                child != node):
+            if (
+                isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
+                and child != node
+            ):
                 is_direct_child = False
                 for body_item in body:
                     if child in ast.walk(body_item):
@@ -624,8 +626,11 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
                 var_name = target.id
                 in_function = find_containing_function(node.lineno)
 
-                if (in_function != "global" and in_function in nonlocals_by_function and
-                    var_name in nonlocals_by_function[in_function]):
+                if (
+                    in_function != "global"
+                    and in_function in nonlocals_by_function
+                    and var_name in nonlocals_by_function[in_function]
+                ):
                     nonlocal_accesses.append(
                         {
                             "line": node.lineno,

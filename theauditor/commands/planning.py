@@ -14,11 +14,11 @@ from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-# Agent trigger block markers for documentation injection
+
 TRIGGER_START = "<!-- THEAUDITOR:START -->"
 TRIGGER_END = "<!-- THEAUDITOR:END -->"
 
-# Complete agent trigger block content for documentation injection
+
 TRIGGER_BLOCK = f"""{TRIGGER_START}
 # TheAuditor Planning Agent System
 

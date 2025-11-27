@@ -179,20 +179,20 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                 elif search_configs == "content_search":
                     if isinstance(manifest_data, str) and tf_config.get("content_patterns"):
                         for pattern in tf_config["content_patterns"]:
-                                if pattern in manifest_data:
-                                    cmd = tf_config.get("command", "")
-                                    if tf_name == "junit":
-                                        if (root / "pom.xml").exists():
-                                            cmd = tf_config.get("command_maven", "mvn test")
-                                        elif (root / "build.gradle").exists() or (
-                                            root / "build.gradle.kts"
-                                        ).exists():
-                                            cmd = tf_config.get("command_gradle", "gradle test")
-                                    return {
-                                        "name": tf_name,
-                                        "language": tf_config["language"],
-                                        "cmd": cmd,
-                                    }
+                            if pattern in manifest_data:
+                                cmd = tf_config.get("command", "")
+                                if tf_name == "junit":
+                                    if (root / "pom.xml").exists():
+                                        cmd = tf_config.get("command_maven", "mvn test")
+                                    elif (root / "build.gradle").exists() or (
+                                        root / "build.gradle.kts"
+                                    ).exists():
+                                        cmd = tf_config.get("command_gradle", "gradle test")
+                                return {
+                                    "name": tf_name,
+                                    "language": tf_config["language"],
+                                    "cmd": cmd,
+                                }
 
                 elif search_configs == "exists":
                     return {

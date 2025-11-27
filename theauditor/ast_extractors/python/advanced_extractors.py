@@ -62,10 +62,12 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     parent_map = _get_parent_map(context.tree)
 
     for node in context.find_nodes(ast.Call):
-        if (isinstance(node.func, ast.Attribute) and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "pkgutil" and
-            node.func.attr == "extend_path"):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "pkgutil"
+            and node.func.attr == "extend_path"
+        ):
             results.append(
                 {
                     "line": node.lineno,
@@ -118,9 +120,12 @@ def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
 
                     if isinstance(dec, ast.Name):
                         decorator_name = dec.id
-                    elif (isinstance(dec, ast.Attribute) and
-                          isinstance(dec.value, ast.Name) and
-                          dec.value.id == "functools" and dec.attr == "cached_property"):
+                    elif (
+                        isinstance(dec, ast.Attribute)
+                        and isinstance(dec.value, ast.Name)
+                        and dec.value.id == "functools"
+                        and dec.attr == "cached_property"
+                    ):
                         decorator_name = "cached_property"
                         is_functools = True
 

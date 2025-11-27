@@ -206,9 +206,8 @@ class ReactStateAnalyzer:
             if "useState" not in source_str:
                 continue
 
-            if (
-                ("true" in source_str.lower() or "false" in source_str.lower())
-                and not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES)
+            if ("true" in source_str.lower() or "false" in source_str.lower()) and not any(
+                var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES
             ):
                 self.findings.append(
                     StandardFinding(
@@ -248,9 +247,8 @@ class ReactStateAnalyzer:
 
         for (file, function), setters in updates_by_function.items():
             count = len(setters)
-            if (
-                count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION
-                and all("set" in s.lower() for s in setters)
+            if count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION and all(
+                "set" in s.lower() for s in setters
             ):
                 self.findings.append(
                     StandardFinding(

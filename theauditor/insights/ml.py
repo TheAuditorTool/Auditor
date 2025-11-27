@@ -27,11 +27,11 @@ try:
 except ImportError:
     pass
 
-# FNV-1a hash constants for feature hashing
+
 FNV_PRIME = 0x01000193
 FNV_OFFSET = 0x811C9DC5
 
-# Library categories for semantic import analysis
+
 HTTP_LIBS = frozenset(
     {
         "requests",

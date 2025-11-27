@@ -52,24 +52,26 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 
-# Methods that mutate their receiver (for argument mutation detection)
-MUTATION_METHODS = frozenset({
-    "append",
-    "extend",
-    "insert",
-    "remove",
-    "pop",
-    "clear",
-    "update",
-    "add",
-    "discard",
-    "sort",
-    "reverse",
-    "setdefault",
-    "popitem",
-})
 
-# Augmented assignment operator mapping
+MUTATION_METHODS = frozenset(
+    {
+        "append",
+        "extend",
+        "insert",
+        "remove",
+        "pop",
+        "clear",
+        "update",
+        "add",
+        "discard",
+        "sort",
+        "reverse",
+        "setdefault",
+        "popitem",
+    }
+)
+
+
 OP_MAP = {
     ast.Add: "+=",
     ast.Sub: "-=",
@@ -370,8 +372,11 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
                 var_name = target.id
                 in_function = find_containing_function(node.lineno)
 
-                if (in_function != "global" and in_function in globals_by_function and
-                    var_name in globals_by_function[in_function]):
+                if (
+                    in_function != "global"
+                    and in_function in globals_by_function
+                    and var_name in globals_by_function[in_function]
+                ):
                     mutations.append(
                         {
                             "line": node.lineno,
@@ -386,8 +391,11 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
                     var_name = target.value.id
                     in_function = find_containing_function(node.lineno)
 
-                    if (in_function != "global" and in_function in globals_by_function and
-                        var_name in globals_by_function[in_function]):
+                    if (
+                        in_function != "global"
+                        and in_function in globals_by_function
+                        and var_name in globals_by_function[in_function]
+                    ):
                         mutations.append(
                             {
                                 "line": node.lineno,
@@ -402,8 +410,11 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
                     var_name = target.value.id
                     in_function = find_containing_function(node.lineno)
 
-                    if (in_function != "global" and in_function in globals_by_function and
-                        var_name in globals_by_function[in_function]):
+                    if (
+                        in_function != "global"
+                        and in_function in globals_by_function
+                        and var_name in globals_by_function[in_function]
+                    ):
                         mutations.append(
                             {
                                 "line": node.lineno,
@@ -511,8 +522,7 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
         param_names = function_params[in_function]
 
         if isinstance(node, ast.Call):
-            if (isinstance(node.func, ast.Attribute) and
-                isinstance(node.func.value, ast.Name)):
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
                 var_name = node.func.value.id
                 method_name = node.func.attr
 

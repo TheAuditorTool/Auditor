@@ -266,13 +266,7 @@ def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFi
             function_calls.append((file, line, func, args))
 
     for file, line, _func, args in function_calls:
-        if (
-            args
-            and "function(" in args.lower()
-            and ":" not in args
-            and "(" in args
-            and ")" in args
-        ):
+        if args and "function(" in args.lower() and ":" not in args and "(" in args and ")" in args:
             findings.append(
                 StandardFinding(
                     rule_name="typescript-untyped-parameters",

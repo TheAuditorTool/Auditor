@@ -297,7 +297,7 @@ async def run_full_pipeline(
     error_log_path = pf_dir / "error.log"
     log_lines = []
 
-    log_file = open(log_file_path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115 - stored for streaming writes
+    log_file = open(log_file_path, "w", encoding="utf-8", buffering=1)
 
     raw_dir = Path(root) / ".pf" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)

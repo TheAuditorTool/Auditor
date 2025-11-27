@@ -28,6 +28,7 @@ except ImportError:
     def create_insights(weights=None):
         return None
 
+
 __all__ = [
     "XGraphBuilder",
     "XGraphAnalyzer",

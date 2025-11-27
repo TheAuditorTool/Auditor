@@ -14,7 +14,7 @@ import click
 
 from theauditor.utils.error_handler import handle_exceptions
 
-# Maximum chunk size for AI-consumable JSON output (in bytes)
+
 MAX_CHUNK_SIZE = 65_000
 
 

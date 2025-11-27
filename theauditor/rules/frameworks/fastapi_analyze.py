@@ -496,7 +496,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
-# Taint analysis patterns for FastAPI framework
 FASTAPI_RESPONSE_SINKS = frozenset(
     [
         "JSONResponse",

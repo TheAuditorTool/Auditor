@@ -63,8 +63,7 @@ def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
 
                 providing_args = []
                 for keyword in node.value.keywords:
-                    if (keyword.arg == "providing_args" and
-                        isinstance(keyword.value, ast.List)):
+                    if keyword.arg == "providing_args" and isinstance(keyword.value, ast.List):
                         for elt in keyword.value.elts:
                             if isinstance(elt, ast.Constant):
                                 providing_args.append(elt.value)
@@ -168,8 +167,7 @@ def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
                     for keyword in decorator.keywords:
                         if keyword.arg == "sender":
                             sender = get_node_name(keyword.value)
-                        elif (keyword.arg == "weak" and
-                            isinstance(keyword.value, ast.Constant)):
+                        elif keyword.arg == "weak" and isinstance(keyword.value, ast.Constant):
                             is_weak = keyword.value.value is True
 
                     results.append(
@@ -224,8 +222,11 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
         if manager_base:
             custom_methods = []
             for item in node.body:
-                if (isinstance(item, ast.FunctionDef) and
-                    not item.name.startswith("_") and item.name not in ["get_queryset"]):
+                if (
+                    isinstance(item, ast.FunctionDef)
+                    and not item.name.startswith("_")
+                    and item.name not in ["get_queryset"]
+                ):
                     custom_methods.append(item.name)
 
             results.append(
@@ -240,8 +241,11 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
-            if (isinstance(target, ast.Name) and target.id == "objects" and
-                isinstance(node.value, ast.Call)):
+            if (
+                isinstance(target, ast.Name)
+                and target.id == "objects"
+                and isinstance(node.value, ast.Call)
+            ):
                 manager_name = get_node_name(node.value.func)
                 if manager_name and "Manager" in manager_name:
                     results.append(
@@ -298,14 +302,15 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
         if queryset_base:
             custom_methods = []
             for item in node.body:
-                if (isinstance(item, ast.FunctionDef) and
-                    not item.name.startswith("_")):
+                if isinstance(item, ast.FunctionDef) and not item.name.startswith("_"):
                     custom_methods.append(item.name)
 
             has_as_manager = False
             for call_node in context.find_nodes(ast.Call):
-                if (isinstance(call_node.func, ast.Attribute) and
-                    call_node.func.attr == "as_manager"):
+                if (
+                    isinstance(call_node.func, ast.Attribute)
+                    and call_node.func.attr == "as_manager"
+                ):
                     obj_name = get_node_name(call_node.func.value)
                     if obj_name == node.name:
                         has_as_manager = True

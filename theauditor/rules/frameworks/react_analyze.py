@@ -870,7 +870,6 @@ class ReactAnalyzer:
             pass
 
 
-# Taint analysis patterns for React framework
 REACT_INPUT_SOURCES = frozenset(
     [
         "props.user",
@@ -893,9 +892,7 @@ REACT_XSS_SINKS = frozenset(
     ["dangerouslySetInnerHTML", "innerHTML", "outerHTML", "document.write", "document.writeln"]
 )
 
-REACT_CODE_EXEC_SINKS = frozenset(
-    ["eval", "Function", "setTimeout", "setInterval", "new Function"]
-)
+REACT_CODE_EXEC_SINKS = frozenset(["eval", "Function", "setTimeout", "setInterval", "new Function"])
 
 REACT_STORAGE_SINKS = frozenset(
     ["localStorage.setItem", "sessionStorage.setItem", "document.cookie"]

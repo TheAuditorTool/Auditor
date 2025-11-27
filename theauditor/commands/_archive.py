@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-# Cache directories to preserve during archive (unless --wipe-cache is specified)
+
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
 
 

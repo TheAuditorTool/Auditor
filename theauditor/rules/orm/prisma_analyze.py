@@ -21,7 +21,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
-# Database URL variable name patterns for connection limit checks
+
 DB_VAR_PATTERNS = frozenset(["DATABASE_URL", "DATABASE", "POSTGRES", "MYSQL"])
 
 METADATA = RuleMetadata(
@@ -122,7 +122,6 @@ CONNECTION_DANGER_PATTERNS = frozenset(
 )
 
 
-# Taint analysis pattern constants - Prisma query sources
 PRISMA_SOURCES = frozenset(
     ["findMany", "findFirst", "findUnique", "where", "select", "include", "orderBy"]
 )

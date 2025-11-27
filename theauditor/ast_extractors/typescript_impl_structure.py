@@ -29,20 +29,22 @@ from typing import Any
 
 from .base import sanitize_call_name
 
-# Common JavaScript/TypeScript parameter names for detection
-PARAMETER_NAMES = frozenset({
-    "req",
-    "res",
-    "next",
-    "err",
-    "error",
-    "ctx",
-    "request",
-    "response",
-    "callback",
-    "done",
-    "cb",
-})
+
+PARAMETER_NAMES = frozenset(
+    {
+        "req",
+        "res",
+        "next",
+        "err",
+        "error",
+        "ctx",
+        "request",
+        "response",
+        "callback",
+        "done",
+        "cb",
+    }
+)
 
 
 def _strip_comment_prefix(text: str | None) -> str:
@@ -376,8 +378,7 @@ def analyze_create_element_component(node):
 
     Components have capital letters or are passed as references.
     """
-    if ("arguments" in node and isinstance(node["arguments"], list) and
-        len(node["arguments"]) > 0):
+    if "arguments" in node and isinstance(node["arguments"], list) and len(node["arguments"]) > 0:
         first_arg = node["arguments"][0]
         if isinstance(first_arg, dict):
             if first_arg.get("kind") == "StringLiteral":

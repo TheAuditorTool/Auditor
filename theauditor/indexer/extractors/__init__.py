@@ -143,7 +143,7 @@ class BaseExtractor(ABC):
                 objects.append((kind, name))
         return objects
 
-    def cleanup(self) -> None:  # noqa: B027 - intentional optional hook (Template Method pattern)
+    def cleanup(self) -> None:
         """Clean up extractor resources after all files processed.
 
         Override this if extractor maintains persistent resources

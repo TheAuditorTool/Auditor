@@ -35,27 +35,29 @@ METADATA = RuleMetadata(
 )
 
 
-# Taint analysis pattern constants - untrusted PR/issue data sources
-PR_SOURCES = frozenset([
-    "github.event.pull_request.title",
-    "github.event.pull_request.body",
-    "github.event.pull_request.head.ref",
-    "github.event.pull_request.head.label",
-    "github.event.issue.title",
-    "github.event.issue.body",
-    "github.event.comment.body",
-    "github.event.review.body",
-    "github.event.head_commit.message",
-    "github.head_ref",
-])
+PR_SOURCES = frozenset(
+    [
+        "github.event.pull_request.title",
+        "github.event.pull_request.body",
+        "github.event.pull_request.head.ref",
+        "github.event.pull_request.head.label",
+        "github.event.issue.title",
+        "github.event.issue.body",
+        "github.event.comment.body",
+        "github.event.review.body",
+        "github.event.head_commit.message",
+        "github.head_ref",
+    ]
+)
 
 
-# Taint analysis pattern constants - GitHub Actions shell execution sinks
-GITHUB_SINKS = frozenset([
-    "run",
-    "shell",
-    "bash",
-])
+GITHUB_SINKS = frozenset(
+    [
+        "run",
+        "shell",
+        "bash",
+    ]
+)
 
 
 def register_taint_patterns(taint_registry):
@@ -74,19 +76,20 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_sink(sink, "command_execution", "github")
 
 
-# Untrusted GitHub context paths that can be controlled by attackers
-UNTRUSTED_PATHS = frozenset([
-    "github.event.pull_request.title",
-    "github.event.pull_request.body",
-    "github.event.pull_request.head.ref",
-    "github.event.pull_request.head.label",
-    "github.event.issue.title",
-    "github.event.issue.body",
-    "github.event.comment.body",
-    "github.event.review.body",
-    "github.event.head_commit.message",
-    "github.head_ref",
-])
+UNTRUSTED_PATHS = frozenset(
+    [
+        "github.event.pull_request.title",
+        "github.event.pull_request.body",
+        "github.event.pull_request.head.ref",
+        "github.event.pull_request.head.label",
+        "github.event.issue.title",
+        "github.event.issue.body",
+        "github.event.comment.body",
+        "github.event.review.body",
+        "github.event.head_commit.message",
+        "github.head_ref",
+    ]
+)
 
 
 def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFinding]:

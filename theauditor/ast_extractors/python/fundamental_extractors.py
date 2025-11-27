@@ -631,8 +631,9 @@ def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes((ast.If, ast.While)):
-        if (not isinstance(node.test, (ast.Compare, ast.UnaryOp)) and
-            not isinstance(node.test, ast.BoolOp)):
+        if not isinstance(node.test, (ast.Compare, ast.UnaryOp)) and not isinstance(
+            node.test, ast.BoolOp
+        ):
             truthiness_data = {
                 "line": node.lineno,
                 "pattern": "implicit_bool",
@@ -679,8 +680,7 @@ def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
 
         has_expressions = False
         for part in node.values:
-            if (isinstance(part, ast.FormattedValue) and
-                not isinstance(part.value, ast.Name)):
+            if isinstance(part, ast.FormattedValue) and not isinstance(part.value, ast.Name):
                 has_expressions = True
 
         formatting_data = {

@@ -133,11 +133,12 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
             if "__next__" in methods:
                 for subnode in context.find_nodes(ast.Raise):
                     if isinstance(subnode.exc, ast.Call):
-                        if (isinstance(subnode.exc.func, ast.Name) and
-                            subnode.exc.func.id == "StopIteration"):
+                        if (
+                            isinstance(subnode.exc.func, ast.Name)
+                            and subnode.exc.func.id == "StopIteration"
+                        ):
                             raises_stopiteration = True
-                    elif (isinstance(subnode.exc, ast.Name) and
-                        subnode.exc.id == "StopIteration"):
+                    elif isinstance(subnode.exc, ast.Name) and subnode.exc.id == "StopIteration":
                         raises_stopiteration = True
 
             is_generator = False
@@ -307,8 +308,7 @@ def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
                 if isinstance(decorator, ast.Name):
                     if decorator.id == "total_ordering":
                         is_total_ordering = True
-                elif (isinstance(decorator, ast.Attribute) and
-                    decorator.attr == "total_ordering"):
+                elif isinstance(decorator, ast.Attribute) and decorator.attr == "total_ordering":
                     is_total_ordering = True
 
             has_all_rich = len(comparison_methods_found) == len(COMPARISON_METHODS)
@@ -441,8 +441,7 @@ def extract_weakref_usage(context: FileContext) -> list[dict[str, Any]]:
         usage_type = None
 
         if isinstance(node.func, ast.Attribute):
-            if (isinstance(node.func.value, ast.Name) and
-                node.func.value.id == "weakref"):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "weakref":
                 attr_name = node.func.attr
                 if attr_name in ("ref", "proxy", "WeakValueDictionary", "WeakKeyDictionary"):
                     usage_type = attr_name
@@ -490,8 +489,7 @@ def extract_contextvar_usage(context: FileContext) -> list[dict[str, Any]]:
         operation = None
 
         if isinstance(node.func, ast.Attribute):
-            if (isinstance(node.func.value, ast.Name) and
-                node.func.value.id == "contextvars"):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "contextvars":
                 attr_name = node.func.attr
                 if attr_name in ("ContextVar", "Token"):
                     operation = attr_name

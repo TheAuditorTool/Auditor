@@ -20,7 +20,7 @@ from theauditor.utils.temp_manager import TempManager
 
 IS_WINDOWS = platform.system() == "Windows"
 
-# TheAuditor agent trigger block markers for CLAUDE.md injection
+
 TRIGGER_START = "<!-- THEAUDITOR:START -->"
 TRIGGER_END = "<!-- THEAUDITOR:END -->"
 

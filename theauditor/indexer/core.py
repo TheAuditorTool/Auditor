@@ -225,7 +225,7 @@ class FileWalker:
         if self.exclude_patterns:
             for pattern in self.exclude_patterns:
                 if pattern.endswith("/**"):
-                    self.skip_dirs.add(pattern.rstrip("/**"))  # noqa: B005 - intentionally stripping multiple chars
+                    self.skip_dirs.add(pattern.rstrip("/**"))
                 elif pattern.endswith("/"):
                     self.skip_dirs.add(pattern.rstrip("/"))
                 elif "/" in pattern and "*" not in pattern:
@@ -255,7 +255,9 @@ class FileWalker:
                 if not os.access(dirpath, os.R_OK):
                     continue
 
-                if any(part in [".venv", "venv", "virtualenv"] for part in current_path.parts) and current_path.name in ["lib64", "bin64", "include64"]:
+                if any(
+                    part in [".venv", "venv", "virtualenv"] for part in current_path.parts
+                ) and current_path.name in ["lib64", "bin64", "include64"]:
                     dirnames.clear()
                     continue
             except (OSError, PermissionError):

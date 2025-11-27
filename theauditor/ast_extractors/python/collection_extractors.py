@@ -413,8 +413,11 @@ def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
     infinite_functions = {"cycle", "count"}
 
     for node in context.find_nodes(ast.Call):
-        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "itertools"):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "itertools"
+        ):
             func_name = node.func.attr
             if func_name in ITERTOOLS_FUNCTIONS:
                 is_infinite = func_name in infinite_functions
@@ -459,13 +462,19 @@ def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             if isinstance(decorator, ast.Name):
                 decorator_usage.add((decorator.lineno, decorator.id))
-            elif (isinstance(decorator, ast.Attribute) and
-                  isinstance(decorator.value, ast.Name) and decorator.value.id == "functools"):
+            elif (
+                isinstance(decorator, ast.Attribute)
+                and isinstance(decorator.value, ast.Name)
+                and decorator.value.id == "functools"
+            ):
                 decorator_usage.add((decorator.lineno, decorator.attr))
 
     for node in context.find_nodes(ast.Call):
-        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "functools"):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "functools"
+        ):
             func_name = node.func.attr
             if func_name in FUNCTOOLS_FUNCTIONS:
                 is_decorator = (node.lineno, func_name) in decorator_usage
@@ -505,10 +514,12 @@ def extract_collections_usage(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         collection_type = None
 
-        if (isinstance(node.func, ast.Attribute) and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "collections" and
-            node.func.attr in COLLECTIONS_TYPES):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "collections"
+            and node.func.attr in COLLECTIONS_TYPES
+        ):
             collection_type = node.func.attr
 
         elif isinstance(node.func, ast.Name) and node.func.id in COLLECTIONS_TYPES:

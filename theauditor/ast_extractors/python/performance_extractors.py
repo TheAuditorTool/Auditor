@@ -125,8 +125,13 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
     def has_growing_operation(node):
         """Check if loop body contains growing operations."""
         for child in context.find_nodes(ast.Call):
-            if (isinstance(child.func, ast.Attribute) and
-                child.func.attr in ["append", "extend", "add", "update", "insert"]):
+            if isinstance(child.func, ast.Attribute) and child.func.attr in [
+                "append",
+                "extend",
+                "add",
+                "update",
+                "insert",
+            ]:
                 return True
 
         return False
@@ -238,11 +243,17 @@ def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.ListComp):
         for gen in node.generators:
-            if (isinstance(gen.iter, ast.Call) and
-                get_node_name(gen.iter.func) == "range" and gen.iter.args):
+            if (
+                isinstance(gen.iter, ast.Call)
+                and get_node_name(gen.iter.func) == "range"
+                and gen.iter.args
+            ):
                 first_arg = gen.iter.args[0]
-                if (isinstance(first_arg, ast.Constant) and
-                        isinstance(first_arg.value, int) and first_arg.value > 1000):
+                if (
+                    isinstance(first_arg, ast.Constant)
+                    and isinstance(first_arg.value, int)
+                    and first_arg.value > 1000
+                ):
                     in_function = find_containing_function(node.lineno)
                     allocation_expr = get_node_name(node) or "[x for x in range(...)]"
 
@@ -323,8 +334,7 @@ def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
 
                     if isinstance(decorator, ast.Call):
                         for keyword in decorator.keywords:
-                            if (keyword.arg == "maxsize" and
-                                isinstance(keyword.value, ast.Constant)):
+                            if keyword.arg == "maxsize" and isinstance(keyword.value, ast.Constant):
                                 cache_size = keyword.value.value
 
                 elif dec_name == "cache":

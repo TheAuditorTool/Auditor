@@ -607,7 +607,9 @@ class ExpressAnalyzer:
             config_lower = config.lower()
 
             issues = []
-            if "secret" in config_lower and any(weak in config_lower for weak in ["secret", "keyboard cat", "default"]):
+            if "secret" in config_lower and any(
+                weak in config_lower for weak in ["secret", "keyboard cat", "default"]
+            ):
                 issues.append("weak secret")
 
             if "cookie" in config_lower:
@@ -636,7 +638,6 @@ class ExpressAnalyzer:
         conn.close()
 
 
-# Taint analysis patterns for Express.js framework
 EXPRESS_INPUT_SOURCES = frozenset(
     [
         "req.body",

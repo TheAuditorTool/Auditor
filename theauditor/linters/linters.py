@@ -38,7 +38,7 @@ IS_WINDOWS = platform.system() == "Windows"
 LINTER_TIMEOUT = 300
 BATCH_SIZE = 100
 
-# ESLint severity levels (per ESLint JSON output spec)
+
 ESLINT_SEVERITY_ERROR = 2
 ESLINT_SEVERITY_WARNING = 1
 
@@ -142,7 +142,7 @@ class LinterOrchestrator:
                 WHERE ext IN ({placeholders})
                 AND file_category = 'source'
                 ORDER BY path
-            """,  # noqa: S608 - placeholders are parameterized ?,?,?
+            """,
                 extensions,
             )
 
@@ -249,7 +249,7 @@ class LinterOrchestrator:
         ]
 
         try:
-            subprocess.run(cmd, cwd=str(self.root), timeout=LINTER_TIMEOUT, check=False)  # noqa: S603 - running ESLint
+            subprocess.run(cmd, cwd=str(self.root), timeout=LINTER_TIMEOUT, check=False)
         except subprocess.TimeoutExpired:
             logger.error(f"ESLint batch {batch_num} timed out after {LINTER_TIMEOUT} seconds")
             return []
@@ -281,14 +281,16 @@ class LinterOrchestrator:
                         "column": msg.get("column", 0),
                         "rule": msg.get("ruleId") or "eslint-error",
                         "message": msg.get("message", ""),
-                        "severity": "error" if msg.get("severity") == ESLINT_SEVERITY_ERROR else "warning",
+                        "severity": "error"
+                        if msg.get("severity") == ESLINT_SEVERITY_ERROR
+                        else "warning",
                         "category": "lint",
                     }
                 )
 
         try:
             output_file.unlink()
-        except Exception:  # noqa: S110 - cleanup, failure is acceptable
+        except Exception:
             pass
 
         return findings
@@ -355,7 +357,7 @@ class LinterOrchestrator:
         ]
 
         try:
-            result = subprocess.run(  # noqa: S603 - running Ruff linter
+            result = subprocess.run(
                 cmd,
                 cwd=str(self.root),
                 timeout=LINTER_TIMEOUT,
@@ -410,7 +412,7 @@ class LinterOrchestrator:
 
         try:
             output_file.unlink()
-        except Exception:  # noqa: S110 - cleanup, failure is acceptable
+        except Exception:
             pass
 
         return findings
@@ -447,7 +449,7 @@ class LinterOrchestrator:
         logger.info(f"Mypy found {len(all_findings)} issues across {len(files)} files")
         return all_findings
 
-    def _run_mypy_batch(  # noqa: PLR0912, PLR0915 - complex parsing logic
+    def _run_mypy_batch(
         self, files: list[str], mypy_bin: Path, config_path: Path, batch_num: int
     ) -> list[dict[str, Any]]:
         """Run Mypy on a single batch of files.
@@ -469,7 +471,7 @@ class LinterOrchestrator:
         cmd = [str(mypy_bin), "--config-file", str(config_path), "--output", "json", *files]
 
         try:
-            result = subprocess.run(  # noqa: S603 - running Mypy type checker
+            result = subprocess.run(
                 cmd,
                 cwd=str(self.root),
                 timeout=LINTER_TIMEOUT,
@@ -556,7 +558,7 @@ class LinterOrchestrator:
 
         try:
             output_file.unlink()
-        except Exception:  # noqa: S110 - cleanup, failure is acceptable
+        except Exception:
             pass
 
         return findings
@@ -638,7 +640,10 @@ class LinterOrchestrator:
 
         try:
             subprocess.run(
-                ["cargo", "--version"], check=True, capture_output=True, timeout=5  # noqa: S607 - checking if cargo is installed
+                ["cargo", "--version"],
+                check=True,
+                capture_output=True,
+                timeout=5,
             )
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             logger.warning("Cargo not found - skipping Clippy. Install Rust toolchain to enable.")
@@ -649,7 +654,7 @@ class LinterOrchestrator:
         cmd = ["cargo", "clippy", "--message-format=json", "--", "-W", "clippy::all"]
 
         try:
-            result = subprocess.run(  # noqa: S603 - running Clippy linter
+            result = subprocess.run(
                 cmd,
                 cwd=str(self.root),
                 timeout=LINTER_TIMEOUT,

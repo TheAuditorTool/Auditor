@@ -317,17 +317,17 @@ class NginxAnalyzer:
             for sensitive in self.patterns.SENSITIVE_PATHS:
                 if sensitive in location_lower and not self._is_path_protected(location):
                     self.findings.append(
-                            StandardFinding(
-                                rule_name="nginx-exposed-path",
-                                message=f"Potentially exposed sensitive path: {location_pattern}",
-                                file_path=location.file_path,
-                                line=1,
-                                severity=Severity.HIGH,
-                                category="security",
-                                snippet=f"location {location_pattern}",
-                                cwe_id="CWE-552",
-                            )
+                        StandardFinding(
+                            rule_name="nginx-exposed-path",
+                            message=f"Potentially exposed sensitive path: {location_pattern}",
+                            file_path=location.file_path,
+                            line=1,
+                            severity=Severity.HIGH,
+                            category="security",
+                            snippet=f"location {location_pattern}",
+                            cwe_id="CWE-552",
                         )
+                    )
 
     def _check_ssl_configurations(self) -> None:
         """Check for SSL/TLS misconfigurations."""

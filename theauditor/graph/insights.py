@@ -10,4 +10,4 @@ This ensures that:
   - import theauditor.graph.insights  # STILL WORKS
 """
 
-from theauditor.insights.graph import *  # noqa: F403 - intentional re-export for backward compat
+from theauditor.insights.graph import *

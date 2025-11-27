@@ -176,58 +176,60 @@ LOCK_FUNCTIONS = frozenset(
 LOCK_RELEASE = frozenset(["unlock", "release", "free", "signal"])
 
 
-# Taint analysis pattern constants - datetime sources
-DATETIME_SOURCES = frozenset([
-    "datetime.now",
-    "datetime.today",
-    "datetime.utcnow",
-    "Date.now",
-    "new Date",
-    "Date.parse",
-    "time.time",
-    "time.localtime",
-    "time.gmtime",
-])
+DATETIME_SOURCES = frozenset(
+    [
+        "datetime.now",
+        "datetime.today",
+        "datetime.utcnow",
+        "Date.now",
+        "new Date",
+        "Date.parse",
+        "time.time",
+        "time.localtime",
+        "time.gmtime",
+    ]
+)
 
 
-# Taint analysis pattern constants - resource sinks
-RESOURCE_SINKS = frozenset([
-    "open",
-    "createReadStream",
-    "createWriteStream",
-    "socket",
-    "createSocket",
-    "connect",
-    "createConnection",
-    "begin_transaction",
-    "start_transaction",
-    "beginTransaction",
-    "acquire",
-    "lock",
-    "getLock",
-])
+RESOURCE_SINKS = frozenset(
+    [
+        "open",
+        "createReadStream",
+        "createWriteStream",
+        "socket",
+        "createSocket",
+        "connect",
+        "createConnection",
+        "begin_transaction",
+        "start_transaction",
+        "beginTransaction",
+        "acquire",
+        "lock",
+        "getLock",
+    ]
+)
 
 
-# Taint analysis pattern constants - money/financial sinks
-MONEY_SINKS = frozenset([
-    "parseFloat",
-    "float",
-    "toFixed",
-    "toPrecision",
-    "price",
-    "cost",
-    "amount",
-    "total",
-    "balance",
-    "payment",
-    "fee",
-    "money",
-    "charge",
-    "refund",
-])
+MONEY_SINKS = frozenset(
+    [
+        "parseFloat",
+        "float",
+        "toFixed",
+        "toPrecision",
+        "price",
+        "cost",
+        "amount",
+        "total",
+        "balance",
+        "payment",
+        "fee",
+        "money",
+        "charge",
+        "refund",
+    ]
+)
 
 
-# Taint analysis pattern constants - division sinks
 DIVISION_SINKS = frozenset(["divide", "div", "quotient", "average", "mean"])
 
 

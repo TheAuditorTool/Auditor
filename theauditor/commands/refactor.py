@@ -22,10 +22,10 @@ from theauditor.refactor import (
     RefactorRuleEngine,
 )
 
-# Severity ordering for sorting violations (lower number = higher priority)
+
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
-# Migration file regex patterns for detecting schema changes
+
 DROP_TABLE = re.compile(r'(?:dropTable|DROP\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
 REMOVE_COLUMN = re.compile(
     r'(?:removeColumn|dropColumn|DROP\s+COLUMN)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
