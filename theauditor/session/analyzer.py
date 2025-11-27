@@ -1,13 +1,36 @@
 """Analyze Claude Code sessions for patterns, anti-patterns, and optimization opportunities."""
 
 
+import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
-from collections import Counter
+from collections import Counter, defaultdict
 
 from .parser import Session
+
+
+# Patterns that indicate AI is referencing a comment
+COMMENT_REFERENCE_PATTERNS = [
+    # Direct references
+    r'(?:this|the|that)\s+comment\s+(?:says?|said|states?|stated|indicates?|indicated|explains?|explained|mentions?|mentioned|suggests?|suggested)',
+    r'according\s+to\s+(?:the|this|that)\s+comment',
+    r'(?:the|this)\s+comment\s+(?:at|on)\s+line\s+\d+',
+    r'as\s+(?:the|this)\s+comment\s+(?:says?|notes?|explains?)',
+    # Inline comment references
+    r'#\s*(?:the|this)\s+comment',
+    r'the\s+(?:inline|block|doc)\s*comment',
+    # Quote-style references
+    r'comment\s*["\']([^"\']+)["\']',
+    r'comment:\s*["\']([^"\']+)["\']',
+    # TODO/FIXME references
+    r'(?:the|this)\s+(?:TODO|FIXME|NOTE|HACK|XXX)\s+(?:says?|indicates?|suggests?)',
+]
+
+# Compiled patterns for efficiency
+COMPILED_COMMENT_PATTERNS = [re.compile(p, re.IGNORECASE) for p in COMMENT_REFERENCE_PATTERNS]
 
 
 @dataclass
@@ -47,8 +70,17 @@ class SessionAnalyzer:
         if db_path and Path(db_path).exists():
             self.conn = sqlite3.connect(db_path)
 
-    def analyze_session(self, session: Session) -> tuple[SessionStats, list[Finding]]:
-        """Analyze a single session and return stats + findings."""
+    def analyze_session(
+        self,
+        session: Session,
+        comment_graveyard_path: Path = None
+    ) -> tuple[SessionStats, list[Finding]]:
+        """Analyze a single session and return stats + findings.
+
+        Args:
+            session: Parsed session object
+            comment_graveyard_path: Optional path to comment_graveyard.json for hallucination detection
+        """
         stats = self._compute_stats(session)
         findings = []
 
@@ -56,6 +88,7 @@ class SessionAnalyzer:
         findings.extend(self._detect_blind_edits(session))
         findings.extend(self._detect_duplicate_reads(session))
         findings.extend(self._detect_missing_searches(session))
+        findings.extend(self._detect_comment_hallucinations(session, comment_graveyard_path))
 
         if self.conn:
             findings.extend(self._detect_duplicate_implementations(session))
@@ -166,6 +199,123 @@ class SessionAnalyzer:
                 timestamp=writes[0].timestamp,
                 evidence={'files_written': len(writes)}
             ))
+
+        return findings
+
+    def _detect_comment_hallucinations(
+        self,
+        session: Session,
+        graveyard_path: Path = None
+    ) -> list[Finding]:
+        """
+        Detect when AI references comments that may not match reality.
+
+        This detects the "hallucination feedback loop" where:
+        1. AI reads a comment
+        2. AI says "this comment says X"
+        3. The comment actually said Y (or was misleading)
+        4. AI makes decisions based on hallucinated understanding
+
+        Cross-references against comment_graveyard.json if available.
+        """
+        findings = []
+
+        # Load comment graveyard for cross-referencing (if available)
+        graveyard_by_file = defaultdict(list)
+        if graveyard_path and Path(graveyard_path).exists():
+            try:
+                with open(graveyard_path, encoding='utf-8') as f:
+                    graveyard = json.load(f)
+                for entry in graveyard:
+                    file_path = entry.get('file', '')
+                    if file_path:
+                        graveyard_by_file[file_path].append(entry)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Track files that were read in this session
+        files_read = set()
+        for call in session.all_tool_calls:
+            if call.tool_name == 'Read':
+                file_path = call.input_params.get('file_path')
+                if file_path:
+                    files_read.add(file_path)
+
+        # Analyze assistant messages for comment references
+        for msg in session.assistant_messages:
+            text = msg.text_content
+            if not text:
+                continue
+
+            # Find all comment references in this message
+            comment_refs = []
+            for pattern in COMPILED_COMMENT_PATTERNS:
+                matches = pattern.finditer(text)
+                for match in matches:
+                    # Extract context around the match (100 chars before/after)
+                    start = max(0, match.start() - 100)
+                    end = min(len(text), match.end() + 100)
+                    context = text[start:end]
+
+                    comment_refs.append({
+                        'pattern': match.group(0),
+                        'context': context,
+                        'position': match.start()
+                    })
+
+            if not comment_refs:
+                continue
+
+            # For each comment reference, try to identify which file it relates to
+            # Look for file paths mentioned nearby in the text
+            file_pattern = re.compile(r'[\w./\\-]+\.(?:py|js|ts|jsx|tsx|rs|go|java|c|cpp|h)')
+            mentioned_files = set(file_pattern.findall(text))
+
+            # Cross-reference with graveyard if we have it
+            for ref in comment_refs:
+                # Check if this reference might be about a file with known removed comments
+                suspicious_files = []
+                for file_path in mentioned_files:
+                    # Normalize path for comparison
+                    normalized = file_path.replace('\\', '/')
+                    if normalized in graveyard_by_file or file_path in graveyard_by_file:
+                        suspicious_files.append(file_path)
+
+                # Also check files that were read
+                relevant_files = mentioned_files & files_read
+
+                # Determine severity based on context
+                severity = 'info'
+                if graveyard_by_file and suspicious_files:
+                    # We have graveyard data AND the referenced file had comments removed
+                    severity = 'warning'
+
+                # Check for concerning patterns in the reference context
+                concerning_patterns = [
+                    r'comment\s+(?:is|was)\s+(?:wrong|incorrect|misleading|outdated)',
+                    r'(?:actually|but|however).*(?:different|contrary|opposite)',
+                    r'comment\s+(?:says?|said)\s+.{1,50}(?:but|however|actually)',
+                ]
+                for cp in concerning_patterns:
+                    if re.search(cp, ref['context'], re.IGNORECASE):
+                        severity = 'warning'
+                        break
+
+                findings.append(Finding(
+                    category='comment_hallucination',
+                    severity=severity,
+                    title='AI referenced comment content',
+                    description=f'AI interpreted comment: "{ref["pattern"][:50]}..."',
+                    session_id=session.session_id,
+                    timestamp=msg.timestamp,
+                    evidence={
+                        'reference_text': ref['pattern'],
+                        'context': ref['context'][:200],
+                        'mentioned_files': list(mentioned_files)[:5],
+                        'files_with_removed_comments': suspicious_files[:5],
+                        'files_read_in_session': list(relevant_files)[:5]
+                    }
+                ))
 
         return findings
 

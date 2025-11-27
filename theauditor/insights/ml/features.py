@@ -598,6 +598,137 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
     return dict(stats)
 
 
+def load_comment_hallucination_features(
+    session_dir: Path,
+    graveyard_path: Path,
+    file_paths: list[str]
+) -> dict[str, dict]:
+    """
+    Extract comment hallucination features from Claude Code session logs.
+
+    Detects when AI references comments and tracks hallucination patterns:
+    - comment_reference_count: How often AI mentioned comments for this file
+    - comment_hallucination_count: References flagged as potentially wrong
+    - comment_conflict_rate: Rate of concerning patterns (said X but actually Y)
+
+    Args:
+        session_dir: Path to Claude session logs directory
+        graveyard_path: Path to comment_graveyard.json (from purge script)
+        file_paths: List of files to analyze
+
+    Returns:
+        dict with keys:
+        - comment_reference_count: Total references to comments in this file
+        - comment_hallucination_count: References with warning severity
+        - comment_conflict_rate: Ratio of hallucinations to total references
+        - has_removed_comments: Whether file had comments purged
+    """
+    import json
+    from collections import defaultdict
+
+    stats = defaultdict(
+        lambda: {
+            "comment_reference_count": 0,
+            "comment_hallucination_count": 0,
+            "comment_conflict_rate": 0.0,
+            "has_removed_comments": False,
+        }
+    )
+
+    if not file_paths:
+        return dict(stats)
+
+    # Load graveyard to know which files had comments removed
+    graveyard_files = set()
+    if graveyard_path and Path(graveyard_path).exists():
+        try:
+            with open(graveyard_path, encoding='utf-8') as f:
+                graveyard = json.load(f)
+            for entry in graveyard:
+                file_path = entry.get('file', '')
+                if file_path:
+                    # Normalize path
+                    normalized = file_path.replace('\\', '/')
+                    graveyard_files.add(normalized)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Mark files that had comments removed
+    for file_path in file_paths:
+        normalized = file_path.replace('\\', '/')
+        if normalized in graveyard_files:
+            stats[file_path]["has_removed_comments"] = True
+
+    # Parse sessions and analyze findings
+    if not session_dir or not Path(session_dir).exists():
+        return dict(stats)
+
+    try:
+        from theauditor.session.analyzer import SessionAnalyzer
+        from theauditor.session.parser import SessionParser
+
+        parser = SessionParser()
+        analyzer = SessionAnalyzer(db_path=None)  # No DB needed for hallucination detection
+
+        # Parse all sessions
+        sessions = parser.parse_all_sessions(Path(session_dir))
+
+        # Get project root for path normalization
+        project_root = Path.cwd()
+
+        # Aggregate findings by file
+        for session in sessions:
+            _, findings = analyzer.analyze_session(
+                session,
+                comment_graveyard_path=graveyard_path
+            )
+
+            for finding in findings:
+                if finding.category != 'comment_hallucination':
+                    continue
+
+                # Get files mentioned in this finding
+                mentioned_files = finding.evidence.get('mentioned_files', [])
+                files_with_removed = finding.evidence.get('files_with_removed_comments', [])
+
+                for file in mentioned_files:
+                    # Normalize path
+                    try:
+                        file_path_obj = Path(file)
+                        if file_path_obj.is_absolute():
+                            file_path_obj = file_path_obj.relative_to(project_root)
+                        normalized_file = str(file_path_obj).replace('\\', '/')
+                    except (ValueError, Exception):
+                        normalized_file = file.replace('\\', '/')
+
+                    # Only track files in target list
+                    if normalized_file not in file_paths:
+                        continue
+
+                    stats[normalized_file]["comment_reference_count"] += 1
+
+                    # Check if this was flagged as a potential hallucination
+                    if finding.severity == 'warning':
+                        stats[normalized_file]["comment_hallucination_count"] += 1
+
+        # Calculate conflict rates
+        for file_path in file_paths:
+            ref_count = stats[file_path]["comment_reference_count"]
+            hall_count = stats[file_path]["comment_hallucination_count"]
+            if ref_count > 0:
+                stats[file_path]["comment_conflict_rate"] = hall_count / ref_count
+
+        analyzer.close()
+    except ImportError:
+        # Session module not available - gracefully skip
+        pass
+    except Exception:
+        # Gracefully skip on error
+        pass
+
+    return dict(stats)
+
+
 def load_agent_behavior_features(
     session_dir: Path, db_path: str, file_paths: list[str]
 ) -> dict[str, dict]:
@@ -855,7 +986,10 @@ def load_session_execution_features(
 
 
 def load_all_db_features(
-    db_path: str, file_paths: list[str], session_dir: Path | None = None
+    db_path: str,
+    file_paths: list[str],
+    session_dir: Path | None = None,
+    graveyard_path: Path | None = None
 ) -> dict[str, dict]:
     """
     Convenience function to load all database features at once.
@@ -864,6 +998,7 @@ def load_all_db_features(
         db_path: Path to repo_index.db
         file_paths: List of files to analyze
         session_dir: Optional path to Claude session logs (enables Tier 5 features)
+        graveyard_path: Optional path to comment_graveyard.json (enables hallucination detection)
 
     Returns combined dict with all feature categories.
     """
@@ -888,6 +1023,17 @@ def load_all_db_features(
     if session_dir:
         agent_behavior = load_agent_behavior_features(session_dir, db_path, file_paths)
 
+    # Tier 5: Comment hallucination detection (NEW)
+    # Detects when AI misinterpreted comments - the hallucination feedback loop
+    comment_hallucination = {}
+    if session_dir:
+        # Default graveyard path if not provided
+        if graveyard_path is None:
+            graveyard_path = Path('comment_graveyard.json')
+        comment_hallucination = load_comment_hallucination_features(
+            session_dir, graveyard_path, file_paths
+        )
+
     # Merge all features per file
     for file_path in file_paths:
         combined_features[file_path].update(security.get(file_path, {}))
@@ -904,5 +1050,9 @@ def load_all_db_features(
         # Tier 5: Legacy agent behavior (OLD ephemeral analysis)
         if agent_behavior:
             combined_features[file_path].update(agent_behavior.get(file_path, {}))
+
+        # Tier 5: Comment hallucination features (NEW)
+        if comment_hallucination:
+            combined_features[file_path].update(comment_hallucination.get(file_path, {}))
 
     return dict(combined_features)
