@@ -1,0 +1,23 @@
+{
+  "_comment": "Test fixtures for CLI smoke tests. Each key is a command, value is args or named variants.",
+
+  "aud query": ["--symbol", "main"],
+  "aud explain": ["theauditor/cli.py"],
+  "aud workset": ["--files", "theauditor/cli.py"],
+
+  "aud graph query": ["--symbol", "main"],
+  "aud graph viz": ["--output", "/dev/null"],
+
+  "aud context query": ["--symbol", "main"],
+
+  "aud full": {
+    "offline_dry": ["--offline", "--dry-run"],
+    "index_dry": ["--index", "--dry-run"]
+  },
+
+  "aud tools check": ["--required", "python", "--required", "ruff"],
+
+  "aud detect-patterns": ["--dry-run"],
+
+  "aud blueprint": ["--structure"]
+}

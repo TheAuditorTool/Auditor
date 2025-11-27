@@ -468,7 +468,8 @@ def purge_directory(
     skip_dirs: set[str],
     preserve_semantic: bool = False,
     preserve_copyright: bool = False,
-    dry_run: bool = False
+    dry_run: bool = False,
+    extract_only: bool = False
 ) -> tuple[int, int, int, int]:
     """
     Walk directory and purge comments from all Python files.
@@ -486,7 +487,12 @@ def purge_directory(
     start_time = time.time()
     abs_dir = os.path.abspath(directory)
 
-    mode_str = "[DRY RUN] " if dry_run else ""
+    if dry_run:
+        mode_str = "[DRY RUN] "
+    elif extract_only:
+        mode_str = "[EXTRACT ONLY] "
+    else:
+        mode_str = ""
     safe_print(f"{mode_str}NUCLEAR COMMENT PURGE")
     safe_print(f"Target: {abs_dir}")
     safe_print(f"Skipping: {', '.join(sorted(skip_dirs))}")
@@ -514,7 +520,7 @@ def purge_directory(
                     preserved_log,
                     preserve_semantic=preserve_semantic,
                     preserve_copyright=preserve_copyright,
-                    dry_run=dry_run
+                    dry_run=dry_run or extract_only  # Don't modify source files
                 )
 
                 if removed > 0:
@@ -531,7 +537,7 @@ def purge_directory(
 
                     safe_print(f"  - {', '.join(parts)} : {filepath_normalized}")
 
-    # Save outputs
+    # Save outputs (write JSON for extract_only, but not for dry_run)
     if not dry_run:
         # 1. Graveyard: flat dump of ALL removed comments
         if graveyard_log:
@@ -648,6 +654,9 @@ EXAMPLES:
   # Preview only (ALWAYS DO THIS FIRST)
   python purge_commentsv3.py ./theauditor --dry-run
 
+  # Extract comments to JSON WITHOUT modifying source files
+  python purge_commentsv3.py ./theauditor --extract-only
+
   # Full nuclear - remove everything
   python purge_commentsv3.py ./theauditor --no-confirm
 
@@ -676,7 +685,13 @@ AFTER RUNNING:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview changes without modifying files"
+        help="Preview changes without modifying files or writing JSON"
+    )
+
+    parser.add_argument(
+        "--extract-only",
+        action="store_true",
+        help="Extract comments to JSON files WITHOUT modifying source files"
     )
 
     parser.add_argument(
@@ -729,8 +744,8 @@ AFTER RUNNING:
         safe_print(f"ERROR: Directory not found: {args.directory}")
         return 1
 
-    # Confirmation prompt
-    if not args.no_confirm and not args.dry_run:
+    # Confirmation prompt (skip if not modifying files)
+    if not args.no_confirm and not args.dry_run and not args.extract_only:
         safe_print("=" * 60)
         safe_print("WARNING: NUCLEAR OPTION")
         safe_print("This will DELETE ALL # comments from Python files.")
@@ -757,7 +772,8 @@ AFTER RUNNING:
         skip_dirs,
         preserve_semantic=args.preserve_semantic,
         preserve_copyright=args.preserve_copyright,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        extract_only=args.extract_only
     )
 
     # Next steps

@@ -351,7 +351,7 @@ def _extract_findings(cursor, severity_filter):
 
     cursor.execute(f"""
         SELECT file, line, rule, tool, message, severity, category, confidence,
-               code_snippet, cwe, timestamp, details_json
+               code_snippet, cwe, timestamp
         FROM findings_consolidated
         WHERE tool = 'github-actions-rules'
         AND {severity_condition}
@@ -361,8 +361,9 @@ def _extract_findings(cursor, severity_filter):
     findings = []
     for row in cursor.fetchall():
         file, line, rule, tool, message, severity, category, confidence, \
-            snippet, cwe, timestamp, details = row
+            snippet, cwe, timestamp = row
 
+        # Workflow findings don't use tool-specific columns
         findings.append({
             "file": file,
             "line": line,
@@ -375,7 +376,7 @@ def _extract_findings(cursor, severity_filter):
             "code_snippet": snippet,
             "cwe": cwe,
             "timestamp": timestamp,
-            "details": json.loads(details) if details else {}
+            "details": {}  # No JSON parsing - workflow findings don't use details
         })
 
     return findings
