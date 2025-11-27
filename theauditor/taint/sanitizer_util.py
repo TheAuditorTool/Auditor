@@ -50,15 +50,19 @@ class SanitizerRegistry:
 
         These are function name patterns that are known to sanitize data
         (e.g., escape functions, parameterized query builders).
+
+        Schema: framework_safe_sinks(framework_id, sink_pattern, sink_type, is_safe, reason)
+        Note: Column is 'sink_pattern' NOT 'pattern' (fixed 2025-11-27)
         """
         try:
             self.repo_cursor.execute("""
-                SELECT DISTINCT pattern
+                SELECT DISTINCT sink_pattern
                 FROM framework_safe_sinks
+                WHERE is_safe = 1
             """)
 
             for row in self.repo_cursor.fetchall():
-                pattern = row['pattern']
+                pattern = row['sink_pattern']
                 if pattern:
                     self.safe_sinks.add(pattern)
 
@@ -156,6 +160,49 @@ class SanitizerRegistry:
 
         return False
 
+    def _get_language_for_file(self, file_path: str) -> str:
+        """Detect language from file extension.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Language identifier ('python', 'javascript', 'rust', 'unknown')
+        """
+        if not file_path:
+            return 'unknown'
+
+        lower = file_path.lower()
+        if lower.endswith('.py'):
+            return 'python'
+        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
+            return 'javascript'
+        elif lower.endswith('.rs'):
+            return 'rust'
+        return 'unknown'
+
+    def _get_validation_patterns(self, file_path: str) -> list[str]:
+        """Get validation/sanitizer patterns for a file's language.
+
+        Uses TaintRegistry if available, falls back to default patterns.
+
+        Args:
+            file_path: Path to file for language detection
+
+        Returns:
+            List of sanitizer/validation patterns
+        """
+        lang = self._get_language_for_file(file_path)
+
+        # ZERO FALLBACK POLICY - Registry is MANDATORY
+        if not self.registry:
+            raise ValueError(
+                "TaintRegistry is MANDATORY for SanitizerRegistry._get_validation_patterns(). "
+                "NO FALLBACKS. Initialize SanitizerRegistry with registry parameter."
+            )
+
+        return self.registry.get_sanitizer_patterns(lang)
+
     def _path_goes_through_sanitizer(self, hop_chain: list[dict]) -> dict | None:
         """Check if a taint path goes through any sanitizer.
 
@@ -196,20 +243,8 @@ class SanitizerRegistry:
                 if len(parts) > 1:
                     func = parts[1]
                     # CHECK 0: Validation middleware patterns in function name
-                    validation_patterns = [
-                        'validateBody',
-                        'validateParams',
-                        'validateQuery',
-                        'validateHeaders',
-                        'validateRequest',
-                        'validate',      # Generic validate function (PlantFlow style)
-                        'sanitize',      # Generic sanitize function
-                        'parse',         # Zod .parse()
-                        'safeParse',     # Zod .safeParse()
-                        'authenticate',  # Auth middleware (gating)
-                        'requireAuth',   # Auth middleware
-                        'requireAdmin',  # Admin auth middleware
-                    ]
+                    # Get language-specific patterns from registry
+                    validation_patterns = self._get_validation_patterns(hop_file)
                     for pattern in validation_patterns:
                         if pattern in func:
                             if self.debug:
@@ -229,22 +264,9 @@ class SanitizerRegistry:
                 print(f"[SanitizerRegistry] Hop {i+1}: {hop_file}:{hop_line}", file=sys.stderr)
 
             # CHECK 1: Validation patterns in node string (IFDS comprehensive check)
+            # Uses same registry-driven patterns as CHECK 0 (no more duplication)
             if node_str:
-                validation_patterns = [
-                    'validateBody',
-                    'validateParams',
-                    'validateQuery',
-                    'validateHeaders',
-                    'validateRequest',
-                    'validate',      # Generic validate function
-                    'sanitize',      # Generic sanitize function
-                    'parse',         # Zod .parse()
-                    'safeParse',     # Zod .safeParse()
-                    'authenticate',  # Auth middleware
-                    'requireAuth',   # Auth middleware
-                    'requireAdmin',  # Admin auth middleware
-                ]
-
+                validation_patterns = self._get_validation_patterns(hop_file)
                 for pattern in validation_patterns:
                     if pattern in node_str:
                         if self.debug:

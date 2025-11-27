@@ -1051,37 +1051,58 @@ class FindingsConsolidatedTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from findings_consolidated."""
-        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'])
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'])
         cursor.execute(query)
-        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_tool(cursor: sqlite3.Cursor, tool: str) -> list[dict[str, Any]]:
         """Get rows by tool."""
-        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], where="tool = ?")
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="tool = ?")
         cursor.execute(query, (tool,))
-        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_severity(cursor: sqlite3.Cursor, severity: str) -> list[dict[str, Any]]:
         """Get rows by severity."""
-        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], where="severity = ?")
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="severity = ?")
         cursor.execute(query, (severity,))
-        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_rule(cursor: sqlite3.Cursor, rule: str) -> list[dict[str, Any]]:
         """Get rows by rule."""
-        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], where="rule = ?")
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="rule = ?")
         cursor.execute(query, (rule,))
-        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_category(cursor: sqlite3.Cursor, category: str) -> list[dict[str, Any]]:
         """Get rows by category."""
-        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], where="category = ?")
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="category = ?")
         cursor.execute(query, (category,))
-        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'details_json'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_cfg_complexity(cursor: sqlite3.Cursor, cfg_complexity: int) -> list[dict[str, Any]]:
+        """Get rows by cfg_complexity."""
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="cfg_complexity = ?")
+        cursor.execute(query, (cfg_complexity,))
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_graph_score(cursor: sqlite3.Cursor, graph_score: float) -> list[dict[str, Any]]:
+        """Get rows by graph_score."""
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="graph_score = ?")
+        cursor.execute(query, (graph_score,))
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_mypy_error_code(cursor: sqlite3.Cursor, mypy_error_code: str) -> list[dict[str, Any]]:
+        """Get rows by mypy_error_code."""
+        query = build_query('findings_consolidated', ['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], where="mypy_error_code = ?")
+        cursor.execute(query, (mypy_error_code,))
+        return [dict(zip(['id', 'file', 'line', 'column', 'rule', 'tool', 'message', 'severity', 'category', 'confidence', 'code_snippet', 'cwe', 'timestamp', 'cfg_function', 'cfg_complexity', 'cfg_block_count', 'cfg_edge_count', 'cfg_has_loops', 'cfg_has_recursion', 'cfg_start_line', 'cfg_end_line', 'cfg_threshold', 'graph_id', 'graph_in_degree', 'graph_out_degree', 'graph_total_connections', 'graph_centrality', 'graph_score', 'graph_cycle_nodes', 'mypy_error_code', 'mypy_severity_int', 'mypy_column', 'tf_finding_id', 'tf_resource_id', 'tf_remediation', 'tf_graph_context'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FrameworkSafeSinksTable:
@@ -1093,6 +1114,38 @@ class FrameworkSafeSinksTable:
         query = build_query('framework_safe_sinks', ['framework_id', 'sink_pattern', 'sink_type', 'is_safe', 'reason'])
         cursor.execute(query)
         return [dict(zip(['framework_id', 'sink_pattern', 'sink_type', 'is_safe', 'reason'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class FrameworkTaintPatternsTable:
+    """Accessor class for framework_taint_patterns table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from framework_taint_patterns."""
+        query = build_query('framework_taint_patterns', ['id', 'framework_id', 'pattern', 'pattern_type', 'category'])
+        cursor.execute(query)
+        return [dict(zip(['id', 'framework_id', 'pattern', 'pattern_type', 'category'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_framework_id(cursor: sqlite3.Cursor, framework_id: int) -> list[dict[str, Any]]:
+        """Get rows by framework_id."""
+        query = build_query('framework_taint_patterns', ['id', 'framework_id', 'pattern', 'pattern_type', 'category'], where="framework_id = ?")
+        cursor.execute(query, (framework_id,))
+        return [dict(zip(['id', 'framework_id', 'pattern', 'pattern_type', 'category'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_pattern_type(cursor: sqlite3.Cursor, pattern_type: str) -> list[dict[str, Any]]:
+        """Get rows by pattern_type."""
+        query = build_query('framework_taint_patterns', ['id', 'framework_id', 'pattern', 'pattern_type', 'category'], where="pattern_type = ?")
+        cursor.execute(query, (pattern_type,))
+        return [dict(zip(['id', 'framework_id', 'pattern', 'pattern_type', 'category'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_pattern(cursor: sqlite3.Cursor, pattern: str) -> list[dict[str, Any]]:
+        """Get rows by pattern."""
+        query = build_query('framework_taint_patterns', ['id', 'framework_id', 'pattern', 'pattern_type', 'category'], where="pattern = ?")
+        cursor.execute(query, (pattern,))
+        return [dict(zip(['id', 'framework_id', 'pattern', 'pattern_type', 'category'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FrameworksTable:
@@ -1661,37 +1714,37 @@ class GraphqlFindingsCacheTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from graphql_findings_cache."""
-        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'])
+        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'])
         cursor.execute(query)
-        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_field_id(cursor: sqlite3.Cursor, field_id: int) -> list[dict[str, Any]]:
         """Get rows by field_id."""
-        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], where="field_id = ?")
+        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], where="field_id = ?")
         cursor.execute(query, (field_id,))
-        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_resolver_symbol_id(cursor: sqlite3.Cursor, resolver_symbol_id: int) -> list[dict[str, Any]]:
         """Get rows by resolver_symbol_id."""
-        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], where="resolver_symbol_id = ?")
+        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], where="resolver_symbol_id = ?")
         cursor.execute(query, (resolver_symbol_id,))
-        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_rule(cursor: sqlite3.Cursor, rule: str) -> list[dict[str, Any]]:
         """Get rows by rule."""
-        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], where="rule = ?")
+        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], where="rule = ?")
         cursor.execute(query, (rule,))
-        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_severity(cursor: sqlite3.Cursor, severity: str) -> list[dict[str, Any]]:
         """Get rows by severity."""
-        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], where="severity = ?")
+        query = build_query('graphql_findings_cache', ['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], where="severity = ?")
         cursor.execute(query, (severity,))
-        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'details_json', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['finding_id', 'field_id', 'resolver_symbol_id', 'rule', 'severity', 'description', 'message', 'confidence', 'provenance'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class GraphqlResolverMappingsTable:

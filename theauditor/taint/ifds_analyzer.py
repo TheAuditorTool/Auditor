@@ -45,7 +45,7 @@ class IFDSTaintAnalyzer:
     rebuilding data flow on every run.
     """
 
-    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None, registry=None):
+    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None, registry=None, type_resolver=None):
         """Initialize IFDS analyzer with database connections.
 
         Args:
@@ -53,6 +53,7 @@ class IFDSTaintAnalyzer:
             graph_db_path: Path to graphs.db (DFG, call graph)
             cache: Optional memory cache for performance
             registry: Optional TaintRegistry for sanitizer checking
+            type_resolver: Optional TypeResolver for ORM aliasing and controller detection
         """
         self.repo_conn = sqlite3.connect(repo_db_path)
         self.repo_conn.row_factory = sqlite3.Row
@@ -64,6 +65,7 @@ class IFDSTaintAnalyzer:
 
         self.cache = cache
         self.registry = registry
+        self.type_resolver = type_resolver
 
         # Function summaries: (func_name, file) -> {param_path: [return_paths]}
         self.summaries: dict[tuple[str, str], dict[str, set[str]]] = {}
@@ -434,7 +436,7 @@ class IFDSTaintAnalyzer:
 
         # If both are HTTP objects in controller files but different functions, they're different
         if (ap1.base in http_objects and ap2.base in http_objects and
-            'controller' in ap1.file.lower() and 'controller' in ap2.file.lower()):
+            self._is_controller_file(ap1.file) and self._is_controller_file(ap2.file)):
 
             # Different controller files = different HTTP requests
             if ap1.file != ap2.file:
@@ -447,6 +449,15 @@ class IFDSTaintAnalyzer:
                 if 'Controller.' in ap1.function and 'Controller.' in ap2.function:
                     # Different controller methods = different HTTP endpoints
                     return False
+
+        # ORM Model Type Aliasing (Polyglot)
+        # If both nodes represent the same ORM model type, allow weak aliasing
+        if self.type_resolver and ap1.base == ap2.base:
+            # Build node IDs for type comparison
+            ap1_node_id = f"{ap1.file}::{ap1.function}::{ap1.base}"
+            ap2_node_id = f"{ap2.file}::{ap2.function}::{ap2.base}"
+            if self.type_resolver.is_same_type(ap1_node_id, ap2_node_id):
+                return True
 
         # For non-HTTP objects or same context, check variable match
         # Exact match on base + fields
@@ -557,11 +568,55 @@ class IFDSTaintAnalyzer:
         return path
 
 
+    def _get_language_for_file(self, file_path: str) -> str:
+        """Detect language from file extension.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Language identifier ('python', 'javascript', 'rust', 'unknown')
+        """
+        if not file_path:
+            return 'unknown'
+
+        lower = file_path.lower()
+        if lower.endswith('.py'):
+            return 'python'
+        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
+            return 'javascript'
+        elif lower.endswith('.rs'):
+            return 'rust'
+        return 'unknown'
+
+    def _is_controller_file(self, file_path: str) -> bool:
+        """Check if file is a controller/route handler.
+
+        Uses TypeResolver if available, falls back to name-based heuristic.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            True if file handles API routes
+
+        Raises:
+            ValueError: If type_resolver is not provided (ZERO FALLBACK POLICY)
+        """
+        # ZERO FALLBACK POLICY - TypeResolver is MANDATORY
+        if not self.type_resolver:
+            raise ValueError(
+                "TypeResolver is MANDATORY for IFDSTaintAnalyzer._is_controller_file(). "
+                "NO FALLBACKS. Initialize IFDSTaintAnalyzer with type_resolver parameter."
+            )
+
+        return self.type_resolver.is_controller_file(file_path)
+
     def _is_true_entry_point(self, node_id: str) -> bool:
         """Check if a node represents a true entry point (HTTP request data).
 
         True entry points are where user data enters the backend:
-        - Express middleware chains (req.body, req.params, req.query)
+        - Express/Flask/Django request objects (req.body, request.args, etc.)
         - Environment variables (process.env.X)
         - Command line arguments (process.argv)
 
@@ -585,11 +640,21 @@ class IFDSTaintAnalyzer:
         function_name = parts[1]
         variable = parts[2]
 
+        # ZERO FALLBACK POLICY - Registry is MANDATORY
+        if not self.registry:
+            raise ValueError(
+                "TaintRegistry is MANDATORY for IFDSTaintAnalyzer._is_true_entry_point(). "
+                "NO FALLBACKS. Initialize IFDSTaintAnalyzer with registry parameter."
+            )
+
+        # Get language-specific source patterns from registry
+        lang = self._get_language_for_file(file_path)
+        request_patterns = self.registry.get_source_patterns(lang)
+
         # Check if this is request data from middleware/routes
-        request_patterns = ['req.body', 'req.params', 'req.query', 'req.headers', 'request.body', 'request.params']
         if any(pattern in variable for pattern in request_patterns):
             # Verify it's in a route or middleware file
-            if 'routes' in file_path or 'middleware' in file_path or 'controller' in file_path:
+            if self._is_controller_file(file_path):
                 # Check if this function exists in express_middleware_chains
                 # Note: Middleware chains are stored with the routes file path, not the controller file path
                 # So we search across ALL files for the function name
@@ -602,19 +667,19 @@ class IFDSTaintAnalyzer:
                 count = self.repo_cursor.fetchone()[0]
                 if count > 0:
                     if self.debug:
-                        print(f"[IFDS] ✓ TRUE ENTRY POINT (middleware chain): {node_id}", file=sys.stderr)
+                        print(f"[IFDS] TRUE ENTRY POINT (middleware chain): {node_id}", file=sys.stderr)
                     return True
 
         # Check environment variables
         if 'process.env' in variable or 'env.' in variable:
             if self.debug:
-                print(f"[IFDS] ✓ TRUE ENTRY POINT (env var): {node_id}", file=sys.stderr)
+                print(f"[IFDS] TRUE ENTRY POINT (env var): {node_id}", file=sys.stderr)
             return True
 
         # Check command line arguments
         if 'process.argv' in variable or 'argv' in variable:
             if self.debug:
-                print(f"[IFDS] ✓ TRUE ENTRY POINT (CLI arg): {node_id}", file=sys.stderr)
+                print(f"[IFDS] TRUE ENTRY POINT (CLI arg): {node_id}", file=sys.stderr)
             return True
 
         return False

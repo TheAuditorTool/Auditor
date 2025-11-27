@@ -1,5 +1,5 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: 45278772d71a89177a56f5219d8e1c2982b63c93f48e8992adcbb9d97e073e16
+# SCHEMA_HASH: fd5c17ad517c84f5124d25f85344ef567e8bcb7ac806a5f5c53938f7fc3d95ed
 from typing import Any
 from collections import defaultdict
 import sqlite3
@@ -29,7 +29,8 @@ class SchemaMemoryCache:
             setattr(self, table_name, data)
 
             # Auto-build indexes for indexed columns (always create, even if empty)
-            for idx_name, idx_cols in schema.indexes:
+            for idx_def in schema.indexes:
+                idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
                 if len(idx_cols) == 1:  # Single column index
                     col_name = idx_cols[0]
                     index = self._build_index(data, table_name, col_name, schema)

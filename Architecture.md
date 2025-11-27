@@ -689,31 +689,67 @@ graph TB
     style C1 fill:#f99,stroke:#333,stroke-width:3px
 ```
 
-### Taint Source/Sink Registry
+### Polyglot Taint Architecture (2025-11-28)
 
-**Sources** (untrusted input):
-```python
-TAINT_SOURCES = frozenset([
-    # Web frameworks
-    'request.args', 'request.form', 'request.json', 'request.data',
-    'req.params', 'req.query', 'req.body', 'req.cookies',
-    # CLI
-    'sys.argv', 'input()', 'raw_input()',
-    # Files
-    'open()', 'read()', 'readlines()',
-    # Network
-    'socket.recv', 'urllib.request.urlopen',
-])
+**Design**: Database-driven pattern loading replaces hardcoded Express-specific patterns.
+
+```
+BUILD TIME (Indexing)                    ANALYSIS TIME (Taint)
+--------------------                     --------------------
+orchestrator.py                          TaintRegistry
+    |                                        |
+    v                                        v
+_seed_express_patterns()              load_from_database()
+_seed_flask_patterns()                    |
+_seed_django_patterns()                   v
+    |                                 _load_taint_patterns()
+    v                                 _load_safe_sinks()
+framework_taint_patterns table        _load_validation_sanitizers()
+    |                                        |
+    v                                        v
+repo_index.db                         get_source_patterns(lang)
+                                      get_sink_patterns(lang)
+                                      get_sanitizer_patterns(lang)
 ```
 
-**Sinks** (dangerous operations):
+**Key Tables**:
+- `framework_taint_patterns` - Sources/sinks per framework (pattern, pattern_type, category)
+- `framework_safe_sinks` - Safe sink patterns (sink_pattern, is_safe, reason)
+- `validation_framework_usage` - Zod/Joi/Yup sanitizers
+
+**Supported Frameworks**:
+| Language | Frameworks | Sources | Sinks |
+|----------|------------|---------|-------|
+| JavaScript | Express | req.body, req.params, req.query, req.headers, req.cookies | eval, Function, child_process.*, res.send, query, execute |
+| Python | Flask | request.args, request.form, request.json, request.data | eval, exec, os.system, subprocess.*, cursor.execute |
+| Python | Django | request.GET, request.POST, request.body, request.FILES | eval, exec, cursor.execute, raw, mark_safe |
+
+**FlowResolver Entry Node Discovery**:
+- Queries `graphs.db` directly for nodes matching source patterns (e.g., `%::req.body`)
+- No longer constructs node IDs from `express_middleware_chains` (wrong format)
+- Collects patterns from ALL languages in registry
+
+### Taint Source/Sink Registry
+
+**Sources** (loaded from `framework_taint_patterns` table):
 ```python
-TAINT_SINKS = {
-    'sql': frozenset(['cursor.execute', 'db.execute', 'session.execute']),
-    'command': frozenset(['subprocess.call', 'os.system', 'eval', 'exec']),
-    'xss': frozenset(['response.write', 'res.send', 'innerHTML']),
-    'path_traversal': frozenset(['open', 'os.path.join', 'Path']),
-}
+# TaintRegistry.get_source_patterns('javascript') returns:
+['req.body', 'req.params', 'req.query', 'req.headers', 'req.cookies', 'req.files', 'req.file']
+
+# TaintRegistry.get_source_patterns('python') returns:
+['request.args', 'request.form', 'request.json', 'request.data', 'request.values',
+ 'request.GET', 'request.POST', 'request.body', 'request.FILES', 'request.META']
+```
+
+**Sinks** (loaded from `framework_taint_patterns` table):
+```python
+# TaintRegistry.get_sink_patterns('javascript') returns:
+['eval', 'Function', 'child_process.exec', 'child_process.spawn', 'res.send',
+ 'res.write', 'res.render', 'query', 'execute', 'raw']
+
+# TaintRegistry.get_sink_patterns('python') returns:
+['eval', 'exec', 'os.system', 'subprocess.call', 'subprocess.run', 'subprocess.Popen',
+ 'cursor.execute', 'render_template_string', 'mark_safe', 'HttpResponse']
 ```
 
 ### Taint Issues Found

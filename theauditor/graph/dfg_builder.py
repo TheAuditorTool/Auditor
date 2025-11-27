@@ -26,6 +26,7 @@ from .types import DFGNode, DFGEdge, create_bidirectional_edges
 
 # Strategy Pattern: Language-specific logic delegated to strategies
 from .strategies.python_orm import PythonOrmStrategy
+from .strategies.node_orm import NodeOrmStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.interceptors import InterceptorStrategy
 
@@ -50,8 +51,10 @@ class DFGBuilder:
 
         # Strategy Pattern: Language-specific builders
         # Add new strategies here when supporting new languages (Rust, Go, etc.)
+        # Order: ORM strategies first (build model edges), then middleware/interceptors
         self.strategies = [
             PythonOrmStrategy(),
+            NodeOrmStrategy(),
             NodeExpressStrategy(),
             InterceptorStrategy(),
         ]

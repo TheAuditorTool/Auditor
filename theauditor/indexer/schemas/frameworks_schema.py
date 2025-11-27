@@ -145,6 +145,33 @@ ROUTER_MOUNTS = TableSchema(
 )
 
 # ============================================================================
+# TAINT PATTERN TABLES - Database-driven source/sink patterns
+# ============================================================================
+
+FRAMEWORK_TAINT_PATTERNS = TableSchema(
+    name="framework_taint_patterns",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True, autoincrement=True),
+        Column("framework_id", "INTEGER", nullable=False),  # FK to frameworks.id
+        Column("pattern", "TEXT", nullable=False),          # e.g. 'req.body', 'eval'
+        Column("pattern_type", "TEXT", nullable=False),     # 'source', 'sink'
+        Column("category", "TEXT"),                         # 'http_request', 'sql_injection', etc.
+    ],
+    indexes=[
+        ("idx_taint_patterns_fw", ["framework_id"]),
+        ("idx_taint_patterns_type", ["pattern_type"]),
+        ("idx_taint_patterns_pattern", ["pattern"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["framework_id"],
+            foreign_table="frameworks",
+            foreign_columns=["id"]
+        )
+    ]
+)
+
+# ============================================================================
 # FRAMEWORKS TABLES REGISTRY
 # ============================================================================
 
@@ -155,4 +182,5 @@ FRAMEWORKS_TABLES: dict[str, TableSchema] = {
     "api_endpoints": API_ENDPOINTS,
     "api_endpoint_controls": API_ENDPOINT_CONTROLS,
     "router_mounts": ROUTER_MOUNTS,
+    "framework_taint_patterns": FRAMEWORK_TAINT_PATTERNS,
 }

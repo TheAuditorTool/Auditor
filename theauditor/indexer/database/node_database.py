@@ -467,6 +467,19 @@ class NodeDatabaseMixin:
         if len(self.generic_batches['framework_safe_sinks']) >= self.batch_size:
             self.flush_batch()
 
+    def add_framework_taint_pattern(self, framework_id: int, pattern: str, pattern_type: str, category: str | None = None):
+        """Add framework taint pattern (source/sink) to batch.
+
+        Args:
+            framework_id: FK to frameworks.id
+            pattern: Pattern string (e.g., 'req.body', 'eval')
+            pattern_type: 'source' or 'sink'
+            category: Optional category (e.g., 'http_request', 'code_execution')
+        """
+        self.generic_batches['framework_taint_patterns'].append((framework_id, pattern, pattern_type, category))
+        if len(self.generic_batches['framework_taint_patterns']) >= self.batch_size:
+            self.flush_batch()
+
     def get_framework_id(self, name, language):
         """Get framework ID from database."""
         cursor = self.conn.cursor()
