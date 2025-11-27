@@ -27,8 +27,8 @@
  * 5. _inferDeclarationType() - Infer type of NgModule declaration
  * 6. _inferProviderType() - Infer type of NgModule provider
  *
- * Current size: 170 lines (2025-10-31)
- * Updated: 2025-11-26 - Added junction array flattening for normalize-node-extractor-output
+ * Current size: 385 lines (2025-11-26)
+ * Updated: 2025-11-26 - Normalized to flat junction arrays, removed nested dependencies
  */
 
 /**
@@ -63,16 +63,16 @@ function _inferProviderType(prov) {
  * Extract Angular components, services, modules, and dependency injection.
  * Detects: @Component, @Injectable, @NgModule, @Input, @Output decorators
  *
- * NOTE: This is a heuristic-based implementation that relies on naming conventions.
- * Proper decorator detection requires parsing TypeScript decorator AST nodes.
- *
  * @param {Array} functions - From extractFunctions()
  * @param {Array} classes - From extractClasses()
- * @param {Array} imports - From extract imports
+ * @param {Array} imports - From extractImports()
  * @param {Array} functionCallArgs - From extractFunctionCallArgs()
+ * @param {Array} func_decorators - From extractFunctions() junction array
+ * @param {Array} class_decorators - From extractClasses() junction array
+ * @param {Array} class_decorator_args - From extractClasses() junction array
  * @returns {Object} - Angular extraction results { components, services, modules, guards }
  */
-function extractAngularComponents(functions, classes, imports, functionCallArgs) {
+function extractAngularComponents(functions, classes, imports, functionCallArgs, func_decorators, class_decorators, class_decorator_args) {
     const results = {
         components: [],
         services: [],
@@ -81,7 +81,6 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         pipes: [],
         directives: [],
         di_injections: [],
-        // Junction arrays for normalized data (normalize-node-extractor-output)
         angular_component_styles: [],
         angular_module_declarations: [],
         angular_module_imports: [],
@@ -91,13 +90,40 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
 
     // Check if Angular is imported
     const hasAngular = imports && imports.some(imp =>
-        imp.source === '@angular/core' ||
-        imp.source === '@angular/common' ||
-        imp.source === '@angular/router'
+        imp.module === '@angular/core' ||
+        imp.module === '@angular/common' ||
+        imp.module === '@angular/router'
     );
 
     if (!hasAngular) {
         return results;
+    }
+
+    // Build lookup maps from flat decorator arrays
+    const classDecoratorMap = new Map();
+    for (const dec of (class_decorators || [])) {
+        if (!classDecoratorMap.has(dec.class_name)) {
+            classDecoratorMap.set(dec.class_name, []);
+        }
+        classDecoratorMap.get(dec.class_name).push(dec);
+    }
+
+    const classDecoratorArgsMap = new Map();
+    for (const arg of (class_decorator_args || [])) {
+        const key = `${arg.class_name}|${arg.decorator_index}`;
+        if (!classDecoratorArgsMap.has(key)) {
+            classDecoratorArgsMap.set(key, []);
+        }
+        classDecoratorArgsMap.get(key).push(arg);
+    }
+
+    const funcDecoratorMap = new Map();
+    for (const dec of (func_decorators || [])) {
+        const key = `${dec.function_name}`;
+        if (!funcDecoratorMap.has(key)) {
+            funcDecoratorMap.set(key, []);
+        }
+        funcDecoratorMap.get(key).push(dec);
     }
 
     // Analyze classes for Angular decorators
@@ -105,168 +131,148 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         const className = cls.name;
         if (!className) continue;
 
-        // Detect @Component decorator using actual decorator data
-        const componentDecorator = cls.decorators && cls.decorators.find(d => d.name === 'Component');
+        // Get decorators for this class from lookup map
+        const classDecorators = classDecoratorMap.get(className) || [];
+
+        // Detect @Component decorator using flat decorator array
+        const componentDecorator = classDecorators.find(d => d.decorator_name === 'Component');
 
         if (componentDecorator) {
-                // Extract @Input/@Output properties from class
-                const inputs = [];
-                const outputs = [];
+            // Extract @Input/@Output from function decorators
+            const inputs = [];
+            const outputs = [];
 
-                // Look for @Input/@Output decorators on class properties/methods
-                if (functions) {
-                    for (const func of functions) {
-                        if (func.parent_class === className && func.decorators) {
-                            for (const decorator of func.decorators) {
-                                if (decorator.name === 'Input') {
-                                    inputs.push({
-                                        name: func.name,
-                                        line: func.line
-                                    });
-                                } else if (decorator.name === 'Output') {
-                                    outputs.push({
-                                        name: func.name,
-                                        line: func.line
-                                    });
-                                }
+            // Look for @Input/@Output decorators on class methods
+            if (functions) {
+                for (const func of functions) {
+                    if (func.parent_class === className) {
+                        const funcDecs = funcDecoratorMap.get(func.name) || [];
+                        for (const decorator of funcDecs) {
+                            if (decorator.decorator_name === 'Input') {
+                                inputs.push({ name: func.name, line: func.line });
+                            } else if (decorator.decorator_name === 'Output') {
+                                outputs.push({ name: func.name, line: func.line });
                             }
                         }
                     }
                 }
+            }
 
-                // Also check class properties if available
-                if (cls.properties) {
-                    for (const prop of cls.properties) {
-                        if (prop.decorators) {
-                            for (const decorator of prop.decorators) {
-                                if (decorator.name === 'Input') {
-                                    inputs.push({
-                                        name: prop.name,
-                                        line: prop.line
-                                    });
-                                } else if (decorator.name === 'Output') {
-                                    outputs.push({
-                                        name: prop.name,
-                                        line: prop.line
-                                    });
-                                }
-                            }
-                        }
+            // Extract styleUrls from decorator args (arg_value contains stringified config)
+            const decoratorArgsKey = `${className}|${componentDecorator.decorator_index}`;
+            const componentArgs = classDecoratorArgsMap.get(decoratorArgsKey) || [];
+            for (const arg of componentArgs) {
+                if (arg.arg_value) {
+                    // Parse styleUrls from stringified decorator argument
+                    const styleMatch = arg.arg_value.match(/styleUrls?\s*:\s*\[?['"]([^'"]+)['"]/);
+                    if (styleMatch) {
+                        results.angular_component_styles.push({
+                            component_name: className,
+                            style_path: styleMatch[1]
+                        });
                     }
                 }
+            }
 
-                // Extract styleUrls from @Component decorator arguments
-                // Handles both styleUrls: ['...'] and styleUrl: '...' (Angular 17+)
-                if (componentDecorator.arguments && componentDecorator.arguments[0]) {
-                    const config = componentDecorator.arguments[0];
-                    if (typeof config === 'object') {
-                        let styleUrls = [];
-                        if (Array.isArray(config.styleUrls)) {
-                            styleUrls = config.styleUrls;
-                        } else if (config.styleUrl) {
-                            styleUrls = [config.styleUrl];
-                        }
-                        // Populate junction array
-                        for (const stylePath of styleUrls) {
-                            if (stylePath && typeof stylePath === 'string') {
-                                results.angular_component_styles.push({
-                                    component_name: className,
-                                    style_path: stylePath
-                                });
-                            }
-                        }
-                    }
-                }
+            results.components.push({
+                name: className,
+                line: cls.line,
+                inputs_count: inputs.length,
+                outputs_count: outputs.length,
+                has_lifecycle_hooks: _detectAngularLifecycleHooks(cls, functions)
+            });
 
-                results.components.push({
-                    name: className,
+            // Extract DI for components
+            const dependencies = _extractAngularDI(cls, functionCallArgs);
+            for (const dep of dependencies) {
+                results.di_injections.push({
                     line: cls.line,
-                    inputs_count: inputs.length,
-                    outputs_count: outputs.length,
-                    has_lifecycle_hooks: _detectAngularLifecycleHooks(cls, functions)
+                    target_class: className,
+                    service: dep.service,
+                    injection_type: 'constructor'
                 });
-
-                // Extract DI for components
-                const dependencies = _extractAngularDI(cls, functionCallArgs);
-                for (const dep of dependencies) {
-                    results.di_injections.push({
-                        line: cls.line,
-                        target_class: className,
-                        service: dep.service,
-                        injection_type: 'constructor'
-                    });
-                }
+            }
         }
 
         // Detect @Injectable decorator (services)
-        const injectableDecorator = cls.decorators && cls.decorators.find(d => d.name === 'Injectable');
+        const injectableDecorator = classDecorators.find(d => d.decorator_name === 'Injectable');
 
         if (injectableDecorator) {
-                // Extract constructor DI parameters
-                const diDependencies = _extractAngularDI(cls, functionCallArgs);
+            const diDependencies = _extractAngularDI(cls, functionCallArgs);
 
-                results.services.push({
-                    name: className,
+            // ZERO FALLBACK: No nested dependencies array - use di_injections junction table
+            results.services.push({
+                name: className,
+                line: cls.line,
+                injectable: true,
+                dependencies_count: diDependencies.length
+            });
+
+            // Flatten dependencies to di_injections junction array
+            for (const dep of diDependencies) {
+                results.di_injections.push({
                     line: cls.line,
-                    injectable: true,
-                    dependencies: diDependencies
+                    target_class: className,
+                    service: dep.service,
+                    injection_type: 'constructor'
                 });
-
-                // Add DI injections for services
-                for (const dep of diDependencies) {
-                    results.di_injections.push({
-                        line: cls.line,
-                        target_class: className,
-                        service: dep.service,
-                        injection_type: 'constructor'
-                    });
-                }
+            }
         }
 
         // Detect @NgModule decorator
-        const ngModuleDecorator = cls.decorators && cls.decorators.find(d => d.name === 'NgModule');
+        const ngModuleDecorator = classDecorators.find(d => d.decorator_name === 'NgModule');
 
         if (ngModuleDecorator) {
-            // Extract module configuration and flatten to junction arrays
-            if (ngModuleDecorator.arguments && ngModuleDecorator.arguments[0]) {
-                const config = ngModuleDecorator.arguments[0];
-                if (typeof config === 'object') {
-                    // Flatten declarations to junction array
-                    const declarations = config.declarations || [];
-                    for (const decl of declarations) {
-                        const declName = typeof decl === 'string' ? decl : (decl && decl.name) || 'unknown';
+            // Parse module config from decorator args
+            const decoratorArgsKey = `${className}|${ngModuleDecorator.decorator_index}`;
+            const moduleArgs = classDecoratorArgsMap.get(decoratorArgsKey) || [];
+
+            for (const arg of moduleArgs) {
+                if (!arg.arg_value) continue;
+
+                // Parse declarations from stringified config
+                const declMatch = arg.arg_value.match(/declarations\s*:\s*\[([^\]]*)\]/);
+                if (declMatch) {
+                    const decls = declMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+                    for (const declName of decls) {
                         results.angular_module_declarations.push({
                             module_name: className,
                             declaration_name: declName,
-                            declaration_type: _inferDeclarationType(decl)
+                            declaration_type: _inferDeclarationType(declName)
                         });
                     }
+                }
 
-                    // Flatten imports to junction array
-                    const imports = config.imports || [];
-                    for (const imp of imports) {
-                        const impName = typeof imp === 'string' ? imp : (imp && imp.name) || 'unknown';
+                // Parse imports from stringified config
+                const importsMatch = arg.arg_value.match(/imports\s*:\s*\[([^\]]*)\]/);
+                if (importsMatch) {
+                    const imps = importsMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+                    for (const impName of imps) {
                         results.angular_module_imports.push({
                             module_name: className,
                             imported_module: impName
                         });
                     }
+                }
 
-                    // Flatten providers to junction array
-                    const providers = config.providers || [];
-                    for (const prov of providers) {
-                        const provName = typeof prov === 'string' ? prov : (prov && (prov.provide || prov.name)) || 'unknown';
+                // Parse providers from stringified config
+                const providersMatch = arg.arg_value.match(/providers\s*:\s*\[([^\]]*)\]/);
+                if (providersMatch) {
+                    const provs = providersMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+                    for (const provName of provs) {
                         results.angular_module_providers.push({
                             module_name: className,
                             provider_name: provName,
-                            provider_type: _inferProviderType(prov)
+                            provider_type: _inferProviderType(provName)
                         });
                     }
+                }
 
-                    // Flatten exports to junction array
-                    const exports = config.exports || [];
-                    for (const exp of exports) {
-                        const expName = typeof exp === 'string' ? exp : (exp && exp.name) || 'unknown';
+                // Parse exports from stringified config
+                const exportsMatch = arg.arg_value.match(/exports\s*:\s*\[([^\]]*)\]/);
+                if (exportsMatch) {
+                    const exps = exportsMatch[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(Boolean);
+                    for (const expName of exps) {
                         results.angular_module_exports.push({
                             module_name: className,
                             exported_name: expName
@@ -275,7 +281,6 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
                 }
             }
 
-            // Module parent record - NO nested arrays (now in junction arrays)
             results.modules.push({
                 name: className,
                 line: cls.line

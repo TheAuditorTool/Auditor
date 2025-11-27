@@ -366,6 +366,17 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
         self.db_manager.commit()
 
+        # PHASE 6.9: Resolve handler file paths (ADDED 2025-11-27)
+        # Populate express_middleware_chains.handler_file by resolving import statements
+        # CRITICAL: This enables flow_resolver to construct correct DFG node IDs
+        self.db_manager.flush_batch()
+        self.db_manager.commit()
+
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6.9: Resolving handler file paths...", file=sys.stderr)
+        JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
+        self.db_manager.commit()
+
         # Report results with database location
         base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "

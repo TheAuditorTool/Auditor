@@ -233,10 +233,12 @@ function extractCalls(sourceFile, checker, ts, projectRoot) {
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} ts - TypeScript compiler API
  * @param {Map} scopeMap - Pre-built line→function mapping
- * @returns {Array} - Assignment records
+ * @param {string} filePath - Relative file path for database records
+ * @returns {Object} - { assignments, assignment_source_vars }
  */
-function extractAssignments(sourceFile, ts, scopeMap) {
+function extractAssignments(sourceFile, ts, scopeMap, filePath) {
     const assignments = [];
+    const assignment_source_vars = [];
     const visited = new Set();
 
     function extractVarsFromNode(node, sourceFile, ts) {
@@ -341,77 +343,78 @@ function extractAssignments(sourceFile, ts, scopeMap) {
                 if (name.kind === ts.SyntaxKind.Identifier) {
                     const targetVar = name.text || name.escapedText;
                     if (targetVar) {
+                        const sourceVars = extractVarsFromNode(initializer, sourceFile, ts);
+                        sourceVars.forEach((sourceVar, varIndex) => {
+                            assignment_source_vars.push({
+                                file: filePath,
+                                line: line + 1,
+                                target_var: targetVar,
+                                source_var: sourceVar,
+                                var_index: varIndex
+                            });
+                        });
                         assignments.push({
                             target_var: targetVar,
                             source_expr: initializer.getText(sourceFile).substring(0, 500),
                             line: line + 1,
-                            in_function: inFunction,
-                            source_vars: extractVarsFromNode(initializer, sourceFile, ts),
-                            property_path: null  // NULL for non-destructured assignments
+                            in_function: inFunction
                         });
                     }
                 }
                 // Handle object destructuring: const {x, y} = obj
-                // CRITICAL FOR TAINT: Preserve property paths for destructured variables
-                // Example: const { id, batchId } = req.params
-                //   - target_var: id, property_path: req.params.id
-                //   - target_var: batchId, property_path: req.params.batchId
                 else if (name.kind === ts.SyntaxKind.ObjectBindingPattern && name.elements) {
                     const sourceExprText = initializer.getText(sourceFile).substring(0, 500);
+                    const sourceVars = extractVarsFromNode(initializer, sourceFile, ts);
 
                     name.elements.forEach(elem => {
                         if (elem.name && elem.name.kind === ts.SyntaxKind.Identifier) {
                             const targetVar = elem.name.text || elem.name.escapedText;
                             if (!targetVar) return;
 
-                            // Determine the property name being destructured
-                            // Case 1: { id } - property name is 'id'
-                            // Case 2: { id: userId } - property name is 'id', target is 'userId'
-                            let propertyName = targetVar;  // Default: same as target
-                            if (elem.propertyName && elem.propertyName.kind === ts.SyntaxKind.Identifier) {
-                                // Renamed destructuring: { id: userId }
-                                propertyName = elem.propertyName.text || elem.propertyName.escapedText;
-                            }
-
-                            // Build property path: sourceExpr.propertyName
-                            // Example: req.params + .id = req.params.id
-                            const propertyPath = sourceExprText + '.' + propertyName;
+                            sourceVars.forEach((sourceVar, varIndex) => {
+                                assignment_source_vars.push({
+                                    file: filePath,
+                                    line: line + 1,
+                                    target_var: targetVar,
+                                    source_var: sourceVar,
+                                    var_index: varIndex
+                                });
+                            });
 
                             assignments.push({
                                 target_var: targetVar,
                                 source_expr: sourceExprText,
                                 line: line + 1,
-                                in_function: inFunction,
-                                source_vars: extractVarsFromNode(initializer, sourceFile, ts),
-                                property_path: propertyPath  // NEW: Full path for taint tracking
+                                in_function: inFunction
                             });
                         }
                     });
                 }
                 // Handle array destructuring: const [x, y] = arr
-                // CRITICAL FOR TAINT: Preserve array index paths
-                // Example: const [first, second] = array
-                //   - target_var: first, property_path: array[0]
-                //   - target_var: second, property_path: array[1]
                 else if (name.kind === ts.SyntaxKind.ArrayBindingPattern && name.elements) {
                     const sourceExprText = initializer.getText(sourceFile).substring(0, 500);
+                    const sourceVars = extractVarsFromNode(initializer, sourceFile, ts);
 
                     name.elements.forEach((elem, index) => {
                         if (elem.kind === ts.SyntaxKind.BindingElement && elem.name && elem.name.kind === ts.SyntaxKind.Identifier) {
                             const targetVar = elem.name.text || elem.name.escapedText;
                             if (!targetVar) return;
 
-                            // Build property path with array index: sourceExpr[index]
-                            // Example: array + [0] = array[0]
-                            const propertyPath = sourceExprText + '[' + index + ']';
+                            sourceVars.forEach((sourceVar, varIndex) => {
+                                assignment_source_vars.push({
+                                    file: filePath,
+                                    line: line + 1,
+                                    target_var: targetVar,
+                                    source_var: sourceVar,
+                                    var_index: varIndex
+                                });
+                            });
 
                             assignments.push({
                                 target_var: targetVar,
                                 source_expr: sourceExprText,
                                 line: line + 1,
-                                in_function: inFunction,
-                                source_vars: extractVarsFromNode(initializer, sourceFile, ts),
-                                property_path: propertyPath  // NEW: Array index path for taint tracking
+                                in_function: inFunction
                             });
                         }
                     });
@@ -429,14 +432,23 @@ function extractAssignments(sourceFile, ts, scopeMap) {
             if (left && right) {
                 const targetVar = left.getText(sourceFile);
                 const sourceExpr = right.getText(sourceFile).substring(0, 500);
+                const sourceVars = extractVarsFromNode(right, sourceFile, ts);
+
+                sourceVars.forEach((sourceVar, varIndex) => {
+                    assignment_source_vars.push({
+                        file: filePath,
+                        line: line + 1,
+                        target_var: targetVar,
+                        source_var: sourceVar,
+                        var_index: varIndex
+                    });
+                });
 
                 assignments.push({
                     target_var: targetVar,
                     source_expr: sourceExpr,
                     line: line + 1,
-                    in_function: inFunction,
-                    source_vars: extractVarsFromNode(right, sourceFile, ts),
-                    property_path: null  // NULL for non-destructured assignments
+                    in_function: inFunction
                 });
             }
         }
@@ -445,7 +457,7 @@ function extractAssignments(sourceFile, ts, scopeMap) {
     }
 
     traverse(sourceFile);
-    return assignments;
+    return { assignments, assignment_source_vars };
 }
 
 /**
@@ -668,10 +680,12 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} ts - TypeScript compiler API
  * @param {Map} scopeMap - Pre-built line→function mapping
- * @returns {Array} - Return statement records
+ * @param {string} filePath - Relative file path for database records
+ * @returns {Object} - { returns, return_source_vars }
  */
-function extractReturns(sourceFile, ts, scopeMap) {
+function extractReturns(sourceFile, ts, scopeMap, filePath) {
     const returns = [];
+    const return_source_vars = [];
     const functionReturnCounts = new Map();
     const visited = new Set();
 
@@ -833,15 +847,23 @@ function extractReturns(sourceFile, ts, scopeMap) {
                 hasJsx = jsxDetection.hasJsx;
                 returnsComponent = jsxDetection.isComponent;
 
-                // Extract variables
+                // Extract variables and flatten to junction array
                 returnVars = extractVarsFromNode(expression, sourceFile, ts);
+                returnVars.forEach((sourceVar, varIndex) => {
+                    return_source_vars.push({
+                        file: filePath,
+                        line: line + 1,
+                        function_name: functionName,
+                        source_var: sourceVar,
+                        var_index: varIndex
+                    });
+                });
             }
 
             returns.push({
                 function_name: functionName,
                 line: line + 1,
                 return_expr: returnExpr,
-                return_vars: returnVars,
                 has_jsx: hasJsx,
                 returns_component: returnsComponent,
                 return_index: currentCount + 1
@@ -852,7 +874,7 @@ function extractReturns(sourceFile, ts, scopeMap) {
     }
 
     traverse(sourceFile);
-    return returns;
+    return { returns, return_source_vars };
 }
 
 /**
@@ -991,11 +1013,18 @@ function extractObjectLiterals(sourceFile, ts, scopeMap) {
  *
  * @param {Array} assignments - From extractAssignments
  * @param {Array} functionCallArgs - From extractFunctionCallArgs
+ * @param {Array} assignment_source_vars - Flat array from extractAssignments
  * @returns {Array} - Variable usage records
  */
-
-function extractVariableUsage(assignments, functionCallArgs) {
+function extractVariableUsage(assignments, functionCallArgs, assignment_source_vars) {
     const usage = [];
+
+    // Build lookup for assignment context (line+target_var -> in_function)
+    const assignmentContext = new Map();
+    assignments.forEach(assign => {
+        const key = assign.line + '|' + assign.target_var;
+        assignmentContext.set(key, assign.in_function);
+    });
 
     // Track writes from assignments
     assignments.forEach(assign => {
@@ -1007,17 +1036,19 @@ function extractVariableUsage(assignments, functionCallArgs) {
             in_hook: '',
             scope_level: assign.in_function === 'global' ? 0 : 1
         });
+    });
 
-        // Track reads from source variables
-        (assign.source_vars || []).forEach(varName => {
-            usage.push({
-                line: assign.line,
-                variable_name: varName,
-                usage_type: 'read',
-                in_component: assign.in_function,
-                in_hook: '',
-                scope_level: assign.in_function === 'global' ? 0 : 1
-            });
+    // Track reads from source variables (using flat junction array)
+    assignment_source_vars.forEach(srcVar => {
+        const contextKey = srcVar.line + '|' + srcVar.target_var;
+        const inFunction = assignmentContext.get(contextKey) || 'global';
+        usage.push({
+            line: srcVar.line,
+            variable_name: srcVar.source_var,
+            usage_type: 'read',
+            in_component: inFunction,
+            in_hook: '',
+            scope_level: inFunction === 'global' ? 0 : 1
         });
     });
 

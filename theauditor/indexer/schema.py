@@ -70,20 +70,22 @@ TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
     **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
-    **PYTHON_TABLES,         # 30 tables (Python-specific: 8 original + 20 consolidated + 2 decomposed)
-    **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
+    **PYTHON_TABLES,         # 35 tables (Python-specific: 8 original + 20 consolidated + 2 decomposed + 5 junction)
+    **NODE_TABLES,           # 46 tables (React/Vue/TypeScript/Angular/Sequelize + build tools + 18 junction)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
     **PLANNING_TABLES,       # 9 tables (Planning/meta-system + refactor candidates + Eric's Framework)
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 144 tables (after 2025-11-26 node-schema-normalization)
-#   - 24 core + 7 security + 5 frameworks + 35 python + 34 node + 18 infrastructure + 9 planning + 8 graphql
-#   - Python: 8 original + 20 consolidated + 2 decomposed + 5 junction (protocol_methods, typeddict_fields, fixture_params, framework_methods, schema_validators)
-#   - Node: 26 original + 8 junction (vue_component_props, vue_component_emits, vue_component_setup_returns, angular_component_styles, angular_module_declarations, angular_module_imports, angular_module_providers, angular_module_exports)
+# Total: 154 tables (after 2025-11-26 normalize-all-node-extractors)
+#   - 24 core + 7 security + 5 frameworks + 35 python + 46 node + 18 infrastructure + 9 planning + 8 graphql
+#   - Python: 8 original + 20 consolidated + 2 decomposed + 5 junction
+#   - Node: 28 original + 18 junction tables (normalize-all-node-extractors: func_params, func_decorators,
+#           func_decorator_args, func_param_decorators, class_decorators, class_decorator_args,
+#           assignment_source_vars, return_source_vars, import_specifiers, sequelize_model_fields)
 
 # Verify table count at module load time
-assert len(TABLES) == 144, f"Schema contract violation: Expected 144 tables, got {len(TABLES)}"
+assert len(TABLES) == 154, f"Schema contract violation: Expected 154 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

@@ -742,6 +742,195 @@ ANGULAR_MODULE_EXPORTS = TableSchema(
 )
 
 # ============================================================================
+# FUNCTION/CLASS METADATA JUNCTION TABLES
+# Normalizes nested arrays from core_language.js extractors
+# ============================================================================
+
+# Junction table for function parameters (replaces functions[].parameters nested array)
+FUNC_PARAMS = TableSchema(
+    name="func_params",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("function_line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("param_index", "INTEGER", nullable=False),  # Order matters for call matching
+        Column("param_name", "TEXT", nullable=False),
+        Column("param_type", "TEXT"),  # TypeScript type annotation
+    ],
+    indexes=[
+        ("idx_func_params_function", ["file", "function_line", "function_name"]),
+        ("idx_func_params_name", ["param_name"]),
+    ]
+)
+
+# Junction table for function decorators (replaces functions[].decorators nested array)
+FUNC_DECORATORS = TableSchema(
+    name="func_decorators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("function_line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("decorator_index", "INTEGER", nullable=False),  # Order of decorators
+        Column("decorator_name", "TEXT", nullable=False),
+        Column("decorator_line", "INTEGER", nullable=False),
+    ],
+    indexes=[
+        ("idx_func_decorators_function", ["file", "function_line"]),
+        ("idx_func_decorators_name", ["decorator_name"]),
+    ]
+)
+
+# Junction table for function decorator arguments (replaces decorators[].arguments nested array)
+FUNC_DECORATOR_ARGS = TableSchema(
+    name="func_decorator_args",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("function_line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("decorator_index", "INTEGER", nullable=False),
+        Column("arg_index", "INTEGER", nullable=False),
+        Column("arg_value", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_func_decorator_args_decorator", ["file", "function_line", "decorator_index"]),
+    ]
+)
+
+# Junction table for function parameter decorators (NestJS @Body, @Param, @Query)
+FUNC_PARAM_DECORATORS = TableSchema(
+    name="func_param_decorators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("function_line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("param_index", "INTEGER", nullable=False),
+        Column("decorator_name", "TEXT", nullable=False),
+        Column("decorator_args", "TEXT"),  # Stringified args like "'id'" or "{ transform: parseInt }"
+    ],
+    indexes=[
+        ("idx_func_param_decorators_function", ["file", "function_line", "function_name"]),
+        ("idx_func_param_decorators_decorator", ["decorator_name"]),
+    ]
+)
+
+# Junction table for class decorators (replaces classes[].decorators nested array)
+CLASS_DECORATORS = TableSchema(
+    name="class_decorators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("class_line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("decorator_index", "INTEGER", nullable=False),
+        Column("decorator_name", "TEXT", nullable=False),
+        Column("decorator_line", "INTEGER", nullable=False),
+    ],
+    indexes=[
+        ("idx_class_decorators_class", ["file", "class_line"]),
+        ("idx_class_decorators_name", ["decorator_name"]),
+    ]
+)
+
+# Junction table for class decorator arguments
+CLASS_DECORATOR_ARGS = TableSchema(
+    name="class_decorator_args",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("class_line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("decorator_index", "INTEGER", nullable=False),
+        Column("arg_index", "INTEGER", nullable=False),
+        Column("arg_value", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_class_decorator_args_decorator", ["file", "class_line", "decorator_index"]),
+    ]
+)
+
+# ============================================================================
+# DATA FLOW JUNCTION TABLES
+# Normalizes nested arrays from data_flow.js extractors
+# ============================================================================
+
+# Junction table for assignment source variables (replaces assignments[].source_vars nested array)
+ASSIGNMENT_SOURCE_VARS = TableSchema(
+    name="assignment_source_vars",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target_var", "TEXT", nullable=False),
+        Column("source_var", "TEXT", nullable=False),
+        Column("var_index", "INTEGER", nullable=False),  # Order preserves expression structure
+    ],
+    indexes=[
+        ("idx_assignment_source_vars_assignment", ["file", "line", "target_var"]),
+        ("idx_assignment_source_vars_source", ["source_var"]),
+    ]
+)
+
+# Junction table for return source variables (replaces returns[].return_vars nested array)
+RETURN_SOURCE_VARS = TableSchema(
+    name="return_source_vars",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("source_var", "TEXT", nullable=False),
+        Column("var_index", "INTEGER", nullable=False),
+    ],
+    indexes=[
+        ("idx_return_source_vars_return", ["file", "line"]),
+        ("idx_return_source_vars_source", ["source_var"]),
+    ]
+)
+
+# ============================================================================
+# IMPORT JUNCTION TABLES
+# Normalizes nested arrays from module_framework.js extractors
+# ============================================================================
+
+# Junction table for ES6 import specifiers (replaces imports[].specifiers nested array)
+IMPORT_SPECIFIERS = TableSchema(
+    name="import_specifiers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("import_line", "INTEGER", nullable=False),
+        Column("specifier_name", "TEXT", nullable=False),  # Local name used in code
+        Column("original_name", "TEXT"),  # For aliased imports: import { foo as bar }
+        Column("is_default", "INTEGER", default="0"),
+        Column("is_namespace", "INTEGER", default="0"),
+        Column("is_named", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_import_specifiers_import", ["file", "import_line"]),
+        ("idx_import_specifiers_name", ["specifier_name"]),
+    ]
+)
+
+# ============================================================================
+# ORM JUNCTION TABLES
+# Normalizes missing extractions from sequelize_extractors.js
+# ============================================================================
+
+# Junction table for Sequelize model field definitions (currently not extracted)
+SEQUELIZE_MODEL_FIELDS = TableSchema(
+    name="sequelize_model_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("data_type", "TEXT", nullable=False),
+        Column("is_primary_key", "INTEGER", default="0"),
+        Column("is_nullable", "INTEGER", default="1"),
+        Column("is_unique", "INTEGER", default="0"),
+        Column("default_value", "TEXT"),
+    ],
+    indexes=[
+        ("idx_sequelize_model_fields_model", ["file", "model_name"]),
+        ("idx_sequelize_model_fields_type", ["data_type"]),
+    ]
+)
+
+# ============================================================================
 # NODE TABLES REGISTRY
 # ============================================================================
 
@@ -807,4 +996,22 @@ NODE_TABLES: dict[str, TableSchema] = {
     "angular_module_exports": ANGULAR_MODULE_EXPORTS,
     "angular_guards": ANGULAR_GUARDS,
     "di_injections": DI_INJECTIONS,
+
+    # Function/class metadata junction tables
+    "func_params": FUNC_PARAMS,
+    "func_decorators": FUNC_DECORATORS,
+    "func_decorator_args": FUNC_DECORATOR_ARGS,
+    "func_param_decorators": FUNC_PARAM_DECORATORS,
+    "class_decorators": CLASS_DECORATORS,
+    "class_decorator_args": CLASS_DECORATOR_ARGS,
+
+    # Data flow junction tables
+    "assignment_source_vars": ASSIGNMENT_SOURCE_VARS,
+    "return_source_vars": RETURN_SOURCE_VARS,
+
+    # Import junction tables
+    "import_specifiers": IMPORT_SPECIFIERS,
+
+    # ORM junction tables
+    "sequelize_model_fields": SEQUELIZE_MODEL_FIELDS,
 }

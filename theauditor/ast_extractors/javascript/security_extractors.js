@@ -15,22 +15,21 @@
  * - Pattern: Process data from core extractors to detect security issues
  * - Assembly: Concatenated after core_ast_extractors.js
  *
- * Functions (2 current + future growth):
+ * Functions:
  * 1. extractORMQueries() - Prisma/TypeORM/Sequelize query detection
- * 2. extractAPIEndpoints() - Express/Fastify/Koa endpoint detection
+ * 2. extractAPIEndpoints() - Express/Fastify/Koa endpoint detection (returns flat arrays)
+ * 3. extractValidationFrameworkUsage() - Zod/Joi/Yup validation call detection
+ * 4. extractSchemaDefinitions() - Schema builder detection (z.object, etc.)
+ * 5. extractSQLQueries() - Raw SQL query detection
+ * 6. extractCDKConstructs() - AWS CDK infrastructure-as-code (returns flat arrays)
+ * 7. extractFrontendApiCalls() - Frontend fetch/axios calls
  *
- * FUTURE ADDITIONS (planned):
- * - extractJWTPatterns() - JWT usage and validation patterns
- * - extractSQLQueries() - Raw SQL query detection
- * - extractEnvironmentVariables() - Environment variable usage
- * - extractCryptoPatterns() - Cryptographic API usage
- * - extractAuthPatterns() - Authentication/authorization patterns
- * - extractXSSVectors() - Cross-site scripting vectors
- * - extractInjectionPoints() - Injection vulnerability detection
+ * NORMALIZATION (2025-11-26 normalize-all-node-extractors):
+ * - extractCDKConstructs returns { cdk_constructs, cdk_construct_properties } (flat)
+ * - accepts import_specifiers parameter instead of nested imp.specifiers
  *
- * Current size: 100 lines (2025-01-24)
- * Growth policy: If exceeds 1,200 lines, split by vulnerability type
- * (e.g., injection_patterns.js, auth_patterns.js, data_flow_patterns.js)
+ * Current size: 1250 lines (2025-11-26)
+ * Growth policy: If exceeds 1,500 lines, split by vulnerability type
  */
 
 function extractORMQueries(functionCallArgs) {
@@ -136,22 +135,40 @@ function extractAPIEndpoints(functionCallArgs) {
         // STEP 5: Extract middleware chain (arguments 1 to N-1)
         // Pattern: router.post('/', middleware1, middleware2, controller)
         //   arg0: '/'           ← route path (processed above)
-        //   arg1: middleware1   ← execution_order = 1
-        //   arg2: middleware2   ← execution_order = 2
-        //   arg3: controller    ← execution_order = 3, handler_type = 'controller'
+        //   arg1: middleware1   ← execution_order = 0 (0-based for flow_resolver)
+        //   arg2: middleware2   ← execution_order = 1
+        //   arg3: controller    ← execution_order = 2, handler_type = 'controller'
         for (let i = 1; i < calls.length; i++) {
             const call = calls[i];
 
             // Determine handler type: last argument is controller, others are middleware
             const isController = i === calls.length - 1;
 
+            // Extract handler_function from handler_expr
+            // For "accountingController.exportData" -> "AccountingController.exportData" (capitalize class)
+            // For inline arrow functions -> null (can't resolve)
+            let handlerFunction = null;
+            const expr = call.argument_expr || '';
+            if (expr && !expr.includes('=>') && !expr.includes('function')) {
+                // It's a reference like "controller.method" or "methodName"
+                // Capitalize first letter of class name to match DFG format
+                if (expr.includes('.')) {
+                    const parts = expr.split('.');
+                    parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                    handlerFunction = parts.join('.');
+                } else {
+                    handlerFunction = expr;
+                }
+            }
+
             middlewareChains.push({
                 route_line: parseInt(line),
                 route_path: cleanRoute,
                 route_method: method.toUpperCase(),
-                execution_order: i,  // 1, 2, 3... (after route path at 0)
-                handler_expr: call.argument_expr || '',
-                handler_type: isController ? 'controller' : 'middleware'
+                execution_order: i - 1,  // 0-based: 0, 1, 2... (flow_resolver expects 0)
+                handler_expr: expr,
+                handler_type: isController ? 'controller' : 'middleware',
+                handler_function: handlerFunction
             });
         }
     }
@@ -379,8 +396,8 @@ function detectValidationFrameworks(imports, debugLog) {
     const detected = [];
 
     for (const imp of imports) {
-        // Support both module_ref (old format) and module/value (new format)
-        const moduleName = imp.module_ref || imp.module || imp.value || '';
+        // ZERO FALLBACK: Use imp.module directly (standard format after Phase 5)
+        const moduleName = imp.module || '';
         if (!moduleName) continue;
 
         for (const [framework, names] of Object.entries(VALIDATION_FRAMEWORKS)) {
@@ -717,17 +734,23 @@ function resolveSQLLiteral(argExpr) {
  * PURPOSE: Enable infrastructure-as-code security analysis for AWS CDK
  *
  * TEAMSOP.MD COMPLIANCE:
- * - NO FALLBACKS: If CDK imports not detected, return empty array (deterministic)
+ * - NO FALLBACKS: If CDK imports not detected, return empty arrays (deterministic)
  * - NO REGEX: Use AST data from core extractors only
  * - DATABASE-FIRST: Write to database, rules query database (never re-parse source)
  * - HARD FAILURE: Missing data causes crash (no graceful degradation)
  *
+ * NORMALIZATION (2025-11-26 normalize-all-node-extractors):
+ * Changed from nested output to flat junction arrays for direct database insertion.
+ * Returns: { cdk_constructs, cdk_construct_properties }
+ *
  * @param {Array} functionCallArgs - From extractFunctionCallArgs()
  * @param {Array} imports - From extractImports()
- * @returns {Array} - CDK construct records
+ * @param {Array} import_specifiers - From extractImports() junction array
+ * @returns {Object} - { cdk_constructs, cdk_construct_properties }
  */
-function extractCDKConstructs(functionCallArgs, imports) {
-    const constructs = [];
+function extractCDKConstructs(functionCallArgs, imports, import_specifiers) {
+    const cdk_constructs = [];
+    const cdk_construct_properties = [];
 
     // Debug logging helper
     const debugLog = (msg, data) => {
@@ -754,10 +777,19 @@ function extractCDKConstructs(functionCallArgs, imports) {
 
     if (cdkImports.length === 0) {
         debugLog('No CDK imports found, skipping extraction (DETERMINISTIC)');
-        return [];  // No CDK imports = no CDK constructs (deterministic, not a fallback)
+        return { cdk_constructs: [], cdk_construct_properties: [] };  // No CDK imports = no CDK constructs
     }
 
-    // Step 2: Build map of CDK module aliases
+    // Step 2: Build lookup from flat import_specifiers junction array (Phase 5 normalization)
+    const specifiersByLine = new Map();
+    for (const spec of (import_specifiers || [])) {
+        if (!specifiersByLine.has(spec.import_line)) {
+            specifiersByLine.set(spec.import_line, []);
+        }
+        specifiersByLine.get(spec.import_line).push(spec);
+    }
+
+    // Step 3: Build map of CDK module aliases
     // Example: import * as s3 from 'aws-cdk-lib/aws-s3' → {s3: 'aws-s3'}
     // Example: import { Bucket } from 'aws-cdk-lib/aws-s3' → {Bucket: 'aws-s3'}
     const cdkAliases = {};
@@ -767,28 +799,27 @@ function extractCDKConstructs(functionCallArgs, imports) {
         // Extract service name from module path: 'aws-cdk-lib/aws-s3' → 'aws-s3'
         const serviceName = module.includes('/') ? module.split('/').pop() : null;
 
-        // Process specifiers array from extractImports()
-        if (imp.specifiers && imp.specifiers.length > 0) {
-            for (const spec of imp.specifiers) {
-                const name = spec.name;
+        // Get specifiers for this import from flat junction array
+        const specifiers = specifiersByLine.get(imp.line) || [];
+        for (const spec of specifiers) {
+            const name = spec.specifier_name;
 
-                // Handle namespace imports: import * as s3
-                if (spec.isNamespace) {
-                    cdkAliases[name] = serviceName;
-                    debugLog(`Mapped namespace import: ${name} → ${serviceName}`);
-                }
+            // Handle namespace imports: import * as s3
+            if (spec.is_namespace) {
+                cdkAliases[name] = serviceName;
+                debugLog(`Mapped namespace import: ${name} → ${serviceName}`);
+            }
 
-                // Handle named imports: import { Bucket }
-                else if (spec.isNamed) {
-                    cdkAliases[name] = serviceName;
-                    debugLog(`Mapped named import: ${name} → ${serviceName}`);
-                }
+            // Handle named imports: import { Bucket }
+            else if (spec.is_named) {
+                cdkAliases[name] = serviceName;
+                debugLog(`Mapped named import: ${name} → ${serviceName}`);
+            }
 
-                // Handle default imports: import cdk
-                else if (spec.isDefault) {
-                    cdkAliases[name] = serviceName;
-                    debugLog(`Mapped default import: ${name} → ${serviceName}`);
-                }
+            // Handle default imports: import cdk
+            else if (spec.is_default) {
+                cdkAliases[name] = serviceName;
+                debugLog(`Mapped default import: ${name} → ${serviceName}`);
             }
         }
     }
@@ -842,12 +873,23 @@ function extractCDKConstructs(functionCallArgs, imports) {
                 // Extract properties from object literal (typically third argument)
                 const properties = extractConstructProperties(call, functionCallArgs);
 
-                constructs.push({
+                // Add construct to flat array (ZERO FALLBACK: no nested properties)
+                cdk_constructs.push({
                     line: call.line,
                     cdk_class: className,  // e.g., 's3.Bucket'
-                    construct_name: constructName,
-                    properties: properties
+                    construct_name: constructName
                 });
+
+                // Flatten properties to separate junction array
+                for (const prop of properties) {
+                    cdk_construct_properties.push({
+                        construct_line: call.line,
+                        construct_class: className,
+                        property_name: prop.name,
+                        value_expr: prop.value_expr,
+                        property_line: prop.line
+                    });
+                }
 
                 debugLog(`Extracted CDK construct at line ${call.line}`, {
                     cdk_class: className,
@@ -864,12 +906,23 @@ function extractCDKConstructs(functionCallArgs, imports) {
                 const constructName = extractConstructName(call, functionCallArgs);
                 const properties = extractConstructProperties(call, functionCallArgs);
 
-                constructs.push({
+                // Add construct to flat array (ZERO FALLBACK: no nested properties)
+                cdk_constructs.push({
                     line: call.line,
                     cdk_class: constructClass,
-                    construct_name: constructName,
-                    properties: properties
+                    construct_name: constructName
                 });
+
+                // Flatten properties to separate junction array
+                for (const prop of properties) {
+                    cdk_construct_properties.push({
+                        construct_line: call.line,
+                        construct_class: constructClass,
+                        property_name: prop.name,
+                        value_expr: prop.value_expr,
+                        property_line: prop.line
+                    });
+                }
 
                 debugLog(`Extracted CDK construct at line ${call.line}`, {
                     cdk_class: constructClass,
@@ -880,8 +933,8 @@ function extractCDKConstructs(functionCallArgs, imports) {
         }
     }
 
-    debugLog(`Total CDK constructs extracted: ${constructs.length}`);
-    return constructs;
+    debugLog(`Total CDK constructs extracted: ${cdk_constructs.length}`);
+    return { cdk_constructs, cdk_construct_properties };
 }
 
 /**
