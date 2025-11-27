@@ -1516,31 +1516,31 @@ def _upgrade_pyproject_toml(
 
         pattern_pep621 = rf'"{escaped_package_name}(\[.*?\])?([><=~!]+)([^"]+)"'
 
-        def replacer_pep621(match):
+        def replacer_pep621(match, *, _pkg=package_name, _latest=latest_version):
             extras = match.group(1) or ""
             old_operator = match.group(2)
             old_version = match.group(3)
-            if old_version != latest_version:
-                if package_name not in updated_packages:
-                    updated_packages[package_name] = []
-                updated_packages[package_name].append((old_version, latest_version))
-                return f'"{package_name}{extras}{old_operator}{latest_version}"'
+            if old_version != _latest:
+                if _pkg not in updated_packages:
+                    updated_packages[_pkg] = []
+                updated_packages[_pkg].append((old_version, _latest))
+                return f'"{_pkg}{extras}{old_operator}{_latest}"'
             return match.group(0)
 
         pattern_poetry = (
             rf'(?:^|\n)"?{escaped_package_name}"?\s*=\s*["\']([><=~!^]*)([\d][^"\']*)["\']'
         )
 
-        def replacer_poetry(match):
+        def replacer_poetry(match, *, _pkg=package_name, _latest=latest_version):
             old_operator = match.group(1) or ""
             old_version = match.group(2)
-            if old_version != latest_version:
-                if package_name not in updated_packages:
-                    updated_packages[package_name] = []
-                updated_packages[package_name].append((old_version, latest_version))
+            if old_version != _latest:
+                if _pkg not in updated_packages:
+                    updated_packages[_pkg] = []
+                updated_packages[_pkg].append((old_version, _latest))
 
                 quote_char = '"'
-                return f"{package_name} = {quote_char}{old_operator}{latest_version}{quote_char}"
+                return f"{_pkg} = {quote_char}{old_operator}{_latest}{quote_char}"
             return match.group(0)
 
         new_content = re.sub(pattern_pep621, replacer_pep621, content)

@@ -129,7 +129,13 @@ def extract_python_functions(context: FileContext) -> list[dict]:
 
         parameter_entries: list[dict[str, Any]] = []
 
-        def _register_param(arg: ast.arg, kind: str) -> None:
+        def _register_param(
+            arg: ast.arg,
+            kind: str,
+            *,
+            _entries=parameter_entries,
+            _node=node,
+        ) -> None:
             if not isinstance(arg, ast.arg):
                 return
 
@@ -141,11 +147,11 @@ def extract_python_functions(context: FileContext) -> list[dict]:
                 getattr(arg, "annotation", None), annotation_text
             )
 
-            parameter_entries.append(
+            _entries.append(
                 {
                     "name": arg.arg,
                     "kind": kind,
-                    "line": getattr(arg, "lineno", node.lineno),
+                    "line": getattr(arg, "lineno", _node.lineno),
                     "col": getattr(arg, "col_offset", 0),
                     "type_annotation": annotation_text,
                     "is_any": annotation_text in {"Any", "typing.Any"}
