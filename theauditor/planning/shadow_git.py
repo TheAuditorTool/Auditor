@@ -51,7 +51,6 @@ class ShadowRepoManager:
         NO FALLBACKS. Raises on any error.
         """
         if not self.repo_path.exists():
-            # bare=True: No working tree, just object database
             return pygit2.init_repository(str(self.repo_path), bare=True)
         return pygit2.Repository(str(self.repo_path))
 
@@ -80,7 +79,7 @@ class ShadowRepoManager:
         NO FALLBACKS. pygit2 errors cause hard failure.
         Missing files are warned and skipped (may have been deleted).
         """
-        # Create an in-memory index for the shadow repo
+
         index = pygit2.Index()
 
         files_added = []
@@ -88,53 +87,33 @@ class ShadowRepoManager:
         for rel_path in file_paths:
             full_path = project_root / rel_path
             if not full_path.exists():
-                # File may have been deleted - track for warning
                 skipped_files.append(rel_path)
                 continue
 
-            # Create blob from file content directly
             blob_id = self._repo.create_blob_fromdisk(str(full_path))
 
-            # Add blob to our in-memory index
-            # 33188 = 0o100644 (standard rw-r--r-- file mode)
             index.add(pygit2.IndexEntry(rel_path, blob_id, 33188))
             files_added.append(rel_path)
 
-        # Warn about skipped files (visible to user, not silent)
         if skipped_files:
             warnings.warn(
                 f"Skipped {len(skipped_files)} missing file(s): {', '.join(skipped_files[:5])}"
-                + (f" (+{len(skipped_files)-5} more)" if len(skipped_files) > 5 else ""),
+                + (f" (+{len(skipped_files) - 5} more)" if len(skipped_files) > 5 else ""),
                 UserWarning,
                 stacklevel=2,
             )
 
-        # Write the tree object from our in-memory index
         tree_id = index.write_tree(self._repo)
 
-        # Determine parent commit (if shadow repo has history)
         parents = []
         if not self._repo.is_empty:
             parents = [self._repo.head.target]
 
-        # Create signature for commits
         author = pygit2.Signature(
-            "TheAuditor",
-            "internal@auditor.local",
-            int(datetime.now(UTC).timestamp()),
-            0  # UTC offset
+            "TheAuditor", "internal@auditor.local", int(datetime.now(UTC).timestamp()), 0
         )
 
-        # Create the commit in shadow repo
-        # Updates HEAD in shadow repo to maintain history chain
-        commit_oid = self._repo.create_commit(
-            "HEAD",         # Update shadow HEAD
-            author,         # Author
-            author,         # Committer
-            message,        # Commit message
-            tree_id,        # Root tree
-            parents         # Parent commits
-        )
+        commit_oid = self._repo.create_commit("HEAD", author, author, message, tree_id, parents)
 
         return str(commit_oid)
 
@@ -157,10 +136,9 @@ class ShadowRepoManager:
         if old_sha:
             old_commit = self._repo.get(old_sha)
             old_tree = old_commit.tree
-            # Diff tree-to-tree
+
             diff = self._repo.diff(old_tree, new_tree)
         else:
-            # First commit - diff against empty tree
             diff = new_tree.diff_to_tree(swap=True)
 
         return diff.patch or ""
@@ -206,17 +184,16 @@ class ShadowRepoManager:
             if len(snapshots) >= limit:
                 break
 
-            # Get file list from tree
             files = [entry.name for entry in commit.tree]
 
-            snapshots.append({
-                "sha": str(commit.id),
-                "message": commit.message.strip(),
-                "timestamp": datetime.fromtimestamp(
-                    commit.commit_time, UTC
-                ).isoformat(),
-                "files": files,
-            })
+            snapshots.append(
+                {
+                    "sha": str(commit.id),
+                    "message": commit.message.strip(),
+                    "timestamp": datetime.fromtimestamp(commit.commit_time, UTC).isoformat(),
+                    "files": files,
+                }
+            )
 
         return snapshots
 

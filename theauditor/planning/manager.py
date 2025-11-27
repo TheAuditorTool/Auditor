@@ -38,14 +38,13 @@ class PlanningManager:
         """
         if not db_path.exists():
             raise FileNotFoundError(
-                f"Planning database not found: {db_path}\n"
-                "Run 'aud planning init' first."
+                f"Planning database not found: {db_path}\nRun 'aud planning init' first."
             )
 
         self.db_path = db_path
         self.conn = sqlite3.connect(str(db_path))
-        self.conn.row_factory = sqlite3.Row  # Enable dict-like access
-        self._ensure_schema_compliance()  # Self-healing migration
+        self.conn.row_factory = sqlite3.Row
+        self._ensure_schema_compliance()
 
     @classmethod
     def init_database(cls, db_path: Path) -> "PlanningManager":
@@ -60,18 +59,16 @@ class PlanningManager:
         Returns:
             PlanningManager instance
         """
-        # Create database file if missing
+
         conn = sqlite3.connect(str(db_path))
         conn.close()
 
-        # Create manager instance (now file exists)
         manager = cls.__new__(cls)
         manager.db_path = db_path
         manager.conn = sqlite3.connect(str(db_path))
         manager.conn.row_factory = sqlite3.Row
         manager.create_schema()
 
-        # Initialize shadow git repository for snapshots
         ShadowRepoManager(db_path.parent)
 
         return manager
@@ -83,7 +80,15 @@ class PlanningManager:
         """
         cursor = self.conn.cursor()
 
-        planning_tables = ["plans", "plan_tasks", "plan_specs", "code_snapshots", "code_diffs", "plan_phases", "plan_jobs"]
+        planning_tables = [
+            "plans",
+            "plan_tasks",
+            "plan_specs",
+            "code_snapshots",
+            "code_diffs",
+            "plan_phases",
+            "plan_jobs",
+        ]
 
         for table_name in planning_tables:
             if table_name not in TABLES:
@@ -91,11 +96,9 @@ class PlanningManager:
 
             schema = TABLES[table_name]
 
-            # Create table
             create_sql = schema.create_table_sql()
             cursor.execute(create_sql)
 
-            # Create indexes
             for index_sql in schema.create_indexes_sql():
                 cursor.execute(index_sql)
 
@@ -112,12 +115,10 @@ class PlanningManager:
         """
         cursor = self.conn.cursor()
 
-        # Get list of columns currently in code_snapshots table
         cursor.execute("PRAGMA table_info(code_snapshots)")
-        existing_cols = {row['name'] for row in cursor.fetchall()}
+        existing_cols = {row["name"] for row in cursor.fetchall()}
 
-        # Migration: Add shadow_sha column if missing (v1.6.5+)
-        if 'shadow_sha' not in existing_cols:
+        if "shadow_sha" not in existing_cols:
             cursor.execute("ALTER TABLE code_snapshots ADD COLUMN shadow_sha TEXT")
             self.conn.commit()
 
@@ -138,14 +139,24 @@ class PlanningManager:
         cursor.execute(
             """INSERT INTO plans (name, description, created_at, status, metadata_json)
                VALUES (?, ?, ?, 'active', ?)""",
-            (name, description, datetime.now(UTC).isoformat(),
-             json.dumps(metadata) if metadata else "{}")
+            (
+                name,
+                description,
+                datetime.now(UTC).isoformat(),
+                json.dumps(metadata) if metadata else "{}",
+            ),
         )
         self.conn.commit()
         return cursor.lastrowid
 
-    def add_task(self, plan_id: int, title: str, description: str = "",
-                 spec_yaml: str = None, assigned_to: str = None) -> int:
+    def add_task(
+        self,
+        plan_id: int,
+        title: str,
+        description: str = "",
+        spec_yaml: str = None,
+        assigned_to: str = None,
+    ) -> int:
         """Add task to plan and return task ID.
 
         Args:
@@ -162,26 +173,27 @@ class PlanningManager:
         """
         cursor = self.conn.cursor()
 
-        # Get next task number for this plan
-        cursor.execute(
-            "SELECT MAX(task_number) FROM plan_tasks WHERE plan_id = ?",
-            (plan_id,)
-        )
+        cursor.execute("SELECT MAX(task_number) FROM plan_tasks WHERE plan_id = ?", (plan_id,))
         max_task_num = cursor.fetchone()[0]
         task_number = (max_task_num or 0) + 1
 
-        # Insert spec if provided
         spec_id = None
         if spec_yaml:
             spec_id = self._insert_spec(plan_id, spec_yaml)
 
-        # Insert task
         cursor.execute(
             """INSERT INTO plan_tasks
                (plan_id, task_number, title, description, status, assigned_to, spec_id, created_at)
                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
-            (plan_id, task_number, title, description, assigned_to, spec_id,
-             datetime.now(UTC).isoformat())
+            (
+                plan_id,
+                task_number,
+                title,
+                description,
+                assigned_to,
+                spec_id,
+                datetime.now(UTC).isoformat(),
+            ),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -203,7 +215,7 @@ class PlanningManager:
 
         cursor.execute(
             "UPDATE plan_tasks SET status = ?, completed_at = ? WHERE id = ?",
-            (status, completed_at, task_id)
+            (status, completed_at, task_id),
         )
         self.conn.commit()
 
@@ -224,10 +236,10 @@ class PlanningManager:
                FROM plan_tasks pt
                JOIN plan_specs ps ON pt.spec_id = ps.id
                WHERE pt.id = ?""",
-            (task_id,)
+            (task_id,),
         )
         row = cursor.fetchone()
-        return row['spec_yaml'] if row else None
+        return row["spec_yaml"] if row else None
 
     def get_plan(self, plan_id: int) -> dict | None:
         """Get plan by ID.
@@ -258,12 +270,11 @@ class PlanningManager:
         if status_filter:
             cursor.execute(
                 "SELECT * FROM plan_tasks WHERE plan_id = ? AND status = ? ORDER BY task_number",
-                (plan_id, status_filter)
+                (plan_id, status_filter),
             )
         else:
             cursor.execute(
-                "SELECT * FROM plan_tasks WHERE plan_id = ? ORDER BY task_number",
-                (plan_id,)
+                "SELECT * FROM plan_tasks WHERE plan_id = ? ORDER BY task_number", (plan_id,)
             )
 
         return [dict(row) for row in cursor.fetchall()]
@@ -296,7 +307,7 @@ class PlanningManager:
 
         NO FALLBACKS. Raises on any error.
         """
-        # 1. Create snapshot in shadow git repo (efficient, binary-safe)
+
         shadow = ShadowRepoManager(self.db_path.parent)
         shadow_sha = shadow.create_snapshot(
             project_root,
@@ -304,11 +315,9 @@ class PlanningManager:
             f"Snapshot: {checkpoint_name}",
         )
 
-        # 2. Store metadata in SQLite with atomic sequence assignment
         cursor = self.conn.cursor()
-        cursor.execute("BEGIN IMMEDIATE")  # Lock to prevent race condition
+        cursor.execute("BEGIN IMMEDIATE")
 
-        # Calculate sequence atomically within transaction
         sequence = None
         if task_id is not None:
             cursor.execute(
@@ -353,14 +362,21 @@ class PlanningManager:
             """INSERT INTO code_snapshots
                (plan_id, task_id, checkpoint_name, timestamp, git_ref, files_json)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (plan_id, task_id, checkpoint_name, datetime.now(UTC).isoformat(),
-             git_ref, files_json or "[]"),
+            (
+                plan_id,
+                task_id,
+                checkpoint_name,
+                datetime.now(UTC).isoformat(),
+                git_ref,
+                files_json or "[]",
+            ),
         )
         self.conn.commit()
         return cursor.lastrowid
 
-    def add_diff(self, snapshot_id: int, file_path: str, diff_text: str,
-                 added_lines: int, removed_lines: int) -> int:
+    def add_diff(
+        self, snapshot_id: int, file_path: str, diff_text: str, added_lines: int, removed_lines: int
+    ) -> int:
         """Add diff to snapshot.
 
         Args:
@@ -378,7 +394,7 @@ class PlanningManager:
             """INSERT INTO code_diffs
                (snapshot_id, file_path, diff_text, added_lines, removed_lines)
                VALUES (?, ?, ?, ?, ?)""",
-            (snapshot_id, file_path, diff_text, added_lines, removed_lines)
+            (snapshot_id, file_path, diff_text, added_lines, removed_lines),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -404,15 +420,13 @@ class PlanningManager:
 
         result = dict(snapshot)
 
-        # New path: Get diff from shadow git if available
-        shadow_sha = result.get('shadow_sha')
+        shadow_sha = result.get("shadow_sha")
         if shadow_sha:
-            result['diff_text'] = self.get_snapshot_diff(snapshot_id)
-            result['diffs'] = []  # No legacy diffs for shadow snapshots
+            result["diff_text"] = self.get_snapshot_diff(snapshot_id)
+            result["diffs"] = []
         else:
-            # Legacy path: Get diffs from code_diffs table
             cursor.execute("SELECT * FROM code_diffs WHERE snapshot_id = ?", (snapshot_id,))
-            result['diffs'] = [dict(row) for row in cursor.fetchall()]
+            result["diffs"] = [dict(row) for row in cursor.fetchall()]
 
         return result
 
@@ -438,13 +452,12 @@ class PlanningManager:
         if not row:
             raise ValueError(f"Snapshot {snapshot_id} not found")
 
-        shadow_sha = row['shadow_sha']
+        shadow_sha = row["shadow_sha"]
         if not shadow_sha:
             raise ValueError(f"Snapshot {snapshot_id} has no shadow_sha (legacy snapshot)")
 
-        # Find previous snapshot's SHA for diff
-        task_id = row['task_id']
-        sequence = row['sequence']
+        task_id = row["task_id"]
+        sequence = row["sequence"]
         old_sha = None
 
         if task_id and sequence and sequence > 1:
@@ -455,9 +468,8 @@ class PlanningManager:
             )
             prev_row = cursor.fetchone()
             if prev_row:
-                old_sha = prev_row['shadow_sha']
+                old_sha = prev_row["shadow_sha"]
 
-        # Get diff from shadow repo
         shadow = ShadowRepoManager(self.db_path.parent)
         return shadow.get_diff(old_sha, shadow_sha)
 
@@ -468,10 +480,7 @@ class PlanningManager:
             plan_id: ID of plan to archive
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE plans SET status = 'archived' WHERE id = ?",
-            (plan_id,)
-        )
+        cursor.execute("UPDATE plans SET status = 'archived' WHERE id = ?", (plan_id,))
         self.conn.commit()
 
     def get_task_number(self, task_id: int) -> int | None:
@@ -486,7 +495,7 @@ class PlanningManager:
         cursor = self.conn.cursor()
         cursor.execute("SELECT task_number FROM plan_tasks WHERE id = ?", (task_id,))
         row = cursor.fetchone()
-        return row['task_number'] if row else None
+        return row["task_number"] if row else None
 
     def get_task_id(self, plan_id: int, task_number: int) -> int | None:
         """Get task_id from plan_id and task_number.
@@ -501,10 +510,10 @@ class PlanningManager:
         cursor = self.conn.cursor()
         cursor.execute(
             "SELECT id FROM plan_tasks WHERE plan_id = ? AND task_number = ?",
-            (plan_id, task_number)
+            (plan_id, task_number),
         )
         row = cursor.fetchone()
-        return row['id'] if row else None
+        return row["id"] if row else None
 
     def update_task_assignee(self, task_id: int, assigned_to: str):
         """Update task assignee.
@@ -514,10 +523,7 @@ class PlanningManager:
             assigned_to: New assignee name
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE plan_tasks SET assigned_to = ? WHERE id = ?",
-            (assigned_to, task_id)
-        )
+        cursor.execute("UPDATE plan_tasks SET assigned_to = ? WHERE id = ?", (assigned_to, task_id))
         self.conn.commit()
 
     def update_plan_status(self, plan_id: int, status: str, metadata_json: str = None):
@@ -532,13 +538,10 @@ class PlanningManager:
         if metadata_json:
             cursor.execute(
                 "UPDATE plans SET status = ?, metadata_json = ? WHERE id = ?",
-                (status, metadata_json, plan_id)
+                (status, metadata_json, plan_id),
             )
         else:
-            cursor.execute(
-                "UPDATE plans SET status = ? WHERE id = ?",
-                (status, plan_id)
-            )
+            cursor.execute("UPDATE plans SET status = ? WHERE id = ?", (status, plan_id))
         self.conn.commit()
 
     def _insert_spec(self, plan_id: int, spec_yaml: str, spec_type: str = None) -> int:
@@ -556,13 +559,20 @@ class PlanningManager:
         cursor.execute(
             """INSERT INTO plan_specs (plan_id, spec_yaml, spec_type, created_at)
                VALUES (?, ?, ?, ?)""",
-            (plan_id, spec_yaml, spec_type, datetime.now(UTC).isoformat())
+            (plan_id, spec_yaml, spec_type, datetime.now(UTC).isoformat()),
         )
         return cursor.lastrowid
 
-    def add_plan_phase(self, plan_id: int, phase_number: int, title: str,
-                      description: str = None, success_criteria: str = None,
-                      status: str = 'pending', created_at: str = ''):
+    def add_plan_phase(
+        self,
+        plan_id: int,
+        phase_number: int,
+        title: str,
+        description: str = None,
+        success_criteria: str = None,
+        status: str = "pending",
+        created_at: str = "",
+    ):
         """Add a phase to a plan (hierarchical planning structure).
 
         Args:
@@ -581,13 +591,26 @@ class PlanningManager:
             """INSERT INTO plan_phases
                (plan_id, phase_number, title, description, success_criteria, status, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (plan_id, phase_number, title, description, success_criteria, status,
-             created_at if created_at else datetime.now(UTC).isoformat())
+            (
+                plan_id,
+                phase_number,
+                title,
+                description,
+                success_criteria,
+                status,
+                created_at if created_at else datetime.now(UTC).isoformat(),
+            ),
         )
-        # Note: commit() must be called separately by caller
 
-    def add_plan_job(self, task_id: int, job_number: int, description: str,
-                    completed: int = 0, is_audit_job: int = 0, created_at: str = ''):
+    def add_plan_job(
+        self,
+        task_id: int,
+        job_number: int,
+        description: str,
+        completed: int = 0,
+        is_audit_job: int = 0,
+        created_at: str = "",
+    ):
         """Add a job (checkbox item) to a task (hierarchical task breakdown).
 
         Args:
@@ -605,10 +628,15 @@ class PlanningManager:
             """INSERT INTO plan_jobs
                (task_id, job_number, description, completed, is_audit_job, created_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (task_id, job_number, description, completed, is_audit_job,
-             created_at if created_at else datetime.now(UTC).isoformat())
+            (
+                task_id,
+                job_number,
+                description,
+                completed,
+                is_audit_job,
+                created_at if created_at else datetime.now(UTC).isoformat(),
+            ),
         )
-        # Note: commit() must be called separately by caller
 
     def commit(self):
         """Commit pending transactions."""

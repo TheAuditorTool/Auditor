@@ -33,23 +33,22 @@ See also:
 - ast_extractors/*_impl.py - IMPLEMENTATION layer (returns line numbers only)
 """
 
-# Core orchestrator
 from .orchestrator import IndexerOrchestrator
 
-# Core components
+
 from .core import FileWalker
 from ..cache.ast_cache import ASTCache
 from .database import DatabaseManager
 from .extractors import ExtractorRegistry
 
-# Clean entry point (replaces deprecated indexer_compat.build_index)
+
 from .runner import run_repository_index
 
 __all__ = [
-    'IndexerOrchestrator',
-    'FileWalker',
-    'DatabaseManager',
-    'ASTCache',
-    'ExtractorRegistry',
-    'run_repository_index',
+    "IndexerOrchestrator",
+    "FileWalker",
+    "DatabaseManager",
+    "ASTCache",
+    "ExtractorRegistry",
+    "run_repository_index",
 ]

@@ -13,23 +13,15 @@ Module Type: Utility Package
 Usage: from theauditor.rules.common.util import calculate_entropy
 """
 
-# Export all public utility functions for easy import
 from theauditor.rules.common.util import (
-    # Entropy calculation
     calculate_entropy,
     EntropyCalculator,
     EntropyLevel,
-
-    # Pattern detection
     is_sequential,
     is_keyboard_walk,
     PatternDetector,
-
-    # Encoding validation
     decode_and_verify_base64,
     Base64Validator,
-
-    # Configuration
     PatternConfig,
     KeyboardPatterns,
     PATTERN_CONFIG,
@@ -37,21 +29,16 @@ from theauditor.rules.common.util import (
 )
 
 __all__ = [
-    # Functions (backward compatibility API)
-    'calculate_entropy',
-    'is_sequential',
-    'is_keyboard_walk',
-    'decode_and_verify_base64',
-
-    # Classes (modern API)
-    'EntropyCalculator',
-    'EntropyLevel',
-    'PatternDetector',
-    'Base64Validator',
-
-    # Configuration
-    'PatternConfig',
-    'KeyboardPatterns',
-    'PATTERN_CONFIG',
-    'KEYBOARD_CONFIG',
+    "calculate_entropy",
+    "is_sequential",
+    "is_keyboard_walk",
+    "decode_and_verify_base64",
+    "EntropyCalculator",
+    "EntropyLevel",
+    "PatternDetector",
+    "Base64Validator",
+    "PatternConfig",
+    "KeyboardPatterns",
+    "PATTERN_CONFIG",
+    "KEYBOARD_CONFIG",
 ]

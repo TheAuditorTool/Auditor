@@ -82,48 +82,21 @@ RULE METADATA: JSX-specific with framework detection
 ================================================================================
 """
 
-
 import sqlite3
 from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-# ============================================================================
-# RULE METADATA - JSX-SPECIFIC CONFIGURATION
-# ============================================================================
-# CRITICAL: requires_jsx_pass=True tells orchestrator to:
-# 1. Only run this rule on .jsx/.tsx/.vue files
-# 2. Query *_jsx tables (not standard tables)
-# 3. Skip this rule on backend files
-# ============================================================================
-
 METADATA = RuleMetadata(
-    name="your_jsx_rule_name",  # Change this: snake_case identifier
-    category="react",            # Change this: react, vue, xss, etc.
-
-    # JSX-specific settings (CRITICAL)
-    requires_jsx_pass=True,      # ✅ This rule NEEDS preserved JSX
-    jsx_pass_mode='preserved',   # Always 'preserved' for JSX rules
-
-    # Target file extensions - ONLY JSX/TSX/VUE
-    target_extensions=['.jsx', '.tsx', '.vue'],
-
-    # Optional: Target specific directories (frontend only)
-    target_file_patterns=['frontend/', 'client/', 'src/components/', 'app/'],
-
-    # Exclude patterns (even within frontend)
-    exclude_patterns=[
-        '__tests__/',     # Skip test files
-        '*.test.jsx',     # Skip test files
-        '*.stories.jsx',  # Skip Storybook files
-        'node_modules/'   # Skip dependencies
-    ]
+    name="your_jsx_rule_name",
+    category="react",
+    requires_jsx_pass=True,
+    jsx_pass_mode="preserved",
+    target_extensions=[".jsx", ".tsx", ".vue"],
+    target_file_patterns=["frontend/", "client/", "src/components/", "app/"],
+    exclude_patterns=["__tests__/", "*.test.jsx", "*.stories.jsx", "node_modules/"],
 )
 
-
-# ============================================================================
-# PATTERN DEFINITIONS - JSX-SPECIFIC PATTERNS
-# ============================================================================
 
 @dataclass(frozen=True)
 class JSXSecurityPatterns:
@@ -133,50 +106,30 @@ class JSXSecurityPatterns:
     when JSX is transformed to React.createElement() calls.
     """
 
-    # Dangerous JSX props (React-specific)
-    DANGEROUS_PROPS: frozenset = frozenset([
-        'dangerouslySetInnerHTML',
-        'href',       # javascript: URLs
-        'src',        # javascript: URLs
-        'formAction', # javascript: URLs
-        'srcdoc'      # iframe inline HTML
-    ])
+    DANGEROUS_PROPS: frozenset = frozenset(
+        ["dangerouslySetInnerHTML", "href", "src", "formAction", "srcdoc"]
+    )
 
-    # User input sources in React components
-    REACT_INPUT_SOURCES: frozenset = frozenset([
-        'props.',           # Component props (user-controlled)
-        'this.props.',      # Class component props
-        'location.search',  # URL query params
-        'location.hash',    # URL hash
-        'match.params',     # React Router params
-        'searchParams.',    # Next.js search params
-        'localStorage.',    # Browser storage
-        'sessionStorage.',
-        'document.cookie',
-        'window.name',
-        'ref.current.value' # Form inputs
-    ])
+    REACT_INPUT_SOURCES: frozenset = frozenset(
+        [
+            "props.",
+            "this.props.",
+            "location.search",
+            "location.hash",
+            "match.params",
+            "searchParams.",
+            "localStorage.",
+            "sessionStorage.",
+            "document.cookie",
+            "window.name",
+            "ref.current.value",
+        ]
+    )
 
-    # Safe React methods (auto-escaped)
-    SAFE_METHODS: frozenset = frozenset([
-        'React.createElement',
-        'jsx', 'jsxs', 'jsxDEV'  # New JSX runtime
-    ])
+    SAFE_METHODS: frozenset = frozenset(["React.createElement", "jsx", "jsxs", "jsxDEV"])
 
-    # Vue-specific dangerous patterns
-    VUE_DANGEROUS_DIRECTIVES: frozenset = frozenset([
-        'v-html',     # Renders raw HTML
-        'v-bind:href', # Can bind javascript: URLs
-        'v-bind:src'
-    ])
+    VUE_DANGEROUS_DIRECTIVES: frozenset = frozenset(["v-html", "v-bind:href", "v-bind:src"])
 
-
-# ============================================================================
-# MAIN DETECTION FUNCTION - JSX-SPECIFIC
-# ============================================================================
-# This queries *_jsx tables, NOT standard tables.
-# Function name MUST start with 'find_' (orchestrator requirement).
-# ============================================================================
 
 def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect JSX-specific security issues using preserved JSX data.
@@ -214,18 +167,13 @@ def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFi
     conn = sqlite3.connect(context.db_path)
 
     try:
-        # Check if this is a React/Vue app
         if not _is_react_or_vue_app(conn):
-            return findings  # Skip if not React/Vue
+            return findings
 
-        # NO TABLE CHECKS - Database MUST have JSX tables (ZERO FALLBACK POLICY)
-        # If JSX tables missing, database is wrong and SHOULD crash
-        # Run JSX-specific detection
         findings.extend(_check_jsx_element_injection(conn, patterns))
         findings.extend(_check_jsx_attribute_injection(conn, patterns))
         findings.extend(_check_dangerous_jsx_props(conn, patterns))
 
-        # Vue-specific checks
         if _is_vue_app(conn):
             findings.extend(_check_vue_v_html(conn, patterns))
 
@@ -234,12 +182,6 @@ def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFi
 
     return findings
 
-
-# ============================================================================
-# JSX-SPECIFIC DETECTION FUNCTIONS
-# ============================================================================
-# These query *_jsx tables to access preserved JSX syntax.
-# ============================================================================
 
 def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Detect dynamic JSX element injection: <{UserComponent} />
@@ -250,7 +192,6 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
     findings = []
     cursor = conn.cursor()
 
-    # Query symbols_jsx for JSX elements (preserved syntax)
     cursor.execute("""
         SELECT path, name, line, jsx_mode
         FROM symbols_jsx
@@ -261,22 +202,20 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
     """)
 
     for file, element_name, line, jsx_mode in cursor.fetchall():
-        # Filter in Python: Check if element name contains dynamic variable
-        if '{' not in element_name:
+        if "{" not in element_name:
             continue
 
-        # Check if element name is dynamic (contains variable)
-        if '{' in element_name and '}' in element_name:
-            # Extract variable name
+        if "{" in element_name and "}" in element_name:
             import re
-            var_match = re.search(r'\{(\w+)\}', element_name)
+
+            var_match = re.search(r"\{(\w+)\}", element_name)
             if not var_match:
                 continue
 
             var_name = var_match.group(1)
 
-            # Check if variable comes from user input
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT source_expr
                 FROM assignments_jsx
                 WHERE file = ?
@@ -285,7 +224,9 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
                   AND line < ?
                 ORDER BY line DESC
                 LIMIT 1
-            """, [file, var_name, line])
+            """,
+                [file, var_name, line],
+            )
 
             assignment = cursor.fetchone()
             if not assignment:
@@ -295,16 +236,18 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
             has_user_input = any(src in source_expr for src in patterns.REACT_INPUT_SOURCES)
 
             if has_user_input:
-                findings.append(StandardFinding(
-                    file_path=file,           # ✅ CORRECT: file_path= not file=
-                    line=line,
-                    rule_name='jsx-element-injection',  # ✅ CORRECT: rule_name= not rule=
-                    message=f'Dynamic JSX element from user input: <{{{var_name}}} />',
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=f'<{element_name} /> with {var_name} from props',
-                    cwe_id='CWE-79'
-                ))
+                findings.append(
+                    StandardFinding(
+                        file_path=file,
+                        line=line,
+                        rule_name="jsx-element-injection",
+                        message=f"Dynamic JSX element from user input: <{{{var_name}}} />",
+                        severity=Severity.CRITICAL,
+                        category="xss",
+                        snippet=f"<{element_name} /> with {var_name} from props",
+                        cwe_id="CWE-79",
+                    )
+                )
 
     return findings
 
@@ -317,7 +260,6 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> list[
     findings = []
     cursor = conn.cursor()
 
-    # Query for JSX elements with spread attributes
     cursor.execute("""
         SELECT path, name, line
         FROM symbols_jsx
@@ -328,33 +270,33 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> list[
     """)
 
     for file, element_name, line in cursor.fetchall():
-        # Filter in Python: Check for spread operator
-        if '...' not in element_name:
+        if "..." not in element_name:
             continue
 
-        if '...' in element_name:
-            # Extract spread variable name
+        if "..." in element_name:
             import re
-            spread_match = re.search(r'\.\.\.\s*(\w+)', element_name)
+
+            spread_match = re.search(r"\.\.\.\s*(\w+)", element_name)
             if not spread_match:
                 continue
 
             spread_var = spread_match.group(1)
 
-            # Check if spread variable is from user input
             has_user_input = any(src in spread_var for src in patterns.REACT_INPUT_SOURCES)
 
-            if has_user_input or spread_var.startswith('props'):
-                findings.append(StandardFinding(
-                    file_path=file,           # ✅ CORRECT: file_path= not file=
-                    line=line,
-                    rule_name='jsx-spread-injection',  # ✅ CORRECT: rule_name= not rule=
-                    message=f'JSX spread operator with user-controlled object: {{...{spread_var}}}',
-                    severity=Severity.HIGH,
-                    category='xss',
-                    snippet=f'<element {{...{spread_var}}} />',
-                    cwe_id='CWE-79'
-                ))
+            if has_user_input or spread_var.startswith("props"):
+                findings.append(
+                    StandardFinding(
+                        file_path=file,
+                        line=line,
+                        rule_name="jsx-spread-injection",
+                        message=f"JSX spread operator with user-controlled object: {{...{spread_var}}}",
+                        severity=Severity.HIGH,
+                        category="xss",
+                        snippet=f"<element {{...{spread_var}}} />",
+                        cwe_id="CWE-79",
+                    )
+                )
 
     return findings
 
@@ -364,7 +306,6 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> list[Stan
     findings = []
     cursor = conn.cursor()
 
-    # Query assignments_jsx for dangerous prop assignments
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments_jsx
@@ -374,26 +315,26 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> list[Stan
     """)
 
     for file, line, target, source in cursor.fetchall():
-        # Filter in Python: Check for dangerous prop patterns
-        if 'dangerouslySetInnerHTML' not in target and '__html' not in target:
+        if "dangerouslySetInnerHTML" not in target and "__html" not in target:
             continue
-        # Check for user input in source
+
         has_user_input = any(src in source for src in patterns.REACT_INPUT_SOURCES)
 
-        # Check for sanitization
-        has_sanitizer = 'DOMPurify' in source or 'sanitize' in source.lower()
+        has_sanitizer = "DOMPurify" in source or "sanitize" in source.lower()
 
         if has_user_input and not has_sanitizer:
-            findings.append(StandardFinding(
-                file_path=file,           # ✅ CORRECT: file_path= not file=
-                line=line,
-                rule_name='jsx-dangerous-html',  # ✅ CORRECT: rule_name= not rule=
-                message='dangerouslySetInnerHTML with unsanitized user input',
-                severity=Severity.CRITICAL,
-                category='xss',
-                snippet=source[:80],
-                cwe_id='CWE-79'
-            ))
+            findings.append(
+                StandardFinding(
+                    file_path=file,
+                    line=line,
+                    rule_name="jsx-dangerous-html",
+                    message="dangerouslySetInnerHTML with unsanitized user input",
+                    severity=Severity.CRITICAL,
+                    category="xss",
+                    snippet=source[:80],
+                    cwe_id="CWE-79",
+                )
+            )
 
     return findings
 
@@ -403,7 +344,6 @@ def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> list[StandardFindi
     findings = []
     cursor = conn.cursor()
 
-    # Query vue_directives table
     cursor.execute("""
         SELECT file, line, directive_name, value_expr
         FROM vue_directives
@@ -415,27 +355,24 @@ def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> list[StandardFindi
         if not value:
             continue
 
-        # Check for user input
         has_user_input = any(src in value for src in patterns.REACT_INPUT_SOURCES)
 
         if has_user_input:
-            findings.append(StandardFinding(
-                file_path=file,           # ✅ CORRECT: file_path= not file=
-                line=line,
-                rule_name='vue-v-html-xss',  # ✅ CORRECT: rule_name= not rule=
-                message='v-html directive with user input',
-                severity=Severity.CRITICAL,
-                category='xss',
-                snippet=f'v-html="{value[:60]}"',
-                cwe_id='CWE-79'
-            ))
+            findings.append(
+                StandardFinding(
+                    file_path=file,
+                    line=line,
+                    rule_name="vue-v-html-xss",
+                    message="v-html directive with user input",
+                    severity=Severity.CRITICAL,
+                    category="xss",
+                    snippet=f'v-html="{value[:60]}"',
+                    cwe_id="CWE-79",
+                )
+            )
 
     return findings
 
-
-# ============================================================================
-# FRAMEWORK DETECTION HELPERS
-# ============================================================================
 
 def _is_react_or_vue_app(conn) -> bool:
     """Check if this is a React or Vue application."""
@@ -446,7 +383,6 @@ def _is_react_app(conn) -> bool:
     """Check if this is a React application."""
     cursor = conn.cursor()
 
-    # Check frameworks table
     cursor.execute("""
         SELECT COUNT(*) FROM frameworks
         WHERE name IN ('react', 'React', 'react.js')
@@ -456,7 +392,6 @@ def _is_react_app(conn) -> bool:
     if cursor.fetchone()[0] > 0:
         return True
 
-    # Check react_components table
     cursor.execute("""
         SELECT COUNT(*) FROM react_components
         LIMIT 1
@@ -484,46 +419,3 @@ def _is_vue_app(conn) -> bool:
     """)
 
     return cursor.fetchone()[0] > 0
-
-
-# ============================================================================
-# TESTING YOUR JSX RULE
-# ============================================================================
-#
-# 1. Verify JSX tables exist:
-#    python -c "import sqlite3; conn = sqlite3.connect('plant/.pf/repo_index.db');
-#               c = conn.cursor(); c.execute('SELECT name FROM sqlite_master WHERE name LIKE \"%_jsx\"');
-#               print('JSX tables:', [r[0] for r in c.fetchall()])"
-#
-# 2. Test on plant project:
-#    python -c "from theauditor.rules.your_jsx_rule import find_your_jsx_vulnerability;
-#               from theauditor.rules.base import StandardRuleContext;
-#               ctx = StandardRuleContext(db_path='plant/.pf/repo_index.db');
-#               findings = find_your_jsx_vulnerability(ctx);
-#               print(f'Found {len(findings)} JSX issues');
-#               [print(f'  {f.file_path}:{f.line} - {f.message}') for f in findings[:5]]"
-#
-# 3. Verify orchestrator filtering works:
-#    - Rule should ONLY run on .jsx/.tsx/.vue files
-#    - Rule should SKIP .py, .js (backend) files
-#    - Check logs: "Skipped 20 backend-only rules on frontend/App.jsx"
-#
-# ============================================================================
-
-# ============================================================================
-# COMMON PITFALLS TO AVOID
-# ============================================================================
-#
-# ❌ DON'T query standard tables (symbols, assignments)
-#    ✅ DO query JSX tables (symbols_jsx, assignments_jsx)
-#
-# ❌ DON'T set requires_jsx_pass=False
-#    ✅ DO set requires_jsx_pass=True
-#
-# ❌ DON'T target all file extensions ['.js', '.ts', '.jsx', '.tsx']
-#    ✅ DO target ONLY JSX extensions ['.jsx', '.tsx', '.vue']
-#
-# ❌ DON'T detect hook calls (useState, useEffect) - use standard rule
-#    ✅ DO detect JSX syntax patterns (elements, attributes, spreads)
-#
-# ============================================================================

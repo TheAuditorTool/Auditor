@@ -98,8 +98,6 @@ def report(
     Note: Most commands auto-generate their chunks, so this command
     mainly verifies and summarizes existing output. Run after 'aud full'
     or individual analysis commands."""
-    # Report generation has been simplified
-    # Data is already chunked in .pf/readthis/ by extraction phase
 
     readthis_dir = Path("./.pf/readthis")
 
@@ -113,10 +111,14 @@ def report(
             click.echo(f"\n[STATS] Summary:")
             click.echo(f"  - Total chunks: {len(json_files)}")
             click.echo(f"  - Total size: {total_size:,} bytes")
-            click.echo(f"  - Average chunk: {total_size // len(json_files):,} bytes" if json_files else "  - No chunks")
+            click.echo(
+                f"  - Average chunk: {total_size // len(json_files):,} bytes"
+                if json_files
+                else "  - No chunks"
+            )
 
             click.echo(f"\n[FILES] Available chunks:")
-            for f in sorted(json_files)[:10]:  # Show first 10
+            for f in sorted(json_files)[:10]:
                 size = f.stat().st_size
                 click.echo(f"  - {f.name} ({size:,} bytes)")
             if len(json_files) > 10:

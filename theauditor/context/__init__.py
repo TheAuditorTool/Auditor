@@ -19,4 +19,4 @@ Performance:
 from theauditor.context.query import CodeQueryEngine, SymbolInfo, CallSite, Dependency
 from theauditor.context.formatters import format_output
 
-__all__ = ['CodeQueryEngine', 'SymbolInfo', 'CallSite', 'Dependency', 'format_output']
+__all__ = ["CodeQueryEngine", "SymbolInfo", "CallSite", "Dependency", "format_output"]

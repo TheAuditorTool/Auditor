@@ -19,126 +19,222 @@ Detects:
 - XPath Injection
 """
 
-
 import sqlite3
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.rules.base import (
+    StandardRuleContext,
+    StandardFinding,
+    Severity,
+    Confidence,
+    RuleMetadata,
+)
 
-
-# ============================================================================
-# RULE METADATA (Phase 3B Smart Filtering)
-# ============================================================================
 
 METADATA = RuleMetadata(
     name="python_injection",
     category="injection",
-    target_extensions=['.py'],
-    exclude_patterns=['frontend/', 'client/', 'node_modules/', 'test/', '__tests__/', 'migrations/'],
-    execution_scope='database',
-    requires_jsx_pass=False
+    target_extensions=[".py"],
+    exclude_patterns=[
+        "frontend/",
+        "client/",
+        "node_modules/",
+        "test/",
+        "__tests__/",
+        "migrations/",
+    ],
+    execution_scope="database",
+    requires_jsx_pass=False,
 )
 
-
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
-# ============================================================================
 
 @dataclass(frozen=True)
 class InjectionPatterns:
     """Immutable pattern definitions for injection detection."""
 
-    # SQL Injection vulnerable methods
-    SQL_METHODS = frozenset([
-        'execute', 'executemany', 'executescript', 'raw',
-        'connection.execute', 'cursor.execute', 'db.execute',
-        'query', 'run_query', 'session.execute', 'db.session.execute',
-        'select', 'insert', 'update', 'delete', 'create_table'
-    ])
+    SQL_METHODS = frozenset(
+        [
+            "execute",
+            "executemany",
+            "executescript",
+            "raw",
+            "connection.execute",
+            "cursor.execute",
+            "db.execute",
+            "query",
+            "run_query",
+            "session.execute",
+            "db.session.execute",
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "create_table",
+        ]
+    )
 
-    # String formatting that leads to injection
-    STRING_FORMAT_PATTERNS = frozenset([
-        '.format(', '% (', 'f"', "f'", '%%',
-        '+ request.', '+ params.', '+ args.',
-        '+ user_input', '+ data[', '+ input('
-    ])
+    STRING_FORMAT_PATTERNS = frozenset(
+        [
+            ".format(",
+            "% (",
+            'f"',
+            "f'",
+            "%%",
+            "+ request.",
+            "+ params.",
+            "+ args.",
+            "+ user_input",
+            "+ data[",
+            "+ input(",
+        ]
+    )
 
-    # Command injection vulnerable functions
-    COMMAND_METHODS = frozenset([
-        'os.system', 'subprocess.call', 'subprocess.run',
-        'subprocess.Popen', 'os.popen', 'popen',
-        'commands.getstatusoutput', 'commands.getoutput',
-        'subprocess.check_output', 'subprocess.check_call',
-        'os.exec', 'os.spawn', 'os.startfile'
-    ])
+    COMMAND_METHODS = frozenset(
+        [
+            "os.system",
+            "subprocess.call",
+            "subprocess.run",
+            "subprocess.Popen",
+            "os.popen",
+            "popen",
+            "commands.getstatusoutput",
+            "commands.getoutput",
+            "subprocess.check_output",
+            "subprocess.check_call",
+            "os.exec",
+            "os.spawn",
+            "os.startfile",
+        ]
+    )
 
-    # Shell=True is particularly dangerous
-    SHELL_TRUE_PATTERN = frozenset([
-        'shell=True', 'shell = True', 'shell= True', 'shell =True'
-    ])
+    SHELL_TRUE_PATTERN = frozenset(["shell=True", "shell = True", "shell= True", "shell =True"])
 
-    # Code injection vulnerable functions
-    CODE_INJECTION = frozenset([
-        'eval', 'exec', 'compile', '__import__',
-        'execfile', 'input', 'raw_input'  # Python 2
-    ])
+    CODE_INJECTION = frozenset(
+        ["eval", "exec", "compile", "__import__", "execfile", "input", "raw_input"]
+    )
 
-    # Template injection patterns
-    TEMPLATE_PATTERNS = frozenset([
-        'render_template_string', 'Environment', 'Template',
-        'jinja2.Template', 'django.template.Template',
-        'mako.template.Template', 'tornado.template.Template'
-    ])
+    TEMPLATE_PATTERNS = frozenset(
+        [
+            "render_template_string",
+            "Environment",
+            "Template",
+            "jinja2.Template",
+            "django.template.Template",
+            "mako.template.Template",
+            "tornado.template.Template",
+        ]
+    )
 
-    # LDAP injection patterns
-    LDAP_METHODS = frozenset([
-        'search', 'search_s', 'search_ext', 'search_ext_s',
-        'ldap.search', 'ldap3.search', 'ldap_search',
-        'modify', 'modify_s', 'add', 'add_s', 'delete', 'delete_s'
-    ])
+    LDAP_METHODS = frozenset(
+        [
+            "search",
+            "search_s",
+            "search_ext",
+            "search_ext_s",
+            "ldap.search",
+            "ldap3.search",
+            "ldap_search",
+            "modify",
+            "modify_s",
+            "add",
+            "add_s",
+            "delete",
+            "delete_s",
+        ]
+    )
 
-    # NoSQL injection patterns (MongoDB, etc.)
-    NOSQL_METHODS = frozenset([
-        'find', 'find_one', 'find_and_modify', 'update_one',
-        'update_many', 'delete_one', 'delete_many', 'aggregate',
-        'collection.find', 'collection.update', 'collection.delete',
-        'db.find', 'db.update', 'db.delete'
-    ])
+    NOSQL_METHODS = frozenset(
+        [
+            "find",
+            "find_one",
+            "find_and_modify",
+            "update_one",
+            "update_many",
+            "delete_one",
+            "delete_many",
+            "aggregate",
+            "collection.find",
+            "collection.update",
+            "collection.delete",
+            "db.find",
+            "db.update",
+            "db.delete",
+        ]
+    )
 
-    # XPath injection patterns
-    XPATH_METHODS = frozenset([
-        'xpath', 'findall', 'find', 'XPath', 'evaluate',
-        'selectNodes', 'selectSingleNode', 'query'
-    ])
+    XPATH_METHODS = frozenset(
+        [
+            "xpath",
+            "findall",
+            "find",
+            "XPath",
+            "evaluate",
+            "selectNodes",
+            "selectSingleNode",
+            "query",
+        ]
+    )
 
-    # User input sources (taint sources)
-    USER_INPUTS = frozenset([
-        'request.args', 'request.form', 'request.values',
-        'request.data', 'request.json', 'request.files',
-        'request.GET', 'request.POST', 'request.REQUEST',
-        'input()', 'raw_input()', 'sys.argv', 'os.environ',
-        'flask.request', 'django.request', 'bottle.request'
-    ])
+    USER_INPUTS = frozenset(
+        [
+            "request.args",
+            "request.form",
+            "request.values",
+            "request.data",
+            "request.json",
+            "request.files",
+            "request.GET",
+            "request.POST",
+            "request.REQUEST",
+            "input()",
+            "raw_input()",
+            "sys.argv",
+            "os.environ",
+            "flask.request",
+            "django.request",
+            "bottle.request",
+        ]
+    )
 
-    # Safe parameterization patterns
-    SAFE_PATTERNS = frozenset([
-        'paramstyle', 'params=', 'parameters=',
-        '?', '%s', '%(', ':name',
-        'prepared', 'statement', 'placeholder'
-    ])
+    SAFE_PATTERNS = frozenset(
+        [
+            "paramstyle",
+            "params=",
+            "parameters=",
+            "?",
+            "%s",
+            "%(",
+            ":name",
+            "prepared",
+            "statement",
+            "placeholder",
+        ]
+    )
 
-    # Dangerous SQL keywords often in injected strings
-    SQL_KEYWORDS = frozenset([
-        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP',
-        'UNION', 'WHERE', 'ORDER BY', 'GROUP BY',
-        'CREATE', 'ALTER', 'EXEC', 'EXECUTE',
-        '--', '/*', '*/', ';', 'OR 1=1', 'OR true'
-    ])
+    SQL_KEYWORDS = frozenset(
+        [
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "DROP",
+            "UNION",
+            "WHERE",
+            "ORDER BY",
+            "GROUP BY",
+            "CREATE",
+            "ALTER",
+            "EXEC",
+            "EXECUTE",
+            "--",
+            "/*",
+            "*/",
+            ";",
+            "OR 1=1",
+            "OR true",
+        ]
+    )
 
-
-# ============================================================================
-# ANALYZER CLASS (Golden Standard)
-# ============================================================================
 
 class InjectionAnalyzer:
     """Analyzer for Python injection vulnerabilities."""
@@ -166,7 +262,6 @@ class InjectionAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run injection checks
             self._check_sql_injection()
             self._check_command_injection()
             self._check_code_injection()
@@ -191,22 +286,25 @@ class InjectionAnalyzer:
             ORDER BY line DESC
             LIMIT 1
             """,
-            (file, variable, call_line)
+            (file, variable, call_line),
         )
         row = self.cursor.fetchone()
         return row[0] if row else None
 
     def _check_sql_injection(self):
         """Detect SQL injection vulnerabilities."""
-        sql_placeholders = ','.join('?' * len(self.patterns.SQL_METHODS))
+        sql_placeholders = ",".join("?" * len(self.patterns.SQL_METHODS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({sql_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.SQL_METHODS))
+        """,
+            list(self.patterns.SQL_METHODS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
             if not args:
@@ -219,320 +317,354 @@ class InjectionAnalyzer:
 
             expr_to_check = assignment_expr or args
 
-            # Check for string formatting in SQL
-            has_formatting = expr_to_check and any(fmt in expr_to_check for fmt in self.patterns.STRING_FORMAT_PATTERNS)
-            has_concatenation = expr_to_check and '+' in expr_to_check and any(inp in expr_to_check for inp in ['request.', 'params.', 'args.', 'user_'])
+            has_formatting = expr_to_check and any(
+                fmt in expr_to_check for fmt in self.patterns.STRING_FORMAT_PATTERNS
+            )
+            has_concatenation = (
+                expr_to_check
+                and "+" in expr_to_check
+                and any(inp in expr_to_check for inp in ["request.", "params.", "args.", "user_"])
+            )
 
-            # Check for safe parameterization
-            has_safe_params = expr_to_check and any(safe in expr_to_check for safe in self.patterns.SAFE_PATTERNS)
+            has_safe_params = expr_to_check and any(
+                safe in expr_to_check for safe in self.patterns.SAFE_PATTERNS
+            )
 
             if expr_to_check and (has_formatting or has_concatenation) and not has_safe_params:
-                # Determine severity and confidence
                 severity = Severity.CRITICAL
                 confidence = Confidence.HIGH
 
-                # Check if SQL keywords present (higher confidence)
-                has_sql_keywords = any(kw.lower() in expr_to_check.lower() for kw in self.patterns.SQL_KEYWORDS)
+                has_sql_keywords = any(
+                    kw.lower() in expr_to_check.lower() for kw in self.patterns.SQL_KEYWORDS
+                )
                 if not has_sql_keywords:
                     confidence = Confidence.MEDIUM
 
-                self.findings.append(StandardFinding(
-                    rule_name='python-sql-injection',
-                    message=f'SQL injection in {method} with string formatting',
-                    file_path=file,
-                    line=line,
-                    severity=severity,
-                    category='injection',
-                    confidence=confidence,
-                    cwe_id='CWE-89'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-sql-injection",
+                        message=f"SQL injection in {method} with string formatting",
+                        file_path=file,
+                        line=line,
+                        severity=severity,
+                        category="injection",
+                        confidence=confidence,
+                        cwe_id="CWE-89",
+                    )
+                )
 
-            # Check for f-strings in SQL
             is_fstring = False
             if expr_to_check:
                 if 'f"' in expr_to_check or "f'" in expr_to_check:
                     is_fstring = True
-                elif arg_is_identifier and assignment_expr and ('f"' in assignment_expr or "f'" in assignment_expr):
+                elif (
+                    arg_is_identifier
+                    and assignment_expr
+                    and ('f"' in assignment_expr or "f'" in assignment_expr)
+                ):
                     is_fstring = True
 
             if is_fstring:
-                self.findings.append(StandardFinding(
-                    rule_name='python-sql-fstring',
-                    message=f'F-string used in SQL query - high injection risk',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-89'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-sql-fstring",
+                        message=f"F-string used in SQL query - high injection risk",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-89",
+                    )
+                )
 
     def _check_command_injection(self):
         """Detect command injection vulnerabilities."""
-        cmd_placeholders = ','.join('?' * len(self.patterns.COMMAND_METHODS))
+        cmd_placeholders = ",".join("?" * len(self.patterns.COMMAND_METHODS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({cmd_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.COMMAND_METHODS))
+        """,
+            list(self.patterns.COMMAND_METHODS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
             if not args:
                 continue
 
-            # Check for shell=True
             has_shell_true = any(shell in args for shell in self.patterns.SHELL_TRUE_PATTERN)
 
-            # Check for string concatenation with user input
             has_user_input = any(inp in args for inp in self.patterns.USER_INPUTS)
-            has_concatenation = '+' in args or '.format(' in args or 'f"' in args or "f'" in args
+            has_concatenation = "+" in args or ".format(" in args or 'f"' in args or "f'" in args
 
             if has_shell_true:
-                self.findings.append(StandardFinding(
-                    rule_name='python-shell-true',
-                    message=f'Command execution with shell=True is dangerous',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-78'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-shell-true",
+                        message=f"Command execution with shell=True is dangerous",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-78",
+                    )
+                )
 
             elif has_user_input or has_concatenation:
                 confidence = Confidence.HIGH if has_user_input else Confidence.MEDIUM
 
-                self.findings.append(StandardFinding(
-                    rule_name='python-command-injection',
-                    message=f'Command injection risk in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    confidence=confidence,
-                    cwe_id='CWE-78'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-command-injection",
+                        message=f"Command injection risk in {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=confidence,
+                        cwe_id="CWE-78",
+                    )
+                )
 
     def _check_code_injection(self):
         """Detect code injection (eval/exec) vulnerabilities."""
-        code_placeholders = ','.join('?' * len(self.patterns.CODE_INJECTION))
+        code_placeholders = ",".join("?" * len(self.patterns.CODE_INJECTION))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({code_placeholders})
             ORDER BY file, line
-        """, list(self.patterns.CODE_INJECTION))
+        """,
+            list(self.patterns.CODE_INJECTION),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
-            # eval/exec/compile are always dangerous with user input
             severity = Severity.CRITICAL
             confidence = Confidence.HIGH
 
-            # Check if it's a constant string (slightly less dangerous)
             if args and (args.startswith('"') or args.startswith("'")):
                 if not any(inp in args for inp in self.patterns.USER_INPUTS):
                     confidence = Confidence.MEDIUM
                     severity = Severity.HIGH
 
-            self.findings.append(StandardFinding(
-                rule_name='python-code-injection',
-                message=f'Code injection risk: {method}() with dynamic input',
-                file_path=file,
-                line=line,
-                severity=severity,
-                category='injection',
-                confidence=confidence,
-                cwe_id='CWE-94'
-            ))
+            self.findings.append(
+                StandardFinding(
+                    rule_name="python-code-injection",
+                    message=f"Code injection risk: {method}() with dynamic input",
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category="injection",
+                    confidence=confidence,
+                    cwe_id="CWE-94",
+                )
+            )
 
     def _check_template_injection(self):
         """Detect template injection vulnerabilities."""
-        template_placeholders = ','.join('?' * len(self.patterns.TEMPLATE_PATTERNS))
+        template_placeholders = ",".join("?" * len(self.patterns.TEMPLATE_PATTERNS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({template_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.TEMPLATE_PATTERNS))
+        """,
+            list(self.patterns.TEMPLATE_PATTERNS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
-            # Check for user input in template
             has_user_input = any(inp in args for inp in self.patterns.USER_INPUTS)
 
-            if 'render_template_string' in method:
-                self.findings.append(StandardFinding(
-                    rule_name='python-template-injection',
-                    message='render_template_string() is vulnerable to template injection',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-1336'
-                ))
+            if "render_template_string" in method:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-template-injection",
+                        message="render_template_string() is vulnerable to template injection",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-1336",
+                    )
+                )
 
             elif has_user_input:
-                self.findings.append(StandardFinding(
-                    rule_name='python-template-user-input',
-                    message=f'User input passed to template {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-1336'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-template-user-input",
+                        message=f"User input passed to template {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-1336",
+                    )
+                )
 
     def _check_ldap_injection(self):
         """Detect LDAP injection vulnerabilities."""
-        ldap_placeholders = ','.join('?' * len(self.patterns.LDAP_METHODS))
+        ldap_placeholders = ",".join("?" * len(self.patterns.LDAP_METHODS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({ldap_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.LDAP_METHODS))
+        """,
+            list(self.patterns.LDAP_METHODS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
-            # Check for string formatting in LDAP queries
             has_formatting = any(fmt in args for fmt in self.patterns.STRING_FORMAT_PATTERNS)
             has_user_input = any(inp in args for inp in self.patterns.USER_INPUTS)
 
             if has_formatting or has_user_input:
-                self.findings.append(StandardFinding(
-                    rule_name='python-ldap-injection',
-                    message=f'LDAP injection risk in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-90'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-ldap-injection",
+                        message=f"LDAP injection risk in {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-90",
+                    )
+                )
 
     def _check_nosql_injection(self):
         """Detect NoSQL injection vulnerabilities."""
-        nosql_placeholders = ','.join('?' * len(self.patterns.NOSQL_METHODS))
+        nosql_placeholders = ",".join("?" * len(self.patterns.NOSQL_METHODS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({nosql_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.NOSQL_METHODS))
+        """,
+            list(self.patterns.NOSQL_METHODS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
-            # Check for $where, $regex, or JavaScript in MongoDB queries
-            dangerous_operators = ['$where', '$regex', '$function', 'function()', 'eval(']
+            dangerous_operators = ["$where", "$regex", "$function", "function()", "eval("]
             has_dangerous = any(op in args for op in dangerous_operators)
 
-            # Check for user input
             has_user_input = any(inp in args for inp in self.patterns.USER_INPUTS)
 
             if has_dangerous:
-                self.findings.append(StandardFinding(
-                    rule_name='python-nosql-dangerous-operator',
-                    message=f'Dangerous NoSQL operator in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='injection',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-943'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-nosql-dangerous-operator",
+                        message=f"Dangerous NoSQL operator in {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-943",
+                    )
+                )
 
             elif has_user_input:
-                self.findings.append(StandardFinding(
-                    rule_name='python-nosql-injection',
-                    message=f'NoSQL injection risk in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-943'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-nosql-injection",
+                        message=f"NoSQL injection risk in {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-943",
+                    )
+                )
 
     def _check_xpath_injection(self):
         """Detect XPath injection vulnerabilities."""
-        xpath_placeholders = ','.join('?' * len(self.patterns.XPATH_METHODS))
+        xpath_placeholders = ",".join("?" * len(self.patterns.XPATH_METHODS))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({xpath_placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.XPATH_METHODS))
+        """,
+            list(self.patterns.XPATH_METHODS),
+        )
 
         for file, line, method, args in self.cursor.fetchall():
-            # Check for string formatting in XPath
             has_formatting = any(fmt in args for fmt in self.patterns.STRING_FORMAT_PATTERNS)
 
             if has_formatting:
-                self.findings.append(StandardFinding(
-                    rule_name='python-xpath-injection',
-                    message=f'XPath injection risk in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-91'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-xpath-injection",
+                        message=f"XPath injection risk in {method}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-91",
+                    )
+                )
 
     def _check_raw_sql_construction(self):
         """Check for SQL constructed in assignments."""
         from theauditor.indexer.schema import build_query
 
-        # Fetch all assignments, filter in Python
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                           order_by="file, line")
+        query = build_query(
+            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+        )
         self.cursor.execute(query)
 
-        # Look for SQL keyword assignments
         sql_keyword_list = list(self.patterns.SQL_KEYWORDS)
         for file, line, var, expr in self.cursor.fetchall():
             if not expr:
                 continue
 
-            # Check for SQL keywords in expr
             expr_upper = expr.upper()
             has_sql_keyword = any(keyword in expr_upper for keyword in sql_keyword_list[:10])
             if not has_sql_keyword:
                 continue
 
-            # Check for string formatting
-            has_formatting = any(pattern in expr for pattern in ['+', '.format(', 'f"', "f'"])
+            has_formatting = any(pattern in expr for pattern in ["+", ".format(", 'f"', "f'"])
             if not has_formatting:
                 continue
 
-            # Check if this looks like SQL construction
-            if any(kw in expr_upper for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']):
-                self.findings.append(StandardFinding(
-                    rule_name='python-sql-string-building',
-                    message=f'SQL query built with string concatenation in {var}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-89'
-                ))
+            if any(kw in expr_upper for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"]):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-sql-string-building",
+                        message=f"SQL query built with string concatenation in {var}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-89",
+                    )
+                )
 
-
-# ============================================================================
-# MISSING DATABASE FEATURES FLAGGED
-# ============================================================================
 
 """
 FLAGGED: Missing database features that would improve injection detection:
@@ -559,10 +691,6 @@ FLAGGED: Missing database features that would improve injection detection:
 """
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
-
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python injection vulnerabilities.
 
@@ -576,10 +704,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return analyzer.analyze()
 
 
-# ============================================================================
-# TAINT REGISTRATION (For Orchestrator)
-# ============================================================================
-
 def register_taint_patterns(taint_registry):
     """Register injection-specific taint patterns.
 
@@ -588,30 +712,23 @@ def register_taint_patterns(taint_registry):
     """
     patterns = InjectionPatterns()
 
-    # Register user input sources
     for pattern in patterns.USER_INPUTS:
         taint_registry.register_source(pattern, "user_input", "python")
 
-    # Register SQL sinks
     for pattern in patterns.SQL_METHODS:
         taint_registry.register_sink(pattern, "sql", "python")
 
-    # Register command sinks
     for pattern in patterns.COMMAND_METHODS:
         taint_registry.register_sink(pattern, "command", "python")
 
-    # Register code execution sinks
     for pattern in patterns.CODE_INJECTION:
         taint_registry.register_sink(pattern, "code_execution", "python")
 
-    # Register template sinks
     for pattern in patterns.TEMPLATE_PATTERNS:
         taint_registry.register_sink(pattern, "template", "python")
 
-    # Register LDAP sinks
     for pattern in patterns.LDAP_METHODS:
         taint_registry.register_sink(pattern, "ldap", "python")
 
-    # Register NoSQL sinks
     for pattern in patterns.NOSQL_METHODS:
         taint_registry.register_sink(pattern, "nosql", "python")

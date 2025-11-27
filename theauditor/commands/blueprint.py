@@ -20,11 +20,17 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--security", is_flag=True, help="Drill down into security surface details")
 @click.option("--taint", is_flag=True, help="Drill down into taint analysis details")
 @click.option("--boundaries", is_flag=True, help="Drill down into boundary distance analysis")
-@click.option("--deps", is_flag=True, help="Drill down into dependency analysis (packages, versions)")
+@click.option(
+    "--deps", is_flag=True, help="Drill down into dependency analysis (packages, versions)"
+)
 @click.option("--all", is_flag=True, help="Export all data to JSON (ignores other flags)")
-@click.option("--format", "output_format", default="text",
-              type=click.Choice(['text', 'json']),
-              help="Output format: text (visual tree), json (structured)")
+@click.option(
+    "--format",
+    "output_format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format: text (visual tree), json (structured)",
+)
 @handle_exceptions
 def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
@@ -111,7 +117,6 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
     """
     from pathlib import Path
 
-    # Validate database exists
     pf_dir = Path.cwd() / ".pf"
     repo_db = pf_dir / "repo_index.db"
     graphs_db = pf_dir / "graphs.db"
@@ -121,39 +126,34 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         click.echo("Run: aud full", err=True)
         raise click.Abort()
 
-    # Connect to database
     conn = sqlite3.connect(repo_db)
     conn.row_factory = sqlite3.Row
 
-    # Enable REGEXP function for naming pattern analysis
     import re
-    conn.create_function("REGEXP", 2, lambda pattern, value: re.match(pattern, value) is not None if value else False)
 
-    # Wrap in try/finally to ensure connection is always closed
-    # Pass cursor to drilldown functions (dependency injection)
+    conn.create_function(
+        "REGEXP", 2, lambda pattern, value: re.match(pattern, value) is not None if value else False
+    )
+
     try:
         cursor = conn.cursor()
 
-        # Pack flags for logic-gated data gathering
         flags = {
-            'structure': structure,
-            'graph': graph,
-            'security': security,
-            'taint': taint,
-            'boundaries': boundaries,
-            'deps': deps,
-            'all': all,
+            "structure": structure,
+            "graph": graph,
+            "security": security,
+            "taint": taint,
+            "boundaries": boundaries,
+            "deps": deps,
+            "all": all,
         }
 
-        # Gather data based on flags (logic gating for performance)
         data = _gather_all_data(cursor, graphs_db, flags)
 
-        # Handle --all flag (export everything to JSON)
         if all:
             click.echo(json.dumps(data, indent=2))
             return
 
-        # Handle drill-down flags - pass cursor for detailed queries
         if structure:
             _show_structure_drilldown(data, cursor)
         elif graph:
@@ -167,23 +167,20 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         elif deps:
             _show_deps_drilldown(data, cursor)
         else:
-            # Default: Top-level overview with tree structure
-            if output_format == 'json':
-                # Top-level summary in JSON
+            if output_format == "json":
                 summary = {
-                    'structure': data['structure'],
-                    'hot_files': data['hot_files'][:5],
-                    'security_surface': data['security_surface'],
-                    'data_flow': data['data_flow'],
-                    'import_graph': data['import_graph'],
-                    'performance': data['performance'],
+                    "structure": data["structure"],
+                    "hot_files": data["hot_files"][:5],
+                    "security_surface": data["security_surface"],
+                    "data_flow": data["data_flow"],
+                    "import_graph": data["import_graph"],
+                    "performance": data["performance"],
                 }
                 click.echo(json.dumps(summary, indent=2))
             else:
                 _show_top_level_overview(data)
 
     finally:
-        # Always close connection when done
         if conn:
             conn.close()
 
@@ -201,71 +198,71 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
     - (no flags): minimal set for overview
     """
     data = {}
-    run_all = flags.get('all', False)
+    run_all = flags.get("all", False)
 
-    # No specific flag = overview mode (need basics for top-level display)
-    no_drilldown = not any([flags.get('structure'), flags.get('graph'),
-                           flags.get('security'), flags.get('taint'),
-                           flags.get('boundaries'), flags.get('deps')])
+    no_drilldown = not any(
+        [
+            flags.get("structure"),
+            flags.get("graph"),
+            flags.get("security"),
+            flags.get("taint"),
+            flags.get("boundaries"),
+            flags.get("deps"),
+        ]
+    )
 
-    # 1. Codebase Structure - always needed (fast)
-    data['structure'] = _get_structure(cursor)
+    data["structure"] = _get_structure(cursor)
 
-    # 2. Naming Conventions - expensive regex, only for --structure or --all
-    if run_all or flags.get('structure'):
-        data['naming_conventions'] = _get_naming_conventions(cursor)
+    if run_all or flags.get("structure"):
+        data["naming_conventions"] = _get_naming_conventions(cursor)
     else:
-        data['naming_conventions'] = {}
+        data["naming_conventions"] = {}
 
-    # 3. Architectural Precedents - expensive, only for --structure or --all
-    if run_all or flags.get('structure'):
-        data['architectural_precedents'] = _get_architectural_precedents(cursor)
+    if run_all or flags.get("structure"):
+        data["architectural_precedents"] = _get_architectural_precedents(cursor)
     else:
-        data['architectural_precedents'] = []
+        data["architectural_precedents"] = []
 
-    # 4. Hot Files - needed for --graph, --all, or overview
-    if run_all or flags.get('graph') or no_drilldown:
-        data['hot_files'] = _get_hot_files(cursor)
+    if run_all or flags.get("graph") or no_drilldown:
+        data["hot_files"] = _get_hot_files(cursor)
     else:
-        data['hot_files'] = []
+        data["hot_files"] = []
 
-    # 5. Security Surface - only for --security, --all, or overview
-    if run_all or flags.get('security') or no_drilldown:
-        data['security_surface'] = _get_security_surface(cursor)
+    if run_all or flags.get("security") or no_drilldown:
+        data["security_surface"] = _get_security_surface(cursor)
     else:
-        data['security_surface'] = {'jwt': {'sign': 0, 'verify': 0}, 'oauth': 0,
-                                    'password': 0, 'sql_queries': {'total': 0, 'raw': 0},
-                                    'api_endpoints': {'total': 0, 'protected': 0, 'unprotected': 0}}
+        data["security_surface"] = {
+            "jwt": {"sign": 0, "verify": 0},
+            "oauth": 0,
+            "password": 0,
+            "sql_queries": {"total": 0, "raw": 0},
+            "api_endpoints": {"total": 0, "protected": 0, "unprotected": 0},
+        }
 
-    # 6. Data Flow - only for --taint, --all, or overview
-    if run_all or flags.get('taint') or no_drilldown:
-        data['data_flow'] = _get_data_flow(cursor)
+    if run_all or flags.get("taint") or no_drilldown:
+        data["data_flow"] = _get_data_flow(cursor)
     else:
-        data['data_flow'] = {'taint_sources': 0, 'taint_paths': 0, 'cross_function_flows': 0}
+        data["data_flow"] = {"taint_sources": 0, "taint_paths": 0, "cross_function_flows": 0}
 
-    # 7. Import Graph - only for --graph, --all, or overview
-    if run_all or flags.get('graph') or no_drilldown:
+    if run_all or flags.get("graph") or no_drilldown:
         if graphs_db_path.exists():
-            data['import_graph'] = _get_import_graph(graphs_db_path)
+            data["import_graph"] = _get_import_graph(graphs_db_path)
         else:
-            data['import_graph'] = None
+            data["import_graph"] = None
     else:
-        data['import_graph'] = None
+        data["import_graph"] = None
 
-    # 8. Performance - always useful (fast)
-    data['performance'] = _get_performance(cursor, Path.cwd() / ".pf" / "repo_index.db")
+    data["performance"] = _get_performance(cursor, Path.cwd() / ".pf" / "repo_index.db")
 
-    # 9. Dependencies - only for --deps, --all, or overview
-    if run_all or flags.get('deps') or no_drilldown:
-        data['dependencies'] = _get_dependencies(cursor)
+    if run_all or flags.get("deps") or no_drilldown:
+        data["dependencies"] = _get_dependencies(cursor)
     else:
-        data['dependencies'] = {'total': 0, 'by_manager': {}, 'packages': []}
+        data["dependencies"] = {"total": 0, "by_manager": {}, "packages": []}
 
-    # 10. Boundaries - only for --boundaries, --all, or overview
-    if run_all or flags.get('boundaries') or no_drilldown:
-        data['boundaries'] = _get_boundaries(cursor, graphs_db_path)
+    if run_all or flags.get("boundaries") or no_drilldown:
+        data["boundaries"] = _get_boundaries(cursor, graphs_db_path)
     else:
-        data['boundaries'] = {'total_entries': 0, 'by_quality': {}, 'missing_controls': 0}
+        data["boundaries"] = {"total_entries": 0, "by_quality": {}, "missing_controls": 0}
 
     return data
 
@@ -273,22 +270,20 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
 def _get_structure(cursor) -> dict:
     """Get codebase structure facts with meaningful categorization."""
     structure = {
-        'total_files': 0,
-        'total_symbols': 0,
-        'by_directory': {},
-        'by_language': {},
-        'by_type': {},
-        'by_category': {},  # NEW: src/test/migrations/scripts/config breakdown
+        "total_files": 0,
+        "total_symbols": 0,
+        "by_directory": {},
+        "by_language": {},
+        "by_type": {},
+        "by_category": {},
     }
 
-    # Total counts
     cursor.execute("SELECT COUNT(DISTINCT path) FROM symbols")
-    structure['total_files'] = cursor.fetchone()[0] or 0
+    structure["total_files"] = cursor.fetchone()[0] or 0
 
     cursor.execute("SELECT COUNT(*) FROM symbols")
-    structure['total_symbols'] = cursor.fetchone()[0] or 0
+    structure["total_symbols"] = cursor.fetchone()[0] or 0
 
-    # By directory (top-level)
     cursor.execute("SELECT path FROM symbols GROUP BY path")
     paths = [row[0] for row in cursor.fetchall()]
 
@@ -297,41 +292,38 @@ def _get_structure(cursor) -> dict:
     category_counts = defaultdict(int)
 
     for path in paths:
-        parts = path.split('/')
+        parts = path.split("/")
         if len(parts) > 1:
             top_dir = parts[0]
             dir_counts[top_dir] += 1
 
-        # Language by extension
         ext = Path(path).suffix
         if ext:
             lang_counts[ext] += 1
 
-        # Categorize by purpose (helps understand what "225 files" means)
         path_lower = path.lower()
-        if any(p in path_lower for p in ['test', 'spec', '__tests__']):
-            category_counts['test'] += 1
-        elif any(p in path_lower for p in ['migration', 'migrations', 'alembic']):
-            category_counts['migrations'] += 1
-        elif any(p in path_lower for p in ['seed', 'seeders', 'fixtures']):
-            category_counts['seeders'] += 1
-        elif any(p in path_lower for p in ['script', 'scripts', 'tools', 'bin']):
-            category_counts['scripts'] += 1
-        elif any(p in path_lower for p in ['config', 'settings', '.config']):
-            category_counts['config'] += 1
-        elif any(p in path_lower for p in ['src/', 'app/', 'lib/', 'pkg/', 'theauditor/']):
-            category_counts['source'] += 1
+        if any(p in path_lower for p in ["test", "spec", "__tests__"]):
+            category_counts["test"] += 1
+        elif any(p in path_lower for p in ["migration", "migrations", "alembic"]):
+            category_counts["migrations"] += 1
+        elif any(p in path_lower for p in ["seed", "seeders", "fixtures"]):
+            category_counts["seeders"] += 1
+        elif any(p in path_lower for p in ["script", "scripts", "tools", "bin"]):
+            category_counts["scripts"] += 1
+        elif any(p in path_lower for p in ["config", "settings", ".config"]):
+            category_counts["config"] += 1
+        elif any(p in path_lower for p in ["src/", "app/", "lib/", "pkg/", "theauditor/"]):
+            category_counts["source"] += 1
         else:
-            category_counts['other'] += 1
+            category_counts["other"] += 1
 
-    structure['by_directory'] = dict(dir_counts)
-    structure['by_language'] = dict(lang_counts)
-    structure['by_category'] = dict(category_counts)
+    structure["by_directory"] = dict(dir_counts)
+    structure["by_language"] = dict(lang_counts)
+    structure["by_category"] = dict(category_counts)
 
-    # By symbol type
     try:
         cursor.execute("SELECT type, COUNT(*) as count FROM symbols GROUP BY type")
-        structure['by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+        structure["by_type"] = {row["type"]: row["count"] for row in cursor.fetchall()}
     except:
         pass
 
@@ -341,8 +333,6 @@ def _get_structure(cursor) -> dict:
 def _get_naming_conventions(cursor) -> dict:
     """Analyze naming conventions from indexed symbols using optimized SQL JOIN."""
 
-    # Optimized query: JOIN with files table for indexed extension lookup
-    # Performance: 10-100x faster than WHERE path LIKE '%.ext' (uses idx_files_ext index)
     cursor.execute("""
         SELECT
             -- Python functions
@@ -387,26 +377,27 @@ def _get_naming_conventions(cursor) -> dict:
 
     row = cursor.fetchone()
 
-    # Parse results into structured format
     conventions = {
-        'python': {
-            'functions': _build_pattern_result(row[0], row[1], row[2], row[3]),
-            'classes': _build_pattern_result(row[4], row[5], row[6], row[7])
+        "python": {
+            "functions": _build_pattern_result(row[0], row[1], row[2], row[3]),
+            "classes": _build_pattern_result(row[4], row[5], row[6], row[7]),
         },
-        'javascript': {
-            'functions': _build_pattern_result(row[8], row[9], row[10], row[11]),
-            'classes': _build_pattern_result(row[12], row[13], row[14], row[15])
+        "javascript": {
+            "functions": _build_pattern_result(row[8], row[9], row[10], row[11]),
+            "classes": _build_pattern_result(row[12], row[13], row[14], row[15]),
         },
-        'typescript': {
-            'functions': _build_pattern_result(row[16], row[17], row[18], row[19]),
-            'classes': _build_pattern_result(row[20], row[21], row[22], row[23])
-        }
+        "typescript": {
+            "functions": _build_pattern_result(row[16], row[17], row[18], row[19]),
+            "classes": _build_pattern_result(row[20], row[21], row[22], row[23]),
+        },
     }
 
     return conventions
 
 
-def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int, total: int) -> dict:
+def _build_pattern_result(
+    snake_count: int, camel_count: int, pascal_count: int, total: int
+) -> dict:
     """Build pattern analysis result from counts."""
     if total == 0:
         return {}
@@ -414,26 +405,25 @@ def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int,
     results = {}
 
     if snake_count > 0:
-        results['snake_case'] = {
-            'count': snake_count,
-            'percentage': round((snake_count / total) * 100, 1)
+        results["snake_case"] = {
+            "count": snake_count,
+            "percentage": round((snake_count / total) * 100, 1),
         }
     if camel_count > 0:
-        results['camelCase'] = {
-            'count': camel_count,
-            'percentage': round((camel_count / total) * 100, 1)
+        results["camelCase"] = {
+            "count": camel_count,
+            "percentage": round((camel_count / total) * 100, 1),
         }
     if pascal_count > 0:
-        results['PascalCase'] = {
-            'count': pascal_count,
-            'percentage': round((pascal_count / total) * 100, 1)
+        results["PascalCase"] = {
+            "count": pascal_count,
+            "percentage": round((pascal_count / total) * 100, 1),
         }
 
-    # Find dominant pattern
     if results:
-        dominant = max(results.items(), key=lambda x: x[1]['count'])
-        results['dominant'] = dominant[0]
-        results['consistency'] = dominant[1]['percentage']
+        dominant = max(results.items(), key=lambda x: x[1]["count"])
+        results["dominant"] = dominant[0]
+        results["consistency"] = dominant[1]["percentage"]
 
     return results
 
@@ -447,8 +437,8 @@ def _get_architectural_precedents(cursor) -> list[dict]:
 
     Performance: <0.1 seconds (pure database query)
     """
-    # Get all imports/from statements
-    cursor.execute('''
+
+    cursor.execute("""
         SELECT src, value
         FROM refs
         WHERE kind IN ('import', 'from', 'require')
@@ -457,54 +447,62 @@ def _get_architectural_precedents(cursor) -> list[dict]:
           AND src NOT LIKE '.venv/%'
           AND src NOT LIKE 'dist/%'
           AND src NOT LIKE 'build/%'
-    ''')
+    """)
 
-    # Track: consumer file -> directory/prefix -> set of modules/files
     patterns = defaultdict(lambda: defaultdict(set))
 
     for row in cursor.fetchall():
-        source_file = row['src']
-        value = row['value']
+        source_file = row["src"]
+        value = row["value"]
 
-        # Handle multiple import formats:
-        # 1. File paths: ./components/Button.jsx -> directory: components
-        # 2. Module paths: models.user -> prefix: models
-        # 3. TypeScript aliases: @middleware/auth -> prefix: middleware
-
-        if '/' in value:
-            # File path or relative import
+        if "/" in value:
             parts = Path(value).parts
-            # Extract meaningful directory (skip . and ..)
-            meaningful_parts = [p for p in parts if p not in ('.', '..', '') and not p.startswith('@')]
+
+            meaningful_parts = [
+                p for p in parts if p not in (".", "..", "") and not p.startswith("@")
+            ]
             if meaningful_parts:
                 directory = meaningful_parts[0]
                 patterns[source_file][directory].add(value)
-        elif '.' in value:
-            # Module path format (Python-style: models.user)
-            parts = value.split('.')
+        elif "." in value:
+            parts = value.split(".")
             prefix = parts[0]
 
-            # Skip stdlib/common modules
-            if prefix not in ('typing', 'pathlib', 'os', 'sys', 'json', 're', 'ast',
-                             'dataclasses', 'datetime', 'collections', 'functools',
-                             'itertools', 'react', 'react-dom', 'vue', 'angular'):
+            if prefix not in (
+                "typing",
+                "pathlib",
+                "os",
+                "sys",
+                "json",
+                "re",
+                "ast",
+                "dataclasses",
+                "datetime",
+                "collections",
+                "functools",
+                "itertools",
+                "react",
+                "react-dom",
+                "vue",
+                "angular",
+            ):
                 patterns[source_file][prefix].add(value)
 
-    # Find plugin loader patterns (3+ modules/files from same directory/prefix)
     precedents = []
 
     for consumer, dirs in patterns.items():
         for directory, items in dirs.items():
             if len(items) >= 3:
-                precedents.append({
-                    'consumer': consumer,
-                    'directory': directory,
-                    'count': len(items),
-                    'imports': sorted(items)
-                })
+                precedents.append(
+                    {
+                        "consumer": consumer,
+                        "directory": directory,
+                        "count": len(items),
+                        "imports": sorted(items),
+                    }
+                )
 
-    # Sort by import count (descending)
-    precedents.sort(key=lambda x: x['count'], reverse=True)
+    precedents.sort(key=lambda x: x["count"], reverse=True)
 
     return precedents
 
@@ -519,8 +517,6 @@ def _get_hot_files(cursor) -> list[dict]:
     """
     hot_files = []
 
-    # Exact match on callee_function (not LIKE) to avoid false positives
-    # Also exclude generic lifecycle methods that exist everywhere
     cursor.execute("""
         SELECT
             s.path,
@@ -547,12 +543,14 @@ def _get_hot_files(cursor) -> list[dict]:
     """)
 
     for row in cursor.fetchall():
-        hot_files.append({
-            'file': row['path'],
-            'symbol': row['name'],
-            'caller_count': row['caller_count'],
-            'total_calls': row['total_calls'],
-        })
+        hot_files.append(
+            {
+                "file": row["path"],
+                "symbol": row["name"],
+                "caller_count": row["caller_count"],
+                "total_calls": row["total_calls"],
+            }
+        )
 
     return hot_files
 
@@ -560,39 +558,35 @@ def _get_hot_files(cursor) -> list[dict]:
 def _get_security_surface(cursor) -> dict:
     """Get security pattern counts (truth courier - no recommendations)."""
     security = {
-        'jwt': {'sign': 0, 'verify': 0},
-        'oauth': 0,
-        'password': 0,
-        'sql_queries': {'total': 0, 'raw': 0},
-        'api_endpoints': {'total': 0, 'protected': 0, 'unprotected': 0},
+        "jwt": {"sign": 0, "verify": 0},
+        "oauth": 0,
+        "password": 0,
+        "sql_queries": {"total": 0, "raw": 0},
+        "api_endpoints": {"total": 0, "protected": 0, "unprotected": 0},
     }
 
-    # JWT
     try:
         cursor.execute("SELECT pattern_type FROM jwt_patterns")
         for row in cursor.fetchall():
-            if 'sign' in row[0]:
-                security['jwt']['sign'] += 1
-            elif 'verify' in row[0] or 'decode' in row[0]:
-                security['jwt']['verify'] += 1
+            if "sign" in row[0]:
+                security["jwt"]["sign"] += 1
+            elif "verify" in row[0] or "decode" in row[0]:
+                security["jwt"]["verify"] += 1
     except:
         pass
 
-    # OAuth
     try:
         cursor.execute("SELECT COUNT(*) FROM oauth_patterns")
-        security['oauth'] = cursor.fetchone()[0] or 0
+        security["oauth"] = cursor.fetchone()[0] or 0
     except:
         pass
 
-    # Password
     try:
         cursor.execute("SELECT COUNT(*) FROM password_patterns")
-        security['password'] = cursor.fetchone()[0] or 0
+        security["password"] = cursor.fetchone()[0] or 0
     except:
         pass
 
-    # SQL - Exclude migrations/seeders (they use raw SQL legitimately)
     try:
         cursor.execute("""
             SELECT COUNT(*) FROM sql_queries
@@ -600,7 +594,7 @@ def _get_security_surface(cursor) -> dict:
               AND file NOT LIKE '%/seeders/%'
               AND file NOT LIKE '%migration%'
         """)
-        security['sql_queries']['total'] = cursor.fetchone()[0] or 0
+        security["sql_queries"]["total"] = cursor.fetchone()[0] or 0
 
         cursor.execute("""
             SELECT COUNT(*) FROM sql_queries
@@ -609,14 +603,13 @@ def _get_security_surface(cursor) -> dict:
               AND file NOT LIKE '%/seeders/%'
               AND file NOT LIKE '%migration%'
         """)
-        security['sql_queries']['raw'] = cursor.fetchone()[0] or 0
+        security["sql_queries"]["raw"] = cursor.fetchone()[0] or 0
     except:
         pass
 
-    # API endpoints - Exclude middleware (USE method is infrastructure, not endpoint)
     try:
         cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method != 'USE'")
-        security['api_endpoints']['total'] = cursor.fetchone()[0] or 0
+        security["api_endpoints"]["total"] = cursor.fetchone()[0] or 0
 
         cursor.execute("""
             SELECT COUNT(*) FROM api_endpoints ae
@@ -624,8 +617,10 @@ def _get_security_surface(cursor) -> dict:
                 ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
             WHERE ae.method != 'USE'
         """)
-        security['api_endpoints']['protected'] = cursor.fetchone()[0] or 0
-        security['api_endpoints']['unprotected'] = security['api_endpoints']['total'] - security['api_endpoints']['protected']
+        security["api_endpoints"]["protected"] = cursor.fetchone()[0] or 0
+        security["api_endpoints"]["unprotected"] = (
+            security["api_endpoints"]["total"] - security["api_endpoints"]["protected"]
+        )
     except:
         pass
 
@@ -635,26 +630,26 @@ def _get_security_surface(cursor) -> dict:
 def _get_data_flow(cursor) -> dict:
     """Get taint flow statistics."""
     data_flow = {
-        'taint_sources': 0,
-        'taint_paths': 0,
-        'cross_function_flows': 0,
+        "taint_sources": 0,
+        "taint_paths": 0,
+        "cross_function_flows": 0,
     }
 
     try:
         cursor.execute("SELECT COUNT(*) FROM findings_consolidated WHERE tool = 'taint'")
-        data_flow['taint_paths'] = cursor.fetchone()[0] or 0
+        data_flow["taint_paths"] = cursor.fetchone()[0] or 0
     except:
         pass
 
     try:
         cursor.execute("SELECT COUNT(DISTINCT source_var_name) FROM assignment_sources")
-        data_flow['taint_sources'] = cursor.fetchone()[0] or 0
+        data_flow["taint_sources"] = cursor.fetchone()[0] or 0
     except:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM function_return_sources")
-        data_flow['cross_function_flows'] = cursor.fetchone()[0] or 0
+        data_flow["cross_function_flows"] = cursor.fetchone()[0] or 0
     except:
         pass
 
@@ -663,18 +658,20 @@ def _get_data_flow(cursor) -> dict:
 
 def _get_import_graph(graphs_db_path: Path) -> dict:
     """Get import graph statistics."""
-    imports = {'total': 0, 'external': 0, 'internal': 0, 'circular': 0}
+    imports = {"total": 0, "external": 0, "internal": 0, "circular": 0}
 
     try:
         conn = sqlite3.connect(graphs_db_path)
         cursor = conn.cursor()
 
         cursor.execute("SELECT COUNT(*) FROM edges WHERE graph_type = 'import'")
-        imports['total'] = cursor.fetchone()[0] or 0
+        imports["total"] = cursor.fetchone()[0] or 0
 
-        cursor.execute("SELECT COUNT(*) FROM edges WHERE graph_type = 'import' AND target LIKE 'external::%'")
-        imports['external'] = cursor.fetchone()[0] or 0
-        imports['internal'] = imports['total'] - imports['external']
+        cursor.execute(
+            "SELECT COUNT(*) FROM edges WHERE graph_type = 'import' AND target LIKE 'external::%'"
+        )
+        imports["external"] = cursor.fetchone()[0] or 0
+        imports["internal"] = imports["total"] - imports["external"]
 
         conn.close()
     except:
@@ -685,18 +682,16 @@ def _get_import_graph(graphs_db_path: Path) -> dict:
 
 def _get_performance(cursor, db_path: Path) -> dict:
     """Get analysis metrics."""
-    metrics = {'db_size_mb': 0, 'total_rows': 0, 'files_indexed': 0, 'symbols_extracted': 0}
+    metrics = {"db_size_mb": 0, "total_rows": 0, "files_indexed": 0, "symbols_extracted": 0}
 
     if db_path.exists():
-        metrics['db_size_mb'] = round(db_path.stat().st_size / (1024 * 1024), 2)
+        metrics["db_size_mb"] = round(db_path.stat().st_size / (1024 * 1024), 2)
 
-    # Whitelist of valid tables for counting
-    VALID_TABLES = {'symbols', 'function_call_args', 'assignments', 'api_endpoints'}
-    tables = ['symbols', 'function_call_args', 'assignments', 'api_endpoints']
+    VALID_TABLES = {"symbols", "function_call_args", "assignments", "api_endpoints"}
+    tables = ["symbols", "function_call_args", "assignments", "api_endpoints"]
     total = 0
     for table in tables:
         try:
-            # Validate table name to prevent SQL injection
             if table not in VALID_TABLES:
                 continue
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
@@ -704,17 +699,17 @@ def _get_performance(cursor, db_path: Path) -> dict:
         except:
             pass
 
-    metrics['total_rows'] = total
+    metrics["total_rows"] = total
 
     try:
         cursor.execute("SELECT COUNT(DISTINCT path) FROM symbols")
-        metrics['files_indexed'] = cursor.fetchone()[0] or 0
+        metrics["files_indexed"] = cursor.fetchone()[0] or 0
     except:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM symbols")
-        metrics['symbols_extracted'] = cursor.fetchone()[0] or 0
+        metrics["symbols_extracted"] = cursor.fetchone()[0] or 0
     except:
         pass
 
@@ -733,13 +728,11 @@ def _show_top_level_overview(data: dict):
     lines.append("━" * 80)
     lines.append("")
 
-    # Codebase Structure (tree format)
-    struct = data['structure']
+    struct = data["structure"]
     lines.append("📊 Codebase Structure:")
 
-    # Group by backend/frontend
-    by_dir = struct['by_directory']
-    if 'backend' in by_dir and 'frontend' in by_dir:
+    by_dir = struct["by_directory"]
+    if "backend" in by_dir and "frontend" in by_dir:
         lines.append("  ├─ Backend ──────────────────────────┐")
         lines.append(f"  │  Files: {by_dir['backend']:,}")
         lines.append("  │                                      │")
@@ -754,55 +747,59 @@ def _show_top_level_overview(data: dict):
     lines.append(f"  Total Files: {struct['total_files']:,}")
     lines.append(f"  Total Symbols: {struct['total_symbols']:,}")
 
-    # File categorization breakdown (helps understand what the numbers mean)
-    by_cat = struct.get('by_category', {})
+    by_cat = struct.get("by_category", {})
     if by_cat:
         lines.append("  File Categories:")
-        cat_order = ['source', 'test', 'scripts', 'migrations', 'seeders', 'config', 'other']
+        cat_order = ["source", "test", "scripts", "migrations", "seeders", "config", "other"]
         for cat in cat_order:
             if cat in by_cat and by_cat[cat] > 0:
                 lines.append(f"    {cat}: {by_cat[cat]:,}")
     lines.append("")
 
-    # Hot Files
-    hot = data['hot_files'][:5]
+    hot = data["hot_files"][:5]
     if hot:
         lines.append("🔥 Hot Files (by call count):")
         for i, hf in enumerate(hot, 1):
             lines.append(f"  {i}. {hf['file']}")
-            lines.append(f"     → Called by: {hf['caller_count']} files ({hf['total_calls']} call sites)")
+            lines.append(
+                f"     → Called by: {hf['caller_count']} files ({hf['total_calls']} call sites)"
+            )
         lines.append("")
 
-    # Security Surface
-    sec = data['security_surface']
+    sec = data["security_surface"]
     lines.append("🔒 Security Surface:")
-    lines.append(f"  ├─ JWT Usage: {sec['jwt']['sign']} sign operations, {sec['jwt']['verify']} verify operations")
+    lines.append(
+        f"  ├─ JWT Usage: {sec['jwt']['sign']} sign operations, {sec['jwt']['verify']} verify operations"
+    )
     lines.append(f"  ├─ OAuth Flows: {sec['oauth']} patterns")
     lines.append(f"  ├─ Password Handling: {sec['password']} operations")
-    lines.append(f"  ├─ SQL Queries: {sec['sql_queries']['total']} total ({sec['sql_queries']['raw']} raw queries)")
-    lines.append(f"  └─ API Endpoints: {sec['api_endpoints']['total']} total ({sec['api_endpoints']['unprotected']} unprotected)")
+    lines.append(
+        f"  ├─ SQL Queries: {sec['sql_queries']['total']} total ({sec['sql_queries']['raw']} raw queries)"
+    )
+    lines.append(
+        f"  └─ API Endpoints: {sec['api_endpoints']['total']} total ({sec['api_endpoints']['unprotected']} unprotected)"
+    )
     lines.append("")
 
-    # Data Flow
-    df = data['data_flow']
-    if df['taint_paths'] > 0 or df['taint_sources'] > 0:
+    df = data["data_flow"]
+    if df["taint_paths"] > 0 or df["taint_sources"] > 0:
         lines.append("🌊 Data Flow (Junction Table Analysis):")
         lines.append(f"  ├─ Taint Sources: {df['taint_sources']:,} (unique variables)")
-        lines.append(f"  ├─ Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)")
+        lines.append(
+            f"  ├─ Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)"
+        )
         lines.append(f"  └─ Taint Paths: {df['taint_paths']} detected")
         lines.append("")
 
-    # Import Graph
-    if data['import_graph']:
-        imp = data['import_graph']
+    if data["import_graph"]:
+        imp = data["import_graph"]
         lines.append("📦 Import Graph:")
         lines.append(f"  ├─ Total imports: {imp['total']:,}")
         lines.append(f"  ├─ External deps: {imp['external']:,}")
         lines.append(f"  └─ Internal imports: {imp['internal']:,}")
         lines.append("")
 
-    # Performance
-    perf = data['performance']
+    perf = data["performance"]
     lines.append("⚡ Analysis Metrics:")
     lines.append(f"  ├─ Files indexed: {perf['files_indexed']:,}")
     lines.append(f"  ├─ Symbols extracted: {perf['symbols_extracted']:,}")
@@ -826,55 +823,62 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         data: Blueprint data dict from _gather_all_data
         cursor: Database cursor (passed from main function - dependency injection)
     """
-    struct = data['structure']
+    struct = data["structure"]
 
     click.echo("\n🏗️  STRUCTURE DRILL-DOWN")
     click.echo("=" * 80)
     click.echo("Scope Understanding: What's the scope? Where are boundaries? What's orphaned?")
     click.echo("=" * 80)
 
-    # Monorepo Detection
     click.echo("\nMonorepo Detection:")
-    by_dir = struct['by_directory']
-    has_backend = any('backend' in d for d in by_dir.keys())
-    has_frontend = any('frontend' in d for d in by_dir.keys())
-    has_packages = any('packages' in d for d in by_dir.keys())
+    by_dir = struct["by_directory"]
+    has_backend = any("backend" in d for d in by_dir.keys())
+    has_frontend = any("frontend" in d for d in by_dir.keys())
+    has_packages = any("packages" in d for d in by_dir.keys())
 
     if has_backend or has_frontend or has_packages:
-        click.echo(f"  ✓ Detected: {'backend/' if has_backend else ''}{'frontend/' if has_frontend else ''}{'packages/' if has_packages else ''} split")
+        click.echo(
+            f"  ✓ Detected: {'backend/' if has_backend else ''}{'frontend/' if has_frontend else ''}{'packages/' if has_packages else ''} split"
+        )
         if has_backend:
-            backend_files = sum(count for dir_name, count in by_dir.items() if 'backend' in dir_name)
+            backend_files = sum(
+                count for dir_name, count in by_dir.items() if "backend" in dir_name
+            )
             click.echo(f"  Backend: {backend_files} files")
         if has_frontend:
-            frontend_files = sum(count for dir_name, count in by_dir.items() if 'frontend' in dir_name)
+            frontend_files = sum(
+                count for dir_name, count in by_dir.items() if "frontend" in dir_name
+            )
             click.echo(f"  Frontend: {frontend_files} files")
     else:
         click.echo("  ✗ No monorepo structure detected (single-directory project)")
 
-    # File breakdown by directory
     click.echo("\nFiles by Directory:")
-    for dir_name, count in sorted(struct['by_directory'].items(), key=lambda x: -x[1])[:15]:
+    for dir_name, count in sorted(struct["by_directory"].items(), key=lambda x: -x[1])[:15]:
         click.echo(f"  {dir_name:50s} {count:6,} files")
 
-    # Language breakdown
     click.echo("\nFiles by Language:")
-    lang_map = {'.ts': 'TypeScript', '.js': 'JavaScript', '.py': 'Python', '.tsx': 'TSX', '.jsx': 'JSX'}
-    for ext, count in sorted(struct['by_language'].items(), key=lambda x: -x[1]):
+    lang_map = {
+        ".ts": "TypeScript",
+        ".js": "JavaScript",
+        ".py": "Python",
+        ".tsx": "TSX",
+        ".jsx": "JSX",
+    }
+    for ext, count in sorted(struct["by_language"].items(), key=lambda x: -x[1]):
         lang = lang_map.get(ext, ext)
         click.echo(f"  {lang:50s} {count:6,} files")
 
-    # Symbol type breakdown
-    if struct['by_type']:
+    if struct["by_type"]:
         click.echo("\nSymbols by Type:")
-        for sym_type, count in sorted(struct['by_type'].items(), key=lambda x: -x[1]):
+        for sym_type, count in sorted(struct["by_type"].items(), key=lambda x: -x[1]):
             click.echo(f"  {sym_type:50s} {count:6,} symbols")
 
-    # Naming Conventions Analysis
-    naming = data.get('naming_conventions', {})
+    naming = data.get("naming_conventions", {})
     if naming:
         click.echo("\nCode Style Analysis (Naming Conventions):")
 
-        for lang in ['python', 'javascript', 'typescript']:
+        for lang in ["python", "javascript", "typescript"]:
             lang_data = naming.get(lang, {})
             if not lang_data or not any(lang_data.values()):
                 continue
@@ -882,35 +886,33 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
             lang_name = lang.capitalize()
             click.echo(f"\n  {lang_name}:")
 
-            for symbol_type in ['functions', 'classes']:
+            for symbol_type in ["functions", "classes"]:
                 patterns = lang_data.get(symbol_type, {})
-                if not patterns or not patterns.get('dominant'):
+                if not patterns or not patterns.get("dominant"):
                     continue
 
-                dominant = patterns['dominant']
-                consistency = patterns['consistency']
-                click.echo(f"    {symbol_type.capitalize()}: {dominant} ({consistency}% consistency)")
+                dominant = patterns["dominant"]
+                consistency = patterns["consistency"]
+                click.echo(
+                    f"    {symbol_type.capitalize()}: {dominant} ({consistency}% consistency)"
+                )
 
-    # Architectural Precedents (Plugin Loader Patterns)
-    precedents = data.get('architectural_precedents', [])
+    precedents = data.get("architectural_precedents", [])
     if precedents:
         click.echo("\nArchitectural Precedents (Plugin Loader Patterns):")
         click.echo("  (Files importing 3+ modules from same directory - architectural conventions)")
 
-        # Show top 15 precedents
         for prec in precedents[:15]:
-            consumer = prec['consumer']
-            directory = prec['directory']
-            count = prec['count']
-            imports = prec['imports']
+            consumer = prec["consumer"]
+            directory = prec["directory"]
+            count = prec["count"]
+            imports = prec["imports"]
 
             click.echo(f"\n  {consumer}")
             click.echo(f"    -> {directory}/ ({count} modules)")
 
-            # Show first 5 imports
             for imp in imports[:5]:
-                # Display just the module name if it's a path, otherwise show full name
-                display = Path(imp).name if '/' in imp else imp
+                display = Path(imp).name if "/" in imp else imp
                 click.echo(f"       - {display}")
 
             if count > 5:
@@ -923,7 +925,6 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     else:
         click.echo("\nArchitectural Precedents: None detected")
 
-    # Framework Detection
     try:
         cursor.execute("""
             SELECT language, name, version, COUNT(*) as file_count
@@ -941,10 +942,8 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         else:
             click.echo("\nFramework Detection: None detected")
     except sqlite3.OperationalError:
-        # Gracefully handle if the table doesn't exist yet
         click.echo("\nFramework Detection: (Table not found - run 'aud full')")
 
-    # Refactor History
     try:
         cursor.execute("""
             SELECT timestamp, target_file, refactor_type, migrations_found,
@@ -958,22 +957,22 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         if refactor_history:
             click.echo("\nRefactor History (Recent Checks):")
             for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
-                # Format timestamp to date only
-                date = ts.split('T')[0] if 'T' in ts else ts
+                date = ts.split("T")[0] if "T" in ts else ts
                 consistent = "consistent" if schema_ok == 1 else "inconsistent"
                 complete = "complete" if mig_complete == 1 else "incomplete"
                 click.echo(f"  {date}: {target}")
-                click.echo(f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})")
+                click.echo(
+                    f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})"
+                )
                 click.echo(f"    Schema: {consistent}")
         else:
             click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
     except sqlite3.OperationalError:
         click.echo("\nRefactor History: (Table not found - run 'aud full')")
 
-    # Token Estimates (for AI context planning)
     click.echo("\nToken Estimates (for context planning):")
-    total_files = struct['total_files']
-    # Rough estimate: ~400 tokens per file avg
+    total_files = struct["total_files"]
+
     estimated_tokens = total_files * 400
     click.echo(f"  Total files: {total_files:,}")
     click.echo(f"  Estimated tokens: ~{estimated_tokens:,} tokens")
@@ -981,10 +980,9 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         click.echo(f"  ⚠ Exceeds single LLM context window")
         click.echo(f"  → Use 'aud query' for targeted analysis instead of reading all files")
 
-    # Migration Paths Detection
     click.echo("\nMigration Paths Detected:")
-    migration_paths = [d for d in by_dir.keys() if 'migration' in d.lower()]
-    legacy_paths = [d for d in by_dir.keys() if 'legacy' in d.lower() or 'deprecated' in d.lower()]
+    migration_paths = [d for d in by_dir.keys() if "migration" in d.lower()]
+    legacy_paths = [d for d in by_dir.keys() if "legacy" in d.lower() or "deprecated" in d.lower()]
 
     if migration_paths:
         for path in migration_paths:
@@ -995,13 +993,11 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     if not migration_paths and not legacy_paths:
         click.echo("  ✓ No migration or legacy paths detected")
 
-    # Cross-References
     click.echo("\nCross-Reference Commands:")
     click.echo("  → Use 'aud structure' for full markdown report with LOC details")
     click.echo("  → Use 'aud query --file <path> --show-dependents' for impact analysis")
     click.echo("  → Use 'aud graph viz' for visual dependency map")
 
-    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
 
 
@@ -1009,11 +1005,13 @@ def _show_graph_drilldown(data: dict):
     """Drill down: SURGICAL dependency mapping - what depends on what."""
     click.echo("\n📊 GRAPH DRILL-DOWN")
     click.echo("=" * 80)
-    click.echo("Dependency Mapping: What depends on what? Where are bottlenecks? What breaks if I change X?")
+    click.echo(
+        "Dependency Mapping: What depends on what? Where are bottlenecks? What breaks if I change X?"
+    )
     click.echo("=" * 80)
 
-    if data['import_graph']:
-        imp = data['import_graph']
+    if data["import_graph"]:
+        imp = data["import_graph"]
         click.echo(f"\nImport Graph Summary:")
         click.echo(f"  Total imports: {imp['total']:,}")
         click.echo(f"  External dependencies: {imp['external']:,}")
@@ -1025,37 +1023,37 @@ def _show_graph_drilldown(data: dict):
         click.echo("\n" + "=" * 80 + "\n")
         return
 
-    # Gateway Files (high betweenness centrality - most called functions)
     click.echo("\nGateway Files (high betweenness centrality):")
     click.echo("  These are bottlenecks - changing them breaks many dependents")
-    hot = data['hot_files']
+    hot = data["hot_files"]
     if hot:
         for i, hf in enumerate(hot[:10], 1):
             click.echo(f"\n  {i}. {hf['file']}")
             click.echo(f"     Symbol: {hf['symbol']}")
-            click.echo(f"     Called by: {hf['caller_count']} files | Total calls: {hf['total_calls']}")
-            if hf['caller_count'] > 20:
+            click.echo(
+                f"     Called by: {hf['caller_count']} files | Total calls: {hf['total_calls']}"
+            )
+            if hf["caller_count"] > 20:
                 click.echo(f"     ⚠ HIGH IMPACT - changes affect {hf['caller_count']} files")
-                click.echo(f"     → Use 'aud query --symbol {hf['symbol']} --show-callers' for full list")
+                click.echo(
+                    f"     → Use 'aud query --symbol {hf['symbol']} --show-callers' for full list"
+                )
     else:
         click.echo("  ✓ No high-centrality files detected (good - decoupled architecture)")
 
-    # Circular Dependencies (requires graph analysis data)
     click.echo("\nCircular Dependencies:")
-    if imp['circular'] > 0:
+    if imp["circular"] > 0:
         click.echo(f"  ⚠ {imp['circular']} cycles detected")
         click.echo(f"  → Use 'aud graph analyze' for cycle detection")
         click.echo(f"  → Use 'aud graph viz --view cycles' for visual diagram")
     else:
         click.echo("  ✓ No circular dependencies detected (clean architecture)")
 
-    # External Dependencies
     click.echo("\nExternal Dependencies:")
     click.echo(f"  Total: {imp['external']:,} external imports")
     click.echo("  → Use 'aud deps --check-latest' for version analysis")
     click.echo("  → Use 'aud deps --vuln-scan' for security vulnerabilities")
 
-    # Cross-References
     click.echo("\nCross-Reference Commands:")
     click.echo("  → Use 'aud query --file <path> --show-dependents' to see impact radius")
     click.echo("  → Use 'aud graph viz --view full' for complete dependency graph")
@@ -1071,25 +1069,27 @@ def _show_security_drilldown(data: dict, cursor):
         data: Blueprint data dict from _gather_all_data
         cursor: Database cursor (passed from main function - dependency injection)
     """
-    sec = data['security_surface']
+    sec = data["security_surface"]
 
     click.echo("\n🔒 SECURITY DRILL-DOWN")
     click.echo("=" * 80)
-    click.echo("Attack Surface Mapping: What's the attack surface? What's protected? What needs fixing?")
+    click.echo(
+        "Attack Surface Mapping: What's the attack surface? What's protected? What needs fixing?"
+    )
     click.echo("=" * 80)
 
-    # API Endpoint Security Coverage - MOST CRITICAL
     click.echo(f"\nAPI Endpoint Security Coverage ({sec['api_endpoints']['total']} endpoints):")
-    total_endpoints = sec['api_endpoints']['total']
-    protected = sec['api_endpoints']['protected']
-    unprotected = sec['api_endpoints']['unprotected']
+    total_endpoints = sec["api_endpoints"]["total"]
+    protected = sec["api_endpoints"]["protected"]
+    unprotected = sec["api_endpoints"]["unprotected"]
 
     if total_endpoints > 0:
         protected_pct = int((protected / total_endpoints) * 100)
         click.echo(f"  Protected: {protected} ({protected_pct}%)")
-        click.echo(f"  Unprotected: {unprotected} ({100-protected_pct}%) {'← SECURITY RISK' if unprotected > 0 else ''}")
+        click.echo(
+            f"  Unprotected: {unprotected} ({100 - protected_pct}%) {'← SECURITY RISK' if unprotected > 0 else ''}"
+        )
 
-    # Show ACTUAL unprotected endpoints (top 10) - excludes middleware (USE)
     if unprotected > 0:
         click.echo(f"\n  Unprotected Endpoints (showing first 10):")
         try:
@@ -1103,24 +1103,25 @@ def _show_security_drilldown(data: dict, cursor):
                 LIMIT 10
             """)
             for i, row in enumerate(cursor.fetchall(), 1):
-                method = row['method'] or 'USE'
-                path = row['path'] or '(no path)'
-                file = row['file']
-                line = row['line']
-                handler = row['handler_function'] or '(unknown)'
+                method = row["method"] or "USE"
+                path = row["path"] or "(no path)"
+                file = row["file"]
+                line = row["line"]
+                handler = row["handler_function"] or "(unknown)"
                 click.echo(f"    {i}. {method:7s} {path:40s} ({file}:{line})")
                 click.echo(f"       Handler: {handler}")
 
             if unprotected > 10:
                 click.echo(f"    ... {unprotected - 10} more unprotected endpoints")
-                click.echo(f"    → Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list")
+                click.echo(
+                    f"    → Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list"
+                )
         except Exception:
             pass
 
-    # Authentication Patterns Detected
     click.echo("\nAuthentication Patterns Detected:")
-    jwt_total = sec['jwt']['sign'] + sec['jwt']['verify']
-    oauth_total = sec['oauth']
+    jwt_total = sec["jwt"]["sign"] + sec["jwt"]["verify"]
+    oauth_total = sec["oauth"]
 
     click.echo(f"\n  JWT: {jwt_total} usages")
     click.echo(f"    ├─ jwt.sign: {sec['jwt']['sign']} locations (token generation)")
@@ -1130,16 +1131,16 @@ def _show_security_drilldown(data: dict, cursor):
 
     click.echo(f"\n  Password Handling: {sec['password']} operations")
 
-    # Detect migration state
     if jwt_total > 0 and oauth_total > 0:
         click.echo(f"\n  ⚠ MIGRATION IN PROGRESS?")
         click.echo(f"    Both JWT and OAuth detected - possible auth migration")
         click.echo(f"    → Use 'aud context --file auth_migration.yaml' to track progress")
 
-    # Hardcoded Secrets
     click.echo("\nHardcoded Secrets:")
     try:
-        cursor.execute("SELECT COUNT(*) FROM findings_consolidated WHERE rule LIKE '%secret%' OR rule LIKE '%hardcoded%'")
+        cursor.execute(
+            "SELECT COUNT(*) FROM findings_consolidated WHERE rule LIKE '%secret%' OR rule LIKE '%hardcoded%'"
+        )
         secret_count = cursor.fetchone()[0]
         if secret_count > 0:
             click.echo(f"  ⚠ {secret_count} potential hardcoded secrets detected")
@@ -1149,16 +1150,17 @@ def _show_security_drilldown(data: dict, cursor):
     except Exception:
         click.echo(f"  (No secret scan data available)")
 
-    # SQL Injection Risk
     click.echo("\nSQL Injection Risk:")
-    sql_total = sec['sql_queries']['total']
-    sql_raw = sec['sql_queries']['raw']
+    sql_total = sec["sql_queries"]["total"]
+    sql_raw = sec["sql_queries"]["raw"]
 
     if sql_total > 0:
         raw_pct = int((sql_raw / sql_total) * 100) if sql_total > 0 else 0
         click.echo(f"  Total queries: {sql_total}")
-        click.echo(f"  Raw/dynamic queries: {sql_raw} ({raw_pct}%) {'← Potential SQLi' if sql_raw > 0 else ''}")
-        click.echo(f"  Parameterized queries: {sql_total - sql_raw} ({100-raw_pct}%)")
+        click.echo(
+            f"  Raw/dynamic queries: {sql_raw} ({raw_pct}%) {'← Potential SQLi' if sql_raw > 0 else ''}"
+        )
+        click.echo(f"  Parameterized queries: {sql_total - sql_raw} ({100 - raw_pct}%)")
 
         if sql_raw > 0:
             click.echo(f"\n  ⚠ High Risk: {sql_raw} dynamic SQL queries detected")
@@ -1166,26 +1168,24 @@ def _show_security_drilldown(data: dict, cursor):
     else:
         click.echo(f"  ✓ No SQL queries detected (or using ORM)")
 
-    # CSRF Protection
     try:
         cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method = 'POST'")
         post_count = cursor.fetchone()[0]
         if post_count > 0:
-            # This is approximate - we don't have CSRF detection yet
             click.echo(f"\nCSRF Protection:")
             click.echo(f"  POST endpoints: {post_count}")
             click.echo(f"  → Manual review required for CSRF token validation")
     except Exception:
         pass
 
-    # Cross-References
     click.echo("\nCross-Reference Commands:")
     click.echo("  → Use 'aud query --show-api-coverage' for full endpoint security matrix")
     click.echo("  → Use 'aud taint-analyze' for data flow security analysis")
     click.echo("  → Use 'aud deps --vuln-scan' for dependency CVEs (OSV-Scanner)")
-    click.echo("  → Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage")
+    click.echo(
+        "  → Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage"
+    )
 
-    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
 
 
@@ -1196,20 +1196,19 @@ def _show_taint_drilldown(data: dict, cursor):
         data: Blueprint data dict from _gather_all_data
         cursor: Database cursor (passed from main function - dependency injection)
     """
-    df = data['data_flow']
+    df = data["data_flow"]
 
     click.echo("\n🌊 TAINT DRILL-DOWN")
     click.echo("=" * 80)
     click.echo("Data Flow Mapping: Where does user data flow? What's sanitized? What's vulnerable?")
     click.echo("=" * 80)
 
-    if df['taint_paths'] == 0:
+    if df["taint_paths"] == 0:
         click.echo("\n⚠ No taint analysis data available")
         click.echo("  Run: aud taint-analyze")
         click.echo("\n" + "=" * 80 + "\n")
         return
 
-    # Top Taint Sources (user-controlled data)
     click.echo("\nTop Taint Sources (user-controlled data):")
     try:
         cursor.execute("""
@@ -1231,11 +1230,9 @@ def _show_taint_drilldown(data: dict, cursor):
     except Exception as e:
         click.echo(f"  (Could not query taint sources: {e})")
 
-    # Taint Paths Summary
     click.echo(f"\nTaint Paths Detected: {df['taint_paths']}")
     click.echo(f"Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)")
 
-    # Show ACTUAL taint paths (top 5)
     click.echo(f"\nVulnerable Data Flows (showing first 5):")
     try:
         cursor.execute("""
@@ -1255,21 +1252,20 @@ def _show_taint_drilldown(data: dict, cursor):
         taint_findings = cursor.fetchall()
         if taint_findings:
             for i, finding in enumerate(taint_findings, 1):
-                category = finding['category'] or 'unknown'
-                file = finding['file']
-                line = finding['line']
-                message = finding['message'] or 'Tainted data flow detected'
-                severity = finding['severity'] or 'medium'
+                category = finding["category"] or "unknown"
+                file = finding["file"]
+                line = finding["line"]
+                message = finding["message"] or "Tainted data flow detected"
+                severity = finding["severity"] or "medium"
 
-                # Truncate message if too long
                 if len(message) > 80:
-                    message = message[:77] + '...'
+                    message = message[:77] + "..."
 
                 click.echo(f"\n  {i}. [{severity.upper()}] {category}")
                 click.echo(f"     Location: {file}:{line}")
                 click.echo(f"     Issue: {message}")
 
-            if df['taint_paths'] > 5:
+            if df["taint_paths"] > 5:
                 click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
                 click.echo(f"  -> Use 'aud taint-analyze --json' for full vulnerability details")
         else:
@@ -1277,10 +1273,8 @@ def _show_taint_drilldown(data: dict, cursor):
     except Exception as e:
         click.echo(f"  (Could not query taint findings: {e})")
 
-    # Sanitization Coverage
     click.echo(f"\nSanitization Coverage:")
     try:
-        # Look for common sanitization functions
         cursor.execute("""
             SELECT COUNT(*) as sanitizer_count
             FROM function_call_args
@@ -1289,13 +1283,13 @@ def _show_taint_drilldown(data: dict, cursor):
                OR callee_function LIKE '%validate%'
                OR callee_function LIKE '%clean%'
         """)
-        sanitizer_count = cursor.fetchone()['sanitizer_count']
+        sanitizer_count = cursor.fetchone()["sanitizer_count"]
 
         if sanitizer_count > 0:
             click.echo(f"  Sanitization functions called: {sanitizer_count} times")
             click.echo(f"  → Compare with {df['taint_paths']} taint paths")
-            if sanitizer_count < df['taint_paths']:
-                coverage_pct = int((sanitizer_count / df['taint_paths']) * 100)
+            if sanitizer_count < df["taint_paths"]:
+                coverage_pct = int((sanitizer_count / df["taint_paths"]) * 100)
                 click.echo(f"  ⚠ LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized")
         else:
             click.echo(f"  ⚠ No sanitization functions detected")
@@ -1303,7 +1297,6 @@ def _show_taint_drilldown(data: dict, cursor):
     except Exception:
         click.echo(f"  (Could not analyze sanitization coverage)")
 
-    # Dynamic Dispatch Vulnerabilities
     click.echo(f"\nDynamic Dispatch Vulnerabilities:")
     try:
         cursor.execute("""
@@ -1313,7 +1306,7 @@ def _show_taint_drilldown(data: dict, cursor):
                OR rule LIKE '%prototype%pollution%'
                OR category = 'dynamic_dispatch'
         """)
-        dispatch_count = cursor.fetchone()['dispatch_count']
+        dispatch_count = cursor.fetchone()["dispatch_count"]
 
         if dispatch_count > 0:
             click.echo(f"  ⚠ {dispatch_count} dynamic dispatch vulnerabilities detected")
@@ -1324,13 +1317,11 @@ def _show_taint_drilldown(data: dict, cursor):
     except Exception:
         click.echo(f"  (Could not analyze dynamic dispatch)")
 
-    # Cross-References
     click.echo("\nCross-Reference Commands:")
     click.echo("  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
     click.echo("  -> Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
     click.echo("  -> Use 'aud taint-analyze --json' to re-run analysis with fresh data")
 
-    # Note: conn is managed by main blueprint() function - no close here
     click.echo("\n" + "=" * 80 + "\n")
 
 
@@ -1340,67 +1331,68 @@ def _get_dependencies(cursor) -> dict:
     Queries DATABASE (source of truth), not JSON files.
     """
     deps = {
-        'total': 0,
-        'by_manager': {},
-        'packages': [],
-        'workspaces': [],
+        "total": 0,
+        "by_manager": {},
+        "packages": [],
+        "workspaces": [],
     }
 
-    # Get npm/yarn packages from package_configs
     try:
         cursor.execute("""
             SELECT file_path, package_name, version, dependencies, dev_dependencies
             FROM package_configs
         """)
         for row in cursor.fetchall():
-            file_path = row['file_path']
-            pkg_name = row['package_name']
-            version = row['version']
+            file_path = row["file_path"]
+            pkg_name = row["package_name"]
+            version = row["version"]
 
-            # Parse dependencies JSON
-            prod_deps = json.loads(row['dependencies']) if row['dependencies'] else {}
-            dev_deps = json.loads(row['dev_dependencies']) if row['dev_dependencies'] else {}
+            prod_deps = json.loads(row["dependencies"]) if row["dependencies"] else {}
+            dev_deps = json.loads(row["dev_dependencies"]) if row["dev_dependencies"] else {}
 
             workspace = {
-                'file': file_path,
-                'name': pkg_name,
-                'version': version,
-                'manager': 'npm',
-                'prod_count': len(prod_deps),
-                'dev_count': len(dev_deps),
-                'prod_deps': prod_deps,
-                'dev_deps': dev_deps,
+                "file": file_path,
+                "name": pkg_name,
+                "version": version,
+                "manager": "npm",
+                "prod_count": len(prod_deps),
+                "dev_count": len(dev_deps),
+                "prod_deps": prod_deps,
+                "dev_deps": dev_deps,
             }
-            deps['workspaces'].append(workspace)
+            deps["workspaces"].append(workspace)
 
-            # Aggregate counts
-            deps['by_manager']['npm'] = deps['by_manager'].get('npm', 0) + len(prod_deps) + len(dev_deps)
-            deps['total'] += len(prod_deps) + len(dev_deps)
+            deps["by_manager"]["npm"] = (
+                deps["by_manager"].get("npm", 0) + len(prod_deps) + len(dev_deps)
+            )
+            deps["total"] += len(prod_deps) + len(dev_deps)
 
-            # Add to flat package list
             for name, ver in prod_deps.items():
-                deps['packages'].append({'name': name, 'version': ver, 'manager': 'npm', 'dev': False})
+                deps["packages"].append(
+                    {"name": name, "version": ver, "manager": "npm", "dev": False}
+                )
             for name, ver in dev_deps.items():
-                deps['packages'].append({'name': name, 'version': ver, 'manager': 'npm', 'dev': True})
+                deps["packages"].append(
+                    {"name": name, "version": ver, "manager": "npm", "dev": True}
+                )
     except Exception:
         pass
 
-    # Get pip/poetry packages from python_package_configs
     try:
         cursor.execute("""
             SELECT file_path, project_name, project_version, dependencies, optional_dependencies
             FROM python_package_configs
         """)
         for row in cursor.fetchall():
-            file_path = row['file_path']
-            pkg_name = row['project_name']
-            version = row['project_version']
+            file_path = row["file_path"]
+            pkg_name = row["project_name"]
+            version = row["project_version"]
 
-            # Parse dependencies JSON (list format for Python)
-            prod_deps_raw = json.loads(row['dependencies']) if row['dependencies'] else []
-            opt_deps_raw = json.loads(row['optional_dependencies']) if row['optional_dependencies'] else {}
+            prod_deps_raw = json.loads(row["dependencies"]) if row["dependencies"] else []
+            opt_deps_raw = (
+                json.loads(row["optional_dependencies"]) if row["optional_dependencies"] else {}
+            )
 
-            # Flatten optional deps
             dev_deps = []
             if isinstance(opt_deps_raw, dict):
                 for group_name, group_deps in opt_deps_raw.items():
@@ -1408,26 +1400,40 @@ def _get_dependencies(cursor) -> dict:
                         dev_deps.extend(group_deps)
 
             workspace = {
-                'file': file_path,
-                'name': pkg_name,
-                'version': version,
-                'manager': 'pip',
-                'prod_count': len(prod_deps_raw),
-                'dev_count': len(dev_deps),
+                "file": file_path,
+                "name": pkg_name,
+                "version": version,
+                "manager": "pip",
+                "prod_count": len(prod_deps_raw),
+                "dev_count": len(dev_deps),
             }
-            deps['workspaces'].append(workspace)
+            deps["workspaces"].append(workspace)
 
-            # Aggregate counts
-            deps['by_manager']['pip'] = deps['by_manager'].get('pip', 0) + len(prod_deps_raw) + len(dev_deps)
-            deps['total'] += len(prod_deps_raw) + len(dev_deps)
+            deps["by_manager"]["pip"] = (
+                deps["by_manager"].get("pip", 0) + len(prod_deps_raw) + len(dev_deps)
+            )
+            deps["total"] += len(prod_deps_raw) + len(dev_deps)
 
-            # Add to flat package list
             for dep in prod_deps_raw:
                 if isinstance(dep, dict):
-                    deps['packages'].append({'name': dep.get('name', ''), 'version': dep.get('version', ''), 'manager': 'pip', 'dev': False})
+                    deps["packages"].append(
+                        {
+                            "name": dep.get("name", ""),
+                            "version": dep.get("version", ""),
+                            "manager": "pip",
+                            "dev": False,
+                        }
+                    )
             for dep in dev_deps:
                 if isinstance(dep, dict):
-                    deps['packages'].append({'name': dep.get('name', ''), 'version': dep.get('version', ''), 'manager': 'pip', 'dev': True})
+                    deps["packages"].append(
+                        {
+                            "name": dep.get("name", ""),
+                            "version": dep.get("version", ""),
+                            "manager": "pip",
+                            "dev": True,
+                        }
+                    )
     except Exception:
         pass
 
@@ -1441,28 +1447,26 @@ def _show_deps_drilldown(data: dict, cursor):
         data: Blueprint data dict from _gather_all_data
         cursor: Database cursor (passed from main function - dependency injection)
     """
-    deps = data.get('dependencies', {})
+    deps = data.get("dependencies", {})
 
     click.echo("\nDEPS DRILL-DOWN")
     click.echo("=" * 80)
     click.echo("Dependency Analysis: What packages? What versions? What managers?")
     click.echo("=" * 80)
 
-    if deps['total'] == 0:
+    if deps["total"] == 0:
         click.echo("\n(!) No dependencies found in database")
         click.echo("  Run: aud full (indexes package.json, pyproject.toml, requirements.txt)")
         click.echo("\n" + "=" * 80 + "\n")
         return
 
-    # Summary
     click.echo(f"\nTotal Dependencies: {deps['total']}")
     click.echo("\nBy Package Manager:")
-    for manager, count in sorted(deps['by_manager'].items(), key=lambda x: -x[1]):
+    for manager, count in sorted(deps["by_manager"].items(), key=lambda x: -x[1]):
         click.echo(f"  {manager}: {count} packages")
 
-    # Workspaces/Projects
     click.echo("\nProjects/Workspaces:")
-    for ws in deps['workspaces']:
+    for ws in deps["workspaces"]:
         click.echo(f"\n  {ws['file']}")
         click.echo(f"    Name: {ws['name'] or '(unnamed)'}")
         click.echo(f"    Version: {ws['version'] or '(no version)'}")
@@ -1470,15 +1474,13 @@ def _show_deps_drilldown(data: dict, cursor):
         click.echo(f"    Production deps: {ws['prod_count']}")
         click.echo(f"    Dev deps: {ws['dev_count']}")
 
-        # Show top 5 prod deps if available
-        if ws.get('prod_deps'):
+        if ws.get("prod_deps"):
             click.echo("    Top dependencies:")
-            for i, (name, ver) in enumerate(list(ws['prod_deps'].items())[:5]):
+            for i, (name, ver) in enumerate(list(ws["prod_deps"].items())[:5]):
                 click.echo(f"      - {name}: {ver}")
-            if len(ws['prod_deps']) > 5:
+            if len(ws["prod_deps"]) > 5:
                 click.echo(f"      ... and {len(ws['prod_deps']) - 5} more")
 
-    # Check for outdated info
     click.echo("\nOutdated Package Check:")
     try:
         cursor.execute("SELECT COUNT(*) FROM dependency_versions WHERE is_outdated = 1")
@@ -1492,13 +1494,14 @@ def _show_deps_drilldown(data: dict, cursor):
                 LIMIT 10
             """)
             for row in cursor.fetchall():
-                click.echo(f"    {row['package_name']}: {row['locked_version']} -> {row['latest_version']} ({row['manager']})")
+                click.echo(
+                    f"    {row['package_name']}: {row['locked_version']} -> {row['latest_version']} ({row['manager']})"
+                )
         else:
             click.echo("  (No outdated package data - run 'aud deps --check-latest')")
     except Exception:
         click.echo("  (No version check data - run 'aud deps --check-latest')")
 
-    # Cross-References
     click.echo("\nRelated Commands:")
     click.echo("  -> aud deps --check-latest   # Check for outdated packages")
     click.echo("  -> aud deps --vuln-scan      # Scan for CVEs (OSV-Scanner)")
@@ -1516,61 +1519,58 @@ def _get_boundaries(cursor, graphs_db_path: Path) -> dict:
     from theauditor.boundaries.boundary_analyzer import analyze_input_validation_boundaries
 
     boundaries = {
-        'total_entries': 0,
-        'by_quality': {
-            'clear': 0,      # Distance 0
-            'acceptable': 0,  # Distance 1-2
-            'fuzzy': 0,       # Distance 3+ or multiple controls
-            'missing': 0,     # No control found
+        "total_entries": 0,
+        "by_quality": {
+            "clear": 0,
+            "acceptable": 0,
+            "fuzzy": 0,
+            "missing": 0,
         },
-        'missing_controls': 0,
-        'late_validation': 0,  # Distance 3+
-        'entries': [],  # Sample entries for drilldown
+        "missing_controls": 0,
+        "late_validation": 0,
+        "entries": [],
     }
 
-    # Get database path from cursor connection
     db_path = Path.cwd() / ".pf" / "repo_index.db"
 
     try:
-        # Run the actual boundary analysis (limited to 20 entries for speed)
         results = analyze_input_validation_boundaries(str(db_path), max_entries=20)
 
-        boundaries['total_entries'] = len(results)
+        boundaries["total_entries"] = len(results)
 
-        # Aggregate by quality
         for result in results:
-            quality = result['quality']['quality']
-            boundaries['by_quality'][quality] = boundaries['by_quality'].get(quality, 0) + 1
+            quality = result["quality"]["quality"]
+            boundaries["by_quality"][quality] = boundaries["by_quality"].get(quality, 0) + 1
 
-            if quality == 'missing':
-                boundaries['missing_controls'] += 1
+            if quality == "missing":
+                boundaries["missing_controls"] += 1
 
-            # Check for late validation (distance 3+)
-            for control in result.get('controls', []):
-                if control.get('distance', 0) >= 3:
-                    boundaries['late_validation'] += 1
-                    break  # Count entry point once
+            for control in result.get("controls", []):
+                if control.get("distance", 0) >= 3:
+                    boundaries["late_validation"] += 1
+                    break
 
-            # Get min distance for this entry
-            distances = [c.get('distance', 999) for c in result.get('controls', [])]
+            distances = [c.get("distance", 999) for c in result.get("controls", [])]
             min_dist = min(distances) if distances else None
 
-            boundaries['entries'].append({
-                'entry_point': result['entry_point'],
-                'file': result['entry_file'],
-                'line': result['entry_line'],
-                'quality': quality,
-                'distance': min_dist,
-                'control_count': len(result.get('controls', [])),
-            })
+            boundaries["entries"].append(
+                {
+                    "entry_point": result["entry_point"],
+                    "file": result["entry_file"],
+                    "line": result["entry_line"],
+                    "quality": quality,
+                    "distance": min_dist,
+                    "control_count": len(result.get("controls", [])),
+                }
+            )
 
-        # Sort entries by severity (missing first, then fuzzy, etc.)
-        quality_order = {'missing': 0, 'fuzzy': 1, 'acceptable': 2, 'clear': 3}
-        boundaries['entries'].sort(key=lambda x: (quality_order.get(x['quality'], 4), -(x['distance'] or 0)))
+        quality_order = {"missing": 0, "fuzzy": 1, "acceptable": 2, "clear": 3}
+        boundaries["entries"].sort(
+            key=lambda x: (quality_order.get(x["quality"], 4), -(x["distance"] or 0))
+        )
 
     except Exception as e:
-        # Analysis failed - return empty with error note
-        boundaries['error'] = str(e)
+        boundaries["error"] = str(e)
 
     return boundaries
 
@@ -1582,42 +1582,40 @@ def _show_boundaries_drilldown(data: dict, cursor):
         data: Blueprint data dict from _gather_all_data
         cursor: Database cursor (passed from main function - dependency injection)
     """
-    bounds = data.get('boundaries', {})
+    bounds = data.get("boundaries", {})
 
     click.echo("\nBOUNDARIES DRILL-DOWN")
     click.echo("=" * 80)
     click.echo("Boundary Distance Analysis: How far is validation from entry points?")
     click.echo("=" * 80)
 
-    # Check for errors
-    if bounds.get('error'):
+    if bounds.get("error"):
         click.echo(f"\n(!) Analysis error: {bounds['error']}")
         click.echo("  Run: aud full (to index routes and handlers)")
         click.echo("\n" + "=" * 80 + "\n")
         return
 
-    total = bounds.get('total_entries', 0)
+    total = bounds.get("total_entries", 0)
     if total == 0:
         click.echo("\n(!) No entry points found in database")
         click.echo("  Run: aud full (indexes routes and handlers)")
         click.echo("\n" + "=" * 80 + "\n")
         return
 
-    # Summary
     click.echo(f"\nEntry Points Analyzed: {total}")
 
-    by_quality = bounds.get('by_quality', {})
+    by_quality = bounds.get("by_quality", {})
 
-    # Quality breakdown
     click.echo(f"\nBoundary Quality Breakdown:")
     click.echo(f"  Clear (dist 0):      {by_quality.get('clear', 0):4d} - Validation at entry")
     click.echo(f"  Acceptable (1-2):    {by_quality.get('acceptable', 0):4d} - Validation nearby")
-    click.echo(f"  Fuzzy (3+ or multi): {by_quality.get('fuzzy', 0):4d} - Late or scattered validation")
+    click.echo(
+        f"  Fuzzy (3+ or multi): {by_quality.get('fuzzy', 0):4d} - Late or scattered validation"
+    )
     click.echo(f"  Missing:             {by_quality.get('missing', 0):4d} - No validation found")
 
-    # Risk summary
-    missing = bounds.get('missing_controls', 0)
-    late = bounds.get('late_validation', 0)
+    missing = bounds.get("missing_controls", 0)
+    late = bounds.get("late_validation", 0)
 
     if missing > 0 or late > 0:
         click.echo(f"\nRisk Summary:")
@@ -1626,26 +1624,23 @@ def _show_boundaries_drilldown(data: dict, cursor):
         if late > 0:
             click.echo(f"  (!) {late} entry points have LATE validation (distance 3+)")
 
-    # Sample entries
-    entries = bounds.get('entries', [])
+    entries = bounds.get("entries", [])
     if entries:
         click.echo(f"\nTop Issues (by severity):")
         for i, entry in enumerate(entries[:10], 1):
-            quality = entry.get('quality', 'unknown')
-            distance = entry.get('distance')
-            ep = entry.get('entry_point', 'unknown')
-            file = entry.get('file', '')
-            line = entry.get('line', 0)
-            controls = entry.get('control_count', 0)
+            quality = entry.get("quality", "unknown")
+            distance = entry.get("distance")
+            ep = entry.get("entry_point", "unknown")
+            file = entry.get("file", "")
+            line = entry.get("line", 0)
+            controls = entry.get("control_count", 0)
 
-            # Format distance display
             dist_str = f"dist={distance}" if distance is not None else "no path"
 
             click.echo(f"\n  {i}. [{quality.upper()}] {ep}")
             click.echo(f"     Location: {file}:{line}")
             click.echo(f"     Distance: {dist_str}, Controls found: {controls}")
 
-    # Cross-References
     click.echo("\nRelated Commands:")
     click.echo("  -> aud boundaries --format json        # Full analysis as JSON")
     click.echo("  -> aud boundaries --type input-validation  # Focus on input validation")

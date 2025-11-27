@@ -1,6 +1,5 @@
 """Detect risky global mutable state usage in Python modules."""
 
-
 import sqlite3
 from dataclasses import dataclass
 
@@ -16,17 +15,24 @@ from theauditor.rules.base import (
 METADATA = RuleMetadata(
     name="python_globals",
     category="concurrency",
-    target_extensions=['.py'],
-    exclude_patterns=['frontend/', 'client/', 'node_modules/', 'test/', '__tests__/', 'migrations/'],
-    execution_scope='database',
+    target_extensions=[".py"],
+    exclude_patterns=[
+        "frontend/",
+        "client/",
+        "node_modules/",
+        "test/",
+        "__tests__/",
+        "migrations/",
+    ],
+    execution_scope="database",
     requires_jsx_pass=False,
 )
 
 
 @dataclass(frozen=True)
 class GlobalPatterns:
-    MUTABLE_LITERALS = frozenset(['{}', '[]', 'dict(', 'list(', 'set('])
-    IMMUTABLE_OK = frozenset(['logging.getLogger'])
+    MUTABLE_LITERALS = frozenset(["{}", "[]", "dict(", "list(", "set("])
+    IMMUTABLE_OK = frozenset(["logging.getLogger"])
 
 
 class GlobalAnalyzer:
@@ -45,32 +51,31 @@ class GlobalAnalyzer:
         try:
             from theauditor.indexer.schema import build_query
 
-            # Fetch all assignments, filter in Python
-            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="source_expr IS NOT NULL",
-                               order_by="file, line")
+            query = build_query(
+                "assignments",
+                ["file", "line", "target_var", "source_expr"],
+                where="source_expr IS NOT NULL",
+                order_by="file, line",
+            )
             cursor.execute(query)
 
-            # Filter for mutable literals in Python
             candidates = []
             for file, line, var, expr in cursor.fetchall():
                 if not expr:
                     continue
-                # Check for mutable literal patterns
+
                 if any(literal in expr for literal in self.patterns.MUTABLE_LITERALS):
                     candidates.append((file, line, var, expr))
 
             for file, line, var, expr in candidates:
-                var_lower = (var or '').lower()
-                if not var_lower or var_lower.startswith('_'):
+                var_lower = (var or "").lower()
+                if not var_lower or var_lower.startswith("_"):
                     continue
                 if var_lower.isupper():
-                    # Constants are okay
                     continue
-                if any(allowed in (expr or '') for allowed in self.patterns.IMMUTABLE_OK):
+                if any(allowed in (expr or "") for allowed in self.patterns.IMMUTABLE_OK):
                     continue
 
-                # Check usage inside functions (scope_level > 0)
                 cursor.execute(
                     """
                     SELECT COUNT(*)
@@ -86,15 +91,17 @@ class GlobalAnalyzer:
                 if usage_count == 0:
                     continue
 
-                self.findings.append(StandardFinding(
-                    rule_name='python-global-mutable-state',
-                    message=f'Global mutable "{var}" is modified inside functions ({usage_count} writes)',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.MEDIUM,
-                    category='concurrency',
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-global-mutable-state",
+                        message=f'Global mutable "{var}" is modified inside functions ({usage_count} writes)',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.MEDIUM,
+                        category="concurrency",
+                    )
+                )
 
         finally:
             conn.close()

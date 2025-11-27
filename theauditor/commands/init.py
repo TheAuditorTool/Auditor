@@ -7,7 +7,9 @@ import click
 @click.command()
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
 @click.option("--quiet", is_flag=True, help="Minimal output")
-@click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
+@click.option(
+    "--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)"
+)
 @click.pass_context
 def init(ctx, offline, quiet, exclude_self):
     """[DEPRECATED] This command now runs 'aud full' for data fidelity.
@@ -97,7 +99,7 @@ def init(ctx, offline, quiet, exclude_self):
 
     ════════════════════════════════════════════════════════════════════════════════
     """
-    # Print prominent deprecation warning (unless --quiet)
+
     if not quiet:
         click.echo("")
         click.echo("=" * 80)
@@ -129,23 +131,20 @@ def init(ctx, offline, quiet, exclude_self):
         click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
         click.echo("")
 
-        # Give users time to cancel if they didn't expect this
         try:
             time.sleep(3)
         except KeyboardInterrupt:
             click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
             ctx.exit(0)
 
-    # Import full command here to avoid circular dependency
     from theauditor.commands.full import full
 
-    # Call aud full with mapped parameters
     ctx.invoke(
         full,
         root=".",
         quiet=quiet,
         exclude_self=exclude_self,
         offline=offline,
-        subprocess_taint=False,  # Default
-        wipecache=False  # Default
+        subprocess_taint=False,
+        wipecache=False,
     )

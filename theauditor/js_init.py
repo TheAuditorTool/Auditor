@@ -1,6 +1,5 @@
 """JavaScript/TypeScript project initialization."""
 
-
 import json
 from pathlib import Path
 
@@ -17,7 +16,6 @@ def deep_merge(base: dict, overlay: dict) -> dict:
         if key not in result:
             result[key] = value
         elif isinstance(value, dict) and isinstance(result[key], dict):
-            # Recursively merge nested dicts
             result[key] = deep_merge(result[key], value)
 
     return result
@@ -34,7 +32,6 @@ def ensure_package_json(path: str) -> dict[str, str]:
     """
     package_path = Path(path)
 
-    # Template with PIN_ME placeholders
     template = {
         "private": True,
         "devDependencies": {
@@ -52,23 +49,19 @@ def ensure_package_json(path: str) -> dict[str, str]:
     }
 
     if package_path.exists():
-        # Load existing
         with open(package_path) as f:
             existing = json.load(f)
 
-        # Deep merge
         merged = deep_merge(existing, template)
 
         if merged == existing:
             return {"status": "unchanged"}
 
-        # Write merged version
         with open(package_path, "w") as f:
             json.dump(merged, f, indent=2)
 
         return {"status": "merged"}
     else:
-        # Create new file
         with open(package_path, "w") as f:
             json.dump(template, f, indent=2)
 
@@ -78,17 +71,17 @@ def ensure_package_json(path: str) -> dict[str, str]:
 def add_auditor_hooks(path: str) -> dict[str, str]:
     """
     Add TheAuditor hooks to package.json scripts non-destructively.
-    
+
     Adds the following hooks:
     - pretest: aud lint --workset
-    - prebuild: aud ast-verify  
+    - prebuild: aud ast-verify
     - prepush: aud taint-analyze
-    
+
     If hooks already exist, prepends Auditor commands with &&.
-    
+
     Args:
         path: Path to package.json file
-        
+
     Returns:
         {"status": "hooks_added", "details": <list of changes>} if hooks were added
         {"status": "unchanged"} if all hooks already present
@@ -96,44 +89,36 @@ def add_auditor_hooks(path: str) -> dict[str, str]:
     """
     package_path = Path(path)
 
-    # Check if file exists
     if not package_path.exists():
         return {"status": "error", "message": f"File not found: {path}"}
 
     try:
-        # Read existing package.json
         with open(package_path) as f:
             package_data = json.load(f)
 
-        # Ensure scripts object exists
         if "scripts" not in package_data:
             package_data["scripts"] = {}
 
         scripts = package_data["scripts"]
 
-        # Define desired Auditor hooks
         auditor_hooks = {
             "pretest": "aud lint --workset",
             "prebuild": "aud ast-verify",
-            "prepush": "aud taint-analyze"
+            "prepush": "aud taint-analyze",
         }
 
         changes = []
 
         for hook_name, auditor_cmd in auditor_hooks.items():
             if hook_name not in scripts:
-                # Hook doesn't exist, add it
                 scripts[hook_name] = auditor_cmd
                 changes.append(f"Added {hook_name}: {auditor_cmd}")
             else:
                 existing_cmd = scripts[hook_name]
 
-                # Check if Auditor command is already present
                 if auditor_cmd in existing_cmd:
-                    # Already has the command, skip
                     continue
 
-                # Prepend Auditor command with &&
                 new_cmd = f"{auditor_cmd} && {existing_cmd}"
                 scripts[hook_name] = new_cmd
                 changes.append(f"Modified {hook_name}: prepended {auditor_cmd}")
@@ -141,11 +126,10 @@ def add_auditor_hooks(path: str) -> dict[str, str]:
         if not changes:
             return {"status": "unchanged"}
 
-        # Write modified package.json with 2-space indent
-        with open(package_path, 'w') as f:
+        with open(package_path, "w") as f:
             json.dump(package_data, f, indent=2)
-            # Add trailing newline for consistency with npm
-            f.write('\n')
+
+            f.write("\n")
 
         return {"status": "hooks_added", "details": changes}
 

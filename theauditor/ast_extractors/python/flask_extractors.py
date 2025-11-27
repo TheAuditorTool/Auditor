@@ -21,6 +21,7 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
@@ -32,10 +33,6 @@ from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# Flask Detection Constants
-# ============================================================================
 
 FLASK_APP_IDENTIFIERS = {
     "Flask",
@@ -66,17 +63,13 @@ FLASK_HOOK_DECORATORS = {
 }
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
@@ -95,14 +88,10 @@ def _get_int_constant(node: ast.AST | None) -> int | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
     return None
 
-
-# ============================================================================
-# Flask Extractors
-# ============================================================================
 
 def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask application factory patterns.
@@ -126,11 +115,9 @@ def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Look for factory pattern (usually create_app or make_app)
-        if 'app' not in node.name.lower():
+        if "app" not in node.name.lower():
             continue
 
-        # Check if function creates Flask app
         creates_flask_app = False
         app_var_name = None
         config_source = None
@@ -141,19 +128,21 @@ def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
                 func_name = get_node_name(item.value.func)
                 if any(flask_id in func_name for flask_id in FLASK_APP_IDENTIFIERS):
                     creates_flask_app = True
-                    # Get app variable name
+
                     for target in item.targets:
                         if isinstance(target, ast.Name):
                             app_var_name = target.id
 
         if creates_flask_app:
-            factories.append({
-                "line": node.lineno,
-                "factory_name": node.name,
-                "app_var_name": app_var_name,
-                "config_source": config_source,
-                "registers_blueprints": registers_blueprints,
-            })
+            factories.append(
+                {
+                    "line": node.lineno,
+                    "factory_name": node.name,
+                    "app_var_name": app_var_name,
+                    "config_source": config_source,
+                    "registers_blueprints": registers_blueprints,
+                }
+            )
 
     return factories
 
@@ -184,7 +173,6 @@ def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
 
         func_name = get_node_name(node.value.func)
 
-        # Check if this is a Flask extension
         extension_type = None
         for ext in FLASK_EXTENSIONS:
             if ext in func_name:
@@ -194,23 +182,23 @@ def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
         if not extension_type:
             continue
 
-        # Get variable name
         var_name = None
         for target in node.targets:
             if isinstance(target, ast.Name):
                 var_name = target.id
 
-        # Check if app is passed directly
         app_passed = False
         if node.value.args:
             app_passed = True
 
-        extensions.append({
-            "line": node.lineno,
-            "extension_type": extension_type,
-            "var_name": var_name,
-            "app_passed_to_constructor": app_passed,
-        })
+        extensions.append(
+            {
+                "line": node.lineno,
+                "extension_type": extension_type,
+                "var_name": var_name,
+                "app_passed_to_constructor": app_passed,
+            }
+        )
 
     return extensions
 
@@ -238,7 +226,6 @@ def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for hook patterns
         for decorator in node.decorator_list:
             decorator_name = get_node_name(decorator)
 
@@ -249,18 +236,19 @@ def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
                     break
 
             if hook_type:
-                # Extract app instance name (e.g., 'app' from @app.before_request)
                 app_var = None
                 if isinstance(decorator, ast.Attribute):
                     if isinstance(decorator.value, ast.Name):
                         app_var = decorator.value.id
 
-                hooks.append({
-                    "line": node.lineno,
-                    "hook_type": hook_type,
-                    "function_name": node.name,
-                    "app_var": app_var,
-                })
+                hooks.append(
+                    {
+                        "line": node.lineno,
+                        "hook_type": hook_type,
+                        "function_name": node.name,
+                        "app_var": app_var,
+                    }
+                )
 
     return hooks
 
@@ -286,16 +274,14 @@ def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for errorhandler pattern
         for decorator in node.decorator_list:
             if not isinstance(decorator, ast.Call):
                 continue
 
             decorator_name = get_node_name(decorator.func)
-            if 'errorhandler' not in decorator_name:
+            if "errorhandler" not in decorator_name:
                 continue
 
-            # Extract error code/exception type
             error_code = None
             exception_type = None
 
@@ -306,12 +292,14 @@ def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
                 else:
                     exception_type = get_node_name(arg)
 
-            handlers.append({
-                "line": node.lineno,
-                "function_name": node.name,
-                "error_code": error_code,
-                "exception_type": exception_type,
-            })
+            handlers.append(
+                {
+                    "line": node.lineno,
+                    "function_name": node.name,
+                    "error_code": error_code,
+                    "exception_type": exception_type,
+                }
+            )
 
     return handlers
 
@@ -337,32 +325,31 @@ def extract_flask_websocket_handlers(context: FileContext) -> list[dict[str, Any
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for socketio.on pattern
         for decorator in node.decorator_list:
             if not isinstance(decorator, ast.Call):
                 continue
 
             decorator_name = get_node_name(decorator.func)
-            if '.on' not in decorator_name or 'socketio' not in decorator_name.lower():
+            if ".on" not in decorator_name or "socketio" not in decorator_name.lower():
                 continue
 
-            # Extract event name
             event_name = None
             if decorator.args:
                 event_name = _get_str_constant(decorator.args[0])
 
-            # Check for namespace
             namespace = None
-            namespace_node = _keyword_arg(decorator, 'namespace')
+            namespace_node = _keyword_arg(decorator, "namespace")
             if namespace_node:
                 namespace = _get_str_constant(namespace_node)
 
-            handlers.append({
-                "line": node.lineno,
-                "function_name": node.name,
-                "event_name": event_name,
-                "namespace": namespace,
-            })
+            handlers.append(
+                {
+                    "line": node.lineno,
+                    "function_name": node.name,
+                    "event_name": event_name,
+                    "namespace": namespace,
+                }
+            )
 
     return handlers
 
@@ -388,7 +375,6 @@ def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for CLI command patterns
         is_cli_command = False
         command_name = None
         has_options = False
@@ -396,25 +382,27 @@ def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             decorator_name = get_node_name(decorator)
 
-            if 'cli.command' in decorator_name or 'click.command' in decorator_name:
+            if "cli.command" in decorator_name or "click.command" in decorator_name:
                 is_cli_command = True
-                # Try to extract command name from decorator args
+
                 if isinstance(decorator, ast.Call) and decorator.args:
                     command_name = _get_str_constant(decorator.args[0])
 
-            if 'click.option' in decorator_name or 'click.argument' in decorator_name:
+            if "click.option" in decorator_name or "click.argument" in decorator_name:
                 has_options = True
 
         if is_cli_command:
             if not command_name:
                 command_name = node.name
 
-            commands.append({
-                "line": node.lineno,
-                "command_name": command_name,
-                "function_name": node.name,
-                "has_options": has_options,
-            })
+            commands.append(
+                {
+                    "line": node.lineno,
+                    "command_name": command_name,
+                    "function_name": node.name,
+                    "has_options": has_options,
+                }
+            )
 
     return commands
 
@@ -439,28 +427,29 @@ def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Assign):
         if isinstance(node.value, ast.Call):
             func_name = get_node_name(node.value.func)
-            if 'CORS' in func_name:
-                # Extract origins if specified
+            if "CORS" in func_name:
                 origins = None
-                origins_node = _keyword_arg(node.value, 'origins')
+                origins_node = _keyword_arg(node.value, "origins")
 
                 if origins_node:
-                    if isinstance(origins_node, ast.Constant) and origins_node.value == '*':
-                        origins = '*'
+                    if isinstance(origins_node, ast.Constant) and origins_node.value == "*":
+                        origins = "*"
                     elif isinstance(origins_node, ast.List):
                         origin_list = []
                         for elt in origins_node.elts:
                             origin_str = _get_str_constant(elt)
                             if origin_str:
                                 origin_list.append(origin_str)
-                        origins = ','.join(origin_list)
+                        origins = ",".join(origin_list)
 
-                configs.append({
-                    "line": node.lineno,
-                    "config_type": "global",
-                    "origins": origins,
-                    "is_permissive": origins == '*',
-                })
+                configs.append(
+                    {
+                        "line": node.lineno,
+                        "config_type": "global",
+                        "origins": origins,
+                        "is_permissive": origins == "*",
+                    }
+                )
 
     return configs
 
@@ -486,25 +475,25 @@ def extract_flask_rate_limits(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for limiter.limit pattern
         for decorator in node.decorator_list:
             if not isinstance(decorator, ast.Call):
                 continue
 
             decorator_name = get_node_name(decorator.func)
-            if 'limit' not in decorator_name.lower():
+            if "limit" not in decorator_name.lower():
                 continue
 
-            # Extract rate limit string (e.g., "100 per hour")
             limit_string = None
             if decorator.args:
                 limit_string = _get_str_constant(decorator.args[0])
 
-            limits.append({
-                "line": node.lineno,
-                "function_name": node.name,
-                "limit_string": limit_string,
-            })
+            limits.append(
+                {
+                    "line": node.lineno,
+                    "function_name": node.name,
+                    "limit_string": limit_string,
+                }
+            )
 
     return limits
 
@@ -530,63 +519,71 @@ def extract_flask_cache_decorators(context: FileContext) -> list[dict[str, Any]]
         if not isinstance(node, ast.FunctionDef):
             continue
 
-        # Check decorators for cache patterns
         for decorator in node.decorator_list:
             decorator_name = get_node_name(decorator)
-            if 'cache' not in decorator_name.lower():
+            if "cache" not in decorator_name.lower():
                 continue
 
             cache_type = None
             timeout = None
 
-            if 'cached' in decorator_name:
-                cache_type = 'cached'
-            elif 'memoize' in decorator_name:
-                cache_type = 'memoize'
+            if "cached" in decorator_name:
+                cache_type = "cached"
+            elif "memoize" in decorator_name:
+                cache_type = "memoize"
 
             if cache_type and isinstance(decorator, ast.Call):
-                # Extract timeout
-                timeout_node = _keyword_arg(decorator, 'timeout')
+                timeout_node = _keyword_arg(decorator, "timeout")
                 if timeout_node:
                     timeout = _get_int_constant(timeout_node)
 
             if cache_type:
-                caches.append({
-                    "line": node.lineno,
-                    "function_name": node.name,
-                    "cache_type": cache_type,
-                    "timeout": timeout,
-                })
+                caches.append(
+                    {
+                        "line": node.lineno,
+                        "function_name": node.name,
+                        "cache_type": cache_type,
+                        "timeout": timeout,
+                    }
+                )
 
     return caches
 
 
-# HTTP Methods for FastAPI
-FASTAPI_HTTP_METHODS = frozenset(['get', 'post', 'put', 'delete', 'patch', 'options', 'head'])
+FASTAPI_HTTP_METHODS = frozenset(["get", "post", "put", "delete", "patch", "options", "head"])
 
-# Auth decorator patterns
-AUTH_DECORATORS = frozenset([
-    'login_required', 'auth_required', 'permission_required',
-    'require_auth', 'authenticated', 'authorize', 'requires_auth',
-    'jwt_required', 'token_required', 'verify_jwt', 'check_auth'
-])
+
+AUTH_DECORATORS = frozenset(
+    [
+        "login_required",
+        "auth_required",
+        "permission_required",
+        "require_auth",
+        "authenticated",
+        "authorize",
+        "requires_auth",
+        "jwt_required",
+        "token_required",
+        "verify_jwt",
+        "check_auth",
+    ]
+)
 
 
 def _extract_fastapi_dependencies(node: ast.FunctionDef) -> list[str]:
     """Extract FastAPI dependency injection from function signature.
-    
+
     Args:
         node: AST FunctionDef node
-        
+
     Returns:
         List of dependency names (e.g., ['Depends(get_current_user)'])
     """
     dependencies = []
     for arg in node.args.args:
-        # Check if annotation is a Depends() call
         if arg.annotation and isinstance(arg.annotation, ast.Call):
             dep_name = get_node_name(arg.annotation.func)
-            if dep_name == 'Depends' and arg.annotation.args:
+            if dep_name == "Depends" and arg.annotation.args:
                 inner_dep = get_node_name(arg.annotation.args[0])
                 if inner_dep:
                     dependencies.append(f"Depends({inner_dep})")
@@ -608,19 +605,17 @@ def extract_flask_routes(context: FileContext) -> list[dict[str, Any]]:
     """
     routes = []
 
-    # Check if we have a Python AST tree
     if not isinstance(context.tree, ast.AST):
         return routes
 
-    # Walk the AST to find decorated functions
     for node in context.walk_tree():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             has_auth = False
             controls: list[str] = []
             framework = None
             blueprint_name = None
-            method = 'GET'
-            pattern = ''
+            method = "GET"
+            pattern = ""
             route_found = False
 
             for decorator in node.decorator_list:
@@ -630,48 +625,58 @@ def extract_flask_routes(context: FileContext) -> list[dict[str, Any]]:
                     method_name = decorator.func.attr
                     owner_name = get_node_name(decorator.func.value)
 
-                    if method_name in ['route'] or method_name in FASTAPI_HTTP_METHODS:
-                        pattern = ''
+                    if method_name in ["route"] or method_name in FASTAPI_HTTP_METHODS:
+                        pattern = ""
                         if decorator.args:
                             path_node = decorator.args[0]
                             if isinstance(path_node, ast.Constant):
                                 pattern = str(path_node.value)
 
-                        if method_name == 'route':
-                            method = 'GET'
+                        if method_name == "route":
+                            method = "GET"
                             for keyword in decorator.keywords:
-                                if keyword.arg == 'methods' and isinstance(keyword.value, ast.List) and keyword.value.elts:
+                                if (
+                                    keyword.arg == "methods"
+                                    and isinstance(keyword.value, ast.List)
+                                    and keyword.value.elts
+                                ):
                                     element = keyword.value.elts[0]
                                     if isinstance(element, ast.Constant):
                                         method = str(element.value).upper()
                         else:
                             method = method_name.upper()
 
-                        framework = 'flask' if method_name == 'route' else 'fastapi'
+                        framework = "flask" if method_name == "route" else "fastapi"
                         blueprint_name = owner_name
                         route_found = True
                         dec_identifier = method_name
 
                 if dec_identifier and dec_identifier in AUTH_DECORATORS:
                     has_auth = True
-                elif dec_identifier and dec_identifier not in ['route'] and dec_identifier not in FASTAPI_HTTP_METHODS:
+                elif (
+                    dec_identifier
+                    and dec_identifier not in ["route"]
+                    and dec_identifier not in FASTAPI_HTTP_METHODS
+                ):
                     controls.append(dec_identifier)
 
             if route_found:
                 dependencies = []
-                if framework == 'fastapi':
+                if framework == "fastapi":
                     dependencies = _extract_fastapi_dependencies(node)
 
-                routes.append({
-                    'line': node.lineno,
-                    'method': method,
-                    'pattern': pattern,
-                    'has_auth': has_auth,
-                    'handler_function': node.name,
-                    'controls': controls,
-                    'framework': framework or 'flask',
-                    'dependencies': dependencies,
-                    'blueprint': blueprint_name if framework == 'flask' else None,
-                })
+                routes.append(
+                    {
+                        "line": node.lineno,
+                        "method": method,
+                        "pattern": pattern,
+                        "has_auth": has_auth,
+                        "handler_function": node.name,
+                        "controls": controls,
+                        "framework": framework or "flask",
+                        "dependencies": dependencies,
+                        "blueprint": blueprint_name if framework == "flask" else None,
+                    }
+                )
 
     return routes

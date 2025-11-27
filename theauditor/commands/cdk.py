@@ -72,7 +72,9 @@ def cdk():
 @click.command("analyze")
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--db", default="./.pf/repo_index.db", help="Source database path")
-@click.option("--severity", default="all", help="Filter by severity (critical, high, medium, low, all)")
+@click.option(
+    "--severity", default="all", help="Filter by severity (critical, high, medium, low, all)"
+)
 @click.option("--format", "output_format", default="text", help="Output format (text, json)")
 @click.option("--output", default=None, help="Output file path (default: stdout)")
 def analyze(root, db, severity, output_format, output):
@@ -113,11 +115,9 @@ def analyze(root, db, severity, output_format, output):
     """
     from ..aws_cdk.analyzer import AWSCdkAnalyzer
 
-    # Resolve database path relative to root if not absolute
     if Path(db).is_absolute():
         db_path = Path(db)
     else:
-        # If db is relative (e.g., "./.pf/repo_index.db"), resolve it from root
         db_path = (Path(root) / db).resolve()
 
     if not db_path.exists():
@@ -128,11 +128,9 @@ def analyze(root, db, severity, output_format, output):
     try:
         logger.info(f"Analyzing CDK security with database: {db_path}")
 
-        # Run analyzer
         analyzer = AWSCdkAnalyzer(str(db_path), severity_filter=severity)
         findings = analyzer.analyze()
 
-        # Format output
         if output_format == "json":
             output_data = {
                 "findings": [
@@ -145,19 +143,15 @@ def analyze(root, db, severity, output_format, output):
                         "severity": f.severity,
                         "title": f.title,
                         "description": f.description,
-                        "remediation": f.remediation
+                        "remediation": f.remediation,
                     }
                     for f in findings
                 ],
-                "summary": {
-                    "total": len(findings),
-                    "by_severity": _count_by_severity(findings)
-                }
+                "summary": {"total": len(findings), "by_severity": _count_by_severity(findings)},
             }
 
             output_text = json.dumps(output_data, indent=2)
         else:
-            # Text format
             if not findings:
                 output_text = "No CDK security issues found.\n"
             else:
@@ -172,17 +166,15 @@ def analyze(root, db, severity, output_format, output):
                         lines.append(f"  Remediation: {f.remediation}")
                 output_text = "\n".join(lines) + "\n"
 
-        # Write output
         if output:
             Path(output).write_text(output_text)
             click.echo(f"CDK analysis complete: {len(findings)} findings written to {output}")
         else:
             click.echo(output_text)
 
-        # Determine exit code
         if not findings:
             raise SystemExit(0)
-        elif any(f.severity == 'critical' for f in findings):
+        elif any(f.severity == "critical" for f in findings):
             raise SystemExit(2)
         else:
             raise SystemExit(1)
@@ -198,7 +190,7 @@ def analyze(root, db, severity, output_format, output):
 
 def _count_by_severity(findings):
     """Count findings by severity level."""
-    counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'info': 0}
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for f in findings:
         severity = f.severity.lower()
         if severity in counts:
@@ -206,5 +198,4 @@ def _count_by_severity(findings):
     return counts
 
 
-# Register subcommands
 cdk.add_command(analyze)

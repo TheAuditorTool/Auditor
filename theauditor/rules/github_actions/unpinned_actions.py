@@ -11,7 +11,6 @@ Attack Pattern:
 CWE-829: Inclusion of Functionality from Untrusted Control Sphere
 """
 
-
 import json
 import logging
 import sqlite3
@@ -28,29 +27,37 @@ logger = logging.getLogger(__name__)
 METADATA = RuleMetadata(
     name="github_actions_unpinned_actions",
     category="supply-chain",
-    target_extensions=['.yml', '.yaml'],
-    exclude_patterns=['.pf/', 'test/', '__tests__/', 'node_modules/'],
+    target_extensions=[".yml", ".yaml"],
+    exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
     requires_jsx_pass=False,
-    execution_scope='database',
+    execution_scope="database",
 )
 
-# Mutable version patterns that should be avoided
+
 MUTABLE_VERSIONS: set[str] = {
-    'main', 'master', 'develop', 'dev', 'trunk',
-    'v1', 'v2', 'v3', 'v4', 'v5',  # Mutable major version tags
+    "main",
+    "master",
+    "develop",
+    "dev",
+    "trunk",
+    "v1",
+    "v2",
+    "v3",
+    "v4",
+    "v5",
 }
 
-# First-party GitHub actions (lower risk)
+
 GITHUB_FIRST_PARTY: set[str] = {
-    'actions/checkout',
-    'actions/setup-node',
-    'actions/setup-python',
-    'actions/setup-java',
-    'actions/setup-go',
-    'actions/cache',
-    'actions/upload-artifact',
-    'actions/download-artifact',
-    'actions/github-script',
+    "actions/checkout",
+    "actions/setup-node",
+    "actions/setup-python",
+    "actions/setup-java",
+    "actions/setup-go",
+    "actions/cache",
+    "actions/upload-artifact",
+    "actions/download-artifact",
+    "actions/github-script",
 }
 
 
@@ -79,7 +86,6 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[Stan
     cursor = conn.cursor()
 
     try:
-        # Find all steps with actions
         cursor.execute("""
             SELECT s.step_id, s.job_id, s.step_name, s.uses_action, s.uses_version,
                    s.env, s.with_args, j.workflow_path, j.job_key
@@ -90,35 +96,34 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[Stan
         """)
 
         for row in cursor.fetchall():
-            uses_action = row['uses_action']
-            uses_version = row['uses_version']
+            uses_action = row["uses_action"]
+            uses_version = row["uses_version"]
 
-            # Skip first-party GitHub actions (lower risk)
             if uses_action in GITHUB_FIRST_PARTY:
                 continue
 
-            # Check if version is mutable
             if uses_version not in MUTABLE_VERSIONS:
                 continue
 
-            # Check if step has secret access
             has_secrets = _check_secret_access(
-                step_id=row['step_id'],
-                step_env=row['env'],
-                step_with=row['with_args'],
-                job_id=row['job_id'],
-                cursor=cursor
+                step_id=row["step_id"],
+                step_env=row["env"],
+                step_with=row["with_args"],
+                job_id=row["job_id"],
+                cursor=cursor,
             )
 
             if has_secrets:
-                findings.append(_build_unpinned_action_finding(
-                    workflow_path=row['workflow_path'],
-                    job_key=row['job_key'],
-                    step_name=row['step_name'] or 'Unnamed step',
-                    uses_action=uses_action,
-                    uses_version=uses_version,
-                    secret_refs=has_secrets
-                ))
+                findings.append(
+                    _build_unpinned_action_finding(
+                        workflow_path=row["workflow_path"],
+                        job_key=row["job_key"],
+                        step_name=row["step_name"] or "Unnamed step",
+                        uses_action=uses_action,
+                        uses_version=uses_version,
+                        secret_refs=has_secrets,
+                    )
+                )
 
     finally:
         conn.close()
@@ -126,8 +131,9 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[Stan
     return findings
 
 
-def _check_secret_access(step_id: str, step_env: str, step_with: str,
-                         job_id: str, cursor) -> list[str]:
+def _check_secret_access(
+    step_id: str, step_env: str, step_with: str, job_id: str, cursor
+) -> list[str]:
     """Check if step has access to secrets.
 
     Args:
@@ -142,48 +148,48 @@ def _check_secret_access(step_id: str, step_env: str, step_with: str,
     """
     secret_refs = []
 
-    # Check step-level env variables
     if step_env:
         try:
             env_vars = json.loads(step_env)
             for key, value in env_vars.items():
-                if 'secrets.' in str(value):
+                if "secrets." in str(value):
                     secret_refs.append(f"env.{key}")
         except json.JSONDecodeError:
             pass
 
-    # Check step-level with arguments
     if step_with:
         try:
             with_args = json.loads(step_with)
             for key, value in with_args.items():
-                if 'secrets.' in str(value):
+                if "secrets." in str(value):
                     secret_refs.append(f"with.{key}")
         except json.JSONDecodeError:
             pass
 
-    # Check step references for secrets.*
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT reference_path, reference_location
         FROM github_step_references
         WHERE step_id = ?
         AND reference_type = 'secrets'
-    """, (step_id,))
+    """,
+        (step_id,),
+    )
 
     for ref_row in cursor.fetchall():
         secret_refs.append(f"{ref_row['reference_location']}.{ref_row['reference_path']}")
 
-    # Check job-level permissions (secrets: inherit pattern)
-    # This would require querying job-level reusable workflow usage
-    # For now, we catch the most common patterns above
-
     return secret_refs
 
 
-def _build_unpinned_action_finding(workflow_path: str, job_key: str,
-                                   step_name: str, uses_action: str,
-                                   uses_version: str,
-                                   secret_refs: list[str]) -> StandardFinding:
+def _build_unpinned_action_finding(
+    workflow_path: str,
+    job_key: str,
+    step_name: str,
+    uses_action: str,
+    uses_version: str,
+    secret_refs: list[str],
+) -> StandardFinding:
     """Build finding for unpinned action vulnerability.
 
     Args:
@@ -197,8 +203,8 @@ def _build_unpinned_action_finding(workflow_path: str, job_key: str,
     Returns:
         StandardFinding object
     """
-    # Determine severity based on secret count and action source
-    is_external_org = '/' in uses_action and not uses_action.startswith('actions/')
+
+    is_external_org = "/" in uses_action and not uses_action.startswith("actions/")
     secret_count = len(secret_refs)
 
     if is_external_org and secret_count > 0:
@@ -222,21 +228,21 @@ jobs:
       - name: {step_name}
         uses: {uses_action}@{uses_version}  # VULN: Mutable version
         with:
-          # Secrets exposed: {', '.join(secret_refs)}
+          # Secrets exposed: {", ".join(secret_refs)}
     """
 
     details = {
-        'workflow': workflow_path,
-        'job_key': job_key,
-        'step_name': step_name,
-        'action': uses_action,
-        'mutable_version': uses_version,
-        'secret_references': secret_refs,
-        'is_external': is_external_org,
-        'mitigation': (
+        "workflow": workflow_path,
+        "job_key": job_key,
+        "step_name": step_name,
+        "action": uses_action,
+        "mutable_version": uses_version,
+        "secret_references": secret_refs,
+        "is_external": is_external_org,
+        "mitigation": (
             f"Pin action to immutable SHA: uses: {uses_action}@<full-sha256> "
             f"instead of @{uses_version}"
-        )
+        ),
     }
 
     return StandardFinding(
@@ -249,5 +255,5 @@ jobs:
         confidence="high",
         snippet=code_snippet.strip(),
         cwe_id="CWE-829",
-        additional_info=details
+        additional_info=details,
     )

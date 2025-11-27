@@ -206,41 +206,34 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
 
     try:
         if action == "fetch":
-            # Load dependencies
             if Path(deps).exists():
                 with open(deps, encoding="utf-8") as f:
                     deps_list = json.load(f)
             else:
-                # Parse if not cached
                 deps_list = parse_dependencies()
 
-            # Set up allowlist
             allowlist = DEFAULT_ALLOWLIST.copy()
             if not allow_non_gh_readmes:
-                # Already restricted to GitHub by default
                 pass
 
-            # Check for policy file
             policy_file = Path(".pf/policy.yml")
             allow_net = True
             if policy_file.exists():
                 try:
-                    # Simple YAML parsing without external deps
                     with open(policy_file, encoding="utf-8") as f:
                         for line in f:
                             if "allow_net:" in line:
                                 allow_net = "true" in line.lower()
                                 break
                 except Exception:
-                    pass  # Default to True
+                    pass
 
-            # Fetch docs
             result = fetch_docs(
                 deps_list,
                 allow_net=allow_net,
                 allowlist=allowlist,
                 offline=offline,
-                output_dir=docs_dir
+                output_dir=docs_dir,
             )
 
             if not print_stats:
@@ -255,12 +248,10 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                         click.echo(f"  Errors: {len(result['errors'])}")
 
         elif action == "list":
-            # List available docs
             docs_path = Path(docs_dir)
 
             click.echo("\n[Docs] Available Documentation:\n")
 
-            # List fetched docs
             if docs_path.exists():
                 click.echo("Fetched Docs (.pf/context/docs/):")
                 for ecosystem in ["npm", "py"]:
@@ -269,7 +260,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                         packages = sorted([d.name for d in ecosystem_dir.iterdir() if d.is_dir()])
                         if packages:
                             click.echo(f"\n  {ecosystem.upper()}:")
-                            for pkg in packages[:20]:  # Show first 20
+                            for pkg in packages[:20]:
                                 click.echo(f"    * {pkg}")
                             if len(packages) > 20:
                                 click.echo(f"    ... and {len(packages) - 20} more")
@@ -287,24 +278,23 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
             docs_path = Path(docs_dir)
             found = False
 
-            # View fetched docs
             for ecosystem in ["npm", "py"]:
-                # Try exact match first
                 for pkg_dir in (docs_path / ecosystem).glob(f"{package_name}@*"):
                     if pkg_dir.is_dir():
-                        # Check for doc.md (legacy single file)
                         doc_file = pkg_dir / "doc.md"
                         if doc_file.exists():
                             click.echo(f"\n[DOC] Documentation: {pkg_dir.name}\n")
                             click.echo("=" * 80)
                             with open(doc_file, encoding="utf-8") as f:
                                 content = f.read()
-                                # Limit output for readability unless --raw
+
                                 if not raw:
                                     lines = content.split("\n")
                                     if len(lines) > 200:
                                         click.echo("\n".join(lines[:200]))
-                                        click.echo(f"\n... (truncated, {len(lines) - 200} more lines)")
+                                        click.echo(
+                                            f"\n... (truncated, {len(lines) - 200} more lines)"
+                                        )
                                         click.echo("\nUse --raw to see full content")
                                     else:
                                         click.echo(content)
@@ -313,33 +303,33 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                             found = True
                             break
 
-                        # Check for multi-file docs (README.md + others)
                         readme_file = pkg_dir / "README.md"
                         if readme_file.exists():
                             click.echo(f"\n[DOC] Documentation: {pkg_dir.name}\n")
                             click.echo("=" * 80)
 
-                            # List all files
                             md_files = sorted(pkg_dir.glob("*.md"))
                             click.echo(f"Documentation files ({len(md_files)}):")
                             for md_file in md_files:
                                 click.echo(f"  - {md_file.name}")
                             click.echo()
 
-                            # Show README
                             with open(readme_file, encoding="utf-8") as f:
                                 content = f.read()
                                 if not raw:
                                     lines = content.split("\n")
                                     if len(lines) > 100:
                                         click.echo("\n".join(lines[:100]))
-                                        click.echo(f"\n... (showing README preview, {len(md_files)} total files)")
-                                        click.echo(f"\nFiles: {', '.join([f.name for f in md_files])}")
+                                        click.echo(
+                                            f"\n... (showing README preview, {len(md_files)} total files)"
+                                        )
+                                        click.echo(
+                                            f"\nFiles: {', '.join([f.name for f in md_files])}"
+                                        )
                                         click.echo("\nUse --raw to see full content")
                                     else:
                                         click.echo(content)
                                 else:
-                                    # Show all files in raw mode
                                     for md_file in md_files:
                                         click.echo(f"\n--- {md_file.name} ---\n")
                                         with open(md_file, encoding="utf-8") as mf:
@@ -353,7 +343,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
             if not found:
                 click.echo(f"No documentation found for '{package_name}'")
                 click.echo("\nAvailable packages:")
-                # Show some available packages
+
                 for ecosystem in ["npm", "py"]:
                     ecosystem_dir = docs_path / ecosystem
                     if ecosystem_dir.exists():

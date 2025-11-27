@@ -16,104 +16,63 @@ CWE Coverage:
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
 """
 
-
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.rules.base import (
+    StandardRuleContext,
+    StandardFinding,
+    Severity,
+    Confidence,
+    RuleMetadata,
+)
 from theauditor.indexer.schema import build_query
 
 
-# ============================================================================
-# RULE METADATA - File Filtering via Orchestrator
-# ============================================================================
 METADATA = RuleMetadata(
     name="oauth_security",
     category="auth",
-    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
-    exclude_patterns=[
-        'test/',
-        'spec.',
-        '.test.',
-        '__tests__',
-        'demo/',
-        'example/'
-    ],
+    target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
+    exclude_patterns=["test/", "spec.", ".test.", "__tests__", "demo/", "example/"],
     requires_jsx_pass=False,
-    execution_scope='database'
+    execution_scope="database",
 )
 
 
-# ============================================================================
-# FROZENSETS FOR O(1) LOOKUPS
-# ============================================================================
-
-# OAuth URL patterns to check
-OAUTH_URL_KEYWORDS = frozenset([
-    'oauth',
-    'authorize',
-    'callback',
-    'redirect',
-    'auth',
-    'login'
-])
-
-# State parameter variations
-STATE_KEYWORDS = frozenset([
-    'state',
-    'csrf',
-    'oauthState',
-    'csrfToken',
-    'oauthstate',
-    'csrftoken'
-])
-
-# Redirect-related keywords
-REDIRECT_KEYWORDS = frozenset([
-    'redirect',
-    'returnUrl',
-    'return_url',
-    'redirectUri',
-    'redirect_uri',
-    'redirect_url'
-])
-
-# User input sources
-USER_INPUT_SOURCES = frozenset([
-    'req.query',
-    'req.params',
-    'request.query',
-    'request.params',
-    'request.args'
-])
-
-# Validation function keywords
-VALIDATION_KEYWORDS = frozenset([
-    'validate',
-    'whitelist',
-    'allowed',
-    'check',
-    'verify'
-])
-
-# OAuth token patterns for URL detection
-TOKEN_URL_PATTERNS = frozenset([
-    '#access_token=',
-    '#token=',
-    '#accessToken=',
-    '#id_token=',
-    '#refresh_token=',
-    '?access_token=',
-    '&access_token=',
-    '?token=',
-    '&token=',
-    '?accessToken=',
-    '&accessToken='
-])
+OAUTH_URL_KEYWORDS = frozenset(["oauth", "authorize", "callback", "redirect", "auth", "login"])
 
 
-# ============================================================================
-# MAIN ENTRY POINT
-# ============================================================================
+STATE_KEYWORDS = frozenset(["state", "csrf", "oauthState", "csrfToken", "oauthstate", "csrftoken"])
+
+
+REDIRECT_KEYWORDS = frozenset(
+    ["redirect", "returnUrl", "return_url", "redirectUri", "redirect_uri", "redirect_url"]
+)
+
+
+USER_INPUT_SOURCES = frozenset(
+    ["req.query", "req.params", "request.query", "request.params", "request.args"]
+)
+
+
+VALIDATION_KEYWORDS = frozenset(["validate", "whitelist", "allowed", "check", "verify"])
+
+
+TOKEN_URL_PATTERNS = frozenset(
+    [
+        "#access_token=",
+        "#token=",
+        "#accessToken=",
+        "#id_token=",
+        "#refresh_token=",
+        "?access_token=",
+        "&access_token=",
+        "?token=",
+        "&token=",
+        "?accessToken=",
+        "&accessToken=",
+    ]
+)
+
 
 def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect OAuth and SSO security vulnerabilities.
@@ -142,13 +101,10 @@ def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # CHECK 1: Missing state parameter
         findings.extend(_check_missing_oauth_state(cursor))
 
-        # CHECK 2: Redirect URI validation bypass
         findings.extend(_check_redirect_validation(cursor))
 
-        # CHECK 3: Token in URL fragment/parameter
         findings.extend(_check_token_in_url(cursor))
 
     finally:
@@ -156,10 +112,6 @@ def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
     return findings
 
-
-# ============================================================================
-# CHECK 1: Missing OAuth State Parameter
-# ============================================================================
 
 def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
     """Detect OAuth flows without state parameter.
@@ -178,24 +130,24 @@ def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find all API endpoints
-    query = build_query('api_endpoints', ['file', 'line', 'method', 'pattern'],
-                        where="method IN ('GET', 'POST')",
-                        order_by="file")
+    query = build_query(
+        "api_endpoints",
+        ["file", "line", "method", "pattern"],
+        where="method IN ('GET', 'POST')",
+        order_by="file",
+    )
     cursor.execute(query)
 
     oauth_endpoints = []
     for file, line, method, pattern in cursor.fetchall():
-        # Filter for OAuth-related endpoints in Python
         pattern_lower = pattern.lower()
         if any(keyword in pattern_lower for keyword in OAUTH_URL_KEYWORDS):
             oauth_endpoints.append((file, line, method, pattern))
 
     for file, line, method, pattern in oauth_endpoints:
-        # Check if state parameter is generated/validated in this file
-        check_query = build_query('function_call_args', ['argument_expr'],
-                                  where="file = ?",
-                                  limit=100)
+        check_query = build_query(
+            "function_call_args", ["argument_expr"], where="file = ?", limit=100
+        )
         cursor.execute(check_query, [file])
 
         has_state = False
@@ -206,39 +158,38 @@ def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
                 break
 
         if not has_state:
-            # Also check assignments for state generation
-            assign_query = build_query('assignments', ['target_var', 'source_expr'],
-                                       where="file = ?",
-                                       limit=100)
+            assign_query = build_query(
+                "assignments", ["target_var", "source_expr"], where="file = ?", limit=100
+            )
             cursor.execute(assign_query, [file])
 
             for target_var, source_expr in cursor.fetchall():
                 target_lower = target_var.lower()
-                source_lower = source_expr.lower() if source_expr else ''
-                if any(keyword in target_lower or keyword in source_lower for keyword in STATE_KEYWORDS):
+                source_lower = source_expr.lower() if source_expr else ""
+                if any(
+                    keyword in target_lower or keyword in source_lower for keyword in STATE_KEYWORDS
+                ):
                     has_state = True
                     break
 
         if not has_state:
-            findings.append(StandardFinding(
-                rule_name='oauth-missing-state',
-                message=f'OAuth endpoint {pattern} missing state parameter (CSRF risk)',
-                file_path=file,
-                line=line or 1,
-                severity=Severity.CRITICAL,
-                category='authentication',
-                cwe_id='CWE-352',
-                confidence=Confidence.MEDIUM,
-                snippet=f'{method} {pattern}',
-                recommendation='Generate random state parameter and validate on callback'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-missing-state",
+                    message=f"OAuth endpoint {pattern} missing state parameter (CSRF risk)",
+                    file_path=file,
+                    line=line or 1,
+                    severity=Severity.CRITICAL,
+                    category="authentication",
+                    cwe_id="CWE-352",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"{method} {pattern}",
+                    recommendation="Generate random state parameter and validate on callback",
+                )
+            )
 
     return findings
 
-
-# ============================================================================
-# CHECK 2: Redirect URI Validation Bypass
-# ============================================================================
 
 def _check_redirect_validation(cursor) -> list[StandardFinding]:
     """Detect OAuth redirect URI validation issues.
@@ -257,68 +208,75 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find all redirect function calls
-    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        order_by="file, line")
+    query = build_query(
+        "function_call_args",
+        ["file", "line", "callee_function", "argument_expr"],
+        order_by="file, line",
+    )
     cursor.execute(query)
 
     redirect_calls = []
     for file, line, func, args in cursor.fetchall():
-        # Filter for redirect functions in Python
-        if 'redirect' in func.lower():
-            # Check if argument contains user input
+        if "redirect" in func.lower():
             args_lower = args.lower()
             if any(user_input in args_lower for user_input in USER_INPUT_SOURCES):
                 redirect_calls.append((file, line, func, args))
 
     for file, line, func, args in redirect_calls:
-        # Check if validation is performed nearby (within 10 lines before)
-        val_query = build_query('function_call_args', ['callee_function', 'argument_expr'],
-                               where="file = ? AND line >= ? AND line < ?")
+        val_query = build_query(
+            "function_call_args",
+            ["callee_function", "argument_expr"],
+            where="file = ? AND line >= ? AND line < ?",
+        )
         cursor.execute(val_query, [file, max(1, line - 10), line])
 
         has_validation = False
         for val_func, val_args in cursor.fetchall():
             val_func_lower = val_func.lower()
             val_args_lower = val_args.lower()
-            if any(keyword in val_func_lower or keyword in val_args_lower for keyword in VALIDATION_KEYWORDS):
+            if any(
+                keyword in val_func_lower or keyword in val_args_lower
+                for keyword in VALIDATION_KEYWORDS
+            ):
                 has_validation = True
                 break
 
         if not has_validation:
-            findings.append(StandardFinding(
-                rule_name='oauth-unvalidated-redirect',
-                message='OAuth redirect without URI validation (open redirect risk)',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                cwe_id='CWE-601',
-                confidence=Confidence.MEDIUM,
-                snippet=f'{func}(user input)',
-                recommendation='Validate redirect_uri against whitelist of registered URIs'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-unvalidated-redirect",
+                    message="OAuth redirect without URI validation (open redirect risk)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-601",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"{func}(user input)",
+                    recommendation="Validate redirect_uri against whitelist of registered URIs",
+                )
+            )
 
-    # Also check for redirect_uri in assignments without validation
-    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                        order_by="file, line")
+    query = build_query(
+        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    )
     cursor.execute(query)
 
     redirect_assignments = []
     for file, line, var, expr in cursor.fetchall():
         var_lower = var.lower()
-        expr_lower = expr.lower() if expr else ''
+        expr_lower = expr.lower() if expr else ""
 
-        # Check if it's a redirect-related assignment
         if any(keyword in var_lower for keyword in REDIRECT_KEYWORDS):
-            # Check if source is user input
             if any(user_input in expr_lower for user_input in USER_INPUT_SOURCES):
                 redirect_assignments.append((file, line, var, expr))
 
     for file, line, var, expr in redirect_assignments:
-        # Check for validation after assignment (within 10 lines)
-        val_query = build_query('function_call_args', ['callee_function', 'argument_expr'],
-                               where="file = ? AND line > ? AND line <= ?")
+        val_query = build_query(
+            "function_call_args",
+            ["callee_function", "argument_expr"],
+            where="file = ? AND line > ? AND line <= ?",
+        )
         cursor.execute(val_query, [file, line, line + 10])
 
         has_validation = False
@@ -326,32 +284,31 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
             val_func_lower = val_func.lower()
             val_args_lower = val_args.lower()
 
-            # Check if validation mentions the variable
             if var.lower() in val_args_lower:
                 if any(keyword in val_func_lower for keyword in VALIDATION_KEYWORDS):
                     has_validation = True
                     break
 
         if not has_validation:
-            findings.append(StandardFinding(
-                rule_name='oauth-redirect-assignment-unvalidated',
-                message='Redirect URI from user input without validation',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                cwe_id='CWE-601',
-                confidence=Confidence.LOW,
-                snippet=f'{var} = {expr[:40]}' if len(expr) <= 40 else f'{var} = {expr[:40]}...',
-                recommendation='Validate redirect_uri before use: check against whitelist'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-redirect-assignment-unvalidated",
+                    message="Redirect URI from user input without validation",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-601",
+                    confidence=Confidence.LOW,
+                    snippet=f"{var} = {expr[:40]}"
+                    if len(expr) <= 40
+                    else f"{var} = {expr[:40]}...",
+                    recommendation="Validate redirect_uri before use: check against whitelist",
+                )
+            )
 
     return findings
 
-
-# ============================================================================
-# CHECK 3: OAuth Token in URL Fragment/Parameter
-# ============================================================================
 
 def _check_token_in_url(cursor) -> list[StandardFinding]:
     """Detect OAuth tokens in URL fragments or parameters.
@@ -371,61 +328,81 @@ def _check_token_in_url(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find all assignments (fetch once, filter multiple ways)
-    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                        order_by="file, line")
+    query = build_query(
+        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    )
     cursor.execute(query)
 
     all_assignments = cursor.fetchall()
 
-    # CHECK 3A: Token in URL fragment (#)
     for file, line, var, expr in all_assignments:
-        if any(pattern in expr for pattern in ['#access_token=', '#token=', '#accessToken=', '#id_token=', '#refresh_token=']):
-            findings.append(StandardFinding(
-                rule_name='oauth-token-in-url-fragment',
-                message='OAuth token in URL fragment (exposed in browser history)',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                cwe_id='CWE-598',
-                confidence=Confidence.HIGH,
-                snippet=expr[:60] if len(expr) <= 60 else expr[:60] + '...',
-                recommendation='Use authorization code flow; never put tokens in URL'
-            ))
+        if any(
+            pattern in expr
+            for pattern in [
+                "#access_token=",
+                "#token=",
+                "#accessToken=",
+                "#id_token=",
+                "#refresh_token=",
+            ]
+        ):
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-token-in-url-fragment",
+                    message="OAuth token in URL fragment (exposed in browser history)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-598",
+                    confidence=Confidence.HIGH,
+                    snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
+                    recommendation="Use authorization code flow; never put tokens in URL",
+                )
+            )
 
-    # CHECK 3B: Token in query parameter (?)
     for file, line, var, expr in all_assignments:
-        token_patterns = ['?access_token=', '&access_token=', '?token=', '&token=', '?accessToken=', '&accessToken=']
+        token_patterns = [
+            "?access_token=",
+            "&access_token=",
+            "?token=",
+            "&token=",
+            "?accessToken=",
+            "&accessToken=",
+        ]
         if any(pattern in expr for pattern in token_patterns):
-            findings.append(StandardFinding(
-                rule_name='oauth-token-in-url-param',
-                message='OAuth token in URL query parameter (logged by servers)',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                cwe_id='CWE-598',
-                confidence=Confidence.HIGH,
-                snippet=expr[:60] if len(expr) <= 60 else expr[:60] + '...',
-                recommendation='Send tokens in Authorization header or POST body, not URL'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-token-in-url-param",
+                    message="OAuth token in URL query parameter (logged by servers)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-598",
+                    confidence=Confidence.HIGH,
+                    snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
+                    recommendation="Send tokens in Authorization header or POST body, not URL",
+                )
+            )
 
     # CHECK 3C: Implicit flow usage (response_type=token)
     for file, line, var, expr in all_assignments:
         expr_lower = expr.lower()
-        if 'response_type' in expr_lower and 'token' in expr_lower and 'code' not in expr_lower:
-            findings.append(StandardFinding(
-                rule_name='oauth-implicit-flow',
-                message='OAuth implicit flow detected (response_type=token)',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='authentication',
-                cwe_id='CWE-598',
-                confidence=Confidence.MEDIUM,
-                snippet=expr[:60] if len(expr) <= 60 else expr[:60] + '...',
-                recommendation='Use authorization code flow (response_type=code) instead of implicit flow'
-            ))
+        if "response_type" in expr_lower and "token" in expr_lower and "code" not in expr_lower:
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-implicit-flow",
+                    message="OAuth implicit flow detected (response_type=token)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    cwe_id="CWE-598",
+                    confidence=Confidence.MEDIUM,
+                    snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
+                    recommendation="Use authorization code flow (response_type=code) instead of implicit flow",
+                )
+            )
 
     return findings

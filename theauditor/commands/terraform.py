@@ -111,14 +111,12 @@ def provision(root, workset, output, db, graphs_db):
     from ..terraform.graph import TerraformGraphBuilder
 
     try:
-        # Verify database exists
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
             click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
-        # Load workset if requested
         file_filter = None
         if workset:
             workset_path = Path(".pf/workset.json")
@@ -132,35 +130,28 @@ def provision(root, workset, output, db, graphs_db):
                 file_filter = workset_files
                 click.echo(f"Building graph for {len(workset_files)} workset files...")
 
-        # Build provisioning flow graph
         click.echo("Building Terraform provisioning flow graph...")
         builder = TerraformGraphBuilder(db_path=str(db_path))
         graph = builder.build_provisioning_flow_graph(root=root)
 
-        # Filter by workset if requested
         if file_filter:
-            # Filter nodes to only those from workset files
-            filtered_nodes = [n for n in graph['nodes'] if n['file'] in file_filter]
-            node_ids = {n['id'] for n in filtered_nodes}
+            filtered_nodes = [n for n in graph["nodes"] if n["file"] in file_filter]
+            node_ids = {n["id"] for n in filtered_nodes}
 
-            # Filter edges to only those connecting filtered nodes
             filtered_edges = [
-                e for e in graph['edges']
-                if e['source'] in node_ids and e['target'] in node_ids
+                e for e in graph["edges"] if e["source"] in node_ids and e["target"] in node_ids
             ]
 
-            graph['nodes'] = filtered_nodes
-            graph['edges'] = filtered_edges
-            graph['metadata']['stats']['workset_filtered'] = True
+            graph["nodes"] = filtered_nodes
+            graph["edges"] = filtered_edges
+            graph["metadata"]["stats"]["workset_filtered"] = True
 
-        # Write output
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(graph, f, indent=2)
 
-        # Display summary
-        stats = graph['metadata']['stats']
+        stats = graph["metadata"]["stats"]
 
         click.echo(f"\nProvisioning Graph Built:")
         click.echo(f"  Variables: {stats['total_variables']}")
@@ -171,17 +162,15 @@ def provision(root, workset, output, db, graphs_db):
         click.echo(f"\nGraph stored in: {graphs_db}")
         click.echo(f"JSON export: {output_path}")
 
-        # Check for sensitive data flows
-        sensitive_nodes = [n for n in graph['nodes'] if n.get('is_sensitive')]
+        sensitive_nodes = [n for n in graph["nodes"] if n.get("is_sensitive")]
         if sensitive_nodes:
             click.echo(f"\nSensitive Data Nodes Detected: {len(sensitive_nodes)}")
-            for node in sensitive_nodes[:3]:  # Show first 3
+            for node in sensitive_nodes[:3]:
                 click.echo(f"  - {node['name']} ({node['node_type']})")
             if len(sensitive_nodes) > 3:
                 click.echo(f"  ... and {len(sensitive_nodes) - 3} more")
 
-        # Check for public exposure
-        public_nodes = [n for n in graph['nodes'] if n.get('has_public_exposure')]
+        public_nodes = [n for n in graph["nodes"] if n.get("has_public_exposure")]
         if public_nodes:
             click.echo(f"\nPublic Exposure Detected: {len(public_nodes)} resources")
             for node in public_nodes[:3]:
@@ -198,8 +187,17 @@ def provision(root, workset, output, db, graphs_db):
 
 @terraform.command("analyze")
 @click.option("--root", default=".", help="Root directory to analyze")
-@click.option("--severity", type=click.Choice(['critical', 'high', 'medium', 'low', 'all']), default="all", help="Minimum severity to report")
-@click.option("--categories", multiple=True, help="Specific categories to check (e.g., public_exposure, iam_wildcard)")
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "all"]),
+    default="all",
+    help="Minimum severity to report",
+)
+@click.option(
+    "--categories",
+    multiple=True,
+    help="Specific categories to check (e.g., public_exposure, iam_wildcard)",
+)
 @click.option("--output", default="./.pf/raw/terraform_findings.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Database path")
 def analyze(root, severity, categories, output, db):
@@ -228,57 +226,51 @@ def analyze(root, severity, categories, output, db):
     from ..terraform.analyzer import TerraformAnalyzer
 
     try:
-        # Verify database exists
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
             click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
-        # Run analyzer
         click.echo("Analyzing Terraform configurations for security issues...")
         analyzer = TerraformAnalyzer(db_path=str(db_path), severity_filter=severity)
         findings = analyzer.analyze()
 
-        # Filter by categories if specified
         if categories:
             findings = [f for f in findings if f.category in categories]
             click.echo(f"Filtered to categories: {', '.join(categories)}")
 
-        # Export to JSON
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         findings_json = [
             {
-                'finding_id': f.finding_id,
-                'file_path': f.file_path,
-                'resource_id': f.resource_id,
-                'category': f.category,
-                'severity': f.severity,
-                'title': f.title,
-                'description': f.description,
-                'line': f.line,
-                'remediation': f.remediation
+                "finding_id": f.finding_id,
+                "file_path": f.file_path,
+                "resource_id": f.resource_id,
+                "category": f.category,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "line": f.line,
+                "remediation": f.remediation,
             }
             for f in findings
         ]
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(findings_json, f, indent=2)
 
-        # Display summary
         click.echo(f"\nTerraform Security Analysis Complete:")
         click.echo(f"  Total findings: {len(findings)}")
 
-        # Count by severity
         from collections import Counter
+
         severity_counts = Counter(f.severity for f in findings)
-        for sev in ['critical', 'high', 'medium', 'low', 'info']:
+        for sev in ["critical", "high", "medium", "low", "info"]:
             if severity_counts[sev] > 0:
                 click.echo(f"  {sev.capitalize()}: {severity_counts[sev]}")
 
-        # Count by category
         category_counts = Counter(f.category for f in findings)
         click.echo(f"\nFindings by category:")
         for cat, count in category_counts.most_common():
@@ -287,7 +279,6 @@ def analyze(root, severity, categories, output, db):
         click.echo(f"\nFindings exported to: {output_path}")
         click.echo(f"Findings stored in terraform_findings table for FCE correlation")
 
-        # Show sample findings
         if findings:
             click.echo(f"\nSample findings (first 3):")
             for finding in findings[:3]:
@@ -305,9 +296,19 @@ def analyze(root, severity, categories, output, db):
 
 
 @terraform.command("report")
-@click.option("--format", type=click.Choice(['text', 'json', 'markdown']), default="text", help="Output format")
+@click.option(
+    "--format",
+    type=click.Choice(["text", "json", "markdown"]),
+    default="text",
+    help="Output format",
+)
 @click.option("--output", help="Output file path (stdout if not specified)")
-@click.option("--severity", type=click.Choice(['critical', 'high', 'medium', 'low', 'all']), default="all", help="Minimum severity to report")
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "all"]),
+    default="all",
+    help="Minimum severity to report",
+)
 def report(format, output, severity):
     """Generate Terraform security report.
 

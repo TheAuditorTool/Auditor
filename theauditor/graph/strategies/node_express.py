@@ -43,21 +43,18 @@ class NodeExpressStrategy(GraphStrategy):
         Returns:
             Dict with merged nodes, edges, metadata
         """
-        # Build both sub-graphs
+
         middleware_result = self._build_middleware_edges(db_path, project_root)
         controller_result = self._build_controller_edges(db_path, project_root)
 
-        # Merge nodes (dedup by id)
         merged_nodes = {}
         for node in middleware_result["nodes"]:
             merged_nodes[node["id"]] = node
         for node in controller_result["nodes"]:
             merged_nodes[node["id"]] = node
 
-        # Merge edges
         merged_edges = middleware_result["edges"] + controller_result["edges"]
 
-        # Merge stats
         merged_stats = {
             "middleware": middleware_result["metadata"].get("stats", {}),
             "controller": controller_result["metadata"].get("stats", {}),
@@ -92,7 +89,6 @@ class NodeExpressStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Query middleware chains ordered by file, route and execution order
         cursor.execute("""
             SELECT file, route_path, route_method, execution_order,
                    handler_expr, handler_type, handler_function
@@ -101,7 +97,6 @@ class NodeExpressStrategy(GraphStrategy):
             ORDER BY file, route_path, route_method, execution_order
         """)
 
-        # Group by route only, ignoring file to allow middleware imported from other files
         routes: dict[str, list] = defaultdict(list)
         for row in cursor.fetchall():
             key = f"{row['route_method']} {row['route_path']}"
@@ -119,14 +114,12 @@ class NodeExpressStrategy(GraphStrategy):
         ) as route_items:
             for route_key, handlers in route_items:
                 if len(handlers) < 2:
-                    continue  # Need at least 2 handlers to create edges
+                    continue
 
-                # Create edges between consecutive handlers in the chain
                 for i in range(len(handlers) - 1):
                     curr_handler = handlers[i]
                     next_handler = handlers[i + 1]
 
-                    # Skip if current handler is a controller
                     if curr_handler["handler_type"] == "controller":
                         continue
 
@@ -136,7 +129,6 @@ class NodeExpressStrategy(GraphStrategy):
                     if not curr_func or not next_func:
                         continue
 
-                    # Create edges for req, req.body, req.params, req.query
                     for req_field in ["req", "req.body", "req.params", "req.query"]:
                         source_id = f"{curr_handler['file']}::{curr_func}::{req_field}"
                         if source_id not in nodes:
@@ -210,16 +202,13 @@ class NodeExpressStrategy(GraphStrategy):
             "failed_resolutions": 0,
         }
 
-        # BATCH LOADING: Pre-load ALL import_styles and symbols ONCE
         print("[NodeExpressStrategy] Pre-loading import_styles and symbols...")
 
-        # Load all import_styles into memory
         import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
         cursor.execute("SELECT file, package, alias_name FROM import_styles")
         for row in cursor.fetchall():
             import_styles_map[row["file"]][row["alias_name"]] = row["package"]
 
-        # Load all symbols into memory
         symbols_by_name: dict[str, list[dict]] = defaultdict(list)
         cursor.execute("""
             SELECT path, name, type
@@ -227,13 +216,14 @@ class NodeExpressStrategy(GraphStrategy):
             WHERE type IN ('function', 'class')
         """)
         for row in cursor.fetchall():
-            symbols_by_name[row["name"]].append({
-                "path": row["path"],
-                "name": row["name"],
-                "type": row["type"],
-            })
+            symbols_by_name[row["name"]].append(
+                {
+                    "path": row["path"],
+                    "name": row["name"],
+                    "type": row["type"],
+                }
+            )
 
-        # Get all controller handlers
         cursor.execute("""
             SELECT DISTINCT file, route_path, route_method, handler_expr
             FROM express_middleware_chains
@@ -247,7 +237,6 @@ class NodeExpressStrategy(GraphStrategy):
             route_file = handler["file"]
             handler_expr = handler["handler_expr"]
 
-            # Parse the handler expression
             object_name = None
             method_name = None
 
@@ -265,13 +254,11 @@ class NodeExpressStrategy(GraphStrategy):
             if not object_name or not method_name:
                 continue
 
-            # O(1) lookup for import
             import_package = import_styles_map.get(route_file, {}).get(object_name)
             if not import_package:
                 stats["failed_resolutions"] += 1
                 continue
 
-            # O(1) lookup for symbol
             symbol_result = None
             if method_name in symbols_by_name:
                 candidates = symbols_by_name[method_name]
@@ -303,7 +290,6 @@ class NodeExpressStrategy(GraphStrategy):
             else:
                 full_method_name = f"{symbol_name}.{method_name}"
 
-            # Validate method exists
             method_exists = False
             if full_method_name in symbols_by_name:
                 for sym in symbols_by_name[full_method_name]:
@@ -320,7 +306,6 @@ class NodeExpressStrategy(GraphStrategy):
 
             stats["controllers_resolved"] += 1
 
-            # Create nodes and edges for all variable suffixes
             for suffix in ["req", "req.body", "req.params", "req.query", "res"]:
                 source_id = f"{route_file}::{handler_expr}::{suffix}"
                 if source_id not in nodes:

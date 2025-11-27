@@ -18,7 +18,6 @@ Detects:
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
-
 import json
 import math
 import re
@@ -28,73 +27,84 @@ from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-# ============================================================================
-# RULE METADATA
-# ============================================================================
-
 METADATA = RuleMetadata(
     name="dockerfile_security",
     category="deployment",
-
-    # Target Dockerfiles specifically
-    target_extensions=[],  # Empty = runs at database level, not per-file
-    exclude_patterns=[
-        'test/',
-        '__tests__/',
-        'node_modules/',
-        '.pf/',              # TheAuditor output directory
-        '.auditor_venv/'     # TheAuditor sandboxed tools
-    ],
-
-    # Database-first: not JSX-specific
+    target_extensions=[],
+    exclude_patterns=["test/", "__tests__/", "node_modules/", ".pf/", ".auditor_venv/"],
     requires_jsx_pass=False,
 )
 
-
-# ============================================================================
-# SECURITY PATTERNS (Frozensets for O(1) Lookup)
-# ============================================================================
 
 @dataclass(frozen=True)
 class DockerfilePatterns:
     """Pattern definitions for Dockerfile security analysis."""
 
-    # Sensitive environment variable keywords
-    SENSITIVE_ENV_KEYWORDS: frozenset = frozenset([
-        'PASSWORD', 'PASS', 'PWD', 'SECRET', 'TOKEN', 'KEY',
-        'API_KEY', 'ACCESS_KEY', 'PRIVATE', 'CREDENTIAL', 'AUTH'
-    ])
+    SENSITIVE_ENV_KEYWORDS: frozenset = frozenset(
+        [
+            "PASSWORD",
+            "PASS",
+            "PWD",
+            "SECRET",
+            "TOKEN",
+            "KEY",
+            "API_KEY",
+            "ACCESS_KEY",
+            "PRIVATE",
+            "CREDENTIAL",
+            "AUTH",
+        ]
+    )
 
-    # Common weak passwords
-    WEAK_PASSWORDS: frozenset = frozenset([
-        'password', '123456', 'admin', 'root', 'test', 'demo',
-        'secret', 'changeme', 'password123', 'admin123',
-        'letmein', 'welcome', 'monkey', 'dragon', 'master'
-    ])
+    WEAK_PASSWORDS: frozenset = frozenset(
+        [
+            "password",
+            "123456",
+            "admin",
+            "root",
+            "test",
+            "demo",
+            "secret",
+            "changeme",
+            "password123",
+            "admin123",
+            "letmein",
+            "welcome",
+            "monkey",
+            "dragon",
+            "master",
+        ]
+    )
 
-    # Known vulnerable base images (EOL versions)
-    VULNERABLE_BASE_IMAGES: frozenset = frozenset([
-        'elasticsearch:2', 'elasticsearch:5',
-        'mysql:5.6', 'postgres:9', 'mongo:3', 'redis:3',
-        'node:8', 'node:10', 'node:12',
-        'python:2', 'ruby:2.4',
-        'php:5', 'php:7.0', 'php:7.1', 'php:7.2'
-    ])
+    VULNERABLE_BASE_IMAGES: frozenset = frozenset(
+        [
+            "elasticsearch:2",
+            "elasticsearch:5",
+            "mysql:5.6",
+            "postgres:9",
+            "mongo:3",
+            "redis:3",
+            "node:8",
+            "node:10",
+            "node:12",
+            "python:2",
+            "ruby:2.4",
+            "php:5",
+            "php:7.0",
+            "php:7.1",
+            "php:7.2",
+        ]
+    )
 
 
-# Secret detection patterns (compiled regex - expensive but necessary)
 SECRET_VALUE_PATTERNS = [
-    re.compile(r'^ghp_[A-Za-z0-9]{36}$'),        # GitHub PAT
-    re.compile(r'^ghs_[A-Za-z0-9]{36}$'),        # GitHub secret
-    re.compile(r'^sk-[A-Za-z0-9]{48}$'),         # OpenAI API key
-    re.compile(r'^xox[baprs]-[A-Za-z0-9-]+$'),   # Slack token
-    re.compile(r'^AKIA[A-Z0-9]{16}$'),           # AWS access key
+    re.compile(r"^ghp_[A-Za-z0-9]{36}$"),
+    re.compile(r"^ghs_[A-Za-z0-9]{36}$"),
+    re.compile(r"^sk-[A-Za-z0-9]{48}$"),
+    re.compile(r"^xox[baprs]-[A-Za-z0-9-]+$"),
+    re.compile(r"^AKIA[A-Z0-9]{16}$"),
 ]
 
-
-# ============================================================================
-# MAIN DETECTION FUNCTION (Orchestrator Entry Point)
-# ============================================================================
 
 def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Dockerfile security misconfigurations using indexed data.
@@ -132,25 +142,17 @@ def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Run security checks
         findings.extend(_check_root_user(cursor, patterns))
         findings.extend(_check_exposed_secrets(cursor, patterns))
         findings.extend(_check_vulnerable_images(cursor, patterns))
         findings.extend(_check_missing_healthcheck(cursor))
         findings.extend(_check_sensitive_ports(cursor))
 
-        # Optional: CVE scanning (requires network, skip in offline mode)
-        # findings.extend(_check_base_image_cves(cursor))
-
     finally:
         conn.close()
 
     return findings
 
-
-# ============================================================================
-# SECURITY CHECKS
-# ============================================================================
 
 def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
     """Detect containers running as root user.
@@ -163,7 +165,8 @@ def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFindi
     findings = []
 
     from theauditor.indexer.schema import build_query
-    query = build_query('docker_images', ['file_path', 'env_vars'])
+
+    query = build_query("docker_images", ["file_path", "env_vars"])
     cursor.execute(query)
 
     for row in cursor.fetchall():
@@ -175,24 +178,24 @@ def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFindi
         except json.JSONDecodeError:
             continue
 
-        # Check for _DOCKER_USER key (set by USER instruction in Dockerfile)
-        docker_user = env_vars.get('_DOCKER_USER')
+        docker_user = env_vars.get("_DOCKER_USER")
 
-        # Missing USER instruction or explicitly set to root
-        if docker_user is None or docker_user.lower() == 'root':
+        if docker_user is None or docker_user.lower() == "root":
             severity = Severity.HIGH if docker_user is None else Severity.CRITICAL
-            msg_suffix = 'not set' if docker_user is None else 'set to root'
+            msg_suffix = "not set" if docker_user is None else "set to root"
 
-            findings.append(StandardFinding(
-                rule_name='dockerfile-root-user',
-                message=f'Container runs as root user (USER instruction {msg_suffix})',
-                file_path=file_path,
-                line=1,
-                severity=severity,
-                category='deployment',
-                snippet=f'USER {docker_user or "[not set]"}',
-                cwe_id='CWE-250'  # Execution with Unnecessary Privileges
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="dockerfile-root-user",
+                    message=f"Container runs as root user (USER instruction {msg_suffix})",
+                    file_path=file_path,
+                    line=1,
+                    severity=severity,
+                    category="deployment",
+                    snippet=f"USER {docker_user or '[not set]'}",
+                    cwe_id="CWE-250",
+                )
+            )
 
     return findings
 
@@ -212,7 +215,8 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[Standar
     findings = []
 
     from theauditor.indexer.schema import build_query
-    query = build_query('docker_images', ['file_path', 'env_vars', 'build_args'])
+
+    query = build_query("docker_images", ["file_path", "env_vars", "build_args"])
     cursor.execute(query)
 
     for row in cursor.fetchall():
@@ -226,10 +230,8 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[Standar
         except json.JSONDecodeError:
             continue
 
-        # Check ENV variables
         for key, value in env_vars.items():
-            # Skip internal tracking keys
-            if key.startswith('_DOCKER_'):
+            if key.startswith("_DOCKER_"):
                 continue
 
             if not value or not isinstance(value, str):
@@ -237,64 +239,67 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[Standar
 
             key_upper = key.upper()
 
-            # Check 1: Sensitive key names
             is_sensitive = any(kw in key_upper for kw in patterns.SENSITIVE_ENV_KEYWORDS)
 
             if is_sensitive:
-                # Check for weak passwords
                 if value.lower() in patterns.WEAK_PASSWORDS:
-                    findings.append(StandardFinding(
-                        rule_name='dockerfile-weak-password',
-                        message=f'Weak password in ENV {key}',
-                        file_path=file_path,
-                        line=1,
-                        severity=Severity.CRITICAL,
-                        category='deployment',
-                        snippet=f'ENV {key}=***',
-                        cwe_id='CWE-521'  # Weak Password Requirements
-                    ))
+                    findings.append(
+                        StandardFinding(
+                            rule_name="dockerfile-weak-password",
+                            message=f"Weak password in ENV {key}",
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.CRITICAL,
+                            category="deployment",
+                            snippet=f"ENV {key}=***",
+                            cwe_id="CWE-521",
+                        )
+                    )
                 else:
-                    findings.append(StandardFinding(
-                        rule_name='dockerfile-hardcoded-secret',
-                        message=f'Hardcoded secret in ENV instruction: {key}',
-                        file_path=file_path,
-                        line=1,
-                        severity=Severity.HIGH,
-                        category='deployment',
-                        snippet=f'ENV {key}=***',
-                        cwe_id='CWE-798'  # Use of Hard-coded Credentials
-                    ))
+                    findings.append(
+                        StandardFinding(
+                            rule_name="dockerfile-hardcoded-secret",
+                            message=f"Hardcoded secret in ENV instruction: {key}",
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.HIGH,
+                            category="deployment",
+                            snippet=f"ENV {key}=***",
+                            cwe_id="CWE-798",
+                        )
+                    )
                 continue
 
-            # Check 2: Known secret patterns
             for pattern in SECRET_VALUE_PATTERNS:
                 if pattern.match(value):
-                    findings.append(StandardFinding(
-                        rule_name='dockerfile-secret-pattern',
-                        message=f'Detected secret pattern in ENV {key}',
-                        file_path=file_path,
-                        line=1,
-                        severity=Severity.CRITICAL,
-                        category='deployment',
-                        snippet=f'ENV {key}=[REDACTED]',
-                        cwe_id='CWE-798'
-                    ))
+                    findings.append(
+                        StandardFinding(
+                            rule_name="dockerfile-secret-pattern",
+                            message=f"Detected secret pattern in ENV {key}",
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.CRITICAL,
+                            category="deployment",
+                            snippet=f"ENV {key}=[REDACTED]",
+                            cwe_id="CWE-798",
+                        )
+                    )
                     break
 
-            # Check 3: High entropy (potential secret)
             if _is_high_entropy(value):
-                findings.append(StandardFinding(
-                    rule_name='dockerfile-high-entropy',
-                    message=f'High entropy value in ENV {key} - possible secret',
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category='deployment',
-                    snippet=f'ENV {key}=[REDACTED]',
-                    cwe_id='CWE-798'
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-high-entropy",
+                        message=f"High entropy value in ENV {key} - possible secret",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.MEDIUM,
+                        category="deployment",
+                        snippet=f"ENV {key}=[REDACTED]",
+                        cwe_id="CWE-798",
+                    )
+                )
 
-        # Check ARG variables (build-time only, lower severity)
         for key, value in build_args.items():
             if not value or not isinstance(value, str):
                 continue
@@ -303,16 +308,18 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[Standar
             is_sensitive = any(kw in key_upper for kw in patterns.SENSITIVE_ENV_KEYWORDS)
 
             if is_sensitive:
-                findings.append(StandardFinding(
-                    rule_name='dockerfile-arg-secret',
-                    message=f'Potential secret in ARG instruction: {key}',
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.MEDIUM,  # Lower than ENV (build-time only)
-                    category='deployment',
-                    snippet=f'ARG {key}=***',
-                    cwe_id='CWE-798'
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-arg-secret",
+                        message=f"Potential secret in ARG instruction: {key}",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.MEDIUM,
+                        category="deployment",
+                        snippet=f"ARG {key}=***",
+                        cwe_id="CWE-798",
+                    )
+                )
 
     return findings
 
@@ -328,64 +335,68 @@ def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> list[Stand
     findings = []
 
     from theauditor.indexer.schema import build_query
-    query = build_query('docker_images', ['file_path', 'base_image'], where="base_image IS NOT NULL")
+
+    query = build_query(
+        "docker_images", ["file_path", "base_image"], where="base_image IS NOT NULL"
+    )
     cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
         base_image = row[1]
 
-        # Check for known vulnerable versions
         for vuln_pattern in patterns.VULNERABLE_BASE_IMAGES:
             if base_image.startswith(vuln_pattern):
-                findings.append(StandardFinding(
-                    rule_name='dockerfile-vulnerable-image',
-                    message=f'Base image {vuln_pattern} is deprecated/EOL',
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category='deployment',
-                    snippet=f'FROM {base_image}',
-                    cwe_id='CWE-937'  # Using Outdated Component
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-vulnerable-image",
+                        message=f"Base image {vuln_pattern} is deprecated/EOL",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.HIGH,
+                        category="deployment",
+                        snippet=f"FROM {base_image}",
+                        cwe_id="CWE-937",
+                    )
+                )
                 break
 
-        # Check for unpinned versions
-        if ':latest' in base_image or (':' not in base_image and '@' not in base_image):
-            findings.append(StandardFinding(
-                rule_name='dockerfile-unpinned-version',
-                message=f'Base image uses unpinned version (non-reproducible builds)',
-                file_path=file_path,
-                line=1,
-                severity=Severity.MEDIUM,
-                category='deployment',
-                snippet=f'FROM {base_image}',
-                cwe_id='CWE-494'  # Download of Code Without Integrity Check
-            ))
+        if ":latest" in base_image or (":" not in base_image and "@" not in base_image):
+            findings.append(
+                StandardFinding(
+                    rule_name="dockerfile-unpinned-version",
+                    message=f"Base image uses unpinned version (non-reproducible builds)",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="deployment",
+                    snippet=f"FROM {base_image}",
+                    cwe_id="CWE-494",
+                )
+            )
 
-        # Extract image name (without tag/digest)
-        if '@' in base_image:
-            image_name = base_image.split('@')[0]
-        elif ':' in base_image:
-            image_name = base_image.split(':')[0]
+        if "@" in base_image:
+            image_name = base_image.split("@")[0]
+        elif ":" in base_image:
+            image_name = base_image.split(":")[0]
         else:
             image_name = base_image
 
-        # Check for images without namespace (typosquatting risk)
-        # Official images like 'alpine', 'ubuntu' are whitelisted
-        official_images = {'alpine', 'ubuntu', 'debian', 'centos', 'fedora', 'busybox', 'scratch'}
+        official_images = {"alpine", "ubuntu", "debian", "centos", "fedora", "busybox", "scratch"}
 
-        if '/' not in image_name and image_name not in official_images:
-            findings.append(StandardFinding(
-                rule_name='dockerfile-unofficial-image',
-                message=f'Image {image_name} lacks registry namespace (typosquatting risk)',
-                file_path=file_path,
-                line=1,
-                severity=Severity.LOW,
-                category='deployment',
-                snippet=f'FROM {base_image}',
-                cwe_id='CWE-494'
-            ))
+        if "/" not in image_name and image_name not in official_images:
+            findings.append(
+                StandardFinding(
+                    rule_name="dockerfile-unofficial-image",
+                    message=f"Image {image_name} lacks registry namespace (typosquatting risk)",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="deployment",
+                    snippet=f"FROM {base_image}",
+                    cwe_id="CWE-494",
+                )
+            )
 
     return findings
 
@@ -403,20 +414,17 @@ def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
     Returns:
         True if entropy exceeds threshold
     """
-    # Skip short strings (not enough data)
+
     if len(value) < 10:
         return False
 
-    # Skip strings with spaces (likely prose, not secrets)
-    if ' ' in value:
+    if " " in value:
         return False
 
-    # Calculate character frequency
     char_freq = {}
     for char in value:
         char_freq[char] = char_freq.get(char, 0) + 1
 
-    # Calculate Shannon entropy: H(X) = -Σ p(x) * log2(p(x))
     entropy = 0.0
     for count in char_freq.values():
         probability = count / len(value)
@@ -438,22 +446,27 @@ def _check_missing_healthcheck(cursor) -> list[StandardFinding]:
     findings = []
 
     from theauditor.indexer.schema import build_query
-    query = build_query('docker_images', ['file_path'], where="has_healthcheck = 0 OR has_healthcheck IS NULL")
+
+    query = build_query(
+        "docker_images", ["file_path"], where="has_healthcheck = 0 OR has_healthcheck IS NULL"
+    )
     cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
 
-        findings.append(StandardFinding(
-            rule_name='dockerfile-missing-healthcheck',
-            message='Container missing HEALTHCHECK instruction - orchestrator cannot monitor health',
-            file_path=file_path,
-            line=1,
-            severity=Severity.MEDIUM,
-            category='deployment',
-            snippet='# No HEALTHCHECK instruction found',
-            cwe_id='CWE-1272'  # Sensitive Information Uncleared Before Debug/Power State Transition
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="dockerfile-missing-healthcheck",
+                message="Container missing HEALTHCHECK instruction - orchestrator cannot monitor health",
+                file_path=file_path,
+                line=1,
+                severity=Severity.MEDIUM,
+                category="deployment",
+                snippet="# No HEALTHCHECK instruction found",
+                cwe_id="CWE-1272",
+            )
+        )
 
     return findings
 
@@ -468,23 +481,29 @@ def _check_sensitive_ports(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Sensitive ports that should not be exposed in production
-    SENSITIVE_PORT_NUMS = frozenset([
-        '22',    # SSH
-        '23',    # Telnet
-        '135',   # Windows RPC
-        '139',   # NetBIOS
-        '445',   # SMB
-        '3389',  # RDP
-        '3306',  # MySQL
-        '5432',  # PostgreSQL
-        '6379',  # Redis
-        '27017', # MongoDB
-        '9200',  # Elasticsearch
-    ])
+    SENSITIVE_PORT_NUMS = frozenset(
+        [
+            "22",
+            "23",
+            "135",
+            "139",
+            "445",
+            "3389",
+            "3306",
+            "5432",
+            "6379",
+            "27017",
+            "9200",
+        ]
+    )
 
     from theauditor.indexer.schema import build_query
-    query = build_query('docker_images', ['file_path', 'exposed_ports'], where="exposed_ports IS NOT NULL AND exposed_ports != '[]'")
+
+    query = build_query(
+        "docker_images",
+        ["file_path", "exposed_ports"],
+        where="exposed_ports IS NOT NULL AND exposed_ports != '[]'",
+    )
     cursor.execute(query)
 
     for row in cursor.fetchall():
@@ -496,107 +515,36 @@ def _check_sensitive_ports(cursor) -> list[StandardFinding]:
         except json.JSONDecodeError:
             continue
 
-        # Check each exposed port
         for port_spec in ports:
-            # Handle different port formats: "8080", "8080/tcp", etc.
-            port_num = port_spec.split('/')[0].strip()
+            port_num = port_spec.split("/")[0].strip()
 
             if port_num in SENSITIVE_PORT_NUMS:
-                # Map port to service name
                 port_service_map = {
-                    '22': 'SSH',
-                    '23': 'Telnet',
-                    '135': 'Windows RPC',
-                    '139': 'NetBIOS',
-                    '445': 'SMB',
-                    '3389': 'RDP',
-                    '3306': 'MySQL',
-                    '5432': 'PostgreSQL',
-                    '6379': 'Redis',
-                    '27017': 'MongoDB',
-                    '9200': 'Elasticsearch',
+                    "22": "SSH",
+                    "23": "Telnet",
+                    "135": "Windows RPC",
+                    "139": "NetBIOS",
+                    "445": "SMB",
+                    "3389": "RDP",
+                    "3306": "MySQL",
+                    "5432": "PostgreSQL",
+                    "6379": "Redis",
+                    "27017": "MongoDB",
+                    "9200": "Elasticsearch",
                 }
-                service_name = port_service_map.get(port_num, 'Unknown')
+                service_name = port_service_map.get(port_num, "Unknown")
 
-                findings.append(StandardFinding(
-                    rule_name='dockerfile-sensitive-port-exposed',
-                    message=f'Container exposes sensitive port {port_num} ({service_name}) - should be behind VPN/bastion',
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category='deployment',
-                    snippet=f'EXPOSE {port_spec}',
-                    cwe_id='CWE-749'  # Exposed Dangerous Method or Function
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-sensitive-port-exposed",
+                        message=f"Container exposes sensitive port {port_num} ({service_name}) - should be behind VPN/bastion",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.HIGH,
+                        category="deployment",
+                        snippet=f"EXPOSE {port_spec}",
+                        cwe_id="CWE-749",
+                    )
+                )
 
     return findings
-
-
-# ============================================================================
-# OPTIONAL: CVE SCANNING (Requires Network)
-# ============================================================================
-# Commented out by default - enable if needed
-#
-# def _check_base_image_cves(cursor) -> List[StandardFinding]:
-#     """Scan base images for known CVEs using vulnerability scanner.
-#
-#     Requires:
-#     - Network access
-#     - vulnerability_scanner module
-#     """
-#     findings = []
-#
-#     # Get unique base images
-#     cursor.execute("SELECT DISTINCT file_path, base_image FROM docker_images WHERE base_image IS NOT NULL")
-#
-#     dependencies = []
-#     for row in cursor.fetchall():
-#         file_path = row[0]
-#         base_image = row[1]
-#
-#         # Parse image:tag format
-#         if ':' in base_image:
-#             name, version = base_image.rsplit(':', 1)
-#         elif '@' in base_image:
-#             name, version = base_image.split('@')
-#         else:
-#             name, version = base_image, 'latest'
-#
-#         dependencies.append({
-#             'manager': 'docker',
-#             'name': name,
-#             'version': version,
-#             'source_file': file_path
-#         })
-#
-#     if not dependencies:
-#         return findings
-#
-#     # Import vulnerability scanner (lazy import to avoid circular dependency)
-#     try:
-#         from theauditor.vulnerability_scanner import scan_dependencies
-#         vuln_results = scan_dependencies(dependencies, offline=False)
-#     except ImportError:
-#         return findings
-#
-#     # Convert vulnerability findings to StandardFinding
-#     for vuln in vuln_results:
-#         severity_map = {
-#             'critical': Severity.CRITICAL,
-#             'high': Severity.HIGH,
-#             'medium': Severity.MEDIUM,
-#             'low': Severity.LOW,
-#         }
-#
-#         findings.append(StandardFinding(
-#             rule_name='dockerfile-base-image-cve',
-#             message=f"Base image has CVE: {vuln.get('title', 'Unknown vulnerability')}",
-#             file_path=vuln.get('source_file', 'Dockerfile'),
-#             line=1,
-#             severity=severity_map.get(vuln.get('severity', 'medium'), Severity.MEDIUM),
-#             category='deployment',
-#             snippet=f"FROM {vuln.get('package', 'unknown')}",
-#             cwe_id='CWE-937'
-#         ))
-#
-#     return findings

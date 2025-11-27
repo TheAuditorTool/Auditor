@@ -14,21 +14,12 @@ This file was reduced from 2222 lines to ~150 lines as part of refactor-framewor
 All implementation moved to domain-specific files. This file now serves as a re-export facade only.
 """
 
-
-# ============================================================================
-# Re-exports from ORM Extractors
-# ============================================================================
-
 from .orm_extractors import (
     extract_sqlalchemy_definitions,
     extract_django_definitions,
-    extract_flask_blueprints,  # TEMP - will move to flask_extractors.py in future PR
+    extract_flask_blueprints,
 )
 
-
-# ============================================================================
-# Re-exports from Validation Extractors
-# ============================================================================
 
 from .validation_extractors import (
     extract_pydantic_validators,
@@ -41,10 +32,6 @@ from .validation_extractors import (
 )
 
 
-# ============================================================================
-# Re-exports from Django Web Extractors
-# ============================================================================
-
 from .django_web_extractors import (
     extract_django_cbvs,
     extract_django_forms,
@@ -53,10 +40,6 @@ from .django_web_extractors import (
     extract_django_middleware,
 )
 
-
-# ============================================================================
-# Re-exports from Task Queue + GraphQL Extractors
-# ============================================================================
 
 from .task_graphql_extractors import (
     extract_celery_tasks,
@@ -68,11 +51,6 @@ from .task_graphql_extractors import (
 )
 
 
-# ============================================================================
-# FastAPI Constants and Helpers (TEMPORARY - Pending FastAPI Routes Work)
-# ============================================================================
-
-# These will move to fastapi_extractors.py when FastAPI routes extraction is implemented
 FASTAPI_HTTP_METHODS = {
     "get",
     "post",
@@ -115,7 +93,6 @@ def _extract_fastapi_dependencies(func_node):
                 return get_node_name(keyword.value)
         return "Depends"
 
-    # Extract from positional args with defaults
     positional = list(func_node.args.args)
     defaults = list(func_node.args.defaults)
     pos_defaults_start = len(positional) - len(defaults)
@@ -129,7 +106,6 @@ def _extract_fastapi_dependencies(func_node):
             if dep:
                 dependencies.append(dep)
 
-    # Extract from keyword-only args
     for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):  # noqa: B905 - AST guarantees equal length
         if isinstance(default, ast.Call):
             dep = _dependency_name(default)
@@ -139,37 +115,28 @@ def _extract_fastapi_dependencies(func_node):
     return dependencies
 
 
-# ============================================================================
-# Explicit Exports
-# ============================================================================
-
 __all__ = [
-    # ORM
-    'extract_sqlalchemy_definitions',
-    'extract_django_definitions',
-    'extract_flask_blueprints',
-    # Validation
-    'extract_pydantic_validators',
-    'extract_marshmallow_schemas',
-    'extract_marshmallow_fields',
-    'extract_drf_serializers',
-    'extract_drf_serializer_fields',
-    'extract_wtforms_forms',
-    'extract_wtforms_fields',
-    # Django Web
-    'extract_django_cbvs',
-    'extract_django_forms',
-    'extract_django_form_fields',
-    'extract_django_admin',
-    'extract_django_middleware',
-    # Tasks + GraphQL
-    'extract_celery_tasks',
-    'extract_celery_task_calls',
-    'extract_celery_beat_schedules',
-    'extract_graphene_resolvers',
-    'extract_ariadne_resolvers',
-    'extract_strawberry_resolvers',
-    # FastAPI (temp)
-    'FASTAPI_HTTP_METHODS',
-    '_extract_fastapi_dependencies',
+    "extract_sqlalchemy_definitions",
+    "extract_django_definitions",
+    "extract_flask_blueprints",
+    "extract_pydantic_validators",
+    "extract_marshmallow_schemas",
+    "extract_marshmallow_fields",
+    "extract_drf_serializers",
+    "extract_drf_serializer_fields",
+    "extract_wtforms_forms",
+    "extract_wtforms_fields",
+    "extract_django_cbvs",
+    "extract_django_forms",
+    "extract_django_form_fields",
+    "extract_django_admin",
+    "extract_django_middleware",
+    "extract_celery_tasks",
+    "extract_celery_task_calls",
+    "extract_celery_beat_schedules",
+    "extract_graphene_resolvers",
+    "extract_ariadne_resolvers",
+    "extract_strawberry_resolvers",
+    "FASTAPI_HTTP_METHODS",
+    "_extract_fastapi_dependencies",
 ]

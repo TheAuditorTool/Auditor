@@ -3,7 +3,6 @@
 import click
 
 
-# Concept explanations database
 EXPLANATIONS: dict[str, dict[str, str]] = {
     "taint": {
         "title": "Taint Analysis",
@@ -39,7 +38,7 @@ WHAT THEAUDITOR DETECTS:
 USE THE COMMAND:
     aud taint-analyze                  # Full taint analysis
     aud taint-analyze --severity high  # Only high severity issues
-"""
+""",
     },
     "workset": {
         "title": "Workset",
@@ -76,7 +75,7 @@ WORKSET STRATEGIES:
 - Pattern-based: --include "*/api/*"
 - Manual: --files auth.py user.py
 - Everything: --all
-"""
+""",
     },
     "fce": {
         "title": "Factual Correlation Engine",
@@ -122,7 +121,7 @@ VALUE OF FCE:
 - Reduces false positives through cross-validation
 - Provides complete evidence for each finding
 - Prioritizes real risks over theoretical issues
-"""
+""",
     },
     "cfg": {
         "title": "Control Flow Graph",
@@ -174,7 +173,7 @@ USE CASES:
 - Testing: Calculate paths to cover
 - Refactoring: Find functions to simplify
 - Security: Complex code hides bugs
-"""
+""",
     },
     "impact": {
         "title": "Impact Analysis",
@@ -231,7 +230,7 @@ With --trace-to-backend, TheAuditor can trace:
 - Frontend API calls to backend endpoints
 - Database queries to their users
 - Message queue producers to consumers
-"""
+""",
     },
     "pipeline": {
         "title": "Analysis Pipeline",
@@ -288,7 +287,7 @@ Second run is 5-10x faster due to:
 - AST cache (.pf/.ast_cache/)
 - Symbol database (repo_index.db)
 - Incremental analysis with worksets
-"""
+""",
     },
     "severity": {
         "title": "Severity Levels",
@@ -351,7 +350,7 @@ Example: "Debug mode" (low) + "Exposes secrets" (medium) = Critical
 FILTERING BY SEVERITY:
     aud taint-analyze --severity critical   # Only critical issues
     aud full --quiet                       # Exit code indicates severity
-"""
+""",
     },
     "patterns": {
         "title": "Pattern Detection",
@@ -430,7 +429,7 @@ PERFORMANCE:
 - Regex only: Very fast (<30 seconds)
 - With AST: 2-3x slower but more accurate
 - Default: Both methods for comprehensive analysis
-"""
+""",
     },
     "insights": {
         "title": "Insights System",
@@ -510,7 +509,7 @@ TheAuditor deliberately separates facts from interpretations because:
 
 The core system will NEVER tell you something is "critical" or "needs fixing."
 It only reports what IS. The insights layer adds what it MEANS.
-"""
+""",
     },
     "overview": {
         "title": "TheAuditor Overview",
@@ -543,7 +542,7 @@ USE THE COMMANDS:
     aud full                          # Complete security audit
     aud manual workflows              # See common workflows
     aud manual exit-codes             # Understand exit codes
-"""
+""",
     },
     "workflows": {
         "title": "Common Workflows",
@@ -579,7 +578,7 @@ UNDERSTANDING RESULTS:
     aud manual taint                  # Learn about concepts
     aud structure                     # Project overview
     aud report --print-stats          # Summary statistics
-"""
+""",
     },
     "exit-codes": {
         "title": "Exit Codes",
@@ -612,7 +611,7 @@ USAGE IN CI/CD:
     elif [ $EXIT_CODE -eq 1 ]; then
         echo "Warning: High severity issues found"
     fi
-"""
+""",
     },
     "env-vars": {
         "title": "Environment Variables",
@@ -644,7 +643,7 @@ EXAMPLES:
     # Optimize for SSD with larger batches
     export THEAUDITOR_DB_BATCH_SIZE=500
     aud full
-"""
+""",
     },
     "database": {
         "title": "Database Schema Reference",
@@ -722,7 +721,7 @@ MANUAL QUERIES (Python):
 SCHEMA DOCUMENTATION:
     See: theauditor/indexer/schema.py for complete table definitions
     Each table includes column types, indexes, and constraints.
-"""
+""",
     },
     "troubleshooting": {
         "title": "Troubleshooting Guide",
@@ -776,7 +775,7 @@ GETTING HELP:
     aud manual <concept>     - Learn about specific concepts
     aud manual --list        - See all available topics
     aud <command> --help     - Command-specific help
-"""
+""",
     },
     "architecture": {
         "title": "System Architecture",
@@ -863,8 +862,8 @@ JUNCTION TABLE PATTERN:
 
     Composite key: file + line + target_var
     Enables: Many-to-many relationships, fast lookups
-"""
-    }
+""",
+    },
 }
 
 
@@ -1035,7 +1034,6 @@ def manual(concept, list_concepts):
         click.echo("\nExample: aud manual taint")
         return
 
-    # Normalize concept name
     concept = concept.lower().strip()
 
     if concept not in EXPLANATIONS:
@@ -1045,10 +1043,9 @@ def manual(concept, list_concepts):
             click.echo(f"  - {key}")
         return
 
-    # Display explanation
     info = EXPLANATIONS[concept]
     click.echo(f"\n{'=' * 70}")
     click.echo(f"{info['title'].upper()}")
     click.echo(f"{'=' * 70}")
-    click.echo(info['explanation'])
+    click.echo(info["explanation"])
     click.echo(f"{'=' * 70}\n")

@@ -11,8 +11,8 @@ from .analyzer import TerraformAnalyzer, TerraformFinding
 from .graph import TerraformGraphBuilder
 
 __all__ = [
-    'TerraformParser',
-    'TerraformAnalyzer',
-    'TerraformFinding',
-    'TerraformGraphBuilder',
+    "TerraformParser",
+    "TerraformAnalyzer",
+    "TerraformFinding",
+    "TerraformGraphBuilder",
 ]

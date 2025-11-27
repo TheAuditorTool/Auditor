@@ -142,10 +142,10 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
             click.echo("[OK] All tools passed - no failures detected")
         else:
             click.echo(f"Found {result['failures_found']} failures")
-            # Check if output_files exists and has at least 2 elements
-            if result.get('output_files') and len(result.get('output_files', [])) > 1:
+
+            if result.get("output_files") and len(result.get("output_files", [])) > 1:
                 click.echo(f"FCE report written to: {result['output_files'][1]}")
-            elif result.get('output_files') and len(result.get('output_files', [])) > 0:
+            elif result.get("output_files") and len(result.get("output_files", [])) > 0:
                 click.echo(f"FCE report written to: {result['output_files'][0]}")
     else:
         click.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)

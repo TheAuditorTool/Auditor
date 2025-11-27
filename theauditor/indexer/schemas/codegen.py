@@ -23,7 +23,6 @@ Usage:
     cache = SchemaCodeGenerator.generate_memory_cache()
 """
 
-
 import hashlib
 from pathlib import Path
 
@@ -46,27 +45,24 @@ class SchemaCodeGenerator:
         """
         hasher = hashlib.sha256()
 
-        # Get the schemas directory
         schemas_dir = Path(__file__).parent
 
-        # List all schema files in deterministic order
         schema_files = [
-            schemas_dir.parent / 'schema.py',  # Main schema file
-            schemas_dir / 'core_schema.py',
-            schemas_dir / 'security_schema.py',
-            schemas_dir / 'frameworks_schema.py',
-            schemas_dir / 'python_schema.py',
-            schemas_dir / 'node_schema.py',
-            schemas_dir / 'infrastructure_schema.py',
-            schemas_dir / 'planning_schema.py',
-            schemas_dir / 'graphql_schema.py',
-            schemas_dir / 'utils.py',  # Include utils since Column/TableSchema affect schemas
-            Path(__file__),  # CRITICAL: Hash codegen.py itself (generation logic changes must trigger regeneration)
+            schemas_dir.parent / "schema.py",
+            schemas_dir / "core_schema.py",
+            schemas_dir / "security_schema.py",
+            schemas_dir / "frameworks_schema.py",
+            schemas_dir / "python_schema.py",
+            schemas_dir / "node_schema.py",
+            schemas_dir / "infrastructure_schema.py",
+            schemas_dir / "planning_schema.py",
+            schemas_dir / "graphql_schema.py",
+            schemas_dir / "utils.py",
+            Path(__file__),
         ]
 
         for schema_file in sorted(schema_files):
             if schema_file.exists():
-                # Include filename in hash for consistency
                 hasher.update(schema_file.name.encode())
                 hasher.update(schema_file.read_bytes())
 
@@ -75,24 +71,24 @@ class SchemaCodeGenerator:
     @staticmethod
     def _to_pascal_case(snake_str: str) -> str:
         """Convert snake_case to PascalCase."""
-        return ''.join(word.capitalize() for word in snake_str.split('_'))
+        return "".join(word.capitalize() for word in snake_str.split("_"))
 
     @staticmethod
     def _python_type(sql_type: str) -> str:
         """Convert SQL type to Python type hint."""
         sql_type = sql_type.upper()
-        if 'INT' in sql_type:
-            return 'int'
-        elif 'TEXT' in sql_type or 'VARCHAR' in sql_type:
-            return 'str'
-        elif 'REAL' in sql_type or 'FLOAT' in sql_type or 'DOUBLE' in sql_type:
-            return 'float'
-        elif 'BLOB' in sql_type:
-            return 'bytes'
-        elif 'BOOLEAN' in sql_type or 'BOOL' in sql_type:
-            return 'bool'
+        if "INT" in sql_type:
+            return "int"
+        elif "TEXT" in sql_type or "VARCHAR" in sql_type:
+            return "str"
+        elif "REAL" in sql_type or "FLOAT" in sql_type or "DOUBLE" in sql_type:
+            return "float"
+        elif "BLOB" in sql_type:
+            return "bytes"
+        elif "BOOLEAN" in sql_type or "BOOL" in sql_type:
+            return "bool"
         else:
-            return 'Any'
+            return "Any"
 
     @classmethod
     def generate_typed_dicts(cls) -> str:
@@ -142,7 +138,6 @@ class SchemaCodeGenerator:
             code.append(f'    """Accessor class for {table_name} table."""')
             code.append("")
 
-            # Generate get_all method
             col_names = [col.name for col in schema.columns]
             col_list_str = str(col_names)
             code.append(f"    @staticmethod")
@@ -150,23 +145,30 @@ class SchemaCodeGenerator:
             code.append(f'        """Get all rows from {table_name}."""')
             code.append(f"        query = build_query('{table_name}', {col_list_str})")
             code.append(f"        cursor.execute(query)")
-            code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
+            code.append(
+                f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]"
+            )
             code.append("")
 
-            # Generate get_by_{column} for indexed columns
             for idx_name, idx_cols in schema.indexes:
-                if len(idx_cols) == 1:  # Single column index
+                if len(idx_cols) == 1:
                     col_name = idx_cols[0]
-                    # Find the column definition to get its type
+
                     col_def = next((c for c in schema.columns if c.name == col_name), None)
                     if col_def:
                         param_type = cls._python_type(col_def.type)
                         code.append(f"    @staticmethod")
-                        code.append(f"    def get_by_{col_name}(cursor: sqlite3.Cursor, {col_name}: {param_type}) -> list[dict[str, Any]]:")
+                        code.append(
+                            f"    def get_by_{col_name}(cursor: sqlite3.Cursor, {col_name}: {param_type}) -> list[dict[str, Any]]:"
+                        )
                         code.append(f'        """Get rows by {col_name}."""')
-                        code.append(f"        query = build_query('{table_name}', {col_list_str}, where=\"{col_name} = ?\")")
+                        code.append(
+                            f"        query = build_query('{table_name}', {col_list_str}, where=\"{col_name} = ?\")"
+                        )
                         code.append(f"        cursor.execute(query, ({col_name},))")
-                        code.append(f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]")
+                        code.append(
+                            f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]"
+                        )
                         code.append("")
 
             code.append("")
@@ -181,7 +183,7 @@ class SchemaCodeGenerator:
             Python code string with memory cache implementation
         """
         code = []
-        # Add schema hash for validation
+
         schema_hash = cls.get_schema_hash()
         code.append("# AUTO-GENERATED FILE - DO NOT EDIT")
         code.append(f"# SCHEMA_HASH: {schema_hash}")
@@ -213,16 +215,22 @@ class SchemaCodeGenerator:
         code.append("                data = []")
         code.append("            setattr(self, table_name, data)")
         code.append("")
-        code.append("            # Auto-build indexes for indexed columns (always create, even if empty)")
+        code.append(
+            "            # Auto-build indexes for indexed columns (always create, even if empty)"
+        )
         code.append("            for idx_name, idx_cols in schema.indexes:")
         code.append("                if len(idx_cols) == 1:  # Single column index")
         code.append("                    col_name = idx_cols[0]")
-        code.append("                    index = self._build_index(data, table_name, col_name, schema)")
-        code.append("                    setattr(self, f\"{table_name}_by_{col_name}\", index)")
+        code.append(
+            "                    index = self._build_index(data, table_name, col_name, schema)"
+        )
+        code.append('                    setattr(self, f"{table_name}_by_{col_name}", index)')
         code.append("")
         code.append("        conn.close()")
         code.append("")
-        code.append("    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> list[dict[str, Any]]:")
+        code.append(
+            "    def _load_table(self, cursor: sqlite3.Cursor, table_name: str, schema: Any) -> list[dict[str, Any]]:"
+        )
         code.append('        """Load a table into memory as list of dicts."""')
         code.append("        col_names = [col.name for col in schema.columns]")
         code.append("        query = build_query(table_name, col_names)")
@@ -230,7 +238,9 @@ class SchemaCodeGenerator:
         code.append("        rows = cursor.fetchall()")
         code.append("        return [dict(zip(col_names, row, strict=True)) for row in rows]")
         code.append("")
-        code.append("    def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:")
+        code.append(
+            "    def _build_index(self, data: list[dict[str, Any]], table_name: str, col_name: str, schema: Any) -> dict[Any, list[dict[str, Any]]]:"
+        )
         code.append('        """Build an index on a column for fast lookups."""')
         code.append("        index = defaultdict(list)")
         code.append("        for row in data:")
@@ -279,12 +289,16 @@ class SchemaCodeGenerator:
         code.append(f"                raise ValueError(f'Unknown table: {{table_name}}')")
         code.append("            ")
         code.append("            schema = TABLES[table_name]")
-        code.append("            required_cols = {col.name for col in schema.columns if not col.nullable}")
+        code.append(
+            "            required_cols = {col.name for col in schema.columns if not col.nullable}"
+        )
         code.append("            ")
         code.append("            # Validate that required columns are present in kwargs")
         code.append("            for col_name in required_cols:")
         code.append("                if col_name not in kwargs:")
-        code.append(f"                    raise ValueError(f'Missing required column {{col_name}} for table {{table_name}}')")
+        code.append(
+            f"                    raise ValueError(f'Missing required column {{col_name}} for table {{table_name}}')"
+        )
         code.append("            ")
         code.append("            return func(*args, **kwargs)")
         code.append("        return wrapper")
@@ -304,13 +318,23 @@ class SchemaCodeGenerator:
         code.append("                # Basic type checking")
         code.append("                expected_type = SchemaCodeGenerator._python_type(col.type)")
         code.append("                if expected_type == 'int' and not isinstance(value, int):")
-        code.append(f"                    raise TypeError(f'Column {{col.name}} expects int, got {{type(value).__name__}}')")
+        code.append(
+            f"                    raise TypeError(f'Column {{col.name}} expects int, got {{type(value).__name__}}')"
+        )
         code.append("                elif expected_type == 'str' and not isinstance(value, str):")
-        code.append(f"                    raise TypeError(f'Column {{col.name}} expects str, got {{type(value).__name__}}')")
-        code.append("                elif expected_type == 'float' and not isinstance(value, (int, float)):")
-        code.append(f"                    raise TypeError(f'Column {{col.name}} expects float, got {{type(value).__name__}}')")
+        code.append(
+            f"                    raise TypeError(f'Column {{col.name}} expects str, got {{type(value).__name__}}')"
+        )
+        code.append(
+            "                elif expected_type == 'float' and not isinstance(value, (int, float)):"
+        )
+        code.append(
+            f"                    raise TypeError(f'Column {{col.name}} expects float, got {{type(value).__name__}}')"
+        )
         code.append("                elif expected_type == 'bool' and not isinstance(value, bool):")
-        code.append(f"                    raise TypeError(f'Column {{col.name}} expects bool, got {{type(value).__name__}}')")
+        code.append(
+            f"                    raise TypeError(f'Column {{col.name}} expects bool, got {{type(value).__name__}}')"
+        )
 
         return "\n".join(code)
 
@@ -322,10 +346,10 @@ class SchemaCodeGenerator:
             Dictionary mapping component name to generated code
         """
         return {
-            'typed_dicts': cls.generate_typed_dicts(),
-            'accessors': cls.generate_accessor_classes(),
-            'memory_cache': cls.generate_memory_cache(),
-            'validators': cls.generate_validators(),
+            "typed_dicts": cls.generate_typed_dicts(),
+            "accessors": cls.generate_accessor_classes(),
+            "memory_cache": cls.generate_memory_cache(),
+            "validators": cls.generate_validators(),
         }
 
     @classmethod
@@ -342,51 +366,44 @@ class SchemaCodeGenerator:
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate all components
         components = cls.generate_all()
 
-        # Write typed_dicts.py
-        typed_dicts_path = output_dir / 'generated_types.py'
-        with open(typed_dicts_path, 'w') as f:
-            f.write(components['typed_dicts'])
+        typed_dicts_path = output_dir / "generated_types.py"
+        with open(typed_dicts_path, "w") as f:
+            f.write(components["typed_dicts"])
 
-        # Write accessors.py
-        accessors_path = output_dir / 'generated_accessors.py'
-        with open(accessors_path, 'w') as f:
-            f.write(components['accessors'])
+        accessors_path = output_dir / "generated_accessors.py"
+        with open(accessors_path, "w") as f:
+            f.write(components["accessors"])
 
-        # Write memory_cache.py
-        cache_path = output_dir / 'generated_cache.py'
-        with open(cache_path, 'w') as f:
-            f.write(components['memory_cache'])
+        cache_path = output_dir / "generated_cache.py"
+        with open(cache_path, "w") as f:
+            f.write(components["memory_cache"])
 
-        # Write validators.py
-        validators_path = output_dir / 'generated_validators.py'
-        with open(validators_path, 'w') as f:
-            f.write(components['validators'])
+        validators_path = output_dir / "generated_validators.py"
+        with open(validators_path, "w") as f:
+            f.write(components["validators"])
 
         print(f"Generated code written to {output_dir}")
 
 
-# For convenience, also create the full combined generated module
 def generate_complete_module() -> str:
     """Generate a complete module with all components."""
     code = []
     code.append('"""')
-    code.append('Auto-generated schema code.')
-    code.append('DO NOT EDIT MANUALLY - Generated by SchemaCodeGenerator')
+    code.append("Auto-generated schema code.")
+    code.append("DO NOT EDIT MANUALLY - Generated by SchemaCodeGenerator")
     code.append('"""')
-    code.append('')
+    code.append("")
 
-    # Add all components
     components = SchemaCodeGenerator.generate_all()
 
-    code.append(components['typed_dicts'])
-    code.append('\n\n')
-    code.append(components['accessors'])
-    code.append('\n\n')
-    code.append(components['memory_cache'])
-    code.append('\n\n')
-    code.append(components['validators'])
+    code.append(components["typed_dicts"])
+    code.append("\n\n")
+    code.append(components["accessors"])
+    code.append("\n\n")
+    code.append(components["memory_cache"])
+    code.append("\n\n")
+    code.append(components["validators"])
 
-    return '\n'.join(code)
+    return "\n".join(code)

@@ -7,7 +7,6 @@ Delegates to specialized modules:
 - models.py: Model training/loading/saving
 """
 
-
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,7 +37,6 @@ def learn(
     if not models.check_ml_available():
         return {"success": False, "error": "ML not available"}
 
-    # Load manifest
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
@@ -56,33 +54,20 @@ def learn(
     if not file_paths:
         return {"success": False, "error": "No source files found in manifest"}
 
-    # TIER 1: Load historical data from archived runs
     history_dir = Path("./.pf/history")
     historical_data = loaders.load_all_historical_data(history_dir, train_on, window, enable_git)
 
-    # TIER 4: Load git churn data (commits, authors, recency)
     if enable_git:
         historical_data["git_churn"] = loaders.load_git_churn(
-            file_paths=file_paths,
-            window_days=90,
-            root_path=Path(".")
+            file_paths=file_paths, window_days=90, root_path=Path(".")
         )
 
-    # TIER 2-5: Load database features from repo_index.db
-    # Tier 5 (agent behavior + comment hallucination) is enabled if session_dir is provided
     session_path = Path(session_dir) if session_dir else None
     graveyard_file = Path(graveyard_path) if graveyard_path else None
     db_features = features.load_all_db_features(
-        db_path, file_paths,
-        session_dir=session_path,
-        graveyard_path=graveyard_file
+        db_path, file_paths, session_dir=session_path, graveyard_path=graveyard_file
     )
 
-    # TIER 3: Load intelligent features (NEW - THE MISSING 90%)
-    # Currently not used in feature matrix but available for future enhancement
-    # intelligent_data = intelligence.parse_all_raw_artifacts(Path("./.pf/raw"))
-
-    # Build features and labels
     feature_matrix, feature_name_map = models.build_feature_matrix(
         file_paths,
         manifest_path,
@@ -96,11 +81,11 @@ def learn(
         historical_data["rca_stats"],
     )
 
-    # Load human feedback if provided
     sample_weight = None
     if feedback_path and Path(feedback_path).exists():
         try:
             import numpy as np
+
             with open(feedback_path) as f:
                 feedback_data = json.load(f)
 
@@ -125,8 +110,8 @@ def learn(
             if print_stats:
                 print(f"Warning: Could not load feedback file: {e}")
 
-    # Check data size
     import numpy as np
+
     n_samples = len(file_paths)
     cold_start = n_samples < 500
 
@@ -139,7 +124,6 @@ def learn(
         if cold_start:
             print("WARNING: Cold-start with <500 samples, expect noisy signals")
 
-    # Train models
     root_cause_clf, next_edit_clf, risk_reg, scaler, root_cause_calibrator, next_edit_calibrator = (
         models.train_models(
             feature_matrix,
@@ -151,7 +135,6 @@ def learn(
         )
     )
 
-    # Calculate stats
     stats = {
         "n_samples": n_samples,
         "n_features": feature_matrix.shape[1],
@@ -162,7 +145,6 @@ def learn(
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
-    # Save models
     models.save_models(
         model_dir,
         root_cause_clf,
@@ -201,7 +183,6 @@ def suggest(
     if not models.check_ml_available():
         return {"success": False, "error": "ML not available"}
 
-    # Load models
     (
         root_cause_clf,
         next_edit_clf,
@@ -216,7 +197,6 @@ def suggest(
         print(f"No models found in {model_dir}. Run 'aud learn' first.")
         return {"success": False, "error": "Models not found"}
 
-    # Load workset
     try:
         with open(workset_path) as f:
             workset = json.load(f)
@@ -234,10 +214,8 @@ def suggest(
     if not file_paths:
         return {"success": False, "error": "No source files in workset"}
 
-    # Load database features
     db_features = features.load_all_db_features(db_path, file_paths)
 
-    # Build features (no historical data for prediction)
     feature_matrix, _ = models.build_feature_matrix(
         file_paths,
         manifest_path,
@@ -250,21 +228,19 @@ def suggest(
         },
     )
 
-    # Get predictions
     import numpy as np
+
     features_scaled = scaler.transform(feature_matrix)
 
     root_cause_scores = root_cause_clf.predict_proba(features_scaled)[:, 1]
     next_edit_scores = next_edit_clf.predict_proba(features_scaled)[:, 1]
     risk_scores = np.clip(risk_reg.predict(features_scaled), 0, 1)
 
-    # Apply calibration if available
     if root_cause_calibrator is not None:
         root_cause_scores = root_cause_calibrator.transform(root_cause_scores)
     if next_edit_calibrator is not None:
         next_edit_scores = next_edit_calibrator.transform(next_edit_scores)
 
-    # Calculate confidence intervals
     root_cause_std = np.zeros(len(file_paths))
     next_edit_std = np.zeros(len(file_paths))
 
@@ -280,7 +256,6 @@ def suggest(
         )
         next_edit_std = np.std(tree_preds, axis=0)
 
-    # Rank files
     root_cause_ranked = sorted(
         zip(file_paths, root_cause_scores, root_cause_std, strict=False),
         key=lambda x: x[1],
@@ -299,7 +274,6 @@ def suggest(
         reverse=True,
     )[:topk]
 
-    # Build output
     output = {
         "generated_at": datetime.now(UTC).isoformat(),
         "workset_size": len(file_paths),
@@ -314,9 +288,9 @@ def suggest(
         "risk": [{"path": path, "score": float(score)} for path, score in risk_ranked],
     }
 
-    # Write output
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     import os
+
     tmp_path = f"{out_path}.tmp"
     with open(tmp_path, "w") as f:
         json.dump(output, f, indent=2, sort_keys=True)
@@ -326,7 +300,9 @@ def suggest(
         print(f"Workset: {len(file_paths)} files")
         print(f"\nTop {min(5, topk)} likely root causes:")
         for item in output["likely_root_causes"][:5]:
-            conf_str = f" (±{item['confidence_std']:.3f})" if item.get("confidence_std", 0) > 0 else ""
+            conf_str = (
+                f" (±{item['confidence_std']:.3f})" if item.get("confidence_std", 0) > 0 else ""
+            )
             print(f"  {item['score']:.3f}{conf_str} - {item['path']}")
 
     return {

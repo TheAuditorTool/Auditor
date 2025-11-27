@@ -10,8 +10,4 @@ This ensures that:
   - import theauditor.ml  # STILL WORKS
 """
 
-# Import everything from the new location
 from theauditor.insights.ml import *
-
-# This shim ensures 100% backward compatibility while the actual
-# implementation is now in theauditor/insights/ml.py

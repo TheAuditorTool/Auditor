@@ -19,7 +19,6 @@ USAGE:
   subprocess.run([str(node_path), 'script.js'])
 """
 
-
 import platform
 from pathlib import Path
 
@@ -42,13 +41,11 @@ def find_bundled_venv(root_path: Path = None) -> Path | None:
 
     current = Path(root_path).resolve()
 
-    # Walk up directory tree (max 10 levels to avoid infinite loops)
     for _ in range(10):
         venv = current / ".auditor_venv"
         if venv.exists() and venv.is_dir():
             return venv
 
-        # Stop at filesystem root
         if current == current.parent:
             break
 
@@ -75,8 +72,7 @@ def get_bundled_python(root_path: Path = None) -> Path:
     venv = find_bundled_venv(root_path)
     if not venv:
         raise RuntimeError(
-            "Bundled runtime not found (.auditor_venv)\n"
-            "Run: aud setup-ai --target ."
+            "Bundled runtime not found (.auditor_venv)\nRun: aud setup-ai --target ."
         )
 
     if platform.system() == "Windows":
@@ -109,8 +105,7 @@ def get_bundled_node(root_path: Path = None) -> Path:
     venv = find_bundled_venv(root_path)
     if not venv:
         raise RuntimeError(
-            "Bundled runtime not found (.auditor_venv)\n"
-            "Run: aud setup-ai --target ."
+            "Bundled runtime not found (.auditor_venv)\nRun: aud setup-ai --target ."
         )
 
     toolbox = venv / "toolbox"
@@ -144,8 +139,7 @@ def get_bundled_npm(root_path: Path = None) -> Path:
     venv = find_bundled_venv(root_path)
     if not venv:
         raise RuntimeError(
-            "Bundled runtime not found (.auditor_venv)\n"
-            "Run: aud setup-ai --target ."
+            "Bundled runtime not found (.auditor_venv)\nRun: aud setup-ai --target ."
         )
 
     toolbox = venv / "toolbox"
@@ -180,8 +174,7 @@ def get_bundled_tool(tool_name: str, root_path: Path = None) -> Path:
     venv = find_bundled_venv(root_path)
     if not venv:
         raise RuntimeError(
-            "Bundled runtime not found (.auditor_venv)\n"
-            "Run: aud setup-ai --target ."
+            "Bundled runtime not found (.auditor_venv)\nRun: aud setup-ai --target ."
         )
 
     if platform.system() == "Windows":

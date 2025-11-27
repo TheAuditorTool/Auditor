@@ -122,34 +122,28 @@ def graphql_build(root, db, verbose):
     builder = GraphQLBuilder(db_path, verbose=verbose)
 
     try:
-        # Phase 1: Load SDL schemas and fields
         click.echo("Phase 1: Loading GraphQL schemas...")
         schemas_count = builder.load_schemas()
         click.echo(f"  Loaded {schemas_count} schema files")
 
-        # Phase 2: Load resolver candidates from symbols
         click.echo("Phase 2: Loading resolver candidates...")
         resolvers_count = builder.load_resolver_candidates()
         click.echo(f"  Found {resolvers_count} potential resolvers")
 
-        # Phase 3: Correlate fields with resolvers
         click.echo("Phase 3: Correlating fields with resolvers...")
         mappings_count = builder.correlate_resolvers()
         click.echo(f"  Created {mappings_count} resolver mappings")
 
-        # Phase 4: Build execution graph edges
         click.echo("Phase 4: Building execution graph...")
         edges_count = builder.build_execution_graph()
         click.echo(f"  Created {edges_count} execution edges")
 
-        # Phase 5: Export courier artifacts
         click.echo("Phase 5: Exporting courier artifacts...")
         output_dir = Path(root) / ".pf" / "raw"
         schema_path, execution_path = builder.export_courier_artifacts(output_dir)
         click.echo(f"  Exported: {schema_path.name}")
         click.echo(f"  Exported: {execution_path.name}")
 
-        # Summary
         click.echo("\nGraphQL build complete!")
         click.echo(f"  Resolver coverage: {builder.get_coverage_percent():.1f}%")
         click.echo(f"  Missing resolvers: {builder.get_missing_count()}")
@@ -192,7 +186,9 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     try:
         if type_name:
-            result = querier.query_type(type_name, show_resolvers=show_resolvers, show_args=show_args)
+            result = querier.query_type(
+                type_name, show_resolvers=show_resolvers, show_args=show_args
+            )
         elif field_name:
             result = querier.query_field(field_name, show_resolvers=show_resolvers)
         else:

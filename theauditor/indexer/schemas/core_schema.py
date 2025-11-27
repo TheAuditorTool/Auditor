@@ -18,10 +18,6 @@ Design Philosophy:
 from .utils import Column, ForeignKey, TableSchema
 
 
-# ============================================================================
-# CORE TABLES - File tracking and metadata
-# ============================================================================
-
 FILES = TableSchema(
     name="files",
     columns=[
@@ -32,9 +28,7 @@ FILES = TableSchema(
         Column("loc", "INTEGER", nullable=False),
         Column("file_category", "TEXT", nullable=False, default="'source'"),
     ],
-    indexes=[
-        ("idx_files_ext", ["ext"])  # Index for fast extension lookups (Python/Node/etc)
-    ]
+    indexes=[("idx_files_ext", ["ext"])],
 )
 
 CONFIG_FILES = TableSchema(
@@ -45,7 +39,7 @@ CONFIG_FILES = TableSchema(
         Column("type", "TEXT", nullable=False),
         Column("context_dir", "TEXT"),
     ],
-    indexes=[]
+    indexes=[],
 )
 
 REFS = TableSchema(
@@ -58,12 +52,9 @@ REFS = TableSchema(
     ],
     indexes=[
         ("idx_refs_src", ["src"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# SYMBOL TABLES - Code structure and analysis
-# ============================================================================
 
 SYMBOLS = TableSchema(
     name="symbols",
@@ -75,7 +66,7 @@ SYMBOLS = TableSchema(
         Column("col", "INTEGER", nullable=False),
         Column("end_line", "INTEGER"),
         Column("type_annotation", "TEXT"),
-        Column("parameters", "TEXT"),  # JSON array of parameter names: ['data', '_createdBy']
+        Column("parameters", "TEXT"),
         Column("is_typed", "BOOLEAN", default="0"),
     ],
     primary_key=["path", "name", "line", "type", "col"],
@@ -83,7 +74,7 @@ SYMBOLS = TableSchema(
         ("idx_symbols_path", ["path"]),
         ("idx_symbols_type", ["type"]),
         ("idx_symbols_name", ["name"]),
-    ]
+    ],
 )
 
 SYMBOLS_JSX = TableSchema(
@@ -101,20 +92,9 @@ SYMBOLS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_symbols_path", ["path"]),
         ("idx_jsx_symbols_type", ["type"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# SQL & DATABASE TABLES
-# ============================================================================
-# SQL & DATABASE TABLES - Moved to security_schema.py
-# (SQL_OBJECTS, SQL_QUERIES, SQL_QUERY_TABLES, JWT_PATTERNS moved out)
-# ORM_QUERIES - Moved to frameworks_schema.py
-# ============================================================================
-
-# ============================================================================
-# DATA FLOW TABLES - Taint analysis critical
-# ============================================================================
 
 ASSIGNMENTS = TableSchema(
     name="assignments",
@@ -124,15 +104,15 @@ ASSIGNMENTS = TableSchema(
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
         Column("in_function", "TEXT", nullable=False),
-        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
+        Column("property_path", "TEXT", nullable=True),
     ],
     primary_key=["file", "line", "target_var"],
     indexes=[
         ("idx_assignments_file", ["file"]),
         ("idx_assignments_function", ["in_function"]),
         ("idx_assignments_target", ["target_var"]),
-        ("idx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
-    ]
+        ("idx_assignments_property_path", ["property_path"]),
+    ],
 )
 
 ASSIGNMENTS_JSX = TableSchema(
@@ -143,7 +123,7 @@ ASSIGNMENTS_JSX = TableSchema(
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
         Column("in_function", "TEXT", nullable=False),
-        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
+        Column("property_path", "TEXT", nullable=True),
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],
@@ -151,8 +131,8 @@ ASSIGNMENTS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_assignments_file", ["file"]),
         ("idx_jsx_assignments_function", ["in_function"]),
-        ("idx_jsx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
-    ]
+        ("idx_jsx_assignments_property_path", ["property_path"]),
+    ],
 )
 
 FUNCTION_CALL_ARGS = TableSchema(
@@ -162,20 +142,20 @@ FUNCTION_CALL_ARGS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False, check="callee_function != ''"),
-        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
-        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
-        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
-        Column("callee_file_path", "TEXT"),  # Resolved file path for callee function (enables unambiguous cross-file tracking)
+        Column("argument_index", "INTEGER", nullable=True),
+        Column("argument_expr", "TEXT", nullable=True),
+        Column("param_name", "TEXT", nullable=True),
+        Column("callee_file_path", "TEXT"),
     ],
     indexes=[
         ("idx_function_call_args_file", ["file"]),
         ("idx_function_call_args_caller", ["caller_function"]),
         ("idx_function_call_args_callee", ["callee_function"]),
         ("idx_function_call_args_file_line", ["file", "line"]),
-        ("idx_function_call_args_callee_file", ["callee_file_path"]),  # Index for cross-file queries
-        ("idx_function_call_args_argument_index", ["argument_index"]),  # Index for taint analysis queries by arg position
-        ("idx_function_call_args_param_name", ["param_name"]),  # Index for parameter name lookups
-    ]
+        ("idx_function_call_args_callee_file", ["callee_file_path"]),
+        ("idx_function_call_args_argument_index", ["argument_index"]),
+        ("idx_function_call_args_param_name", ["param_name"]),
+    ],
 )
 
 FUNCTION_CALL_ARGS_JSX = TableSchema(
@@ -185,9 +165,9 @@ FUNCTION_CALL_ARGS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False),
-        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
-        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
-        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
+        Column("argument_index", "INTEGER", nullable=True),
+        Column("argument_expr", "TEXT", nullable=True),
+        Column("param_name", "TEXT", nullable=True),
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],
@@ -195,7 +175,7 @@ FUNCTION_CALL_ARGS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_calls_file", ["file"]),
         ("idx_jsx_calls_caller", ["caller_function"]),
-    ]
+    ],
 )
 
 FUNCTION_RETURNS = TableSchema(
@@ -205,7 +185,6 @@ FUNCTION_RETURNS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("function_name", "TEXT", nullable=False),
         Column("return_expr", "TEXT", nullable=False),
-        # React-specific columns (added via ALTER TABLE)
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("returns_component", "BOOLEAN", default="0"),
         Column("cleanup_operations", "TEXT"),
@@ -214,7 +193,7 @@ FUNCTION_RETURNS = TableSchema(
     indexes=[
         ("idx_function_returns_file", ["file"]),
         ("idx_function_returns_function", ["function_name"]),
-    ]
+    ],
 )
 
 FUNCTION_RETURNS_JSX = TableSchema(
@@ -234,12 +213,9 @@ FUNCTION_RETURNS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_returns_file", ["file"]),
         ("idx_jsx_returns_function", ["function_name"]),
-    ]
+    ],
 )
 
-# Junction tables for normalized many-to-many relationships
-# Replaces JSON TEXT columns source_vars and return_vars with relational model
-# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
 
 ASSIGNMENT_SOURCES = TableSchema(
     name="assignment_sources",
@@ -251,7 +227,10 @@ ASSIGNMENT_SOURCES = TableSchema(
         Column("source_var_name", "TEXT", nullable=False),
     ],
     indexes=[
-        ("idx_assignment_sources_assignment", ["assignment_file", "assignment_line", "assignment_target"]),
+        (
+            "idx_assignment_sources_assignment",
+            ["assignment_file", "assignment_line", "assignment_target"],
+        ),
         ("idx_assignment_sources_var", ["source_var_name"]),
         ("idx_assignment_sources_file", ["assignment_file"]),
     ],
@@ -259,9 +238,9 @@ ASSIGNMENT_SOURCES = TableSchema(
         ForeignKey(
             local_columns=["assignment_file", "assignment_line", "assignment_target"],
             foreign_table="assignments",
-            foreign_columns=["file", "line", "target_var"]
+            foreign_columns=["file", "line", "target_var"],
         )
-    ]
+    ],
 )
 
 ASSIGNMENT_SOURCES_JSX = TableSchema(
@@ -275,7 +254,10 @@ ASSIGNMENT_SOURCES_JSX = TableSchema(
         Column("source_var_name", "TEXT", nullable=False),
     ],
     indexes=[
-        ("idx_assignment_sources_jsx_assignment", ["assignment_file", "assignment_line", "assignment_target", "jsx_mode"]),
+        (
+            "idx_assignment_sources_jsx_assignment",
+            ["assignment_file", "assignment_line", "assignment_target", "jsx_mode"],
+        ),
         ("idx_assignment_sources_jsx_var", ["source_var_name"]),
         ("idx_assignment_sources_jsx_file", ["assignment_file"]),
     ],
@@ -283,9 +265,9 @@ ASSIGNMENT_SOURCES_JSX = TableSchema(
         ForeignKey(
             local_columns=["assignment_file", "assignment_line", "assignment_target"],
             foreign_table="assignments_jsx",
-            foreign_columns=["file", "line", "target_var"]
+            foreign_columns=["file", "line", "target_var"],
         )
-    ]
+    ],
 )
 
 FUNCTION_RETURN_SOURCES = TableSchema(
@@ -306,9 +288,9 @@ FUNCTION_RETURN_SOURCES = TableSchema(
         ForeignKey(
             local_columns=["return_file", "return_line", "return_function"],
             foreign_table="function_returns",
-            foreign_columns=["file", "line", "function_name"]
+            foreign_columns=["file", "line", "function_name"],
         )
-    ]
+    ],
 )
 
 FUNCTION_RETURN_SOURCES_JSX = TableSchema(
@@ -330,9 +312,9 @@ FUNCTION_RETURN_SOURCES_JSX = TableSchema(
         ForeignKey(
             local_columns=["return_file", "return_line"],
             foreign_table="function_returns_jsx",
-            foreign_columns=["file", "line"]
+            foreign_columns=["file", "line"],
         )
-    ]
+    ],
 )
 
 VARIABLE_USAGE = TableSchema(
@@ -340,9 +322,9 @@ VARIABLE_USAGE = TableSchema(
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("variable_name", "TEXT", nullable=False),  # CRITICAL: NOT var_name
+        Column("variable_name", "TEXT", nullable=False),
         Column("usage_type", "TEXT", nullable=False),
-        Column("in_component", "TEXT"),  # CRITICAL: NOT context
+        Column("in_component", "TEXT"),
         Column("in_hook", "TEXT"),
         Column("scope_level", "INTEGER"),
     ],
@@ -350,38 +332,35 @@ VARIABLE_USAGE = TableSchema(
         ("idx_variable_usage_file", ["file"]),
         ("idx_variable_usage_component", ["in_component"]),
         ("idx_variable_usage_var", ["variable_name"]),
-    ]
+    ],
 )
 
 OBJECT_LITERALS = TableSchema(
     name="object_literals",
     columns=[
-        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("variable_name", "TEXT"),  # The object variable (e.g., "handlers")
-        Column("property_name", "TEXT", nullable=False),  # The property key (e.g., "create")
-        Column("property_value", "TEXT", nullable=False),  # The property value (e.g., "handleCreate")
-        Column("property_type", "TEXT"),  # 'function_ref', 'literal', 'expression', 'object', 'method_definition', 'shorthand'
-        Column("nested_level", "INTEGER", default="0"),  # Depth of nesting (0 = top level)
-        Column("in_function", "TEXT")  # Containing function context
+        Column("variable_name", "TEXT"),
+        Column("property_name", "TEXT", nullable=False),
+        Column("property_value", "TEXT", nullable=False),
+        Column("property_type", "TEXT"),
+        Column("nested_level", "INTEGER", default="0"),
+        Column("in_function", "TEXT"),
     ],
     indexes=[
         ("idx_object_literals_file", ["file"]),
         ("idx_object_literals_var", ["variable_name"]),
         ("idx_object_literals_value", ["property_value"]),
-        ("idx_object_literals_type", ["property_type"])
-    ]
+        ("idx_object_literals_type", ["property_type"]),
+    ],
 )
 
-# ============================================================================
-# CONTROL FLOW GRAPH TABLES
-# ============================================================================
 
 CFG_BLOCKS = TableSchema(
     name="cfg_blocks",
     columns=[
-        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("file", "TEXT", nullable=False),
         Column("function_name", "TEXT", nullable=False),
         Column("block_type", "TEXT", nullable=False),
@@ -392,7 +371,7 @@ CFG_BLOCKS = TableSchema(
     indexes=[
         ("idx_cfg_blocks_file", ["file"]),
         ("idx_cfg_blocks_function", ["function_name"]),
-    ]
+    ],
 )
 
 CFG_EDGES = TableSchema(
@@ -410,7 +389,7 @@ CFG_EDGES = TableSchema(
         ("idx_cfg_edges_function", ["function_name"]),
         ("idx_cfg_edges_source", ["source_block_id"]),
         ("idx_cfg_edges_target", ["target_block_id"]),
-    ]
+    ],
 )
 
 CFG_BLOCK_STATEMENTS = TableSchema(
@@ -423,10 +402,10 @@ CFG_BLOCK_STATEMENTS = TableSchema(
     ],
     indexes=[
         ("idx_cfg_statements_block", ["block_id"]),
-    ]
+    ],
 )
 
-# JSX Preserved Mode CFG Tables
+
 CFG_BLOCKS_JSX = TableSchema(
     name="cfg_blocks_jsx",
     columns=[
@@ -443,7 +422,7 @@ CFG_BLOCKS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_cfg_blocks_file", ["file"]),
         ("idx_jsx_cfg_blocks_function", ["function_name"]),
-    ]
+    ],
 )
 
 CFG_EDGES_JSX = TableSchema(
@@ -463,7 +442,7 @@ CFG_EDGES_JSX = TableSchema(
         ("idx_jsx_cfg_edges_function", ["function_name"]),
         ("idx_jsx_cfg_edges_source", ["source_block_id"]),
         ("idx_jsx_cfg_edges_target", ["target_block_id"]),
-    ]
+    ],
 )
 
 CFG_BLOCK_STATEMENTS_JSX = TableSchema(
@@ -478,12 +457,9 @@ CFG_BLOCK_STATEMENTS_JSX = TableSchema(
     ],
     indexes=[
         ("idx_jsx_cfg_statements_block", ["block_id"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# FINDINGS TABLE (Dual-write pattern for FCE)
-# ============================================================================
 
 FINDINGS_CONSOLIDATED = TableSchema(
     name="findings_consolidated",
@@ -510,26 +486,16 @@ FINDINGS_CONSOLIDATED = TableSchema(
         ("idx_findings_rule", ["rule"]),
         ("idx_findings_category", ["category"]),
         ("idx_findings_tool_rule", ["tool", "rule"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# CORE TABLES REGISTRY
-# ============================================================================
 
 CORE_TABLES: dict[str, TableSchema] = {
-    # Core tables
     "files": FILES,
     "config_files": CONFIG_FILES,
     "refs": REFS,
-
-    # Symbol tables
     "symbols": SYMBOLS,
     "symbols_jsx": SYMBOLS_JSX,
-
-    # SQL & database (SQL/JWT tables moved to security_schema.py, orm_queries moved to frameworks_schema.py)
-
-    # Data flow (taint analysis critical)
     "assignments": ASSIGNMENTS,
     "assignments_jsx": ASSIGNMENTS_JSX,
     "assignment_sources": ASSIGNMENT_SOURCES,
@@ -542,18 +508,11 @@ CORE_TABLES: dict[str, TableSchema] = {
     "function_return_sources_jsx": FUNCTION_RETURN_SOURCES_JSX,
     "variable_usage": VARIABLE_USAGE,
     "object_literals": OBJECT_LITERALS,
-
-    # Control flow graph
     "cfg_blocks": CFG_BLOCKS,
     "cfg_edges": CFG_EDGES,
     "cfg_block_statements": CFG_BLOCK_STATEMENTS,
     "cfg_blocks_jsx": CFG_BLOCKS_JSX,
     "cfg_edges_jsx": CFG_EDGES_JSX,
     "cfg_block_statements_jsx": CFG_BLOCK_STATEMENTS_JSX,
-
-    # Findings
     "findings_consolidated": FINDINGS_CONSOLIDATED,
 }
-
-
-# ============================================================================

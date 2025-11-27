@@ -7,27 +7,39 @@ from pathlib import Path
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
-    generate_report
+    generate_report,
 )
 
 
 @click.command("boundaries")
 @handle_exceptions
 @click.option("--db", default=None, help="Path to repo_index.db (default: .pf/repo_index.db)")
-@click.option("--type", "boundary_type",
-              type=click.Choice(["all", "input-validation", "multi-tenant", "authorization", "sanitization"]),
-              default="all",
-              help="Boundary type to analyze")
-@click.option("--format", "output_format",
-              type=click.Choice(["report", "json"]),
-              default="report",
-              help="Output format (report=human-readable, json=machine-parseable)")
-@click.option("--max-entries", default=100, type=int,
-              help="Maximum entry points to analyze (performance limit)")
-@click.option("--severity",
-              type=click.Choice(["all", "critical", "high", "medium", "low"]),
-              default="all",
-              help="Filter findings by severity")
+@click.option(
+    "--type",
+    "boundary_type",
+    type=click.Choice(["all", "input-validation", "multi-tenant", "authorization", "sanitization"]),
+    default="all",
+    help="Boundary type to analyze",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["report", "json"]),
+    default="report",
+    help="Output format (report=human-readable, json=machine-parseable)",
+)
+@click.option(
+    "--max-entries",
+    default=100,
+    type=int,
+    help="Maximum entry points to analyze (performance limit)",
+)
+@click.option(
+    "--severity",
+    type=click.Choice(["all", "critical", "high", "medium", "low"]),
+    default="all",
+    help="Filter findings by severity",
+)
 def boundaries(db, boundary_type, output_format, max_entries, severity):
     """Analyze security boundary enforcement and measure distance from entry to control points.
 
@@ -176,7 +188,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         Fact: No validation control detected within search depth
         Implication: External data flows to downstream functions without validation gate
     """
-    # Determine database path
+
     if db is None:
         db = Path.cwd() / ".pf" / "repo_index.db"
     else:
@@ -187,14 +199,12 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         click.echo("Run 'aud full' first to populate the database", err=True)
         sys.exit(1)
 
-    # Analyze boundaries based on type
     results = []
 
     if boundary_type in ["all", "input-validation"]:
         click.echo("Analyzing input validation boundaries...", err=True)
         validation_results = analyze_input_validation_boundaries(
-            db_path=str(db),
-            max_entries=max_entries
+            db_path=str(db), max_entries=max_entries
         )
         results.extend(validation_results)
 
@@ -203,35 +213,29 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         click.echo("Use: aud full (includes multi-tenant analysis via rules)", err=True)
         sys.exit(1)
 
-    # Filter by severity if requested
     if severity != "all":
         results = [
-            r for r in results
-            if any(v['severity'].lower() == severity for v in r.get('violations', []))
+            r
+            for r in results
+            if any(v["severity"].lower() == severity for v in r.get("violations", []))
         ]
 
-    # Output results
     if output_format == "json":
-        # Machine-readable JSON output
         output = {
-            'boundary_type': boundary_type,
-            'total_entry_points': len(results),
-            'analysis': results
+            "boundary_type": boundary_type,
+            "total_entry_points": len(results),
+            "analysis": results,
         }
         click.echo(json.dumps(output, indent=2))
     else:
-        # Human-readable report
         report = generate_report(results)
         click.echo(report)
 
-    # Exit code based on critical findings
     critical_count = sum(
-        1 for r in results
-        for v in r.get('violations', [])
-        if v['severity'] == 'CRITICAL'
+        1 for r in results for v in r.get("violations", []) if v["severity"] == "CRITICAL"
     )
 
     if critical_count > 0:
-        sys.exit(1)  # Non-zero exit for CI/CD integration
+        sys.exit(1)
     else:
         sys.exit(0)

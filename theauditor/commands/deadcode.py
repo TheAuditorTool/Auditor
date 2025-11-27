@@ -16,14 +16,11 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option(
     "--exclude",
     multiple=True,
-    default=['test', '__tests__', 'migrations', 'node_modules', '.venv'],
-    help="Exclude paths matching patterns"
+    default=["test", "__tests__", "migrations", "node_modules", ".venv"],
+    help="Exclude paths matching patterns",
 )
 @click.option(
-    "--format",
-    type=click.Choice(['text', 'json', 'summary']),
-    default='text',
-    help="Output format"
+    "--format", type=click.Choice(["text", "json", "summary"]), default="text", help="Output format"
 )
 @click.option("--save", type=click.Path(), help="Save output to file")
 @click.option("--fail-on-dead-code", is_flag=True, help="Exit 1 if dead code found")
@@ -193,12 +190,9 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     try:
         modules = detect_isolated_modules(
-            str(db_path),
-            path_filter=path_filter,
-            exclude_patterns=list(exclude)
+            str(db_path), path_filter=path_filter, exclude_patterns=list(exclude)
         )
 
-        # Write deadcode results to JSON
         output_path = project_path / ".pf" / "raw" / "deadcode.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         deadcode_data = json.loads(_format_json(modules))
@@ -206,25 +200,22 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
             json.dump(deadcode_data, f, indent=2)
         click.echo(f"[OK] Deadcode analysis saved to {output_path}")
 
-        # Format output for user
-        if format == 'json':
+        if format == "json":
             output = _format_json(modules)
-        elif format == 'summary':
+        elif format == "summary":
             output = _format_summary(modules)
         else:
             output = _format_text(modules)
 
         click.echo(output)
 
-        # Save to custom path if requested
         if save:
             save_path = Path(save)
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(save_path, 'w', encoding='utf-8') as f:
+            with open(save_path, "w", encoding="utf-8") as f:
                 f.write(output)
             click.echo(f"\nSaved to: {save_path}", err=True)
 
-        # Exit code logic
         if fail_on_dead_code and len(modules) > 0:
             raise click.ClickException(f"Dead code detected: {len(modules)} files")
 
@@ -250,11 +241,9 @@ def _format_text(modules) -> str:
     lines.append("-" * 80)
 
     for module in modules:
-        confidence_marker = {
-            'high': '[HIGH]',
-            'medium': '[MED ]',
-            'low': '[LOW ]'
-        }.get(module.confidence, '[????]')
+        confidence_marker = {"high": "[HIGH]", "medium": "[MED ]", "low": "[LOW ]"}.get(
+            module.confidence, "[????]"
+        )
 
         lines.append(f"{confidence_marker} {module.path}")
         lines.append(f"   Symbols: {module.symbol_count}")
@@ -268,21 +257,19 @@ def _format_text(modules) -> str:
 def _format_json(modules) -> str:
     """Format as JSON for CI/CD."""
     data = {
-        'summary': {
-            'total_items': len(modules)
-        },
-        'findings': [
+        "summary": {"total_items": len(modules)},
+        "findings": [
             {
-                'type': m.type,
-                'path': m.path,
-                'name': m.name,
-                'line': m.line,
-                'symbol_count': m.symbol_count,
-                'confidence': m.confidence,
-                'reason': m.reason
+                "type": m.type,
+                "path": m.path,
+                "name": m.name,
+                "line": m.line,
+                "symbol_count": m.symbol_count,
+                "confidence": m.confidence,
+                "reason": m.reason,
             }
             for m in modules
-        ]
+        ],
     }
     return json.dumps(data, indent=2)
 

@@ -4,7 +4,6 @@ Moved from core.py to break circular dependency (core.py ↔ ifds_analyzer.py).
 This is a pure data model with no external dependencies.
 """
 
-
 from typing import Any
 
 
@@ -17,7 +16,6 @@ class TaintPath:
         self.path = path
         self.vulnerability_type = self._classify_vulnerability()
 
-        # CFG-specific attributes (optional, added by cfg_integration)
         self.flow_sensitive = False
         self.conditions = []
         self.condition_summary = ""
@@ -26,7 +24,6 @@ class TaintPath:
         self.sanitized_vars = []
         self.related_sources: list[dict[str, Any]] = []
 
-        # PHASE 6: Sanitizer metadata (added by ifds_analyzer when path is sanitized)
         self.sanitizer_file: str | None = None
         self.sanitizer_line: int | None = None
         self.sanitizer_method: str | None = None
@@ -39,29 +36,26 @@ class TaintPath:
         """
         sink_category = self.sink.get("category", "")
 
-        # Map sink category to vulnerability classification
-        # These are factual categories from database schema, not interpretations
         category_map = {
             "sql": "SQL Injection",
             "command": "Command Injection",
             "xss": "Cross-Site Scripting (XSS)",
             "path": "Path Traversal",
             "ldap": "LDAP Injection",
-            "nosql": "NoSQL Injection"
+            "nosql": "NoSQL Injection",
         }
 
         return category_map.get(sink_category, "Data Exposure")
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization with guaranteed structure."""
-        # Ensure source dict has all required keys
+
         source_dict = self.source or {}
         source_dict.setdefault("name", "unknown_source")
         source_dict.setdefault("file", "unknown_file")
         source_dict.setdefault("line", 0)
         source_dict.setdefault("pattern", "unknown_pattern")
 
-        # Ensure sink dict has all required keys
         sink_dict = self.sink or {}
         sink_dict.setdefault("name", "unknown_sink")
         sink_dict.setdefault("file", "unknown_file")
@@ -73,10 +67,9 @@ class TaintPath:
             "sink": sink_dict,
             "path": self.path or [],
             "path_length": len(self.path) if self.path else 0,
-            "vulnerability_type": self.vulnerability_type
+            "vulnerability_type": self.vulnerability_type,
         }
 
-        # Include CFG metadata if present (from cfg_integration)
         if self.flow_sensitive:
             result["flow_sensitive"] = self.flow_sensitive
             result["conditions"] = self.conditions

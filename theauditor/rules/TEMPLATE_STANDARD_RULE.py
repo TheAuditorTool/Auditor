@@ -55,51 +55,20 @@ RULE METADATA: Declares file targeting to skip frontend files
 ================================================================================
 """
 
-
 import sqlite3
 from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-# ============================================================================
-# RULE METADATA - COPY THIS SECTION AND CUSTOMIZE
-# ============================================================================
-# This metadata tells the orchestrator WHERE and WHEN to run your rule.
-# The orchestrator uses this to skip irrelevant files (e.g., don't run SQL
-# injection rules on React components).
-# ============================================================================
-
 METADATA = RuleMetadata(
-    name="your_rule_name",  # Change this: snake_case identifier
-    category="security",     # Change this: sql, xss, auth, secrets, etc.
-
-    # Target file extensions - rule ONLY runs on these files
-    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
-
-    # Exclude patterns - rule SKIPS these paths
-    exclude_patterns=[
-        'frontend/',     # Skip React/Vue frontend
-        'client/',       # Skip client-side code
-        'migrations/',   # Skip database migrations (low priority)
-        'test/',         # Skip test files
-        '__tests__/'     # Skip Jest tests
-    ],
-
-    # JSX settings (for standard rules, always False)
-    requires_jsx_pass=False,  # This rule uses STANDARD tables, not *_jsx
-    execution_scope='database',  # Use 'file' for per-file/AST rules
-
-    # Optional: Target specific file patterns (include, not exclude)
-    # target_file_patterns=['backend/', 'server/', 'api/']
+    name="your_rule_name",
+    category="security",
+    target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
+    exclude_patterns=["frontend/", "client/", "migrations/", "test/", "__tests__/"],
+    requires_jsx_pass=False,
+    execution_scope="database",
 )
 
-
-# ============================================================================
-# PATTERN DEFINITIONS - CUSTOMIZE FOR YOUR RULE
-# ============================================================================
-# Use frozensets for O(1) lookup performance (not lists).
-# Define all detection patterns as constants for maintainability.
-# ============================================================================
 
 @dataclass(frozen=True)
 class YourRulePatterns:
@@ -111,34 +80,27 @@ class YourRulePatterns:
     - Keep patterns finite and maintainable
     """
 
-    # Example: Dangerous function calls
-    DANGEROUS_FUNCTIONS: frozenset = frozenset([
-        'eval', 'exec', 'execfile',
-        'compile', '__import__',
-        'Function', 'setTimeout', 'setInterval'
-    ])
+    DANGEROUS_FUNCTIONS: frozenset = frozenset(
+        [
+            "eval",
+            "exec",
+            "execfile",
+            "compile",
+            "__import__",
+            "Function",
+            "setTimeout",
+            "setInterval",
+        ]
+    )
 
-    # Example: User input sources
-    INPUT_SOURCES: frozenset = frozenset([
-        'request.', 'req.', 'params.',
-        'query.', 'body.', 'cookies.',
-        'argv', 'stdin', 'input()'
-    ])
+    INPUT_SOURCES: frozenset = frozenset(
+        ["request.", "req.", "params.", "query.", "body.", "cookies.", "argv", "stdin", "input()"]
+    )
 
-    # Example: Safe sanitization functions
-    SAFE_SANITIZERS: frozenset = frozenset([
-        'escape', 'sanitize', 'validate',
-        'DOMPurify', 'validator.escape'
-    ])
+    SAFE_SANITIZERS: frozenset = frozenset(
+        ["escape", "sanitize", "validate", "DOMPurify", "validator.escape"]
+    )
 
-
-# ============================================================================
-# MAIN DETECTION FUNCTION - REQUIRED SIGNATURE
-# ============================================================================
-# This is the entry point called by the orchestrator.
-# Function name MUST start with 'find_' (orchestrator requirement).
-# Signature MUST be: (context: StandardRuleContext) -> List[StandardFinding]
-# ============================================================================
 
 def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect [YOUR VULNERABILITY TYPE] using database-only approach.
@@ -173,7 +135,6 @@ def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
     """
     findings = []
 
-    # Validate database path
     if not context.db_path:
         return findings
 
@@ -182,24 +143,14 @@ def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # NO TABLE CHECKS - Database MUST be correct (ZERO FALLBACK POLICY)
-        # If query fails, it means database is wrong and SHOULD crash
         findings.extend(_check_dangerous_calls(cursor, patterns))
         findings.extend(_check_user_input_flow(cursor, patterns))
-        # Add more checks as needed
 
     finally:
         conn.close()
 
     return findings
 
-
-# ============================================================================
-# HELPER DETECTION FUNCTIONS - CUSTOMIZE THESE
-# ============================================================================
-# Break detection into small, testable functions.
-# Each function queries ONE specific pattern.
-# ============================================================================
 
 def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardFinding]:
     """Check for dangerous function calls with user input.
@@ -211,8 +162,7 @@ def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardF
     """
     findings = []
 
-    # Build SQL WHERE clause from pattern frozenset
-    dangerous_funcs = ', '.join(f"'{func}'" for func in patterns.DANGEROUS_FUNCTIONS)
+    dangerous_funcs = ", ".join(f"'{func}'" for func in patterns.DANGEROUS_FUNCTIONS)
 
     cursor.execute(f"""
         SELECT file, line, callee_function, argument_expr
@@ -225,38 +175,36 @@ def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardF
     seen = set()
 
     for file, line, func, args in cursor.fetchall():
-        # Skip if no arguments
         if not args:
             continue
 
-        # Check for user input in arguments
         has_user_input = any(src in args for src in patterns.INPUT_SOURCES)
 
         if not has_user_input:
-            continue  # Safe - no user input
+            continue
 
-        # Check for sanitization
         has_sanitizer = any(san in args for san in patterns.SAFE_SANITIZERS)
 
         if has_sanitizer:
-            continue  # Safe - sanitized
+            continue
 
-        # Deduplicate by file:line
         key = f"{file}:{line}"
         if key in seen:
             continue
         seen.add(key)
 
-        findings.append(StandardFinding(
-            file_path=file,           # ✅ CORRECT: Use file_path= not file=
-            line=line,
-            rule_name='your-rule-dangerous-call',  # ✅ CORRECT: Use rule_name= not rule=
-            message=f'Dangerous function {func}() called with user input',
-            severity=Severity.HIGH,  # Choose: CRITICAL, HIGH, MEDIUM, LOW, INFO
-            category='security',      # Match METADATA.category
-            snippet=args[:80] + '...' if len(args) > 80 else args,
-            cwe_id='CWE-XXX'  # Optional: CWE identifier
-        ))
+        findings.append(
+            StandardFinding(
+                file_path=file,
+                line=line,
+                rule_name="your-rule-dangerous-call",
+                message=f"Dangerous function {func}() called with user input",
+                severity=Severity.HIGH,
+                category="security",
+                snippet=args[:80] + "..." if len(args) > 80 else args,
+                cwe_id="CWE-XXX",
+            )
+        )
 
     return findings
 
@@ -268,7 +216,6 @@ def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> list[StandardF
     """
     findings = []
 
-    # Example: Find assignments where user input flows to dangerous variable
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
@@ -278,33 +225,26 @@ def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> list[StandardF
     """)
 
     for file, line, target, source in cursor.fetchall():
-        # Filter in Python: Check for user input patterns
-        if 'request.' not in source and 'req.' not in source:
+        if "request." not in source and "req." not in source:
             continue
-        # Check if target variable is used in dangerous context
-        # (This is simplified - real implementation would query function_call_args)
 
         has_input = any(src in source for src in patterns.INPUT_SOURCES)
 
         if has_input:
-            findings.append(StandardFinding(
-                file_path=file,           # ✅ CORRECT parameter order
-                line=line,
-                rule_name='your-rule-input-flow',  # ✅ CORRECT: rule_name= not rule=
-                message=f'User input assigned to variable {target}',
-                severity=Severity.MEDIUM,
-                category='security',
-                snippet=f'{target} = {source[:60]}'
-            ))
+            findings.append(
+                StandardFinding(
+                    file_path=file,
+                    line=line,
+                    rule_name="your-rule-input-flow",
+                    message=f"User input assigned to variable {target}",
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    snippet=f"{target} = {source[:60]}",
+                )
+            )
 
     return findings
 
-
-# ============================================================================
-# OPTIONAL: FRAMEWORK-AWARE DETECTION
-# ============================================================================
-# Check frameworks table to enable framework-specific detection
-# ============================================================================
 
 def _is_express_app(conn) -> bool:
     """Check if this is an Express.js application."""
@@ -322,35 +262,15 @@ def _get_framework_safe_sinks(conn, framework_name: str) -> frozenset:
     """Get safe sinks for a specific framework."""
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT fss.sink_pattern
         FROM framework_safe_sinks fss
         JOIN frameworks f ON f.id = fss.framework_id
         WHERE f.name = ?
           AND fss.is_safe = 1
-    """, [framework_name])
+    """,
+        [framework_name],
+    )
 
     return frozenset(row[0] for row in cursor.fetchall())
-
-
-# ============================================================================
-# TESTING YOUR RULE (Run this before committing)
-# ============================================================================
-#
-# 1. Test on plant project:
-#    python -c "from theauditor.rules.your_rule import find_your_rule_name;
-#               from theauditor.rules.base import StandardRuleContext;
-#               from pathlib import Path;
-#               ctx = StandardRuleContext(db_path='C:/Users/santa/Desktop/plant/.pf/repo_index.db');
-#               findings = find_your_rule_name(ctx);
-#               print(f'Found {len(findings)} issues');
-#               [print(f'  {f.file_path}:{f.line} - {f.message}') for f in findings[:5]]"
-#
-# 2. Verify no false positives on TheAuditor itself:
-#    aud detect-patterns --category=your_category
-#
-# 3. Check performance:
-#    time aud detect-patterns --category=your_category
-#    Should complete in <5 seconds for 10K LOC project
-#
-# ============================================================================

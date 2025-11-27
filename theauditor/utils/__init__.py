@@ -36,7 +36,6 @@ from .finding_priority import (
 )
 
 __all__ = [
-    # Constants
     "PF_DIR",
     "ERROR_LOG_FILE",
     "PIPELINE_LOG_FILE",
@@ -48,26 +47,20 @@ __all__ = [
     "MAX_MEMORY_LIMIT_MB",
     "MEMORY_ALLOCATION_RATIO",
     "ENV_MEMORY_LIMIT",
-    # Error handling
     "handle_exceptions",
     "ExitCodes",
-    # File operations
     "compute_file_hash",
     "load_json_file",
     "save_json_file",
     "count_lines_in_file",
     "extract_data_array",
     "get_self_exclusion_patterns",
-    # Logging
     "setup_logger",
-    # Memory management
     "get_recommended_memory_limit",
     "get_available_memory",
-    # Temp file management
     "TempManager",
     "get_project_temp_dir",
     "cleanup_project_temp",
-    # Finding prioritization
     "normalize_severity",
     "get_sort_key",
     "sort_findings",

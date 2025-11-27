@@ -14,7 +14,6 @@ CRITICAL:
 - JS/TS MUST use semantic parser - silent fallbacks produce "anonymous" function names
 """
 
-
 import ast
 import hashlib
 import os
@@ -47,18 +46,20 @@ class ASTParser(ASTPatternMixin):
         self.has_tree_sitter = False
         self.parsers = {}
         self.languages = {}
-        self.project_type = None  # Cache project type detection
+        self.project_type = None
 
-        # Try to import tree-sitter and language bindings
         try:
             import tree_sitter
+
             self.tree_sitter = tree_sitter
             self.has_tree_sitter = True
             self._init_tree_sitter_parsers()
         except ImportError:
             print("\n[WARNING] AST parsing dependencies not fully installed.")
             print("  - Python analysis: ✓ Will work (uses built-in ast module)")
-            print("  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)")
+            print(
+                "  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)"
+            )
             print("  - Terraform/HCL analysis: ✗ Limited functionality")
             print("\nTo enable full analysis capabilities, run:")
             print("  aud setup-ai --target .\n")
@@ -68,40 +69,9 @@ class ASTParser(ASTPatternMixin):
         if not self.has_tree_sitter:
             return
 
-        # Use tree-sitter-language-pack for all languages
         try:
             from tree_sitter_language_pack import get_language, get_parser
 
-            # ============================================================================
-            # CRITICAL ARCHITECTURAL DECISION: PYTHON IS NEVER PARSED BY TREE-SITTER
-            # ============================================================================
-            # Python MUST use CPython's built-in ast module (stdlib) for these reasons:
-            #
-            # 1. CORRECTNESS: All Python extractors expect ast.Module objects and use
-            #    ast.walk(), ast.Import, ast.FunctionDef, etc. Tree-sitter has completely
-            #    different node types (.type, .children, .text) that will cause silent
-            #    failures and return empty results.
-            #
-            # 2. SUPERIORITY: CPython ast is the authoritative Python parser - complete,
-            #    mature, zero dependencies, faster than Tree-sitter subprocess.
-            #
-            # 3. ARCHITECTURE: TheAuditor uses language-specific excellence, NOT generic
-            #    unification. Each language gets its best tool:
-            #    - Python → CPython ast (this is THE correct choice)
-            #    - JavaScript/TypeScript → TypeScript Compiler API (semantic + types)
-            #    - SQL → sqlparse
-            #    - Docker → dockerfile-parse
-            #
-            # DO NOT ADD Python to self.parsers dict below. It will break import extraction.
-            # If you think "prefer tree-sitter for consistency" - you are wrong. Read this
-            # comment again. Python parsing happens at parse_file() lines 211-219 and
-            # parse_content() lines 354-360.
-            #
-            # Last incident: 2025-10-16 - Tree-sitter Python was added, broke all Python
-            # import extraction (0 refs in database). Fixed by removing it. Don't repeat.
-            # ============================================================================
-
-            # JavaScript parser (CRITICAL - must fail fast)
             try:
                 js_lang = get_language("javascript")
                 js_parser = get_parser("javascript")
@@ -115,7 +85,6 @@ class ASTParser(ASTPatternMixin):
                     "Or install with AST support: pip install -e '.[ast]'"
                 )
 
-            # TypeScript parser (CRITICAL - must fail fast)
             try:
                 ts_lang = get_language("typescript")
                 ts_parser = get_parser("typescript")
@@ -129,32 +98,29 @@ class ASTParser(ASTPatternMixin):
                     "Or install with AST support: pip install -e '.[ast]'"
                 )
 
-            # HCL/Terraform parser (optional - non-critical)
             try:
                 hcl_lang = get_language("hcl")
                 hcl_parser = get_parser("hcl")
                 self.parsers["hcl"] = hcl_parser
                 self.languages["hcl"] = hcl_lang
             except Exception as e:
-                # Non-critical: Terraform can work without tree-sitter (though no line numbers)
                 print(f"[INFO] HCL tree-sitter not available: {e}")
-                print("[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
-                      "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
+                print(
+                    "[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
+                )
 
         except ImportError as e:
-            # If tree-sitter is installed but language pack is not, this is a critical error
-            # The user clearly intends to use tree-sitter, so we should fail loudly
             print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
             print("This means tree-sitter AST analysis cannot work properly.")
             print("Please install with: pip install tree-sitter-language-pack")
             print("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
-            # Set flags to indicate no language support
+
             self.has_tree_sitter = False
-            # Don't raise - allow fallback to regex-based parsing
 
     def _detect_project_type(self) -> str:
         """Detect the primary project type based on manifest files.
-        
+
         Returns:
             'polyglot' if multiple language manifest files exist
             'javascript' if only package.json exists
@@ -165,16 +131,16 @@ class ASTParser(ASTPatternMixin):
         if self.project_type is not None:
             return self.project_type
 
-        # Check all manifest files first
         has_js = Path("package.json").exists()
-        has_python = (Path("requirements.txt").exists() or 
-                      Path("pyproject.toml").exists() or 
-                      Path("setup.py").exists())
+        has_python = (
+            Path("requirements.txt").exists()
+            or Path("pyproject.toml").exists()
+            or Path("setup.py").exists()
+        )
         has_go = Path("go.mod").exists()
 
-        # Determine project type based on combinations
         if has_js and has_python:
-            self.project_type = "polyglot"  # NEW: Properly handle mixed projects
+            self.project_type = "polyglot"
         elif has_js and has_go:
             self.project_type = "polyglot"
         elif has_python and has_go:
@@ -190,7 +156,13 @@ class ASTParser(ASTPatternMixin):
 
         return self.project_type
 
-    def parse_file(self, file_path: Path, language: str = None, root_path: str = None, jsx_mode: str = 'transformed') -> Any:
+    def parse_file(
+        self,
+        file_path: Path,
+        language: str = None,
+        root_path: str = None,
+        jsx_mode: str = "transformed",
+    ) -> Any:
         """Parse a file into an AST.
 
         Args:
@@ -211,36 +183,23 @@ class ASTParser(ASTPatternMixin):
 
             tsconfig_path = self._find_tsconfig_for_file(file_path, root_path)
 
-            # Compute content hash for caching
             content_hash = hashlib.md5(content).hexdigest()
 
-            # For JavaScript/TypeScript, semantic parser is MANDATORY
-            # NO FALLBACKS. If semantic parser fails, we MUST fail loudly.
-            # Silent fallbacks to Tree-sitter produce corrupted databases with "anonymous" function names.
-            # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
             if language in ["javascript", "typescript"]:
-                # Normalize path for cross-platform compatibility
                 normalized_path = str(file_path).replace("\\", "/")
 
                 try:
-                    # Build tsconfig map for batch processor
                     tsconfig_map = {}
                     if tsconfig_path:
                         tsconfig_map[normalized_path] = str(tsconfig_path).replace("\\", "/")
 
-                    # HYBRID MODE: Two-pass approach for Phase 5
-                    # Pass 1: Extract symbols with ast=null (prevents 512MB crash)
-                    # Pass 2: Extract CFG with lightweight AST serialization
-
-                    # Pass 1: Symbol extraction (current Phase 5 behavior)
                     batch_results = get_semantic_ast_batch(
                         [normalized_path],
                         project_root=root_path,
                         jsx_mode=jsx_mode,
-                        tsconfig_map=tsconfig_map
+                        tsconfig_map=tsconfig_map,
                     )
 
-                    # Extract single result from batch
                     if normalized_path not in batch_results:
                         raise RuntimeError(
                             f"FATAL: Batch processor did not return result for {file_path}\n"
@@ -251,10 +210,11 @@ class ASTParser(ASTPatternMixin):
 
                     semantic_result = batch_results[normalized_path]
 
-                    # PHASE 5: Single-pass extraction - CFG included in extracted_data
                     if os.environ.get("THEAUDITOR_DEBUG"):
-                        cfg_count = len(semantic_result.get('extracted_data', {}).get('cfg', []))
-                        print(f"[DEBUG] Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data")
+                        cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
+                        print(
+                            f"[DEBUG] Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data"
+                        )
 
                 except Exception as e:
                     raise RuntimeError(
@@ -266,7 +226,7 @@ class ASTParser(ASTPatternMixin):
                     )
 
                 if not semantic_result.get("success"):
-                    error_msg = semantic_result.get('error', 'Unknown error')
+                    error_msg = semantic_result.get("error", "Unknown error")
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {file_path}\n"
                         f"Error: {error_msg}\n"
@@ -275,7 +235,6 @@ class ASTParser(ASTPatternMixin):
                         f"DO NOT use fallback parsers - they produce corrupted data."
                     )
 
-                # Return the semantic AST with full type information
                 return {
                     "type": "semantic_ast",
                     "tree": semantic_result,
@@ -283,20 +242,20 @@ class ASTParser(ASTPatternMixin):
                     "content": content.decode("utf-8", errors="ignore"),
                     "has_types": semantic_result.get("hasTypes", False),
                     "diagnostics": semantic_result.get("diagnostics", []),
-                    "symbols": semantic_result.get("symbols", [])
+                    "symbols": semantic_result.get("symbols", []),
                 }
 
-            # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
-            # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
-            # Tree-sitter adds zero value for Python. See lines 63-64 where Python is explicitly
-            # excluded from Tree-sitter initialization.
             if language == "python":
                 decoded = content.decode("utf-8", errors="ignore")
                 python_ast = self._parse_python_cached(content_hash, decoded)
                 if python_ast:
-                    return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
+                    return {
+                        "type": "python_ast",
+                        "tree": python_ast,
+                        "language": language,
+                        "content": decoded,
+                    }
 
-            # TREE-SITTER PARSER - For HCL, Rust, and other tree-sitter languages
             if language in self.parsers:
                 parser = self.parsers[language]
                 tree = parser.parse(content)
@@ -305,10 +264,9 @@ class ASTParser(ASTPatternMixin):
                         "type": "tree_sitter",
                         "tree": tree,
                         "language": language,
-                        "content": content.decode("utf-8", errors="ignore")
+                        "content": content.decode("utf-8", errors="ignore"),
                     }
 
-            # Return None for unsupported languages
             return None
 
         except Exception as e:
@@ -325,11 +283,11 @@ class ASTParser(ASTPatternMixin):
             ".tsx": "typescript",
             ".mjs": "javascript",
             ".cjs": "javascript",
-            ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
+            ".vue": "javascript",
             ".tf": "hcl",
             ".tfvars": "hcl",
         }
-        return ext_map.get(file_path.suffix.lower(), "")  # Empty not unknown
+        return ext_map.get(file_path.suffix.lower(), "")
 
     def _parse_python_builtin(self, content: str) -> ast.AST | None:
         """Parse Python code using built-in ast module."""
@@ -341,11 +299,11 @@ class ASTParser(ASTPatternMixin):
     @lru_cache(maxsize=10000)
     def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
         """Parse Python code with caching based on content hash.
-        
+
         Args:
             content_hash: MD5 hash of the file content
             content: The actual file content
-            
+
         Returns:
             Parsed AST or None if parsing fails
         """
@@ -354,18 +312,17 @@ class ASTParser(ASTPatternMixin):
     @lru_cache(maxsize=10000)
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
         """Parse code using Tree-sitter with caching based on content hash.
-        
+
         Args:
             content_hash: MD5 hash of the file content
             content: The actual file content as bytes
             language: The programming language
-            
+
         Returns:
             Parsed Tree-sitter tree
         """
         parser = self.parsers[language]
         return parser.parse(content)
-
 
     def supports_language(self, language: str) -> bool:
         """Check if a language is supported for AST parsing.
@@ -376,21 +333,21 @@ class ASTParser(ASTPatternMixin):
         Returns:
             True if AST parsing is supported.
         """
-        # Python is always supported via built-in ast module (NOT Tree-sitter)
+
         if language == "python":
             return True
 
-        # JavaScript and TypeScript require semantic parser (NO FALLBACKS)
         if language in ["javascript", "typescript"]:
-            return True  # Will fail loudly at parse time if semantic parser unavailable
+            return True
 
-        # Check Tree-sitter support for other languages
         if self.has_tree_sitter and language in self.parsers:
             return True
 
         return False
 
-    def parse_content(self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = 'transformed') -> Any:
+    def parse_content(
+        self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = "transformed"
+    ) -> Any:
         """Parse in-memory content into AST.
 
         Why: parse_file() reads from disk, but universal_detector already has content.
@@ -407,29 +364,20 @@ class ASTParser(ASTPatternMixin):
         """
         import tempfile
 
-        # Hash for caching
-        content_bytes = content.encode('utf-8')
+        content_bytes = content.encode("utf-8")
         content_hash = hashlib.md5(content_bytes).hexdigest()
 
-        # JavaScript/TypeScript REQUIRE semantic parser - NO FALLBACKS
-        # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
         if language in ["javascript", "typescript"]:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
 
             try:
-                # Normalize path for batch processor
                 normalized_path = str(tmp_path).replace("\\", "/")
 
-                # Use batch processor with single file (Phase 5 - only code path)
                 try:
-                    batch_results = get_semantic_ast_batch(
-                        [normalized_path],
-                        jsx_mode=jsx_mode
-                    )
+                    batch_results = get_semantic_ast_batch([normalized_path], jsx_mode=jsx_mode)
 
-                    # Extract single result from batch
                     if normalized_path not in batch_results:
                         raise RuntimeError(
                             f"FATAL: Batch processor did not return result for {filepath}\n"
@@ -450,7 +398,11 @@ class ASTParser(ASTPatternMixin):
                     )
 
                 if not (semantic_result and semantic_result.get("success")):
-                    error_msg = semantic_result.get('error', 'Unknown error') if semantic_result else 'No result'
+                    error_msg = (
+                        semantic_result.get("error", "Unknown error")
+                        if semantic_result
+                        else "No result"
+                    )
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {filepath}\n"
                         f"Error: {error_msg}\n"
@@ -463,22 +415,26 @@ class ASTParser(ASTPatternMixin):
                     "type": "semantic_ast",
                     "tree": semantic_result,
                     "language": language,
-                    "content": content
+                    "content": content,
                 }
             finally:
                 os.unlink(tmp_path)
 
-        # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
-        # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
-        # This is the ONLY Python parsing path - intentional architectural decision.
         if language == "python":
             python_ast = self._parse_python_cached(content_hash, content)
             if python_ast:
-                return {"type": "python_ast", "tree": python_ast, "language": language, "content": content}
+                return {
+                    "type": "python_ast",
+                    "tree": python_ast,
+                    "language": language,
+                    "content": content,
+                }
 
         return None
 
-    def parse_files_batch(self, file_paths: list[Path], root_path: str = None, jsx_mode: str = 'transformed') -> dict[str, Any]:
+    def parse_files_batch(
+        self, file_paths: list[Path], root_path: str = None, jsx_mode: str = "transformed"
+    ) -> dict[str, Any]:
         """Parse multiple files into ASTs in batch for performance.
 
         This method dramatically improves performance for JavaScript/TypeScript projects
@@ -494,7 +450,6 @@ class ASTParser(ASTPatternMixin):
         """
         results = {}
 
-        # Separate files by language
         js_ts_files = []
         python_files = []
         other_files = []
@@ -508,11 +463,9 @@ class ASTParser(ASTPatternMixin):
             else:
                 other_files.append(file_path)
 
-        # Batch process JavaScript/TypeScript files if in a JS or polyglot project
         project_type = self._detect_project_type()
         if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
             try:
-                # Convert paths to strings for the semantic parser with normalized separators
                 js_ts_paths = []
                 tsconfig_map: dict[str, str] = {}
                 for f in js_ts_files:
@@ -522,29 +475,27 @@ class ASTParser(ASTPatternMixin):
                     if tsconfig_for_file:
                         tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
-                # PHASE 5: UNIFIED SINGLE-PASS BATCH PROCESSING
-                # All data extracted in one call (symbols, calls, CFG, etc.)
-                # No more two-pass system - everything in extracted_data
                 batch_results = get_semantic_ast_batch(
                     js_ts_paths,
                     project_root=root_path,
                     jsx_mode=jsx_mode,
-                    tsconfig_map=tsconfig_map
+                    tsconfig_map=tsconfig_map,
                 )
 
-                # Process batch results
                 for file_path in js_ts_files:
-                    file_str = str(file_path).replace("\\", "/")  # Normalize for matching
+                    file_str = str(file_path).replace("\\", "/")
                     if file_str in batch_results:
                         semantic_result = batch_results[file_str]
 
-                        # PHASE 5: CFG now in extracted_data (debug logging)
                         if os.environ.get("THEAUDITOR_DEBUG"):
-                            cfg_count = len(semantic_result.get('extracted_data', {}).get('cfg', []))
-                            print(f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data")
+                            cfg_count = len(
+                                semantic_result.get("extracted_data", {}).get("cfg", [])
+                            )
+                            print(
+                                f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
+                            )
 
                         if semantic_result.get("success"):
-                            # Read file content for inclusion
                             try:
                                 with open(file_path, "rb") as f:
                                     content = f.read()
@@ -556,41 +507,57 @@ class ASTParser(ASTPatternMixin):
                                     "content": content.decode("utf-8", errors="ignore"),
                                     "has_types": semantic_result.get("hasTypes", False),
                                     "diagnostics": semantic_result.get("diagnostics", []),
-                                    "symbols": semantic_result.get("symbols", [])
+                                    "symbols": semantic_result.get("symbols", []),
                                 }
                             except Exception as e:
-                                print(f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing")
-                                # CRITICAL FIX: Fall back to individual parsing on read failure
-                                individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+                                print(
+                                    f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing"
+                                )
+
+                                individual_result = self.parse_file(
+                                    file_path, root_path=root_path, jsx_mode=jsx_mode
+                                )
                                 results[str(file_path).replace("\\", "/")] = individual_result
                         else:
-                            print(f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing")
-                            # CRITICAL FIX: Fall back to individual parsing instead of None
-                            individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+                            print(
+                                f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing"
+                            )
+
+                            individual_result = self.parse_file(
+                                file_path, root_path=root_path, jsx_mode=jsx_mode
+                            )
                             results[str(file_path).replace("\\", "/")] = individual_result
                     else:
-                        # CRITICAL FIX: Fall back to individual parsing instead of None
-                        print(f"Warning: No batch result for {file_path}, falling back to individual parsing")
-                        individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+                        print(
+                            f"Warning: No batch result for {file_path}, falling back to individual parsing"
+                        )
+                        individual_result = self.parse_file(
+                            file_path, root_path=root_path, jsx_mode=jsx_mode
+                        )
                         results[str(file_path).replace("\\", "/")] = individual_result
 
             except Exception as e:
                 print(f"Warning: Batch processing failed for JS/TS files: {e}")
-                # Fall back to individual processing
+
                 for file_path in js_ts_files:
-                    results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+                    results[str(file_path).replace("\\", "/")] = self.parse_file(
+                        file_path, root_path=root_path, jsx_mode=jsx_mode
+                    )
         else:
-            # Process JS/TS files individually if not in JS project or batch failed
             for file_path in js_ts_files:
-                results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+                results[str(file_path).replace("\\", "/")] = self.parse_file(
+                    file_path, root_path=root_path, jsx_mode=jsx_mode
+                )
 
-        # Process Python files individually (they're fast enough)
         for file_path in python_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+            results[str(file_path).replace("\\", "/")] = self.parse_file(
+                file_path, root_path=root_path, jsx_mode=jsx_mode
+            )
 
-        # Process other files individually
         for file_path in other_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
+            results[str(file_path).replace("\\", "/")] = self.parse_file(
+                file_path, root_path=root_path, jsx_mode=jsx_mode
+            )
 
         return results
 
@@ -604,8 +571,7 @@ class ASTParser(ASTPatternMixin):
             JavaScript/TypeScript require semantic parser setup (run: aud setup-ai --target .)
             Will fail loudly at parse time if not configured.
         """
-        # Python: always supported via built-in ast
-        # JS/TS: supported but require semantic parser (will fail loudly if not available)
+
         languages = ["python", "javascript", "typescript"]
 
         if self.has_tree_sitter:
@@ -632,7 +598,6 @@ class ASTParser(ASTPatternMixin):
                 break
 
             if root_dir and search_dir == root_dir:
-                # Already checked project root, stop searching
                 break
 
             if root_dir and not str(search_dir).startswith(str(root_dir)):

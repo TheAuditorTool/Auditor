@@ -40,6 +40,7 @@ Expected extraction from TheAuditor codebase:
 - ~50 nonlocal accesses
 Total: ~3,850 data flow records
 """
+
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
@@ -53,10 +54,6 @@ from ..base import get_node_name
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Helper Functions (Internal - Duplicated for Self-Containment)
-# ============================================================================
-
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
@@ -66,14 +63,10 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
-
-# ============================================================================
-# Data Flow Extractors
-# ============================================================================
 
 def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract all I/O operations that interact with external systems.
@@ -108,8 +101,7 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return io_operations
 
-    # Build function ranges for context detection
-    function_ranges = []  # List of (name, start, end)
+    function_ranges = []
 
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -122,51 +114,49 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
                 return fname
         return "global"
 
-    # I/O operation patterns (function name → io_type mapping)
     FILE_OPS = {
-        'open': 'FILE_WRITE',  # Default to write, refined by mode
-        'write': 'FILE_WRITE',
-        'write_text': 'FILE_WRITE',
-        'write_bytes': 'FILE_WRITE',
-        'read': 'FILE_READ',
-        'read_text': 'FILE_READ',
-        'read_bytes': 'FILE_READ',
-        'readlines': 'FILE_READ',
+        "open": "FILE_WRITE",
+        "write": "FILE_WRITE",
+        "write_text": "FILE_WRITE",
+        "write_bytes": "FILE_WRITE",
+        "read": "FILE_READ",
+        "read_text": "FILE_READ",
+        "read_bytes": "FILE_READ",
+        "readlines": "FILE_READ",
     }
 
     DB_OPS = {
-        'commit': 'DB_COMMIT',
-        'execute': 'DB_QUERY',
-        'executemany': 'DB_QUERY',
-        'rollback': 'DB_ROLLBACK',
-        'query': 'DB_QUERY',
-        'add': 'DB_INSERT',
-        'delete': 'DB_DELETE',
-        'update': 'DB_UPDATE',
+        "commit": "DB_COMMIT",
+        "execute": "DB_QUERY",
+        "executemany": "DB_QUERY",
+        "rollback": "DB_ROLLBACK",
+        "query": "DB_QUERY",
+        "add": "DB_INSERT",
+        "delete": "DB_DELETE",
+        "update": "DB_UPDATE",
     }
 
     NETWORK_OPS = {
-        'get': 'NETWORK',
-        'post': 'NETWORK',
-        'put': 'NETWORK',
-        'delete': 'NETWORK',
-        'patch': 'NETWORK',
-        'request': 'NETWORK',
-        'urlopen': 'NETWORK',
-        'fetch': 'NETWORK',
+        "get": "NETWORK",
+        "post": "NETWORK",
+        "put": "NETWORK",
+        "delete": "NETWORK",
+        "patch": "NETWORK",
+        "request": "NETWORK",
+        "urlopen": "NETWORK",
+        "fetch": "NETWORK",
     }
 
     PROCESS_OPS = {
-        'run': 'PROCESS',
-        'call': 'PROCESS',
-        'check_call': 'PROCESS',
-        'check_output': 'PROCESS',
-        'system': 'PROCESS',
-        'popen': 'PROCESS',
-        'spawn': 'PROCESS',
+        "run": "PROCESS",
+        "call": "PROCESS",
+        "check_call": "PROCESS",
+        "check_output": "PROCESS",
+        "system": "PROCESS",
+        "popen": "PROCESS",
+        "spawn": "PROCESS",
     }
 
-    # Extract I/O operations from function calls
     for node in context.find_nodes(ast.Call):
         in_function = find_containing_function(node.lineno)
         operation_name = get_node_name(node.func)
@@ -174,142 +164,145 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
         if not operation_name:
             continue
 
-        # Classify I/O type
         io_type = None
         target = None
         is_static = False
 
-        # Check for built-in open()
-        if operation_name == 'open':
-            io_type = 'FILE_READ'  # Default
-            # Try to get filename (first arg)
+        if operation_name == "open":
+            io_type = "FILE_READ"
+
             if node.args:
                 target = _get_str_constant(node.args[0])
-                is_static = (target is not None)
+                is_static = target is not None
 
-            # Check mode (second arg or 'mode' kwarg)
             mode = None
             if len(node.args) >= 2:
                 mode = _get_str_constant(node.args[1])
             else:
-                # Check kwargs
                 for keyword in node.keywords:
-                    if keyword.arg == 'mode':
+                    if keyword.arg == "mode":
                         mode = _get_str_constant(keyword.value)
                         break
 
-            # Refine io_type based on mode
-            if mode and ('w' in mode or 'a' in mode or '+' in mode):
-                io_type = 'FILE_WRITE'
+            if mode and ("w" in mode or "a" in mode or "+" in mode):
+                io_type = "FILE_WRITE"
 
-            io_operations.append({
-                'line': node.lineno,
-                'io_type': io_type,
-                'operation': 'open',
-                'target': target,
-                'is_static': is_static,
-                'in_function': in_function,
-            })
+            io_operations.append(
+                {
+                    "line": node.lineno,
+                    "io_type": io_type,
+                    "operation": "open",
+                    "target": target,
+                    "is_static": is_static,
+                    "in_function": in_function,
+                }
+            )
 
-        # Check for Path.write_text() / Path.read_text() etc.
         elif any(op in operation_name for op in FILE_OPS):
             for file_op, file_type in FILE_OPS.items():
                 if file_op in operation_name:
                     io_type = file_type
-                    # Try to extract static target
+
                     if node.args:
                         target = _get_str_constant(node.args[0])
-                        is_static = (target is not None)
+                        is_static = target is not None
 
-                    io_operations.append({
-                        'line': node.lineno,
-                        'io_type': io_type,
-                        'operation': operation_name,
-                        'target': target,
-                        'is_static': is_static,
-                        'in_function': in_function,
-                    })
+                    io_operations.append(
+                        {
+                            "line": node.lineno,
+                            "io_type": io_type,
+                            "operation": operation_name,
+                            "target": target,
+                            "is_static": is_static,
+                            "in_function": in_function,
+                        }
+                    )
                     break
 
-        # Check for database operations
         elif any(op in operation_name for op in DB_OPS):
             for db_op, db_type in DB_OPS.items():
                 if db_op in operation_name:
                     io_type = db_type
-                    # Try to extract query (if execute/query)
-                    if db_type == 'DB_QUERY' and node.args:
-                        target = _get_str_constant(node.args[0])
-                        is_static = (target is not None)
 
-                    io_operations.append({
-                        'line': node.lineno,
-                        'io_type': io_type,
-                        'operation': operation_name,
-                        'target': target,
-                        'is_static': is_static,
-                        'in_function': in_function,
-                    })
+                    if db_type == "DB_QUERY" and node.args:
+                        target = _get_str_constant(node.args[0])
+                        is_static = target is not None
+
+                    io_operations.append(
+                        {
+                            "line": node.lineno,
+                            "io_type": io_type,
+                            "operation": operation_name,
+                            "target": target,
+                            "is_static": is_static,
+                            "in_function": in_function,
+                        }
+                    )
                     break
 
-        # Check for network operations
         elif any(op in operation_name.lower() for op in NETWORK_OPS):
             for net_op, net_type in NETWORK_OPS.items():
                 if net_op in operation_name.lower():
                     io_type = net_type
-                    # Try to extract URL (first arg)
+
                     if node.args:
                         target = _get_str_constant(node.args[0])
-                        is_static = (target is not None)
+                        is_static = target is not None
 
-                    io_operations.append({
-                        'line': node.lineno,
-                        'io_type': io_type,
-                        'operation': operation_name,
-                        'target': target,
-                        'is_static': is_static,
-                        'in_function': in_function,
-                    })
+                    io_operations.append(
+                        {
+                            "line": node.lineno,
+                            "io_type": io_type,
+                            "operation": operation_name,
+                            "target": target,
+                            "is_static": is_static,
+                            "in_function": in_function,
+                        }
+                    )
                     break
 
-        # Check for process operations
         elif any(op in operation_name for op in PROCESS_OPS):
             for proc_op, proc_type in PROCESS_OPS.items():
                 if proc_op in operation_name:
                     io_type = proc_type
-                    # Try to extract command (first arg or list)
+
                     if node.args:
                         first_arg = node.args[0]
                         if isinstance(first_arg, ast.List):
-                            # subprocess.run(['ls', '-la'])
                             if first_arg.elts:
                                 target = _get_str_constant(first_arg.elts[0])
                         else:
                             target = _get_str_constant(first_arg)
-                        is_static = (target is not None)
+                        is_static = target is not None
 
-                    io_operations.append({
-                        'line': node.lineno,
-                        'io_type': io_type,
-                        'operation': operation_name,
-                        'target': target,
-                        'is_static': is_static,
-                        'in_function': in_function,
-                    })
+                    io_operations.append(
+                        {
+                            "line": node.lineno,
+                            "io_type": io_type,
+                            "operation": operation_name,
+                            "target": target,
+                            "is_static": is_static,
+                            "in_function": in_function,
+                        }
+                    )
                     break
 
-    # CRITICAL: Deduplicate by (line, io_type, operation)
     seen = set()
     deduped = []
     for io_op in io_operations:
-        key = (io_op['line'], io_op['io_type'], io_op['operation'])
+        key = (io_op["line"], io_op["io_type"], io_op["operation"])
         if key not in seen:
             seen.add(key)
             deduped.append(io_op)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(io_operations) != len(deduped):
-            print(f"[AST_DEBUG] I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -346,92 +339,89 @@ def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return param_flows
 
-    # Extract function definitions with their parameters
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         func_name = node.name
         is_async = isinstance(node, ast.AsyncFunctionDef)
 
-        # Extract parameter names
         param_names = set()
-        if hasattr(node, 'args') and node.args:
+        if hasattr(node, "args") and node.args:
             args_obj = node.args
-            # Regular args
+
             for arg in args_obj.args:
                 param_names.add(arg.arg)
-            # *args
+
             if args_obj.vararg:
                 param_names.add(args_obj.vararg.arg)
-            # **kwargs
+
             if args_obj.kwarg:
                 param_names.add(args_obj.kwarg.arg)
-            # kwonly args
+
             for arg in args_obj.kwonlyargs:
                 param_names.add(arg.arg)
 
-        # Skip self/cls
-        param_names.discard('self')
-        param_names.discard('cls')
+        param_names.discard("self")
+        param_names.discard("cls")
 
         if not param_names:
             continue
 
-        # Find return statements in this function
         for child in context.find_nodes(ast.Return):
             if child.value is None:
-                continue  # return without value
+                continue
 
             return_expr = get_node_name(child.value)
             if not return_expr:
                 continue
 
-            # Check if any parameter is referenced in return expression
             referenced_params = []
             for param in param_names:
                 if param in return_expr:
                     referenced_params.append(param)
 
             if not referenced_params:
-                # No parameter flow - return constant
                 continue
 
-            # Classify flow type
-            flow_type = 'none'
+            flow_type = "none"
 
             for param in referenced_params:
-                # Direct return (just the parameter)
                 if return_expr == param or return_expr == f"self.{param}":
-                    flow_type = 'direct'
-                # Conditional return (IfExp)
+                    flow_type = "direct"
+
                 elif isinstance(child.value, ast.IfExp):
-                    flow_type = 'conditional'
-                # Transformed return (BinOp, UnaryOp, Call, etc.)
+                    flow_type = "conditional"
+
                 elif isinstance(child.value, (ast.BinOp, ast.UnaryOp, ast.Call, ast.Compare)):
-                    flow_type = 'transformed'
+                    flow_type = "transformed"
                 else:
-                    flow_type = 'other'
+                    flow_type = "other"
 
-                param_flows.append({
-                    'line': child.lineno,
-                    'function_name': func_name,
-                    'parameter_name': param,
-                    'return_expr': return_expr,
-                    'flow_type': flow_type,
-                    'is_async': is_async,
-                })
+                param_flows.append(
+                    {
+                        "line": child.lineno,
+                        "function_name": func_name,
+                        "parameter_name": param,
+                        "return_expr": return_expr,
+                        "flow_type": flow_type,
+                        "is_async": is_async,
+                    }
+                )
 
-    # CRITICAL: Deduplicate by (line, function_name, parameter_name)
     seen = set()
     deduped = []
     for pf in param_flows:
-        key = (pf['line'], pf['function_name'], pf['parameter_name'])
+        key = (pf["line"], pf["function_name"], pf["parameter_name"])
         if key not in seen:
             seen.add(key)
             deduped.append(pf)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(param_flows) != len(deduped):
-            print(f"[AST_DEBUG] Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -466,29 +456,24 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return closures
 
-    # Build nested function structure
-    # Map: function_name → (parent_function, defined_vars, line)
     function_hierarchy = {}
-    function_locals = {}  # function_name → set of local variables
-    analyzed_functions = set()  # Track already analyzed functions to prevent recursion
+    function_locals = {}
+    analyzed_functions = set()
 
-    def analyze_function(node, parent_func='global'):
+    def analyze_function(node, parent_func="global"):
         """Recursively analyze function definitions."""
-        # Skip if already analyzed
+
         if node in analyzed_functions:
             return
         analyzed_functions.add(node)
 
-        func_name = node.name if hasattr(node, 'name') else f'lambda_{node.lineno}'
+        func_name = node.name if hasattr(node, "name") else f"lambda_{node.lineno}"
 
-        # Track this function's hierarchy
         function_hierarchy[func_name] = parent_func
 
-        # Extract local variables defined in this function
         local_vars = set()
 
-        # Add parameters as local variables
-        if hasattr(node, 'args') and node.args:
+        if hasattr(node, "args") and node.args:
             for arg in node.args.args:
                 local_vars.add(arg.arg)
             if node.args.vararg:
@@ -498,10 +483,9 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             for arg in node.args.kwonlyargs:
                 local_vars.add(arg.arg)
 
-        # Find assignments (define new local variables) - only within this function
-        if hasattr(node, 'body'):
+        if hasattr(node, "body"):
             body = node.body if isinstance(node.body, list) else [node.body]
-            # Walk only the body of this specific function
+
             for stmt in ast.walk(node):
                 if isinstance(stmt, ast.Assign):
                     for target in stmt.targets:
@@ -510,18 +494,13 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
 
         function_locals[func_name] = local_vars
 
-        # Recursively analyze nested functions
-        # Important: Only look for nested functions directly within this function's body
-        body = node.body if hasattr(node, 'body') else []
+        body = node.body if hasattr(node, "body") else []
         if not isinstance(body, list):
             body = [body]
 
-        # Walk only the direct body of this function, not the entire tree
         for child in ast.walk(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                if child != node:  # Avoid re-analyzing self
-                    # Check if this is directly nested (not a grandchild)
-                    # by verifying it's in the immediate body
+                if child != node:
                     is_direct_child = False
                     for body_item in body:
                         if child in ast.walk(body_item):
@@ -531,26 +510,23 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
                         analyzed_functions.add(child)
                         analyze_function(child, parent_func=func_name)
 
-    # First pass: build function hierarchy
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
-        analyze_function(node, parent_func='global')
+        analyze_function(node, parent_func="global")
 
-    # Second pass: find variable references and detect closures
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-        func_name = node.name if hasattr(node, 'name') else f'lambda_{node.lineno}'
+        func_name = node.name if hasattr(node, "name") else f"lambda_{node.lineno}"
         is_lambda = isinstance(node, ast.Lambda)
 
         if func_name not in function_hierarchy:
             continue
 
         parent_func = function_hierarchy[func_name]
-        if parent_func == 'global':
-            continue  # No closure possible at top level
+        if parent_func == "global":
+            continue
 
         local_vars = function_locals.get(func_name, set())
 
-        # Find all Name nodes (variable references) in this function
-        body = node.body if hasattr(node, 'body') else []
+        body = node.body if hasattr(node, "body") else []
         if not isinstance(body, list):
             body = [body]
 
@@ -558,34 +534,36 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
                 var_name = child.id
 
-                # Check if variable is NOT local to this function
-                if var_name not in local_vars and var_name not in ('self', 'cls'):
-                    # Check if variable might be from parent function
+                if var_name not in local_vars and var_name not in ("self", "cls"):
                     parent_locals = function_locals.get(parent_func, set())
 
                     if var_name in parent_locals:
-                        # Found closure! Variable from outer scope
-                        closures.append({
-                            'line': node.lineno,
-                            'inner_function': func_name,
-                            'captured_variable': var_name,
-                            'outer_function': parent_func,
-                            'is_lambda': is_lambda,
-                        })
+                        closures.append(
+                            {
+                                "line": node.lineno,
+                                "inner_function": func_name,
+                                "captured_variable": var_name,
+                                "outer_function": parent_func,
+                                "is_lambda": is_lambda,
+                            }
+                        )
 
-    # CRITICAL: Deduplicate by (line, inner_function, captured_variable)
     seen = set()
     deduped = []
     for closure in closures:
-        key = (closure['line'], closure['inner_function'], closure['captured_variable'])
+        key = (closure["line"], closure["inner_function"], closure["captured_variable"])
         if key not in seen:
             seen.add(key)
             deduped.append(closure)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(closures) != len(deduped):
-            print(f"[AST_DEBUG] Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -618,16 +596,14 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return nonlocal_accesses
 
-    # Build function ranges and track nonlocal declarations
-    function_ranges = []  # List of (name, start, end)
-    nonlocals_by_function = {}  # {function_name: set(nonlocal_var_names)}
+    function_ranges = []
+    nonlocals_by_function = {}
 
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         func_name = node.name
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
             function_ranges.append((func_name, node.lineno, node.end_lineno or node.lineno))
 
-        # Track nonlocal declarations within this function
         nonlocal_vars = set()
         for child in context.find_nodes(ast.Nonlocal):
             nonlocal_vars.update(child.names)
@@ -642,7 +618,6 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
                 return fname
         return "global"
 
-    # Extract nonlocal variable accesses
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
             if isinstance(target, ast.Name):
@@ -651,26 +626,31 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
 
                 if in_function != "global" and in_function in nonlocals_by_function:
                     if var_name in nonlocals_by_function[in_function]:
-                        nonlocal_accesses.append({
-                            'line': node.lineno,
-                            'variable_name': var_name,
-                            'access_type': 'write',
-                            'in_function': in_function,
-                        })
+                        nonlocal_accesses.append(
+                            {
+                                "line": node.lineno,
+                                "variable_name": var_name,
+                                "access_type": "write",
+                                "in_function": in_function,
+                            }
+                        )
 
-    # CRITICAL: Deduplicate by (line, variable_name, access_type)
     seen = set()
     deduped = []
     for nl in nonlocal_accesses:
-        key = (nl['line'], nl['variable_name'], nl['access_type'])
+        key = (nl["line"], nl["variable_name"], nl["access_type"])
         if key not in seen:
             seen.add(key)
             deduped.append(nl)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(nonlocal_accesses) != len(deduped):
-            print(f"[AST_DEBUG] Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -696,7 +676,6 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
 
     conditional_calls = []
 
-    # Build function ranges for context
     function_ranges = {}
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         function_ranges[(node.lineno, node.end_lineno)] = node.name
@@ -706,7 +685,7 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
         for (start, end), name in function_ranges.items():
             if start <= line <= end:
                 return name
-        return 'global'
+        return "global"
 
     def get_condition_expr(test_node) -> str | None:
         """Extract condition expression as string."""
@@ -715,14 +694,14 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
         except Exception:
             return None
 
-    def walk_conditional_block(parent_node, condition_expr: str | None,
-                                condition_type: str, nesting_level: int):
+    def walk_conditional_block(
+        parent_node, condition_expr: str | None, condition_type: str, nesting_level: int
+    ):
         """Walk conditional block and extract function calls."""
-        if not hasattr(parent_node, 'body'):
+        if not hasattr(parent_node, "body"):
             return
 
         for node in parent_node.body:
-            # Direct function call in conditional block
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 call_node = node.value
                 func_name = None
@@ -733,16 +712,17 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
 
                 if func_name:
                     in_function = get_function_name(node.lineno)
-                    conditional_calls.append({
-                        'line': node.lineno,
-                        'function_call': func_name,
-                        'condition_expr': condition_expr,
-                        'condition_type': condition_type,
-                        'in_function': in_function,
-                        'nesting_level': nesting_level,
-                    })
+                    conditional_calls.append(
+                        {
+                            "line": node.lineno,
+                            "function_call": func_name,
+                            "condition_expr": condition_expr,
+                            "condition_type": condition_type,
+                            "in_function": in_function,
+                            "nesting_level": nesting_level,
+                        }
+                    )
 
-            # Assignment with function call on right side
             elif isinstance(node, ast.Assign):
                 if isinstance(node.value, ast.Call):
                     call_node = node.value
@@ -754,16 +734,17 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
 
                     if func_name:
                         in_function = get_function_name(node.lineno)
-                        conditional_calls.append({
-                            'line': node.lineno,
-                            'function_call': func_name,
-                            'condition_expr': condition_expr,
-                            'condition_type': condition_type,
-                            'in_function': in_function,
-                            'nesting_level': nesting_level,
-                        })
+                        conditional_calls.append(
+                            {
+                                "line": node.lineno,
+                                "function_call": func_name,
+                                "condition_expr": condition_expr,
+                                "condition_type": condition_type,
+                                "in_function": in_function,
+                                "nesting_level": nesting_level,
+                            }
+                        )
 
-            # Return statement with function call
             elif isinstance(node, ast.Return) and node.value:
                 if isinstance(node.value, ast.Call):
                     call_node = node.value
@@ -775,64 +756,69 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
 
                     if func_name:
                         in_function = get_function_name(node.lineno)
-                        conditional_calls.append({
-                            'line': node.lineno,
-                            'function_call': func_name,
-                            'condition_expr': condition_expr,
-                            'condition_type': condition_type,
-                            'in_function': in_function,
-                            'nesting_level': nesting_level,
-                        })
+                        conditional_calls.append(
+                            {
+                                "line": node.lineno,
+                                "function_call": func_name,
+                                "condition_expr": condition_expr,
+                                "condition_type": condition_type,
+                                "in_function": in_function,
+                                "nesting_level": nesting_level,
+                            }
+                        )
 
-            # Nested conditionals
             elif isinstance(node, ast.If):
                 nested_condition = get_condition_expr(node.test)
-                walk_conditional_block(node, nested_condition, 'if', nesting_level + 1)
+                walk_conditional_block(node, nested_condition, "if", nesting_level + 1)
                 for elif_node in node.orelse:
                     if isinstance(elif_node, ast.If):
                         elif_condition = get_condition_expr(elif_node.test)
-                        walk_conditional_block(elif_node, elif_condition, 'elif', nesting_level + 1)
+                        walk_conditional_block(elif_node, elif_condition, "elif", nesting_level + 1)
                     else:
-                        # else block
-                        walk_conditional_block(type('obj', (), {'body': [elif_node]})(),
-                                                condition_expr, 'else', nesting_level + 1)
+                        walk_conditional_block(
+                            type("obj", (), {"body": [elif_node]})(),
+                            condition_expr,
+                            "else",
+                            nesting_level + 1,
+                        )
 
-    # Walk entire tree looking for conditionals
     for node in context.find_nodes(ast.If):
         condition = get_condition_expr(node.test)
 
-        # Check for guard clause pattern (early return)
         is_guard = False
-        if (len(node.body) == 1 and
-            isinstance(node.body[0], (ast.Return, ast.Raise, ast.Continue, ast.Break))):
+        if len(node.body) == 1 and isinstance(
+            node.body[0], (ast.Return, ast.Raise, ast.Continue, ast.Break)
+        ):
             is_guard = True
 
-        condition_type = 'guard' if is_guard else 'if'
+        condition_type = "guard" if is_guard else "if"
         walk_conditional_block(node, condition, condition_type, 1)
 
-        # Handle elif
         for i, elif_node in enumerate(node.orelse):
             if isinstance(elif_node, ast.If):
                 elif_condition = get_condition_expr(elif_node.test)
-                walk_conditional_block(elif_node, elif_condition, 'elif', 1)
+                walk_conditional_block(elif_node, elif_condition, "elif", 1)
             else:
-                # else block
-                if hasattr(elif_node, 'lineno'):
-                    walk_conditional_block(type('obj', (), {'body': [elif_node]})(),
-                                            condition, 'else', 1)
+                if hasattr(elif_node, "lineno"):
+                    walk_conditional_block(
+                        type("obj", (), {"body": [elif_node]})(), condition, "else", 1
+                    )
 
-    # CRITICAL: Deduplicate by (line, function_call)
     seen = set()
     deduped = []
     for call in conditional_calls:
-        key = (call['line'], call['function_call'])
+        key = (call["line"], call["function_call"])
         if key not in seen:
             seen.add(key)
             deduped.append(call)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(conditional_calls) != len(deduped):
-            print(f"[AST_DEBUG] Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped

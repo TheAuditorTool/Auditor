@@ -15,8 +15,18 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--output", default="./.pf/readthis/STRUCTURE.md", help="Output file path")
 @click.option("--max-depth", default=4, type=int, help="Maximum directory tree depth")
 @click.option("--monoliths", is_flag=True, help="Find files >2150 lines (too large for AI to read)")
-@click.option("--threshold", default=2150, type=int, help="Line count threshold for --monoliths (default: 2150)")
-@click.option("--format", type=click.Choice(['text', 'json']), default='text', help="Output format for --monoliths")
+@click.option(
+    "--threshold",
+    default=2150,
+    type=int,
+    help="Line count threshold for --monoliths (default: 2150)",
+)
+@click.option(
+    "--format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format for --monoliths",
+)
 def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, format):
     """Generate comprehensive project structure and intelligence report.
 
@@ -114,7 +124,6 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     """
     from theauditor.project_summary import generate_project_summary
 
-    # Handle --monoliths flag (separate mode)
     if monoliths:
         db_path_obj = Path(db_path)
         if not db_path_obj.exists():
@@ -123,8 +132,6 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
 
         return _find_monoliths(db_path, threshold, format)
 
-    # Normal structure report generation (original behavior)
-    # Check if manifest exists (not required but enhances report)
     manifest_exists = Path(manifest).exists()
     db_exists = Path(db_path).exists()
 
@@ -137,52 +144,44 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     elif not db_exists:
         click.echo("Warning: repo_index.db not found, symbol counts will be missing", err=True)
 
-    # Generate the report
     click.echo(f"Analyzing project structure (max depth: {max_depth})...")
 
     try:
-        # Generate full report
         report_content = generate_project_summary(
-            root_path=root,
-            manifest_path=manifest,
-            db_path=db_path,
-            max_depth=max_depth
+            root_path=root, manifest_path=manifest, db_path=db_path, max_depth=max_depth
         )
 
-        # Ensure output directory exists
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write report
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(report_content)
 
         click.echo(f"\n✓ Project structure report generated: {output}")
 
-        # Show summary stats if available
         if manifest_exists:
             import json
-            with open(manifest, 'r') as f:
+
+            with open(manifest, "r") as f:
                 manifest_data = json.load(f)
 
             total_files = len(manifest_data)
-            total_loc = sum(f.get('loc', 0) for f in manifest_data)
-            total_bytes = sum(f.get('bytes', 0) for f in manifest_data)
-            total_tokens = total_bytes // 4  # Rough approximation
+            total_loc = sum(f.get("loc", 0) for f in manifest_data)
+            total_bytes = sum(f.get("bytes", 0) for f in manifest_data)
+            total_tokens = total_bytes // 4
 
             click.echo(f"\nProject Summary:")
             click.echo(f"  Files: {total_files:,}")
             click.echo(f"  LOC: {total_loc:,}")
             click.echo(f"  Tokens: ~{total_tokens:,}")
 
-            # Token percentage of Claude's context
-            # Claude has 200k context, but practical limit is ~160k for user content
-            # (leaving room for system prompts, conversation history, response)
-            claude_usable_context = 160000  # Practical limit for user content
+            claude_usable_context = 160000
             token_percent = (total_tokens / claude_usable_context * 100) if total_tokens > 0 else 0
 
             if token_percent > 100:
-                click.echo(f"  Context Usage: {token_percent:.1f}% (EXCEEDS Claude's practical limit)")
+                click.echo(
+                    f"  Context Usage: {token_percent:.1f}% (EXCEEDS Claude's practical limit)"
+                )
             else:
                 click.echo(f"  Context Usage: {token_percent:.1f}% of Claude's usable window")
 
@@ -210,9 +209,8 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Query: Find files with max line number > threshold
-        # Group by path to get line count and symbol count per file
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
                 path,
                 MAX(line) as line_count,
@@ -225,41 +223,39 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
             GROUP BY path
             HAVING line_count > ?
             ORDER BY line_count DESC
-        """, (threshold,))
+        """,
+            (threshold,),
+        )
 
         results = cursor.fetchall()
         conn.close()
 
         if not results:
-            if output_format == 'json':
-                click.echo(json.dumps({
-                    'monoliths': [],
-                    'total': 0,
-                    'threshold': threshold
-                }, indent=2))
+            if output_format == "json":
+                click.echo(
+                    json.dumps({"monoliths": [], "total": 0, "threshold": threshold}, indent=2)
+                )
             else:
                 click.echo(f"No monolithic files found (threshold: {threshold} lines)")
                 click.echo("\nAll files are below the AI readability threshold!")
             return ExitCodes.SUCCESS
 
-        # Format output
-        if output_format == 'json':
+        if output_format == "json":
             output_data = {
-                'monoliths': [
+                "monoliths": [
                     {
-                        'path': path,
-                        'lines': lines,
-                        'symbols': symbols,
-                        'recommendation': 'Refactor using chunked reading (agents/refactor.md Task 3.4)'
+                        "path": path,
+                        "lines": lines,
+                        "symbols": symbols,
+                        "recommendation": "Refactor using chunked reading (agents/refactor.md Task 3.4)",
                     }
                     for path, lines, symbols in results
                 ],
-                'total': len(results),
-                'threshold': threshold
+                "total": len(results),
+                "threshold": threshold,
             }
             click.echo(json.dumps(output_data, indent=2))
         else:
-            # Text format
             click.echo("=" * 80)
             click.echo(f"Monolithic Files (>{threshold} lines)")
             click.echo("=" * 80)

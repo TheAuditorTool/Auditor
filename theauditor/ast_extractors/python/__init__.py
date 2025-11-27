@@ -88,9 +88,7 @@ python -c "from theauditor.ast_extractors import python_impl; print(hasattr(pyth
 # Should print: True (this function only exists in NEW package)
 """
 
-# Phase 2.1: Import from modular structure
 from .core_extractors import (
-    # Core extraction functions
     extract_python_functions,
     extract_python_classes,
     extract_python_attribute_annotations,
@@ -109,7 +107,6 @@ from .core_extractors import (
 )
 
 from .framework_extractors import (
-    # Framework extraction functions
     extract_sqlalchemy_definitions,
     extract_django_definitions,
     extract_pydantic_validators,
@@ -131,7 +128,6 @@ from .framework_extractors import (
 )
 
 from .flask_extractors import (
-    # Flask framework extraction
     extract_flask_app_factories,
     extract_flask_extensions,
     extract_flask_request_hooks,
@@ -144,29 +140,24 @@ from .flask_extractors import (
 )
 
 from .cfg_extractor import (
-    # CFG extraction functions
     extract_python_cfg,
 )
 
 from .cdk_extractor import (
-    # AWS CDK Infrastructure-as-Code extraction
     extract_python_cdk_constructs,
 )
 
 from .async_extractors import (
-    # Async pattern extraction
     extract_async_functions,
     extract_await_expressions,
     extract_async_generators,
 )
 
 from .testing_extractors import (
-    # Testing pattern extraction
     extract_pytest_fixtures,
     extract_pytest_parametrize,
     extract_pytest_markers,
     extract_mock_patterns,
-    # Phase 3.2: Testing Ecosystem Additions
     extract_unittest_test_cases,
     extract_assertion_patterns,
     extract_pytest_plugin_hooks,
@@ -174,7 +165,6 @@ from .testing_extractors import (
 )
 
 from .security_extractors import (
-    # Phase 3.3: Security Patterns (OWASP Top 10)
     extract_auth_decorators,
     extract_password_hashing,
     extract_jwt_operations,
@@ -186,7 +176,6 @@ from .security_extractors import (
 )
 
 from .django_advanced_extractors import (
-    # Phase 3.4: Django Advanced Patterns
     extract_django_signals,
     extract_django_receivers,
     extract_django_managers,
@@ -194,7 +183,6 @@ from .django_advanced_extractors import (
 )
 
 from .type_extractors import (
-    # Advanced type extraction
     extract_protocols,
     extract_generics,
     extract_typed_dicts,
@@ -203,7 +191,6 @@ from .type_extractors import (
 )
 
 from .fundamental_extractors import (
-    # Python Coverage V2 - Week 1: Fundamental patterns
     extract_comprehensions,
     extract_lambda_functions,
     extract_slice_operations,
@@ -215,7 +202,6 @@ from .fundamental_extractors import (
 )
 
 from .operator_extractors import (
-    # Python Coverage V2 - Week 2: Operators and expressions
     extract_operators,
     extract_membership_tests,
     extract_chained_comparisons,
@@ -225,7 +211,6 @@ from .operator_extractors import (
 )
 
 from .collection_extractors import (
-    # Python Coverage V2 - Week 3: Collections and methods
     extract_dict_operations,
     extract_list_mutations,
     extract_set_operations,
@@ -237,7 +222,6 @@ from .collection_extractors import (
 )
 
 from .class_feature_extractors import (
-    # Python Coverage V2 - Week 4: Advanced class features
     extract_metaclasses,
     extract_descriptors,
     extract_dataclasses,
@@ -251,7 +235,6 @@ from .class_feature_extractors import (
 )
 
 from .stdlib_pattern_extractors import (
-    # Python Coverage V2 - Week 4: Stdlib patterns
     extract_regex_patterns,
     extract_json_operations,
     extract_datetime_operations,
@@ -263,7 +246,6 @@ from .stdlib_pattern_extractors import (
 )
 
 from .control_flow_extractors import (
-    # Python Coverage V2 - Week 5: Control flow patterns
     extract_for_loops,
     extract_while_loops,
     extract_async_for_loops,
@@ -277,7 +259,6 @@ from .control_flow_extractors import (
 )
 
 from .protocol_extractors import (
-    # Python Coverage V2 - Week 6: Protocol patterns
     extract_iterator_protocol,
     extract_container_protocol,
     extract_callable_protocol,
@@ -291,7 +272,6 @@ from .protocol_extractors import (
 )
 
 from .advanced_extractors import (
-    # Python Coverage V2 - Advanced: Rarely-used patterns
     extract_namespace_packages,
     extract_cached_property,
     extract_descriptor_protocol,
@@ -302,164 +282,146 @@ from .advanced_extractors import (
     extract_exec_eval_compile,
 )
 
-# Backward compatibility: re-export all functions at package level
+
 __all__ = [
-    # Core extractors
-    'extract_python_functions',
-    'extract_python_classes',
-    'extract_python_attribute_annotations',
-    'extract_python_imports',
-    'extract_python_exports',
-    'extract_python_assignments',
-    'extract_python_function_params',
-    'extract_python_calls_with_args',
-    'extract_python_returns',
-    'extract_python_properties',
-    'extract_python_calls',
-    'extract_python_dicts',
-    'extract_python_decorators',
-    'extract_python_context_managers',
-    'extract_generators',
-    # Framework extractors
-    'extract_sqlalchemy_definitions',
-    'extract_django_definitions',
-    'extract_pydantic_validators',
-    'extract_flask_blueprints',
-    'extract_django_cbvs',
-    'extract_django_forms',
-    'extract_django_form_fields',
-    'extract_django_admin',
-    'extract_django_middleware',
-    'extract_marshmallow_schemas',
-    'extract_marshmallow_fields',
-    'extract_drf_serializers',
-    'extract_drf_serializer_fields',
-    'extract_wtforms_forms',
-    'extract_wtforms_fields',
-    'extract_celery_tasks',
-    'extract_celery_task_calls',
-    'extract_celery_beat_schedules',
-    # Flask extractors
-    'extract_flask_app_factories',
-    'extract_flask_extensions',
-    'extract_flask_request_hooks',
-    'extract_flask_error_handlers',
-    'extract_flask_websocket_handlers',
-    'extract_flask_cli_commands',
-    'extract_flask_cors_configs',
-    'extract_flask_rate_limits',
-    'extract_flask_cache_decorators',
-    # CFG extractor
-    'extract_python_cfg',
-    # CDK extractor
-    'extract_python_cdk_constructs',
-    # Async extractors
-    'extract_async_functions',
-    'extract_await_expressions',
-    'extract_async_generators',
-    # Testing extractors
-    'extract_pytest_fixtures',
-    'extract_pytest_parametrize',
-    'extract_pytest_markers',
-    'extract_mock_patterns',
-    'extract_unittest_test_cases',
-    'extract_assertion_patterns',
-    'extract_pytest_plugin_hooks',
-    'extract_hypothesis_strategies',
-    # Security extractors
-    'extract_auth_decorators',
-    'extract_password_hashing',
-    'extract_jwt_operations',
-    'extract_sql_injection_patterns',
-    'extract_command_injection_patterns',
-    'extract_path_traversal_patterns',
-    'extract_dangerous_eval_exec',
-    'extract_crypto_operations',
-    # Django advanced extractors
-    'extract_django_signals',
-    'extract_django_receivers',
-    'extract_django_managers',
-    'extract_django_querysets',
-    # Type extractors
-    'extract_protocols',
-    'extract_generics',
-    'extract_typed_dicts',
-    'extract_literals',
-    'extract_overloads',
-    # Fundamental extractors (Python Coverage V2 - Week 1)
-    'extract_comprehensions',
-    'extract_lambda_functions',
-    'extract_slice_operations',
-    'extract_tuple_operations',
-    'extract_unpacking_patterns',
-    'extract_none_patterns',
-    'extract_truthiness_patterns',
-    'extract_string_formatting',
-    # Operator extractors (Python Coverage V2 - Week 2)
-    'extract_operators',
-    'extract_membership_tests',
-    'extract_chained_comparisons',
-    'extract_ternary_expressions',
-    'extract_walrus_operators',
-    'extract_matrix_multiplication',
-    # Collection extractors (Python Coverage V2 - Week 3)
-    'extract_dict_operations',
-    'extract_list_mutations',
-    'extract_set_operations',
-    'extract_string_methods',
-    'extract_builtin_usage',
-    'extract_itertools_usage',
-    'extract_functools_usage',
-    'extract_collections_usage',
-    # Class feature extractors (Python Coverage V2 - Week 4)
-    'extract_metaclasses',
-    'extract_descriptors',
-    'extract_dataclasses',
-    'extract_enums',
-    'extract_slots',
-    'extract_abstract_classes',
-    'extract_method_types',
-    'extract_multiple_inheritance',
-    'extract_dunder_methods',
-    'extract_visibility_conventions',
-    # Stdlib pattern extractors (Python Coverage V2 - Week 4)
-    'extract_regex_patterns',
-    'extract_json_operations',
-    'extract_datetime_operations',
-    'extract_path_operations',
-    'extract_logging_patterns',
-    'extract_threading_patterns',
-    'extract_contextlib_patterns',
-    'extract_type_checking',
-    # Control flow extractors (Python Coverage V2 - Week 5)
-    'extract_for_loops',
-    'extract_while_loops',
-    'extract_async_for_loops',
-    'extract_if_statements',
-    'extract_match_statements',
-    'extract_break_continue_pass',
-    'extract_assert_statements',
-    'extract_del_statements',
-    'extract_import_statements',
-    'extract_with_statements',
-    # Protocol extractors (Python Coverage V2 - Week 6)
-    'extract_iterator_protocol',
-    'extract_container_protocol',
-    'extract_callable_protocol',
-    'extract_comparison_protocol',
-    'extract_arithmetic_protocol',
-    'extract_pickle_protocol',
-    'extract_weakref_usage',
-    'extract_contextvar_usage',
-    'extract_module_attributes',
-    'extract_class_decorators',
-    # Advanced extractors (Python Coverage V2 - Advanced)
-    'extract_namespace_packages',
-    'extract_cached_property',
-    'extract_descriptor_protocol',
-    'extract_attribute_access_protocol',
-    'extract_copy_protocol',
-    'extract_ellipsis_usage',
-    'extract_bytes_operations',
-    'extract_exec_eval_compile',
+    "extract_python_functions",
+    "extract_python_classes",
+    "extract_python_attribute_annotations",
+    "extract_python_imports",
+    "extract_python_exports",
+    "extract_python_assignments",
+    "extract_python_function_params",
+    "extract_python_calls_with_args",
+    "extract_python_returns",
+    "extract_python_properties",
+    "extract_python_calls",
+    "extract_python_dicts",
+    "extract_python_decorators",
+    "extract_python_context_managers",
+    "extract_generators",
+    "extract_sqlalchemy_definitions",
+    "extract_django_definitions",
+    "extract_pydantic_validators",
+    "extract_flask_blueprints",
+    "extract_django_cbvs",
+    "extract_django_forms",
+    "extract_django_form_fields",
+    "extract_django_admin",
+    "extract_django_middleware",
+    "extract_marshmallow_schemas",
+    "extract_marshmallow_fields",
+    "extract_drf_serializers",
+    "extract_drf_serializer_fields",
+    "extract_wtforms_forms",
+    "extract_wtforms_fields",
+    "extract_celery_tasks",
+    "extract_celery_task_calls",
+    "extract_celery_beat_schedules",
+    "extract_flask_app_factories",
+    "extract_flask_extensions",
+    "extract_flask_request_hooks",
+    "extract_flask_error_handlers",
+    "extract_flask_websocket_handlers",
+    "extract_flask_cli_commands",
+    "extract_flask_cors_configs",
+    "extract_flask_rate_limits",
+    "extract_flask_cache_decorators",
+    "extract_python_cfg",
+    "extract_python_cdk_constructs",
+    "extract_async_functions",
+    "extract_await_expressions",
+    "extract_async_generators",
+    "extract_pytest_fixtures",
+    "extract_pytest_parametrize",
+    "extract_pytest_markers",
+    "extract_mock_patterns",
+    "extract_unittest_test_cases",
+    "extract_assertion_patterns",
+    "extract_pytest_plugin_hooks",
+    "extract_hypothesis_strategies",
+    "extract_auth_decorators",
+    "extract_password_hashing",
+    "extract_jwt_operations",
+    "extract_sql_injection_patterns",
+    "extract_command_injection_patterns",
+    "extract_path_traversal_patterns",
+    "extract_dangerous_eval_exec",
+    "extract_crypto_operations",
+    "extract_django_signals",
+    "extract_django_receivers",
+    "extract_django_managers",
+    "extract_django_querysets",
+    "extract_protocols",
+    "extract_generics",
+    "extract_typed_dicts",
+    "extract_literals",
+    "extract_overloads",
+    "extract_comprehensions",
+    "extract_lambda_functions",
+    "extract_slice_operations",
+    "extract_tuple_operations",
+    "extract_unpacking_patterns",
+    "extract_none_patterns",
+    "extract_truthiness_patterns",
+    "extract_string_formatting",
+    "extract_operators",
+    "extract_membership_tests",
+    "extract_chained_comparisons",
+    "extract_ternary_expressions",
+    "extract_walrus_operators",
+    "extract_matrix_multiplication",
+    "extract_dict_operations",
+    "extract_list_mutations",
+    "extract_set_operations",
+    "extract_string_methods",
+    "extract_builtin_usage",
+    "extract_itertools_usage",
+    "extract_functools_usage",
+    "extract_collections_usage",
+    "extract_metaclasses",
+    "extract_descriptors",
+    "extract_dataclasses",
+    "extract_enums",
+    "extract_slots",
+    "extract_abstract_classes",
+    "extract_method_types",
+    "extract_multiple_inheritance",
+    "extract_dunder_methods",
+    "extract_visibility_conventions",
+    "extract_regex_patterns",
+    "extract_json_operations",
+    "extract_datetime_operations",
+    "extract_path_operations",
+    "extract_logging_patterns",
+    "extract_threading_patterns",
+    "extract_contextlib_patterns",
+    "extract_type_checking",
+    "extract_for_loops",
+    "extract_while_loops",
+    "extract_async_for_loops",
+    "extract_if_statements",
+    "extract_match_statements",
+    "extract_break_continue_pass",
+    "extract_assert_statements",
+    "extract_del_statements",
+    "extract_import_statements",
+    "extract_with_statements",
+    "extract_iterator_protocol",
+    "extract_container_protocol",
+    "extract_callable_protocol",
+    "extract_comparison_protocol",
+    "extract_arithmetic_protocol",
+    "extract_pickle_protocol",
+    "extract_weakref_usage",
+    "extract_contextvar_usage",
+    "extract_module_attributes",
+    "extract_class_decorators",
+    "extract_namespace_packages",
+    "extract_cached_property",
+    "extract_descriptor_protocol",
+    "extract_attribute_access_protocol",
+    "extract_copy_protocol",
+    "extract_ellipsis_usage",
+    "extract_bytes_operations",
+    "extract_exec_eval_compile",
 ]

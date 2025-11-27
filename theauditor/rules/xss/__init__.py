@@ -4,12 +4,11 @@ This module orchestrates all XSS analyzers based on detected frameworks.
 Dramatically reduces false positives by understanding framework context.
 """
 
-
 import sqlite3
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding
 
-# Import all analyzers
+
 from .xss_analyze import find_xss_issues
 from .express_xss_analyze import find_express_xss
 from .react_xss_analyze import find_react_xss
@@ -32,32 +31,26 @@ def find_all_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
     if not context.db_path:
         return findings
 
-    # Always run core XSS checks (framework-aware)
     findings.extend(find_xss_issues(context))
 
-    # Get detected frameworks
     frameworks = _get_detected_frameworks(context)
 
-    # Run framework-specific analyzers
-    if 'express' in frameworks or 'express.js' in frameworks:
+    if "express" in frameworks or "express.js" in frameworks:
         findings.extend(find_express_xss(context))
 
-    if 'react' in frameworks:
+    if "react" in frameworks:
         findings.extend(find_react_xss(context))
 
-    if 'vue' in frameworks or 'vuejs' in frameworks:
+    if "vue" in frameworks or "vuejs" in frameworks:
         findings.extend(find_vue_xss(context))
 
-    # Always run specialized analyzers (they do their own filtering)
     findings.extend(find_dom_xss(context))
     findings.extend(find_template_injection(context))
 
-    # Deduplicate findings
     seen = set()
     deduped = []
 
     for finding in findings:
-        # Create unique key for each finding
         key = (finding.file_path, finding.line, finding.rule_name)
 
         if key not in seen:
@@ -74,8 +67,6 @@ def _get_detected_frameworks(context: StandardRuleContext) -> set:
     if not context.db_path:
         return frameworks
 
-    # Schema contract guarantees frameworks table exists (see theauditor/indexer/schema.py)
-    # If table is missing, crash to expose indexer bug - NO FALLBACKS
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
@@ -89,13 +80,12 @@ def _get_detected_frameworks(context: StandardRuleContext) -> set:
     return frameworks
 
 
-# Export both new and legacy functions
 __all__ = [
-    'find_all_xss_issues',  # New framework-aware orchestrator
-    'find_xss_issues',      # Core XSS analyzer
-    'find_express_xss',     # Express-specific
-    'find_react_xss',       # React-specific
-    'find_vue_xss',         # Vue-specific
-    'find_dom_xss',         # DOM XSS
-    'find_template_injection',  # Template injection
+    "find_all_xss_issues",
+    "find_xss_issues",
+    "find_express_xss",
+    "find_react_xss",
+    "find_vue_xss",
+    "find_dom_xss",
+    "find_template_injection",
 ]
