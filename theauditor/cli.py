@@ -10,17 +10,10 @@ from theauditor import __version__
 
 # Configure UTF-8 console output for Windows
 if platform.system() == "Windows":
-    try:
-        # Set console code page to UTF-8
-        # Use cmd /c to run chcp without shell=True (more secure)
-        subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
-        # Also configure Python's stdout/stderr
-        import codecs
-        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
-    except Exception:
-        # Silently continue if chcp fails (not critical)
-        pass
+    subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 
 class VerboseGroup(click.Group):
@@ -35,11 +28,15 @@ class VerboseGroup(click.Group):
         'PROJECT_SETUP': {
             'title': 'PROJECT SETUP',
             'description': 'Initial configuration and environment setup',
-            'commands': ['setup-ai'],  # init-js, init-config deprecated (hidden)
+            'commands': ['setup-ai', 'tools'],
             'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
             'command_meta': {
                 'setup-ai': {
                     'run_when': 'Once per project, before first aud full',
+                },
+                'tools': {
+                    'use_when': 'Verify tool installation, check versions',
+                    'gives': 'Tool availability status, version report',
                 },
             },
         },
@@ -277,7 +274,7 @@ from theauditor.commands.manual import manual
 from theauditor.commands.detect_patterns import detect_patterns
 from theauditor.commands.detect_frameworks import detect_frameworks
 from theauditor.commands.docs import docs
-from theauditor.commands.tool_versions import tool_versions
+from theauditor.commands.tools import tools
 from theauditor.commands.init_js import init_js
 from theauditor.commands.init_config import init_config
 from theauditor.commands.planning import planning
@@ -341,7 +338,7 @@ cli.add_command(manual)
 cli.add_command(detect_patterns)
 cli.add_command(detect_frameworks)
 cli.add_command(docs)
-cli.add_command(tool_versions)
+cli.add_command(tools)
 cli.add_command(init_js)
 cli.add_command(init_config)
 
