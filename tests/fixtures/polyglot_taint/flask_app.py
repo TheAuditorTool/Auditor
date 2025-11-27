@@ -7,9 +7,10 @@ Sink: exec(), eval(), os.system() (code/command execution)
 Expected: Taint flow detected from request.* -> dangerous functions
 """
 
-from flask import Flask, request, jsonify
 import os
 import subprocess
+
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 

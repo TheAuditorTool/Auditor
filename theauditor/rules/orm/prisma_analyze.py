@@ -21,7 +21,6 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
-
 DB_VAR_PATTERNS = frozenset(["DATABASE_URL", "DATABASE", "POSTGRES", "MYSQL"])
 
 METADATA = RuleMetadata(

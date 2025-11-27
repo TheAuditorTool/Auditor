@@ -7,7 +7,6 @@ from pathlib import Path
 
 import click
 
-
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
 
 

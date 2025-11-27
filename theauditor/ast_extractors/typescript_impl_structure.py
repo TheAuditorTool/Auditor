@@ -29,7 +29,6 @@ from typing import Any
 
 from .base import sanitize_call_name
 
-
 PARAMETER_NAMES = frozenset(
     {
         "req",

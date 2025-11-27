@@ -15,7 +15,7 @@
 | Hypothesis | Status | Evidence |
 |------------|--------|----------|
 | Vue compilation writes to disk | **CONFIRMED** | `batch_templates.js:147` |
-| Import resolution uses basename only | **CONFIRMED** | `javascript.py:800-803` |
+| Import resolution uses basename only | **CONFIRMED** | `javascript.py:747-749` |
 | Original proposal file paths correct | **REJECTED** | Wrong directory structure |
 | Original proposal line numbers correct | **REJECTED** | Lines shifted, different function |
 | Parent proposal exists | **REJECTED** | `performance-revolution-now` not found |
@@ -48,7 +48,7 @@ const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
 ```
 
-**Cleanup Code (ES Module lines 541-544)**:
+**Cleanup Code (ES Module lines 618-621)**:
 ```javascript
 finally {
     if (fileInfo.cleanup) {
@@ -79,7 +79,7 @@ Read `theauditor/indexer/extractors/javascript.py` import resolution logic.
 
 **File**: `theauditor/indexer/extractors/javascript.py`
 
-**Lines 855-858**:
+**Lines 747-749**:
 ```python
 # Simplistic module name extraction (preserve previous behavior)
 module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
@@ -147,7 +147,7 @@ theauditor/
 | Original Proposal Path | Actual Path |
 |------------------------|-------------|
 | `theauditor/extractors/js/batch_templates.js` | `theauditor/ast_extractors/javascript/batch_templates.js` |
-| Lines 748-768 for import resolution | Lines 800-803 |
+| Lines 748-768 for import resolution | Lines 747-749 |
 
 The `extractors/js/` directory does NOT exist. The actual location is `ast_extractors/javascript/`.
 
@@ -233,7 +233,7 @@ The Vue disk I/O and import resolution issues STILL EXIST within this new archit
 | Issue | Original Proposal | Reality | Impact |
 |-------|------------------|---------|--------|
 | batch_templates.js path | `theauditor/extractors/js/` | `theauditor/ast_extractors/javascript/` | **P0** - Would cause file not found |
-| Import resolution lines | 748-768 | 855-858 | **P1** - Would edit wrong code |
+| Import resolution lines | 748-768 | 747-749 | **P1** - Would edit wrong code |
 | Parent proposal | `performance-revolution-now` | Does not exist | **P1** - Broken dependency chain |
 | Task coordination | AI #3, AI #4 | N/A | **P2** - Stale references |
 
@@ -270,7 +270,7 @@ The core technical problems identified in this proposal are:
 
 Before implementation, the proposal was rewritten (v2.0) with:
 1. **Correct file paths**: `ast_extractors/javascript/` not `extractors/js/`
-2. **Correct line numbers**: Lines 800-803 not 748-768
+2. **Correct line numbers**: Lines 747-749 not 748-768
 3. **Removed stale references**: No parent proposal dependency
 4. **Updated architecture context**: Acknowledges PHASE 5 architecture
 
@@ -290,6 +290,7 @@ Before implementation, the proposal was rewritten (v2.0) with:
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2025-11-27 | 2.1 | Re-verified after schema normalization - line numbers updated |
+| 2025-11-28 | 2.2 | Line numbers re-verified and updated (747-749) |
+| 2025-11-27 | 2.1 | Re-verified after schema normalization |
 | 2025-11-24 | 2.0 | Complete verification with corrected paths |
 | Original | 1.0 | Initial verification (incomplete) |

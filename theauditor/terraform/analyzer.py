@@ -7,7 +7,6 @@ rule orchestrator. This wrapper now delegates to that rule and preserves the
 legacy TerraformFinding format plus database dual-writes.
 """
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path

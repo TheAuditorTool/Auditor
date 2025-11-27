@@ -689,7 +689,7 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
         in_function = find_containing_function(line_no)
 
         if dict_node.keys:
-            for i, (key, value) in enumerate(zip(dict_node.keys, dict_node.values)):
+            for i, (key, value) in enumerate(zip(dict_node.keys, dict_node.values, strict=True)):
                 if key is None:
                     spread_name = get_node_name(value)
                     records.append(

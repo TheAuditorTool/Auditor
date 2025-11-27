@@ -280,17 +280,6 @@ from theauditor.commands.full import full
 from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
 from theauditor.commands.impact import impact
-from theauditor.commands.taint import taint_analyze
-from theauditor.commands.boundaries import boundaries
-from theauditor.commands.setup import setup_ai
-from theauditor.commands.manual import manual
-
-# Import additional migrated commands
-from theauditor.commands.detect_patterns import detect_patterns
-from theauditor.commands.detect_frameworks import detect_frameworks
-from theauditor.commands.docs import docs
-from theauditor.commands.tools import tools
-from theauditor.commands.init_js import init_js
 from theauditor.commands.init_config import init_config
 from theauditor.commands.init_js import init_js
 from theauditor.commands.insights import insights_command
@@ -309,14 +298,12 @@ from theauditor.commands.structure import structure
 from theauditor.commands.summary import summary
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.terraform import terraform
-from theauditor.commands.tool_versions import tool_versions
+
+# Import additional migrated commands
+from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
 
-init.hidden = True
-index.hidden = True
-cli.add_command(init)
-cli.add_command(index)
 cli.add_command(workset)
 cli.add_command(lint)
 cli.add_command(deps)

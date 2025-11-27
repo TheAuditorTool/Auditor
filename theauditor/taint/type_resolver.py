@@ -8,7 +8,6 @@ Created as part of refactor-polyglot-taint-engine Phase 2 (2025-11-27).
 
 import json
 import sqlite3
-from typing import Any
 
 
 class TypeResolver:

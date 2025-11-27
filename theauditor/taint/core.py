@@ -470,7 +470,6 @@ def trace_taint(
         - vulnerabilities: Count by vulnerability type
         - total_flows_resolved: Number of flows resolved (forward mode only)
     """
-    import os
     import sqlite3
 
     if mode == "forward":

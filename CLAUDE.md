@@ -40,6 +40,11 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
+
+---
+ultrathink remember the windows bug. when "Error: File has been unexpectedly modified. Read it again before attempting to write it. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
+You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
+
 ---
 
 # CLAUDE.md - Operational Rules for AI Assistants

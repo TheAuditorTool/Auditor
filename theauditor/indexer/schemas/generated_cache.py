@@ -1,8 +1,9 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: fd5c17ad517c84f5124d25f85344ef567e8bcb7ac806a5f5c53938f7fc3d95ed
-from typing import Any
-from collections import defaultdict
+# SCHEMA_HASH: 7aed2355539b6edbc0cf47f06599ec13a36d8f27331c67046f5cd6522ebcae4c
 import sqlite3
+from collections import defaultdict
+from typing import Any
+
 from ..schema import TABLES, build_query
 
 
@@ -30,7 +31,7 @@ class SchemaMemoryCache:
 
             # Auto-build indexes for indexed columns (always create, even if empty)
             for idx_def in schema.indexes:
-                idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
+                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
                 if len(idx_cols) == 1:  # Single column index
                     col_name = idx_cols[0]
                     index = self._build_index(data, table_name, col_name, schema)
@@ -64,6 +65,6 @@ class SchemaMemoryCache:
     def get_cache_stats(self) -> dict[str, int]:
         """Get statistics about cached data."""
         stats = {}
-        for table_name in TABLES.keys():
+        for table_name in TABLES:
             stats[table_name] = self.get_table_size(table_name)
         return stats

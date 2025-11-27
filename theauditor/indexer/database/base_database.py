@@ -10,7 +10,6 @@ This module contains the BaseDatabaseManager class which provides:
 All language-specific add_* methods are provided by mixin classes.
 """
 
-import json
 import os
 import sqlite3
 import sys
