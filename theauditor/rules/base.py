@@ -4,12 +4,12 @@ This module defines the universal interface that ALL rules must follow.
 Created as part of the Great Refactor to eliminate signature chaos.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
-from collections.abc import Callable
-from pathlib import Path
-from enum import Enum
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class RuleMetadata:
     jsx_pass_mode: str = "preserved"
 
 
-def convert_old_context(old_context, project_path: Path = None) -> "StandardRuleContext":
+def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
     """Convert old RuleContext to StandardRuleContext.
 
     Helper for dual-mode orchestrator during migration.

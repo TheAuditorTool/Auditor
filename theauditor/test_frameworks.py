@@ -2,12 +2,12 @@
 
 import fnmatch
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable
-from theauditor.manifest_parser import ManifestParser
-from theauditor.framework_registry import TEST_FRAMEWORK_REGISTRY
 
+from theauditor.framework_registry import TEST_FRAMEWORK_REGISTRY
+from theauditor.manifest_parser import ManifestParser
 
 IGNORED_DIRECTORIES: set[str] = {
     ".auditor_venv",
@@ -103,10 +103,9 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                     manifests[name] = parser.parse_ini(path)
                 elif name.endswith(".txt"):
                     manifests[name] = parser.parse_requirements_txt(path)
-                elif name in ["Gemfile", "Gemfile.lock"]:
-                    with open(path, encoding="utf-8") as f:
-                        manifests[name] = f.read()
-                elif name.endswith((".xml", ".gradle", ".kts", ".mod", ".py")):
+                elif name in ["Gemfile", "Gemfile.lock"] or name.endswith(
+                    (".xml", ".gradle", ".kts", ".mod", ".py")
+                ):
                     with open(path, encoding="utf-8") as f:
                         manifests[name] = f.read()
             except Exception:

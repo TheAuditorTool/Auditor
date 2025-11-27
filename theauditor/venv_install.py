@@ -1,12 +1,12 @@
 """Pure Python venv creation and TheAuditor installation."""
 
+import contextlib
 import json
 import os
 import platform
 import shutil
 import subprocess
 import venv
-import contextlib
 from pathlib import Path
 
 try:
@@ -16,9 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreter
 
 
 from theauditor.deps import check_latest_versions
-
 from theauditor.utils.temp_manager import TempManager
-
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -242,7 +240,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
             return venv_path
         else:
             print(f"[WARN] Venv exists but is broken (missing {python_exe})")
-            print(f"[INFO] Removing broken venv and recreating...")
+            print("[INFO] Removing broken venv and recreating...")
             try:
                 shutil.rmtree(venv_path)
             except Exception as e:
@@ -335,7 +333,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
         "pip",
         "install",
         "--no-cache-dir",
-        f"-e",
+        "-e",
         f"{theauditor_root}[all]",
     ]
 
@@ -369,7 +367,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             pass
 
         if result.returncode != 0:
-            print(f"Error installing TheAuditor:")
+            print("Error installing TheAuditor:")
             print(result.stderr)
             return False
 
@@ -470,7 +468,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
                 )
 
         if not deps_to_check:
-            print(f"    No dependencies to check")
+            print("    No dependencies to check")
             return 0
 
         print(f"    Checking {len(deps_to_check)} npm packages...")
@@ -506,7 +504,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
                 f.write("\n")
             print(f"    Updated {updated_count} packages to latest versions")
         else:
-            print(f"    All packages already at latest versions")
+            print("    All packages already at latest versions")
 
         return updated_count
 
@@ -528,11 +526,11 @@ def download_portable_node(sandbox_dir: Path) -> Path:
     Raises:
         RuntimeError: If download fails or checksum doesn't match
     """
-    import urllib.request
-    import urllib.error
     import hashlib
-    import zipfile
     import tarfile
+    import urllib.error
+    import urllib.request
+    import zipfile
 
     node_runtime_dir = sandbox_dir / "node-runtime"
 
@@ -592,7 +590,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         urllib.request.urlretrieve(node_url, str(download_path), reporthook=download_hook)
         print()
 
-        print(f"    Verifying SHA-256 checksum...")
+        print("    Verifying SHA-256 checksum...")
         sha256_hash = hashlib.sha256()
         with open(download_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
@@ -611,7 +609,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         check_mark = "[OK]"
         print(f"    {check_mark} Checksum verified: {actual_checksum[:16]}...")
 
-        print(f"    Extracting Node.js runtime...", flush=True)
+        print("    Extracting Node.js runtime...", flush=True)
         if archive_type == "zip":
             with zipfile.ZipFile(download_path) as zf:
                 temp_extract = sandbox_dir / "temp_node"
@@ -673,8 +671,8 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
     Returns:
         Path to osv-scanner executable, or None if installation failed
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     print("  Setting up OSV-Scanner (Google's vulnerability scanner)...", flush=True)
 
@@ -703,7 +701,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
         print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
     else:
         url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
-        print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
+        print("    Downloading OSV-Scanner from GitHub releases...", flush=True)
         print(f"    URL: {url}")
 
         try:
@@ -719,7 +717,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
         except urllib.error.URLError as e:
             print(f"    [WARN] Network error downloading OSV-Scanner: {e}")
             print(
-                f"    [WARN] You can manually download from: https://github.com/google/osv-scanner/releases"
+                "    [WARN] You can manually download from: https://github.com/google/osv-scanner/releases"
             )
             return None
         except Exception as e:
@@ -731,10 +729,10 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
     print(f"    {check_mark} Database cache directory: {db_dir}")
 
     try:
-        print(f"")
-        print(f"    Downloading offline vulnerability databases...", flush=True)
-        print(f"    This may take 5-10 minutes and use 100-500MB disk space", flush=True)
-        print(f"    Downloading databases for: npm, PyPI", flush=True)
+        print("")
+        print("    Downloading offline vulnerability databases...", flush=True)
+        print("    This may take 5-10 minutes and use 100-500MB disk space", flush=True)
+        print("    Downloading databases for: npm, PyPI", flush=True)
 
         try:
             env = {**os.environ, "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY": str(db_dir)}
@@ -840,9 +838,9 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
                 print(f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)")
             else:
                 if "npm" in lockfiles:
-                    print(f"    ⚠ npm database download failed - online mode will use API")
+                    print("    ⚠ npm database download failed - online mode will use API")
                 else:
-                    print(f"    ℹ No npm lockfile found - npm database not needed")
+                    print("    ℹ No npm lockfile found - npm database not needed")
 
             if pypi_db.exists():
                 pypi_size = pypi_db.stat().st_size / (1024 * 1024)
@@ -851,28 +849,28 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
                 )
             else:
                 if "PyPI" in lockfiles:
-                    print(f"    ⚠ PyPI database download failed - online mode will use API")
+                    print("    ⚠ PyPI database download failed - online mode will use API")
                 else:
-                    print(f"    ℹ No Python lockfile found - PyPI database not needed")
+                    print("    ℹ No Python lockfile found - PyPI database not needed")
 
             if npm_db.exists() or pypi_db.exists():
                 print(f"    {check_mark} Offline vulnerability scanning ready")
             else:
-                print(f"    ⚠ Database download failed - scanner will use online API mode")
-                print(f"    ⚠ To retry manually, run:")
+                print("    ⚠ Database download failed - scanner will use online API mode")
+                print("    ⚠ To retry manually, run:")
                 print(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
                 print(
                     f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases"
                 )
 
         except subprocess.TimeoutExpired:
-            print(f"    ⚠ Database download timed out after 10 minutes")
-            print(f"    ⚠ Scanner will use online API mode")
+            print("    ⚠ Database download timed out after 10 minutes")
+            print("    ⚠ Scanner will use online API mode")
             print(f"    ⚠ To retry: delete {db_dir} and run setup again")
         except Exception as e:
             print(f"    ⚠ Database download failed: {e}")
-            print(f"    ⚠ Scanner will use online API mode")
-            print(f"    ⚠ To retry manually:")
+            print("    ⚠ Scanner will use online API mode")
+            print("    ⚠ To retry manually:")
             print(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
             print(
                 f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases"
@@ -888,7 +886,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
     except urllib.error.URLError as e:
         print(f"    ⚠ Network error downloading OSV-Scanner: {e}")
         print(
-            f"    ⚠ You can manually download from: https://github.com/google/osv-scanner/releases"
+            "    ⚠ You can manually download from: https://github.com/google/osv-scanner/releases"
         )
         return None
     except Exception as e:
@@ -1040,9 +1038,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 if result2.returncode == 0:
                     print(f"    {check_mark} AST tools installed")
                     print(f"    {check_mark} All Python tools ready:")
-                    print(f"        - Linters: ruff, mypy, black, bandit, pylint")
-                    print(f"        - Parsers: sqlparse, dockerfile-parse")
-                    print(f"        - AST analysis: tree-sitter (Python/JS/TS)")
+                    print("        - Linters: ruff, mypy, black, bandit, pylint")
+                    print("        - Parsers: sqlparse, dockerfile-parse")
+                    print("        - AST analysis: tree-sitter (Python/JS/TS)")
                 else:
                     print(f"    ⚠ Tree-sitter installation failed: {result2.stderr[:200]}")
             else:
@@ -1144,7 +1142,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 )
                 print(f"        → {commands_dest}")
                 print(
-                    f"        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow"
+                    "        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow"
                 )
             else:
                 print(f"    ⚠ No command files found in {commands_source}")
@@ -1223,7 +1221,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 npm_script = node_runtime_dir / "bin" / "npm"
                 npm_cmd = [str(npm_script)]
 
-            print(f"  Installing JS/TS linters using bundled Node.js...", flush=True)
+            print("  Installing JS/TS linters using bundled Node.js...", flush=True)
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "npm_install"
             )
@@ -1271,7 +1269,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     print(f"    {check_mark} ESLint verified at: {eslint_path}")
             else:
                 print(f"    ⚠ npm install failed: {result.stderr[:500]}")
-                print(f"    ⚠ This may be a network issue. Try running setup again.")
+                print("    ⚠ This may be a network issue. Try running setup again.")
 
         except RuntimeError as e:
             print(f"    ⚠ Could not set up bundled Node.js: {e}")

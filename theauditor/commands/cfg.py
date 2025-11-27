@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+
 import click
+
 from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -209,8 +211,8 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             else:
                 click.echo("[OK] No unreachable code detected")
 
-        from theauditor.utils.meta_findings import format_complexity_finding
         from theauditor.indexer.database import DatabaseManager
+        from theauditor.utils.meta_findings import format_complexity_finding
 
         meta_findings = []
 

@@ -1,10 +1,11 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
 
 import platform
-import click
 from pathlib import Path
-from theauditor.utils.error_handler import handle_exceptions
 
+import click
+
+from theauditor.utils.error_handler import handle_exceptions
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -275,12 +276,12 @@ def taint_analyze(
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    from theauditor.taint import trace_taint, normalize_taint_path
+    import json as json_lib
+
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator
-    from theauditor.taint import TaintRegistry
+    from theauditor.taint import TaintRegistry, normalize_taint_path, trace_taint
     from theauditor.utils.memory import get_recommended_memory_limit
-    import json as json_lib
 
     if memory_limit is None:
         memory_limit = get_recommended_memory_limit()
@@ -300,6 +301,7 @@ def taint_analyze(
     click.echo("Validating database schema...", err=True)
     try:
         import sqlite3
+
         from theauditor.indexer.schema import validate_all_tables
 
         conn = sqlite3.connect(str(db_path))
@@ -363,7 +365,7 @@ def taint_analyze(
         click.echo("Performing data-flow taint analysis...")
 
         if mode == "backward":
-            click.echo(f"  Using IFDS mode (graphs.db)")
+            click.echo("  Using IFDS mode (graphs.db)")
         else:
             click.echo(f"  Using {mode} flow resolution mode")
         result = trace_taint(
@@ -410,7 +412,7 @@ def taint_analyze(
         click.echo("Performing taint analysis (rules disabled)...")
 
         if mode == "backward":
-            click.echo(f"  Using IFDS mode (graphs.db)")
+            click.echo("  Using IFDS mode (graphs.db)")
         else:
             click.echo(f"  Using {mode} flow resolution mode")
 

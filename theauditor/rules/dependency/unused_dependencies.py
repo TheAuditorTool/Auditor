@@ -15,11 +15,11 @@ Database Tables Used:
 - import_styles: Actual import/require statements in code
 """
 
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="unused_dependencies",

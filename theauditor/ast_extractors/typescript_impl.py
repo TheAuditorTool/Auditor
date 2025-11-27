@@ -38,9 +38,9 @@ from typing import Any
 
 from .base import extract_vars_from_typescript_node
 from .typescript_impl_structure import (
-    build_scope_map,
     _canonical_callee_from_call,
     _strip_comment_prefix,
+    build_scope_map,
     detect_jsx_in_node,
 )
 
@@ -57,9 +57,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
         if os.environ.get("THEAUDITOR_DEBUG"):
             import sys
 
-            print(
-                f"[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr
-            )
+            print("[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
         return assignments
 
     extracted_data = actual_tree.get("extracted_data")
@@ -80,7 +78,7 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
         import sys
 
         print(
-            f"[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map",
+            "[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map",
             file=sys.stderr,
         )
 
@@ -262,7 +260,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 
     if debug:
         print(
-            f"[DEBUG typescript_impl.py:1132] extract_typescript_function_params called",
+            "[DEBUG typescript_impl.py:1132] extract_typescript_function_params called",
             file=sys.stderr,
         )
 
@@ -272,13 +270,13 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
     if not actual_tree or not actual_tree.get("success"):
         if debug:
             print(
-                f"[DEBUG typescript_impl.py:1132] WARNING: actual_tree invalid or not successful",
+                "[DEBUG typescript_impl.py:1132] WARNING: actual_tree invalid or not successful",
                 file=sys.stderr,
             )
         return func_params
 
     if debug:
-        print(f"[DEBUG typescript_impl.py:1132] Starting traverse of AST", file=sys.stderr)
+        print("[DEBUG typescript_impl.py:1132] Starting traverse of AST", file=sys.stderr)
 
     def traverse(node, depth=0):
         import sys
@@ -353,7 +351,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
                 func_params[func_name] = params
             elif debug and func_name == "anonymous":
                 print(
-                    f"[DEBUG typescript_impl.py:1198] Skipping anonymous function", file=sys.stderr
+                    "[DEBUG typescript_impl.py:1198] Skipping anonymous function", file=sys.stderr
                 )
             elif debug and not params:
                 print(
@@ -468,7 +466,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
             )
         else:
             print(
-                f"[DEBUG typescript_impl.py:1257] WARNING: ast_root is NOT a dict!", file=sys.stderr
+                "[DEBUG typescript_impl.py:1257] WARNING: ast_root is NOT a dict!", file=sys.stderr
             )
 
     traverse(ast_root)
@@ -483,7 +481,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
             print(f"[DEBUG typescript_impl.py:1260] Sample functions: {sample}", file=sys.stderr)
         else:
             print(
-                f"[DEBUG typescript_impl.py:1260] WARNING: func_params is EMPTY - no functions with params found!",
+                "[DEBUG typescript_impl.py:1260] WARNING: func_params is EMPTY - no functions with params found!",
                 file=sys.stderr,
             )
 
@@ -509,7 +507,7 @@ def extract_typescript_calls_with_args(
     if not actual_tree or not actual_tree.get("success"):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(
-                f"[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success"
+                "[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success"
             )
         return calls
 
@@ -794,7 +792,7 @@ def extract_typescript_cfg(tree: dict, parser_self) -> list[dict[str, Any]]:
         return extracted_data["cfg"]
 
     if os.environ.get("THEAUDITOR_DEBUG"):
-        print(f"[DEBUG] extract_typescript_cfg: No 'cfg' key found in extracted_data.")
+        print("[DEBUG] extract_typescript_cfg: No 'cfg' key found in extracted_data.")
 
     return cfgs
 
@@ -1064,10 +1062,7 @@ def build_typescript_function_cfg(func_node: dict) -> dict[str, Any]:
 
             else_stmt = None
             for i, child in enumerate(node.get("children", [])):
-                if i > 0 and child.get("kind") == "Block":
-                    else_stmt = child
-                    break
-                elif child.get("kind") == "IfStatement":
+                if i > 0 and child.get("kind") == "Block" or child.get("kind") == "IfStatement":
                     else_stmt = child
                     break
 

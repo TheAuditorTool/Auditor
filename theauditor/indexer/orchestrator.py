@@ -20,26 +20,26 @@ CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
    WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
 
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
 from typing import Any
 
-from theauditor.config_runtime import load_runtime_config
 from theauditor.ast_parser import ASTParser
+from theauditor.config_runtime import load_runtime_config
 
+from ..cache.ast_cache import ASTCache
 from .config import DEFAULT_BATCH_SIZE, JS_BATCH_SIZE, SUPPORTED_AST_EXTENSIONS
 from .core import FileWalker
-from ..cache.ast_cache import ASTCache
 from .database import DatabaseManager
-from .storage import DataStorer
+from .exceptions import DataFidelityError
 from .extractors import ExtractorRegistry
 from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
-from .exceptions import DataFidelityError
+from .storage import DataStorer
 
 logger = logging.getLogger(__name__)
 
@@ -208,9 +208,10 @@ class IndexerOrchestrator:
             Tuple of (counts, stats) dictionaries
         """
 
+        from pathlib import Path
+
         from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
         from theauditor.utils.exit_codes import ExitCodes
-        from pathlib import Path
 
         current_hash = SchemaCodeGenerator.get_schema_hash()
 
@@ -374,7 +375,7 @@ class IndexerOrchestrator:
         print(base_msg)
 
         if self.counts.get("assignments", 0) > 0 or self.counts.get("function_calls", 0) > 0:
-            flow_msg = f"[Indexer] Data flow: "
+            flow_msg = "[Indexer] Data flow: "
             flow_parts = []
             if self.counts.get("assignments", 0) > 0:
                 flow_parts.append(f"{self.counts['assignments']} assignments")
@@ -395,7 +396,7 @@ class IndexerOrchestrator:
             print(cfg_msg)
 
         if self.counts.get("orm", 0) > 0 or self.counts.get("sql_queries", 0) > 0:
-            db_msg = f"[Indexer] Database: "
+            db_msg = "[Indexer] Database: "
             db_parts = []
             if self.counts.get("orm", 0) > 0:
                 db_parts.append(f"{self.counts['orm']} ORM queries")
@@ -408,7 +409,7 @@ class IndexerOrchestrator:
             or self.counts.get("nginx", 0) > 0
             or self.counts.get("docker", 0) > 0
         ):
-            infra_msg = f"[Indexer] Infrastructure: "
+            infra_msg = "[Indexer] Infrastructure: "
             infra_parts = []
             if self.counts.get("docker", 0) > 0:
                 infra_parts.append(f"{self.counts['docker']} Dockerfiles")
@@ -419,7 +420,7 @@ class IndexerOrchestrator:
             print(infra_msg + ", ".join(infra_parts))
 
         if self.counts.get("frameworks", 0) > 0 or self.counts.get("package_configs", 0) > 0:
-            config_msg = f"[Indexer] Configuration: "
+            config_msg = "[Indexer] Configuration: "
             config_parts = []
             if self.counts.get("frameworks", 0) > 0:
                 config_parts.append(f"{self.counts['frameworks']} frameworks")
@@ -593,8 +594,6 @@ class IndexerOrchestrator:
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"Debug: Extraction failed for {file_path}: {e}")
             return
-
-        import sys
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             num_assignments = len(extracted.get("assignments", []))

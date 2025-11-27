@@ -3,9 +3,11 @@
 Usage: aud deadcode
 """
 
-import click
 import json
 from pathlib import Path
+
+import click
+
 from theauditor.context.deadcode_graph import detect_isolated_modules
 from theauditor.utils.error_handler import handle_exceptions
 

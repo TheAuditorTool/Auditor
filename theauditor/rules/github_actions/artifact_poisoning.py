@@ -20,9 +20,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -246,9 +246,7 @@ def _build_artifact_poisoning_finding(
         for perm in ["contents", "packages", "id-token", "deployments"]
     )
 
-    if "deploy" in dangerous_ops or "publish" in dangerous_ops:
-        severity = Severity.CRITICAL
-    elif "sign" in dangerous_ops:
+    if "deploy" in dangerous_ops or "publish" in dangerous_ops or "sign" in dangerous_ops:
         severity = Severity.CRITICAL
     elif has_write_perms:
         severity = Severity.HIGH

@@ -18,8 +18,7 @@ These tables are populated by multiple extractors:
 - PRISMA_MODELS: Node extractor (Prisma)
 """
 
-from .utils import Column, TableSchema, ForeignKey
-
+from .utils import Column, ForeignKey, TableSchema
 
 ORM_RELATIONSHIPS = TableSchema(
     name="orm_relationships",

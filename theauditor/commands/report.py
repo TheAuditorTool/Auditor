@@ -1,7 +1,9 @@
 """Generate unified audit report from all artifacts."""
 
 from pathlib import Path
+
 import click
+
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -103,12 +105,12 @@ def report(
 
     if readthis_dir.exists():
         json_files = list(readthis_dir.glob("*.json"))
-        click.echo(f"[OK] Audit report generated - Data chunks ready for AI consumption")
+        click.echo("[OK] Audit report generated - Data chunks ready for AI consumption")
         click.echo(f"[INFO] Report contains {len(json_files)} JSON chunks in .pf/readthis/")
 
         if print_stats:
             total_size = sum(f.stat().st_size for f in json_files)
-            click.echo(f"\n[STATS] Summary:")
+            click.echo("\n[STATS] Summary:")
             click.echo(f"  - Total chunks: {len(json_files)}")
             click.echo(f"  - Total size: {total_size:,} bytes")
             click.echo(
@@ -117,7 +119,7 @@ def report(
                 else "  - No chunks"
             )
 
-            click.echo(f"\n[FILES] Available chunks:")
+            click.echo("\n[FILES] Available chunks:")
             for f in sorted(json_files)[:10]:
                 size = f.stat().st_size
                 click.echo(f"  - {f.name} ({size:,} bytes)")

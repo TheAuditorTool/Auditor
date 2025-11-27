@@ -13,8 +13,8 @@ NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
 
 from pathlib import Path
 
-from theauditor.refactor.profiles import RefactorProfile, RefactorRuleEngine, ProfileEvaluation
 from theauditor.context.query import CodeQueryEngine
+from theauditor.refactor.profiles import ProfileEvaluation, RefactorProfile, RefactorRuleEngine
 
 
 def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileEvaluation:

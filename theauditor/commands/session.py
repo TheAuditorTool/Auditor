@@ -1,15 +1,16 @@
 """Analyze Claude Code session interactions."""
 
-import click
 import json
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
-from theauditor.utils.error_handler import handle_exceptions
-from theauditor.session.parser import SessionParser, load_session
-from theauditor.session.analyzer import SessionAnalyzer
+import click
+
 from theauditor.session.analysis import SessionAnalysis
-from theauditor.session.detector import detect_session_directory, detect_agent_type
+from theauditor.session.analyzer import SessionAnalyzer
+from theauditor.session.detector import detect_agent_type, detect_session_directory
+from theauditor.session.parser import SessionParser, load_session
+from theauditor.utils.error_handler import handle_exceptions
 
 
 @click.group()
@@ -51,7 +52,7 @@ def analyze(session_dir):
     agent_type = detect_agent_type(session_dir)
     click.echo(f"[INFO] Detected agent: {agent_type}")
 
-    click.echo(f"[TIER 5] Analyzing AI agent sessions...")
+    click.echo("[TIER 5] Analyzing AI agent sessions...")
 
     parser = SessionParser()
     analyzer = SessionAnalysis()
@@ -112,7 +113,7 @@ def report(project_path, db_path, limit, show_findings):
     all_sessions.sort(
         key=lambda s: s.assistant_messages[0].datetime
         if s.assistant_messages
-        else datetime.min.replace(tzinfo=timezone.utc),
+        else datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
 
@@ -173,7 +174,7 @@ def inspect(session_file, db_path):
 
     session_obj = load_session(session_file)
 
-    click.echo(f"\n=== Session Details ===")
+    click.echo("\n=== Session Details ===")
     click.echo(f"Session ID: {session_obj.session_id}")
     click.echo(f"Agent ID: {session_obj.agent_id}")
     click.echo(f"Working directory: {session_obj.cwd}")
@@ -184,7 +185,7 @@ def inspect(session_file, db_path):
 
     files_touched = session_obj.files_touched
     if files_touched:
-        click.echo(f"\n=== Files Touched ===")
+        click.echo("\n=== Files Touched ===")
         for tool, files in files_touched.items():
             click.echo(f"\n{tool}:")
             for file in set(files):
@@ -196,7 +197,7 @@ def inspect(session_file, db_path):
 
     stats, findings = analyzer.analyze_session(session_obj)
 
-    click.echo(f"\n=== Session Stats ===")
+    click.echo("\n=== Session Stats ===")
     click.echo(f"Total turns: {stats.total_turns}")
     click.echo(f"Files read: {stats.files_read}")
     click.echo(f"Files edited: {stats.files_edited}")

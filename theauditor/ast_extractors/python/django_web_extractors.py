@@ -15,12 +15,11 @@ ARCHITECTURAL CONTRACT:
 File path context is provided by the INDEXER layer when storing to database.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
 
@@ -342,7 +341,7 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
 
                         if isinstance(item.value, ast.Call):
                             field_type_name = get_node_name(item.value.func)
-                            if not "Field" in field_type_name:
+                            if "Field" not in field_type_name:
                                 continue
 
                             field_type = field_type_name.split(".")[-1]

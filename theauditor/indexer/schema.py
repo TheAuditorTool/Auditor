@@ -47,19 +47,15 @@ Schema Contract:
 
 import sqlite3
 
-
-from .schemas.utils import TableSchema
-
-
 from .schemas.core_schema import CORE_TABLES
-from .schemas.security_schema import SECURITY_TABLES
 from .schemas.frameworks_schema import FRAMEWORKS_TABLES
-from .schemas.python_schema import PYTHON_TABLES
-from .schemas.node_schema import NODE_TABLES
-from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
-from .schemas.planning_schema import PLANNING_TABLES
 from .schemas.graphql_schema import GRAPHQL_TABLES
-
+from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
+from .schemas.node_schema import NODE_TABLES
+from .schemas.planning_schema import PLANNING_TABLES
+from .schemas.python_schema import PYTHON_TABLES
+from .schemas.security_schema import SECURITY_TABLES
+from .schemas.utils import TableSchema
 
 TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,

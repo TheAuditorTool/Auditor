@@ -5,6 +5,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+
 import click
 
 
@@ -115,9 +116,9 @@ def summary(root, raw_dir, out):
     def load_json(file_path: Path) -> dict[str, Any]:
         if file_path.exists():
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
         return {}
 
@@ -309,7 +310,7 @@ def summary(root, raw_dir, out):
     pipeline_log = Path(root) / ".pf" / "pipeline.log"
     if pipeline_log.exists():
         try:
-            with open(pipeline_log, "r") as f:
+            with open(pipeline_log) as f:
                 for line in f:
                     if "[TIME] Total time:" in line:
                         parts = line.split(":")[-1].strip().replace("s", "").split("(")[0]

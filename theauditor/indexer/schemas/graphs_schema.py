@@ -28,7 +28,6 @@ See: CLAUDE.md "WHY TWO DATABASES" section for architectural rationale
 
 from .utils import Column, TableSchema
 
-
 GRAPH_NODES = TableSchema(
     name="nodes",
     columns=[

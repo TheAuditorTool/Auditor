@@ -38,12 +38,11 @@ Expected extraction from TheAuditor codebase:
 Total: ~900 protocol records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 
@@ -204,9 +203,9 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
 
                 if getitem_method.args.args:
                     param_name = getitem_method.args.args[-1].arg
-                    if "index" in param_name or "idx" in param_name or "i" == param_name:
+                    if "index" in param_name or "idx" in param_name or param_name == "i":
                         is_sequence = True
-                    elif "key" in param_name or "k" == param_name:
+                    elif "key" in param_name or param_name == "k":
                         is_mapping = True
                     else:
                         is_sequence = has_len
@@ -550,9 +549,7 @@ def extract_module_attributes(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Name):
         if node.id in ("__name__", "__file__", "__doc__", "__all__"):
             usage_type = "read"
-            if (node.lineno, node.id) in assignment_targets:
-                usage_type = "write"
-            elif isinstance(node.ctx, ast.Store):
+            if (node.lineno, node.id) in assignment_targets or isinstance(node.ctx, ast.Store):
                 usage_type = "write"
 
             module_attr_data = {

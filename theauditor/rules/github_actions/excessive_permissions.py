@@ -18,9 +18,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ def _build_permission_finding(
     perms_str = ", ".join(dangerous_perms)
 
     if scope == "workflow":
-        location = f"workflow-level"
+        location = "workflow-level"
     else:
         location = f"job '{job_key}'"
 

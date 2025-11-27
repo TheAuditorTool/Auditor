@@ -1,6 +1,7 @@
 """[DEPRECATED] Init command - now redirects to 'aud full' for data fidelity."""
 
 import time
+
 import click
 
 

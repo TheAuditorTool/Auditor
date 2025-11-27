@@ -10,13 +10,12 @@ import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="react_render_issues",
@@ -399,7 +398,7 @@ class ReactRenderAnalyzer:
                                 line=line,
                                 severity=Severity.LOW,
                                 category="react-state",
-                                snippet=f"useState followed by useEffect with props dependency",
+                                snippet="useState followed by useEffect with props dependency",
                                 confidence=Confidence.LOW,
                                 cwe_id="CWE-1066",
                             )
@@ -432,7 +431,7 @@ class ReactRenderAnalyzer:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-anonymous-prop",
-                        message=f"Anonymous function in props causes re-renders",
+                        message="Anonymous function in props causes re-renders",
                         file_path=file,
                         line=line,
                         severity=Severity.LOW,

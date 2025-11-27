@@ -13,10 +13,9 @@ Usage:
     log_validation("L3-TAINT", "Checking sanitizer", {"source_line": 10, "sink_line": 60})
 """
 
+import json
 import os
 import sys
-import json
-
 
 VALIDATION_DEBUG = os.getenv("THEAUDITOR_VALIDATION_DEBUG", "0") == "1"
 

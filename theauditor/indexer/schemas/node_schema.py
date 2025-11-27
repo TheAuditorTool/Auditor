@@ -16,7 +16,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
 CLASS_PROPERTIES = TableSchema(
     name="class_properties",
     columns=[

@@ -14,9 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 from theauditor.ast_extractors import js_helper_templates
-
 
 try:
     from theauditor.utils.temp_manager import TempManager
@@ -62,7 +60,7 @@ class JSSemanticParser:
                 )
             print(f"[DEBUG] Created JSSemanticParser for project: {self.project_root}")
             if self.project_module_type == "module":
-                print(f"[DEBUG] Detected ES module project (package.json has 'type': 'module')")
+                print("[DEBUG] Detected ES module project (package.json has 'type': 'module')")
 
         global _module_resolver_cache
         if _module_resolver_cache is None:

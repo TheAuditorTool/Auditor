@@ -138,7 +138,7 @@ class FileContext:
         self.class_ranges.sort(key=lambda x: x[1])
 
 
-def build_file_context(tree: ast.AST, content: str = "", file_path: str = "") -> "FileContext":
+def build_file_context(tree: ast.AST, content: str = "", file_path: str = "") -> FileContext:
     """Build FileContext with NodeIndex.
 
     This is the main entry point for extractors.

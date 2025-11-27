@@ -14,9 +14,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from theauditor.pattern_loader import PatternLoader
-from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
 from theauditor.ast_parser import ASTParser
+from theauditor.pattern_loader import PatternLoader
+from theauditor.rules.orchestrator import RuleContext, RulesOrchestrator
 
 
 @dataclass
@@ -77,7 +77,7 @@ class UniversalPatternDetector:
         """
         self.project_path = Path(project_path).resolve()
         self.pattern_loader = pattern_loader or PatternLoader()
-        self.findings: list["Finding"] = []
+        self.findings: list[Finding] = []
         self.exclude_patterns = exclude_patterns or []
 
         self.orchestrator = RulesOrchestrator(

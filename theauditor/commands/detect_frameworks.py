@@ -6,8 +6,9 @@ It does NOT re-parse manifests - database is the single source of truth.
 
 import json
 import sqlite3
-import click
 from pathlib import Path
+
+import click
 
 
 @click.command("detect-frameworks")

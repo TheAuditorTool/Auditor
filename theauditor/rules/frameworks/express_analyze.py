@@ -14,15 +14,14 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-from theauditor.indexer.schema import build_query
-
 
 METADATA = RuleMetadata(
     name="express_security",

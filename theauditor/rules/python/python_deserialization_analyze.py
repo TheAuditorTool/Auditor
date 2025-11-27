@@ -22,13 +22,12 @@ import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="python_deserialization",
@@ -548,9 +547,11 @@ class DeserializationAnalyzer:
         for src, line, value in self.cursor.fetchall():
             if not value:
                 continue
-            if value in ("pickle", "cPickle", "dill", "cloudpickle"):
-                pickle_imports.append((src, line))
-            elif value.startswith("from pickle import") or value.startswith("import pickle"):
+            if (
+                value in ("pickle", "cPickle", "dill", "cloudpickle")
+                or value.startswith("from pickle import")
+                or value.startswith("import pickle")
+            ):
                 pickle_imports.append((src, line))
 
         if pickle_imports:

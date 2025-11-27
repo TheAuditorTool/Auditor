@@ -7,8 +7,8 @@ pattern maintenance and automatically discovers new sources/sinks as the
 database evolves.
 """
 
-from typing import Any
 import sqlite3
+from typing import Any
 
 
 def _matches_file_io_pattern(func_name: str, patterns: list[str]) -> bool:

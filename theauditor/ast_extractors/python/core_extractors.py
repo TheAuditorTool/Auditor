@@ -18,19 +18,18 @@ File path context is provided by the INDEXER layer when storing to database.
 This separation ensures single source of truth for file paths.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 import os
 from typing import Any
 
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 from ..base import (
-    get_node_name,
     extract_vars_from_expr,
-    find_containing_function_python,
     find_containing_class_python,
+    find_containing_function_python,
+    get_node_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -406,7 +405,7 @@ def extract_python_assignments(context: FileContext) -> list[dict[str, Any]]:
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
 
-        print(f"[AST_DEBUG] extract_python_assignments called", file=sys.stderr)
+        print("[AST_DEBUG] extract_python_assignments called", file=sys.stderr)
 
     if not context.tree:
         return assignments

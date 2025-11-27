@@ -14,7 +14,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
 PLANS = TableSchema(
     name="plans",
     columns=[

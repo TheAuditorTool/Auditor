@@ -13,9 +13,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -167,7 +167,7 @@ def _check_allow_all_outbound(cursor) -> list[StandardFinding]:
                     confidence="high",
                     file_path=row["file_path"],
                     line=prop_row["line"],
-                    snippet=f"allow_all_outbound=True",
+                    snippet="allow_all_outbound=True",
                     category="broad_permissions",
                     cwe_id="CWE-284",
                     additional_info={

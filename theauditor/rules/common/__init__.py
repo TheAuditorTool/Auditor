@@ -14,18 +14,18 @@ Usage: from theauditor.rules.common.util import calculate_entropy
 """
 
 from theauditor.rules.common.util import (
-    calculate_entropy,
+    KEYBOARD_CONFIG,
+    PATTERN_CONFIG,
+    Base64Validator,
     EntropyCalculator,
     EntropyLevel,
-    is_sequential,
-    is_keyboard_walk,
-    PatternDetector,
-    decode_and_verify_base64,
-    Base64Validator,
-    PatternConfig,
     KeyboardPatterns,
-    PATTERN_CONFIG,
-    KEYBOARD_CONFIG,
+    PatternConfig,
+    PatternDetector,
+    calculate_entropy,
+    decode_and_verify_base64,
+    is_keyboard_walk,
+    is_sequential,
 )
 
 __all__ = [

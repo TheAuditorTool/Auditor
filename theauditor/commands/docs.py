@@ -1,8 +1,9 @@
 """Fetch or summarize documentation for dependencies."""
 
 import json
-import click
 from pathlib import Path
+
+import click
 
 
 @click.command("docs")
@@ -202,7 +203,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
     only, enabling air-gapped development after initial fetch.
     """
     from theauditor.deps import parse_dependencies
-    from theauditor.docs_fetch import fetch_docs, DEFAULT_ALLOWLIST
+    from theauditor.docs_fetch import DEFAULT_ALLOWLIST, fetch_docs
 
     try:
         if action == "fetch":
@@ -240,7 +241,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                 if result["mode"] == "offline":
                     click.echo("Running in offline mode - no documentation fetched")
                 else:
-                    click.echo(f"Documentation fetch complete:")
+                    click.echo("Documentation fetch complete:")
                     click.echo(f"  Fetched: {result['fetched']}")
                     click.echo(f"  Cached: {result['cached']}")
                     click.echo(f"  Skipped: {result['skipped']}")

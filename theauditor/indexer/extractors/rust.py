@@ -47,8 +47,8 @@ class RustExtractor(BaseExtractor):
             return self._parser
 
         try:
-            from tree_sitter import Language, Parser
             import tree_sitter_rust as ts_rust
+            from tree_sitter import Language, Parser
 
             self._parser = Parser()
 
@@ -170,7 +170,7 @@ class RustExtractor(BaseExtractor):
 
         except Exception as e:
             logger.error(f"Rust extraction failed for {file_info['path']}: {e}")
-            logger.debug(f"Full traceback:", exc_info=True)
+            logger.debug("Full traceback:", exc_info=True)
 
             counts = {k: len(v) if isinstance(v, (list, dict)) else 0 for k, v in result.items()}
             logger.warning(

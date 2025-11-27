@@ -14,7 +14,6 @@ schema columns were invented without verifying actual extractor outputs.
 """
 
 import logging
-from typing import Dict
 
 from .exceptions import DataFidelityError
 
@@ -22,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 def reconcile_fidelity(
-    manifest: Dict[str, int], receipt: Dict[str, int], file_path: str, strict: bool = True
-) -> Dict[str, any]:
+    manifest: dict[str, int], receipt: dict[str, int], file_path: str, strict: bool = True
+) -> dict[str, any]:
     """Compare extraction manifest (what was found) vs storage receipt (what was saved).
 
     This is the core enforcement mechanism for data fidelity. It detects:
@@ -46,8 +45,8 @@ def reconcile_fidelity(
         DataFidelityError: If strict=True and data loss is detected.
     """
 
-    tables = {k for k in manifest.keys() if not k.startswith("_")}
-    tables.update({k for k in receipt.keys() if not k.startswith("_")})
+    tables = {k for k in manifest if not k.startswith("_")}
+    tables.update({k for k in receipt if not k.startswith("_")})
 
     errors = []
     warnings = []

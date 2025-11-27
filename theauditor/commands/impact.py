@@ -1,9 +1,9 @@
 """Analyze the impact radius of code changes using the AST symbol graph."""
 
 import platform
-import click
 from pathlib import Path
 
+import click
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -145,9 +145,10 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
     analyze_impact = impact_module.analyze_impact
     format_impact_report = impact_module.format_impact_report
     format_planning_context = impact_module.format_planning_context
-    from theauditor.config_runtime import load_runtime_config
     import json as json_lib
     import sqlite3
+
+    from theauditor.config_runtime import load_runtime_config
 
     config = load_runtime_config(".")
 

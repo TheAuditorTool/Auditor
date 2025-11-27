@@ -22,8 +22,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from theauditor.js_semantic_parser import get_semantic_ast_batch
 from theauditor.ast_patterns import ASTPatternMixin
+from theauditor.js_semantic_parser import get_semantic_ast_batch
 
 
 @dataclass
@@ -139,11 +139,7 @@ class ASTParser(ASTPatternMixin):
         )
         has_go = Path("go.mod").exists()
 
-        if has_js and has_python:
-            self.project_type = "polyglot"
-        elif has_js and has_go:
-            self.project_type = "polyglot"
-        elif has_python and has_go:
+        if has_js and has_python or has_js and has_go or has_python and has_go:
             self.project_type = "polyglot"
         elif has_js:
             self.project_type = "javascript"

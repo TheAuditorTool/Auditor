@@ -100,7 +100,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             click.echo(f"[ARCHIVE] Skipped {skipped_count} items due to errors")
     else:
         if preserved_count > 0:
-            click.echo(f"[ARCHIVE] No artifacts to archive (only caches remain)")
+            click.echo("[ARCHIVE] No artifacts to archive (only caches remain)")
         else:
             click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
 

@@ -20,8 +20,8 @@ Migration path:
 """
 
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, UTC
 
 from .shadow_git import ShadowRepoManager
 

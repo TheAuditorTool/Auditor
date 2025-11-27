@@ -9,10 +9,10 @@ legacy TerraformFinding format plus database dual-writes.
 
 import json
 import sqlite3
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, Severity
+from theauditor.rules.base import Severity, StandardRuleContext
 from theauditor.rules.terraform.terraform_analyze import find_terraform_issues
 
 from ..utils.logger import setup_logger
@@ -80,7 +80,7 @@ class TerraformAnalyzer:
         )
 
     def _convert_findings(self, standard_findings) -> list[TerraformFinding]:
-        terraform_findings: list["TerraformFinding"] = []
+        terraform_findings: list[TerraformFinding] = []
 
         for finding in standard_findings:
             additional = getattr(finding, "additional_info", None) or {}
@@ -114,19 +114,19 @@ class TerraformAnalyzer:
             return severity_value.value
         return str(severity_value).lower()
 
-    def _filter_by_severity(self, findings: list["TerraformFinding"]) -> list[TerraformFinding]:
+    def _filter_by_severity(self, findings: list[TerraformFinding]) -> list[TerraformFinding]:
         if self.severity_filter == "all":
             return findings
 
         min_severity = self.severity_order.get(self.severity_filter, 999)
         return [f for f in findings if self.severity_order.get(f.severity, 999) <= min_severity]
 
-    def _write_findings(self, findings: list["TerraformFinding"]):
+    def _write_findings(self, findings: list[TerraformFinding]):
         """Write findings to both terraform_findings and consolidated tables."""
         if not findings:
             return
 
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()

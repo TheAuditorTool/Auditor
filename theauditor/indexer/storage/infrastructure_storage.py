@@ -10,6 +10,7 @@ Handler Count: 11
 """
 
 import json
+
 from .base import BaseStorage
 
 
@@ -144,7 +145,8 @@ class InfrastructureStorage(BaseStorage):
 
     def _store_graphql_types(self, file_path: str, graphql_types: list, jsx_pass: bool):
         """Store GraphQL type definition records."""
-        import os, sys
+        import os
+        import sys
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
             print(

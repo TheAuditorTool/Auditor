@@ -13,9 +13,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)

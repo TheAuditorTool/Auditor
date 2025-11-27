@@ -11,10 +11,10 @@ Stores results to session_executions table via SessionExecutionStore.
 import logging
 from pathlib import Path
 
-from theauditor.session.parser import Session
 from theauditor.session.diff_scorer import DiffScorer
+from theauditor.session.parser import Session
+from theauditor.session.store import SessionExecution, SessionExecutionStore
 from theauditor.session.workflow_checker import WorkflowChecker
-from theauditor.session.store import SessionExecutionStore, SessionExecution
 
 logger = logging.getLogger(__name__)
 

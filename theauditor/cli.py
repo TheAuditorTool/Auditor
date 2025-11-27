@@ -5,8 +5,8 @@ import subprocess
 import sys
 
 import click
-from theauditor import __version__
 
+from theauditor import __version__
 
 if platform.system() == "Windows":
     try:
@@ -265,60 +265,47 @@ def cli():
     pass
 
 
-from theauditor.commands.init import init
-from theauditor.commands.index import index
-from theauditor.commands.workset import workset
-from theauditor.commands.lint import lint
+from theauditor.commands._archive import _archive
+from theauditor.commands.blueprint import blueprint
+from theauditor.commands.boundaries import boundaries
+from theauditor.commands.cdk import cdk
+from theauditor.commands.cfg import cfg
+from theauditor.commands.context import context_command
+from theauditor.commands.deadcode import deadcode
 from theauditor.commands.deps import deps
-from theauditor.commands.report import report
-from theauditor.commands.summary import summary
+from theauditor.commands.detect_frameworks import detect_frameworks
+from theauditor.commands.detect_patterns import detect_patterns
+from theauditor.commands.docker_analyze import docker_analyze
+from theauditor.commands.docs import docs
+from theauditor.commands.explain import explain
+from theauditor.commands.fce import fce
+from theauditor.commands.full import full
 from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
-from theauditor.commands.cfg import cfg
-from theauditor.commands.full import full
-from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
-from theauditor.commands.taint import taint_analyze
-from theauditor.commands.boundaries import boundaries
-from theauditor.commands.setup import setup_ai
-from theauditor.commands.manual import manual
-
-
-from theauditor.commands.detect_patterns import detect_patterns
-from theauditor.commands.detect_frameworks import detect_frameworks
-from theauditor.commands.docs import docs
-from theauditor.commands.tool_versions import tool_versions
-from theauditor.commands.init_js import init_js
+from theauditor.commands.index import index
+from theauditor.commands.init import init
 from theauditor.commands.init_config import init_config
-from theauditor.commands.planning import planning
-
-
-from theauditor.commands.ml import learn, suggest, learn_feedback
-
-
-from theauditor.commands._archive import _archive
-
-
-from theauditor.commands.rules import rules_command
-
-
-from theauditor.commands.refactor import refactor_command
+from theauditor.commands.init_js import init_js
 from theauditor.commands.insights import insights_command
-from theauditor.commands.context import context_command
-from theauditor.commands.query import query
-from theauditor.commands.blueprint import blueprint
-from theauditor.commands.explain import explain
-
-
-from theauditor.commands.docker_analyze import docker_analyze
-from theauditor.commands.structure import structure
+from theauditor.commands.lint import lint
+from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
-from theauditor.commands.terraform import terraform
-from theauditor.commands.cdk import cdk
-from theauditor.commands.workflows import workflows
-from theauditor.commands.deadcode import deadcode
+from theauditor.commands.ml import learn, learn_feedback, suggest
+from theauditor.commands.planning import planning
+from theauditor.commands.query import query
+from theauditor.commands.refactor import refactor_command
+from theauditor.commands.report import report
+from theauditor.commands.rules import rules_command
 from theauditor.commands.session import session
-
+from theauditor.commands.setup import setup_ai
+from theauditor.commands.structure import structure
+from theauditor.commands.summary import summary
+from theauditor.commands.taint import taint_analyze
+from theauditor.commands.terraform import terraform
+from theauditor.commands.tool_versions import tool_versions
+from theauditor.commands.workflows import workflows
+from theauditor.commands.workset import workset
 
 init.hidden = True
 index.hidden = True

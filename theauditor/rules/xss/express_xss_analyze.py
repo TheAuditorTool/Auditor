@@ -6,8 +6,7 @@ Uses database-only approach with framework awareness.
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="express_xss",
@@ -330,7 +329,7 @@ def _check_cookie_injection(conn) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.MEDIUM,
                     category="xss",
-                    snippet=f'res.cookie("name", req.body.value)',
+                    snippet='res.cookie("name", req.body.value)',
                     cwe_id="CWE-79",
                 )
             )

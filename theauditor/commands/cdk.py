@@ -6,6 +6,7 @@ infrastructure security misconfigurations before deployment.
 
 import json
 from pathlib import Path
+
 import click
 
 from ..utils.logger import setup_logger

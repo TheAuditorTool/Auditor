@@ -21,15 +21,15 @@ False positive fixes (2025-11-22):
 
 import re
 import sqlite3
-from functools import lru_cache
 from enum import Enum
+from functools import lru_cache
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
 
 METADATA = RuleMetadata(

@@ -34,7 +34,6 @@ Python string constants with f-string injection points.
 from pathlib import Path
 from typing import Literal
 
-
 _JS_CACHE = {
     "core_language": None,
     "data_flow": None,

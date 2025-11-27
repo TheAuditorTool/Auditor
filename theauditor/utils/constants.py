@@ -6,7 +6,6 @@ and configuration values used across utility modules.
 
 from pathlib import Path
 
-
 PF_DIR = Path("./.pf")
 
 

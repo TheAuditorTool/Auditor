@@ -12,7 +12,6 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-
 IS_WINDOWS = platform.system() == "Windows"
 
 

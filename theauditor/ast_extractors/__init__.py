@@ -20,9 +20,9 @@ Example flow:
 WHY: Single source of truth for file paths, prevents architectural violations.
 """
 
-from . import python as python_impl, typescript_impl, treesitter_impl
+from . import python as python_impl
+from . import treesitter_impl, typescript_impl
 from .base import detect_language
-
 
 try:
     from ..js_semantic_parser import get_semantic_ast_batch

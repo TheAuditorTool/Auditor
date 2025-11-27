@@ -12,9 +12,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def _check_public_read_access(cursor) -> list[StandardFinding]:
                     confidence="high",
                     file_path=row["file_path"],
                     line=prop_row["line"],
-                    snippet=f"public_read_access=True",
+                    snippet="public_read_access=True",
                     category="public_exposure",
                     cwe_id="CWE-732",
                     additional_info={

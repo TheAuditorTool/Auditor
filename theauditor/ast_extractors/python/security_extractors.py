@@ -21,12 +21,11 @@ All functions here:
 File path context is provided by the INDEXER layer when storing to database.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
 
@@ -100,9 +99,11 @@ def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
                 permissions = None
                 if isinstance(dec, ast.Call) and dec.args:
                     first_arg = dec.args[0]
-                    if isinstance(first_arg, ast.Constant):
-                        permissions = first_arg.value
-                    elif isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        or isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                    ):
                         permissions = first_arg.value
 
                 auth_patterns.append(
@@ -269,9 +270,12 @@ def extract_command_injection_patterns(context: FileContext) -> list[dict[str, A
             shell_true = False
             for keyword in node.keywords:
                 if keyword.arg == "shell":
-                    if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
-                        shell_true = True
-                    elif isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                    if (
+                        isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is True
+                        or isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is True
+                    ):
                         shell_true = True
 
             if shell_true:

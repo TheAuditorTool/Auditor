@@ -15,9 +15,9 @@ Database Tables Used:
 
 import json
 import sqlite3
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="peer_conflicts",
@@ -143,9 +143,7 @@ def _has_major_version_mismatch(requirement: str, actual: str) -> bool:
         actual_clean = actual.lstrip("vV").split(".")[0]
         actual_major = int(actual_clean)
 
-        if requirement.startswith("^"):
-            return actual_major != req_major
-        elif requirement.startswith("~"):
+        if requirement.startswith("^") or requirement.startswith("~"):
             return actual_major != req_major
         elif requirement.startswith(">="):
             return actual_major < req_major

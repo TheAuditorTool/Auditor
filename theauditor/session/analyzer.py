@@ -3,13 +3,12 @@
 import json
 import re
 import sqlite3
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass, field
-from collections import Counter, defaultdict
 
 from .parser import Session
-
 
 COMMENT_REFERENCE_PATTERNS = [
     r"(?:this|the|that)\s+comment\s+(?:says?|said|states?|stated|indicates?|indicated|explains?|explained|mentions?|mentioned|suggests?|suggested)",
@@ -89,7 +88,7 @@ class SessionAnalyzer:
 
         return stats, findings
 
-    def _compute_stats(self, session: Session) -> "SessionStats":
+    def _compute_stats(self, session: Session) -> SessionStats:
         """Compute basic statistics about the session."""
         tool_counts = Counter(call.tool_name for call in session.all_tool_calls)
 

@@ -40,11 +40,11 @@ def lint_command(
 
     if print_plan:
         print("Lint Plan:")
-        print(f"  Mode: CHECK-ONLY")
+        print("  Mode: CHECK-ONLY")
         if workset_files:
             print(f"  Workset: {len(workset_files)} files")
         else:
-            print(f"  Scope: All source files")
+            print("  Scope: All source files")
         print("  Linters: ESLint, Ruff, Mypy")
         print("  Output: .pf/raw/lint.json + findings_consolidated table")
         return {"success": True, "printed_plan": True}
@@ -76,8 +76,8 @@ def lint_command(
     print(f"  Total findings: {stats['total_findings']}")
     print(f"  Errors: {stats['errors']}")
     print(f"  Warnings: {stats['warnings']}")
-    print(f"  Output: .pf/raw/lint.json")
-    print(f"  Database: findings written to findings_consolidated table")
+    print("  Output: .pf/raw/lint.json")
+    print("  Database: findings written to findings_consolidated table")
 
     return {
         "success": True,

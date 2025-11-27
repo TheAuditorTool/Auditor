@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+
 import click
+
 from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -230,7 +232,7 @@ def graphql_viz(db, output, format, type_filter):
     visualizer = GraphQLVisualizer(db_path)
 
     try:
-        click.echo(f"Generating GraphQL visualization...")
+        click.echo("Generating GraphQL visualization...")
         visualizer.generate(output_path=output, output_format=format, type_filter=type_filter)
         click.echo(f"Visualization saved to {output}")
         return 0

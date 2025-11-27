@@ -1,14 +1,16 @@
 """Analyze security boundary enforcement across entry points."""
 
-import sys
 import json
-import click
+import sys
 from pathlib import Path
-from theauditor.utils.error_handler import handle_exceptions
+
+import click
+
 from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
     generate_report,
 )
+from theauditor.utils.error_handler import handle_exceptions
 
 
 @click.command("boundaries")

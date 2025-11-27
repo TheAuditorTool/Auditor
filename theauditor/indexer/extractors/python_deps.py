@@ -9,13 +9,11 @@ Stores in python_package_configs table for fast dependency checking.
 
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from . import BaseExtractor
-
-
-import tomllib
 
 
 def _parse_dep_spec(spec: str) -> dict[str, str]:

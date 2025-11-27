@@ -25,8 +25,8 @@ Examples of Violations:
 """
 
 import sqlite3
-from theauditor.boundaries.distance import find_all_paths_to_controls, measure_boundary_quality
 
+from theauditor.boundaries.distance import find_all_paths_to_controls, measure_boundary_quality
 
 VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schema", "validator"]
 

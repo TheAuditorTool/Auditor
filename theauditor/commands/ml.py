@@ -1,7 +1,8 @@
 """Machine learning commands for TheAuditor."""
 
-import click
 from pathlib import Path
+
+import click
 
 
 @click.command(name="learn")
@@ -236,8 +237,8 @@ def learn(
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
 
     if session_analysis and session_dir:
-        import sqlite3
         import json
+        import sqlite3
 
         click.echo("[SESSION] Analyzing AI agent behavior from session logs...")
 
@@ -364,14 +365,14 @@ def learn(
 
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo(f"[OK] Models trained successfully")
+        click.echo("[OK] Models trained successfully")
         click.echo(f"  * Training data: {train_on} runs from history")
         click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
         click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
         click.echo(f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}")
         click.echo(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}")
         if stats.get("cold_start"):
-            click.echo(f"  [WARN] Cold-start mode (<500 samples)")
+            click.echo("  [WARN] Cold-start mode (<500 samples)")
         click.echo(f"  * Models saved to: {result.get('model_dir')}")
     else:
         click.echo(f"[FAIL] Training failed: {result.get('error')}", err=True)
@@ -580,7 +581,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     )
 
     if result.get("success"):
-        click.echo(f"[OK] Suggestions generated")
+        click.echo("[OK] Suggestions generated")
         click.echo(f"  * Workset size: {result.get('workset_size', 0)} files")
         click.echo(f"  * Source files analyzed: {result.get('workset_size', 0)}")
         click.echo(f"  * Non-source excluded: {result.get('excluded_count', 0)}")
@@ -828,14 +829,14 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
 
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo(f"[OK] Models re-trained with human feedback")
+        click.echo("[OK] Models re-trained with human feedback")
         click.echo(f"  * Training data: {train_on} runs from history")
         click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
         click.echo(f"  * Human feedback incorporated: {feedback_count} files")
         click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
         click.echo(f"  * Models saved to: {result.get('model_dir')}")
         click.echo(
-            f"\n[TIP] The models have learned from your feedback and will provide more accurate predictions."
+            "\n[TIP] The models have learned from your feedback and will provide more accurate predictions."
         )
     else:
         click.echo(f"[FAIL] Re-training failed: {result.get('error')}", err=True)

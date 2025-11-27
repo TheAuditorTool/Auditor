@@ -140,11 +140,11 @@ class SchemaCodeGenerator:
 
             col_names = [col.name for col in schema.columns]
             col_list_str = str(col_names)
-            code.append(f"    @staticmethod")
-            code.append(f"    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:")
+            code.append("    @staticmethod")
+            code.append("    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:")
             code.append(f'        """Get all rows from {table_name}."""')
             code.append(f"        query = build_query('{table_name}', {col_list_str})")
-            code.append(f"        cursor.execute(query)")
+            code.append("        cursor.execute(query)")
             code.append(
                 f"        return [dict(zip({col_list_str}, row, strict=True)) for row in cursor.fetchall()]"
             )
@@ -157,7 +157,7 @@ class SchemaCodeGenerator:
                     col_def = next((c for c in schema.columns if c.name == col_name), None)
                     if col_def:
                         param_type = cls._python_type(col_def.type)
-                        code.append(f"    @staticmethod")
+                        code.append("    @staticmethod")
                         code.append(
                             f"    def get_by_{col_name}(cursor: sqlite3.Cursor, {col_name}: {param_type}) -> list[dict[str, Any]]:"
                         )
@@ -286,7 +286,7 @@ class SchemaCodeGenerator:
         code.append("        def wrapper(*args, **kwargs) -> Any:")
         code.append("            # Get the table schema")
         code.append("            if table_name not in TABLES:")
-        code.append(f"                raise ValueError(f'Unknown table: {{table_name}}')")
+        code.append("                raise ValueError(f'Unknown table: {table_name}')")
         code.append("            ")
         code.append("            schema = TABLES[table_name]")
         code.append(
@@ -297,7 +297,7 @@ class SchemaCodeGenerator:
         code.append("            for col_name in required_cols:")
         code.append("                if col_name not in kwargs:")
         code.append(
-            f"                    raise ValueError(f'Missing required column {{col_name}} for table {{table_name}}')"
+            "                    raise ValueError(f'Missing required column {col_name} for table {table_name}')"
         )
         code.append("            ")
         code.append("            return func(*args, **kwargs)")
@@ -308,7 +308,7 @@ class SchemaCodeGenerator:
         code.append("def validate_column_types(table_name: str, data: dict[str, Any]) -> None:")
         code.append('    """Validate column types match schema."""')
         code.append("    if table_name not in TABLES:")
-        code.append(f"        raise ValueError(f'Unknown table: {{table_name}}')")
+        code.append("        raise ValueError(f'Unknown table: {table_name}')")
         code.append("    ")
         code.append("    schema = TABLES[table_name]")
         code.append("    for col in schema.columns:")
@@ -319,21 +319,21 @@ class SchemaCodeGenerator:
         code.append("                expected_type = SchemaCodeGenerator._python_type(col.type)")
         code.append("                if expected_type == 'int' and not isinstance(value, int):")
         code.append(
-            f"                    raise TypeError(f'Column {{col.name}} expects int, got {{type(value).__name__}}')"
+            "                    raise TypeError(f'Column {col.name} expects int, got {type(value).__name__}')"
         )
         code.append("                elif expected_type == 'str' and not isinstance(value, str):")
         code.append(
-            f"                    raise TypeError(f'Column {{col.name}} expects str, got {{type(value).__name__}}')"
+            "                    raise TypeError(f'Column {col.name} expects str, got {type(value).__name__}')"
         )
         code.append(
             "                elif expected_type == 'float' and not isinstance(value, (int, float)):"
         )
         code.append(
-            f"                    raise TypeError(f'Column {{col.name}} expects float, got {{type(value).__name__}}')"
+            "                    raise TypeError(f'Column {col.name} expects float, got {type(value).__name__}')"
         )
         code.append("                elif expected_type == 'bool' and not isinstance(value, bool):")
         code.append(
-            f"                    raise TypeError(f'Column {{col.name}} expects bool, got {{type(value).__name__}}')"
+            "                    raise TypeError(f'Column {col.name} expects bool, got {type(value).__name__}')"
         )
 
         return "\n".join(code)

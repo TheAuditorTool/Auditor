@@ -13,11 +13,10 @@ import shlex
 import sqlite3
 import subprocess
 from collections import defaultdict, deque
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-from collections.abc import Callable
 
 from theauditor.test_frameworks import detect_test_framework
 from theauditor.utils.temp_manager import TempManager
@@ -936,16 +935,12 @@ def run_fce(
                                 error_msg = "Import failed"
 
                                 for line in error_lines:
-                                    if "ModuleNotFoundError:" in line:
-                                        error_msg = line.strip()
-                                        break
-                                    elif "ImportError:" in line:
-                                        error_msg = line.strip()
-                                        break
-                                    elif "SyntaxError:" in line:
-                                        error_msg = line.strip()
-                                        break
-                                    elif "AttributeError:" in line:
+                                    if (
+                                        "ModuleNotFoundError:" in line
+                                        or "ImportError:" in line
+                                        or "SyntaxError:" in line
+                                        or "AttributeError:" in line
+                                    ):
                                         error_msg = line.strip()
                                         break
 
@@ -1558,7 +1553,7 @@ def run_fce(
     else:
         print("[FCE] Skipping path correlation - database not found")
 
-    from theauditor.utils.finding_priority import sort_findings, normalize_severity
+    from theauditor.utils.finding_priority import normalize_severity, sort_findings
 
     if results.get("all_findings"):
         for finding in results["all_findings"]:

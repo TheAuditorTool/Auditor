@@ -5,7 +5,7 @@ The journal tracks all pipeline events, file touches, and results for ML trainin
 """
 
 import json
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -397,7 +397,7 @@ class JournalReader:
         return failures[:limit]
 
 
-def get_journal_writer(run_type: str = "full") -> "JournalWriter":
+def get_journal_writer(run_type: str = "full") -> JournalWriter:
     """Get a journal writer for the current run.
 
     Args:

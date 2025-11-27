@@ -6,8 +6,7 @@ Uses database-only approach with React component awareness.
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="react_xss",

@@ -4,10 +4,10 @@ Truth courier mode: Shows facts about code architecture with NO recommendations.
 Supports drill-down flags for specific analysis areas.
 """
 
-import sqlite3
 import json
-from pathlib import Path
+import sqlite3
 from collections import defaultdict
+from pathlib import Path
 
 import click
 
@@ -804,7 +804,7 @@ def _show_top_level_overview(data: dict):
     lines.append(f"  ├─ Files indexed: {perf['files_indexed']:,}")
     lines.append(f"  ├─ Symbols extracted: {perf['symbols_extracted']:,}")
     lines.append(f"  ├─ Database size: {perf['db_size_mb']} MB")
-    lines.append(f"  └─ Query time: <10ms")
+    lines.append("  └─ Query time: <10ms")
     lines.append("")
 
     lines.append("━" * 80)
@@ -977,8 +977,8 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     click.echo(f"  Total files: {total_files:,}")
     click.echo(f"  Estimated tokens: ~{estimated_tokens:,} tokens")
     if estimated_tokens > 100000:
-        click.echo(f"  ⚠ Exceeds single LLM context window")
-        click.echo(f"  → Use 'aud query' for targeted analysis instead of reading all files")
+        click.echo("  ⚠ Exceeds single LLM context window")
+        click.echo("  → Use 'aud query' for targeted analysis instead of reading all files")
 
     click.echo("\nMigration Paths Detected:")
     migration_paths = [d for d in by_dir.keys() if "migration" in d.lower()]
@@ -1012,7 +1012,7 @@ def _show_graph_drilldown(data: dict):
 
     if data["import_graph"]:
         imp = data["import_graph"]
-        click.echo(f"\nImport Graph Summary:")
+        click.echo("\nImport Graph Summary:")
         click.echo(f"  Total imports: {imp['total']:,}")
         click.echo(f"  External dependencies: {imp['external']:,}")
         click.echo(f"  Internal imports: {imp['internal']:,}")
@@ -1044,8 +1044,8 @@ def _show_graph_drilldown(data: dict):
     click.echo("\nCircular Dependencies:")
     if imp["circular"] > 0:
         click.echo(f"  ⚠ {imp['circular']} cycles detected")
-        click.echo(f"  → Use 'aud graph analyze' for cycle detection")
-        click.echo(f"  → Use 'aud graph viz --view cycles' for visual diagram")
+        click.echo("  → Use 'aud graph analyze' for cycle detection")
+        click.echo("  → Use 'aud graph viz --view cycles' for visual diagram")
     else:
         click.echo("  ✓ No circular dependencies detected (clean architecture)")
 
@@ -1091,7 +1091,7 @@ def _show_security_drilldown(data: dict, cursor):
         )
 
     if unprotected > 0:
-        click.echo(f"\n  Unprotected Endpoints (showing first 10):")
+        click.echo("\n  Unprotected Endpoints (showing first 10):")
         try:
             cursor.execute("""
                 SELECT ae.method, ae.path, ae.file, ae.line, ae.handler_function
@@ -1114,7 +1114,7 @@ def _show_security_drilldown(data: dict, cursor):
             if unprotected > 10:
                 click.echo(f"    ... {unprotected - 10} more unprotected endpoints")
                 click.echo(
-                    f"    → Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list"
+                    "    → Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list"
                 )
         except Exception:
             pass
@@ -1132,9 +1132,9 @@ def _show_security_drilldown(data: dict, cursor):
     click.echo(f"\n  Password Handling: {sec['password']} operations")
 
     if jwt_total > 0 and oauth_total > 0:
-        click.echo(f"\n  ⚠ MIGRATION IN PROGRESS?")
-        click.echo(f"    Both JWT and OAuth detected - possible auth migration")
-        click.echo(f"    → Use 'aud context --file auth_migration.yaml' to track progress")
+        click.echo("\n  ⚠ MIGRATION IN PROGRESS?")
+        click.echo("    Both JWT and OAuth detected - possible auth migration")
+        click.echo("    → Use 'aud context --file auth_migration.yaml' to track progress")
 
     click.echo("\nHardcoded Secrets:")
     try:
@@ -1144,11 +1144,11 @@ def _show_security_drilldown(data: dict, cursor):
         secret_count = cursor.fetchone()[0]
         if secret_count > 0:
             click.echo(f"  ⚠ {secret_count} potential hardcoded secrets detected")
-            click.echo(f"  -> Use 'aud query --symbol <func> --show-code' for details")
+            click.echo("  -> Use 'aud query --symbol <func> --show-code' for details")
         else:
-            click.echo(f"  ✓ No hardcoded secrets detected")
+            click.echo("  ✓ No hardcoded secrets detected")
     except Exception:
-        click.echo(f"  (No secret scan data available)")
+        click.echo("  (No secret scan data available)")
 
     click.echo("\nSQL Injection Risk:")
     sql_total = sec["sql_queries"]["total"]
@@ -1164,17 +1164,17 @@ def _show_security_drilldown(data: dict, cursor):
 
         if sql_raw > 0:
             click.echo(f"\n  ⚠ High Risk: {sql_raw} dynamic SQL queries detected")
-            click.echo(f"  → Use 'aud query --category sql --format json' for full analysis")
+            click.echo("  → Use 'aud query --category sql --format json' for full analysis")
     else:
-        click.echo(f"  ✓ No SQL queries detected (or using ORM)")
+        click.echo("  ✓ No SQL queries detected (or using ORM)")
 
     try:
         cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method = 'POST'")
         post_count = cursor.fetchone()[0]
         if post_count > 0:
-            click.echo(f"\nCSRF Protection:")
+            click.echo("\nCSRF Protection:")
             click.echo(f"  POST endpoints: {post_count}")
-            click.echo(f"  → Manual review required for CSRF token validation")
+            click.echo("  → Manual review required for CSRF token validation")
     except Exception:
         pass
 
@@ -1226,14 +1226,14 @@ def _show_taint_drilldown(data: dict, cursor):
             for i, row in enumerate(sources, 1):
                 click.echo(f"  {i}. {row['source_var_name']} ({row['usage_count']} locations)")
         else:
-            click.echo(f"  (No common taint sources detected in junction tables)")
+            click.echo("  (No common taint sources detected in junction tables)")
     except Exception as e:
         click.echo(f"  (Could not query taint sources: {e})")
 
     click.echo(f"\nTaint Paths Detected: {df['taint_paths']}")
     click.echo(f"Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)")
 
-    click.echo(f"\nVulnerable Data Flows (showing first 5):")
+    click.echo("\nVulnerable Data Flows (showing first 5):")
     try:
         cursor.execute("""
             SELECT rule, category, file, line, message, severity
@@ -1267,13 +1267,13 @@ def _show_taint_drilldown(data: dict, cursor):
 
             if df["taint_paths"] > 5:
                 click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
-                click.echo(f"  -> Use 'aud taint-analyze --json' for full vulnerability details")
+                click.echo("  -> Use 'aud taint-analyze --json' for full vulnerability details")
         else:
-            click.echo(f"  (No taint findings in findings_consolidated table)")
+            click.echo("  (No taint findings in findings_consolidated table)")
     except Exception as e:
         click.echo(f"  (Could not query taint findings: {e})")
 
-    click.echo(f"\nSanitization Coverage:")
+    click.echo("\nSanitization Coverage:")
     try:
         cursor.execute("""
             SELECT COUNT(*) as sanitizer_count
@@ -1292,12 +1292,12 @@ def _show_taint_drilldown(data: dict, cursor):
                 coverage_pct = int((sanitizer_count / df["taint_paths"]) * 100)
                 click.echo(f"  ⚠ LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized")
         else:
-            click.echo(f"  ⚠ No sanitization functions detected")
+            click.echo("  ⚠ No sanitization functions detected")
             click.echo(f"  → {df['taint_paths']} taint paths with NO sanitization")
     except Exception:
-        click.echo(f"  (Could not analyze sanitization coverage)")
+        click.echo("  (Could not analyze sanitization coverage)")
 
-    click.echo(f"\nDynamic Dispatch Vulnerabilities:")
+    click.echo("\nDynamic Dispatch Vulnerabilities:")
     try:
         cursor.execute("""
             SELECT COUNT(*) as dispatch_count
@@ -1310,12 +1310,12 @@ def _show_taint_drilldown(data: dict, cursor):
 
         if dispatch_count > 0:
             click.echo(f"  ⚠ {dispatch_count} dynamic dispatch vulnerabilities detected")
-            click.echo(f"  → User can control which function executes (RCE risk)")
-            click.echo(f"  → Use 'aud query --category dynamic_dispatch' for locations")
+            click.echo("  → User can control which function executes (RCE risk)")
+            click.echo("  → Use 'aud query --category dynamic_dispatch' for locations")
         else:
-            click.echo(f"  ✓ No dynamic dispatch vulnerabilities detected")
+            click.echo("  ✓ No dynamic dispatch vulnerabilities detected")
     except Exception:
-        click.echo(f"  (Could not analyze dynamic dispatch)")
+        click.echo("  (Could not analyze dynamic dispatch)")
 
     click.echo("\nCross-Reference Commands:")
     click.echo("  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
@@ -1606,7 +1606,7 @@ def _show_boundaries_drilldown(data: dict, cursor):
 
     by_quality = bounds.get("by_quality", {})
 
-    click.echo(f"\nBoundary Quality Breakdown:")
+    click.echo("\nBoundary Quality Breakdown:")
     click.echo(f"  Clear (dist 0):      {by_quality.get('clear', 0):4d} - Validation at entry")
     click.echo(f"  Acceptable (1-2):    {by_quality.get('acceptable', 0):4d} - Validation nearby")
     click.echo(
@@ -1618,7 +1618,7 @@ def _show_boundaries_drilldown(data: dict, cursor):
     late = bounds.get("late_validation", 0)
 
     if missing > 0 or late > 0:
-        click.echo(f"\nRisk Summary:")
+        click.echo("\nRisk Summary:")
         if missing > 0:
             click.echo(f"  (!) {missing} entry points have NO validation control")
         if late > 0:
@@ -1626,7 +1626,7 @@ def _show_boundaries_drilldown(data: dict, cursor):
 
     entries = bounds.get("entries", [])
     if entries:
-        click.echo(f"\nTop Issues (by severity):")
+        click.echo("\nTop Issues (by severity):")
         for i, entry in enumerate(entries[:10], 1):
             quality = entry.get("quality", "unknown")
             distance = entry.get("distance")

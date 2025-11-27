@@ -10,7 +10,6 @@ limits SPEED (request frequency). You need both for polite scraping.
 import asyncio
 import time
 
-
 RATE_LIMIT_NPM = 0.05
 RATE_LIMIT_PYPI = 0.1
 RATE_LIMIT_DOCKER = 0.15

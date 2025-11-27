@@ -5,8 +5,8 @@ It provides pattern-based search capabilities across different AST types.
 """
 
 import ast
-from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .ast_parser import ASTMatch

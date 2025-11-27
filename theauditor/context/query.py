@@ -29,12 +29,11 @@ Usage:
 """
 
 import sqlite3
-from pathlib import Path
-from dataclasses import dataclass, asdict
 from collections import deque
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from theauditor.utils.helpers import normalize_path_for_db
-
 
 VALID_TABLES = {
     "symbols",

@@ -111,9 +111,12 @@ def _is_cdk_construct_call(node: ast.Call) -> bool:
         return False
 
     second_arg = node.args[1]
-    if isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
-        return True
-    elif isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
+    if (
+        isinstance(second_arg, ast.Constant)
+        and isinstance(second_arg.value, str)
+        or isinstance(second_arg, ast.Constant)
+        and isinstance(second_arg.value, str)
+    ):
         return True
 
     return False

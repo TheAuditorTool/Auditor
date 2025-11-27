@@ -12,14 +12,13 @@ import inspect
 import os
 import sqlite3
 import sys
-from pathlib import Path
-from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
-
+from pathlib import Path
+from typing import Any
 
 try:
-    from theauditor.rules.base import validate_rule_signature, convert_old_context
+    from theauditor.rules.base import convert_old_context, validate_rule_signature
 
     STANDARD_CONTRACTS_AVAILABLE = True
 except ImportError:
@@ -183,7 +182,7 @@ class RulesOrchestrator:
 
     def _analyze_rule(
         self, name: str, func: Callable, module_obj: Any, module_name: str, category: str
-    ) -> "RuleInfo":
+    ) -> RuleInfo:
         """Analyze a rule function to determine its requirements.
 
         Args:
@@ -281,7 +280,7 @@ class RulesOrchestrator:
             execution_scope=execution_scope,
         )
 
-    def run_all_rules(self, context: "RuleContext" | None = None) -> list[dict[str, Any]]:
+    def run_all_rules(self, context: RuleContext | None = None) -> list[dict[str, Any]]:
         """Execute ALL discovered rules with appropriate parameters.
 
         Args:
@@ -720,7 +719,7 @@ class RulesOrchestrator:
         """
 
         if not hasattr(self, "_taint_results"):
-            from theauditor.taint import trace_taint, TaintRegistry
+            from theauditor.taint import TaintRegistry, trace_taint
 
             registry = TaintRegistry()
             self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
@@ -815,7 +814,7 @@ class RulesOrchestrator:
                     module = importlib.import_module(module_name)
 
                     if hasattr(module, "register_taint_patterns"):
-                        register_func = getattr(module, "register_taint_patterns")
+                        register_func = module.register_taint_patterns
 
                         register_func(registry)
 
@@ -852,7 +851,7 @@ class RulesOrchestrator:
             A function that returns relevant taint paths
         """
         if self._taint_trace_func is None:
-            from theauditor.taint import trace_taint, TaintRegistry
+            from theauditor.taint import TaintRegistry, trace_taint
 
             if not hasattr(self, "_taint_results"):
                 registry = TaintRegistry()

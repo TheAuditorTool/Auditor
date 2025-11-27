@@ -18,9 +18,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,9 +146,7 @@ def _build_reusable_workflow_finding(
         StandardFinding object
     """
 
-    if is_mutable and secret_count > 0:
-        severity = Severity.HIGH
-    elif secret_count > 2:
+    if is_mutable and secret_count > 0 or secret_count > 2:
         severity = Severity.HIGH
     elif is_mutable:
         severity = Severity.MEDIUM

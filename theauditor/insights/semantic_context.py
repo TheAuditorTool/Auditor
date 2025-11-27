@@ -17,12 +17,12 @@ provides the infrastructure, but YOU define what's obsolete, current, or transit
 in YOUR codebase.
 """
 
-import re
 import json
+import re
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime, date
 
 import yaml
 
@@ -253,14 +253,14 @@ class SemanticContext:
         self.context_name: str = ""
         self.description: str = ""
         self.version: str = ""
-        self.obsolete_patterns: list["ContextPattern"] = []
-        self.current_patterns: list["ContextPattern"] = []
-        self.transitional_patterns: list["ContextPattern"] = []
+        self.obsolete_patterns: list[ContextPattern] = []
+        self.current_patterns: list[ContextPattern] = []
+        self.transitional_patterns: list[ContextPattern] = []
         self.relationships: list[dict[str, Any]] = []
         self.metadata: dict[str, Any] = {}
 
     @classmethod
-    def load(cls, yaml_path: Path) -> "SemanticContext":
+    def load(cls, yaml_path: Path) -> SemanticContext:
         """Load semantic context from YAML file.
 
         Args:
@@ -351,7 +351,7 @@ class SemanticContext:
 
         return instance
 
-    def classify_findings(self, findings: list[dict[str, Any]]) -> "ClassificationResult":
+    def classify_findings(self, findings: list[dict[str, Any]]) -> ClassificationResult:
         """Apply semantic context to findings.
 
         This is the core algorithm that applies your business logic to TheAuditor's
@@ -711,7 +711,7 @@ def _generate_file_recommendation(
             return f"Update {pattern_count} obsolete patterns (see details)"
 
 
-def load_semantic_context(yaml_path: Path) -> "SemanticContext":
+def load_semantic_context(yaml_path: Path) -> SemanticContext:
     """Helper function to load semantic context.
 
     Args:

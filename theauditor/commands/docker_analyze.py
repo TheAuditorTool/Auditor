@@ -1,8 +1,10 @@
 """Docker security analysis command."""
 
-import click
 import json
 from pathlib import Path
+
+import click
+
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 

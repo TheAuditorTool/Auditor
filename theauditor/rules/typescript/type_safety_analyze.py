@@ -14,14 +14,15 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
 """
 
-import sqlite3
 import logging
+import sqlite3
+
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
 
 logger = logging.getLogger(__name__)
@@ -764,12 +765,13 @@ def _find_type_mismatches(cursor, ts_files: set[str]) -> list[StandardFinding]:
         var_lower = var.lower()
         expr_lower = expr.lower()
 
-        if ("string" in var_lower and "number" in expr_lower) or (
-            "number" in var_lower and "string" in expr_lower
+        if (
+            ("string" in var_lower and "number" in expr_lower)
+            or ("number" in var_lower and "string" in expr_lower)
+            or "boolean" in var_lower
+            and "true" not in expr_lower
+            and "false" not in expr_lower
         ):
-            mismatches.append((file, line, var, expr))
-
-        elif "boolean" in var_lower and "true" not in expr_lower and "false" not in expr_lower:
             mismatches.append((file, line, var, expr))
 
     for file, line, var, expr in mismatches:

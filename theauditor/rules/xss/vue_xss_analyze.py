@@ -11,16 +11,13 @@ REFACTORED (2025-11-22):
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 from theauditor.rules.xss.constants import (
-    VUE_INPUT_SOURCES,
     VUE_COMPILE_METHODS,
+    VUE_INPUT_SOURCES,
     VUE_TARGET_EXTENSIONS,
     is_sanitized,
 )
-
 
 METADATA = RuleMetadata(
     name="vue_xss",
@@ -129,7 +126,7 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.MEDIUM,
                     category="xss",
-                    snippet=f"v-html with complex expression",
+                    snippet="v-html with complex expression",
                     cwe_id="CWE-79",
                 )
             )
@@ -358,7 +355,7 @@ def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFin
                     line=dir_line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f'v-html="props.content"',
+                    snippet='v-html="props.content"',
                     cwe_id="CWE-79",
                 )
             )

@@ -11,16 +11,13 @@ REFACTORED (2025-11-22):
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 from theauditor.rules.xss.constants import (
-    TEMPLATE_ENGINES,
-    TEMPLATE_COMPILE_FUNCTIONS,
     COMMON_INPUT_SOURCES,
+    TEMPLATE_COMPILE_FUNCTIONS,
+    TEMPLATE_ENGINES,
     TEMPLATE_TARGET_EXTENSIONS,
 )
-
 
 METADATA = RuleMetadata(
     name="template_injection",

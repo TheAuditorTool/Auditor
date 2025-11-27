@@ -2,7 +2,6 @@
 
 import click
 
-
 EXPLANATIONS: dict[str, dict[str, str]] = {
     "taint": {
         "title": "Taint Analysis",

@@ -9,7 +9,8 @@ Truth Courier Design: Reports facts about SQL patterns, not recommendations.
 import re
 import sqlite3
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:

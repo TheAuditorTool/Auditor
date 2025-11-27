@@ -18,7 +18,6 @@ from typing import Any
 
 from theauditor.events import PipelineObserver
 
-
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -126,7 +125,7 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> dic
                 "elapsed": time.time() - start_time,
             }
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print(f"[TIMEOUT] Command timed out after {timeout}s: {cmd[0]}", file=sys.stderr)
             process.kill()
             await process.wait()
@@ -182,7 +181,7 @@ async def run_chain_async(
     for description, cmd in commands:
         if is_stop_requested():
             failed = True
-            chain_output.append(f"[INTERRUPTED] Pipeline stopped by user")
+            chain_output.append("[INTERRUPTED] Pipeline stopped by user")
             break
 
         print(
@@ -311,19 +310,19 @@ async def run_full_pipeline(
     readthis_dir.mkdir(parents=True, exist_ok=True)
 
     if log_file:
-        log_file.write(f"TheAuditor Full Pipeline Execution Log\n")
+        log_file.write("TheAuditor Full Pipeline Execution Log\n")
         log_file.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         log_file.write(f"Working Directory: {Path(root).resolve()}\n")
         if index_only:
-            log_file.write(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)\n")
+            log_file.write("Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)\n")
         log_file.write("=" * 80 + "\n")
         log_file.flush()
 
-    log_lines.append(f"TheAuditor Full Pipeline Execution Log")
+    log_lines.append("TheAuditor Full Pipeline Execution Log")
     log_lines.append(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log_lines.append(f"Working Directory: {Path(root).resolve()}")
     if index_only:
-        log_lines.append(f"Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)")
+        log_lines.append("Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)")
     log_lines.append("=" * 80)
 
     from theauditor.cli import cli
@@ -454,7 +453,7 @@ async def run_full_pipeline(
                 command_array = [str(venv_aud), cmd_name] + extra_args
             else:
                 err1 = f"[ERROR] Sandbox not found at {venv_aud}"
-                err2 = f"[ERROR] Run 'aud setup-ai --target .' to create sandbox"
+                err2 = "[ERROR] Run 'aud setup-ai --target .' to create sandbox"
                 if observer:
                     observer.on_log(err1, is_error=True)
                     observer.on_log(err2, is_error=True)
@@ -516,55 +515,40 @@ async def run_full_pipeline(
     for phase_name, cmd in commands:
         cmd_str = " ".join(cmd)
 
-        if "index" in cmd_str:
-            foundation_commands.append((phase_name, cmd))
-        elif "detect-frameworks" in cmd_str:
+        if "index" in cmd_str or "detect-frameworks" in cmd_str:
             foundation_commands.append((phase_name, cmd))
 
-        elif "workset" in cmd_str:
-            data_prep_commands.append((phase_name, cmd))
-        elif "graph build-dfg" in cmd_str:
-            data_prep_commands.append((phase_name, cmd))
-        elif "graphql build" in cmd_str:
-            data_prep_commands.append((phase_name, cmd))
-        elif "terraform provision" in cmd_str:
+        elif (
+            "workset" in cmd_str
+            or "graph build-dfg" in cmd_str
+            or "graphql build" in cmd_str
+            or "terraform provision" in cmd_str
+        ):
             data_prep_commands.append((phase_name, cmd))
         elif "terraform analyze" in cmd_str:
             track_b_commands.append((phase_name, cmd))
-        elif "graph build" in cmd_str:
-            data_prep_commands.append((phase_name, cmd))
-        elif "cfg" in cmd_str:
-            data_prep_commands.append((phase_name, cmd))
-        elif "metadata" in cmd_str:
+        elif "graph build" in cmd_str or "cfg" in cmd_str or "metadata" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
 
         elif "taint" in cmd_str:
             track_a_commands.append((phase_name, cmd))
 
-        elif "lint" in cmd_str:
-            track_b_commands.append((phase_name, cmd))
-        elif "detect-patterns" in cmd_str:
-            track_b_commands.append((phase_name, cmd))
-        elif "graph analyze" in cmd_str:
-            track_b_commands.append((phase_name, cmd))
-        elif "graph viz" in cmd_str:
+        elif (
+            "lint" in cmd_str
+            or "detect-patterns" in cmd_str
+            or "graph analyze" in cmd_str
+            or "graph viz" in cmd_str
+            or "deps" in cmd_str
+            and "--vuln-scan" in cmd_str
+            and "--check-latest" not in cmd_str
+        ):
             track_b_commands.append((phase_name, cmd))
 
-        elif "deps" in cmd_str and "--vuln-scan" in cmd_str and "--check-latest" not in cmd_str:
-            track_b_commands.append((phase_name, cmd))
-
-        elif "deps" in cmd_str and "--check-latest" in cmd_str:
-            if not offline:
-                track_c_commands.append((phase_name, cmd))
-        elif "docs" in cmd_str:
+        elif "deps" in cmd_str and "--check-latest" in cmd_str or "docs" in cmd_str:
             if not offline:
                 track_c_commands.append((phase_name, cmd))
 
-        elif "fce" in cmd_str:
-            final_commands.append((phase_name, cmd))
-        elif "session" in cmd_str:
-            final_commands.append((phase_name, cmd))
-        elif "report" in cmd_str:
+        elif "fce" in cmd_str or "session" in cmd_str or "report" in cmd_str:
             final_commands.append((phase_name, cmd))
         else:
             final_commands.append((phase_name, cmd))
@@ -572,7 +556,7 @@ async def run_full_pipeline(
     if index_only:
         total_phases = len(foundation_commands) + len(data_prep_commands)
         mode_msg = f"\n[INDEX-ONLY MODE] Running {total_phases} phases (Stage 1 + 2)"
-        skip_msg = f"  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)"
+        skip_msg = "  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)"
         if observer:
             observer.on_log(mode_msg)
             observer.on_log(skip_msg)
@@ -745,7 +729,7 @@ async def run_full_pipeline(
 
                 if result["stderr"]:
                     if log_file:
-                        log_file.write(f"  [Full error output]:\n")
+                        log_file.write("  [Full error output]:\n")
                         log_file.write(f"  {result['stderr']}\n")
                         log_file.flush()
 
@@ -875,7 +859,7 @@ async def run_full_pipeline(
 
                     if result["stderr"]:
                         if log_file:
-                            log_file.write(f"  [Full error output]:\n")
+                            log_file.write("  [Full error output]:\n")
                             log_file.write(f"  {result['stderr']}\n")
                             log_file.flush()
 
@@ -973,12 +957,12 @@ async def run_full_pipeline(
 
                 def run_taint_sync():
                     """Run taint analysis synchronously (will be wrapped in thread)."""
-                    from theauditor.taint import trace_taint, save_taint_analysis, TaintRegistry
-                    from theauditor.utils.memory import get_recommended_memory_limit
                     from theauditor.rules.orchestrator import RulesOrchestrator
+                    from theauditor.taint import TaintRegistry, save_taint_analysis, trace_taint
+                    from theauditor.utils.memory import get_recommended_memory_limit
 
                     print(
-                        f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]",
+                        "[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]",
                         file=sys.stderr,
                     )
                     start_time = time.time()
@@ -987,7 +971,7 @@ async def run_full_pipeline(
                     db_path = Path(root) / ".pf" / "repo_index.db"
 
                     print(
-                        f"[TAINT] Initializing security analysis infrastructure...", file=sys.stderr
+                        "[TAINT] Initializing security analysis infrastructure...", file=sys.stderr
                     )
                     registry = TaintRegistry()
                     orchestrator = RulesOrchestrator(project_path=Path(root), db_path=db_path)
@@ -996,7 +980,7 @@ async def run_full_pipeline(
                     all_findings = []
 
                     print(
-                        f"[TAINT] Running infrastructure and configuration analysis...",
+                        "[TAINT] Running infrastructure and configuration analysis...",
                         file=sys.stderr,
                     )
                     infra_findings = orchestrator.run_standalone_rules()
@@ -1006,7 +990,7 @@ async def run_full_pipeline(
                         file=sys.stderr,
                     )
 
-                    print(f"[TAINT] Discovering framework-specific patterns...", file=sys.stderr)
+                    print("[TAINT] Discovering framework-specific patterns...", file=sys.stderr)
                     discovery_findings = orchestrator.run_discovery_rules(registry)
                     all_findings.extend(discovery_findings)
 
@@ -1016,7 +1000,7 @@ async def run_full_pipeline(
                         file=sys.stderr,
                     )
 
-                    print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
+                    print("[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
                     graph_db_path = Path(root) / ".pf" / "graphs.db"
                     result = trace_taint(
                         db_path=str(db_path),
@@ -1031,7 +1015,7 @@ async def run_full_pipeline(
                     taint_paths = result.get("taint_paths", result.get("paths", []))
 
                     if result.get("mode") == "complete":
-                        print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+                        print("[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
                         print(
                             f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths",
                             file=sys.stderr,
@@ -1046,7 +1030,7 @@ async def run_full_pipeline(
                             file=sys.stderr,
                         )
 
-                    print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
+                    print("[TAINT] Running advanced security analysis...", file=sys.stderr)
 
                     def taint_checker(var_name, line_num=None):
                         for path in taint_paths:
@@ -1134,7 +1118,7 @@ async def run_full_pipeline(
 
                     output_lines = [
                         f"\n{'=' * 60}",
-                        f"[Track A (Taint Analysis)] Taint analysis",
+                        "[Track A (Taint Analysis)] Taint analysis",
                         "=" * 60,
                         f"[OK] Taint analysis completed in {elapsed:.1f}s",
                         f"  Infrastructure issues: {len(infra_findings)}",
@@ -1144,12 +1128,12 @@ async def run_full_pipeline(
                         f"  Taint paths (IFDS): {len(taint_paths)}",
                         f"  Advanced security issues: {len(advanced_findings)}",
                         f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
-                        f"  Results saved to .pf/raw/taint_analysis.json",
+                        "  Results saved to .pf/raw/taint_analysis.json",
                         f"  Wrote {db_findings_count} findings to database for FCE",
                     ]
 
                     print(
-                        f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]",
+                        "[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]",
                         file=sys.stderr,
                     )
 
@@ -1445,7 +1429,7 @@ async def run_full_pipeline(
 
                 if result["stderr"]:
                     if log_file:
-                        log_file.write(f"  [Full error output]:\n")
+                        log_file.write("  [Full error output]:\n")
                         log_file.write(f"  {result['stderr']}\n")
                         log_file.flush()
 
@@ -1481,7 +1465,7 @@ async def run_full_pipeline(
                     file_size = Path(file_path).stat().st_size
                 f.write(f"- `{Path(file_path).name}` ({file_size:,} bytes)\n")
 
-        f.write(f"\n---\n")
+        f.write("\n---\n")
         f.write(
             f"Total execution time: {pipeline_elapsed:.1f} seconds ({pipeline_elapsed / 60:.1f} minutes)\n"
         )
@@ -1500,8 +1484,8 @@ async def run_full_pipeline(
     if index_only:
         if failed_phases == 0:
             write_summary(f"[OK] INDEX COMPLETE - All {total_phases} phases successful")
-            write_summary(f"[INFO] Database ready: .pf/repo_index.db + .pf/graphs.db")
-            write_summary(f"[INFO] Run 'aud full' for complete analysis (taint, patterns, fce)")
+            write_summary("[INFO] Database ready: .pf/repo_index.db + .pf/graphs.db")
+            write_summary("[INFO] Run 'aud full' for complete analysis (taint, patterns, fce)")
         else:
             write_summary(f"[WARN] INDEX INCOMPLETE - {failed_phases} phases failed")
     elif failed_phases == 0 and phases_with_warnings == 0:
@@ -1527,7 +1511,7 @@ async def run_full_pipeline(
     docs_files = [f for f in all_created_files if f.startswith(".pf/docs/")]
     root_files = [f for f in all_created_files if "/" not in f]
 
-    write_summary(f"\n[STATS] Summary:")
+    write_summary("\n[STATS] Summary:")
     write_summary(f"  Total files created: {len(all_created_files)}")
     write_summary(f"  .pf/ files: {len(pf_files)}")
     write_summary(f"  .pf/readthis/ files: {len(readthis_files)}")
@@ -1535,20 +1519,20 @@ async def run_full_pipeline(
         write_summary(f"  .pf/docs/ files: {len(docs_files)}")
     write_summary(f"  Root files: {len(root_files)}")
 
-    write_summary(f"\n[SAVED] Complete file list saved to: .pf/allfiles.md")
-    write_summary(f"\n[TIP] Key artifacts:")
+    write_summary("\n[SAVED] Complete file list saved to: .pf/allfiles.md")
+    write_summary("\n[TIP] Key artifacts:")
     if index_only:
-        write_summary(f"  * .pf/repo_index.db - Symbol database (queryable)")
-        write_summary(f"  * .pf/graphs.db - Call/data flow graphs")
-        write_summary(f"  * .pf/manifest.json - Project manifest")
-        write_summary(f"  * .pf/pipeline.log - Execution log")
+        write_summary("  * .pf/repo_index.db - Symbol database (queryable)")
+        write_summary("  * .pf/graphs.db - Call/data flow graphs")
+        write_summary("  * .pf/manifest.json - Project manifest")
+        write_summary("  * .pf/pipeline.log - Execution log")
     else:
-        write_summary(f"  * .pf/readthis/ - All AI-consumable chunks")
-        write_summary(f"  * .pf/allfiles.md - Complete file list")
-        write_summary(f"  * .pf/pipeline.log - Full execution log")
-        write_summary(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
-        write_summary(f"  * .pf/findings.json - Pattern detection results")
-        write_summary(f"  * .pf/risk_scores.json - Risk analysis")
+        write_summary("  * .pf/readthis/ - All AI-consumable chunks")
+        write_summary("  * .pf/allfiles.md - Complete file list")
+        write_summary("  * .pf/pipeline.log - Full execution log")
+        write_summary("  * .pf/fce.log - FCE detailed output (if FCE was run)")
+        write_summary("  * .pf/findings.json - Pattern detection results")
+        write_summary("  * .pf/risk_scores.json - Risk analysis")
 
     write_summary("\n" + "=" * 60)
     if index_only:

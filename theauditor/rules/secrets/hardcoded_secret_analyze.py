@@ -19,21 +19,20 @@ False positive fixes (2025-11-22):
 - Properly handles f-strings, template literals, and function calls
 """
 
-import sqlite3
-import re
 import base64
 import math
-from pathlib import Path
+import re
+import sqlite3
 from collections import Counter
+from pathlib import Path
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="hardcoded_secrets",
@@ -447,7 +446,7 @@ def _find_connection_strings(cursor) -> list[StandardFinding]:
                     findings.append(
                         StandardFinding(
                             rule_name="secret-connection-string",
-                            message=f"Database connection string with embedded password",
+                            message="Database connection string with embedded password",
                             file_path=file,
                             line=line,
                             severity=Severity.CRITICAL,
@@ -589,7 +588,7 @@ def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
                     findings.append(
                         StandardFinding(
                             rule_name="secret-api-key-in-url",
-                            message=f"API key hardcoded in URL parameter",
+                            message="API key hardcoded in URL parameter",
                             file_path=file,
                             line=line,
                             severity=Severity.CRITICAL,

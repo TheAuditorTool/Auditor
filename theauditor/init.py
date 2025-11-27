@@ -1,7 +1,8 @@
 """Initialization module for TheAuditor - handles project setup and initialization."""
 
 from typing import Any
-from theauditor.security import sanitize_config_path, SecurityError
+
+from theauditor.security import SecurityError, sanitize_config_path
 
 
 def initialize_project(
@@ -31,11 +32,11 @@ def initialize_project(
             - has_failures: Whether any steps failed
             - next_steps: List of recommended next commands
     """
+    from theauditor.config_runtime import load_runtime_config
+    from theauditor.deps import check_latest_versions, parse_dependencies
+    from theauditor.docs_fetch import fetch_docs
     from theauditor.indexer.runner import run_repository_index
     from theauditor.workset import compute_workset
-    from theauditor.deps import parse_dependencies, check_latest_versions
-    from theauditor.docs_fetch import fetch_docs
-    from theauditor.config_runtime import load_runtime_config
 
     config = load_runtime_config(".")
     stats = {}

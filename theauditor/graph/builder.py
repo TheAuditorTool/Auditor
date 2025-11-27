@@ -3,20 +3,19 @@
 import os
 import platform
 import sqlite3
+from collections import defaultdict
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from collections import defaultdict
-from functools import lru_cache
-
 
 IS_WINDOWS = platform.system() == "Windows"
 
 import click
 
+from theauditor.ast_parser import ASTParser
 from theauditor.indexer.config import SKIP_DIRS
 from theauditor.module_resolver import ModuleResolver
-from theauditor.ast_parser import ASTParser
 
 
 @dataclass
@@ -393,13 +392,13 @@ class XGraphBuilder:
 
     def _ensure_module_node(
         self,
-        nodes: dict[str, "GraphNode"],
+        nodes: dict[str, GraphNode],
         rel_path: str,
         lang: str | None,
         manifest_lookup: dict[str, dict[str, Any]],
         root_path: Path,
         status: str,
-    ) -> "GraphNode":
+    ) -> GraphNode:
         """Ensure a module node exists and return it."""
         if rel_path in nodes:
             node = nodes[rel_path]
@@ -428,8 +427,8 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build import/dependency graph for the project."""
         root_path = Path(root).resolve()
-        nodes: dict[str, "GraphNode"] = {}
-        edges: list["GraphEdge"] = []
+        nodes: dict[str, GraphNode] = {}
+        edges: list[GraphEdge] = []
 
         manifest_lookup_rel: dict[str, dict[str, Any]] = {}
         files: list[tuple[Path, str]] = []
@@ -575,8 +574,8 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build call graph for the project."""
         root_path = Path(root).resolve()
-        nodes: dict[str, "GraphNode"] = {}
-        edges: list["GraphEdge"] = []
+        nodes: dict[str, GraphNode] = {}
+        edges: list[GraphEdge] = []
         manifest_lookup_rel: dict[str, dict[str, Any]] = {}
         files: list[tuple[Path, str]] = []
 
@@ -642,7 +641,7 @@ class XGraphBuilder:
                     AND fr.function_name = frsrc.return_function
                 GROUP BY fr.file, fr.function_name, fr.return_expr
             """)
-            print(f"[Graph Builder] Processing function return data...")
+            print("[Graph Builder] Processing function return data...")
             for row in cursor.fetchall():
                 rel = row["file"].replace("\\", "/")
                 returns_map[(rel, row["function_name"])] = {
@@ -654,7 +653,7 @@ class XGraphBuilder:
 
         def ensure_function_node(
             module_path: str, function_name: str, lang: str | None, status: str
-        ) -> "GraphNode":
+        ) -> GraphNode:
             node_id = f"{module_path}::{function_name}"
             if node_id in nodes:
                 node = nodes[node_id]

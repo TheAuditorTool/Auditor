@@ -88,200 +88,182 @@ python -c "from theauditor.ast_extractors import python_impl; print(hasattr(pyth
 # Should print: True (this function only exists in NEW package)
 """
 
-from .core_extractors import (
-    extract_python_functions,
-    extract_python_classes,
-    extract_python_attribute_annotations,
-    extract_python_imports,
-    extract_python_exports,
-    extract_python_assignments,
-    extract_python_function_params,
-    extract_python_calls_with_args,
-    extract_python_returns,
-    extract_python_properties,
-    extract_python_calls,
-    extract_python_dicts,
-    extract_python_decorators,
-    extract_python_context_managers,
-    extract_generators,
+from .advanced_extractors import (
+    extract_attribute_access_protocol,
+    extract_bytes_operations,
+    extract_cached_property,
+    extract_copy_protocol,
+    extract_descriptor_protocol,
+    extract_ellipsis_usage,
+    extract_exec_eval_compile,
+    extract_namespace_packages,
 )
-
-from .framework_extractors import (
-    extract_sqlalchemy_definitions,
-    extract_django_definitions,
-    extract_pydantic_validators,
-    extract_flask_blueprints,
-    extract_django_cbvs,
-    extract_django_forms,
-    extract_django_form_fields,
-    extract_django_admin,
-    extract_django_middleware,
-    extract_marshmallow_schemas,
-    extract_marshmallow_fields,
-    extract_drf_serializers,
-    extract_drf_serializer_fields,
-    extract_wtforms_forms,
-    extract_wtforms_fields,
-    extract_celery_tasks,
-    extract_celery_task_calls,
-    extract_celery_beat_schedules,
+from .async_extractors import (
+    extract_async_functions,
+    extract_async_generators,
+    extract_await_expressions,
 )
-
-from .flask_extractors import (
-    extract_flask_app_factories,
-    extract_flask_extensions,
-    extract_flask_request_hooks,
-    extract_flask_error_handlers,
-    extract_flask_websocket_handlers,
-    extract_flask_cli_commands,
-    extract_flask_cors_configs,
-    extract_flask_rate_limits,
-    extract_flask_cache_decorators,
-)
-
-from .cfg_extractor import (
-    extract_python_cfg,
-)
-
 from .cdk_extractor import (
     extract_python_cdk_constructs,
 )
-
-from .async_extractors import (
-    extract_async_functions,
-    extract_await_expressions,
-    extract_async_generators,
+from .cfg_extractor import (
+    extract_python_cfg,
 )
-
-from .testing_extractors import (
-    extract_pytest_fixtures,
-    extract_pytest_parametrize,
-    extract_pytest_markers,
-    extract_mock_patterns,
-    extract_unittest_test_cases,
-    extract_assertion_patterns,
-    extract_pytest_plugin_hooks,
-    extract_hypothesis_strategies,
+from .class_feature_extractors import (
+    extract_abstract_classes,
+    extract_dataclasses,
+    extract_descriptors,
+    extract_dunder_methods,
+    extract_enums,
+    extract_metaclasses,
+    extract_method_types,
+    extract_multiple_inheritance,
+    extract_slots,
+    extract_visibility_conventions,
 )
-
-from .security_extractors import (
-    extract_auth_decorators,
-    extract_password_hashing,
-    extract_jwt_operations,
-    extract_sql_injection_patterns,
-    extract_command_injection_patterns,
-    extract_path_traversal_patterns,
-    extract_dangerous_eval_exec,
-    extract_crypto_operations,
-)
-
-from .django_advanced_extractors import (
-    extract_django_signals,
-    extract_django_receivers,
-    extract_django_managers,
-    extract_django_querysets,
-)
-
-from .type_extractors import (
-    extract_protocols,
-    extract_generics,
-    extract_typed_dicts,
-    extract_literals,
-    extract_overloads,
-)
-
-from .fundamental_extractors import (
-    extract_comprehensions,
-    extract_lambda_functions,
-    extract_slice_operations,
-    extract_tuple_operations,
-    extract_unpacking_patterns,
-    extract_none_patterns,
-    extract_truthiness_patterns,
-    extract_string_formatting,
-)
-
-from .operator_extractors import (
-    extract_operators,
-    extract_membership_tests,
-    extract_chained_comparisons,
-    extract_ternary_expressions,
-    extract_walrus_operators,
-    extract_matrix_multiplication,
-)
-
 from .collection_extractors import (
+    extract_builtin_usage,
+    extract_collections_usage,
     extract_dict_operations,
+    extract_functools_usage,
+    extract_itertools_usage,
     extract_list_mutations,
     extract_set_operations,
     extract_string_methods,
-    extract_builtin_usage,
-    extract_itertools_usage,
-    extract_functools_usage,
-    extract_collections_usage,
 )
-
-from .class_feature_extractors import (
-    extract_metaclasses,
-    extract_descriptors,
-    extract_dataclasses,
-    extract_enums,
-    extract_slots,
-    extract_abstract_classes,
-    extract_method_types,
-    extract_multiple_inheritance,
-    extract_dunder_methods,
-    extract_visibility_conventions,
-)
-
-from .stdlib_pattern_extractors import (
-    extract_regex_patterns,
-    extract_json_operations,
-    extract_datetime_operations,
-    extract_path_operations,
-    extract_logging_patterns,
-    extract_threading_patterns,
-    extract_contextlib_patterns,
-    extract_type_checking,
-)
-
 from .control_flow_extractors import (
-    extract_for_loops,
-    extract_while_loops,
-    extract_async_for_loops,
-    extract_if_statements,
-    extract_match_statements,
-    extract_break_continue_pass,
     extract_assert_statements,
+    extract_async_for_loops,
+    extract_break_continue_pass,
     extract_del_statements,
+    extract_for_loops,
+    extract_if_statements,
     extract_import_statements,
+    extract_match_statements,
+    extract_while_loops,
     extract_with_statements,
 )
-
+from .core_extractors import (
+    extract_generators,
+    extract_python_assignments,
+    extract_python_attribute_annotations,
+    extract_python_calls,
+    extract_python_calls_with_args,
+    extract_python_classes,
+    extract_python_context_managers,
+    extract_python_decorators,
+    extract_python_dicts,
+    extract_python_exports,
+    extract_python_function_params,
+    extract_python_functions,
+    extract_python_imports,
+    extract_python_properties,
+    extract_python_returns,
+)
+from .django_advanced_extractors import (
+    extract_django_managers,
+    extract_django_querysets,
+    extract_django_receivers,
+    extract_django_signals,
+)
+from .flask_extractors import (
+    extract_flask_app_factories,
+    extract_flask_cache_decorators,
+    extract_flask_cli_commands,
+    extract_flask_cors_configs,
+    extract_flask_error_handlers,
+    extract_flask_extensions,
+    extract_flask_rate_limits,
+    extract_flask_request_hooks,
+    extract_flask_websocket_handlers,
+)
+from .framework_extractors import (
+    extract_celery_beat_schedules,
+    extract_celery_task_calls,
+    extract_celery_tasks,
+    extract_django_admin,
+    extract_django_cbvs,
+    extract_django_definitions,
+    extract_django_form_fields,
+    extract_django_forms,
+    extract_django_middleware,
+    extract_drf_serializer_fields,
+    extract_drf_serializers,
+    extract_flask_blueprints,
+    extract_marshmallow_fields,
+    extract_marshmallow_schemas,
+    extract_pydantic_validators,
+    extract_sqlalchemy_definitions,
+    extract_wtforms_fields,
+    extract_wtforms_forms,
+)
+from .fundamental_extractors import (
+    extract_comprehensions,
+    extract_lambda_functions,
+    extract_none_patterns,
+    extract_slice_operations,
+    extract_string_formatting,
+    extract_truthiness_patterns,
+    extract_tuple_operations,
+    extract_unpacking_patterns,
+)
+from .operator_extractors import (
+    extract_chained_comparisons,
+    extract_matrix_multiplication,
+    extract_membership_tests,
+    extract_operators,
+    extract_ternary_expressions,
+    extract_walrus_operators,
+)
 from .protocol_extractors import (
-    extract_iterator_protocol,
-    extract_container_protocol,
-    extract_callable_protocol,
-    extract_comparison_protocol,
     extract_arithmetic_protocol,
+    extract_callable_protocol,
+    extract_class_decorators,
+    extract_comparison_protocol,
+    extract_container_protocol,
+    extract_contextvar_usage,
+    extract_iterator_protocol,
+    extract_module_attributes,
     extract_pickle_protocol,
     extract_weakref_usage,
-    extract_contextvar_usage,
-    extract_module_attributes,
-    extract_class_decorators,
 )
-
-from .advanced_extractors import (
-    extract_namespace_packages,
-    extract_cached_property,
-    extract_descriptor_protocol,
-    extract_attribute_access_protocol,
-    extract_copy_protocol,
-    extract_ellipsis_usage,
-    extract_bytes_operations,
-    extract_exec_eval_compile,
+from .security_extractors import (
+    extract_auth_decorators,
+    extract_command_injection_patterns,
+    extract_crypto_operations,
+    extract_dangerous_eval_exec,
+    extract_jwt_operations,
+    extract_password_hashing,
+    extract_path_traversal_patterns,
+    extract_sql_injection_patterns,
 )
-
+from .stdlib_pattern_extractors import (
+    extract_contextlib_patterns,
+    extract_datetime_operations,
+    extract_json_operations,
+    extract_logging_patterns,
+    extract_path_operations,
+    extract_regex_patterns,
+    extract_threading_patterns,
+    extract_type_checking,
+)
+from .testing_extractors import (
+    extract_assertion_patterns,
+    extract_hypothesis_strategies,
+    extract_mock_patterns,
+    extract_pytest_fixtures,
+    extract_pytest_markers,
+    extract_pytest_parametrize,
+    extract_pytest_plugin_hooks,
+    extract_unittest_test_cases,
+)
+from .type_extractors import (
+    extract_generics,
+    extract_literals,
+    extract_overloads,
+    extract_protocols,
+    extract_typed_dicts,
+)
 
 __all__ = [
     "extract_python_functions",

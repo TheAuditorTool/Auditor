@@ -23,10 +23,7 @@ TABLE HISTORY:
 - Current: 28 tables (8 original + 20 consolidated)
 """
 
-from typing import Dict
-
 from .utils import Column, TableSchema
-
 
 PYTHON_ORM_MODELS = TableSchema(
     name="python_orm_models",
@@ -920,7 +917,7 @@ PYTHON_SCHEMA_VALIDATORS = TableSchema(
 )
 
 
-PYTHON_TABLES: Dict[str, TableSchema] = {
+PYTHON_TABLES: dict[str, TableSchema] = {
     "python_orm_models": PYTHON_ORM_MODELS,
     "python_orm_fields": PYTHON_ORM_FIELDS,
     "python_routes": PYTHON_ROUTES,

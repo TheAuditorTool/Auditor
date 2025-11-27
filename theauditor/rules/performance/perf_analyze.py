@@ -12,15 +12,14 @@ Follows golden standard patterns:
 
 import sqlite3
 
+from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-from theauditor.indexer.schema import build_query
-
 
 METADATA = RuleMetadata(
     name="performance_issues",
@@ -593,7 +592,7 @@ def _find_unbounded_operations(cursor) -> list[StandardFinding]:
         findings.append(
             StandardFinding(
                 rule_name="perf-large-file-read",
-                message=f"Reading potentially large file entirely into memory",
+                message="Reading potentially large file entirely into memory",
                 file_path=file,
                 line=line,
                 severity=Severity.MEDIUM,

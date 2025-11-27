@@ -1,6 +1,7 @@
-from typing import Any
-from collections import defaultdict
 import sqlite3
+from collections import defaultdict
+from typing import Any
+
 from ..schema import TABLES, build_query
 
 

@@ -4,14 +4,15 @@ This module contains the FileWalker class for directory traversal with monorepo
 detection.
 """
 
+import fnmatch
 import os
 import sqlite3
-import fnmatch
 from pathlib import Path
 from typing import Any
 
 from theauditor.utils import compute_file_hash, count_lines_in_file
-from .config import SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES
+
+from .config import MONOREPO_ENTRY_FILES, SKIP_DIRS, STANDARD_MONOREPO_PATHS
 
 
 def is_text_file(file_path: Path) -> bool:

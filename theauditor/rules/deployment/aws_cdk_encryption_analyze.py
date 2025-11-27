@@ -13,9 +13,9 @@ import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def _check_unencrypted_rds(cursor) -> list[StandardFinding]:
                     confidence="high",
                     file_path=row["file_path"],
                     line=prop_row["line"],
-                    snippet=f"storage_encrypted=False",
+                    snippet="storage_encrypted=False",
                     category="missing_encryption",
                     cwe_id="CWE-311",
                     additional_info={

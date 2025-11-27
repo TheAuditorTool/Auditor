@@ -18,8 +18,8 @@ This is a deliberate architectural decision to maintain extraction purity.
 """
 
 import ast
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 
 def get_node_name(node: Any) -> str:

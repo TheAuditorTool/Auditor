@@ -18,17 +18,16 @@ False positive fixes (2025-11-22):
 - Uses camelCase-aware identifier tokenization for precise pattern matching
 """
 
-import sqlite3
 import re
+import sqlite3
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="crypto_security",
@@ -895,7 +894,7 @@ def _find_static_iv(cursor) -> list[StandardFinding]:
         if any(pattern in expr_lower for pattern in secure_patterns):
             continue
 
-        if not "(" in expr or "bytes([0" in expr or 'b"\\x00' in expr:
+        if "(" not in expr or "bytes([0" in expr or 'b"\\x00' in expr:
             findings.append(
                 StandardFinding(
                     rule_name="crypto-static-iv",

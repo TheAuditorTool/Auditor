@@ -26,8 +26,7 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 import json
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="compose_security",

@@ -7,12 +7,12 @@ Follows the same pattern as TerraformAnalyzer for architectural consistency.
 import logging
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass
 
+from ..rules.base import Severity, StandardRuleContext
 from ..rules.orchestrator import RulesOrchestrator
-from ..rules.base import StandardRuleContext, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class AWSCdkAnalyzer:
                               - cwe_id → 'cwe'
                               - additional_info → 'details_json' (as JSON string)
         """
-        cdk_findings: list["CdkFinding"] = []
+        cdk_findings: list[CdkFinding] = []
 
         for finding in standard_findings:
             import json
@@ -176,7 +176,7 @@ class AWSCdkAnalyzer:
             return severity.value.lower()
         return str(severity).lower()
 
-    def _filter_by_severity(self, findings: list["CdkFinding"]) -> list[CdkFinding]:
+    def _filter_by_severity(self, findings: list[CdkFinding]) -> list[CdkFinding]:
         """Filter findings by configured severity level."""
         if self.severity_filter == "all":
             return findings
@@ -186,7 +186,7 @@ class AWSCdkAnalyzer:
             f for f in findings if self.severity_order.get(f.severity.lower(), 999) <= threshold
         ]
 
-    def _write_findings(self, findings: list["CdkFinding"]):
+    def _write_findings(self, findings: list[CdkFinding]):
         """Write findings to cdk_findings and findings_consolidated tables."""
         if not findings:
             return

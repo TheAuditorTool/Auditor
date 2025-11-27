@@ -20,40 +20,41 @@ This separation ensures:
 - No duplicate extraction code
 """
 
-from typing import Any, Dict
-from theauditor.ast_extractors.python.utils.context import FileContext
+from typing import Any
+
 from theauditor.ast_extractors.python import (
-    core_extractors,
-    fundamental_extractors,
-    framework_extractors,
-    flask_extractors,
-    django_advanced_extractors,
-    validation_extractors,
-    orm_extractors,
-    django_web_extractors,
+    advanced_extractors,
     async_extractors,
     behavioral_extractors,
+    cdk_extractor,
+    cfg_extractor,
+    class_feature_extractors,
     collection_extractors,
     control_flow_extractors,
+    core_extractors,
     data_flow_extractors,
+    django_advanced_extractors,
+    django_web_extractors,
     exception_flow_extractors,
+    flask_extractors,
+    framework_extractors,
+    fundamental_extractors,
     operator_extractors,
+    orm_extractors,
     performance_extractors,
     protocol_extractors,
-    state_mutation_extractors,
-    advanced_extractors,
-    class_feature_extractors,
     security_extractors,
+    state_mutation_extractors,
     stdlib_pattern_extractors,
+    task_graphql_extractors,
     testing_extractors,
     type_extractors,
-    cfg_extractor,
-    cdk_extractor,
-    task_graphql_extractors,
+    validation_extractors,
 )
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 
-def extract_all_python_data(context: FileContext) -> Dict[str, Any]:
+def extract_all_python_data(context: FileContext) -> dict[str, Any]:
     """Extract all Python data by delegating to specialized extractors.
 
     This is the main entry point for Python extraction. It coordinates

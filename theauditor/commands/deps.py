@@ -2,10 +2,11 @@
 
 import platform
 from pathlib import Path
+
 import click
+
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
-
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -107,16 +108,17 @@ def deps(
       2 = Critical vulnerabilities found (--vuln-scan)
 
     Note: Respects proxy settings and npm/pip configurations."""
-    from theauditor.deps import (
-        parse_dependencies,
-        write_deps_json,
-        check_latest_versions,
-        write_deps_latest_json,
-        upgrade_all_deps,
-        generate_grouped_report,
-    )
-    from theauditor.vulnerability_scanner import scan_dependencies, format_vulnerability_report
     import sys
+
+    from theauditor.deps import (
+        check_latest_versions,
+        generate_grouped_report,
+        parse_dependencies,
+        upgrade_all_deps,
+        write_deps_json,
+        write_deps_latest_json,
+    )
+    from theauditor.vulnerability_scanner import format_vulnerability_report, scan_dependencies
 
     deps_list = parse_dependencies(root_path=root)
 
@@ -128,14 +130,14 @@ def deps(
     write_deps_json(deps_list, output_path=out)
 
     if vuln_scan:
-        click.echo(f"\n[SCAN] Running native vulnerability scanners...")
-        click.echo(f"  Using: npm audit, OSV-Scanner")
+        click.echo("\n[SCAN] Running native vulnerability scanners...")
+        click.echo("  Using: npm audit, OSV-Scanner")
         if offline:
-            click.echo(f"  Mode: Offline (all tools use local data)")
+            click.echo("  Mode: Offline (all tools use local data)")
         else:
-            click.echo(f"  Mode: Online registry checks (npm) + offline OSV database")
-            click.echo(f"        OSV-Scanner always uses local database (never hits API)")
-        click.echo(f"  Cross-referencing findings across 2 sources...")
+            click.echo("  Mode: Online registry checks (npm) + offline OSV database")
+            click.echo("        OSV-Scanner always uses local database (never hits API)")
+        click.echo("  Cross-referencing findings across 2 sources...")
 
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
 
@@ -153,7 +155,7 @@ def deps(
                 )
                 sys.exit(ExitCodes.CRITICAL_SEVERITY)
         else:
-            click.echo(f"  [OK] No known vulnerabilities found in dependencies")
+            click.echo("  [OK] No known vulnerabilities found in dependencies")
 
         return
 
@@ -194,12 +196,12 @@ def deps(
         unique_upgraded = len([1 for k, v in latest_info.items() if v.get("is_outdated", False)])
         total_updated = sum(upgraded.values())
 
-        click.echo(f"\n[UPGRADED] Dependency files:")
+        click.echo("\n[UPGRADED] Dependency files:")
         for file_type, count in upgraded.items():
             if count > 0:
                 click.echo(f"  [OK] {file_type}: {count} dependency entries updated")
 
-        click.echo(f"\n[CHANGES] Packages upgraded:")
+        click.echo("\n[CHANGES] Packages upgraded:")
         upgraded_packages = [
             (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
             for k, v in latest_info.items()
@@ -246,7 +248,7 @@ def deps(
         filtered_deps = [d for d in deps_list if d["manager"] in ecosystems]
 
         if not filtered_deps:
-            click.echo(f"  [SKIP] No dependencies found for selected ecosystems")
+            click.echo("  [SKIP] No dependencies found for selected ecosystems")
             return
 
         click.echo(f"  Found {len(filtered_deps)} dependencies to check")
@@ -289,12 +291,12 @@ def deps(
             click.echo(f"\n  [OK] All {selected} dependencies are already up to date!")
             return
 
-        click.echo(f"\n[UPGRADED] Dependency files:")
+        click.echo("\n[UPGRADED] Dependency files:")
         for file_type, count in upgraded.items():
             if count > 0:
                 click.echo(f"  [OK] {file_type}: {count} dependency entries updated")
 
-        click.echo(f"\n[CHANGES] Packages upgraded:")
+        click.echo("\n[CHANGES] Packages upgraded:")
         upgraded_packages = [
             (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
             for k, v in latest_info.items()

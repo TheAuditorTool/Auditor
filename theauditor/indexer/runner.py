@@ -13,11 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.config_runtime import load_runtime_config
-from theauditor.indexer.core import FileWalker
-from theauditor.indexer.orchestrator import IndexerOrchestrator
-from theauditor.indexer.database import create_database_schema
 from theauditor.indexer.config import DEFAULT_BATCH_SIZE
-
+from theauditor.indexer.core import FileWalker
+from theauditor.indexer.database import create_database_schema
+from theauditor.indexer.orchestrator import IndexerOrchestrator
 
 try:
     from theauditor.js_semantic_parser import _module_resolver_cache

@@ -15,7 +15,6 @@ import platform
 import shutil
 from pathlib import Path
 
-
 IS_WINDOWS = platform.system() == "Windows"
 
 

@@ -21,8 +21,7 @@ These tables are populated by:
 - GraphQL build command (execution graph construction)
 """
 
-from .utils import Column, TableSchema, ForeignKey
-
+from .utils import Column, ForeignKey, TableSchema
 
 GRAPHQL_SCHEMAS = TableSchema(
     name="graphql_schemas",

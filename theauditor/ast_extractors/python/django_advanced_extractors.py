@@ -16,11 +16,12 @@ These extractors identify Django-specific patterns for:
 All extractors follow architectural contract: NO file_path in results.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-from theauditor.ast_extractors.base import get_node_name
 import ast
 import json
 from typing import Any
+
+from theauditor.ast_extractors.base import get_node_name
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:

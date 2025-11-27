@@ -51,7 +51,7 @@ class PatternLoader:
         if patterns_dir is None:
             patterns_dir = Path(__file__).parent / "rules" / "YAML"
         self.patterns_dir = Path(patterns_dir)
-        self.patterns: dict[str, list["Pattern"]] = {}
+        self.patterns: dict[str, list[Pattern]] = {}
         self._loaded = False
 
     def load_patterns(self, categories: list[str] | None = None) -> dict[str, list[Pattern]]:
