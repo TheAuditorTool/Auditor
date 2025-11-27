@@ -5,7 +5,6 @@ the end-to-end flow: Extraction -> Manifest -> Storage -> Receipt -> Fidelity Ch
 
 Created as part of node-fidelity-infrastructure ticket Phase 3.
 """
-import os
 import shutil
 import sqlite3
 import sys

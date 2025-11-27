@@ -1,7 +1,5 @@
 """Tests for CodeSnippetManager."""
 
-from pathlib import Path
-
 import pytest
 
 from theauditor.utils.code_snippets import CodeSnippetManager
