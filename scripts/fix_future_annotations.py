@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Add 'from __future__ import annotations' to all files with type hints."""
 
-import re
 from pathlib import Path
 
 

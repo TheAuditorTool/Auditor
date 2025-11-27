@@ -15,12 +15,11 @@ Date: November 2025
 """
 
 import ast
-import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import List, Set
 
 # ============================================================================
 # Risk Report Data Classes
