@@ -80,11 +80,11 @@ def validate_cognito_token(token):
 
         return payload
 
-    except jose_jwt.ExpiredSignatureError:
-        raise ExpiredTokenError("Token has expired")
+    except jose_jwt.ExpiredSignatureError as e:
+        raise ExpiredTokenError("Token has expired") from e
 
     except jose_jwt.JWTError as e:
-        raise InvalidTokenError(f"Invalid token: {str(e)}")
+        raise InvalidTokenError(f"Invalid token: {str(e)}") from e
 
 
 def extract_user_id(token_payload):
