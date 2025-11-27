@@ -23,7 +23,7 @@ def retry_task(self, data):
     try:
         pass
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 # 3. Task with JSON serializer (SAFE - no pickle RCE risk)

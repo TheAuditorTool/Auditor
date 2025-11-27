@@ -22,7 +22,7 @@ def send_email(self, to, subject, body):
         print(f"Sending email to {to}")
         return {'status': 'sent', 'to': to}
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 @app.task(rate_limit='10/m')

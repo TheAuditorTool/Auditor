@@ -170,7 +170,7 @@ def critical_task(self, data: dict[str, Any]) -> dict[str, Any]:
 
     except Exception as exc:
         logger.error(f"Critical task failed: {exc}")
-        raise self.retry(exc=exc, countdown=2**self.request.retries)
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
 
 
 # Data pipeline tasks
@@ -477,7 +477,7 @@ def complex_workflow(self, order_id: str) -> dict:
         logger.error(f"Complex workflow failed for order {order_id}: {exc}")
         # Compensating transaction
         rollback_order.delay(order_id)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 # Helper tasks for complex workflow
