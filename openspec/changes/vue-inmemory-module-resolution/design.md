@@ -437,31 +437,53 @@ def _normalize_path(path: str) -> str:
 
 ### 3.4 Schema Change
 
-Add `resolved_path` column to `import_styles` table definition:
-
-```python
-# In database.py schema definition:
+**Current `import_styles` schema** (from repo_index.db):
+```sql
 CREATE TABLE import_styles (
-    ...existing columns...,
-    resolved_path TEXT
+    file TEXT,
+    line INTEGER,
+    package TEXT,
+    import_style TEXT,
+    alias_name TEXT,
+    full_statement TEXT
 )
 ```
+
+**Add** `resolved_path` column:
+```sql
+CREATE TABLE import_styles (
+    file TEXT,
+    line INTEGER,
+    package TEXT,
+    import_style TEXT,
+    alias_name TEXT,
+    full_statement TEXT,
+    resolved_path TEXT          -- NEW: stores resolved file path (NULL if unresolved)
+)
+```
+
+**Location**: Schema is defined dynamically in `theauditor/indexer/database/node_database.py` via the generic batch system. The column will be added to the batch insert tuple.
 
 No migration needed - database is regenerated on each `aud full`.
 
 ### 3.5 Integration Point
 
-The resolver is called from the indexer's post-processing phase:
+The resolver is called from `theauditor/indexer/orchestrator.py` in the post-processing phase:
 
 ```python
-# In indexer/__init__.py or orchestrator, after all files indexed:
-from theauditor.indexer.extractors.javascript_resolvers import JavaScriptResolversMixin
+# Location: theauditor/indexer/orchestrator.py:491 (after resolve_handler_file_paths)
+# Add this line:
+JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+```
 
-# Run all JavaScript post-indexing resolvers
-JavaScriptResolversMixin.resolve_import_paths(db_path)
-JavaScriptResolversMixin.resolve_handler_file_paths(db_path)
-JavaScriptResolversMixin.resolve_cross_file_parameters(db_path)
-JavaScriptResolversMixin.resolve_router_mount_hierarchy(db_path)
+**Existing resolver calls** (for reference, lines 474-490):
+```python
+# Line 474:
+JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
+# Line 490:
+JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
+# Line 491 (ADD HERE):
+JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
 ```
 
 ### 3.6 Performance Comparison
@@ -515,6 +537,7 @@ Both are backwards-compatible. Schema change is additive (new column can be igno
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 2.1 | **IRONCLAD**: Added current schema, exact integration point (orchestrator.py:491) |
 | 2025-11-28 | 2.0 | **ARCHITECTURE REWRITE**: Section 3 rewritten for post-indexing DB-first resolution |
 | 2025-11-28 | 1.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 1.0 | Initial design document |

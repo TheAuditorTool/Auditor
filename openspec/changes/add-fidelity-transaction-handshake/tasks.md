@@ -71,6 +71,8 @@
                 "count": len(rows),
                 "tx_id": str(uuid.uuid4()),
                 "columns": sorted(list(rows[0].keys())) if rows else [],
+                # NOTE: O(N) string allocation - acceptable for typical files (<1000 rows)
+                # If indexing slows on large files (10k+ LOC), consider threshold guard
                 "bytes": sum(len(str(v)) for row in rows for v in row.values())
             }
 
@@ -286,9 +288,11 @@
   - **CODE**: `from ..fidelity_utils import FidelityToken`
   - **NOTE**: Storage is in subpackage (indexer/storage/), so use `..` to reach parent (indexer/)
 
-- [ ] **3.1.2** Update store() to generate rich receipts
-  - **HOW**: Modify receipt generation at lines 113-116
+- [ ] **3.1.2** Update store() to generate rich receipts with Receipt Integrity
+  - **HOW**: Modify receipt generation to reflect *actual storage behavior*, not just input echoing
   - **LOCATION**: `theauditor/indexer/storage/__init__.py:102-121`
+  - **CRITICAL**: Receipt must use columns from *what Storage actually wrote*, not `data[0].keys()`.
+    See design.md Decision 5 for the "Receipt Integrity Trap" explanation.
   - **CURRENT**:
     ```python
     if isinstance(data, list):
@@ -296,6 +300,11 @@
     else:
         receipt[data_type] = 1 if data else 0
     ```
+  - **IMPLEMENTATION STRATEGY**:
+    1. Ensure internal storage methods (`_insert_batch`, `_upsert`) return the list of columns they used
+    2. Pass those *confirmed* columns to `FidelityToken.create_receipt`
+    3. **Fallback**: If storage method returns `None` (legacy handler), fall back to `data[0].keys()`
+       but log a warning that receipt integrity is "optimistic"
   - **AFTER**:
     ```python
     # Extract tx_id from manifest for receipt echo
@@ -304,8 +313,17 @@
     tx_id = table_manifest.get("tx_id") if isinstance(table_manifest, dict) else None
 
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-        # Rich receipt with schema info and byte calculation
-        columns = sorted(list(data[0].keys()))
+        # Dispatch to storage and get confirmed columns
+        confirmed_cols = self._dispatch_storage(data_type, data)
+
+        # Receipt Integrity: Use confirmed columns if available, else optimistic fallback
+        if confirmed_cols is not None:
+            columns = sorted(confirmed_cols)
+        else:
+            # Legacy handler - log warning and use input columns
+            logger.warning(f"Receipt integrity: {data_type} using optimistic columns (handler returned None)")
+            columns = sorted(list(data[0].keys()))
+
         data_bytes = sum(len(str(v)) for row in data for v in row.values())
         receipt[data_type] = FidelityToken.create_receipt(
             count=len(data),
@@ -319,6 +337,27 @@
     else:
         receipt[data_type] = 1 if data else 0
     ```
+  - **PREREQUISITE**: Task 3.1.3 (new) must be completed first to add column returns to storage methods
+
+- [ ] **3.1.3** Update internal storage methods to return confirmed columns
+  - **HOW**: Modify `_insert_batch`, `_upsert`, and dispatch methods to return column list
+  - **LOCATION**: `theauditor/indexer/storage/__init__.py` (internal methods)
+  - **PATTERN**:
+    ```python
+    def _insert_batch(self, table: str, data: list[dict]) -> list[str] | None:
+        """Insert batch and return columns actually used.
+
+        Returns:
+            List of column names passed to SQL, or None if legacy handler.
+        """
+        if not data:
+            return None
+        columns = list(data[0].keys())  # These are the columns we'll use
+        # ... existing insert logic ...
+        return columns  # Return what we actually passed to SQL
+    ```
+  - **WHY**: Enables Receipt Integrity - receipt reflects actual SQL behavior, not input echo
+  - **SCOPE**: Only update methods that handle dict data; legacy int-based paths return None
 
 ---
 
