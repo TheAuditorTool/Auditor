@@ -96,7 +96,7 @@ customHost.readFile = (fileName) => {
 };
 ```
 
-**Decision**: Option B (Custom CompilerHost) - provides full program context for type checking. See `design.md` Section 2.2-2.3 for implementation details.
+**Decision Required**: Neither Option A nor Option B may be correct - requires architectural review of extractor/indexer layer and `js_helper_templates.py` patterns before deciding.
 
 ### Task 4: Node Module Resolution (Post-Indexing)
 
@@ -316,7 +316,7 @@ def resolve_import_paths(db_path: str):
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2025-11-28 | 3.1 | **IRONCLAD**: Option A/B decision resolved (Option B chosen) |
+| 2025-11-28 | 3.1 | Option A/B flagged as requiring architectural review |
 | 2025-11-28 | 3.0 | **ARCHITECTURE REWRITE**: Module resolution now post-indexing DB queries (not filesystem) |
 | 2025-11-28 | 2.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 2.0 | Complete rewrite with verified paths/line numbers |
