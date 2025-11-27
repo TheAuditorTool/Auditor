@@ -11,10 +11,17 @@ from theauditor.utils.exit_codes import ExitCodes
 @handle_exceptions
 @click.option("--db-path", default="./.pf/repo_index.db", help="Path to repo_index.db")
 @click.option("--output", help="Output file for findings (JSON format)")
-@click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]),
-              default="all", help="Minimum severity to report")
-@click.option("--check-vulns/--no-check-vulns", default=True,
-              help="Check base images for vulnerabilities (requires network)")
+@click.option(
+    "--severity",
+    type=click.Choice(["all", "critical", "high", "medium", "low"]),
+    default="all",
+    help="Minimum severity to report",
+)
+@click.option(
+    "--check-vulns/--no-check-vulns",
+    default=True,
+    help="Check base images for vulnerabilities (requires network)",
+)
 def docker_analyze(db_path, output, severity, check_vulns):
     """Analyze Dockerfiles and container images for security vulnerabilities and misconfigurations.
 
@@ -188,68 +195,58 @@ def docker_analyze(db_path, output, severity, check_vulns):
     """
     from theauditor.docker_analyzer import analyze_docker_images
 
-    # Check if database exists
     if not Path(db_path).exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)
         click.echo("Run 'aud full' first to create the database", err=True)
         return ExitCodes.TASK_INCOMPLETE
 
-    # Run analysis
     click.echo("Analyzing Docker images for security issues...")
     if check_vulns:
         click.echo("  Including vulnerability scan of base images...")
     findings = analyze_docker_images(db_path, check_vulnerabilities=check_vulns)
 
-    # Filter by severity if requested
     if severity != "all":
         severity_order = {"critical": 4, "high": 3, "medium": 2, "low": 1}
         min_severity = severity_order.get(severity.lower(), 0)
-        findings = [f for f in findings 
-                   if severity_order.get(f.get("severity", "").lower(), 0) >= min_severity]
+        findings = [
+            f
+            for f in findings
+            if severity_order.get(f.get("severity", "").lower(), 0) >= min_severity
+        ]
 
-    # Count by severity
     severity_counts = {}
     for finding in findings:
         sev = finding.get("severity", "unknown").lower()
         severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-    # Display results
     if findings:
         click.echo(f"\nFound {len(findings)} Docker security issues:")
 
-        # Show severity breakdown
         for sev in ["critical", "high", "medium", "low"]:
             if sev in severity_counts:
                 click.echo(f"  {sev.upper()}: {severity_counts[sev]}")
 
-        # Show findings
         click.echo("\nFindings:")
         for finding in findings:
             click.echo(f"\n[{finding['severity'].upper()}] {finding['type']}")
             click.echo(f"  File: {finding['file']}")
             click.echo(f"  {finding['message']}")
-            if finding.get('recommendation'):
+            if finding.get("recommendation"):
                 click.echo(f"  Fix: {finding['recommendation']}")
     else:
         click.echo("No Docker security issues found")
 
-    # Save to file if requested
     if output:
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        docker_data = {
-            "findings": findings,
-            "summary": severity_counts,
-            "total": len(findings)
-        }
+        docker_data = {"findings": findings, "summary": severity_counts, "total": len(findings)}
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(docker_data, f, indent=2)
 
         click.echo(f"\nResults saved to: {output}")
 
-    # Exit with appropriate code
     if severity_counts.get("critical", 0) > 0:
         return ExitCodes.CRITICAL_SEVERITY
     elif severity_counts.get("high", 0) > 0:

@@ -9,9 +9,15 @@ from theauditor.utils.error_handler import handle_exceptions
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--quiet", is_flag=True, help="Minimal output")
-@click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
+@click.option(
+    "--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)"
+)
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
-@click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
+@click.option(
+    "--subprocess-taint",
+    is_flag=True,
+    help="Run taint analysis as subprocess (slower but isolated)",
+)
 @click.option("--wipecache", is_flag=True, help="Delete all caches before run")
 @click.pass_context
 def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
@@ -100,7 +106,7 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
 
     ════════════════════════════════════════════════════════════════════════════════
     """
-    # Print prominent deprecation warning (unless --quiet)
+
     if not quiet:
         click.echo("")
         click.echo("=" * 80)
@@ -129,18 +135,14 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
         click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
         click.echo("")
 
-        # Give users time to cancel if they didn't expect this
         try:
             time.sleep(3)
         except KeyboardInterrupt:
             click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
             ctx.exit(0)
 
-    # Import full command here to avoid circular dependency
     from theauditor.commands.full import full
 
-    # Call aud full with mapped parameters
-    # Note: Some old 'aud index' flags are not supported (manifest, db, print-stats, etc.)
     ctx.invoke(
         full,
         root=root,
@@ -148,5 +150,5 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
         exclude_self=exclude_self,
         offline=offline,
         subprocess_taint=subprocess_taint,
-        wipecache=wipecache
+        wipecache=wipecache,
     )

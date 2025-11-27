@@ -7,7 +7,6 @@ It produces corrupted data (e.g., "anonymous" function names).
 JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
 
-
 from typing import Any
 
 from .base import (
@@ -59,41 +58,47 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> list[dict]:
     if node is None:
         return functions
 
-    # Function node types per language
     function_types = {
         "python": ["function_definition"],
-        "javascript": ["function_declaration", "arrow_function", "function_expression", "method_definition"],
-        "typescript": ["function_declaration", "arrow_function", "function_expression", "method_definition"],
+        "javascript": [
+            "function_declaration",
+            "arrow_function",
+            "function_expression",
+            "method_definition",
+        ],
+        "typescript": [
+            "function_declaration",
+            "arrow_function",
+            "function_expression",
+            "method_definition",
+        ],
     }
 
     node_types = function_types.get(language, [])
 
     if node.type in node_types:
-        # Extract function name
         name = "anonymous"
         for child in node.children:
             if child.type in ["identifier", "property_identifier"]:
                 name = child.text.decode("utf-8", errors="ignore")
                 break
 
-        functions.append({
-            "name": name,
-            "line": node.start_point[0] + 1,
-            "end_line": node.end_point[0] + 1,  # Extract end line from tree-sitter node
-            "type": node.type,
-        })
+        functions.append(
+            {
+                "name": name,
+                "line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+                "type": node.type,
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         functions.extend(_extract_tree_sitter_functions(child, language))
 
-    # CRITICAL FIX: Deduplicate functions by (name, line, type)
-    # WHY: Recursive AST traversal visits same nodes multiple times
-    # NOTE: Matches symbols PRIMARY KEY (path, name, line, type, col) minus path/col
     seen = set()
     deduped = []
     for f in functions:
-        key = (f['name'], f['line'], f['type'])
+        key = (f["name"], f["line"], f["type"])
         if key not in seen:
             seen.add(key)
             deduped.append(f)
@@ -122,7 +127,6 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> list[dict]:
     if node is None:
         return classes
 
-    # Class node types per language
     class_types = {
         "python": ["class_definition"],
         "javascript": ["class_declaration"],
@@ -132,31 +136,28 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> list[dict]:
     node_types = class_types.get(language, [])
 
     if node.type in node_types:
-        # Extract class name
         name = "anonymous"
         for child in node.children:
             if child.type in ["identifier", "type_identifier"]:
                 name = child.text.decode("utf-8", errors="ignore")
                 break
 
-        classes.append({
-            "name": name,
-            "line": node.start_point[0] + 1,
-            "column": node.start_point[1],
-            "type": node.type,
-        })
+        classes.append(
+            {
+                "name": name,
+                "line": node.start_point[0] + 1,
+                "column": node.start_point[1],
+                "type": node.type,
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         classes.extend(_extract_tree_sitter_classes(child, language))
 
-    # CRITICAL FIX: Deduplicate classes by (name, line, type, column)
-    # WHY: Recursive AST traversal visits same nodes multiple times
-    # NOTE: Matches symbols PRIMARY KEY (path, name, line, type, col) minus path
     seen = set()
     deduped = []
     for c in classes:
-        key = (c['name'], c['line'], c['type'], c['column'])
+        key = (c["name"], c["line"], c["type"], c["column"])
         if key not in seen:
             seen.add(key)
             deduped.append(c)
@@ -185,7 +186,6 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> list[dict]:
     if node is None:
         return calls
 
-    # Call node types per language
     call_types = {
         "python": ["call"],
         "javascript": ["call_expression"],
@@ -195,25 +195,25 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> list[dict]:
     node_types = call_types.get(language, [])
 
     if node.type in node_types:
-        # Extract function name being called
         name = "unknown"
         for child in node.children:
             if child.type in ["identifier", "member_expression", "attribute"]:
                 name = child.text.decode("utf-8", errors="ignore")
                 break
-            # Also handle property access patterns for methods like res.send()
+
             elif child.type == "member_access_expression":
                 name = child.text.decode("utf-8", errors="ignore")
                 break
 
-        calls.append({
-            "name": name,
-            "line": node.start_point[0] + 1,
-            "column": node.start_point[1],
-            "type": "call",  # Always use "call" type for database consistency
-        })
+        calls.append(
+            {
+                "name": name,
+                "line": node.start_point[0] + 1,
+                "column": node.start_point[1],
+                "type": "call",
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         calls.extend(_extract_tree_sitter_calls(child, language))
 
@@ -241,7 +241,6 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any
     if node is None:
         return imports
 
-    # Import node types per language
     import_types = {
         "javascript": ["import_statement", "import_clause", "require_call"],
         "typescript": ["import_statement", "import_clause", "require_call", "import_type"],
@@ -251,9 +250,7 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any
     node_types = import_types.get(language, [])
 
     if node.type in node_types:
-        # Parse based on node type
         if node.type == "import_statement":
-            # Handle: import foo from 'bar'
             module_name = None
             default_import = None
             namespace_import = None
@@ -267,47 +264,51 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> list[dict[str, Any
                         if spec_child.type == "identifier" and default_import is None:
                             default_import = spec_child.text.decode("utf-8", errors="ignore")
                         elif spec_child.type == "namespace_import":
-                            name_node = spec_child.child_by_field_name('name')
+                            name_node = spec_child.child_by_field_name("name")
                             if name_node and name_node.text:
                                 namespace_import = name_node.text.decode("utf-8", errors="ignore")
                         elif spec_child.type == "named_imports":
                             for element in spec_child.children:
                                 if element.type == "import_specifier":
-                                    name_node = element.child_by_field_name('name')
+                                    name_node = element.child_by_field_name("name")
                                     if name_node and name_node.text:
-                                        named_imports.append(name_node.text.decode("utf-8", errors="ignore"))
+                                        named_imports.append(
+                                            name_node.text.decode("utf-8", errors="ignore")
+                                        )
 
             if module_name:
-                imports.append({
-                    "source": "import",
-                    "target": module_name,
-                    "type": "import",
-                    "line": node.start_point[0] + 1,
-                    "specifiers": named_imports,
-                    "namespace": namespace_import,
-                    "default": default_import,
-                    "names": named_imports,
-                    "text": None,
-                })
+                imports.append(
+                    {
+                        "source": "import",
+                        "target": module_name,
+                        "type": "import",
+                        "line": node.start_point[0] + 1,
+                        "specifiers": named_imports,
+                        "namespace": namespace_import,
+                        "default": default_import,
+                        "names": named_imports,
+                        "text": None,
+                    }
+                )
 
         elif node.type == "require_call":
-            # Handle: const foo = require('bar')
             for child in node.children:
                 if child.type == "string":
                     target = child.text.decode("utf-8", errors="ignore").strip("\"'")
-                    imports.append({
-                        "source": "require",
-                        "target": target,
-                        "type": "require",
-                        "line": node.start_point[0] + 1,
-                        "specifiers": [],
-                        "names": [],
-                        "namespace": None,
-                        "default": None,
-                        "text": None,
-                    })
+                    imports.append(
+                        {
+                            "source": "require",
+                            "target": target,
+                            "type": "require",
+                            "line": node.start_point[0] + 1,
+                            "specifiers": [],
+                            "names": [],
+                            "namespace": None,
+                            "default": None,
+                            "text": None,
+                        }
+                    )
 
-    # Recursively search children
     for child in node.children:
         imports.extend(_extract_tree_sitter_imports(child, language))
 
@@ -335,7 +336,6 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any
     if node is None:
         return exports
 
-    # Export node types per language
     export_types = {
         "javascript": ["export_statement", "export_default_declaration"],
         "typescript": ["export_statement", "export_default_declaration", "export_type"],
@@ -346,7 +346,6 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any
     if node.type in node_types:
         is_default = "default" in node.type
 
-        # Extract exported name
         name = "unknown"
         export_type = "unknown"
 
@@ -366,14 +365,15 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> list[dict[str, Any
                         name = subchild.text.decode("utf-8", errors="ignore")
                         break
 
-        exports.append({
-            "name": name,
-            "type": export_type,
-            "line": node.start_point[0] + 1,
-            "default": is_default
-        })
+        exports.append(
+            {
+                "name": name,
+                "type": export_type,
+                "line": node.start_point[0] + 1,
+                "default": is_default,
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         exports.extend(_extract_tree_sitter_exports(child, language))
 
@@ -401,7 +401,6 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> list[dict]:
     if node is None:
         return properties
 
-    # Property access node types per language
     property_types = {
         "javascript": ["member_expression", "property_access_expression"],
         "typescript": ["member_expression", "property_access_expression"],
@@ -411,19 +410,30 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> list[dict]:
     node_types = property_types.get(language, [])
 
     if node.type in node_types:
-        # Extract the full property access chain
         prop_text = node.text.decode("utf-8", errors="ignore") if node.text else ""
 
-        # Filter for patterns that look like taint sources (req.*, request.*, ctx.*, etc.)
-        if any(pattern in prop_text for pattern in ["req.", "request.", "ctx.", "body", "query", "params", "headers", "cookies"]):
-            properties.append({
-                "name": prop_text,
-                "line": node.start_point[0] + 1,
-                "column": node.start_point[1],
-                "type": "property"
-            })
+        if any(
+            pattern in prop_text
+            for pattern in [
+                "req.",
+                "request.",
+                "ctx.",
+                "body",
+                "query",
+                "params",
+                "headers",
+                "cookies",
+            ]
+        ):
+            properties.append(
+                {
+                    "name": prop_text,
+                    "line": node.start_point[0] + 1,
+                    "column": node.start_point[1],
+                    "type": "property",
+                }
+            )
 
-    # Recursively search children
     for child in node.children:
         properties.extend(_extract_tree_sitter_properties(child, language))
 
@@ -446,19 +456,20 @@ def extract_treesitter_assignments(tree: dict, parser_self, language: str) -> li
     return _extract_tree_sitter_assignments(actual_tree.root_node, language, content)
 
 
-def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> list[dict[str, Any]]:
+def _extract_tree_sitter_assignments(
+    node: Any, language: str, content: str
+) -> list[dict[str, Any]]:
     """Extract assignments from Tree-sitter AST."""
     import os
     import sys
+
     debug = os.environ.get("THEAUDITOR_DEBUG")
     assignments = []
 
     if node is None:
         return assignments
 
-    # Assignment node types per language
     assignment_types = {
-        # Don't include variable_declarator - it's handled inside lexical_declaration/variable_declaration
         "javascript": ["assignment_expression", "lexical_declaration", "variable_declaration"],
         "typescript": ["assignment_expression", "lexical_declaration", "variable_declaration"],
         "python": ["assignment"],
@@ -472,42 +483,43 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
         source_vars = []
 
         if node.type in ["lexical_declaration", "variable_declaration"]:
-            # Handle lexical_declaration (const/let) and variable_declaration (var)
-            # Both contain variable_declarator children
-            # Process all variable_declarators within (const a = 1, b = 2)
             for child in node.children:
                 if child.type == "variable_declarator":
-                    name_node = child.child_by_field_name('name')
-                    value_node = child.child_by_field_name('value')
+                    name_node = child.child_by_field_name("name")
+                    value_node = child.child_by_field_name("value")
 
                     if name_node and value_node:
-                        in_function = find_containing_function_tree_sitter(child, content, language) or "global"
+                        in_function = (
+                            find_containing_function_tree_sitter(child, content, language)
+                            or "global"
+                        )
                         if debug:
-                            print(f"[DEBUG] Found assignment: {name_node.text.decode('utf-8')} = {value_node.text.decode('utf-8')[:50]}", file=sys.stderr)
-                        assignments.append({
-                            "target_var": name_node.text.decode("utf-8", errors="ignore"),
-                            "source_expr": value_node.text.decode("utf-8", errors="ignore"),
-                            "line": child.start_point[0] + 1,
-                            "in_function": in_function,
-                            # AST purity enforced: traverse value_node AST, not text parsing
-                            "source_vars": []
-                        })
+                            print(
+                                f"[DEBUG] Found assignment: {name_node.text.decode('utf-8')} = {value_node.text.decode('utf-8')[:50]}",
+                                file=sys.stderr,
+                            )
+                        assignments.append(
+                            {
+                                "target_var": name_node.text.decode("utf-8", errors="ignore"),
+                                "source_expr": value_node.text.decode("utf-8", errors="ignore"),
+                                "line": child.start_point[0] + 1,
+                                "in_function": in_function,
+                                "source_vars": [],
+                            }
+                        )
 
         elif node.type == "assignment_expression":
-            # x = value (JavaScript/TypeScript) - Use field-based API
-            left_node = node.child_by_field_name('left')
-            right_node = node.child_by_field_name('right')
+            left_node = node.child_by_field_name("left")
+            right_node = node.child_by_field_name("right")
 
             if left_node:
                 target_var = left_node.text.decode("utf-8", errors="ignore")
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore")
-                # AST purity enforced: traverse right_node AST, not text parsing
+
                 source_vars = []
 
         elif node.type == "assignment":
-            # x = value (Python)
-            # Python assignment has structure: [target, "=", value]
             left_node = None
             right_node = None
             for child in node.children:
@@ -517,37 +529,38 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                     right_node = child
 
             if left_node:
-                target_var = left_node.text.decode("utf-8", errors="ignore") if left_node.text else ""
+                target_var = (
+                    left_node.text.decode("utf-8", errors="ignore") if left_node.text else ""
+                )
             if right_node:
-                source_expr = right_node.text.decode("utf-8", errors="ignore") if right_node.text else ""
+                source_expr = (
+                    right_node.text.decode("utf-8", errors="ignore") if right_node.text else ""
+                )
 
-        # Only create assignment record if we have both target and source
-        # (Skip lexical_declaration/variable_declaration as they're handled above with their children)
-        if target_var and source_expr and node.type not in ["lexical_declaration", "variable_declaration"]:
-            # Find containing function
+        if (
+            target_var
+            and source_expr
+            and node.type not in ["lexical_declaration", "variable_declaration"]
+        ):
             in_function = find_containing_function_tree_sitter(node, content, language)
 
-            assignments.append({
-                "target_var": target_var,
-                "source_expr": source_expr,
-                "line": node.start_point[0] + 1,
-                "in_function": in_function or "global",
-                # AST purity enforced: traverse AST node, not text parsing
-                "source_vars": source_vars if source_vars else []
-            })
+            assignments.append(
+                {
+                    "target_var": target_var,
+                    "source_expr": source_expr,
+                    "line": node.start_point[0] + 1,
+                    "in_function": in_function or "global",
+                    "source_vars": source_vars if source_vars else [],
+                }
+            )
 
-    # Recursively search children
     for child in node.children:
         assignments.extend(_extract_tree_sitter_assignments(child, language, content))
 
-    # CRITICAL FIX: Deduplicate assignments by (line, target_var, in_function)
-    # WHY: Recursive AST traversal visits same nodes multiple times
-    # NOTE: PRIMARY KEY is (file, line, target_var) but file is added by orchestrator
-    #       Using in_function for additional safety (same as TypeScript extractor)
     seen = set()
     deduped = []
     for a in assignments:
-        key = (a['line'], a['target_var'], a['in_function'])
+        key = (a["line"], a["target_var"], a["in_function"])
         if key not in seen:
             seen.add(key)
             deduped.append(a)
@@ -555,7 +568,9 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
     return deduped
 
 
-def extract_treesitter_function_params(tree: dict, parser_self, language: str) -> dict[str, list[str]]:
+def extract_treesitter_function_params(
+    tree: dict, parser_self, language: str
+) -> dict[str, list[str]]:
     """Extract function parameters from Tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
@@ -576,20 +591,22 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
     if node is None:
         return func_params
 
-    # Function definition node types
     if language in ["javascript", "typescript"]:
-        if node.type in ["function_declaration", "function_expression", "arrow_function", "method_definition"]:
+        if node.type in [
+            "function_declaration",
+            "function_expression",
+            "arrow_function",
+            "method_definition",
+        ]:
             func_name = "anonymous"
             params = []
 
-            # Use field-based API for function nodes
-            name_node = node.child_by_field_name('name')
-            params_node = node.child_by_field_name('parameters')
+            name_node = node.child_by_field_name("name")
+            params_node = node.child_by_field_name("parameters")
 
             if name_node:
                 func_name = name_node.text.decode("utf-8", errors="ignore")
 
-            # Fall back to child iteration if field access fails
             if not params_node:
                 for child in node.children:
                     if child.type in ["formal_parameters", "parameters"]:
@@ -597,14 +614,16 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
                         break
 
             if params_node:
-                # Extract parameter names
                 for param_child in params_node.children:
-                    if param_child.type in ["identifier", "required_parameter", "optional_parameter"]:
+                    if param_child.type in [
+                        "identifier",
+                        "required_parameter",
+                        "optional_parameter",
+                    ]:
                         if param_child.type == "identifier":
                             params.append(param_child.text.decode("utf-8", errors="ignore"))
                         else:
-                            # For required/optional parameters, use field API
-                            pattern_node = param_child.child_by_field_name('pattern')
+                            pattern_node = param_child.child_by_field_name("pattern")
                             if pattern_node and pattern_node.type == "identifier":
                                 params.append(pattern_node.text.decode("utf-8", errors="ignore"))
 
@@ -627,7 +646,6 @@ def _extract_tree_sitter_function_params(node: Any, language: str) -> dict[str, 
             if func_name:
                 func_params[func_name] = params
 
-    # Recursively search children
     for child in node.children:
         func_params.update(_extract_tree_sitter_function_params(child, language))
 
@@ -663,51 +681,56 @@ def _extract_tree_sitter_calls_with_args(
     if node is None:
         return calls
 
-    # Call expression node types
     if language in ["javascript", "typescript"] and node.type == "call_expression":
-        # Extract function name using field-based API
-        func_node = node.child_by_field_name('function')
+        func_node = node.child_by_field_name("function")
         func_name = "unknown"
 
         if func_node:
-            func_name = func_node.text.decode("utf-8", errors="ignore") if func_node.text else "unknown"
+            func_name = (
+                func_node.text.decode("utf-8", errors="ignore") if func_node.text else "unknown"
+            )
         else:
-            # Fallback to child iteration
             for child in node.children:
                 if child.type in ["identifier", "member_expression"]:
-                    func_name = child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
+                    func_name = (
+                        child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
+                    )
                     break
 
         func_name = sanitize_call_name(func_name)
 
-        # Find caller function
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
 
-        # Get callee parameters
         callee_params = function_params.get(func_name.split(".")[-1], [])
 
-        # Extract arguments using field-based API
-        args_node = node.child_by_field_name('arguments')
+        args_node = node.child_by_field_name("arguments")
         arg_index = 0
 
         if args_node:
             for arg_child in args_node.children:
                 if arg_child.type not in ["(", ")", ","]:
-                    arg_expr = arg_child.text.decode("utf-8", errors="ignore") if arg_child.text else ""
-                    param_name = callee_params[arg_index] if arg_index < len(callee_params) else f"arg{arg_index}"
+                    arg_expr = (
+                        arg_child.text.decode("utf-8", errors="ignore") if arg_child.text else ""
+                    )
+                    param_name = (
+                        callee_params[arg_index]
+                        if arg_index < len(callee_params)
+                        else f"arg{arg_index}"
+                    )
 
-                    calls.append({
-                        "line": node.start_point[0] + 1,
-                        "caller_function": caller_function,
-                        "callee_function": func_name,
-                        "argument_index": arg_index,
-                        "argument_expr": arg_expr,
-                        "param_name": param_name
-                    })
+                    calls.append(
+                        {
+                            "line": node.start_point[0] + 1,
+                            "caller_function": caller_function,
+                            "callee_function": func_name,
+                            "argument_index": arg_index,
+                            "argument_expr": arg_expr,
+                            "param_name": param_name,
+                        }
+                    )
                     arg_index += 1
 
     elif language == "python" and node.type == "call":
-        # Similar logic for Python
         func_name = "unknown"
         for child in node.children:
             if child.type in ["identifier", "attribute"]:
@@ -724,22 +747,33 @@ def _extract_tree_sitter_calls_with_args(
             if child.type == "argument_list":
                 for arg_child in child.children:
                     if arg_child.type not in ["(", ")", ","]:
-                        arg_expr = arg_child.text.decode("utf-8", errors="ignore") if arg_child.text else ""
-                        param_name = callee_params[arg_index] if arg_index < len(callee_params) else f"arg{arg_index}"
+                        arg_expr = (
+                            arg_child.text.decode("utf-8", errors="ignore")
+                            if arg_child.text
+                            else ""
+                        )
+                        param_name = (
+                            callee_params[arg_index]
+                            if arg_index < len(callee_params)
+                            else f"arg{arg_index}"
+                        )
 
-                        calls.append({
-                            "line": node.start_point[0] + 1,
-                            "caller_function": caller_function,
-                            "callee_function": func_name,
-                            "argument_index": arg_index,
-                            "argument_expr": arg_expr,
-                            "param_name": param_name
-                        })
+                        calls.append(
+                            {
+                                "line": node.start_point[0] + 1,
+                                "caller_function": caller_function,
+                                "callee_function": func_name,
+                                "argument_index": arg_index,
+                                "argument_expr": arg_expr,
+                                "param_name": param_name,
+                            }
+                        )
                         arg_index += 1
 
-    # Recursively search children
     for child in node.children:
-        calls.extend(_extract_tree_sitter_calls_with_args(child, language, content, function_params))
+        calls.extend(
+            _extract_tree_sitter_calls_with_args(child, language, content, function_params)
+        )
 
     return calls
 
@@ -767,12 +801,9 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list
     if node is None:
         return returns
 
-    # Return statement node types
     if language in ["javascript", "typescript"] and node.type == "return_statement":
-        # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
 
-        # Extract return expression
         return_expr = ""
         for child in node.children:
             if child.type != "return":
@@ -782,19 +813,18 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list
         if not return_expr:
             return_expr = "undefined"
 
-        returns.append({
-            "function_name": function_name,
-            "line": node.start_point[0] + 1,
-            "return_expr": return_expr,
-            # AST purity enforced: traverse return expression AST node, not text
-            "return_vars": []
-        })
+        returns.append(
+            {
+                "function_name": function_name,
+                "line": node.start_point[0] + 1,
+                "return_expr": return_expr,
+                "return_vars": [],
+            }
+        )
 
     elif language == "python" and node.type == "return_statement":
-        # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
 
-        # Extract return expression
         return_expr = ""
         for child in node.children:
             if child.type != "return":
@@ -804,25 +834,22 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list
         if not return_expr:
             return_expr = "None"
 
-        returns.append({
-            "function_name": function_name,
-            "line": node.start_point[0] + 1,
-            "return_expr": return_expr,
-            # AST purity enforced: traverse return expression AST node, not text
-            "return_vars": []
-        })
+        returns.append(
+            {
+                "function_name": function_name,
+                "line": node.start_point[0] + 1,
+                "return_expr": return_expr,
+                "return_vars": [],
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         returns.extend(_extract_tree_sitter_returns(child, language, content))
 
-    # CRITICAL FIX: Deduplicate returns by (line, function_name)
-    # WHY: Recursive AST traversal visits same nodes multiple times
-    # NOTE: PRIMARY KEY is (file, line, function_name) but file is added by orchestrator
     seen = set()
     deduped = []
     for r in returns:
-        key = (r['line'], r['function_name'])
+        key = (r["line"], r["function_name"])
         if key not in seen:
             seen.add(key)
             deduped.append(r)

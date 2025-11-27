@@ -24,7 +24,6 @@ CRITICAL: build_scope_map (line ~353) fixes "100% anonymous caller" bug
 by providing O(1) line-to-function lookups for accurate scope resolution.
 """
 
-
 import sys
 from typing import Any
 
@@ -38,7 +37,12 @@ def _strip_comment_prefix(text: str | None) -> str:
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*") or stripped == "*/":
+        if (
+            stripped.startswith("//")
+            or stripped.startswith("/*")
+            or stripped.startswith("*")
+            or stripped == "*/"
+        ):
             continue
         return stripped
 
@@ -50,7 +54,6 @@ def _identifier_from_node(node: Any) -> str:
     if not isinstance(node, dict):
         return ""
 
-    # Preferred fields in priority order
     candidates: list[str] = []
 
     text_value = node.get("text")
@@ -141,11 +144,12 @@ def _canonical_callee_from_call(node: dict[str, Any]) -> str:
     return sanitize_call_name(_strip_comment_prefix(_identifier_from_node(node)))
 
 
-from .base import sanitize_call_name  # Call name normalization
+from .base import sanitize_call_name
+
 
 def extract_semantic_ast_symbols(node, depth=0):
     """Extract symbols from TypeScript semantic AST including property accesses.
-    
+
     This is a helper used by multiple extraction functions.
     """
     symbols = []
@@ -154,66 +158,74 @@ def extract_semantic_ast_symbols(node, depth=0):
 
     kind = node.get("kind")
 
-    # PropertyAccessExpression: req.body, req.params, res.send, etc.
     if kind == "PropertyAccessExpression":
         full_name = _canonical_member_name(node)
 
         if full_name:
-            # CRITICAL FIX: Extract ALL property accesses for taint analysis
-            # The taint analyzer will filter for the specific sources it needs
-            # This ensures we capture req.body, req.query, request.params, etc.
-
-            # Default all property accesses as "property" type
             db_type = "property"
 
-            # Override only for known sink patterns that should be "call" type
-            if any(sink in full_name for sink in ["res.send", "res.render", "res.json", "response.write", "innerHTML", "outerHTML", "exec", "eval", "system", "spawn"]):
-                db_type = "call"  # Taint analyzer looks for sinks as calls
+            if any(
+                sink in full_name
+                for sink in [
+                    "res.send",
+                    "res.render",
+                    "res.json",
+                    "response.write",
+                    "innerHTML",
+                    "outerHTML",
+                    "exec",
+                    "eval",
+                    "system",
+                    "spawn",
+                ]
+            ):
+                db_type = "call"
 
-            symbols.append({
-                "name": full_name,
-                "line": node.get("line", 0),
-                "column": node.get("column", 0),
-                "type": db_type
-            })
+            symbols.append(
+                {
+                    "name": full_name,
+                    "line": node.get("line", 0),
+                    "column": node.get("column", 0),
+                    "type": db_type,
+                }
+            )
 
-    # CallExpression: function calls including method calls
     elif kind == "CallExpression":
         name = _canonical_callee_from_call(node)
 
         if name:
-            symbols.append({
-                "name": name,
-                "line": node.get("line", 0),
-                "column": node.get("column", 0),
-                "type": "call"
-            })
+            symbols.append(
+                {
+                    "name": name,
+                    "line": node.get("line", 0),
+                    "column": node.get("column", 0),
+                    "type": "call",
+                }
+            )
 
-    # Identifier nodes that might be property accesses or function references
     elif kind == "Identifier":
         text = _strip_comment_prefix(node.get("text", ""))
-        # Check if it looks like a property access pattern
+
         if "." in text:
-            # Determine type based on pattern
             db_type = "property"
-            # Check for sink patterns
-            if any(sink in text for sink in ["res.send", "res.render", "res.json", "response.write"]):
+
+            if any(
+                sink in text for sink in ["res.send", "res.render", "res.json", "response.write"]
+            ):
                 db_type = "call"
 
-            symbols.append({
-                "name": text,
-                "line": node.get("line", 0),
-                "column": node.get("column", 0),
-                "type": db_type
-            })
+            symbols.append(
+                {
+                    "name": text,
+                    "line": node.get("line", 0),
+                    "column": node.get("column", 0),
+                    "type": db_type,
+                }
+            )
 
-    # Recurse through children
     for child in node.get("children", []):
         symbols.extend(extract_semantic_ast_symbols(child, depth + 1))
 
-    # DEDUPLICATION: With full AST traversal, same symbol may appear via multiple paths
-    # (e.g., req.body as PropertyAccessExpression + nested Identifier)
-    # Only deduplicate at top level (depth=0) to avoid redundant work in recursion
     if depth == 0 and symbols:
         seen = {}
         deduped = []
@@ -227,41 +239,27 @@ def extract_semantic_ast_symbols(node, depth=0):
     return symbols
 
 
-# ========================================================
-# COMPREHENSIVE JSX NODE TYPE DEFINITIONS
-# ========================================================
-# Complete enumeration of all JSX node types for proper detection
-
-JSX_NODE_KINDS = frozenset([
-    # Element nodes
-    "JsxElement",              # <div>...</div>
-    "JsxSelfClosingElement",   # <img />
-    "JsxFragment",             # <>...</>
-
-    # Structural nodes
-    "JsxOpeningElement",       # <div>
-    "JsxClosingElement",       # </div>
-    "JsxOpeningFragment",      # <>
-    "JsxClosingFragment",      # </>
-
-    # Content nodes
-    "JsxText",                 # Text between tags
-    "JsxExpression",           # {expression}
-    "JsxExpressionContainer",  # Container for expressions
-    "JsxSpreadChild",          # {...spread}
-
-    # Attribute nodes
-    "JsxAttribute",            # name="value"
-    "JsxAttributes",           # Collection of attributes
-    "JsxSpreadAttribute",      # {...props}
-
-    # Namespace nodes
-    "JsxNamespacedName",       # svg:path
-
-    # Edge cases
-    "JsxMemberExpression",     # Component.SubComponent
-    "JsxIdentifier",           # Component name identifier
-])
+JSX_NODE_KINDS = frozenset(
+    [
+        "JsxElement",
+        "JsxSelfClosingElement",
+        "JsxFragment",
+        "JsxOpeningElement",
+        "JsxClosingElement",
+        "JsxOpeningFragment",
+        "JsxClosingFragment",
+        "JsxText",
+        "JsxExpression",
+        "JsxExpressionContainer",
+        "JsxSpreadChild",
+        "JsxAttribute",
+        "JsxAttributes",
+        "JsxSpreadAttribute",
+        "JsxNamespacedName",
+        "JsxMemberExpression",
+        "JsxIdentifier",
+    ]
+)
 
 
 def detect_jsx_in_node(node, depth=0):
@@ -277,25 +275,41 @@ def detect_jsx_in_node(node, depth=0):
     if depth > 50 or not isinstance(node, dict):
         return False, False
 
-    kind = node.get('kind', '')
+    kind = node.get("kind", "")
 
-    # Direct JSX node - check against complete set
     if kind in JSX_NODE_KINDS:
-        # Check if it's a component (capital letter)
         if kind in ["JsxElement", "JsxSelfClosingElement"]:
             tag_name = extract_jsx_tag_name(node)
             is_component = tag_name and tag_name[0].isupper() if tag_name else False
             return True, is_component
         return True, False
 
-    # Container nodes that might have JSX
-    if kind in ["ParenthesizedExpression", "ConditionalExpression",
-                "BinaryExpression", "LogicalExpression", "ArrayLiteralExpression",
-                "ObjectLiteralExpression", "ArrowFunction", "FunctionExpression"]:
-        # Deep search for JSX in complex expressions
-        for key in ['expression', 'initializer', 'left', 'right', 'operand',
-                    'condition', 'whenTrue', 'whenFalse', 'arguments', 'elements',
-                    'properties', 'body', 'statements', 'children']:
+    if kind in [
+        "ParenthesizedExpression",
+        "ConditionalExpression",
+        "BinaryExpression",
+        "LogicalExpression",
+        "ArrayLiteralExpression",
+        "ObjectLiteralExpression",
+        "ArrowFunction",
+        "FunctionExpression",
+    ]:
+        for key in [
+            "expression",
+            "initializer",
+            "left",
+            "right",
+            "operand",
+            "condition",
+            "whenTrue",
+            "whenFalse",
+            "arguments",
+            "elements",
+            "properties",
+            "body",
+            "statements",
+            "children",
+        ]:
             if key in node:
                 child = node[key]
                 if isinstance(child, list):
@@ -308,13 +322,15 @@ def detect_jsx_in_node(node, depth=0):
                     if has_jsx:
                         return has_jsx, is_comp
 
-    # React.createElement pattern (for transformed mode)
     if kind == "CallExpression":
-        callee = node.get('expression', {})
+        callee = node.get("expression", {})
         if isinstance(callee, dict):
-            callee_text = callee.get('text', '')
-            if "React.createElement" in callee_text or "jsx" in callee_text or "_jsx" in callee_text:
-                # This was JSX before transformation
+            callee_text = callee.get("text", "")
+            if (
+                "React.createElement" in callee_text
+                or "jsx" in callee_text
+                or "_jsx" in callee_text
+            ):
                 return True, analyze_create_element_component(node)
 
     return False, False
@@ -325,19 +341,18 @@ def extract_jsx_tag_name(node):
 
     Handles various JSX element structures to extract the tag name.
     """
-    # For JsxElement with openingElement
-    if 'openingElement' in node:
-        opening = node['openingElement']
-        if isinstance(opening, dict) and 'tagName' in opening:
-            tag_name = opening['tagName']
-            if isinstance(tag_name, dict):
-                return tag_name.get('escapedText', '') or tag_name.get('text', '')
 
-    # For JsxSelfClosingElement
-    if 'tagName' in node:
-        tag_name = node['tagName']
+    if "openingElement" in node:
+        opening = node["openingElement"]
+        if isinstance(opening, dict) and "tagName" in opening:
+            tag_name = opening["tagName"]
+            if isinstance(tag_name, dict):
+                return tag_name.get("escapedText", "") or tag_name.get("text", "")
+
+    if "tagName" in node:
+        tag_name = node["tagName"]
         if isinstance(tag_name, dict):
-            return tag_name.get('escapedText', '') or tag_name.get('text', '')
+            return tag_name.get("escapedText", "") or tag_name.get("text", "")
 
     return None
 
@@ -347,22 +362,20 @@ def analyze_create_element_component(node):
 
     Components have capital letters or are passed as references.
     """
-    if 'arguments' in node and isinstance(node['arguments'], list):
-        if len(node['arguments']) > 0:
-            first_arg = node['arguments'][0]
+    if "arguments" in node and isinstance(node["arguments"], list):
+        if len(node["arguments"]) > 0:
+            first_arg = node["arguments"][0]
             if isinstance(first_arg, dict):
-                # String literal component name
-                if first_arg.get('kind') == 'StringLiteral':
-                    text = first_arg.get('text', '')
+                if first_arg.get("kind") == "StringLiteral":
+                    text = first_arg.get("text", "")
                     return text and text[0].isupper()
-                # Identifier (component reference)
-                elif first_arg.get('kind') == 'Identifier':
-                    text = first_arg.get('escapedText', '')
+
+                elif first_arg.get("kind") == "Identifier":
+                    text = first_arg.get("escapedText", "")
                     return text and text[0].isupper()
     return False
 
 
-# Backward compatibility alias
 def check_for_jsx(node, depth=0):
     """Legacy function name for backward compatibility."""
     return detect_jsx_in_node(node, depth)
@@ -382,7 +395,6 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
     scope_map = {}
     function_ranges = []
 
-    # Track class context for qualified names
     class_stack = []
 
     def collect_functions(node, depth=0):
@@ -396,7 +408,6 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
 
         kind = node.get("kind", "")
 
-        # Track class context for qualified names
         if kind == "ClassDeclaration":
             class_name = "UnknownClass"
             for child in node.get("children", []):
@@ -405,42 +416,40 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
                     break
             class_stack.append(class_name)
 
-            # Recurse through class members
             for child in node.get("children", []):
                 collect_functions(child, depth + 1)
 
-            # Pop class context
             if class_stack:
                 class_stack.pop()
-            return  # Don't double-traverse
+            return
 
-        # CRITICAL FIX: Handle PropertyDeclaration with function initializers
-        # Patterns:
-        #   1. Direct: create = async (req, res) => {}
-        #   2. Wrapped: create = this.asyncHandler(async (req, res) => {})
         if kind == "PropertyDeclaration":
             initializer = node.get("initializer")
             if not initializer:
-                # Search for actual initializer in children (may be after modifiers like static/readonly)
                 children = node.get("children", [])
                 for child in children:
                     if isinstance(child, dict):
                         child_kind = child.get("kind", "")
-                        # Skip modifiers and identifiers, find the actual initializer
-                        if child_kind not in ["Identifier", "StaticKeyword", "ReadonlyKeyword",
-                                              "PrivateKeyword", "PublicKeyword", "ProtectedKeyword",
-                                              "AsyncKeyword", "AbstractKeyword", "DeclareKeyword"]:
+
+                        if child_kind not in [
+                            "Identifier",
+                            "StaticKeyword",
+                            "ReadonlyKeyword",
+                            "PrivateKeyword",
+                            "PublicKeyword",
+                            "ProtectedKeyword",
+                            "AsyncKeyword",
+                            "AbstractKeyword",
+                            "DeclareKeyword",
+                        ]:
                             initializer = child
                             break
 
             if isinstance(initializer, dict):
                 init_kind = initializer.get("kind", "")
 
-
-                # Pattern 1: Direct arrow function or function expression
                 is_arrow_func = init_kind in ["ArrowFunction", "FunctionExpression"]
 
-                # Pattern 2: Wrapped function (CallExpression wrapping a function)
                 is_wrapped_func = False
                 func_start_line = None
                 func_end_line = None
@@ -448,62 +457,63 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
                 if init_kind == "CallExpression":
                     call_args = initializer.get("arguments", initializer.get("children", [])[1:])
                     for arg in call_args:
-                        if isinstance(arg, dict) and arg.get("kind") in ["ArrowFunction", "FunctionExpression"]:
+                        if isinstance(arg, dict) and arg.get("kind") in [
+                            "ArrowFunction",
+                            "FunctionExpression",
+                        ]:
                             is_wrapped_func = True
                             func_start_line = arg.get("line", node.get("line", 0))
                             func_end_line = arg.get("endLine")
                             break
                 elif is_arrow_func:
-                    # Direct arrow/function expression - use initializer's line range
                     func_start_line = initializer.get("line", node.get("line", 0))
                     func_end_line = initializer.get("endLine")
 
                 if is_arrow_func or is_wrapped_func:
-                    # Get property name
                     prop_name = ""
                     for child in node.get("children", []):
                         if isinstance(child, dict) and child.get("kind") == "Identifier":
                             prop_name = child.get("text", "")
                             break
 
-                    # Build qualified name with class context
                     func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
 
-                    # Use the function's line range (direct or wrapped)
                     start_line = func_start_line or node.get("line", 0)
                     end_line = func_end_line
 
                     if not end_line:
-                        # Conservative estimate
                         end_line = start_line + 50
 
                     if start_line > 0:
-                        function_ranges.append({
-                            "name": func_name,
-                            "start": start_line,
-                            "end": end_line,
-                            "depth": depth,
-                            "is_property_function": True,  # Mark for debugging
-                            "is_wrapped": is_wrapped_func,
-                            "is_direct_arrow": is_arrow_func
-                        })
+                        function_ranges.append(
+                            {
+                                "name": func_name,
+                                "start": start_line,
+                                "end": end_line,
+                                "depth": depth,
+                                "is_property_function": True,
+                                "is_wrapped": is_wrapped_func,
+                                "is_direct_arrow": is_arrow_func,
+                            }
+                        )
 
-                    # Don't recurse into children - we already handled the function
                     return
 
-        # Standard function nodes
-        if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction",
-                    "FunctionExpression", "Constructor", "GetAccessor", "SetAccessor"]:
-            # Get function name
+        if kind in [
+            "FunctionDeclaration",
+            "MethodDeclaration",
+            "ArrowFunction",
+            "FunctionExpression",
+            "Constructor",
+            "GetAccessor",
+            "SetAccessor",
+        ]:
             name = node.get("name", "anonymous")
 
-            # Convert dict names to strings if needed
             if isinstance(name, dict):
                 name = name.get("text", "anonymous")
 
-            # For MethodDeclaration, add class context
             if kind == "MethodDeclaration" and class_stack:
-                # Get method name from children
                 method_name = ""
                 for child in node.get("children", []):
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
@@ -512,7 +522,6 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
                 if method_name:
                     name = f"{class_stack[-1]}.{method_name}"
 
-            # Get line range
             start_line = node.get("line", 0)
             end_line = node.get("endLine")
 
@@ -520,32 +529,22 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
                 end_line = start_line + 50
 
             if start_line > 0:
-                function_ranges.append({
-                    "name": name,
-                    "start": start_line,
-                    "end": end_line,
-                    "depth": depth
-                })
+                function_ranges.append(
+                    {"name": name, "start": start_line, "end": end_line, "depth": depth}
+                )
 
-        # Recurse through children
         for child in node.get("children", []):
             collect_functions(child, depth + 1)
 
-    # Collect all functions
     collect_functions(ast_root)
 
-    # Sort by depth (deeper functions take precedence) then by start line
     function_ranges.sort(key=lambda x: (x["start"], -x["depth"]))
 
-    # Build the line-to-function map
-    # Process in reverse order so deeper (more specific) functions override
     for func in reversed(function_ranges):
         for line in range(func["start"], func["end"] + 1):
-            # Deeper/inner functions take precedence
             if line not in scope_map or func["depth"] > 0:
                 scope_map[line] = func["name"]
 
-    # Fill in any gaps with "global"
     if function_ranges:
         max_line = max(func["end"] for func in function_ranges)
         for line in range(1, max_line + 1):
@@ -569,24 +568,23 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
     """
     functions = []
 
-    # Get the full AST root for traversal
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
 
     if not actual_tree or not actual_tree.get("success"):
         return functions
 
-    # PHASE 5: Check for pre-extracted data (from batch parsing)
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "functions" in extracted_data:
-        # Use pre-extracted function data - NO AST TRAVERSAL NEEDED
-        # This is the fast path for batch parsing (avoids 512MB AST transfer)
         import os
+
         if os.getenv("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)")
+            print(
+                f"[DEBUG] extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)"
+            )
         return extracted_data["functions"]
 
-    # FALLBACK: AST traversal for individual file parsing (backward compatibility)
     import os
+
     if os.getenv("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
     ast_root = actual_tree.get("ast", {})
@@ -594,16 +592,21 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
     if not ast_root:
         return functions
 
-    # PHASE 2: Type metadata now comes directly from AST nodes (serializeNode inline extraction)
-    # No longer need symbol_metadata lookup - removed for single-pass architecture
+    PARAMETER_NAMES = {
+        "req",
+        "res",
+        "next",
+        "err",
+        "error",
+        "ctx",
+        "request",
+        "response",
+        "callback",
+        "done",
+        "cb",
+    }
 
-    # Skip parameters - these should NEVER be marked as functions
-    PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
-
-    # Track class context as we traverse
-    class_stack = []  # Stack of class names for proper scoping
-
-    # PHASE 2: Removed enrich_with_metadata() - type info now read directly from AST nodes
+    class_stack = []
 
     def traverse(node, depth=0):
         """Recursively traverse AST extracting ALL function patterns."""
@@ -612,9 +615,7 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
 
         kind = node.get("kind", "")
 
-        # Track class context for qualified names
         if kind == "ClassDeclaration":
-            # CORRECT: Look for Identifier in children, not node.get("name")
             class_name = "UnknownClass"
             for child in node.get("children", []):
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
@@ -622,14 +623,12 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                     break
             class_stack.append(class_name)
 
-            # Recurse through class members
             for child in node.get("children", []):
                 traverse(child, depth + 1)
 
-            # Pop class context
             if class_stack:
                 class_stack.pop()
-            return  # Don't double-traverse
+            return
 
         is_function_like = False
         func_name = ""
@@ -643,20 +642,18 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
             "kind": kind,
         }
 
-        # Pattern 1: Standard FunctionDeclaration
         if kind == "FunctionDeclaration":
             is_function_like = True
-            # CORRECT: Look for Identifier in children
+
             func_name = ""
             for child in node.get("children", []):
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
                     func_name = child.get("text", "")
                     break
 
-        # Pattern 2: MethodDeclaration (class methods)
         elif kind == "MethodDeclaration":
             is_function_like = True
-            # CORRECT: Look for Identifier in children
+
             method_name = ""
             for child in node.get("children", []):
                 if isinstance(child, dict) and child.get("kind") == "Identifier":
@@ -664,10 +661,9 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                     break
             func_name = f"{class_stack[-1]}.{method_name}" if class_stack else method_name
 
-        # Pattern 3: PropertyDeclaration with ArrowFunction/FunctionExpression (CRITICAL FIX)
         elif kind == "PropertyDeclaration":
             initializer = node.get("initializer")
-            if not initializer:  # Fallback for different AST structures
+            if not initializer:
                 children = node.get("children", [])
                 if len(children) > 1:
                     initializer = children[1]
@@ -676,17 +672,20 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                 init_kind = initializer.get("kind", "")
                 is_arrow_func = init_kind in ["ArrowFunction", "FunctionExpression"]
                 is_wrapped_func = False
-                # Handle wrapped functions like this.asyncHandler(async () => {})
+
                 if init_kind == "CallExpression":
                     call_args = initializer.get("arguments", initializer.get("children", [])[1:])
                     for arg in call_args:
-                        if isinstance(arg, dict) and arg.get("kind") in ["ArrowFunction", "FunctionExpression"]:
+                        if isinstance(arg, dict) and arg.get("kind") in [
+                            "ArrowFunction",
+                            "FunctionExpression",
+                        ]:
                             is_wrapped_func = True
                             break
 
                 if is_arrow_func or is_wrapped_func:
                     is_function_like = True
-                    # CORRECT: Look for Identifier in children
+
                     prop_name = ""
                     for child in node.get("children", []):
                         if isinstance(child, dict) and child.get("kind") == "Identifier":
@@ -694,27 +693,30 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
                             break
                     func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
 
-        # Pattern 4: Constructor, GetAccessor, SetAccessor
         elif kind in ["Constructor", "GetAccessor", "SetAccessor"]:
             is_function_like = True
             if kind == "Constructor":
                 accessor_name = "constructor"
             else:
-                # CORRECT: Look for Identifier in children
                 accessor_name = ""
                 for child in node.get("children", []):
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
                         accessor_name = child.get("text", "")
                         break
             prefix = ""
-            if kind == "GetAccessor": prefix = "get "
-            if kind == "SetAccessor": prefix = "set "
-            func_name = f"{class_stack[-1]}.{prefix}{accessor_name}" if class_stack else f"{prefix}{accessor_name}"
+            if kind == "GetAccessor":
+                prefix = "get "
+            if kind == "SetAccessor":
+                prefix = "set "
+            func_name = (
+                f"{class_stack[-1]}.{prefix}{accessor_name}"
+                if class_stack
+                else f"{prefix}{accessor_name}"
+            )
 
         if is_function_like and func_name and func_name not in PARAMETER_NAMES:
             func_entry["name"] = func_name
 
-            # PHASE 2: Read type metadata directly from AST node (inline extraction from serializeNode)
             for metadata_key in (
                 "type_annotation",
                 "is_any",
@@ -730,16 +732,11 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
 
             functions.append(func_entry)
 
-        # Recurse through all children
         for child in node.get("children", []):
             traverse(child, depth + 1)
 
-    # Start traversal from AST root
     traverse(ast_root)
 
-    # DEDUPLICATION: With full AST traversal, functions may be extracted multiple times
-    # (e.g., from both AST nodes and symbol metadata)
-    # Use (name, line, column) as unique key
     seen = {}
     deduped_functions = []
     for func in functions:
@@ -749,7 +746,10 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
             deduped_functions.append(func)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
-        print(f"[DEBUG] extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})", file=sys.stderr)
+        print(
+            f"[DEBUG] extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})",
+            file=sys.stderr,
+        )
         for func in deduped_functions[:5]:
             print(f"[DEBUG]   {func['name']} at line {func['line']}", file=sys.stderr)
 
@@ -763,17 +763,14 @@ def extract_typescript_functions(tree: dict, parser_self) -> list[dict]:
 
 def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
     """Extract COMPLETE function AST nodes from TypeScript semantic AST.
-    
+
     This returns the full AST node for each function, including its body,
     which is essential for Control Flow Graph construction.
     """
     functions = []
 
-    # Get the actual AST tree, not the symbols
-    # The AST can be in different locations depending on how it was parsed
     ast_root = tree.get("ast", {})
     if not ast_root and "tree" in tree and isinstance(tree["tree"], dict):
-        # For semantic_ast type, the AST is nested at tree['tree']['ast']
         ast_root = tree["tree"].get("ast", {})
 
     if not ast_root:
@@ -786,25 +783,22 @@ def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
 
         kind = node.get("kind")
 
-        # These are the TypeScript AST node types for functions
         function_kinds = [
             "FunctionDeclaration",
-            "MethodDeclaration", 
+            "MethodDeclaration",
             "ArrowFunction",
             "FunctionExpression",
             "Constructor",
             "GetAccessor",
-            "SetAccessor"
+            "SetAccessor",
         ]
 
         if kind in function_kinds:
-            # Return the ENTIRE node - it contains everything including body
             functions.append(node)
-            # Still traverse children for nested functions
+
             for child in node.get("children", []):
                 traverse_for_functions(child, depth + 1)
         else:
-            # Not a function, keep looking in children
             for child in node.get("children", []):
                 traverse_for_functions(child, depth + 1)
 
@@ -819,7 +813,6 @@ def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
     """
     classes = []
 
-    # Get the actual AST tree
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         return classes
@@ -835,14 +828,11 @@ def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
 
         kind = node.get("kind", "")
 
-        # Extract class and interface declarations
         if kind in ["ClassDeclaration", "InterfaceDeclaration"]:
-            # Extract class/interface name
             class_name = node.get("name", "")
             if isinstance(class_name, dict):
                 class_name = class_name.get("text", class_name.get("name", ""))
 
-            # Try alternate name extraction from children
             if not class_name or class_name == "anonymous":
                 for child in node.get("children", []):
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
@@ -858,7 +848,6 @@ def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
                     "type": "class",
                 }
 
-                # PHASE 2: Read type metadata directly from AST node
                 for key in (
                     "type_annotation",
                     "extends_type",
@@ -870,15 +859,11 @@ def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
 
                 classes.append(class_entry)
 
-        # Recurse through all children
         for child in node.get("children", []):
             traverse(child, depth + 1)
 
-    # Start traversal from AST root
     traverse(ast_root)
 
-    # DEDUPLICATION: With full AST traversal, classes may be extracted multiple times
-    # Use (name, line, column) as unique key
     seen = {}
     deduped_classes = []
     for cls in classes:
@@ -901,25 +886,24 @@ def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
     """
     calls = []
 
-    # Get actual tree structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
-        # PHASE 5: Check for pre-extracted data (from batch parsing)
         extracted_data = actual_tree.get("extracted_data")
         if extracted_data and "calls" in extracted_data:
-            # Use pre-extracted call data - NO AST TRAVERSAL NEEDED
             import os
+
             if os.getenv("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)")
+                print(
+                    f"[DEBUG] extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)"
+                )
             return extracted_data["calls"]
 
-        # FALLBACK: AST traversal for individual file parsing
         import os
+
         if os.getenv("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
         ast_root = actual_tree.get("ast")
         if ast_root:
-            # Single-pass AST traversal extracts ALL calls/properties
             calls = extract_semantic_ast_symbols(ast_root)
 
     return calls
@@ -934,20 +918,16 @@ def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
     """
     imports = []
 
-    # PHASE 5: Check for pre-extracted data (from batch parsing)
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
         extracted_data = actual_tree.get("extracted_data")
         if extracted_data and "imports" in extracted_data:
-            # Imports are already in extracted_data - use directly
             tree_imports = extracted_data["imports"]
         else:
-            # Fallback: Use imports from tree (individual parsing)
             tree_imports = tree.get("imports", [])
     else:
         tree_imports = tree.get("imports", [])
 
-    # Process imports (same format in both modes)
     for imp in tree_imports:
         specifiers = imp.get("specifiers", []) or []
         namespace = None
@@ -998,7 +978,7 @@ def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
 
 def extract_typescript_exports(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract export statements from TypeScript semantic AST.
-    
+
     Currently returns empty list - exports aren't extracted by semantic parser yet.
     """
     return []
@@ -1008,15 +988,12 @@ def extract_typescript_properties(tree: dict, parser_self) -> list[dict]:
     """Extract property accesses from TypeScript semantic AST."""
     properties = []
 
-    # Already handled in extract_calls via extract_semantic_ast_symbols
-    # But we can also extract them specifically here
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
         ast_root = actual_tree.get("ast")
         if ast_root:
             symbols = extract_semantic_ast_symbols(ast_root)
-            # Filter for property accesses only
+
             properties = [s for s in symbols if s.get("type") == "property"]
 
     return properties
-

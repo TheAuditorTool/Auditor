@@ -11,13 +11,11 @@ PHILOSOPHY:
 - Fallback support: Check system PATH as secondary option
 """
 
-
 import platform
 import shutil
 from pathlib import Path
 
 
-# Platform detection
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -115,7 +113,6 @@ class Toolbox:
         node_runtime = self.sandbox / "node-runtime"
 
         if IS_WINDOWS:
-            # Windows: Try npm-cli.js first, then npm.cmd
             node_exe = node_runtime / "node.exe"
             npm_cli = node_runtime / "node_modules" / "npm" / "bin" / "npm-cli.js"
 
@@ -126,7 +123,6 @@ class Toolbox:
             if npm_cmd.exists():
                 return [str(npm_cmd)]
         else:
-            # Unix: Use npm shell script
             npm_exe = node_runtime / "bin" / "npm"
             if npm_exe.exists():
                 return [str(npm_exe)]
@@ -213,7 +209,6 @@ class Toolbox:
         if bundled.exists():
             return str(bundled)
 
-        # Fallback to system osv-scanner
         system_osv = shutil.which("osv-scanner")
         if system_osv:
             return system_osv

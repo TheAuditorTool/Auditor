@@ -13,7 +13,6 @@ Database Tables Used:
 - package_configs: Peer dependency declarations and actual versions
 """
 
-
 import json
 import sqlite3
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
@@ -23,8 +22,8 @@ from theauditor.indexer.schema import build_query
 METADATA = RuleMetadata(
     name="peer_conflicts",
     category="dependency",
-    target_extensions=['.json'],  # Only npm packages have peer dependencies
-    exclude_patterns=['node_modules/', '.venv/', 'test/'],
+    target_extensions=[".json"],
+    exclude_patterns=["node_modules/", ".venv/", "test/"],
     requires_jsx_pass=False,
 )
 
@@ -47,22 +46,22 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
-        # Load all packages with their versions and peer dependencies
-        query = build_query('package_configs', ['file_path', 'package_name', 'version', 'peer_dependencies'],
-                           where='peer_dependencies IS NOT NULL')
+        query = build_query(
+            "package_configs",
+            ["file_path", "package_name", "version", "peer_dependencies"],
+            where="peer_dependencies IS NOT NULL",
+        )
         cursor.execute(query)
-        # ✅ FIX: Store first query results before executing second query (Phase 3C fix preserved)
+
         packages_with_peers = cursor.fetchall()
 
-        # Build map of installed packages and their versions
         installed_versions: dict[str, str] = {}
-        query = build_query('package_configs', ['package_name', 'version'])
+        query = build_query("package_configs", ["package_name", "version"])
         cursor.execute(query)
         for pkg_name, version in cursor.fetchall():
             if version:
                 installed_versions[pkg_name] = version
 
-        # Check each package's peer dependencies
         for file_path, pkg_name, version, peer_deps_json in packages_with_peers:
             if not peer_deps_json:
                 continue
@@ -76,36 +75,36 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     if not peer_name or not peer_requirement:
                         continue
 
-                    # Check if peer dependency is installed
                     actual_version = installed_versions.get(peer_name)
 
                     if not actual_version:
-                        # Peer dependency not installed
-                        findings.append(StandardFinding(
-                            file_path=file_path,
-                            line=1,
-                            rule_name='peer-dependency-missing',
-                            message=f"Package '{pkg_name}' requires peer dependency '{peer_name}' ({peer_requirement}) but it is not installed",
-                            severity=Severity.MEDIUM,
-                            category='dependency',
-                            snippet=f"{pkg_name} requires {peer_name}: {peer_requirement}",
-                            cwe_id='CWE-1104'  # Use of Unmaintained Third Party Components
-                        ))
+                        findings.append(
+                            StandardFinding(
+                                file_path=file_path,
+                                line=1,
+                                rule_name="peer-dependency-missing",
+                                message=f"Package '{pkg_name}' requires peer dependency '{peer_name}' ({peer_requirement}) but it is not installed",
+                                severity=Severity.MEDIUM,
+                                category="dependency",
+                                snippet=f"{pkg_name} requires {peer_name}: {peer_requirement}",
+                                cwe_id="CWE-1104",
+                            )
+                        )
                         continue
 
-                    # Check for major version mismatch (simple heuristic)
-                    # This detects obvious conflicts like "^17.0.0" vs "18.2.0"
                     if _has_major_version_mismatch(peer_requirement, actual_version):
-                        findings.append(StandardFinding(
-                            file_path=file_path,
-                            line=1,
-                            rule_name='peer-dependency-conflict',
-                            message=f"Package '{pkg_name}' requires peer dependency '{peer_name}' {peer_requirement}, but version {actual_version} is installed",
-                            severity=Severity.HIGH,
-                            category='dependency',
-                            snippet=f"{pkg_name} requires {peer_name} {peer_requirement} (installed: {actual_version})",
-                            cwe_id='CWE-1104'
-                        ))
+                        findings.append(
+                            StandardFinding(
+                                file_path=file_path,
+                                line=1,
+                                rule_name="peer-dependency-conflict",
+                                message=f"Package '{pkg_name}' requires peer dependency '{peer_name}' {peer_requirement}, but version {actual_version} is installed",
+                                severity=Severity.HIGH,
+                                category="dependency",
+                                snippet=f"{pkg_name} requires {peer_name} {peer_requirement} (installed: {actual_version})",
+                                cwe_id="CWE-1104",
+                            )
+                        )
 
             except json.JSONDecodeError:
                 continue
@@ -113,7 +112,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         conn.close()
 
     except sqlite3.Error:
-        # Database error - silently fail
         pass
 
     return findings
@@ -136,43 +134,29 @@ def _has_major_version_mismatch(requirement: str, actual: str) -> bool:
         True if there's a major version mismatch
     """
     try:
-        # Extract required major version
-        # Handle npm version ranges: ^, ~, >=, >, <, <=, *, x
-        req_clean = requirement.lstrip('^~<>=vV').split('.')[0]
-        if req_clean in ('*', 'x', 'X', ''):
-            return False  # Wildcard matches anything
+        req_clean = requirement.lstrip("^~<>=vV").split(".")[0]
+        if req_clean in ("*", "x", "X", ""):
+            return False
 
         req_major = int(req_clean)
 
-        # Extract actual major version
-        actual_clean = actual.lstrip('vV').split('.')[0]
+        actual_clean = actual.lstrip("vV").split(".")[0]
         actual_major = int(actual_clean)
 
-        # Check for mismatch based on range operator
-        if requirement.startswith('^'):
-            # Caret (^) allows changes that don't modify left-most non-zero digit
-            # ^17.0.0 means >=17.0.0 <18.0.0
+        if requirement.startswith("^"):
             return actual_major != req_major
-        elif requirement.startswith('~'):
-            # Tilde (~) allows patch-level changes
-            # ~17.0.0 means >=17.0.0 <17.1.0
+        elif requirement.startswith("~"):
             return actual_major != req_major
-        elif requirement.startswith('>='):
-            # Greater than or equal - actual must be >= required
+        elif requirement.startswith(">="):
             return actual_major < req_major
-        elif requirement.startswith('>'):
-            # Greater than - actual must be > required
+        elif requirement.startswith(">"):
             return actual_major <= req_major
-        elif requirement.startswith('<='):
-            # Less than or equal - actual must be <= required
+        elif requirement.startswith("<="):
             return actual_major > req_major
-        elif requirement.startswith('<'):
-            # Less than - actual must be < required
+        elif requirement.startswith("<"):
             return actual_major >= req_major
         else:
-            # Exact version or plain number - must match exactly
             return actual_major != req_major
 
     except (ValueError, IndexError):
-        # Can't parse versions - assume no conflict
         return False

@@ -13,16 +13,11 @@ FIXES:
 - Git analysis limited to commit counts (missing authors, recency, workflow data)
 """
 
-
 import json
 import re
 from collections import defaultdict
 from pathlib import Path
 
-
-# ============================================================================
-# TIER 1: Pipeline Log Parsing (Macro Phase Timing)
-# ============================================================================
 
 def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
     """
@@ -51,32 +46,27 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
     phase_stats = {}
 
     try:
-        with open(log_path, encoding='utf-8') as f:
+        with open(log_path, encoding="utf-8") as f:
             content = f.read()
 
-        # Pattern: [Phase X/Y] Phase Name
-        # Then either [OK] or [FAILED]
-        phase_pattern = re.compile(r'\[Phase (\d+)/\d+\] (.+)')
-        ok_pattern = re.compile(r'\[OK\] (.+?) completed in ([\d.]+)s')
-        critical_pattern = re.compile(r'\[OK\] (.+?) completed in ([\d.]+)s - CRITICAL findings')
-        high_pattern = re.compile(r'\[OK\] (.+?) completed in ([\d.]+)s - HIGH findings')
-        failed_pattern = re.compile(r'\[FAILED\] (.+?) failed')
+        phase_pattern = re.compile(r"\[Phase (\d+)/\d+\] (.+)")
+        ok_pattern = re.compile(r"\[OK\] (.+?) completed in ([\d.]+)s")
+        critical_pattern = re.compile(r"\[OK\] (.+?) completed in ([\d.]+)s - CRITICAL findings")
+        high_pattern = re.compile(r"\[OK\] (.+?) completed in ([\d.]+)s - HIGH findings")
+        failed_pattern = re.compile(r"\[FAILED\] (.+?) failed")
 
-        lines = content.split('\n')
+        lines = content.split("\n")
         current_phase = None
         current_phase_num = None
 
         for line in lines:
-            # Match phase start
             phase_match = phase_pattern.search(line)
             if phase_match:
                 current_phase_num = int(phase_match.group(1))
                 current_phase = phase_match.group(2)
                 continue
 
-            # Match completion
             if current_phase:
-                # Check for CRITICAL findings
                 critical_match = critical_pattern.search(line)
                 if critical_match:
                     phase_name = critical_match.group(1)
@@ -86,12 +76,11 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
                         "status": "success",
                         "phase_num": current_phase_num,
                         "exit_code": 2,
-                        "findings_level": "critical"
+                        "findings_level": "critical",
                     }
                     current_phase = None
                     continue
 
-                # Check for HIGH findings
                 high_match = high_pattern.search(line)
                 if high_match:
                     phase_name = high_match.group(1)
@@ -101,12 +90,11 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
                         "status": "success",
                         "phase_num": current_phase_num,
                         "exit_code": 1,
-                        "findings_level": "high"
+                        "findings_level": "high",
                     }
                     current_phase = None
                     continue
 
-                # Check for normal success
                 ok_match = ok_pattern.search(line)
                 if ok_match:
                     phase_name = ok_match.group(1)
@@ -115,12 +103,11 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
                         "elapsed": elapsed,
                         "status": "success",
                         "phase_num": current_phase_num,
-                        "exit_code": 0
+                        "exit_code": 0,
                     }
                     current_phase = None
                     continue
 
-                # Check for failure
                 failed_match = failed_pattern.search(line)
                 if failed_match:
                     phase_name = failed_match.group(1)
@@ -128,20 +115,16 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
                         "elapsed": 0.0,
                         "status": "failed",
                         "phase_num": current_phase_num,
-                        "exit_code": -1
+                        "exit_code": -1,
                     }
                     current_phase = None
                     continue
 
     except Exception:
-        pass  # Return partial data on error
+        pass
 
     return phase_stats
 
-
-# ============================================================================
-# TIER 2: Enhanced Journal Parsing (ALL Event Types)
-# ============================================================================
 
 def parse_journal_events(journal_path: Path) -> dict:
     """
@@ -162,7 +145,7 @@ def parse_journal_events(journal_path: Path) -> dict:
             "file_touches": {},
             "findings_by_file": {},
             "patches": {},
-            "pipeline_summary": {}
+            "pipeline_summary": {},
         }
 
     phase_timing = {}
@@ -172,7 +155,7 @@ def parse_journal_events(journal_path: Path) -> dict:
     pipeline_summary = {}
 
     try:
-        with open(journal_path, encoding='utf-8') as f:
+        with open(journal_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -182,14 +165,12 @@ def parse_journal_events(journal_path: Path) -> dict:
                     event = json.loads(line)
                     event_type = event.get("event_type")
 
-                    # phase_start: Track phase initiation
                     if event_type == "phase_start":
                         phase = event.get("phase")
                         if phase:
                             if phase not in phase_timing:
                                 phase_timing[phase] = {"start_time": event.get("timestamp")}
 
-                    # phase_end: Track phase completion with timing
                     elif event_type == "phase_end":
                         phase = event.get("phase")
                         if phase:
@@ -197,30 +178,31 @@ def parse_journal_events(journal_path: Path) -> dict:
                                 "elapsed": event.get("elapsed", 0.0),
                                 "status": event.get("result", "unknown"),
                                 "exit_code": event.get("exit_code", 0),
-                                "end_time": event.get("timestamp")
+                                "end_time": event.get("timestamp"),
                             }
 
-                    # file_touch: Track file analysis operations
                     elif event_type == "file_touch":
                         file_path = event.get("file")
                         if file_path:
                             file_touches[file_path]["touches"] += 1
                             file_touches[file_path]["findings"] += event.get("findings", 0)
                             if event.get("result") == "fail":
-                                file_touches[file_path]["failures"] = file_touches[file_path].get("failures", 0) + 1
+                                file_touches[file_path]["failures"] = (
+                                    file_touches[file_path].get("failures", 0) + 1
+                                )
 
-                    # finding: Track individual findings per file
                     elif event_type == "finding":
                         file_path = event.get("file")
                         if file_path:
-                            findings_by_file[file_path].append({
-                                "severity": event.get("severity"),
-                                "category": event.get("category"),
-                                "message": event.get("message"),
-                                "line": event.get("line")
-                            })
+                            findings_by_file[file_path].append(
+                                {
+                                    "severity": event.get("severity"),
+                                    "category": event.get("category"),
+                                    "message": event.get("message"),
+                                    "line": event.get("line"),
+                                }
+                            )
 
-                    # apply_patch: Track patch applications
                     elif event_type == "apply_patch":
                         file_path = event.get("file")
                         if file_path:
@@ -229,7 +211,6 @@ def parse_journal_events(journal_path: Path) -> dict:
                             else:
                                 patches[file_path]["failed"] += 1
 
-                    # pipeline_summary: Overall run summary
                     elif event_type == "pipeline_summary":
                         pipeline_summary = {
                             "total_phases": event.get("total_phases", 0),
@@ -237,27 +218,23 @@ def parse_journal_events(journal_path: Path) -> dict:
                             "total_files": event.get("total_files", 0),
                             "total_findings": event.get("total_findings", 0),
                             "elapsed": event.get("elapsed", 0.0),
-                            "status": event.get("status", "unknown")
+                            "status": event.get("status", "unknown"),
                         }
 
                 except json.JSONDecodeError:
                     continue
 
     except Exception:
-        pass  # Return partial data
+        pass
 
     return {
         "phase_timing": dict(phase_timing),
         "file_touches": dict(file_touches),
         "findings_by_file": dict(findings_by_file),
         "patches": dict(patches),
-        "pipeline_summary": pipeline_summary
+        "pipeline_summary": pipeline_summary,
     }
 
-
-# ============================================================================
-# TIER 3: Raw Artifact Parsers (THE MISSING 90%)
-# ============================================================================
 
 def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
     """
@@ -278,17 +255,19 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
     if not file_path.exists():
         return {}
 
-    stats = defaultdict(lambda: {
-        "vulnerability_paths": 0,
-        "critical_count": 0,
-        "high_count": 0,
-        "medium_count": 0,
-        "cwe_list": [],
-        "max_taint_path_length": 0
-    })
+    stats = defaultdict(
+        lambda: {
+            "vulnerability_paths": 0,
+            "critical_count": 0,
+            "high_count": 0,
+            "medium_count": 0,
+            "cwe_list": [],
+            "max_taint_path_length": 0,
+        }
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
         for finding in data.get("findings", []):
@@ -310,7 +289,6 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
             if cwe and cwe not in stats[file]["cwe_list"]:
                 stats[file]["cwe_list"].append(cwe)
 
-            # Track taint path complexity
             path_length = len(finding.get("taint_path", []))
             if path_length > stats[file]["max_taint_path_length"]:
                 stats[file]["max_taint_path_length"] = path_length
@@ -339,16 +317,18 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
     if not file_path.exists():
         return {}
 
-    stats = defaultdict(lambda: {
-        "cve_count": 0,
-        "max_cvss_score": 0.0,
-        "critical_cves": 0,
-        "high_cves": 0,
-        "exploitable_count": 0
-    })
+    stats = defaultdict(
+        lambda: {
+            "cve_count": 0,
+            "max_cvss_score": 0.0,
+            "critical_cves": 0,
+            "high_cves": 0,
+            "exploitable_count": 0,
+        }
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
         for vuln in data.get("vulnerabilities", []):
@@ -392,21 +372,22 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
     """
     file_path = raw_path / "patterns.json"
     if not file_path.exists():
-        # Fallback to findings.json (alternate name)
         file_path = raw_path / "findings.json"
         if not file_path.exists():
             return {}
 
-    stats = defaultdict(lambda: {
-        "hardcoded_secrets": 0,
-        "weak_crypto": 0,
-        "insecure_random": 0,
-        "dangerous_functions": 0,
-        "total_patterns": 0
-    })
+    stats = defaultdict(
+        lambda: {
+            "hardcoded_secrets": 0,
+            "weak_crypto": 0,
+            "insecure_random": 0,
+            "dangerous_functions": 0,
+            "total_patterns": 0,
+        }
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
         for finding in data.get("findings", []):
@@ -449,30 +430,25 @@ def parse_fce(raw_path: Path) -> dict[str, dict]:
     if not file_path.exists():
         return {}
 
-    stats = defaultdict(lambda: {
-        "failure_correlations": 0,
-        "cross_file_dependencies": 0,
-        "hotspot_score": 0.0
-    })
+    stats = defaultdict(
+        lambda: {"failure_correlations": 0, "cross_file_dependencies": 0, "hotspot_score": 0.0}
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
-        # Parse failure correlations
         for correlation in data.get("correlations", []):
             file = correlation.get("file", "")
             if file:
                 stats[file]["failure_correlations"] += 1
 
-        # Parse hotspots
         for hotspot in data.get("hotspots", []):
             file = hotspot.get("file", "")
             if file:
                 score = hotspot.get("score", 0.0)
                 stats[file]["hotspot_score"] = max(stats[file]["hotspot_score"], score)
 
-        # Parse cross-file dependencies
         for dep in data.get("dependencies", []):
             source = dep.get("source", "")
             if source:
@@ -501,15 +477,17 @@ def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
     if not file_path.exists():
         return {}
 
-    stats = defaultdict(lambda: {
-        "max_cyclomatic_complexity": 0,
-        "avg_cyclomatic_complexity": 0.0,
-        "complex_function_count": 0,
-        "total_functions": 0
-    })
+    stats = defaultdict(
+        lambda: {
+            "max_cyclomatic_complexity": 0,
+            "avg_cyclomatic_complexity": 0.0,
+            "complex_function_count": 0,
+            "total_functions": 0,
+        }
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
         file_functions = defaultdict(list)
@@ -525,13 +503,14 @@ def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
             if complexity > stats[file]["max_cyclomatic_complexity"]:
                 stats[file]["max_cyclomatic_complexity"] = complexity
 
-            if complexity > 10:  # Threshold for "complex"
+            if complexity > 10:
                 stats[file]["complex_function_count"] += 1
 
-        # Calculate averages
         for file, complexities in file_functions.items():
             stats[file]["total_functions"] = len(complexities)
-            stats[file]["avg_cyclomatic_complexity"] = sum(complexities) / len(complexities) if complexities else 0.0
+            stats[file]["avg_cyclomatic_complexity"] = (
+                sum(complexities) / len(complexities) if complexities else 0.0
+            )
 
     except Exception:
         pass
@@ -556,14 +535,12 @@ def parse_frameworks(raw_path: Path) -> dict[str, dict]:
     if not file_path.exists():
         return {}
 
-    stats = defaultdict(lambda: {
-        "frameworks": [],
-        "has_vulnerable_version": False,
-        "framework_count": 0
-    })
+    stats = defaultdict(
+        lambda: {"frameworks": [], "has_vulnerable_version": False, "framework_count": 0}
+    )
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
         for detection in data.get("detected", []):
@@ -597,7 +574,7 @@ def parse_graph_metrics(raw_path: Path) -> dict[str, float]:
         return {}
 
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -628,15 +605,13 @@ def parse_all_raw_artifacts(raw_dir: Path) -> dict:
         "fce": parse_fce(raw_dir),
         "cfg": parse_cfg_analysis(raw_dir),
         "frameworks": parse_frameworks(raw_dir),
-        "graph_metrics": parse_graph_metrics(raw_dir)
+        "graph_metrics": parse_graph_metrics(raw_dir),
     }
 
 
-# ============================================================================
-# TIER 4: Git Analysis (Churn, Authors, Workflows, Worktrees)
-# ============================================================================
-
-def parse_git_churn(root_path: Path, days: int = 90, file_paths: list[str] | None = None) -> dict[str, dict]:
+def parse_git_churn(
+    root_path: Path, days: int = 90, file_paths: list[str] | None = None
+) -> dict[str, dict]:
     """
     Parse git history for commit churn, author diversity, and recency.
 
@@ -668,12 +643,10 @@ def parse_git_churn(root_path: Path, days: int = 90, file_paths: list[str] | Non
         if "error" in result:
             return {}
 
-        # Convert list format to dict format
         git_stats = {}
         for file_data in result.get("files", []):
             path = file_data["path"]
 
-            # Filter to file_paths if provided
             if file_paths and path not in file_paths:
                 continue
 
@@ -681,13 +654,12 @@ def parse_git_churn(root_path: Path, days: int = 90, file_paths: list[str] | Non
                 "commits_90d": file_data.get("commits_90d", 0),
                 "unique_authors": file_data.get("unique_authors", 0),
                 "days_since_modified": file_data.get("days_since_modified", 999),
-                "days_active_in_range": file_data.get("days_active_in_range", 0)
+                "days_active_in_range": file_data.get("days_active_in_range", 0),
             }
 
         return git_stats
 
     except Exception:
-        # Gracefully degrade if git not available
         return {}
 
 
@@ -703,7 +675,7 @@ def parse_git_workflows(root_path: Path) -> dict[str, dict]:
     Returns:
         Dict mapping workflow files to metadata (currently empty)
     """
-    # Stub for future expansion (user mentioned workflows)
+
     return {}
 
 
@@ -719,5 +691,5 @@ def parse_git_worktrees(root_path: Path) -> dict[str, dict]:
     Returns:
         Dict mapping worktree paths to metadata (currently empty)
     """
-    # Stub for future expansion (user mentioned worktrees)
+
     return {}

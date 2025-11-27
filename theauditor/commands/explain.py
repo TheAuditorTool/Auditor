@@ -25,8 +25,19 @@ from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
 
 
-# File extensions for auto-detection
-FILE_EXTENSIONS = {'.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go', '.java', '.vue', '.rb', '.php'}
+FILE_EXTENSIONS = {
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".py",
+    ".rs",
+    ".go",
+    ".java",
+    ".vue",
+    ".rb",
+    ".php",
+}
 
 
 def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
@@ -45,43 +56,45 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
     Returns:
         One of: 'file', 'symbol', 'component'
     """
-    # Check file extension
+
     for ext in FILE_EXTENSIONS:
         if target.endswith(ext):
-            return 'file'
+            return "file"
 
-    # Check for path-like patterns (contains / or \)
-    if '/' in target or '\\' in target:
-        return 'file'
+    if "/" in target or "\\" in target:
+        return "file"
 
-    # Check for qualified symbol (Class.method)
-    if '.' in target and target[0].isupper():
-        return 'symbol'
+    if "." in target and target[0].isupper():
+        return "symbol"
 
-    # Check for component (PascalCase in react_components)
     if target and target[0].isupper() and len(target) > 1:
-        # Only check if second char exists and pattern looks like PascalCase
         component = engine.get_component_tree(target)
-        if not isinstance(component, dict) or 'error' not in component:
-            return 'component'
+        if not isinstance(component, dict) or "error" not in component:
+            return "component"
 
-    return 'symbol'
+    return "symbol"
 
 
 @click.command()
-@click.argument('target')
-@click.option('--depth', default=1, type=int,
-              help='Call graph depth for callers/callees (1-5, default=1)')
-@click.option('--format', 'output_format', default='text',
-              type=click.Choice(['text', 'json']),
-              help='Output format: text (human), json (AI)')
-@click.option('--section', default='all',
-              type=click.Choice(['all', 'symbols', 'hooks', 'deps', 'callers', 'callees']),
-              help='Show only specific section')
-@click.option('--no-code', is_flag=True,
-              help='Disable code snippets (faster output)')
-@click.option('--limit', default=20, type=int,
-              help='Max items per section (default=20)')
+@click.argument("target")
+@click.option(
+    "--depth", default=1, type=int, help="Call graph depth for callers/callees (1-5, default=1)"
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format: text (human), json (AI)",
+)
+@click.option(
+    "--section",
+    default="all",
+    type=click.Choice(["all", "symbols", "hooks", "deps", "callers", "callees"]),
+    help="Show only specific section",
+)
+@click.option("--no-code", is_flag=True, help="Disable code snippets (faster output)")
+@click.option("--limit", default=20, type=int, help="Max items per section (default=20)")
 @handle_exceptions
 def explain(target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int):
     """Get comprehensive context about a file, symbol, or component.
@@ -191,7 +204,6 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
     """
     start_time = time.perf_counter()
 
-    # Clamp depth to valid range
     depth = max(1, min(5, depth))
 
     root = Path.cwd()
@@ -200,83 +212,82 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
     formatter = ExplainFormatter(snippet_manager, show_code=not no_code, limit=limit)
 
     try:
-        # Auto-detect target type
         target_type = detect_target_type(target, engine)
 
-        # Track which sections were truncated
         truncated_sections = []
 
-        # Get context bundle based on type
-        if target_type == 'file':
+        if target_type == "file":
             data = engine.get_file_context_bundle(target, limit=limit)
 
-            # Check for truncation (data has limit+1 items if truncated)
-            for key in ['symbols', 'imports', 'importers', 'outgoing_calls', 'incoming_calls']:
+            for key in ["symbols", "imports", "importers", "outgoing_calls", "incoming_calls"]:
                 if len(data.get(key, [])) > limit:
                     truncated_sections.append(key)
-                    # Trim to requested limit for output
+
                     data[key] = data[key][:limit]
 
-            # Apply section filter
-            if section != 'all':
+            if section != "all":
                 section_map = {
-                    'symbols': ['symbols'],
-                    'hooks': ['hooks'],
-                    'deps': ['imports', 'importers'],
-                    'callers': ['incoming_calls'],
-                    'callees': ['outgoing_calls'],
+                    "symbols": ["symbols"],
+                    "hooks": ["hooks"],
+                    "deps": ["imports", "importers"],
+                    "callers": ["incoming_calls"],
+                    "callees": ["outgoing_calls"],
                 }
                 keep_keys = section_map.get(section, [])
-                for key in ['symbols', 'hooks', 'imports', 'importers', 'outgoing_calls', 'incoming_calls', 'framework_info']:
+                for key in [
+                    "symbols",
+                    "hooks",
+                    "imports",
+                    "importers",
+                    "outgoing_calls",
+                    "incoming_calls",
+                    "framework_info",
+                ]:
                     if key not in keep_keys:
                         data[key] = [] if isinstance(data.get(key), list) else {}
 
             output = formatter.format_file_explain(data)
 
-        elif target_type == 'symbol':
+        elif target_type == "symbol":
             data = engine.get_symbol_context_bundle(target, limit=limit, depth=depth)
-            if 'error' in data:
+            if "error" in data:
                 click.echo(f"Error: {data['error']}", err=True)
                 return
 
-            # Check for truncation (data has limit+1 items if truncated)
-            for key in ['callers', 'callees']:
+            for key in ["callers", "callees"]:
                 if len(data.get(key, [])) > limit:
                     truncated_sections.append(key)
-                    # Trim to requested limit for output
+
                     data[key] = data[key][:limit]
 
-            # Apply section filter
-            if section != 'all':
+            if section != "all":
                 section_map = {
-                    'callers': ['callers'],
-                    'callees': ['callees'],
+                    "callers": ["callers"],
+                    "callees": ["callees"],
                 }
                 keep_keys = section_map.get(section, [])
-                for key in ['callers', 'callees']:
+                for key in ["callers", "callees"]:
                     if key not in keep_keys:
                         data[key] = []
 
             output = formatter.format_symbol_explain(data)
 
-        else:  # component
+        else:
             data = engine.get_component_tree(target)
-            if isinstance(data, dict) and 'error' in data:
+            if isinstance(data, dict) and "error" in data:
                 click.echo(f"Error: {data['error']}", err=True)
                 return
-            data['target'] = target
-            data['target_type'] = 'component'
+            data["target"] = target
+            data["target_type"] = "component"
             output = formatter.format_component_explain(data)
 
-        # Add timing metadata with truncated_sections
         elapsed_ms = (time.perf_counter() - start_time) * 1000
-        data['metadata'] = {
-            'query_time_ms': round(elapsed_ms, 1),
-            'truncated_sections': truncated_sections,
+        data["metadata"] = {
+            "query_time_ms": round(elapsed_ms, 1),
+            "truncated_sections": truncated_sections,
         }
 
-        # Output
-        if output_format == 'json':
+        if output_format == "json":
             click.echo(json.dumps(data, indent=2, default=str))
         else:
             click.echo(output)

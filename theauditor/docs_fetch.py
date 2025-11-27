@@ -52,7 +52,6 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 
-# Default allowlist for registries and documentation sites
 DEFAULT_ALLOWLIST = [
     "https://registry.npmjs.org/",
     "https://pypi.org/",
@@ -130,7 +129,6 @@ def fetch_docs(
             "errors": [str(e)],
         }
 
-    # Run the async engine
     return asyncio.run(_fetch_docs_async(deps, output_path, allowlist))
 
 
@@ -154,7 +152,6 @@ async def _fetch_docs_async(
         "errors": [],
     }
 
-    # FIRST PASS: Check what's cached (no network, fast)
     needs_fetch = []
     for dep in deps:
         if _is_cached(dep, output_path):
@@ -162,12 +159,9 @@ async def _fetch_docs_async(
         else:
             needs_fetch.append(dep)
 
-    # Early exit if everything is cached
     if not needs_fetch:
         return stats
 
-    # SECOND PASS: Async parallel fetch with rate limiting
-    # Semaphore: 20 concurrent (docs are IO heavy, can go wider than deps)
     semaphore = asyncio.Semaphore(20)
 
     async with httpx.AsyncClient(
@@ -176,8 +170,7 @@ async def _fetch_docs_async(
         headers={"User-Agent": "TheAuditor/1.0 (docs fetcher)"},
     ) as client:
         tasks = [
-            _fetch_one_doc(client, dep, output_path, allowlist, semaphore)
-            for dep in needs_fetch
+            _fetch_one_doc(client, dep, output_path, allowlist, semaphore) for dep in needs_fetch
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -218,7 +211,6 @@ async def _fetch_one_doc(
                 return "skipped"
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                # Rate limited - sleep and skip (don't retry in this batch)
                 await asyncio.sleep(RATE_LIMIT_BACKOFF)
                 return "rate_limited"
             return "error"
@@ -243,7 +235,7 @@ def _is_cached(dep: dict[str, Any], output_dir: Path) -> bool:
         with open(meta_file, encoding="utf-8") as f:
             meta = json.load(f)
         last_checked = datetime.fromisoformat(meta["last_checked"])
-        # Cache valid for 7 days
+
         return (datetime.now() - last_checked).days < 7
     except (json.JSONDecodeError, KeyError, ValueError):
         return False
@@ -251,18 +243,17 @@ def _is_cached(dep: dict[str, Any], output_dir: Path) -> bool:
 
 def _get_pkg_dir(output_dir: Path, manager: str, name: str, version: str) -> Path:
     """Get the package-specific cache directory."""
-    # Sanitize version for filesystem
+
     if version.startswith("git") or "://" in version:
         version_hash = hashlib.md5(version.encode()).hexdigest()[:8]
         safe_version = f"git-{version_hash}"
     else:
-        safe_version = re.sub(r'[:/\\]', '_', version)
+        safe_version = re.sub(r"[:/\\]", "_", version)
 
-    # Sanitize name for filesystem
     if manager == "npm":
         safe_name = name.replace("@", "_at_").replace("/", "_")
     else:
-        safe_name = re.sub(r'[/\\]', '_', name)
+        safe_name = re.sub(r"[/\\]", "_", name)
 
     return output_dir / manager / f"{safe_name}@{safe_version}"
 
@@ -270,11 +261,6 @@ def _get_pkg_dir(output_dir: Path, manager: str, name: str, version: str) -> Pat
 def _is_url_allowed(url: str, allowlist: list[str]) -> bool:
     """Check if URL is in the allowlist."""
     return any(url.startswith(allowed) for allowed in allowlist)
-
-
-# =============================================================================
-# NPM DOCS FETCHER
-# =============================================================================
 
 
 async def _fetch_npm_docs_async(
@@ -295,7 +281,6 @@ async def _fetch_npm_docs_async(
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
 
-    # Fetch from npm registry
     safe_name = sanitize_url_component(name)
     safe_version = sanitize_url_component(version)
     url = f"https://registry.npmjs.org/{safe_name}/{safe_version}"
@@ -311,19 +296,14 @@ async def _fetch_npm_docs_async(
     repository = data.get("repository", {})
     homepage = data.get("homepage", "")
 
-    # Try GitHub README if npm readme is short
     if len(readme) < 500:
-        github_readme = await _fetch_github_readme_async(
-            client, repository, homepage, allowlist
-        )
+        github_readme = await _fetch_github_readme_async(client, repository, homepage, allowlist)
         if github_readme and len(github_readme) > len(readme):
             readme = github_readme
 
-    # Enhance if still short
     if len(readme) < 500:
         readme = _enhance_npm_readme(data, readme)
 
-    # Write doc file
     with open(doc_file, "w", encoding="utf-8") as f:
         f.write(f"# {name}@{version}\n\n")
         f.write(f"**Package**: [{name}](https://www.npmjs.com/package/{name})\n")
@@ -335,7 +315,6 @@ async def _fetch_npm_docs_async(
         if "## Usage" not in readme and "## Example" not in readme:
             f.write(f"\n\n## Installation\n\n```bash\nnpm install {name}\n```\n")
 
-    # Write metadata
     meta = {
         "source_url": url,
         "last_checked": datetime.now().isoformat(),
@@ -345,11 +324,6 @@ async def _fetch_npm_docs_async(
         json.dump(meta, f, indent=2)
 
     return "fetched"
-
-
-# =============================================================================
-# PYPI DOCS FETCHER
-# =============================================================================
 
 
 async def _fetch_pypi_docs_async(
@@ -370,7 +344,6 @@ async def _fetch_pypi_docs_async(
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
 
-    # Handle special versions
     safe_name = sanitize_url_component(name)
     if version in ["latest", "git"]:
         if version == "git":
@@ -392,26 +365,20 @@ async def _fetch_pypi_docs_async(
     summary = info.get("summary", "")
     project_urls = info.get("project_urls", {}) or {}
 
-    # Try to get better README from GitHub
     if len(description) < 500:
-        github_readme = await _try_github_from_project_urls(
-            client, project_urls, info, allowlist
-        )
+        github_readme = await _try_github_from_project_urls(client, project_urls, info, allowlist)
         if github_readme and len(github_readme) > len(description):
             description = github_readme
 
-    # Try crawling docs site (REDUCED patterns)
     if len(description) < 1000:
         crawled = await _crawl_docs_smart(client, project_urls, name, version, allowlist)
         if crawled:
-            # Write crawled pages as separate files
             for page_name, content in crawled.items():
                 page_file = pkg_dir / f"{page_name}.md"
                 with open(page_file, "w", encoding="utf-8") as f:
                     f.write(f"# {name}@{version} - {page_name.title()}\n\n")
                     f.write(content)
 
-    # Write main doc file
     with open(doc_file, "w", encoding="utf-8") as f:
         f.write(f"# {name}@{version}\n\n")
         f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
@@ -428,7 +395,6 @@ async def _fetch_pypi_docs_async(
         if "pip install" not in description.lower():
             f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
 
-    # Write metadata
     meta = {
         "package": name,
         "version": version,
@@ -442,11 +408,6 @@ async def _fetch_pypi_docs_async(
     return "fetched"
 
 
-# =============================================================================
-# GITHUB README FETCHER
-# =============================================================================
-
-
 async def _fetch_github_readme_async(
     client: "httpx.AsyncClient",
     repository: dict | str,
@@ -454,21 +415,19 @@ async def _fetch_github_readme_async(
     allowlist: list[str],
 ) -> str | None:
     """Fetch README from GitHub repository."""
-    # Extract repo URL
+
     if isinstance(repository, dict):
         repo_url = repository.get("url", "")
     else:
         repo_url = repository or ""
 
-    # Try homepage if no repo URL
     urls_to_try = [repo_url, homepage] if homepage else [repo_url]
 
     for url in urls_to_try:
         if not url or "github.com" not in url.lower():
             continue
 
-        # Extract owner/repo
-        match = re.search(r'github\.com[:/]([^/]+)/([^/\s]+)', url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\s]+)", url)
         if not match:
             continue
 
@@ -477,20 +436,19 @@ async def _fetch_github_readme_async(
         safe_owner = sanitize_url_component(owner)
         safe_repo = sanitize_url_component(repo)
 
-        # Try main branch first, then master (only 2 attempts, not 8)
         for branch in ["main", "master"]:
-            raw_url = f"https://raw.githubusercontent.com/{safe_owner}/{safe_repo}/{branch}/README.md"
+            raw_url = (
+                f"https://raw.githubusercontent.com/{safe_owner}/{safe_repo}/{branch}/README.md"
+            )
 
             if not _is_url_allowed(raw_url, allowlist):
                 continue
 
             try:
-                # Use HEAD probe first
                 head_resp = await client.head(raw_url, timeout=TIMEOUT_PROBE)
                 if head_resp.status_code != 200:
                     continue
 
-                # Fetch content
                 resp = await client.get(raw_url, timeout=TIMEOUT_CRAWL)
                 if resp.status_code == 200:
                     return resp.text
@@ -520,11 +478,6 @@ async def _try_github_from_project_urls(
     return None
 
 
-# =============================================================================
-# SMART DOC CRAWLER (Reduced patterns)
-# =============================================================================
-
-
 async def _crawl_docs_smart(
     client: "httpx.AsyncClient",
     project_urls: dict,
@@ -540,7 +493,6 @@ async def _crawl_docs_smart(
     """
     results = {}
 
-    # Find doc site URL from project_urls
     doc_url = None
     for key, url in project_urls.items():
         if url and ("readthedocs" in url.lower() or "docs" in key.lower()):
@@ -550,18 +502,15 @@ async def _crawl_docs_smart(
     if not doc_url:
         return results
 
-    # Extend allowlist for this package's docs
     extended_allowlist = allowlist + [
         doc_url,
         f"https://{package_name}.readthedocs.io/",
         f"https://{package_name}.readthedocs.org/",
     ]
 
-    # PROBE: Check if root exists before wasting time
     if not await _probe_url(client, doc_url, extended_allowlist):
         return results
 
-    # SMART PATTERNS: Only try the most common ones (5 patterns, not 240)
     version_parts = version.split(".")
     major_minor = ".".join(version_parts[:2]) if len(version_parts) >= 2 else version
 
@@ -572,7 +521,6 @@ async def _crawl_docs_smart(
         doc_url + "/",
     ]
 
-    # Find working root
     working_root = None
     for pattern in root_patterns:
         if await _probe_url(client, pattern, extended_allowlist):
@@ -582,7 +530,6 @@ async def _crawl_docs_smart(
     if not working_root:
         working_root = doc_url + "/"
 
-    # FETCH: Only the most valuable pages (3 pages, not 5x4=20)
     priority_pages = ["quickstart", "api", "tutorial"]
 
     limiter = get_rate_limiter("docs")
@@ -596,12 +543,9 @@ async def _crawl_docs_smart(
         if content and len(content) > 200:
             results[page] = content
 
-        # Also try .html variant
         if page not in results:
             page_url_html = f"{working_root}{page}.html"
-            content = await _fetch_and_convert_async(
-                client, page_url_html, extended_allowlist
-            )
+            content = await _fetch_and_convert_async(client, page_url_html, extended_allowlist)
             if content and len(content) > 200:
                 results[page] = content
 
@@ -653,11 +597,9 @@ def _convert_html_bs4(html_content: str) -> str | None:
     """Convert HTML to markdown using BeautifulSoup."""
     soup = BeautifulSoup(html_content, "html.parser")
 
-    # Remove unwanted elements
     for element in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
         element.decompose()
 
-    # Find main content
     main_content = None
     for selector in ["article", "main", ".document", ".rst-content", ".content", "#content"]:
         main_content = soup.select_one(selector)
@@ -670,7 +612,6 @@ def _convert_html_bs4(html_content: str) -> str | None:
     if not main_content:
         return None
 
-    # Convert to markdown
     markdown = md(
         str(main_content),
         heading_style="ATX",
@@ -678,18 +619,16 @@ def _convert_html_bs4(html_content: str) -> str | None:
         strip=["a"],
     )
 
-    # Clean up
     markdown = re.sub(r"\n{3,}", "\n\n", markdown)
     return markdown.strip() if len(markdown) > 100 else None
 
 
 def _convert_html_regex(html_content: str) -> str:
     """Fallback regex-based HTML to markdown conversion."""
-    # Remove script and style
+
     html_content = re.sub(r"<script[^>]*>.*?</script>", "", html_content, flags=re.DOTALL)
     html_content = re.sub(r"<style[^>]*>.*?</style>", "", html_content, flags=re.DOTALL)
 
-    # Convert tags
     html_content = re.sub(r"<h1[^>]*>(.*?)</h1>", r"# \1\n", html_content, flags=re.I)
     html_content = re.sub(r"<h2[^>]*>(.*?)</h2>", r"## \1\n", html_content, flags=re.I)
     html_content = re.sub(r"<h3[^>]*>(.*?)</h3>", r"### \1\n", html_content, flags=re.I)
@@ -700,14 +639,8 @@ def _convert_html_regex(html_content: str) -> str:
     html_content = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", html_content, flags=re.I)
     html_content = re.sub(r"<[^>]+>", "", html_content)
 
-    # Clean up
     html_content = re.sub(r"\n{3,}", "\n\n", html_content)
     return html_content.strip()
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
 
 
 def _enhance_npm_readme(data: dict[str, Any], readme: str) -> str:
@@ -729,11 +662,6 @@ def _enhance_npm_readme(data: dict[str, Any], readme: str) -> str:
     return enhanced
 
 
-# =============================================================================
-# LEGACY SYNC WRAPPER (for check_latest compatibility)
-# =============================================================================
-
-
 def check_latest(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
@@ -750,9 +678,7 @@ def check_latest(
     if offline or not allow_net:
         return {"mode": "offline", "checked": 0, "outdated": 0}
 
-    latest_info = check_latest_versions(
-        deps, allow_net=allow_net, offline=offline, root_path="."
-    )
+    latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline, root_path=".")
 
     if latest_info:
         try:

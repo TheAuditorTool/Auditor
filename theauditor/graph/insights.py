@@ -10,8 +10,4 @@ This ensures that:
   - import theauditor.graph.insights  # STILL WORKS
 """
 
-# Import everything from the new location
 from theauditor.insights.graph import *
-
-# This shim ensures 100% backward compatibility while the actual
-# implementation is now in theauditor/insights/graph.py

@@ -12,11 +12,32 @@ from pathlib import Path
 @click.option("--window", default=50, type=int, help="Journal window size")
 @click.option("--seed", default=13, type=int, help="Random seed")
 @click.option("--feedback", help="Path to human feedback JSON file")
-@click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
-@click.option("--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)")
-@click.option("--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs")
+@click.option(
+    "--train-on",
+    type=click.Choice(["full", "diff", "all"]),
+    default="full",
+    help="Type of historical runs to train on",
+)
+@click.option(
+    "--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)"
+)
+@click.option(
+    "--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs"
+)
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, session_dir, session_analysis, print_stats):
+def learn(
+    db_path,
+    manifest,
+    enable_git,
+    model_dir,
+    window,
+    seed,
+    feedback,
+    train_on,
+    session_dir,
+    session_analysis,
+    print_stats,
+):
     """Train machine learning models from historical audit data to predict file risk and root causes.
 
     Learns patterns from past audit runs stored in .pf/history/ to build predictive models
@@ -214,31 +235,32 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
 
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
 
-    # Show session analysis if requested
     if session_analysis and session_dir:
         import sqlite3
         import json
 
         click.echo("[SESSION] Analyzing AI agent behavior from session logs...")
 
-        # Show Tier 5 statistics from session_executions table
         try:
-            # Session data stored in persistent .pf/ml/ directory
-            session_db = Path('.pf/ml/session_history.db')
+            session_db = Path(".pf/ml/session_history.db")
             if not session_db.exists():
-                click.echo("[WARN] session_history.db not found - run session analysis first", err=True)
+                click.echo(
+                    "[WARN] session_history.db not found - run session analysis first", err=True
+                )
             else:
-                # Connect to session database
                 conn = sqlite3.connect(session_db)
                 cursor = conn.cursor()
 
-                # Check if session_executions table exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'")
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
+                )
                 if not cursor.fetchone():
-                    click.echo("[WARN] session_executions table not found - run session analysis first", err=True)
+                    click.echo(
+                        "[WARN] session_executions table not found - run session analysis first",
+                        err=True,
+                    )
                     conn.close()
                 else:
-                    # Get overall statistics
                     cursor.execute("""
                         SELECT COUNT(*) as total_sessions,
                                SUM(workflow_compliant) as compliant_sessions,
@@ -253,12 +275,11 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                     if stats and stats[0] > 0:
                         total, compliant, avg_comp, avg_risk, avg_eng, total_edits = stats
 
-                        # Calculate unique files
                         cursor.execute("SELECT diffs_scored FROM session_executions")
                         all_files = set()
                         for row in cursor.fetchall():
                             diffs = json.loads(row[0])
-                            all_files.update(d['file'] for d in diffs)
+                            all_files.update(d["file"] for d in diffs)
                         unique_files = len(all_files)
 
                         click.echo("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
@@ -266,12 +287,15 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                         click.echo(f"Sessions analyzed: {total}")
                         click.echo(f"Total edits: {total_edits}")
                         click.echo(f"Unique files: {unique_files}")
-                        click.echo(f"Workflow compliance rate: {(compliant/total)*100:.1f}% ({compliant}/{total} compliant)")
+                        click.echo(
+                            f"Workflow compliance rate: {(compliant / total) * 100:.1f}% ({compliant}/{total} compliant)"
+                        )
                         click.echo(f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)")
                         click.echo(f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)")
-                        click.echo(f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)")
+                        click.echo(
+                            f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)"
+                        )
 
-                        # Show top risky sessions
                         cursor.execute("""
                             SELECT session_id, risk_score, files_modified, user_engagement_rate
                             FROM session_executions
@@ -283,9 +307,10 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                         if risky_sessions:
                             click.echo("\nTop 3 riskiest sessions:")
                             for i, (sid, risk, files, eng) in enumerate(risky_sessions, 1):
-                                click.echo(f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})")
+                                click.echo(
+                                    f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})"
+                                )
 
-                        # Show compliance correlation
                         cursor.execute("""
                             SELECT AVG(risk_score) as avg_risk, AVG(user_engagement_rate) as avg_eng
                             FROM session_executions
@@ -300,14 +325,24 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                         """)
                         non_compliant_stats = cursor.fetchone()
 
-                        if compliant_stats and non_compliant_stats and compliant_stats[0] is not None:
+                        if (
+                            compliant_stats
+                            and non_compliant_stats
+                            and compliant_stats[0] is not None
+                        ):
                             click.echo("\nWorkflow Compliance Correlation:")
-                            click.echo(f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}")
-                            click.echo(f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}")
+                            click.echo(
+                                f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}"
+                            )
+                            click.echo(
+                                f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}"
+                            )
 
                         click.echo()
                     else:
-                        click.echo("[WARN] No session data found in session_executions table", err=True)
+                        click.echo(
+                            "[WARN] No session data found in session_executions table", err=True
+                        )
 
                     conn.close()
 
@@ -335,7 +370,7 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
         click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
         click.echo(f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}")
         click.echo(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}")
-        if stats.get('cold_start'):
+        if stats.get("cold_start"):
             click.echo(f"  [WARN] Cold-start mode (<500 samples)")
         click.echo(f"  * Models saved to: {result.get('model_dir')}")
     else:
@@ -549,7 +584,9 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
         click.echo(f"  * Workset size: {result.get('workset_size', 0)} files")
         click.echo(f"  * Source files analyzed: {result.get('workset_size', 0)}")
         click.echo(f"  * Non-source excluded: {result.get('excluded_count', 0)}")
-        click.echo(f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}")
+        click.echo(
+            f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}"
+        )
     else:
         click.echo(f"[FAIL] Suggestion generation failed: {result.get('error')}", err=True)
         raise click.ClickException(result.get("error"))
@@ -560,7 +597,12 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
-@click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
+@click.option(
+    "--train-on",
+    type=click.Choice(["full", "diff", "all"]),
+    default="full",
+    help="Type of historical runs to train on",
+)
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
 def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_stats):
     """Re-train ML models with human corrections to improve prediction accuracy via supervised learning.
@@ -752,21 +794,19 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
     """
     from theauditor.insights.ml import learn as ml_learn
 
-    # Validate feedback file exists
     if not Path(feedback_file).exists():
         click.echo(f"[FAIL] Feedback file not found: {feedback_file}", err=True)
         raise click.ClickException(f"Feedback file not found: {feedback_file}")
 
-    # Validate feedback file format
     try:
         import json
+
         with open(feedback_file) as f:
             feedback_data = json.load(f)
 
         if not isinstance(feedback_data, dict):
             raise ValueError("Feedback file must contain a JSON object")
 
-        # Count feedback entries
         feedback_count = len(feedback_data)
         click.echo(f"[ML] Loading human feedback for {feedback_count} files...")
 
@@ -783,8 +823,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
         print_stats=print_stats,
         feedback_path=feedback_file,
         train_on=train_on,
-        # Use default paths for historical data from .pf/history
-        enable_git=False,  # Disable git for speed in feedback mode
+        enable_git=False,
     )
 
     if result.get("success"):
@@ -795,7 +834,9 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
         click.echo(f"  * Human feedback incorporated: {feedback_count} files")
         click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
         click.echo(f"  * Models saved to: {result.get('model_dir')}")
-        click.echo(f"\n[TIP] The models have learned from your feedback and will provide more accurate predictions.")
+        click.echo(
+            f"\n[TIP] The models have learned from your feedback and will provide more accurate predictions."
+        )
     else:
         click.echo(f"[FAIL] Re-training failed: {result.get('error')}", err=True)
         raise click.ClickException(result.get("error"))

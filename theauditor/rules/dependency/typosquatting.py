@@ -14,7 +14,6 @@ Database Tables Used:
 - import_styles: Imported packages
 """
 
-
 import sqlite3
 import json
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
@@ -25,9 +24,9 @@ from .config import TYPOSQUATTING_MAP
 METADATA = RuleMetadata(
     name="typosquatting",
     category="dependency",
-    target_extensions=['.py', '.js', '.ts', '.json', '.txt'],
-    exclude_patterns=['node_modules/', '.venv/', 'test/'],
-    execution_scope='database',
+    target_extensions=[".py", ".js", ".ts", ".json", ".txt"],
+    exclude_patterns=["node_modules/", ".venv/", "test/"],
+    execution_scope="database",
     requires_jsx_pass=False,
 )
 
@@ -50,10 +49,8 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check declared dependencies
         findings.extend(_check_declared_packages(cursor))
 
-        # Check imported packages
         findings.extend(_check_imported_packages(cursor))
 
     finally:
@@ -74,7 +71,7 @@ def _check_declared_packages(cursor) -> list[StandardFinding]:
     findings = []
     seen = set()
 
-    query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies'])
+    query = build_query("package_configs", ["file_path", "dependencies", "dev_dependencies"])
     cursor.execute(query)
 
     for file_path, deps, dev_deps in cursor.fetchall():
@@ -90,25 +87,25 @@ def _check_declared_packages(cursor) -> list[StandardFinding]:
                 for package in deps_dict.keys():
                     package_lower = package.lower()
 
-                    # Skip if already reported
                     if package_lower in seen:
                         continue
 
-                    # Check against typosquatting map
                     if package_lower in TYPOSQUATTING_MAP:
                         correct_name = TYPOSQUATTING_MAP[package_lower]
                         seen.add(package_lower)
 
-                        findings.append(StandardFinding(
-                            rule_name='typosquatting',
-                            message=f"Potential typosquatting: '{package}' (did you mean '{correct_name}'?)",
-                            file_path=file_path,
-                            line=1,
-                            severity=Severity.CRITICAL,  # Supply chain attacks are critical
-                            category='dependency',
-                            snippet=f"Declared: {package}, Expected: {correct_name}",
-                            cwe_id='CWE-1357'  # Reliance on Insufficiently Trustworthy Component
-                        ))
+                        findings.append(
+                            StandardFinding(
+                                rule_name="typosquatting",
+                                message=f"Potential typosquatting: '{package}' (did you mean '{correct_name}'?)",
+                                file_path=file_path,
+                                line=1,
+                                severity=Severity.CRITICAL,
+                                category="dependency",
+                                snippet=f"Declared: {package}, Expected: {correct_name}",
+                                cwe_id="CWE-1357",
+                            )
+                        )
 
             except json.JSONDecodeError:
                 continue
@@ -128,35 +125,35 @@ def _check_imported_packages(cursor) -> list[StandardFinding]:
     findings = []
     seen = set()
 
-    query = build_query('import_styles', ['file', 'line', 'package'],
-                       order_by='package, file, line')
+    query = build_query(
+        "import_styles", ["file", "line", "package"], order_by="package, file, line"
+    )
     cursor.execute(query)
 
     for file, line, package in cursor.fetchall():
         if not package:
             continue
 
-        # Normalize package name (base package only)
-        base_package = package.split('/')[0].split('.')[0].lower()
+        base_package = package.split("/")[0].split(".")[0].lower()
 
-        # Skip if already reported
         if base_package in seen:
             continue
 
-        # Check against typosquatting map
         if base_package in TYPOSQUATTING_MAP:
             correct_name = TYPOSQUATTING_MAP[base_package]
             seen.add(base_package)
 
-            findings.append(StandardFinding(
-                rule_name='typosquatting-import',
-                message=f"Importing potentially typosquatted package: '{base_package}' (did you mean '{correct_name}'?)",
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='dependency',
-                snippet=f"import {package}",
-                cwe_id='CWE-1357'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="typosquatting-import",
+                    message=f"Importing potentially typosquatted package: '{base_package}' (did you mean '{correct_name}'?)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="dependency",
+                    snippet=f"import {package}",
+                    cwe_id="CWE-1357",
+                )
+            )
 
     return findings

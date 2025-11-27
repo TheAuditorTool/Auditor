@@ -9,7 +9,12 @@ import click
 
 
 @click.command(name="_archive")
-@click.option("--run-type", required=True, type=click.Choice(["full", "diff"]), help="Type of run being archived")
+@click.option(
+    "--run-type",
+    required=True,
+    type=click.Choice(["full", "diff"]),
+    help="Type of run being archived",
+)
 @click.option("--diff-spec", help="Git diff specification for diff runs (e.g., main..HEAD)")
 @click.option("--wipe-cache", is_flag=True, help="Delete caches during archive (default: preserve)")
 def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
@@ -32,35 +37,26 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     - .pf/readthis/ (AI-consumable chunks)
     - All other .pf/ contents
     """
-    # Define base paths
+
     pf_dir = Path(".pf")
     history_dir = pf_dir / "history"
 
-    # Define cache directories that should be preserved by default
-    CACHE_DIRS = {".cache", "context", "ml"}  # ml contains models + session history
+    CACHE_DIRS = {".cache", "context", "ml"}
 
-    # Check if there's a previous run to archive (by checking if .pf exists and has files)
     if not pf_dir.exists() or not any(pf_dir.iterdir()):
-        # No previous run to archive
         print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)
         return
 
-    # Determine destination base path based on run type
     if run_type == "full":
         dest_base = history_dir / "full"
-    else:  # run_type == "diff"
+    else:
         dest_base = history_dir / "diff"
 
-    # Create destination base directory if it doesn't exist
     dest_base.mkdir(parents=True, exist_ok=True)
 
-    # Generate timestamp for archive directory
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Create unique directory name
     if run_type == "diff" and diff_spec:
-        # Sanitize diff spec for directory name
-        # Replace problematic characters with underscores
         safe_spec = diff_spec.replace("..", "_")
         safe_spec = safe_spec.replace("/", "_")
         safe_spec = safe_spec.replace("\\", "_")
@@ -69,42 +65,33 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         safe_spec = safe_spec.replace("~", "_")
         safe_spec = safe_spec.replace("^", "_")
 
-        # Create descriptive name like "main_HEAD_20250819_090015"
         dir_name = f"{safe_spec}_{timestamp_str}"
     else:
-        # Simple timestamp for full runs
         dir_name = timestamp_str
 
-    # Create the archive destination directory
     archive_dest = dest_base / dir_name
     archive_dest.mkdir(exist_ok=True)
 
-    # Move all top-level items from pf_dir to archive_dest
     archived_count = 0
     skipped_count = 0
     preserved_count = 0
 
     for item in pf_dir.iterdir():
-        # CRITICAL: Skip the history directory itself to prevent recursive archiving
         if item.name == "history":
             continue
 
-        # NEW: Preserve cache directories unless --wipe-cache was used
         if item.name in CACHE_DIRS and not wipe_cache:
             print(f"[ARCHIVE] Preserving cache: {item.name}/", file=sys.stderr)
             preserved_count += 1
             continue
 
-        # Safely move the item to archive destination
         try:
             shutil.move(str(item), str(archive_dest))
             archived_count += 1
         except Exception as e:
-            # Log error but don't stop the archiving process
             print(f"[WARNING] Could not archive {item.name}: {e}", file=sys.stderr)
             skipped_count += 1
 
-    # Log summary
     if archived_count > 0:
         click.echo(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
         if preserved_count > 0:
@@ -117,7 +104,6 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         else:
             click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
 
-    # Create a metadata file in the archive to track run type and context
     metadata = {
         "run_type": run_type,
         "diff_spec": diff_spec,
@@ -131,8 +117,9 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
 
     try:
         import json
+
         metadata_path = archive_dest / "_metadata.json"
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
     except Exception as e:
         print(f"[WARNING] Could not write metadata file: {e}", file=sys.stderr)

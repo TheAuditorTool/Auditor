@@ -12,7 +12,6 @@ Design Philosophy:
 - Pure class definitions only (no table registries)
 """
 
-
 from dataclasses import dataclass, field
 import sqlite3
 
@@ -20,6 +19,7 @@ import sqlite3
 @dataclass
 class Column:
     """Represents a database column with type and constraints."""
+
     name: str
     type: str
     nullable: bool = True
@@ -37,7 +37,7 @@ class Column:
             parts.append(f"DEFAULT {self.default}")
         if self.primary_key:
             parts.append("PRIMARY KEY")
-            # AUTOINCREMENT only valid for INTEGER PRIMARY KEY
+
             if self.autoincrement and self.type.upper() == "INTEGER":
                 parts.append("AUTOINCREMENT")
         if self.check:
@@ -64,6 +64,7 @@ class ForeignKey:
             foreign_columns=['file_path', 'line_number']
         )
     """
+
     local_columns: list[str]
     foreign_table: str
     foreign_columns: list[str]
@@ -76,7 +77,6 @@ class ForeignKey:
         """
         errors = []
 
-        # Check foreign table exists
         if self.foreign_table not in all_tables:
             errors.append(f"Foreign table '{self.foreign_table}' does not exist")
             return errors
@@ -84,19 +84,16 @@ class ForeignKey:
         local_schema = all_tables[local_table]
         foreign_schema = all_tables[self.foreign_table]
 
-        # Check local columns exist
         local_col_names = set(local_schema.column_names())
         for col in self.local_columns:
             if col not in local_col_names:
                 errors.append(f"Local column '{col}' not found in table '{local_table}'")
 
-        # Check foreign columns exist
         foreign_col_names = set(foreign_schema.column_names())
         for col in self.foreign_columns:
             if col not in foreign_col_names:
                 errors.append(f"Foreign column '{col}' not found in table '{self.foreign_table}'")
 
-        # Check column count matches
         if len(self.local_columns) != len(self.foreign_columns):
             errors.append(
                 f"Column count mismatch: {len(self.local_columns)} local vs "
@@ -135,12 +132,13 @@ class TableSchema:
         unique_constraints: List of UNIQUE constraint column lists
         foreign_keys: List of ForeignKey definitions (for JOIN generation)
     """
+
     name: str
     columns: list["Column"]
     indexes: list[tuple[str, list[str]]] = field(default_factory=list)
-    primary_key: list[str] | None = None  # Composite primary keys
-    unique_constraints: list[list[str]] = field(default_factory=list)  # UNIQUE constraints
-    foreign_keys: list["ForeignKey"] = field(default_factory=list)  # For JOIN query generation
+    primary_key: list[str] | None = None
+    unique_constraints: list[list[str]] = field(default_factory=list)
+    foreign_keys: list["ForeignKey"] = field(default_factory=list)
 
     def column_names(self) -> list[str]:
         """Get list of column names in definition order."""
@@ -150,12 +148,10 @@ class TableSchema:
         """Generate CREATE TABLE statement."""
         col_defs = [col.to_sql() for col in self.columns]
 
-        # Add composite primary key if defined
         if self.primary_key:
             pk_cols = ", ".join(self.primary_key)
             col_defs.append(f"PRIMARY KEY ({pk_cols})")
 
-        # Add unique constraints if defined
         for unique_cols in self.unique_constraints:
             unique_str = ", ".join(unique_cols)
             col_defs.append(f"UNIQUE({unique_str})")
@@ -179,20 +175,14 @@ class TableSchema:
         """
         errors = []
 
-        # Check table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (self.name,)
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.name,))
         if not cursor.fetchone():
             errors.append(f"Table {self.name} does not exist")
             return False, errors
 
-        # Get actual columns
         cursor.execute(f"PRAGMA table_info({self.name})")
-        actual_cols = {row[1]: row[2] for row in cursor.fetchall()}  # {name: type}
+        actual_cols = {row[1]: row[2] for row in cursor.fetchall()}
 
-        # Validate columns (only check required columns, allow extra for migrations)
         for col in self.columns:
             if col.name not in actual_cols:
                 errors.append(f"Column {self.name}.{col.name} missing in database")
@@ -202,21 +192,21 @@ class TableSchema:
                     f"expected {col.type}, got {actual_cols[col.name]}"
                 )
 
-        # Validate UNIQUE constraints if defined in schema
         if self.unique_constraints:
-            # Get the CREATE TABLE SQL from sqlite_master
             cursor.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-                (self.name,)
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (self.name,)
             )
             result = cursor.fetchone()
             if result:
                 create_sql = result[0] or ""
-                # Check each expected UNIQUE constraint exists in the SQL
+
                 for unique_cols in self.unique_constraints:
                     unique_str = ", ".join(unique_cols)
-                    # Match both "UNIQUE(col1, col2)" and "UNIQUE (col1, col2)" formats
-                    if f"UNIQUE({unique_str})" not in create_sql and f"UNIQUE ({unique_str})" not in create_sql:
+
+                    if (
+                        f"UNIQUE({unique_str})" not in create_sql
+                        and f"UNIQUE ({unique_str})" not in create_sql
+                    ):
                         errors.append(
                             f"UNIQUE constraint on ({unique_str}) missing in database table {self.name}"
                         )

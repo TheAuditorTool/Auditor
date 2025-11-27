@@ -11,25 +11,20 @@ import asyncio
 import time
 
 
-# =============================================================================
-# RATE LIMIT CONSTANTS - Balanced for speed vs ban risk
-# =============================================================================
+RATE_LIMIT_NPM = 0.05
+RATE_LIMIT_PYPI = 0.1
+RATE_LIMIT_DOCKER = 0.15
+RATE_LIMIT_GITHUB = 0.1
+RATE_LIMIT_DOCS = 0.2
 
-# Registry-specific delays (seconds between requests)
-RATE_LIMIT_NPM = 0.05       # npm: 20 req/sec (tolerant, we back off if needed)
-RATE_LIMIT_PYPI = 0.1       # PyPI: 10 req/sec (moderate)
-RATE_LIMIT_DOCKER = 0.15    # Docker Hub: ~7 req/sec (pickier)
-RATE_LIMIT_GITHUB = 0.1     # GitHub raw: 10 req/sec
-RATE_LIMIT_DOCS = 0.2       # Generic doc sites: 5 req/sec (be polite)
 
-# Backoff configuration
-RATE_LIMIT_BACKOFF = 10     # Initial backoff on 429 (exponential: 10s, 20s, 40s)
-RATE_LIMIT_MAX_RETRIES = 3  # Max retries before giving up
+RATE_LIMIT_BACKOFF = 10
+RATE_LIMIT_MAX_RETRIES = 3
 
-# Timeout configuration
-TIMEOUT_PROBE = 2           # HEAD request / existence check
-TIMEOUT_FETCH = 10          # Full content fetch
-TIMEOUT_CRAWL = 5           # Doc page fetch (shorter, many requests)
+
+TIMEOUT_PROBE = 2
+TIMEOUT_FETCH = 10
+TIMEOUT_CRAWL = 5
 
 
 class AsyncRateLimiter:
@@ -53,11 +48,11 @@ class AsyncRateLimiter:
         """
         self.delay = delay
         self.last_request = 0.0
-        self._lock: asyncio.Lock | None = None  # Lazy init to avoid event loop issues
+        self._lock: asyncio.Lock | None = None
 
     async def acquire(self):
         """Wait until enough time has passed since last request."""
-        # Lazy init lock (must be created in async context)
+
         if self._lock is None:
             self._lock = asyncio.Lock()
 
@@ -72,10 +67,6 @@ class AsyncRateLimiter:
             self.last_request = time.time()
 
 
-# =============================================================================
-# LIMITER REGISTRY - Per-service rate limiters
-# =============================================================================
-
 _rate_limiters: dict[str, AsyncRateLimiter] = {}
 
 
@@ -89,20 +80,20 @@ def get_rate_limiter(service: str) -> AsyncRateLimiter:
     Returns:
         AsyncRateLimiter configured for that service
     """
-    # Normalize service names
+
     service = service.lower()
-    if service == 'pypi':
-        service = 'py'
+    if service == "pypi":
+        service = "py"
 
     if service not in _rate_limiters:
         delays = {
-            'npm': RATE_LIMIT_NPM,
-            'py': RATE_LIMIT_PYPI,
-            'docker': RATE_LIMIT_DOCKER,
-            'github': RATE_LIMIT_GITHUB,
-            'docs': RATE_LIMIT_DOCS,
+            "npm": RATE_LIMIT_NPM,
+            "py": RATE_LIMIT_PYPI,
+            "docker": RATE_LIMIT_DOCKER,
+            "github": RATE_LIMIT_GITHUB,
+            "docs": RATE_LIMIT_DOCS,
         }
-        delay = delays.get(service, RATE_LIMIT_DOCS)  # Default to polite
+        delay = delays.get(service, RATE_LIMIT_DOCS)
         _rate_limiters[service] = AsyncRateLimiter(delay)
 
     return _rate_limiters[service]

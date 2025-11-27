@@ -28,7 +28,6 @@ REFACTORED ARCHITECTURE:
 DatabaseManager uses multiple inheritance to combine all capabilities.
 """
 
-
 import sqlite3
 from collections import defaultdict
 
@@ -52,7 +51,7 @@ class DatabaseManager(
     SecurityDatabaseMixin,
     FrameworksDatabaseMixin,
     PlanningDatabaseMixin,
-    GraphQLDatabaseMixin
+    GraphQLDatabaseMixin,
 ):
     """Complete database manager combining all language-specific capabilities.
 
@@ -74,10 +73,10 @@ class DatabaseManager(
 
     Total: 116 tables, 97 methods
     """
+
     pass
 
 
-# Standalone function for backward compatibility
 def create_database_schema(conn: sqlite3.Connection) -> None:
     """Create SQLite database schema - backward compatibility wrapper.
 
@@ -87,21 +86,17 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     Args:
         conn: SQLite connection (remains open after schema creation)
     """
-    # Create temporary manager using existing connection
+
     manager = DatabaseManager.__new__(DatabaseManager)
     manager.conn = conn
     manager.cursor = conn.cursor()
     manager.batch_size = 200
 
-    # Initialize generic batch system
     manager.generic_batches = defaultdict(list)
     manager.cfg_id_mapping = {}
     manager.jwt_patterns_batch = []
 
-    # Create the schema using the existing connection
     manager.create_schema()
-    # Don't close - let caller handle connection lifecycle
 
 
-# Public exports
-__all__ = ['DatabaseManager', 'create_database_schema']
+__all__ = ["DatabaseManager", "create_database_schema"]

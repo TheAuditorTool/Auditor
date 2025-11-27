@@ -189,7 +189,6 @@ def init_js(path, add_hooks):
         else:
             click.echo(f"No changes needed - {path} already configured")
 
-        # Add hooks if requested
         if add_hooks:
             click.echo("\nAdding TheAuditor hooks to npm scripts...")
             hook_res = add_auditor_hooks(path)

@@ -7,25 +7,13 @@ import click
 
 
 @click.command("setup-ai")
-@click.option(
-    "--target",
-    required=True,
-    help="Target project root (absolute or relative path)"
-)
-@click.option(
-    "--sync",
-    is_flag=True,
-    help="Force update (reinstall packages)"
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print plan without executing"
-)
+@click.option("--target", required=True, help="Target project root (absolute or relative path)")
+@click.option("--sync", is_flag=True, help="Force update (reinstall packages)")
+@click.option("--dry-run", is_flag=True, help="Print plan without executing")
 @click.option(
     "--show-versions",
     is_flag=True,
-    help="Show installed tool versions (reads from cache or runs detection)"
+    help="Show installed tool versions (reads from cache or runs detection)",
 )
 def setup_ai(target, sync, dry_run, show_versions):
     """Create isolated analysis environment with offline vulnerability databases and sandboxed tooling.
@@ -197,21 +185,18 @@ def setup_ai(target, sync, dry_run, show_versions):
     """
     from theauditor.venv_install import setup_project_venv
 
-    # Resolve target path
     target_dir = Path(target).resolve()
 
     if not target_dir.exists():
         raise click.ClickException(f"Target directory does not exist: {target_dir}")
 
-    # Print header
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo(f"AI Development Setup - Zero-Optional Installation")
-    click.echo(f"{'='*60}")
+    click.echo(f"{'=' * 60}")
     click.echo(f"Target:  {target_dir}")
     click.echo(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}")
-    click.echo(f"{'='*60}\n")
+    click.echo(f"{'=' * 60}\n")
 
-    # Handle dry run
     if dry_run:
         click.echo("DRY RUN - Plan of operations:")
         click.echo(f"1. Create/verify venv at {target_dir}/.auditor_venv")
@@ -220,7 +205,6 @@ def setup_ai(target, sync, dry_run, show_versions):
         click.echo("\nNo files will be modified.")
         return
 
-    # Handle --show-versions (standalone operation)
     if show_versions:
         from theauditor.tools import write_tools_report
 
@@ -240,11 +224,10 @@ def setup_ai(target, sync, dry_run, show_versions):
                 click.echo(f"    {tool}: {version}")
         except Exception as e:
             click.echo(f"Error detecting tool versions: {e}", err=True)
-        return  # Exit after showing versions
+        return
 
-    # Setup venv
     click.echo("Step 1: Setting up Python virtual environment...", nl=False)
-    click.echo()  # Flush
+    click.echo()
 
     try:
         venv_path, success = setup_project_venv(target_dir, force=sync)
@@ -252,16 +235,19 @@ def setup_ai(target, sync, dry_run, show_versions):
         if not success:
             raise click.ClickException(f"Failed to setup venv at {venv_path}")
 
-        # Print summary
         is_windows = platform.system() == "Windows"
         check_mark = "[OK]" if is_windows else "✓"
 
-        click.echo(f"\n{'='*60}")
+        click.echo(f"\n{'=' * 60}")
         click.echo("Setup Complete - Summary:")
-        click.echo(f"{'='*60}")
+        click.echo(f"{'=' * 60}")
         click.echo(f"{check_mark} Sandboxed environment configured at: {target_dir}/.auditor_venv")
-        click.echo(f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools")
-        click.echo(f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)")
+        click.echo(
+            f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools"
+        )
+        click.echo(
+            f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)"
+        )
 
     except Exception as e:
         raise click.ClickException(f"Setup failed: {e}") from e

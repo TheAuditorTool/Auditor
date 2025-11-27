@@ -9,4 +9,4 @@ Components:
 
 from .analyzer import AWSCdkAnalyzer
 
-__all__ = ['AWSCdkAnalyzer']
+__all__ = ["AWSCdkAnalyzer"]

@@ -106,8 +106,8 @@ def planning():
 
 
 @planning.command()
-@click.option('--name', required=True, help='Plan name')
-@click.option('--description', default='', help='Plan description')
+@click.option("--name", required=True, help="Plan name")
+@click.option("--description", default="", help="Plan description")
 @handle_exceptions
 def init(name, description):
     """Create a new implementation plan.
@@ -115,13 +115,11 @@ def init(name, description):
     Example:
         aud planning init --name "Auth Migration" --description "Migrate to OAuth2"
     """
-    # Get or create planning database
+
     db_path = Path.cwd() / ".pf" / "planning.db"
 
-    # Ensure .pf directory exists
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Initialize database if it doesn't exist
     if not db_path.exists():
         manager = PlanningManager.init_database(db_path)
         click.echo(f"Initialized planning database: {db_path}")
@@ -136,10 +134,15 @@ def init(name, description):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.option('--tasks/--no-tasks', default=True, help='Show task list (default: True)')
-@click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
-@click.option('--format', type=click.Choice(['flat', 'phases']), default='phases', help='Display format (default: phases)')
+@click.argument("plan_id", type=int)
+@click.option("--tasks/--no-tasks", default=True, help="Show task list (default: True)")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed information")
+@click.option(
+    "--format",
+    type=click.Choice(["flat", "phases"]),
+    default="phases",
+    help="Display format (default: phases)",
+)
 @handle_exceptions
 def show(plan_id, tasks, verbose, format):
     """Display plan details and task status.
@@ -159,72 +162,79 @@ def show(plan_id, tasks, verbose, format):
         click.echo(f"Error: Plan {plan_id} not found", err=True)
         return
 
-    # Header
     click.echo("=" * 80)
     click.echo(f"Plan {plan['id']}: {plan['name']}")
     click.echo("=" * 80)
     click.echo(f"Status: {plan['status']}")
     click.echo(f"Created: {plan['created_at']}")
-    if plan['description']:
+    if plan["description"]:
         click.echo(f"Description: {plan['description']}")
     click.echo(f"Database: {db_path}")
 
-    if verbose and plan['metadata_json']:
-        metadata = json.loads(plan['metadata_json'])
+    if verbose and plan["metadata_json"]:
+        metadata = json.loads(plan["metadata_json"])
         click.echo(f"\nMetadata:")
         for key, value in metadata.items():
             click.echo(f"  {key}: {value}")
 
-    # Default to showing tasks with phases format
     if tasks:
-        if format == 'phases':
-            # Hierarchical planning: Phase → Task → Job display
+        if format == "phases":
             cursor = manager.conn.cursor()
 
-            # Get all phases
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, phase_number, title, description, success_criteria, status
                 FROM plan_phases
                 WHERE plan_id = ?
                 ORDER BY phase_number
-            """, (plan_id,))
+            """,
+                (plan_id,),
+            )
             phases = cursor.fetchall()
 
             if phases:
                 click.echo(f"\nPhase → Task → Job Hierarchy:")
                 for phase in phases:
-                    phase_id, phase_num, phase_title, phase_desc, success_criteria, phase_status = phase
-                    status_icon = "[X]" if phase_status == 'completed' else "[ ]"
+                    phase_id, phase_num, phase_title, phase_desc, success_criteria, phase_status = (
+                        phase
+                    )
+                    status_icon = "[X]" if phase_status == "completed" else "[ ]"
                     click.echo(f"\n{status_icon} PHASE {phase_num}: {phase_title}")
                     if success_criteria:
                         click.echo(f"    Success Criteria: {success_criteria}")
                     if verbose and phase_desc:
                         click.echo(f"    Description: {phase_desc}")
 
-                    # Get tasks for this phase
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         SELECT id, task_number, title, description, status, audit_status
                         FROM plan_tasks
                         WHERE plan_id = ? AND phase_id = ?
                         ORDER BY task_number
-                    """, (plan_id, phase_id))
+                    """,
+                        (plan_id, phase_id),
+                    )
                     tasks_in_phase = cursor.fetchall()
 
                     for task in tasks_in_phase:
                         task_id, task_num, task_title, task_desc, task_status, audit_status = task
-                        task_icon = "[X]" if task_status == 'completed' else "[ ]"
-                        audit_label = f" (audit: {audit_status})" if audit_status != 'pending' else ""
+                        task_icon = "[X]" if task_status == "completed" else "[ ]"
+                        audit_label = (
+                            f" (audit: {audit_status})" if audit_status != "pending" else ""
+                        )
                         click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
                         if verbose and task_desc:
                             click.echo(f"      Description: {task_desc}")
 
-                        # Get jobs for this task
-                        cursor.execute("""
+                        cursor.execute(
+                            """
                             SELECT job_number, description, completed, is_audit_job
                             FROM plan_jobs
                             WHERE task_id = ?
                             ORDER BY job_number
-                        """, (task_id,))
+                        """,
+                            (task_id,),
+                        )
                         jobs = cursor.fetchall()
 
                         for job in jobs:
@@ -233,45 +243,50 @@ def show(plan_id, tasks, verbose, format):
                             audit_marker = " [AUDIT]" if is_audit else ""
                             click.echo(f"    {job_icon} Job {job_num}: {job_desc}{audit_marker}")
 
-                # Show orphaned tasks (not associated with any phase)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT id, task_number, title, status, audit_status
                     FROM plan_tasks
                     WHERE plan_id = ? AND (phase_id IS NULL OR phase_id NOT IN (SELECT id FROM plan_phases WHERE plan_id = ?))
                     ORDER BY task_number
-                """, (plan_id, plan_id))
+                """,
+                    (plan_id, plan_id),
+                )
                 orphaned_tasks = cursor.fetchall()
 
                 if orphaned_tasks:
                     click.echo(f"\nOrphaned Tasks (not in any phase):")
                     for task in orphaned_tasks:
                         task_id, task_num, task_title, task_status, audit_status = task
-                        task_icon = "[X]" if task_status == 'completed' else "[ ]"
-                        audit_label = f" (audit: {audit_status})" if audit_status != 'pending' else ""
+                        task_icon = "[X]" if task_status == "completed" else "[ ]"
+                        audit_label = (
+                            f" (audit: {audit_status})" if audit_status != "pending" else ""
+                        )
                         click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
             else:
-                # No phases defined, fall back to flat display
-                click.echo(f"\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'")
+                click.echo(
+                    f"\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'"
+                )
 
         else:
-            # Flat display (original behavior)
             task_list = manager.list_tasks(plan_id)
             click.echo(f"\nTasks ({len(task_list)}):")
             for task in task_list:
-                status_icon = "[X]" if task['status'] == 'completed' else "[ ]"
+                status_icon = "[X]" if task["status"] == "completed" else "[ ]"
                 click.echo(f"  {status_icon} Task {task['task_number']}: {task['title']}")
                 click.echo(f"    Status: {task['status']}")
-                if task['assigned_to']:
+                if task["assigned_to"]:
                     click.echo(f"    Assigned: {task['assigned_to']}")
-                if verbose and task['description']:
+                if verbose and task["description"]:
                     click.echo(f"    Description: {task['description']}")
 
-    # Helpful footer with commands
     click.echo("\n" + "=" * 80)
     click.echo("Commands:")
-    click.echo("  aud planning add-phase {plan_id} --phase-number N --title \"...\" --description \"...\"")
-    click.echo("  aud planning add-task {plan_id} --title \"...\" --description \"...\" --phase N")
-    click.echo("  aud planning add-job {plan_id} <task_number> --description \"...\"")
+    click.echo(
+        '  aud planning add-phase {plan_id} --phase-number N --title "..." --description "..."'
+    )
+    click.echo('  aud planning add-task {plan_id} --title "..." --description "..." --phase N')
+    click.echo('  aud planning add-job {plan_id} <task_number> --description "..."')
     click.echo("  aud planning update-task {plan_id} <task_number> --status completed")
     click.echo("  aud planning verify-task {plan_id} <task_number> --pass")
     click.echo("  aud planning validate {plan_id}  # Validate against session logs")
@@ -283,7 +298,9 @@ def show(plan_id, tasks, verbose, format):
 
 @planning.command("list")
 @click.option("--status", help="Filter by status (active/completed/archived)")
-@click.option("--format", type=click.Choice(['table', 'json']), default='table', help="Output format")
+@click.option(
+    "--format", type=click.Choice(["table", "json"]), default="table", help="Output format"
+)
 @handle_exceptions
 def list_plans(status, format):
     """List all plans in the database.
@@ -303,7 +320,6 @@ def list_plans(status, format):
     manager = PlanningManager(db_path)
     cursor = manager.conn.cursor()
 
-    # Build query with optional status filter
     query = "SELECT id, name, status, created_at FROM plans"
     params = []
     if status:
@@ -321,19 +337,10 @@ def list_plans(status, format):
             click.echo("No plans found")
         return
 
-    if format == 'json':
-        result = [
-            {
-                'id': p[0],
-                'name': p[1],
-                'status': p[2],
-                'created_at': p[3]
-            }
-            for p in plans
-        ]
+    if format == "json":
+        result = [{"id": p[0], "name": p[1], "status": p[2], "created_at": p[3]} for p in plans]
         click.echo(json.dumps(result, indent=2))
     else:
-        # Table format
         click.echo("=" * 80)
         click.echo(f"{'ID':<5} {'Name':<40} {'Status':<15} {'Created':<20}")
         click.echo("=" * 80)
@@ -345,11 +352,11 @@ def list_plans(status, format):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.option('--phase-number', type=int, required=True, help='Phase number')
-@click.option('--title', required=True, help='Phase title')
-@click.option('--description', default='', help='Phase description')
-@click.option('--success-criteria', help='What completion looks like for this phase (criteria)')
+@click.argument("plan_id", type=int)
+@click.option("--phase-number", type=int, required=True, help="Phase number")
+@click.option("--title", required=True, help="Phase title")
+@click.option("--description", default="", help="Phase description")
+@click.option("--success-criteria", help="What completion looks like for this phase (criteria)")
 @handle_exceptions
 def add_phase(plan_id, phase_number, title, description, success_criteria):
     """Add a phase to a plan (hierarchical planning structure).
@@ -363,16 +370,16 @@ def add_phase(plan_id, phase_number, title, description, success_criteria):
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
 
-    # Use the mixin method from planning_database.py
     from datetime import UTC
+
     manager.add_plan_phase(
         plan_id=plan_id,
         phase_number=phase_number,
         title=title,
         description=description,
         success_criteria=success_criteria,
-        status='pending',
-        created_at=datetime.now(UTC).isoformat()
+        status="pending",
+        created_at=datetime.now(UTC).isoformat(),
     )
     manager.commit()
 
@@ -382,12 +389,12 @@ def add_phase(plan_id, phase_number, title, description, success_criteria):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.option('--title', required=True, help='Task title')
-@click.option('--description', default='', help='Task description')
-@click.option('--spec', type=click.Path(exists=True), help='YAML verification spec file')
-@click.option('--assigned-to', help='Assignee name')
-@click.option('--phase', type=int, help='Phase number to associate this task with (optional)')
+@click.argument("plan_id", type=int)
+@click.option("--title", required=True, help="Task title")
+@click.option("--description", default="", help="Task description")
+@click.option("--spec", type=click.Path(exists=True), help="YAML verification spec file")
+@click.option("--assigned-to", help="Assignee name")
+@click.option("--phase", type=int, help="Phase number to associate this task with (optional)")
 @handle_exceptions
 def add_task(plan_id, title, description, spec, assigned_to, phase):
     """Add a task to a plan with optional verification spec.
@@ -401,19 +408,16 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
 
-    # Load spec YAML if provided
     spec_yaml = None
     if spec:
         spec_path = Path(spec)
         spec_yaml = spec_path.read_text()
 
-    # Get phase_id if phase number provided
     phase_id = None
     if phase is not None:
         cursor = manager.conn.cursor()
         cursor.execute(
-            "SELECT id FROM plan_phases WHERE plan_id = ? AND phase_number = ?",
-            (plan_id, phase)
+            "SELECT id FROM plan_phases WHERE plan_id = ? AND phase_number = ?", (plan_id, phase)
         )
         phase_row = cursor.fetchone()
         if phase_row:
@@ -427,10 +431,9 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         title=title,
         description=description,
         spec_yaml=spec_yaml,
-        assigned_to=assigned_to
+        assigned_to=assigned_to,
     )
 
-    # Update phase_id if provided
     if phase_id is not None:
         cursor = manager.conn.cursor()
         cursor.execute("UPDATE plan_tasks SET phase_id = ? WHERE id = ?", (phase_id, task_id))
@@ -445,10 +448,10 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int)
-@click.option('--description', required=True, help='Job description (checkbox item)')
-@click.option('--is-audit', is_flag=True, help='Mark this job as an audit job')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int)
+@click.option("--description", required=True, help="Job description (checkbox item)")
+@click.option("--is-audit", is_flag=True, help="Mark this job as an audit job")
 @handle_exceptions
 def add_job(plan_id, task_number, description, is_audit):
     """Add a job (checkbox item) to a task (hierarchical task breakdown).
@@ -462,27 +465,25 @@ def add_job(plan_id, task_number, description, is_audit):
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
 
-    # Get task_id
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
         click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
         return
 
-    # Get next job number for this task
     cursor = manager.conn.cursor()
     cursor.execute("SELECT MAX(job_number) FROM plan_jobs WHERE task_id = ?", (task_id,))
     max_job = cursor.fetchone()[0]
     job_number = (max_job or 0) + 1
 
-    # Use the mixin method from planning_database.py
     from datetime import UTC
+
     manager.add_plan_job(
         task_id=task_id,
         job_number=job_number,
         description=description,
         completed=0,
         is_audit_job=1 if is_audit else 0,
-        created_at=datetime.now(UTC).isoformat()
+        created_at=datetime.now(UTC).isoformat(),
     )
     manager.commit()
 
@@ -491,10 +492,14 @@ def add_job(plan_id, task_number, description, is_audit):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int)
-@click.option('--status', type=click.Choice(['pending', 'in_progress', 'completed', 'blocked']), help='New status')
-@click.option('--assigned-to', help='Reassign task')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int)
+@click.option(
+    "--status",
+    type=click.Choice(["pending", "in_progress", "completed", "blocked"]),
+    help="New status",
+)
+@click.option("--assigned-to", help="Reassign task")
 @handle_exceptions
 def update_task(plan_id, task_number, status, assigned_to):
     """Update task status or assignment.
@@ -521,10 +526,10 @@ def update_task(plan_id, task_number, status, assigned_to):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int)
-@click.option('--verbose', '-v', is_flag=True, help='Show detailed violations')
-@click.option('--auto-update', is_flag=True, help='Auto-update task status based on result')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int)
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed violations")
+@click.option("--auto-update", is_flag=True, help="Auto-update task status based on result")
 @handle_exceptions
 def verify_task(plan_id, task_number, verbose, auto_update):
     """Verify task completion against its spec.
@@ -545,17 +550,15 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
     manager = PlanningManager(db_path)
 
-    # Load task spec and current status
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
         click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
         return
 
-    # Get current task to check for regression
     cursor = manager.conn.cursor()
     cursor.execute("SELECT status, completed_at FROM plan_tasks WHERE id = ?", (task_id,))
     task_row = cursor.fetchone()
-    was_previously_completed = task_row and task_row[0] == 'completed' and task_row[1] is not None
+    was_previously_completed = task_row and task_row[0] == "completed" and task_row[1] is not None
 
     spec_yaml = manager.load_task_spec(task_id)
     if not spec_yaml:
@@ -564,13 +567,11 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
     click.echo(f"Verifying task {task_number}...")
 
-    # Run verification
     try:
         result = verification.verify_task_spec(spec_yaml, repo_index_db, Path.cwd())
 
         total_violations = result.total_violations()
 
-        # Detect regression (was completed, now has violations)
         is_regression = was_previously_completed and total_violations > 0
 
         click.echo(f"\nVerification complete:")
@@ -578,7 +579,10 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
         if is_regression:
             click.echo(f"\n  WARNING: REGRESSION DETECTED", err=True)
-            click.echo(f"  Task {task_number} was previously completed but now has {total_violations} violation(s)", err=True)
+            click.echo(
+                f"  Task {task_number} was previously completed but now has {total_violations} violation(s)",
+                err=True,
+            )
             click.echo(f"  Code changes since completion have broken verification", err=True)
 
         if verbose and total_violations > 0:
@@ -586,47 +590,46 @@ def verify_task(plan_id, task_number, verbose, auto_update):
             for rule_result in result.rule_results:
                 if rule_result.violations:
                     click.echo(f"  {rule_result.rule.id}: {len(rule_result.violations)} violations")
-                    for violation in rule_result.violations[:5]:  # Show first 5
+                    for violation in rule_result.violations[:5]:
                         click.echo(f"    - {violation['file']}:{violation.get('line', '?')}")
                     if len(rule_result.violations) > 5:
                         click.echo(f"    ... and {len(rule_result.violations) - 5} more")
 
-        # Update audit_status (audit loop semantics)
         cursor = manager.conn.cursor()
         if total_violations == 0:
-            audit_status = 'pass'
+            audit_status = "pass"
         else:
-            audit_status = 'fail'
+            audit_status = "fail"
 
-        cursor.execute("UPDATE plan_tasks SET audit_status = ? WHERE id = ?", (audit_status, task_id))
+        cursor.execute(
+            "UPDATE plan_tasks SET audit_status = ? WHERE id = ?", (audit_status, task_id)
+        )
         manager.conn.commit()
 
         click.echo(f"\nAudit status: {audit_status}")
 
-        # Auto-update task status
         if auto_update:
             if total_violations == 0:
-                new_status = 'completed'
+                new_status = "completed"
                 manager.update_task_status(task_id, new_status, datetime.now(UTC).isoformat())
             elif is_regression:
-                new_status = 'failed'  # Regression = failed status
-                manager.update_task_status(task_id, new_status, None)  # Clear completed_at
+                new_status = "failed"
+                manager.update_task_status(task_id, new_status, None)
             else:
-                new_status = 'in_progress'
+                new_status = "in_progress"
                 manager.update_task_status(task_id, new_status, None)
             click.echo(f"Task status updated: {new_status}")
 
-        # Create snapshot if violations found
         if total_violations > 0:
             snapshot = snapshots.create_snapshot(
                 plan_id=plan_id,
                 checkpoint_name=f"verify-task-{task_number}-failed",
                 repo_root=Path.cwd(),
                 task_id=task_id,
-                manager=manager
+                manager=manager,
             )
             click.echo(f"Snapshot created: {snapshot['git_ref'][:8]}")
-            if snapshot.get('sequence'):
+            if snapshot.get("sequence"):
                 click.echo(f"Sequence: {snapshot['sequence']}")
 
     except ValueError as e:
@@ -637,8 +640,8 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.option('--notes', help='Archive notes')
+@click.argument("plan_id", type=int)
+@click.option("--notes", help="Archive notes")
 @handle_exceptions
 def archive(plan_id, notes):
     """Archive completed plan with final snapshot.
@@ -657,14 +660,16 @@ def archive(plan_id, notes):
         click.echo(f"Error: Plan {plan_id} not found", err=True)
         return
 
-    # Check for incomplete tasks
     all_tasks = manager.list_tasks(plan_id)
-    incomplete_tasks = [t for t in all_tasks if t['status'] != 'completed']
+    incomplete_tasks = [t for t in all_tasks if t["status"] != "completed"]
 
     if incomplete_tasks:
         click.echo(f"Warning: Plan has {len(incomplete_tasks)} incomplete task(s):", err=True)
-        for task in incomplete_tasks[:5]:  # Show first 5
-            click.echo(f"  - Task {task['task_number']}: {task['title']} (status: {task['status']})", err=True)
+        for task in incomplete_tasks[:5]:
+            click.echo(
+                f"  - Task {task['task_number']}: {task['title']} (status: {task['status']})",
+                err=True,
+            )
         if len(incomplete_tasks) > 5:
             click.echo(f"  ... and {len(incomplete_tasks) - 5} more", err=True)
 
@@ -672,24 +677,20 @@ def archive(plan_id, notes):
             click.echo("Archive cancelled.")
             return
 
-    # Create final snapshot
     click.echo("Creating final snapshot...")
     snapshot = snapshots.create_snapshot(
-        plan_id=plan_id,
-        checkpoint_name="archive",
-        repo_root=Path.cwd(),
-        manager=manager
+        plan_id=plan_id, checkpoint_name="archive", repo_root=Path.cwd(), manager=manager
     )
 
-    # Update plan status and metadata
     from datetime import UTC
-    metadata = json.loads(plan['metadata_json']) if plan['metadata_json'] else {}
-    metadata['archived_at'] = datetime.now(UTC).isoformat()
-    metadata['final_snapshot_id'] = snapshot.get('snapshot_id')
-    if notes:
-        metadata['archive_notes'] = notes
 
-    manager.update_plan_status(plan_id, 'archived', json.dumps(metadata))
+    metadata = json.loads(plan["metadata_json"]) if plan["metadata_json"] else {}
+    metadata["archived_at"] = datetime.now(UTC).isoformat()
+    metadata["final_snapshot_id"] = snapshot.get("snapshot_id")
+    if notes:
+        metadata["archive_notes"] = notes
+
+    manager.update_plan_status(plan_id, "archived", json.dumps(metadata))
 
     click.echo(f"\nPlan {plan_id} archived successfully")
     click.echo(f"Final snapshot: {snapshot['git_ref'][:8]}")
@@ -697,10 +698,15 @@ def archive(plan_id, notes):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int, required=False)
-@click.option('--checkpoint', help='Specific checkpoint name to rewind to')
-@click.option('--to', 'to_sequence', type=int, help='Rewind to specific sequence number (e.g., --to 2 for edit_2)')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int, required=False)
+@click.option("--checkpoint", help="Specific checkpoint name to rewind to")
+@click.option(
+    "--to",
+    "to_sequence",
+    type=int,
+    help="Rewind to specific sequence number (e.g., --to 2 for edit_2)",
+)
 @handle_exceptions
 def rewind(plan_id, task_number, checkpoint, to_sequence):
     """Show rollback instructions for a plan or task.
@@ -726,7 +732,6 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
     cursor = manager.conn.cursor()
 
-    # Task-level granular rewind
     if task_number is not None:
         task_id = manager.get_task_id(plan_id, task_number)
         if not task_id:
@@ -734,13 +739,15 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             return
 
         if to_sequence:
-            # Granular rewind to specific sequence
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, checkpoint_name, sequence, timestamp, git_ref
                 FROM code_snapshots
                 WHERE task_id = ? AND sequence <= ?
                 ORDER BY sequence
-            """, (task_id, to_sequence))
+            """,
+                (task_id, to_sequence),
+            )
 
             snapshots_to_apply = cursor.fetchall()
 
@@ -761,7 +768,6 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             click.echo("Current implementation shows git checkout only.")
             click.echo()
 
-            # For now, show the git ref of the target sequence
             target_snapshot = snapshots_to_apply[-1]
             click.echo(f"To rewind to sequence {to_sequence}, run:")
             click.echo(f"  git checkout {target_snapshot[4]}")
@@ -770,13 +776,15 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             click.echo("This will revert to the git state at checkpoint {target_snapshot[1]}")
 
         else:
-            # List task checkpoints
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, checkpoint_name, sequence, timestamp, git_ref
                 FROM code_snapshots
                 WHERE task_id = ?
                 ORDER BY sequence
-            """, (task_id,))
+            """,
+                (task_id,),
+            )
 
             task_snapshots = cursor.fetchall()
 
@@ -795,16 +803,18 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             click.echo("To rewind to a specific sequence:")
             click.echo(f"  aud planning rewind {plan_id} {task_number} --to N")
 
-    # Plan-level rewind (original behavior)
     else:
         if checkpoint:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, checkpoint_name, timestamp, git_ref
                 FROM code_snapshots
                 WHERE plan_id = ? AND checkpoint_name = ?
                 ORDER BY timestamp DESC
                 LIMIT 1
-            """, (plan_id, checkpoint))
+            """,
+                (plan_id, checkpoint),
+            )
 
             snapshot_row = cursor.fetchone()
             if not snapshot_row:
@@ -819,18 +829,23 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             click.echo(f"\nOr to create a new branch from this state:")
             click.echo(f"  git checkout -b rewind-{snapshot_row[1]} {snapshot_row[3]}")
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, checkpoint_name, timestamp, git_ref
                 FROM code_snapshots
                 WHERE plan_id = ? AND task_id IS NULL
                 ORDER BY timestamp DESC
-            """, (plan_id,))
+            """,
+                (plan_id,),
+            )
 
             snapshots_list = cursor.fetchall()
 
             if not snapshots_list:
                 click.echo(f"No plan-level snapshots found for plan {plan_id}")
-                click.echo("(Task-level checkpoints exist - use: aud planning rewind <plan_id> <task_number>)")
+                click.echo(
+                    "(Task-level checkpoints exist - use: aud planning rewind <plan_id> <task_number>)"
+                )
                 return
 
             click.echo(f"Plan-level snapshots for plan {plan_id} ({plan['name']}):\n")
@@ -845,9 +860,9 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int)
-@click.option('--name', help='Checkpoint name (optional, auto-generates if not provided)')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int)
+@click.option("--name", help="Checkpoint name (optional, auto-generates if not provided)")
 @handle_exceptions
 def checkpoint(plan_id, task_number, name):
     """Create incremental snapshot after editing code.
@@ -866,47 +881,43 @@ def checkpoint(plan_id, task_number, name):
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
 
-    # Get task_id
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
         click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
         return
 
-    # Auto-generate checkpoint name if not provided
     if not name:
-        # Get current sequence number
         cursor = manager.conn.cursor()
         cursor.execute("SELECT MAX(sequence) FROM code_snapshots WHERE task_id = ?", (task_id,))
         max_seq = cursor.fetchone()[0]
         next_seq = (max_seq or 0) + 1
         name = f"edit_{next_seq}"
 
-    # Create snapshot
     click.echo(f"Creating checkpoint '{name}' for task {task_number}...")
     snapshot = snapshots.create_snapshot(
         plan_id=plan_id,
         checkpoint_name=name,
         repo_root=Path.cwd(),
         task_id=task_id,
-        manager=manager
+        manager=manager,
     )
 
     click.echo(f"Checkpoint created: {snapshot['git_ref'][:8]}")
-    if snapshot.get('sequence'):
+    if snapshot.get("sequence"):
         click.echo(f"Sequence: {snapshot['sequence']}")
     click.echo(f"Files affected: {len(snapshot['files_affected'])}")
-    if snapshot['files_affected']:
-        for f in snapshot['files_affected'][:5]:
+    if snapshot["files_affected"]:
+        for f in snapshot["files_affected"][:5]:
             click.echo(f"  - {f}")
-        if len(snapshot['files_affected']) > 5:
+        if len(snapshot["files_affected"]) > 5:
             click.echo(f"  ... and {len(snapshot['files_affected']) - 5} more")
 
 
 @planning.command()
-@click.argument('plan_id', type=int)
-@click.argument('task_number', type=int)
-@click.option('--sequence', type=int, help='Show specific checkpoint by sequence number')
-@click.option('--file', help='Show diff for specific file only')
+@click.argument("plan_id", type=int)
+@click.argument("task_number", type=int)
+@click.option("--sequence", type=int, help="Show specific checkpoint by sequence number")
+@click.option("--file", help="Show diff for specific file only")
 @handle_exceptions
 def show_diff(plan_id, task_number, sequence, file):
     """View stored diffs for a task.
@@ -922,7 +933,6 @@ def show_diff(plan_id, task_number, sequence, file):
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
 
-    # Get task_id
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
         click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
@@ -931,12 +941,14 @@ def show_diff(plan_id, task_number, sequence, file):
     cursor = manager.conn.cursor()
 
     if sequence:
-        # Show specific checkpoint diff
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, checkpoint_name, sequence, timestamp, git_ref
             FROM code_snapshots
             WHERE task_id = ? AND sequence = ?
-        """, (task_id, sequence))
+        """,
+            (task_id, sequence),
+        )
 
         snapshot_row = cursor.fetchone()
         if not snapshot_row:
@@ -950,7 +962,6 @@ def show_diff(plan_id, task_number, sequence, file):
         click.echo(f"Git ref: {git_ref[:8]}")
         click.echo()
 
-        # Load diffs
         query = "SELECT file_path, diff_text, added_lines, removed_lines FROM code_diffs WHERE snapshot_id = ?"
         params = [snapshot_id]
 
@@ -973,13 +984,15 @@ def show_diff(plan_id, task_number, sequence, file):
             click.echo()
 
     else:
-        # List all checkpoints for task
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, checkpoint_name, sequence, timestamp, git_ref
             FROM code_snapshots
             WHERE task_id = ?
             ORDER BY sequence
-        """, (task_id,))
+        """,
+            (task_id,),
+        )
 
         snapshots_list = cursor.fetchall()
 
@@ -992,8 +1005,10 @@ def show_diff(plan_id, task_number, sequence, file):
         for snapshot_row in snapshots_list:
             snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
 
-            # Count files affected
-            cursor.execute("SELECT COUNT(DISTINCT file_path) FROM code_diffs WHERE snapshot_id = ?", (snapshot_id,))
+            cursor.execute(
+                "SELECT COUNT(DISTINCT file_path) FROM code_diffs WHERE snapshot_id = ?",
+                (snapshot_id,),
+            )
             file_count = cursor.fetchone()[0]
 
             click.echo(f"  [{seq}] {checkpoint_name}")
@@ -1007,9 +1022,9 @@ def show_diff(plan_id, task_number, sequence, file):
 
 
 @planning.command("validate")
-@click.argument('plan_id', type=int)
-@click.option('--session-id', help='Specific session ID to validate against (defaults to latest)')
-@click.option('--format', type=click.Choice(['text', 'json']), default='text', help='Output format')
+@click.argument("plan_id", type=int)
+@click.option("--session-id", help="Specific session ID to validate against (defaults to latest)")
+@click.option("--format", type=click.Choice(["text", "json"]), default="text", help="Output format")
 @handle_exceptions
 def validate_plan(plan_id, session_id, format):
     """Validate plan execution against session logs.
@@ -1025,42 +1040,43 @@ def validate_plan(plan_id, session_id, format):
     db_path = Path.cwd() / ".pf" / "planning.db"
     session_db_path = Path.cwd() / ".pf" / "ml" / "session_history.db"
 
-    # Check session database exists
     if not session_db_path.exists():
         click.echo("Error: Session database not found (.pf/ml/session_history.db)", err=True)
         click.echo("Run 'aud session init' to enable session logging", err=True)
         click.echo("Planning validation requires session logs", err=True)
         raise click.ClickException("Session logging not enabled")
 
-    # Get plan
     manager = PlanningManager(db_path)
     plan = manager.get_plan(plan_id)
     if not plan:
         click.echo(f"Error: Plan {plan_id} not found", err=True)
         raise click.ClickException(f"Plan {plan_id} not found")
 
-    # Connect to session database
     session_conn = sqlite3.connect(session_db_path)
     session_cursor = session_conn.cursor()
 
-    # Get session data (latest or specific)
     if session_id:
-        session_cursor.execute("""
+        session_cursor.execute(
+            """
             SELECT session_id, task_description, workflow_compliant, compliance_score,
                    files_modified, diffs_scored
             FROM session_executions
             WHERE session_id = ?
-        """, (session_id,))
+        """,
+            (session_id,),
+        )
     else:
-        # Get latest session matching plan name
-        session_cursor.execute("""
+        session_cursor.execute(
+            """
             SELECT session_id, task_description, workflow_compliant, compliance_score,
                    files_modified, diffs_scored
             FROM session_executions
             WHERE task_description LIKE ?
             ORDER BY timestamp DESC
             LIMIT 1
-        """, (f"%{plan['name']}%",))
+        """,
+            (f"%{plan['name']}%",),
+        )
 
     session_row = session_cursor.fetchone()
     if not session_row:
@@ -1069,67 +1085,68 @@ def validate_plan(plan_id, session_id, format):
             click.echo(f"Session ID '{session_id}' not found in database", err=True)
         raise click.ClickException("No matching session found")
 
-    session_id_val, task_desc, workflow_compliant, compliance_score, files_modified_count, diffs_json = session_row
+    (
+        session_id_val,
+        task_desc,
+        workflow_compliant,
+        compliance_score,
+        files_modified_count,
+        diffs_json,
+    ) = session_row
 
-    # Parse diffs JSON
     import json as json_module
+
     diffs = json_module.loads(diffs_json) if diffs_json else []
 
-    # Extract file paths from diffs
-    actual_files = [diff['file'] for diff in diffs]
-    blind_edits = [diff['file'] for diff in diffs if diff.get('blind_edit', False)]
+    actual_files = [diff["file"] for diff in diffs]
+    blind_edits = [diff["file"] for diff in diffs if diff.get("blind_edit", False)]
 
-    # Get planned files from plan tasks
     plan_cursor = manager.conn.cursor()
-    plan_cursor.execute("""
+    plan_cursor.execute(
+        """
         SELECT description
         FROM plan_tasks
         WHERE plan_id = ?
-    """, (plan_id,))
+    """,
+        (plan_id,),
+    )
 
-    # Extract file paths from task descriptions (basic heuristic)
     import re
+
     planned_files = set()
     for row in plan_cursor.fetchall():
         desc = row[0]
-        # Look for file patterns in descriptions
-        file_matches = re.findall(r'[\w/]+\.(?:py|js|ts|tsx|jsx|md)', desc)
+
+        file_matches = re.findall(r"[\w/]+\.(?:py|js|ts|tsx|jsx|md)", desc)
         planned_files.update(file_matches)
 
-    # Calculate deviations
     actual_files_set = set(actual_files)
     extra_files = actual_files_set - planned_files
     missing_files = planned_files - actual_files_set
 
     deviation_score = (len(extra_files) + len(missing_files)) / max(len(planned_files), 1)
-    validation_passed = (
-        workflow_compliant and
-        len(blind_edits) == 0 and
-        deviation_score < 0.2  # Allow 20% deviation
-    )
+    validation_passed = workflow_compliant and len(blind_edits) == 0 and deviation_score < 0.2
 
-    # Generate report
-    if format == 'json':
+    if format == "json":
         result = {
-            'plan_id': plan_id,
-            'plan_name': plan['name'],
-            'session_id': session_id_val,
-            'validation_passed': validation_passed,
-            'workflow_compliant': bool(workflow_compliant),
-            'compliance_score': compliance_score,
-            'files': {
-                'planned': list(planned_files),
-                'actual': actual_files,
-                'extra': list(extra_files),
-                'missing': list(missing_files)
+            "plan_id": plan_id,
+            "plan_name": plan["name"],
+            "session_id": session_id_val,
+            "validation_passed": validation_passed,
+            "workflow_compliant": bool(workflow_compliant),
+            "compliance_score": compliance_score,
+            "files": {
+                "planned": list(planned_files),
+                "actual": actual_files,
+                "extra": list(extra_files),
+                "missing": list(missing_files),
             },
-            'blind_edits': blind_edits,
-            'deviation_score': deviation_score,
-            'status': 'completed' if validation_passed else 'needs-revision'
+            "blind_edits": blind_edits,
+            "deviation_score": deviation_score,
+            "status": "completed" if validation_passed else "needs-revision",
         }
         click.echo(json_module.dumps(result, indent=2))
     else:
-        # Text format
         click.echo("=" * 80)
         click.echo(f"Plan Validation Report: {plan['name']}")
         click.echo("=" * 80)
@@ -1138,10 +1155,14 @@ def validate_plan(plan_id, session_id, format):
         click.echo(f"Validation Status:    {'PASSED' if validation_passed else 'NEEDS REVISION'}")
         click.echo()
         click.echo(f"Planned files:        {len(planned_files)}")
-        click.echo(f"Actually touched:     {len(actual_files)} (+{len(extra_files)} extra, -{len(missing_files)} missing)")
+        click.echo(
+            f"Actually touched:     {len(actual_files)} (+{len(extra_files)} extra, -{len(missing_files)} missing)"
+        )
         click.echo(f"Blind edits:          {len(blind_edits)}")
         click.echo(f"Workflow compliant:   {'YES' if workflow_compliant else 'NO'}")
-        click.echo(f"Compliance score:     {compliance_score:.2f} ({'above' if compliance_score >= 0.8 else 'below'} 0.8 threshold)")
+        click.echo(
+            f"Compliance score:     {compliance_score:.2f} ({'above' if compliance_score >= 0.8 else 'below'} 0.8 threshold)"
+        )
         click.echo(f"Deviation score:      {deviation_score:.2f}")
         click.echo()
 
@@ -1166,19 +1187,23 @@ def validate_plan(plan_id, session_id, format):
         click.echo(f"Status: {'COMPLETED' if validation_passed else 'NEEDS REVISION'}")
         click.echo("=" * 80)
 
-    # Update plan status
     if validation_passed:
-        manager.update_task(plan_id, 1, status='completed')
+        manager.update_task(plan_id, 1, status="completed")
         click.echo("\nPlan status updated to: completed", err=True)
     else:
-        manager.update_task(plan_id, 1, status='needs-revision')
+        manager.update_task(plan_id, 1, status="needs-revision")
         click.echo("\nPlan status updated to: needs-revision", err=True)
 
     session_conn.close()
 
 
 @planning.command()
-@click.option('--target', type=click.Choice(['AGENTS.md', 'CLAUDE.md', 'both']), default='AGENTS.md', help='Target file for injection')
+@click.option(
+    "--target",
+    type=click.Choice(["AGENTS.md", "CLAUDE.md", "both"]),
+    default="AGENTS.md",
+    help="Target file for injection",
+)
 @handle_exceptions
 def setup_agents(target):
     """Inject TheAuditor agent trigger block into project documentation.
@@ -1227,19 +1252,16 @@ Run `aud init` to install the venv if agents are missing.
     def inject_into_file(file_path: Path) -> bool:
         """Inject trigger block into file if not already present."""
         if not file_path.exists():
-            # Create new file with trigger block
             file_path.write_text(TRIGGER_BLOCK + "\n")
             click.echo(f"Created {file_path.name} with agent trigger block")
             return True
 
         content = file_path.read_text()
 
-        # Check if trigger already exists
         if TRIGGER_START in content:
             click.echo(f"Trigger block already exists in {file_path.name}")
             return False
 
-        # Inject at beginning of file
         new_content = TRIGGER_BLOCK + "\n" + content
         file_path.write_text(new_content)
         click.echo(f"Injected agent trigger block into {file_path.name}")
@@ -1247,11 +1269,11 @@ Run `aud init` to install the venv if agents are missing.
 
     root = Path.cwd()
 
-    if target == 'AGENTS.md' or target == 'both':
+    if target == "AGENTS.md" or target == "both":
         agents_md = root / "AGENTS.md"
         inject_into_file(agents_md)
 
-    if target == 'CLAUDE.md' or target == 'both':
+    if target == "CLAUDE.md" or target == "both":
         claude_md = root / "CLAUDE.md"
         inject_into_file(claude_md)
 
@@ -1259,4 +1281,6 @@ Run `aud init` to install the venv if agents are missing.
     click.echo("AI assistants will now automatically load specialized agent workflows.")
     click.echo("\nNext steps:")
     click.echo("  1. Run 'aud init' if .auditor_venv/ doesn't exist (copies agent files)")
-    click.echo("  2. Try triggering agents with keywords like 'refactor storage.py' or 'check for XSS'")
+    click.echo(
+        "  2. Try triggering agents with keywords like 'refactor storage.py' or 'check for XSS'"
+    )

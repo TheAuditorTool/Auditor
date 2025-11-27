@@ -11,8 +11,7 @@ from typing import Any
 
 import click
 
-# Legacy constant for old insights code (7 refactors old)
-# TODO: Remove when insights module is rewritten
+
 SECURITY_SINKS = {
     "sql": ["execute", "query", "raw", "literal"],
     "command": ["exec", "system", "spawn", "popen"],
@@ -24,19 +23,23 @@ SECURITY_SINKS = {
 
 
 @click.command()
-@click.option("--mode", "-m", 
-              type=click.Choice(["ml", "graph", "taint", "impact", "all"]),
-              default="all",
-              help="Which insights modules to run")
-@click.option("--ml-train", is_flag=True,
-              help="Train ML models before generating suggestions")
-@click.option("--topk", default=10, type=int,
-              help="Top K files for ML suggestions")
-@click.option("--output-dir", "-o", type=click.Path(),
-              default="./.pf/insights",
-              help="Directory for insights output")
-@click.option("--print-summary", is_flag=True,
-              help="Print summary to console")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["ml", "graph", "taint", "impact", "all"]),
+    default="all",
+    help="Which insights modules to run",
+)
+@click.option("--ml-train", is_flag=True, help="Train ML models before generating suggestions")
+@click.option("--topk", default=10, type=int, help="Top K files for ML suggestions")
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(),
+    default="./.pf/insights",
+    help="Directory for insights output",
+)
+@click.option("--print-summary", is_flag=True, help="Print summary to console")
 def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summary: bool) -> None:
     """Add interpretive scoring and predictions to raw audit facts.
 
@@ -146,7 +149,6 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
       0 - All requested insights generated successfully
       1 - One or more insights failed (see errors)"""
 
-    # Ensure we have raw data to analyze
     pf_dir = Path(".pf")
     raw_dir = pf_dir / "raw"
 
@@ -154,19 +156,17 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
         click.echo("[ERROR] No raw audit data found. Run 'aud full' first.", err=True)
         sys.exit(1)
 
-    # Create insights directory
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo(f"INSIGHTS ANALYSIS - {mode.upper()} Mode")
-    click.echo(f"{'='*60}")
+    click.echo(f"{'=' * 60}")
     click.echo(f"Output directory: {output_path}")
 
     results = {}
     errors = []
 
-    # ML Insights
     if mode in ["ml", "all"]:
         click.echo("\n[ML] Running machine learning insights...")
         ml_result = run_ml_insights(ml_train, topk, output_path)
@@ -176,7 +176,6 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
         else:
             click.echo(f"  ✓ ML predictions saved to {output_path}/ml_suggestions.json")
 
-    # Graph Health Insights
     if mode in ["graph", "all"]:
         click.echo("\n[GRAPH] Running graph health analysis...")
         graph_result = run_graph_insights(output_path)
@@ -186,7 +185,6 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
         else:
             click.echo(f"  ✓ Graph health saved to {output_path}/graph_health.json")
 
-    # Taint Severity Insights
     if mode in ["taint", "all"]:
         click.echo("\n[TAINT] Running taint severity scoring...")
         taint_result = run_taint_insights(output_path)
@@ -196,7 +194,6 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
         else:
             click.echo(f"  ✓ Taint severity saved to {output_path}/taint_severity.json")
 
-    # Impact Analysis Insights
     if mode in ["impact", "all"]:
         click.echo("\n[IMPACT] Running impact analysis...")
         impact_result = run_impact_insights(output_path)
@@ -206,22 +203,18 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
         else:
             click.echo(f"  ✓ Impact analysis saved to {output_path}/impact_analysis.json")
 
-    # Aggregate all insights into unified summary
     click.echo("\n[AGGREGATE] Creating unified insights summary...")
     summary = aggregate_insights(results, output_path)
 
-    # Save unified summary
     summary_path = output_path / "unified_insights.json"
-    with open(summary_path, 'w') as f:
+    with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2, default=str)
     click.echo(f"  ✓ Unified summary saved to {summary_path}")
 
-    # Print summary if requested
     if print_summary:
         print_insights_summary(summary)
 
-    # Final status
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     if errors:
         click.echo(f"[WARN] Insights completed with {len(errors)} errors:", err=True)
         for error in errors:
@@ -243,23 +236,21 @@ def run_ml_insights(train: bool, topk: int, output_dir: Path) -> dict[str, Any]:
         if not check_ml_available():
             return {"error": "ML module not installed. Run: pip install -e .[ml]"}
 
-        # Train if requested
         if train:
             learn_result = learn(
                 db_path="./.pf/repo_index.db",
                 manifest_path="./.pf/manifest.json",
-                print_stats=False
+                print_stats=False,
             )
             if not learn_result.get("success"):
                 return {"error": f"ML training failed: {learn_result.get('error')}"}
 
-        # Generate suggestions
         suggest_result = suggest(
             db_path="./.pf/repo_index.db",
             manifest_path="./.pf/manifest.json",
             workset_path="./.pf/workset.json",
             topk=topk,
-            out_path=str(output_dir / "ml_suggestions.json")
+            out_path=str(output_dir / "ml_suggestions.json"),
         )
 
         return suggest_result
@@ -277,62 +268,48 @@ def run_graph_insights(output_dir: Path) -> dict[str, Any]:
         from theauditor.graph.analyzer import XGraphAnalyzer
         from theauditor.graph.store import XGraphStore
 
-        # Load graph from SQLite database (SINGLE SOURCE OF TRUTH)
         store = XGraphStore(db_path="./.pf/graphs.db")
         import_graph = store.load_import_graph()
 
         if not import_graph or not import_graph.get("nodes"):
             return {"error": "No import graph found. Run 'aud graph build' first."}
 
-        # Load analysis data if it exists
         analysis_path = Path(".pf/raw/graph_analysis.json")
         analysis_data = {}
         if analysis_path.exists():
             with open(analysis_path) as f:
                 analysis_data = json.load(f)
 
-        # Run insights analysis
         insights = GraphInsights()
         analyzer = XGraphAnalyzer()
 
-        # Use pre-calculated cycles and hotspots if available, otherwise calculate
-        if 'cycles' in analysis_data:
-            cycles = analysis_data['cycles']
+        if "cycles" in analysis_data:
+            cycles = analysis_data["cycles"]
         else:
             cycles = analyzer.detect_cycles(import_graph)
 
-        # Use pre-calculated hotspots if available, otherwise calculate
-        if 'hotspots' in analysis_data:
-            hotspots = analysis_data['hotspots']
+        if "hotspots" in analysis_data:
+            hotspots = analysis_data["hotspots"]
         else:
             hotspots = insights.rank_hotspots(import_graph)
 
-        # Calculate health metrics
-        health = insights.calculate_health_metrics(
-            import_graph, 
-            cycles=cycles, 
-            hotspots=hotspots
-        )
+        health = insights.calculate_health_metrics(import_graph, cycles=cycles, hotspots=hotspots)
 
-        # Generate recommendations
         recommendations = insights.generate_recommendations(
-            import_graph,
-            cycles=cycles,
-            hotspots=hotspots
+            import_graph, cycles=cycles, hotspots=hotspots
         )
 
-        # Save results
         output = {
             "health_metrics": health,
             "top_hotspots": hotspots[:10],
             "recommendations": recommendations,
             "cycles_found": len(cycles),
             "total_nodes": len(import_graph.get("nodes", [])),
-            "total_edges": len(import_graph.get("edges", []))
+            "total_edges": len(import_graph.get("edges", [])),
         }
 
         output_path = output_dir / "graph_health.json"
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
 
         return {"success": True, "health_score": health.get("health_score")}
@@ -347,9 +324,12 @@ def run_taint_insights(output_dir: Path) -> dict[str, Any]:
     """Run taint severity insights."""
     try:
         from datetime import datetime, UTC
-        from theauditor.insights.taint import calculate_severity, classify_vulnerability, generate_summary
+        from theauditor.insights.taint import (
+            calculate_severity,
+            classify_vulnerability,
+            generate_summary,
+        )
 
-        # Load raw taint data
         taint_path = Path(".pf/raw/taint_analysis.json")
         if not taint_path.exists():
             return {"error": "No taint data found. Run 'aud taint-analyze' first."}
@@ -360,43 +340,45 @@ def run_taint_insights(output_dir: Path) -> dict[str, Any]:
         if not taint_data.get("success"):
             return {"error": "Taint analysis was not successful"}
 
-        # Calculate severity for each path and create enriched versions
         severity_analysis = []
         enriched_paths = []
         for path in taint_data.get("taint_paths", []):
             severity = calculate_severity(path)
             vuln_type = classify_vulnerability(path.get("sink", {}), SECURITY_SINKS)
 
-            severity_analysis.append({
-                "file": path.get("sink", {}).get("file"),
-                "line": path.get("sink", {}).get("line"),
-                "severity": severity,
-                "vulnerability_type": vuln_type,
-                "path_length": len(path.get("path", [])),
-                "risk_score": 1.0 if severity == "critical" else 0.7 if severity == "high" else 0.4
-            })
+            severity_analysis.append(
+                {
+                    "file": path.get("sink", {}).get("file"),
+                    "line": path.get("sink", {}).get("line"),
+                    "severity": severity,
+                    "vulnerability_type": vuln_type,
+                    "path_length": len(path.get("path", [])),
+                    "risk_score": 1.0
+                    if severity == "critical"
+                    else 0.7
+                    if severity == "high"
+                    else 0.4,
+                }
+            )
 
-            # Create enriched path with severity for summary generation
             enriched_path = dict(path)
             enriched_path["severity"] = severity
             enriched_path["vulnerability_type"] = vuln_type
             enriched_paths.append(enriched_path)
 
-        # Generate summary using enriched paths with severity
         summary = generate_summary(enriched_paths)
 
-        # Save results
         output = {
             "generated_at": datetime.now(UTC).isoformat(),
             "severity_analysis": severity_analysis,
             "summary": summary,
             "total_vulnerabilities": len(severity_analysis),
             "sources_analyzed": taint_data.get("sources_found", 0),
-            "sinks_analyzed": taint_data.get("sinks_found", 0)
+            "sinks_analyzed": taint_data.get("sinks_found", 0),
         }
 
         output_path = output_dir / "taint_severity.json"
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
 
         return {"success": True, "risk_level": summary.get("risk_level")}
@@ -410,7 +392,6 @@ def run_taint_insights(output_dir: Path) -> dict[str, Any]:
 def run_impact_insights(output_dir: Path) -> dict[str, Any]:
     """Run impact analysis insights."""
     try:
-        # Check if workset exists
         workset_path = Path(".pf/workset.json")
         if not workset_path.exists():
             return {"error": "No workset found. Run 'aud workset' first."}
@@ -418,16 +399,14 @@ def run_impact_insights(output_dir: Path) -> dict[str, Any]:
         with open(workset_path) as f:
             workset_data = json.load(f)
 
-        # For now, create a simple impact summary
-        # In future, this could run actual impact analysis on changed files
         output = {
             "files_changed": len(workset_data.get("files", [])),
             "potential_impact": "Analysis pending",
-            "recommendation": "Run 'aud impact --file <file> --line <line>' for detailed analysis"
+            "recommendation": "Run 'aud impact --file <file> --line <line>' for detailed analysis",
         }
 
         output_path = output_dir / "impact_analysis.json"
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(output, f, indent=2)
 
         return {"success": True, "files_analyzed": len(workset_data.get("files", []))}
@@ -440,43 +419,39 @@ def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, A
     """Aggregate all insights into unified summary."""
     summary = {
         "insights_generated": list(results.keys()),
-        "timestamp": __import__('datetime').datetime.now().isoformat(),
-        "output_directory": str(output_dir)
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "output_directory": str(output_dir),
     }
 
-    # ML insights
     if "ml" in results and results["ml"].get("success"):
         summary["ml"] = {
             "status": "success",
             "workset_size": results["ml"].get("workset_size", 0),
-            "predictions_generated": True
+            "predictions_generated": True,
         }
     elif "ml" in results:
         summary["ml"] = {"status": "error", "error": results["ml"].get("error")}
 
-    # Graph insights
     if "graph" in results and results["graph"].get("success"):
         summary["graph"] = {
             "status": "success",
-            "health_score": results["graph"].get("health_score", 0)
+            "health_score": results["graph"].get("health_score", 0),
         }
     elif "graph" in results:
         summary["graph"] = {"status": "error", "error": results["graph"].get("error")}
 
-    # Taint insights
     if "taint" in results and results["taint"].get("success"):
         summary["taint"] = {
             "status": "success",
-            "risk_level": results["taint"].get("risk_level", "unknown")
+            "risk_level": results["taint"].get("risk_level", "unknown"),
         }
     elif "taint" in results:
         summary["taint"] = {"status": "error", "error": results["taint"].get("error")}
 
-    # Impact insights
     if "impact" in results and results["impact"].get("success"):
         summary["impact"] = {
             "status": "success",
-            "files_analyzed": results["impact"].get("files_analyzed", 0)
+            "files_analyzed": results["impact"].get("files_analyzed", 0),
         }
     elif "impact" in results:
         summary["impact"] = {"status": "error", "error": results["impact"].get("error")}
@@ -486,11 +461,10 @@ def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, A
 
 def print_insights_summary(summary: dict[str, Any]) -> None:
     """Print insights summary to console."""
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo("INSIGHTS SUMMARY")
-    click.echo(f"{'='*60}")
+    click.echo(f"{'=' * 60}")
 
-    # ML Summary
     if "ml" in summary:
         if summary["ml"]["status"] == "success":
             click.echo(f"\n[ML] Machine Learning Insights:")
@@ -499,17 +473,25 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
         else:
             click.echo(f"\n[ML] Machine Learning Insights: {summary['ml'].get('error')}")
 
-    # Graph Summary
     if "graph" in summary:
         if summary["graph"]["status"] == "success":
             health = summary["graph"].get("health_score", 0)
-            grade = "A" if health >= 90 else "B" if health >= 80 else "C" if health >= 70 else "D" if health >= 60 else "F"
+            grade = (
+                "A"
+                if health >= 90
+                else "B"
+                if health >= 80
+                else "C"
+                if health >= 70
+                else "D"
+                if health >= 60
+                else "F"
+            )
             click.echo(f"\n[GRAPH] Architecture Health:")
             click.echo(f"  • Health score: {health}/100 (Grade: {grade})")
         else:
             click.echo(f"\n[GRAPH] Architecture Health: {summary['graph'].get('error')}")
 
-    # Taint Summary
     if "taint" in summary:
         if summary["taint"]["status"] == "success":
             risk = summary["taint"].get("risk_level", "unknown")
@@ -518,7 +500,6 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
         else:
             click.echo(f"\n[TAINT] Security Risk: {summary['taint'].get('error')}")
 
-    # Impact Summary
     if "impact" in summary:
         if summary["impact"]["status"] == "success":
             click.echo(f"\n[IMPACT] Change Impact:")
@@ -526,8 +507,7 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
         else:
             click.echo(f"\n[IMPACT] Change Impact: {summary['impact'].get('error')}")
 
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
 
 
-# Register command
 insights_command = insights

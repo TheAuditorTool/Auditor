@@ -4,7 +4,6 @@ Detects GraphQL arguments flowing to SQL/command sinks without sanitization.
 Uses graphql_execution_edges + taint analysis. NO regex fallbacks.
 """
 
-
 import sqlite3
 
 from theauditor.rules.base import (
@@ -18,9 +17,9 @@ from theauditor.rules.base import (
 METADATA = RuleMetadata(
     name="graphql_injection",
     category="security",
-    target_extensions=['.graphql', '.gql', '.graphqls', '.py', '.js', '.ts'],
-    execution_scope='database',
-    requires_jsx_pass=False
+    target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
+    execution_scope="database",
+    requires_jsx_pass=False,
 )
 
 
@@ -44,15 +43,13 @@ def check_graphql_injection(context: StandardRuleContext) -> list[StandardFindin
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    # Check if GraphQL tables exist
     cursor.execute("""
         SELECT name FROM sqlite_master
         WHERE type='table' AND name='graphql_resolver_mappings'
     """)
     if not cursor.fetchone():
-        return findings  # No GraphQL data
+        return findings
 
-    # Get all GraphQL field arguments with their resolvers
     cursor.execute("""
         SELECT
             fa.arg_name,
@@ -70,48 +67,47 @@ def check_graphql_injection(context: StandardRuleContext) -> list[StandardFindin
     """)
 
     for row in cursor.fetchall():
-        arg_name = row['arg_name']
-        field_name = row['field_name']
-        type_name = row['type_name']
-        resolver_path = row['resolver_path']
-        resolver_line = row['resolver_line']
+        arg_name = row["arg_name"]
+        field_name = row["field_name"]
+        type_name = row["type_name"]
+        resolver_path = row["resolver_path"]
+        resolver_line = row["resolver_line"]
 
-        # Check if this resolver has SQL queries
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT query_text, line, command
             FROM sql_queries
             WHERE file = ?
             AND line > ?
             AND line < ? + 50
-        """, (resolver_path, resolver_line, resolver_line))
+        """,
+            (resolver_path, resolver_line, resolver_line),
+        )
 
         sql_queries = cursor.fetchall()
 
         for sql_row in sql_queries:
-            query_text = sql_row['query_text']
-            query_line = sql_row['line']
-            command = sql_row['command']
+            query_text = sql_row["query_text"]
+            query_line = sql_row["line"]
+            command = sql_row["command"]
 
-            # Check if query uses string formatting (injection risk)
-            if any(pattern in query_text for pattern in ['%s', '.format', 'f"', "f'"]):
-                # Check if argument name appears in query context
-                # Look for the argument in function_call_args around this line
-                # Use indexed query + Python filter (avoids full-table LIKE scan)
-                cursor.execute("""
+            if any(pattern in query_text for pattern in ["%s", ".format", 'f"', "f'"]):
+                cursor.execute(
+                    """
                     SELECT argument_expr
                     FROM function_call_args
                     WHERE file = ?
                     AND line BETWEEN ? AND ?
-                """, (resolver_path, resolver_line, query_line))
+                """,
+                    (resolver_path, resolver_line, query_line),
+                )
 
-                # Filter in Python - check if arg_name appears in any argument expression
                 found_arg_in_context = any(
-                    row['argument_expr'] and arg_name in row['argument_expr']
+                    row["argument_expr"] and arg_name in row["argument_expr"]
                     for row in cursor.fetchall()
                 )
 
                 if found_arg_in_context:
-                    # Found potential injection - argument used in SQL without parameterization
                     finding = StandardFinding(
                         rule_name="graphql_injection",
                         message=f"GraphQL argument '{arg_name}' from {type_name}.{field_name} flows to SQL query without sanitization",
@@ -127,8 +123,8 @@ def check_graphql_injection(context: StandardRuleContext) -> list[StandardFindin
                             "argument": arg_name,
                             "sql_command": command,
                             "query_snippet": query_text[:100] if query_text else "",
-                            "recommendation": "Use parameterized queries instead of string formatting"
-                        }
+                            "recommendation": "Use parameterized queries instead of string formatting",
+                        },
                     )
                     findings.append(finding)
 

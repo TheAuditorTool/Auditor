@@ -15,5 +15,5 @@ on cached runs while maintaining correctness through intelligent invalidation.
 from .ast_cache import ASTCache
 
 __all__ = [
-    'ASTCache',
+    "ASTCache",
 ]

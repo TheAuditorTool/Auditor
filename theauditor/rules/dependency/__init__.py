@@ -19,5 +19,5 @@ __all__ = [
     "detect_dependency_bloat",
     "detect_update_lag",
     "detect_peer_conflicts",
-    "detect_bundle_size"
+    "detect_bundle_size",
 ]

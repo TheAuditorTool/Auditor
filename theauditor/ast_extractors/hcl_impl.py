@@ -9,13 +9,12 @@ Architecture:
 - Line precision: Uses tree-sitter node.start_point for exact locations
 """
 
-
 from typing import Any
 
 
 def _get_body_node(block_node: Any) -> Any | None:
     """Return the body child node for a block if present."""
-    for child in getattr(block_node, 'children', []) or []:
+    for child in getattr(block_node, "children", []) or []:
         if child.type == "body":
             return child
     return None
@@ -45,46 +44,44 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> list[dict]:
     if node is None:
         return blocks
 
-    # HCL uses "block" node type for all top-level constructs
     if node.type == "block":
         identifier = None
         block_type = None
         block_name = None
 
-        # Extract block components from children
-        # Skip block_start, block_end, body, comment nodes - just get identifiers and string_lits
-        children = [c for c in node.children if c.type not in ["block_start", "block_end", "body", "comment"]]
+        children = [
+            c
+            for c in node.children
+            if c.type not in ["block_start", "block_end", "body", "comment"]
+        ]
 
         if len(children) >= 1:
-            # First child is always the identifier (resource/variable/output/data/etc)
             identifier = children[0].text.decode("utf-8", errors="ignore")
 
         if len(children) >= 2:
-            # Second child is type (for resources) or name (for variables/outputs)
             block_type = children[1].text.decode("utf-8", errors="ignore").strip('"')
 
         if len(children) >= 3:
-            # Third child is name (for resources only - they have type + name)
             block_name = children[2].text.decode("utf-8", errors="ignore").strip('"')
 
-        # For variables/outputs, the "type" is actually the name
         if identifier in ["variable", "output", "locals"] and block_name is None:
             block_name = block_type
             block_type = None
 
         body_node = _get_body_node(node)
 
-        blocks.append({
-            "identifier": identifier,           # "resource", "variable", "output", "data", etc.
-            "type": block_type,                 # Resource type (e.g., "aws_s3_bucket") or None
-            "name": block_name,                 # Block name (e.g., "example")
-            "line": node.start_point[0] + 1,   # 1-indexed line number
-            "column": node.start_point[1],     # Column number
-            "node": node,
-            "body": body_node,
-        })
+        blocks.append(
+            {
+                "identifier": identifier,
+                "type": block_type,
+                "name": block_name,
+                "line": node.start_point[0] + 1,
+                "column": node.start_point[1],
+                "node": node,
+                "body": body_node,
+            }
+        )
 
-    # Recursively search children
     for child in node.children:
         blocks.extend(extract_hcl_blocks(child, language))
 
@@ -106,10 +103,8 @@ def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
     if node is None or node.type != "body":
         return attributes
 
-    # Iterate through body children to find attribute nodes
     for child in node.children:
         if child.type == "attribute":
-            # attribute node structure: identifier "=" expression
             attr_name = None
             attr_value = None
 
@@ -117,7 +112,6 @@ def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
                 if subchild.type == "identifier" and attr_name is None:
                     attr_name = subchild.text.decode("utf-8", errors="ignore")
                 elif subchild.type != "=" and attr_name is not None:
-                    # This is the value expression
                     attr_value = subchild.text.decode("utf-8", errors="ignore")
 
             if attr_name and attr_value is not None:
@@ -144,16 +138,17 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> list[dict]:
         if block["identifier"] == "resource":
             body_node = block.get("body")
             attributes = extract_hcl_attributes(body_node, block["type"]) if body_node else {}
-            # Find the actual block node to extract attributes
-            # For now, just return basic structure
-            resources.append({
-                "resource_type": block["type"],
-                "resource_name": block["name"],
-                "line": block["line"],
-                "column": block["column"],
-                "file_path": file_path,
-                "attributes": attributes,
-            })
+
+            resources.append(
+                {
+                    "resource_type": block["type"],
+                    "resource_name": block["name"],
+                    "line": block["line"],
+                    "column": block["column"],
+                    "file_path": file_path,
+                    "attributes": attributes,
+                }
+            )
 
     return resources
 
@@ -174,17 +169,18 @@ def extract_hcl_variables(tree, content: str, file_path: str) -> list[dict]:
 
     for block in all_blocks:
         if block["identifier"] == "variable":
-            # Extract attributes from variable body
             body_node = block.get("body")
             attributes = extract_hcl_attributes(body_node, "variable") if body_node else {}
 
-            variables.append({
-                "variable_name": block["name"],
-                "line": block["line"],
-                "column": block["column"],
-                "file_path": file_path,
-                "attributes": attributes
-            })
+            variables.append(
+                {
+                    "variable_name": block["name"],
+                    "line": block["line"],
+                    "column": block["column"],
+                    "file_path": file_path,
+                    "attributes": attributes,
+                }
+            )
 
     return variables
 
@@ -205,17 +201,18 @@ def extract_hcl_outputs(tree, content: str, file_path: str) -> list[dict]:
 
     for block in all_blocks:
         if block["identifier"] == "output":
-            # Extract attributes from output body
             body_node = block.get("body")
             attributes = extract_hcl_attributes(body_node, "output") if body_node else {}
 
-            outputs.append({
-                "output_name": block["name"],
-                "line": block["line"],
-                "column": block["column"],
-                "file_path": file_path,
-                "attributes": attributes
-            })
+            outputs.append(
+                {
+                    "output_name": block["name"],
+                    "line": block["line"],
+                    "column": block["column"],
+                    "file_path": file_path,
+                    "attributes": attributes,
+                }
+            )
 
     return outputs
 
@@ -236,12 +233,14 @@ def extract_hcl_data_sources(tree, content: str, file_path: str) -> list[dict]:
 
     for block in all_blocks:
         if block["identifier"] == "data":
-            data_sources.append({
-                "data_type": block["type"],
-                "data_name": block["name"],
-                "line": block["line"],
-                "column": block["column"],
-                "file_path": file_path
-            })
+            data_sources.append(
+                {
+                    "data_type": block["type"],
+                    "data_name": block["name"],
+                    "line": block["line"],
+                    "column": block["column"],
+                    "file_path": file_path,
+                }
+            )
 
     return data_sources

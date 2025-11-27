@@ -104,7 +104,6 @@ def tool_versions(out_dir):
         click.echo("  - TOOLS.md (human-readable)")
         click.echo("  - tools.json (machine-readable)")
 
-        # Show summary
         python_found = sum(1 for v in res["python"].values() if v != "missing")
         node_found = sum(1 for v in res["node"].values() if v != "missing")
         click.echo(f"  - Python tools: {python_found}/4 found")

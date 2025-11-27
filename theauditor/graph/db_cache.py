@@ -24,7 +24,6 @@ Example:
     15
 """
 
-
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -60,19 +59,15 @@ class GraphDatabaseCache:
         """
         self.db_path = db_path
 
-        # ZERO FALLBACK POLICY: Crash if DB missing
         if not self.db_path.exists():
             raise FileNotFoundError(
-                f"repo_index.db not found: {self.db_path}\n"
-                f"Run 'aud full' to create it."
+                f"repo_index.db not found: {self.db_path}\nRun 'aud full' to create it."
             )
 
-        # In-memory caches
         self.known_files: set[str] = set()
         self.imports_by_file: dict[str, list[dict[str, Any]]] = {}
         self.exports_by_file: dict[str, list[dict[str, Any]]] = {}
 
-        # Load all data in one pass
         self._load_cache()
 
     def _normalize_path(self, path: str) -> str:
@@ -101,20 +96,14 @@ class GraphDatabaseCache:
         NO TRY/EXCEPT - Let database errors crash (zero fallback policy).
         If this fails, database schema is wrong and must be fixed.
         """
-        # NO TRY/EXCEPT - Crashes expose schema bugs immediately
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Load all file paths (for existence checks)
-        # NO TABLE CHECK - Schema contract guarantees 'files' exists
         cursor.execute("SELECT path FROM files")
-        self.known_files = {
-            self._normalize_path(row["path"]) for row in cursor.fetchall()
-        }
+        self.known_files = {self._normalize_path(row["path"]) for row in cursor.fetchall()}
 
-        # Load all imports (for build_import_graph)
-        # NO TABLE CHECK - Schema contract guarantees 'refs' exists
         cursor.execute("""
             SELECT src, kind, value, line
             FROM refs
@@ -125,14 +114,14 @@ class GraphDatabaseCache:
             if src not in self.imports_by_file:
                 self.imports_by_file[src] = []
 
-            self.imports_by_file[src].append({
-                "kind": row["kind"],
-                "value": row["value"],  # NOT normalized - may be module name
-                "line": row["line"],
-            })
+            self.imports_by_file[src].append(
+                {
+                    "kind": row["kind"],
+                    "value": row["value"],
+                    "line": row["line"],
+                }
+            )
 
-        # Load all exports (for build_call_graph)
-        # NO TABLE CHECK - Schema contract guarantees 'symbols' exists
         cursor.execute("""
             SELECT path, name, type, line
             FROM symbols
@@ -143,18 +132,21 @@ class GraphDatabaseCache:
             if path not in self.exports_by_file:
                 self.exports_by_file[path] = []
 
-            self.exports_by_file[path].append({
-                "name": row["name"],
-                "symbol_type": row["type"],
-                "line": row["line"],
-            })
+            self.exports_by_file[path].append(
+                {
+                    "name": row["name"],
+                    "symbol_type": row["type"],
+                    "line": row["line"],
+                }
+            )
 
         conn.close()
 
-        # Report cache size
-        print(f"[GraphCache] Loaded {len(self.known_files)} files, "
-              f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
-              f"{sum(len(v) for v in self.exports_by_file.values())} export records")
+        print(
+            f"[GraphCache] Loaded {len(self.known_files)} files, "
+            f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
+            f"{sum(len(v) for v in self.exports_by_file.values())} export records"
+        )
 
     def get_imports(self, file_path: str) -> list[dict[str, Any]]:
         """Get all imports for a file (O(1) lookup).
@@ -231,24 +223,19 @@ class GraphDatabaseCache:
             >>> cache.resolve_filename("src/utils")
             "src/utils/index.ts"
         """
-        # 1. Normalize the guess first (Guard against Windows paths)
+
         clean = self._normalize_path(path_guess)
 
-        # 2. Fast Path: Exact match (The most common case)
         if clean in self.known_files:
             return clean
 
-        # 3. Permutation Strategy: Check common implicit extensions
-        # Order matters! .ts/.tsx usually prioritized over .js in mixed projects
-        extensions = ['.ts', '.tsx', '.js', '.jsx', '.d.ts', '.py']
+        extensions = [".ts", ".tsx", ".js", ".jsx", ".d.ts", ".py"]
 
         for ext in extensions:
             candidate = clean + ext
             if candidate in self.known_files:
                 return candidate
 
-        # 4. Index Strategy: Check for folder imports (src/utils -> src/utils/index.ts)
-        # This is CRITICAL for React/Node projects
         for ext in extensions:
             candidate = f"{clean}/index{ext}"
             if candidate in self.known_files:

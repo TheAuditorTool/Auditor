@@ -14,6 +14,7 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
@@ -25,10 +26,6 @@ from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# Django CBV Type Mapping
-# ============================================================================
 
 DJANGO_CBV_TYPES = {
     "ListView": "list",
@@ -50,10 +47,6 @@ DJANGO_CBV_TYPES = {
 }
 
 
-# ============================================================================
-# Helper Functions (Internal - Duplicated for Self-Containment)
-# ============================================================================
-
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
@@ -63,7 +56,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
@@ -93,12 +86,8 @@ def _extract_list_of_strings(node) -> str | None:
             elif isinstance(elt, ast.Name):
                 items.append(elt.id)
 
-    return ','.join(items) if items else None
+    return ",".join(items) if items else None
 
-
-# ============================================================================
-# Django Web Extractors
-# ============================================================================
 
 def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django Class-Based View definitions.
@@ -124,7 +113,6 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.ClassDef):
             continue
 
-        # Check inheritance from Django CBV classes
         base_names = [get_node_name(base) for base in node.bases]
         view_type = None
         base_view_class = None
@@ -141,55 +129,58 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
         if not view_type:
             continue
 
-        # Check class-level @method_decorator(..., name='dispatch') for permission checks
         has_permission_check = False
         for decorator in node.decorator_list:
-            # Check for @method_decorator(login_required, name='dispatch')
-            # Also handles @method_decorator([login_required, permission_required], name='dispatch')
             if isinstance(decorator, ast.Call):
                 dec_func_name = get_node_name(decorator.func)
-                if 'method_decorator' in dec_func_name:
-                    # Check if name='dispatch' keyword argument exists
+                if "method_decorator" in dec_func_name:
                     is_dispatch = False
                     for keyword in decorator.keywords:
-                        if keyword.arg == 'name':
+                        if keyword.arg == "name":
                             name_value = _get_str_constant(keyword.value)
-                            if name_value == 'dispatch':
+                            if name_value == "dispatch":
                                 is_dispatch = True
                                 break
 
                     if is_dispatch and decorator.args:
                         first_arg = decorator.args[0]
-                        # Handle single decorator: @method_decorator(login_required, name='dispatch')
+
                         if isinstance(first_arg, ast.Name):
                             first_arg_name = get_node_name(first_arg)
-                            if any(perm in first_arg_name for perm in ["permission", "login_required", "staff_member"]):
+                            if any(
+                                perm in first_arg_name
+                                for perm in ["permission", "login_required", "staff_member"]
+                            ):
                                 has_permission_check = True
                                 break
-                        # Handle list of decorators: @method_decorator([login_required, permission_required], name='dispatch')
+
                         elif isinstance(first_arg, ast.List):
                             for elt in first_arg.elts:
                                 elt_name = get_node_name(elt)
-                                if any(perm in elt_name for perm in ["permission", "login_required", "staff_member"]):
+                                if any(
+                                    perm in elt_name
+                                    for perm in ["permission", "login_required", "staff_member"]
+                                ):
                                     has_permission_check = True
                                     break
-                        # Handle function call: @method_decorator(permission_required('foo'), name='dispatch')
+
                         elif isinstance(first_arg, ast.Call):
                             func_name = get_node_name(first_arg.func)
-                            if any(perm in func_name for perm in ["permission", "login_required", "staff_member"]):
+                            if any(
+                                perm in func_name
+                                for perm in ["permission", "login_required", "staff_member"]
+                            ):
                                 has_permission_check = True
                                 break
             if has_permission_check:
                 break
 
-        # Extract class-level attributes
         model_name = None
         template_name = None
         http_method_names = None
         has_get_queryset_override = False
 
         for item in node.body:
-            # Model assignment: model = User
             if isinstance(item, ast.Assign):
                 for target in item.targets:
                     if isinstance(target, ast.Name):
@@ -198,7 +189,6 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
                         elif target.id == "template_name":
                             template_name = _get_str_constant(item.value)
                         elif target.id == "http_method_names":
-                            # Extract list of allowed methods
                             if isinstance(item.value, ast.List):
                                 methods = []
                                 for elt in item.value.elts:
@@ -207,31 +197,38 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
                                         methods.append(method)
                                 http_method_names = ",".join(methods)
 
-            # Check for dispatch() method with permission decorators
             elif isinstance(item, ast.FunctionDef):
                 if item.name == "dispatch":
-                    # Check for @permission_required, @login_required, @method_decorator, etc.
                     for decorator in item.decorator_list:
                         dec_name = get_node_name(decorator)
-                        if any(perm in dec_name for perm in ["permission", "login_required", "staff_member", "method_decorator"]):
+                        if any(
+                            perm in dec_name
+                            for perm in [
+                                "permission",
+                                "login_required",
+                                "staff_member",
+                                "method_decorator",
+                            ]
+                        ):
                             has_permission_check = True
                             break
 
-                # Check for get_queryset() override
                 elif item.name == "get_queryset":
                     has_get_queryset_override = True
 
-        cbvs.append({
-            "line": node.lineno,
-            "view_class_name": node.name,
-            "view_type": view_type,
-            "base_view_class": base_view_class,
-            "model_name": model_name,
-            "template_name": template_name,
-            "has_permission_check": has_permission_check,
-            "http_method_names": http_method_names,
-            "has_get_queryset_override": has_get_queryset_override,
-        })
+        cbvs.append(
+            {
+                "line": node.lineno,
+                "view_class_name": node.name,
+                "view_type": view_type,
+                "base_view_class": base_view_class,
+                "model_name": model_name,
+                "template_name": template_name,
+                "has_permission_check": has_permission_check,
+                "http_method_names": http_method_names,
+                "has_get_queryset_override": has_get_queryset_override,
+            }
+        )
 
     return cbvs
 
@@ -258,50 +255,46 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.ClassDef):
             continue
 
-        # Check inheritance from django.forms.Form or ModelForm
         base_names = [get_node_name(base) for base in node.bases]
-        is_form = any('Form' in base for base in base_names)
+        is_form = any("Form" in base for base in base_names)
         if not is_form:
             continue
 
-        is_model_form = any('ModelForm' in base for base in base_names)
+        is_model_form = any("ModelForm" in base for base in base_names)
         model_name = None
         field_count = 0
         has_custom_clean = False
 
-        # Scan class body
         for item in node.body:
-            # Count field assignments (CharField, EmailField, etc.)
             if isinstance(item, ast.Assign):
                 for target in item.targets:
                     if isinstance(target, ast.Name):
-                        # Check if value is a field instantiation
                         if isinstance(item.value, ast.Call):
                             field_type_name = get_node_name(item.value.func)
-                            if 'Field' in field_type_name:
+                            if "Field" in field_type_name:
                                 field_count += 1
 
-            # Check for Meta class (ModelForm)
-            elif isinstance(item, ast.ClassDef) and item.name == 'Meta':
+            elif isinstance(item, ast.ClassDef) and item.name == "Meta":
                 for meta_item in item.body:
                     if isinstance(meta_item, ast.Assign):
                         for target in meta_item.targets:
-                            if isinstance(target, ast.Name) and target.id == 'model':
+                            if isinstance(target, ast.Name) and target.id == "model":
                                 model_name = get_node_name(meta_item.value)
 
-            # Check for custom clean methods
             elif isinstance(item, ast.FunctionDef):
-                if item.name == 'clean' or item.name.startswith('clean_'):
+                if item.name == "clean" or item.name.startswith("clean_"):
                     has_custom_clean = True
 
-        forms.append({
-            "line": node.lineno,
-            "form_class_name": node.name,
-            "is_model_form": is_model_form,
-            "model_name": model_name,
-            "field_count": field_count,
-            "has_custom_clean": has_custom_clean,
-        })
+        forms.append(
+            {
+                "line": node.lineno,
+                "form_class_name": node.name,
+                "is_model_form": is_model_form,
+                "model_name": model_name,
+                "field_count": field_count,
+                "has_custom_clean": has_custom_clean,
+            }
+        )
 
     return forms
 
@@ -328,60 +321,56 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.ClassDef):
             continue
 
-        # Check if this is a Form class
         base_names = [get_node_name(base) for base in node.bases]
-        is_form = any('Form' in base for base in base_names)
+        is_form = any("Form" in base for base in base_names)
         if not is_form:
             continue
 
         form_class_name = node.name
 
-        # Collect custom validator methods (clean_<field>)
         custom_validators = set()
         for item in node.body:
-            if isinstance(item, ast.FunctionDef) and item.name.startswith('clean_'):
-                field_name = item.name[6:]  # Remove 'clean_' prefix
+            if isinstance(item, ast.FunctionDef) and item.name.startswith("clean_"):
+                field_name = item.name[6:]
                 custom_validators.add(field_name)
 
-        # Extract field definitions
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
                     if isinstance(target, ast.Name):
                         field_name = target.id
 
-                        # Check if value is a field instantiation
                         if isinstance(item.value, ast.Call):
                             field_type_name = get_node_name(item.value.func)
-                            if not 'Field' in field_type_name:
+                            if not "Field" in field_type_name:
                                 continue
 
-                            # Extract field type (CharField, EmailField, etc.)
-                            field_type = field_type_name.split('.')[-1]
+                            field_type = field_type_name.split(".")[-1]
 
-                            # Extract keyword arguments
-                            required = True  # Default is required
+                            required = True
                             max_length = None
 
                             for keyword in item.value.keywords:
-                                if keyword.arg == 'required':
+                                if keyword.arg == "required":
                                     if isinstance(keyword.value, ast.Constant):
                                         required = bool(keyword.value.value)
-                                elif keyword.arg == 'max_length':
+                                elif keyword.arg == "max_length":
                                     if isinstance(keyword.value, ast.Constant):
                                         max_length = keyword.value.value
 
                             has_custom_validator = field_name in custom_validators
 
-                            fields.append({
-                                "line": item.lineno,
-                                "form_class_name": form_class_name,
-                                "field_name": field_name,
-                                "field_type": field_type,
-                                "required": required,
-                                "max_length": max_length,
-                                "has_custom_validator": has_custom_validator,
-                            })
+                            fields.append(
+                                {
+                                    "line": item.lineno,
+                                    "form_class_name": form_class_name,
+                                    "field_name": field_name,
+                                    "field_type": field_type,
+                                    "required": required,
+                                    "max_length": max_length,
+                                    "has_custom_validator": has_custom_validator,
+                                }
+                            )
 
     return fields
 
@@ -408,45 +397,38 @@ def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return admins
 
-    # Track admin registrations to link ModelAdmin to models
-    register_calls = {}  # {admin_class_name: model_name}
+    register_calls = {}
 
-    # First pass: Find admin.site.register(Model, ModelAdmin) calls
     for node in context.find_nodes(ast.Call):
         func_name = get_node_name(node.func)
-        if 'register' in func_name and len(node.args) >= 2:
-            # admin.site.register(Article, ArticleAdmin)
+        if "register" in func_name and len(node.args) >= 2:
             model_arg = get_node_name(node.args[0])
             admin_class_arg = get_node_name(node.args[1])
             if admin_class_arg:
                 register_calls[admin_class_arg] = model_arg
 
-    # Second pass: Extract ModelAdmin classes and check for @admin.register() decorators
     for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
-        # Check inheritance from ModelAdmin
         base_names = [get_node_name(base) for base in node.bases]
-        is_model_admin = any('ModelAdmin' in base or 'admin.ModelAdmin' in base for base in base_names)
+        is_model_admin = any(
+            "ModelAdmin" in base or "admin.ModelAdmin" in base for base in base_names
+        )
         if not is_model_admin:
             continue
 
         admin_class_name = node.name
-        model_name = register_calls.get(admin_class_name)  # From admin.site.register()
+        model_name = register_calls.get(admin_class_name)
 
-        # Check for @admin.register(Model) decorator pattern
         if not model_name:
             for decorator in node.decorator_list:
-                # @admin.register(Article) or @admin.register(Article, site=custom_site)
                 if isinstance(decorator, ast.Call):
                     dec_func_name = get_node_name(decorator.func)
-                    if 'register' in dec_func_name and decorator.args:
-                        # First argument is the model
+                    if "register" in dec_func_name and decorator.args:
                         model_name = get_node_name(decorator.args[0])
                         break
 
-        # Extract admin configuration attributes
         list_display = None
         list_filter = None
         search_fields = None
@@ -454,44 +436,43 @@ def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
         has_custom_actions = False
 
         for item in node.body:
-            # Class-level attribute assignments
             if isinstance(item, ast.Assign):
                 for target in item.targets:
                     if isinstance(target, ast.Name):
                         attr_name = target.id
 
-                        # Extract list/tuple values as comma-separated strings
-                        if attr_name == 'list_display':
+                        if attr_name == "list_display":
                             list_display = _extract_list_of_strings(item.value)
-                        elif attr_name == 'list_filter':
+                        elif attr_name == "list_filter":
                             list_filter = _extract_list_of_strings(item.value)
-                        elif attr_name == 'search_fields':
+                        elif attr_name == "search_fields":
                             search_fields = _extract_list_of_strings(item.value)
-                        elif attr_name == 'readonly_fields':
+                        elif attr_name == "readonly_fields":
                             readonly_fields = _extract_list_of_strings(item.value)
-                        elif attr_name == 'actions':
-                            # If actions is not None/empty, custom actions exist
-                            if not (isinstance(item.value, ast.Constant) and item.value.value is None):
+                        elif attr_name == "actions":
+                            if not (
+                                isinstance(item.value, ast.Constant) and item.value.value is None
+                            ):
                                 has_custom_actions = True
 
-            # Check for custom action methods (decorated with @admin.action or convention name)
             elif isinstance(item, ast.FunctionDef):
-                # Custom actions typically have @admin.action decorator or are in actions list
                 for decorator in item.decorator_list:
                     dec_name = get_node_name(decorator)
-                    if 'action' in dec_name:
+                    if "action" in dec_name:
                         has_custom_actions = True
 
-        admins.append({
-            "line": node.lineno,
-            "admin_class_name": admin_class_name,
-            "model_name": model_name,
-            "list_display": list_display,
-            "list_filter": list_filter,
-            "search_fields": search_fields,
-            "readonly_fields": readonly_fields,
-            "has_custom_actions": has_custom_actions,
-        })
+        admins.append(
+            {
+                "line": node.lineno,
+                "admin_class_name": admin_class_name,
+                "model_name": model_name,
+                "list_display": list_display,
+                "list_filter": list_filter,
+                "search_fields": search_fields,
+                "readonly_fields": readonly_fields,
+                "has_custom_actions": has_custom_actions,
+            }
+        )
 
     return admins
 
@@ -521,14 +502,9 @@ def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
         if not isinstance(node, ast.ClassDef):
             continue
 
-        # Check if this looks like middleware:
-        # 1. Inherits from MiddlewareMixin
-        # 2. Has __init__ + __call__ (callable middleware)
-        # 3. Has process_* methods
         base_names = [get_node_name(base) for base in node.bases]
-        is_middleware = any('Middleware' in base for base in base_names)
+        is_middleware = any("Middleware" in base for base in base_names)
 
-        # Check for middleware hooks
         has_init = False
         has_call = False
         has_process_request = False
@@ -539,29 +515,27 @@ def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
 
         for item in node.body:
             if isinstance(item, ast.FunctionDef):
-                if item.name == '__init__':
+                if item.name == "__init__":
                     has_init = True
-                elif item.name == '__call__':
+                elif item.name == "__call__":
                     has_call = True
-                elif item.name == 'process_request':
+                elif item.name == "process_request":
                     has_process_request = True
-                elif item.name == 'process_response':
+                elif item.name == "process_response":
                     has_process_response = True
-                elif item.name == 'process_exception':
+                elif item.name == "process_exception":
                     has_process_exception = True
-                elif item.name == 'process_view':
+                elif item.name == "process_view":
                     has_process_view = True
-                elif item.name == 'process_template_response':
+                elif item.name == "process_template_response":
                     has_process_template_response = True
 
-        # Consider it middleware if:
-        # - Inherits from Middleware* OR
-        # - Has __init__ + __call__ (callable middleware pattern) OR
-        # - Has any process_* methods
         has_any_process_method = (
-            has_process_request or has_process_response or
-            has_process_exception or has_process_view or
-            has_process_template_response
+            has_process_request
+            or has_process_response
+            or has_process_exception
+            or has_process_view
+            or has_process_template_response
         )
 
         is_callable_middleware = has_init and has_call
@@ -570,14 +544,16 @@ def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
         if not is_likely_middleware:
             continue
 
-        middlewares.append({
-            "line": node.lineno,
-            "middleware_class_name": node.name,
-            "has_process_request": has_process_request,
-            "has_process_response": has_process_response,
-            "has_process_exception": has_process_exception,
-            "has_process_view": has_process_view,
-            "has_process_template_response": has_process_template_response,
-        })
+        middlewares.append(
+            {
+                "line": node.lineno,
+                "middleware_class_name": node.name,
+                "has_process_request": has_process_request,
+                "has_process_response": has_process_response,
+                "has_process_exception": has_process_exception,
+                "has_process_view": has_process_view,
+                "has_process_template_response": has_process_template_response,
+            }
+        )
 
     return middlewares

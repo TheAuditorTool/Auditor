@@ -3,5 +3,5 @@
 from .perf_analyze import analyze as find_performance_issues
 
 __all__ = [
-    'find_performance_issues',
+    "find_performance_issues",
 ]

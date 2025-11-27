@@ -14,16 +14,13 @@ All extraction functions:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 import ast
 from typing import Any
 
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
 
 def _get_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     """Build a map from each node to its parent node."""
@@ -43,12 +40,8 @@ def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
             return current.name
         elif isinstance(current, ast.AsyncFunctionDef):
             return current.name
-    return 'global'
+    return "global"
 
-
-# ============================================================================
-# 1. NAMESPACE PACKAGES DETECTION
-# ============================================================================
 
 def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     """Extract namespace package patterns (pkgutil.extend_path usage).
@@ -73,31 +66,32 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Attribute):
-            if (isinstance(node.func.value, ast.Name) and
-                node.func.value.id == 'pkgutil' and
-                node.func.attr == 'extend_path'):
-                results.append({
-                    'line': node.lineno,
-                    'pattern': 'extend_path',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "pkgutil"
+                and node.func.attr == "extend_path"
+            ):
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "pattern": "extend_path",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
 
-        # __path__ manipulation
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == '__path__':
-                    results.append({
-                        'line': node.lineno,
-                        'pattern': 'path_manipulation',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
+                if isinstance(target, ast.Name) and target.id == "__path__":
+                    results.append(
+                        {
+                            "line": node.lineno,
+                            "pattern": "path_manipulation",
+                            "in_function": _get_enclosing_function(node, parent_map),
+                        }
+                    )
 
     return results
 
-
-# ============================================================================
-# 2. CACHED_PROPERTY DETECTION
-# ============================================================================
 
 def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
     """Extract @cached_property decorator usage.
@@ -131,24 +125,22 @@ def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
                         decorator_name = dec.id
                     elif isinstance(dec, ast.Attribute):
                         if isinstance(dec.value, ast.Name):
-                            if dec.value.id == 'functools' and dec.attr == 'cached_property':
-                                decorator_name = 'cached_property'
+                            if dec.value.id == "functools" and dec.attr == "cached_property":
+                                decorator_name = "cached_property"
                                 is_functools = True
 
-                    if decorator_name and 'cached_property' in decorator_name.lower():
-                        results.append({
-                            'line': item.lineno,
-                            'method_name': item.name,
-                            'in_class': class_name,
-                            'is_functools': is_functools,
-                        })
+                    if decorator_name and "cached_property" in decorator_name.lower():
+                        results.append(
+                            {
+                                "line": item.lineno,
+                                "method_name": item.name,
+                                "in_class": class_name,
+                                "is_functools": is_functools,
+                            }
+                        )
 
     return results
 
-
-# ============================================================================
-# 3. DESCRIPTOR PROTOCOL
-# ============================================================================
 
 def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract descriptor protocol implementations (__get__, __set__, __delete__).
@@ -175,30 +167,27 @@ def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
 
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if item.name == '__get__':
+                if item.name == "__get__":
                     has_get = True
-                elif item.name == '__set__':
+                elif item.name == "__set__":
                     has_set = True
-                elif item.name == '__delete__':
+                elif item.name == "__delete__":
                     has_delete = True
 
-        # Only record if it's actually a descriptor
         if has_get or has_set or has_delete:
-            results.append({
-                'line': node.lineno,
-                'class_name': node.name,
-                'has_get': has_get,
-                'has_set': has_set,
-                'has_delete': has_delete,
-                'is_data_descriptor': has_set or has_delete,
-            })
+            results.append(
+                {
+                    "line": node.lineno,
+                    "class_name": node.name,
+                    "has_get": has_get,
+                    "has_set": has_set,
+                    "has_delete": has_delete,
+                    "is_data_descriptor": has_set or has_delete,
+                }
+            )
 
     return results
 
-
-# ============================================================================
-# 4. ATTRIBUTE ACCESS PROTOCOL
-# ============================================================================
 
 def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract attribute access protocol (__getattr__, __setattr__, __delattr__, __getattribute__).
@@ -226,32 +215,29 @@ def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, An
 
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if item.name == '__getattr__':
+                if item.name == "__getattr__":
                     has_getattr = True
-                elif item.name == '__setattr__':
+                elif item.name == "__setattr__":
                     has_setattr = True
-                elif item.name == '__delattr__':
+                elif item.name == "__delattr__":
                     has_delattr = True
-                elif item.name == '__getattribute__':
+                elif item.name == "__getattribute__":
                     has_getattribute = True
 
-        # Only record if it implements at least one method
         if has_getattr or has_setattr or has_delattr or has_getattribute:
-            results.append({
-                'line': node.lineno,
-                'class_name': node.name,
-                'has_getattr': has_getattr,
-                'has_setattr': has_setattr,
-                'has_delattr': has_delattr,
-                'has_getattribute': has_getattribute,
-            })
+            results.append(
+                {
+                    "line": node.lineno,
+                    "class_name": node.name,
+                    "has_getattr": has_getattr,
+                    "has_setattr": has_setattr,
+                    "has_delattr": has_delattr,
+                    "has_getattribute": has_getattribute,
+                }
+            )
 
     return results
 
-
-# ============================================================================
-# 5. COPY PROTOCOL
-# ============================================================================
 
 def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract copy protocol (__copy__, __deepcopy__).
@@ -275,26 +261,23 @@ def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
 
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if item.name == '__copy__':
+                if item.name == "__copy__":
                     has_copy = True
-                elif item.name == '__deepcopy__':
+                elif item.name == "__deepcopy__":
                     has_deepcopy = True
 
-        # Only record if it implements at least one method
         if has_copy or has_deepcopy:
-            results.append({
-                'line': node.lineno,
-                'class_name': node.name,
-                'has_copy': has_copy,
-                'has_deepcopy': has_deepcopy,
-            })
+            results.append(
+                {
+                    "line": node.lineno,
+                    "class_name": node.name,
+                    "has_copy": has_copy,
+                    "has_deepcopy": has_deepcopy,
+                }
+            )
 
     return results
 
-
-# ============================================================================
-# 6. ELLIPSIS USAGE
-# ============================================================================
 
 def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract Ellipsis (...) usage patterns.
@@ -320,31 +303,28 @@ def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.walk_tree():
         if isinstance(node, ast.Constant) and node.value is ...:
-            ellipsis_context = 'expression'
+            ellipsis_context = "expression"
 
-            # Check if in type annotation
             parent = parent_map.get(node)
             if parent and isinstance(parent, (ast.AnnAssign, ast.arg)):
-                ellipsis_context = 'type_hint'
-            # Check if in slice
-            elif parent and isinstance(parent, ast.Slice):
-                ellipsis_context = 'slice'
-            # Check if used as pass placeholder
-            elif isinstance(parent, ast.Expr):
-                ellipsis_context = 'pass_placeholder'
+                ellipsis_context = "type_hint"
 
-            results.append({
-                'line': node.lineno,
-                'context': ellipsis_context,
-                'in_function': _get_enclosing_function(node, parent_map),
-            })
+            elif parent and isinstance(parent, ast.Slice):
+                ellipsis_context = "slice"
+
+            elif isinstance(parent, ast.Expr):
+                ellipsis_context = "pass_placeholder"
+
+            results.append(
+                {
+                    "line": node.lineno,
+                    "context": ellipsis_context,
+                    "in_function": _get_enclosing_function(node, parent_map),
+                }
+            )
 
     return results
 
-
-# ============================================================================
-# 7. BYTES/BYTEARRAY OPERATIONS
-# ============================================================================
 
 def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract bytes/bytearray operations.
@@ -371,48 +351,53 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
-            if node.func.id == 'bytes':
-                results.append({
-                    'line': node.lineno,
-                    'operation': 'bytes',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
-            elif node.func.id == 'bytearray':
-                results.append({
-                    'line': node.lineno,
-                    'operation': 'bytearray',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
-        # .encode()/.decode() method calls
-        elif isinstance(node.func, ast.Attribute):
-            if node.func.attr == 'encode':
-                results.append({
-                    'line': node.lineno,
-                    'operation': 'encode',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
-            elif node.func.attr == 'decode':
-                results.append({
-                    'line': node.lineno,
-                    'operation': 'decode',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
+            if node.func.id == "bytes":
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": "bytes",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
+            elif node.func.id == "bytearray":
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": "bytearray",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
 
-        # Bytes literals
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr == "encode":
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": "encode",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
+            elif node.func.attr == "decode":
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": "decode",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
+
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bytes):
-                results.append({
-                    'line': node.lineno,
-                    'operation': 'literal',
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": "literal",
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
 
     return results
 
-
-# ============================================================================
-# 8. EXEC/EVAL/COMPILE USAGE
-# ============================================================================
 
 def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
     """Extract exec/eval/compile dynamic execution patterns.
@@ -439,31 +424,31 @@ def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
             operation = None
-            if node.func.id == 'exec':
-                operation = 'exec'
-            elif node.func.id == 'eval':
-                operation = 'eval'
-            elif node.func.id == 'compile':
-                operation = 'compile'
+            if node.func.id == "exec":
+                operation = "exec"
+            elif node.func.id == "eval":
+                operation = "eval"
+            elif node.func.id == "compile":
+                operation = "compile"
 
             if operation:
-                # Check if globals/locals are provided
                 has_globals = len(node.args) >= 2
                 has_locals = len(node.args) >= 3
 
-                # Also check keyword arguments
                 for kw in node.keywords:
-                    if kw.arg == 'globals':
+                    if kw.arg == "globals":
                         has_globals = True
-                    elif kw.arg == 'locals':
+                    elif kw.arg == "locals":
                         has_locals = True
 
-                results.append({
-                    'line': node.lineno,
-                    'operation': operation,
-                    'has_globals': has_globals,
-                    'has_locals': has_locals,
-                    'in_function': _get_enclosing_function(node, parent_map),
-                })
+                results.append(
+                    {
+                        "line": node.lineno,
+                        "operation": operation,
+                        "has_globals": has_globals,
+                        "has_locals": has_locals,
+                        "in_function": _get_enclosing_function(node, parent_map),
+                    }
+                )
 
     return results

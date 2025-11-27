@@ -13,10 +13,9 @@ Internal modules (exported for backwards compatibility):
 - cli: CLI orchestration
 """
 
-# Primary CLI API
 from .cli import learn, suggest
 
-# Models API
+
 from .models import (
     check_ml_available,
     build_feature_matrix,
@@ -29,7 +28,7 @@ from .models import (
     fowler_noll_hash,
 )
 
-# Loaders API
+
 from .loaders import (
     load_journal_stats,
     load_rca_stats,
@@ -37,7 +36,7 @@ from .loaders import (
     load_git_churn,
 )
 
-# Features API
+
 from .features import (
     load_graph_stats,
     load_semantic_import_features,
@@ -46,10 +45,8 @@ from .features import (
 )
 
 __all__ = [
-    # CLI API
     "learn",
     "suggest",
-    # Models API
     "check_ml_available",
     "build_feature_matrix",
     "build_labels",
@@ -59,12 +56,10 @@ __all__ = [
     "is_source_file",
     "extract_text_features",
     "fowler_noll_hash",
-    # Loaders API
     "load_journal_stats",
     "load_rca_stats",
     "load_ast_stats",
     "load_git_churn",
-    # Features API
     "load_graph_stats",
     "load_semantic_import_features",
     "load_ast_complexity_metrics",

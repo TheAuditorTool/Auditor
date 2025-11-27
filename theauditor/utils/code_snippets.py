@@ -29,7 +29,7 @@ class CodeSnippetManager:
     - Max line length: 120 chars (truncate with ...)
     """
 
-    MAX_FILE_SIZE = 1_000_000  # 1MB
+    MAX_FILE_SIZE = 1_000_000
     MAX_CACHE_SIZE = 20
     MAX_SNIPPET_LINES = 15
     MAX_LINE_LENGTH = 120
@@ -57,7 +57,6 @@ class CodeSnippetManager:
         lines = self._get_file_lines(file_path)
 
         if lines is None:
-            # Determine error type
             full_path = self.root_dir / file_path
             if not full_path.exists():
                 return "[File not found on disk]"
@@ -69,12 +68,10 @@ class CodeSnippetManager:
                 pass
             return "[Binary file - no preview]"
 
-        # Convert to 0-indexed
         start_idx = line - 1
         if start_idx < 0 or start_idx >= len(lines):
             return f"[Line {line} out of range (file has {len(lines)} lines)]"
 
-        # Determine end index
         if expand_block:
             end_idx = self._expand_block(lines, start_idx)
         else:
@@ -101,14 +98,12 @@ class CodeSnippetManager:
                 return "[File not found on disk]"
             return "[Could not read file]"
 
-        # Convert to 0-indexed, clamp to valid range
         start_idx = max(0, start_line - 1)
         end_idx = min(len(lines) - 1, end_line - 1)
 
         if start_idx > end_idx or start_idx >= len(lines):
             return f"[Lines {start_line}-{end_line} out of range]"
 
-        # Limit to MAX_SNIPPET_LINES
         if end_idx - start_idx + 1 > self.MAX_SNIPPET_LINES:
             end_idx = start_idx + self.MAX_SNIPPET_LINES - 1
 
@@ -123,23 +118,19 @@ class CodeSnippetManager:
         Returns:
             List of lines (with newlines stripped) or None on error
         """
-        # Normalize path for cache key
+
         cache_key = str(file_path).replace("\\", "/")
 
-        # Check cache first
         if cache_key in self._cache:
-            self._cache.move_to_end(cache_key)  # LRU touch
+            self._cache.move_to_end(cache_key)
             return self._cache[cache_key]
 
-        # Build full path
         full_path = self.root_dir / file_path
 
-        # Safety: check exists
         if not full_path.exists():
             logger.debug(f"File not found: {full_path}")
             return None
 
-        # Safety: check size
         try:
             if full_path.stat().st_size > self.MAX_FILE_SIZE:
                 logger.debug(f"File too large: {full_path}")
@@ -148,12 +139,10 @@ class CodeSnippetManager:
             logger.debug(f"Cannot stat file {full_path}: {e}")
             return None
 
-        # Read with encoding fallback
         try:
             with open(full_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
         except UnicodeDecodeError:
-            # Try latin-1 as fallback (handles most binary-ish files)
             try:
                 with open(full_path, "r", encoding="latin-1") as f:
                     lines = f.readlines()
@@ -164,12 +153,10 @@ class CodeSnippetManager:
             logger.debug(f"Cannot read file {full_path}: {e}")
             return None
 
-        # Strip newlines for cleaner formatting
         lines = [line.rstrip("\n\r") for line in lines]
 
-        # Add to cache, evict oldest if needed
         if len(self._cache) >= self.MAX_CACHE_SIZE:
-            self._cache.popitem(last=False)  # Remove oldest
+            self._cache.popitem(last=False)
         self._cache[cache_key] = lines
 
         return lines
@@ -195,7 +182,6 @@ class CodeSnippetManager:
         start_line = lines[start_idx]
         start_indent = len(start_line) - len(start_line.lstrip())
 
-        # Check if this line starts a block
         stripped = start_line.rstrip()
         is_block_start = stripped.endswith(("{", ":", "(", "["))
 
@@ -205,7 +191,6 @@ class CodeSnippetManager:
         for i in range(start_idx + 1, max_end):
             line = lines[i]
 
-            # Skip empty lines but track them
             if not line.strip():
                 end_idx = i
                 continue
@@ -213,16 +198,15 @@ class CodeSnippetManager:
             curr_indent = len(line) - len(line.lstrip())
             stripped_line = line.strip()
 
-            # If this is a block start, include lines with deeper indentation
             if is_block_start:
                 if curr_indent <= start_indent:
-                    # Back to same or lower indent
-                    if stripped_line.startswith(("}", "]", ")", "end", "else", "elif", "except", "finally", "case")):
-                        return i  # Include closing/continuation
-                    return end_idx  # Stop before this line
+                    if stripped_line.startswith(
+                        ("}", "]", ")", "end", "else", "elif", "except", "finally", "case")
+                    ):
+                        return i
+                    return end_idx
                 end_idx = i
             else:
-                # Not a block start - just include same-indent continuation
                 if curr_indent < start_indent:
                     return end_idx
                 if curr_indent == start_indent and not stripped_line.startswith((".", ",", "+")):
@@ -243,15 +227,14 @@ class CodeSnippetManager:
             Formatted string with line numbers
         """
         result = []
-        # Calculate padding for line numbers
+
         max_line_num = end_idx + 1
         padding = len(str(max_line_num))
 
         for i in range(start_idx, end_idx + 1):
-            line_num = i + 1  # 1-indexed for display
+            line_num = i + 1
             line_content = lines[i]
 
-            # Truncate long lines
             if len(line_content) > self.MAX_LINE_LENGTH:
                 line_content = line_content[: self.MAX_LINE_LENGTH - 3] + "..."
 

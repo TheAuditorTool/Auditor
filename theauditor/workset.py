@@ -1,6 +1,5 @@
 """Workset resolver - computes target file set from git diff and dependencies."""
 
-
 import json
 import os
 import platform
@@ -13,7 +12,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-# Windows compatibility
+
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -29,19 +28,15 @@ def validate_diff_spec(diff_spec: str) -> list[str]:
     Raises:
         ValueError: If diff spec contains potentially malicious characters
     """
-    # Allow common git ref patterns:
-    # - branch names (alphanumeric, dash, underscore, slash)
-    # - commit hashes (hex)
-    # - relative refs (HEAD~n, HEAD^)
-    # - range operators (..)
-    # - origin refs (origin/branch)
-    if not re.match(r'^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$', diff_spec):
-        raise ValueError(f"Invalid diff spec format: {diff_spec}. "
-                        "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed.")
 
-    # Split on .. if present, otherwise return as single item
+    if not re.match(r"^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$", diff_spec):
+        raise ValueError(
+            f"Invalid diff spec format: {diff_spec}. "
+            "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed."
+        )
+
     if ".." in diff_spec:
-        parts = diff_spec.split("..", 1)  # Split only on first ..
+        parts = diff_spec.split("..", 1)
     else:
         parts = [diff_spec]
 
@@ -50,11 +45,11 @@ def validate_diff_spec(diff_spec: str) -> list[str]:
 
 def normalize_path(path: str) -> str:
     """Normalize path to POSIX style."""
-    # Replace backslashes with forward slashes
+
     path = path.replace("\\", "/")
-    # Use Path to properly resolve .. and .
+
     path = str(Path(path).as_posix())
-    # Remove leading ./
+
     if path.startswith("./"):
         path = path[2:]
     return path
@@ -70,14 +65,17 @@ def load_manifest(manifest_path: str) -> dict[str, str]:
 def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     """Get list of changed files from git diff."""
     try:
-        # Use temp files to avoid buffer overflow
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \
-             tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
-
+        with (
+            tempfile.NamedTemporaryFile(
+                mode="w+", delete=False, suffix="_stdout.txt", encoding="utf-8"
+            ) as stdout_fp,
+            tempfile.NamedTemporaryFile(
+                mode="w+", delete=False, suffix="_stderr.txt", encoding="utf-8"
+            ) as stderr_fp,
+        ):
             stdout_path = stdout_fp.name
             stderr_path = stderr_fp.name
 
-            # Validate and parse diff spec to prevent command injection
             diff_parts = validate_diff_spec(diff_spec)
 
             result = subprocess.run(
@@ -86,43 +84,38 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
                 stdout=stdout_fp,
                 stderr=stderr_fp,
                 text=True,
-                encoding='utf-8',
-                errors='replace',
+                encoding="utf-8",
+                errors="replace",
                 check=True,
-                shell=False  # No shell needed - works on both Windows and Unix
+                shell=False,
             )
 
-        # Read the outputs back
-        with open(stdout_path, encoding='utf-8') as f:
+        with open(stdout_path, encoding="utf-8") as f:
             stdout_content = f.read()
-        with open(stderr_path, encoding='utf-8') as f:
+        with open(stderr_path, encoding="utf-8") as f:
             stderr_content = f.read()
 
-        # Clean up temp files
         os.unlink(stdout_path)
         os.unlink(stderr_path)
 
         files = stdout_content.strip().split("\n") if stdout_content.strip() else []
         return [normalize_path(f) for f in files]
     except subprocess.CalledProcessError as e:
-        # Read stderr for error message
         try:
-            with open(stderr_path, encoding='utf-8') as f:
+            with open(stderr_path, encoding="utf-8") as f:
                 error_msg = f.read()
         except:
-            error_msg = 'git not available'
+            error_msg = "git not available"
         finally:
-            # Clean up temp files
-            if 'stdout_path' in locals() and os.path.exists(stdout_path):
+            if "stdout_path" in locals() and os.path.exists(stdout_path):
                 os.unlink(stdout_path)
-            if 'stderr_path' in locals() and os.path.exists(stderr_path):
+            if "stderr_path" in locals() and os.path.exists(stderr_path):
                 os.unlink(stderr_path)
         raise RuntimeError(f"Git diff failed: {error_msg}") from e
     except FileNotFoundError:
-        # Clean up temp files if they exist
-        if 'stdout_path' in locals() and os.path.exists(stdout_path):
+        if "stdout_path" in locals() and os.path.exists(stdout_path):
             os.unlink(stdout_path)
-        if 'stderr_path' in locals() and os.path.exists(stderr_path):
+        if "stderr_path" in locals() and os.path.exists(stderr_path):
             os.unlink(stderr_path)
         raise RuntimeError("Git is not available. Use --files instead.") from None
 
@@ -136,45 +129,35 @@ def get_forward_deps(
 
     deps = set()
     for (value,) in cursor.fetchall():
-        # Skip certain values that are not paths
         if value in ["{", "}", "(", ")", "*"] or value.startswith("'") and value.endswith("'"):
             continue
 
-        # Skip external packages (starting with @ or no slashes)
         if value.startswith("@"):
             continue
 
-        # Clean up the value - remove quotes if present
         value = value.strip("'\"")
 
-        # Try to resolve the import path
         candidates = []
 
-        # If it's a relative path
         if value.startswith("./") or value.startswith("../"):
-            # Resolve relative to file's directory
             file_dir = Path(file_path).parent
-            # Use normpath instead of resolve to stay relative
+
             resolved = os.path.normpath(str(file_dir / value))
             resolved = normalize_path(resolved)
 
-            # Remove any leading path that's outside the repo
             if resolved.startswith(".."):
                 continue
 
             candidates.append(resolved)
 
-            # Try with common extensions
             for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
                 candidates.append(resolved + ext)
                 candidates.append(resolved + "/index" + ext)
         elif "/" in value and not value.startswith("/"):
-            # Could be a project path
             candidates.append(normalize_path(value))
             for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
                 candidates.append(normalize_path(value) + ext)
 
-        # Check if any candidate exists in manifest
         for candidate in candidates:
             if candidate in manifest_paths:
                 deps.add(candidate)
@@ -189,47 +172,37 @@ def get_reverse_deps(
     """Get files that import/use this file."""
     cursor = conn.cursor()
 
-    # Find all refs that might point to this file
     deps = set()
-    logged_paths = set()  # Track which paths we've already logged errors for
+    logged_paths = set()
 
-    # Get all 'from' refs
     cursor.execute("SELECT src, value FROM refs WHERE kind = 'from'")
 
-    # Remove extension from target file for matching
     file_path_no_ext = str(Path(file_path).with_suffix(""))
 
     for src, value in cursor.fetchall():
         if src == file_path:
             continue
 
-        # Clean up the value
         value = value.strip("'\"")
 
-        # Skip non-path values
         if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
             continue
 
-        # Try to resolve this import from the source file
         if value.startswith("./") or value.startswith("../"):
-            # Resolve relative to source file's directory
             src_dir = Path(src).parent
             try:
                 resolved = os.path.normpath(str(src_dir / value))
                 resolved = normalize_path(resolved)
 
-                # Check if this resolves to our target file
                 if resolved in (file_path_no_ext, file_path):
                     deps.add(src)
                     continue
 
-                # Also check with common extensions
                 for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
                     if resolved + ext == file_path:
                         deps.add(src)
                         break
             except (FileNotFoundError, OSError, ValueError) as e:
-                # Log path resolution issue once per file
                 if src not in logged_paths:
                     logged_paths.add(src)
                     print(f"Debug: Could not resolve import from {src}: {type(e).__name__}")
@@ -255,13 +228,11 @@ def expand_dependencies(
         next_level = set()
 
         for file_path in current_level:
-            # Forward dependencies
             forward = get_forward_deps(conn, file_path, manifest_paths)
             next_level.update(forward - expanded)
 
-            # Reverse dependencies
             reverse = get_reverse_deps(conn, file_path, manifest_paths)
-            # Filter to only files in manifest
+
             reverse = {f for f in reverse if f in manifest_paths}
             next_level.update(reverse - expanded)
 
@@ -285,10 +256,8 @@ def apply_glob_filters(
 
     filtered = set()
     for file_path in files:
-        # Check if file matches any include pattern
         included = any(fnmatch(file_path, pattern) for pattern in include_patterns)
 
-        # Check if file matches any exclude pattern
         excluded = any(fnmatch(file_path, pattern) for pattern in exclude_patterns)
 
         if included and not excluded:
@@ -311,18 +280,16 @@ def compute_workset(
     print_stats: bool = False,
 ) -> dict[str, Any]:
     """Compute workset from git diff, file list, or all files."""
-    # Validate inputs
+
     if sum([bool(all_files), bool(diff_spec), bool(file_list)]) > 1:
         raise ValueError("Cannot specify multiple input modes (--all, --diff, --files)")
     if not all_files and not diff_spec and not file_list:
         raise ValueError("Must specify either --all, --diff, or --files")
 
-    # Load manifest
     try:
         manifest_mapping = load_manifest(manifest_path)
         manifest_paths = set(manifest_mapping.keys())
     except FileNotFoundError:
-        # Check if user is in wrong directory
         cwd = Path.cwd()
         helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud full' first."
         if cwd.name in ["Desktop", "Documents", "Downloads"]:
@@ -330,13 +297,11 @@ def compute_workset(
             helpful_msg += "\nTry: cd <your-project-folder> then run this command again"
         raise RuntimeError(helpful_msg) from None
 
-    # Connect to database
     if not Path(db_path).exists():
         raise RuntimeError(f"Database not found at {db_path}. Run 'aud full' first.")
 
     conn = sqlite3.connect(db_path)
 
-    # Get seed files
     seed_files = set()
     seed_mode = None
     seed_value = None
@@ -344,36 +309,32 @@ def compute_workset(
     if all_files:
         seed_mode = "all"
         seed_value = "all_indexed_files"
-        # Use all files from manifest
+
         seed_files = manifest_paths.copy()
-        # No dependency expansion needed for all files
+
         max_depth = 0
     elif diff_spec:
         seed_mode = "diff"
         seed_value = diff_spec
         diff_files = get_git_diff_files(diff_spec, root_path)
-        # Filter to files in manifest
+
         seed_files = {f for f in diff_files if f in manifest_paths}
     else:
         seed_mode = "files"
         seed_value = ",".join(file_list)
-        # Normalize and filter to manifest
+
         seed_files = {normalize_path(f) for f in file_list if normalize_path(f) in manifest_paths}
 
-    # Expand dependencies
     expanded_files = expand_dependencies(conn, seed_files, manifest_paths, max_depth)
 
-    # Apply filters
     filtered_files = apply_glob_filters(
         expanded_files,
         include_patterns or [],
         exclude_patterns or [],
     )
 
-    # Sort for deterministic output
     sorted_files = sorted(filtered_files)
 
-    # Build output
     workset_data = {
         "generated_at": datetime.now(UTC).isoformat(),
         "root": root_path,
@@ -386,11 +347,9 @@ def compute_workset(
         "paths": [{"path": path, "sha256": manifest_mapping[path]} for path in sorted_files],
     }
 
-    # Create output directory if needed
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write output
     with open(output_path, "w") as f:
         json.dump(workset_data, f, indent=2)
 

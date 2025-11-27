@@ -37,6 +37,7 @@ Expected extraction from TheAuditor codebase:
 - ~80 with statements
 Total: ~2,115 control flow records
 """
+
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
@@ -47,20 +48,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
 def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
-    if not hasattr(node, 'lineno'):
-        return 'global'
+    if not hasattr(node, "lineno"):
+        return "global"
 
     line_no = node.lineno
     for fname, start, end in function_ranges:
         if start <= line_no <= end:
             return fname
-    return 'global'
+    return "global"
 
 
 def _calculate_nesting_level(node: ast.AST, parent_map: dict) -> int:
@@ -83,10 +80,6 @@ def _build_parent_map(tree: ast.AST) -> dict:
             parent_map[child] = parent
     return parent_map
 
-
-# ============================================================================
-# For Loop Extractors
-# ============================================================================
 
 def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
     """Extract for loop patterns with enumerate, zip, else clause detection.
@@ -120,47 +113,41 @@ def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
     parent_map = _build_parent_map(context.tree)
 
     for node in context.find_nodes(ast.For):
-        # Determine loop type
-        loop_type = 'plain'
+        loop_type = "plain"
         if isinstance(node.iter, ast.Call):
             if isinstance(node.iter.func, ast.Name):
                 func_name = node.iter.func.id
-                if func_name == 'enumerate':
-                    loop_type = 'enumerate'
-                elif func_name == 'zip':
-                    loop_type = 'zip'
-                elif func_name == 'range':
-                    loop_type = 'range'
+                if func_name == "enumerate":
+                    loop_type = "enumerate"
+                elif func_name == "zip":
+                    loop_type = "zip"
+                elif func_name == "range":
+                    loop_type = "range"
             elif isinstance(node.iter.func, ast.Attribute):
                 method_name = node.iter.func.attr
-                if method_name == 'items':
-                    loop_type = 'items'
-                elif method_name == 'values':
-                    loop_type = 'values'
-                elif method_name == 'keys':
-                    loop_type = 'keys'
+                if method_name == "items":
+                    loop_type = "items"
+                elif method_name == "values":
+                    loop_type = "values"
+                elif method_name == "keys":
+                    loop_type = "keys"
 
-        # Count targets (for tuple unpacking)
         target_count = 1
         if isinstance(node.target, ast.Tuple):
             target_count = len(node.target.elts)
 
         for_data = {
-            'line': node.lineno,
-            'loop_type': loop_type,
-            'has_else': len(node.orelse) > 0,
-            'nesting_level': _calculate_nesting_level(node, parent_map),
-            'target_count': target_count,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "loop_type": loop_type,
+            "has_else": len(node.orelse) > 0,
+            "nesting_level": _calculate_nesting_level(node, parent_map),
+            "target_count": target_count,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         for_loops.append(for_data)
 
     return for_loops
 
-
-# ============================================================================
-# While Loop Extractors
-# ============================================================================
 
 def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
     """Extract while loop patterns with infinite loop detection.
@@ -189,30 +176,25 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
     parent_map = _build_parent_map(context.tree)
 
     for node in context.find_nodes(ast.While):
-        # Detect infinite loops (while True)
         is_infinite = False
         if isinstance(node.test, ast.Constant):
             if node.test.value is True or node.test.value == 1:
                 is_infinite = True
         elif isinstance(node.test, ast.Name):
-            if node.test.id == 'True':
+            if node.test.id == "True":
                 is_infinite = True
 
         while_data = {
-            'line': node.lineno,
-            'has_else': len(node.orelse) > 0,
-            'is_infinite': is_infinite,
-            'nesting_level': _calculate_nesting_level(node, parent_map),
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "has_else": len(node.orelse) > 0,
+            "is_infinite": is_infinite,
+            "nesting_level": _calculate_nesting_level(node, parent_map),
+            "in_function": _find_containing_function(node, function_ranges),
         }
         while_loops.append(while_data)
 
     return while_loops
 
-
-# ============================================================================
-# Async For Loop Extractors
-# ============================================================================
 
 def extract_async_for_loops(context: FileContext) -> list[dict[str, Any]]:
     """Extract async for loop patterns.
@@ -238,25 +220,20 @@ def extract_async_for_loops(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes(ast.AsyncFor):
-        # Count targets
         target_count = 1
         if isinstance(node.target, ast.Tuple):
             target_count = len(node.target.elts)
 
         async_for_data = {
-            'line': node.lineno,
-            'has_else': len(node.orelse) > 0,
-            'target_count': target_count,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "has_else": len(node.orelse) > 0,
+            "target_count": target_count,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         async_for_loops.append(async_for_data)
 
     return async_for_loops
 
-
-# ============================================================================
-# If Statement Extractors
-# ============================================================================
 
 def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract if/elif/else statement patterns.
@@ -288,55 +265,44 @@ def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
     parent_map = _build_parent_map(context.tree)
 
-    # Track already-processed if statements (to avoid double-counting elif chains)
     processed = set()
 
     for node in context.walk_tree():
         if isinstance(node, ast.If) and node not in processed:
-            # Count chain length
             chain_length = 1
             has_elif = False
             current = node
 
             while current.orelse:
                 if len(current.orelse) == 1 and isinstance(current.orelse[0], ast.If):
-                    # This is an elif
                     has_elif = True
                     chain_length += 1
                     current = current.orelse[0]
-                    processed.add(current)  # Mark as processed to avoid re-counting
+                    processed.add(current)
                 else:
-                    # This is an else
                     break
 
-            # Check for else clause
             has_else = len(node.orelse) > 0 and not (
                 len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If)
             )
 
-            # Detect complex condition
             has_complex_condition = isinstance(
-                node.test,
-                (ast.BoolOp, ast.Compare, ast.UnaryOp, ast.Call)
+                node.test, (ast.BoolOp, ast.Compare, ast.UnaryOp, ast.Call)
             )
 
             if_data = {
-                'line': node.lineno,
-                'has_elif': has_elif,
-                'has_else': has_else,
-                'chain_length': chain_length,
-                'nesting_level': _calculate_nesting_level(node, parent_map),
-                'has_complex_condition': has_complex_condition,
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "has_elif": has_elif,
+                "has_else": has_else,
+                "chain_length": chain_length,
+                "nesting_level": _calculate_nesting_level(node, parent_map),
+                "has_complex_condition": has_complex_condition,
+                "in_function": _find_containing_function(node, function_ranges),
             }
             if_statements.append(if_data)
 
     return if_statements
 
-
-# ============================================================================
-# Match Statement Extractors
-# ============================================================================
 
 def extract_match_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract match/case statement patterns (Python 3.10+).
@@ -372,44 +338,37 @@ def extract_match_statements(context: FileContext) -> list[dict[str, Any]]:
         pattern_types = set()
 
         for case in node.cases:
-            # Check for wildcard
             if isinstance(case.pattern, ast.MatchAs) and case.pattern.name is None:
                 has_wildcard = True
 
-            # Check for guards
             if case.guard is not None:
                 has_guards = True
 
-            # Classify pattern type
             if isinstance(case.pattern, ast.MatchValue):
-                pattern_types.add('literal')
+                pattern_types.add("literal")
             elif isinstance(case.pattern, ast.MatchSequence):
-                pattern_types.add('sequence')
+                pattern_types.add("sequence")
             elif isinstance(case.pattern, ast.MatchMapping):
-                pattern_types.add('mapping')
+                pattern_types.add("mapping")
             elif isinstance(case.pattern, ast.MatchClass):
-                pattern_types.add('class')
+                pattern_types.add("class")
             elif isinstance(case.pattern, ast.MatchOr):
-                pattern_types.add('or')
+                pattern_types.add("or")
             elif isinstance(case.pattern, ast.MatchAs):
-                pattern_types.add('as')
+                pattern_types.add("as")
 
         match_data = {
-            'line': node.lineno,
-            'case_count': case_count,
-            'has_wildcard': has_wildcard,
-            'has_guards': has_guards,
-            'pattern_types': ', '.join(sorted(pattern_types)),
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "case_count": case_count,
+            "has_wildcard": has_wildcard,
+            "has_guards": has_guards,
+            "pattern_types": ", ".join(sorted(pattern_types)),
+            "in_function": _find_containing_function(node, function_ranges),
         }
         match_statements.append(match_data)
 
     return match_statements
 
-
-# ============================================================================
-# Break/Continue/Pass Extractors
-# ============================================================================
 
 def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
     """Extract break, continue, and pass statements.
@@ -436,41 +395,35 @@ def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
     parent_map = _build_parent_map(context.tree)
 
     for node in context.find_nodes((ast.Break, ast.Continue, ast.Pass)):
-        # Determine statement type
         if isinstance(node, ast.Break):
-            statement_type = 'break'
+            statement_type = "break"
         elif isinstance(node, ast.Continue):
-            statement_type = 'continue'
+            statement_type = "continue"
         else:
-            statement_type = 'pass'
+            statement_type = "pass"
 
-        # Find containing loop
-        loop_type = 'none'
+        loop_type = "none"
         current = node
         while current in parent_map:
             parent = parent_map[current]
             if isinstance(parent, (ast.For, ast.AsyncFor)):
-                loop_type = 'for'
+                loop_type = "for"
                 break
             elif isinstance(parent, ast.While):
-                loop_type = 'while'
+                loop_type = "while"
                 break
             current = parent
 
         flow_data = {
-            'line': node.lineno,
-            'statement_type': statement_type,
-            'loop_type': loop_type,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "statement_type": statement_type,
+            "loop_type": loop_type,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         flow_control.append(flow_data)
 
     return flow_control
 
-
-# ============================================================================
-# Assert Statement Extractors
-# ============================================================================
 
 def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract assert statement patterns.
@@ -496,34 +449,28 @@ def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes(ast.Assert):
-        # Check for message
         has_message = node.msg is not None
 
-        # Classify condition type
-        condition_type = 'simple'
+        condition_type = "simple"
         if isinstance(node.test, ast.Compare):
-            condition_type = 'comparison'
+            condition_type = "comparison"
         elif isinstance(node.test, ast.Call):
             if isinstance(node.test.func, ast.Name):
-                if node.test.func.id == 'isinstance':
-                    condition_type = 'isinstance'
-                elif node.test.func.id == 'callable':
-                    condition_type = 'callable'
+                if node.test.func.id == "isinstance":
+                    condition_type = "isinstance"
+                elif node.test.func.id == "callable":
+                    condition_type = "callable"
 
         assert_data = {
-            'line': node.lineno,
-            'has_message': has_message,
-            'condition_type': condition_type,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "has_message": has_message,
+            "condition_type": condition_type,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         assert_statements.append(assert_data)
 
     return assert_statements
 
-
-# ============================================================================
-# Del Statement Extractors
-# ============================================================================
 
 def extract_del_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract del statement patterns.
@@ -551,29 +498,24 @@ def extract_del_statements(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Delete):
         target_count = len(node.targets)
 
-        # Classify target type (use first target)
-        target_type = 'name'
+        target_type = "name"
         if node.targets:
             first_target = node.targets[0]
             if isinstance(first_target, ast.Subscript):
-                target_type = 'subscript'
+                target_type = "subscript"
             elif isinstance(first_target, ast.Attribute):
-                target_type = 'attribute'
+                target_type = "attribute"
 
         del_data = {
-            'line': node.lineno,
-            'target_type': target_type,
-            'target_count': target_count,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "target_type": target_type,
+            "target_count": target_count,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         del_statements.append(del_data)
 
     return del_statements
 
-
-# ============================================================================
-# Import Statement Extractors
-# ============================================================================
 
 def extract_import_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract import statement patterns.
@@ -608,23 +550,19 @@ def extract_import_statements(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Import):
         for alias in node.names:
             import_data = {
-                'line': node.lineno,
-                'import_type': 'import',
-                'module': alias.name,
-                'has_alias': alias.asname is not None,
-                'is_wildcard': False,
-                'relative_level': 0,
-                'imported_names': alias.name,
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "import_type": "import",
+                "module": alias.name,
+                "has_alias": alias.asname is not None,
+                "is_wildcard": False,
+                "relative_level": 0,
+                "imported_names": alias.name,
+                "in_function": _find_containing_function(node, function_ranges),
             }
             import_statements.append(import_data)
 
     return import_statements
 
-
-# ============================================================================
-# With Statement Extractors
-# ============================================================================
 
 def extract_with_statements(context: FileContext) -> list[dict[str, Any]]:
     """Extract with statement patterns (context managers).
@@ -657,11 +595,11 @@ def extract_with_statements(context: FileContext) -> list[dict[str, Any]]:
         has_alias = any(item.optional_vars is not None for item in node.items)
 
         with_data = {
-            'line': node.lineno,
-            'is_async': is_async,
-            'context_count': context_count,
-            'has_alias': has_alias,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "is_async": is_async,
+            "context_count": context_count,
+            "has_alias": has_alias,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         with_statements.append(with_data)
 

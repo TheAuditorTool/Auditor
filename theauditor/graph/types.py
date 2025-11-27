@@ -20,11 +20,11 @@ from typing import Any
 class DFGNode:
     """Represents a variable in the data flow graph."""
 
-    id: str  # Format: "file::variable" or "file::function::variable"
+    id: str
     file: str
     variable_name: str
-    scope: str  # function name or "global"
-    type: str = "variable"  # variable, parameter, return_value
+    scope: str
+    type: str = "variable"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -32,13 +32,13 @@ class DFGNode:
 class DFGEdge:
     """Represents a data flow edge in the graph."""
 
-    source: str  # Source variable ID
-    target: str  # Target variable ID
-    file: str  # File containing this edge (moved before defaults)
-    line: int  # Line number (moved before defaults)
-    type: str = "assignment"  # assignment, return, parameter
-    expression: str = ""  # The assignment expression
-    function: str = ""  # Function context
+    source: str
+    target: str
+    file: str
+    line: int
+    type: str = "assignment"
+    expression: str = ""
+    function: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -79,7 +79,6 @@ def create_bidirectional_edges(
 
     edges = []
 
-    # 1. Forward Edge (Standard)
     forward = DFGEdge(
         source=source,
         target=target,
@@ -92,14 +91,13 @@ def create_bidirectional_edges(
     )
     edges.append(forward)
 
-    # 2. Reverse Edge (Back-pointer)
     reverse_meta = metadata.copy()
     reverse_meta["is_reverse"] = True
     reverse_meta["original_type"] = edge_type
 
     reverse = DFGEdge(
         source=target,
-        target=source,  # Swapped
+        target=source,
         type=f"{edge_type}_reverse",
         file=file,
         line=line,

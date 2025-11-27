@@ -18,7 +18,7 @@ from theauditor.indexer.orchestrator import IndexerOrchestrator
 from theauditor.indexer.database import create_database_schema
 from theauditor.indexer.config import DEFAULT_BATCH_SIZE
 
-# Pre-heat ModuleResolver cache to avoid database lock race condition
+
 try:
     from theauditor.js_semantic_parser import _module_resolver_cache
 except ImportError:
@@ -60,11 +60,9 @@ def run_repository_index(
     start_time = time.time()
     root = Path(root_path).resolve()
 
-    # ZERO FALLBACK: Hard fail if root doesn't exist
     if not root.exists():
         raise FileNotFoundError(f"Root path does not exist: {root_path}")
 
-    # 1. Walk directory and collect files
     config = load_runtime_config(str(root))
     walker = FileWalker(root, config, follow_symlinks, exclude_patterns)
     files, walk_stats = walker.walk()
@@ -81,24 +79,19 @@ def run_repository_index(
             "success": True,
             "dry_run": True,
             "stats": walk_stats,
-            "elapsed": time.time() - start_time
+            "elapsed": time.time() - start_time,
         }
 
-    # 2. Write manifest
     manifest_file = root / manifest_path
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_file, "w", encoding="utf-8") as f:
         json.dump(files, f, indent=2, sort_keys=True)
 
-    # 3. Create/Reset Database
     db_file = root / db_path
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Check if new database
     db_exists = db_file.exists()
 
-    # Initialize Schema
-    # WAL mode + timeout for parallel track concurrency (Side Quest fix 2025-11-25)
     conn = sqlite3.connect(str(db_file), timeout=60)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -110,29 +103,22 @@ def run_repository_index(
     if not db_exists:
         print(f"[Indexer] Created database: {db_path}")
 
-    # FIX: Pre-heat ModuleResolver BEFORE Orchestrator locks the DB.
-    # This prevents the "Database locked" warning by ensuring path mappings
-    # are cached in memory before the exclusive write transaction begins.
     if _module_resolver_cache is not None:
         try:
-            # Force DB read now while the database is unlocked
             _module_resolver_cache._load_all_configs_from_db()
         except Exception:
-            pass  # If it fails (e.g. empty DB), we continue safely
+            pass
 
-    # 4. Run Indexer Orchestrator
     orchestrator = IndexerOrchestrator(
         root_path=root,
         db_path=str(db_file),
         batch_size=DEFAULT_BATCH_SIZE,
         follow_symlinks=follow_symlinks,
-        exclude_patterns=exclude_patterns
+        exclude_patterns=exclude_patterns,
     )
 
-    # Clear old data before indexing to avoid unique constraint collisions
     orchestrator.db_manager.clear_tables()
 
-    # Run the heavy lifting
     extract_counts, _ = orchestrator.index()
 
     elapsed = time.time() - start_time

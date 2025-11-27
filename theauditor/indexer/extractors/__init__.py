@@ -20,19 +20,13 @@ FORBIDDEN:
 - Regex-based JWT extraction (use AST via function_calls data)
 """
 
-
 import os
 import importlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from ..config import (
-    ROUTE_PATTERNS,
-    SQL_PATTERNS
-    # CRITICAL ARCHITECTURAL MANDATE: JWT extraction now uses AST-based
-    # approach via function_calls data. DO NOT add JWT regex imports here.
-)
+from ..config import ROUTE_PATTERNS, SQL_PATTERNS
 
 
 class BaseExtractor(ABC):
@@ -68,8 +62,9 @@ class BaseExtractor(ABC):
         pass
 
     @abstractmethod
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract all relevant information from a file.
 
         Args:
@@ -81,12 +76,6 @@ class BaseExtractor(ABC):
             Dictionary containing all extracted data
         """
         pass
-
-    # =========================================================================
-    # STRING-BASED EXTRACTION METHODS
-    # These are for config files without AST parsers. Language extractors
-    # (Python, JavaScript) should use AST instead of calling these methods.
-    # =========================================================================
 
     def extract_routes(self, content: str) -> list[tuple[str, str]]:
         """Extract route definitions from file content.
@@ -135,7 +124,7 @@ class BaseExtractor(ABC):
         for pattern in SQL_PATTERNS:
             for match in pattern.finditer(content):
                 name = match.group(1)
-                # Determine kind from pattern
+
                 pattern_text = pattern.pattern.lower()
                 if "table" in pattern_text:
                     kind = "table"
@@ -153,17 +142,6 @@ class BaseExtractor(ABC):
                     kind = "unknown"
                 objects.append((kind, name))
         return objects
-
-    # =================================================================
-    # CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR JWT
-    # =================================================================
-    # The extract_jwt_patterns() regex method was permanently deleted.
-    # JWT extraction MUST use AST-based analysis via function_calls data
-    # in language-specific extractors (e.g., JavaScriptExtractor).
-    #
-    # DO NOT RE-IMPLEMENT REGEX METHODS HERE.
-    # IF YOU BELIEVE REGEX IS REQUIRED, YOU ARE INCORRECT. USE THE AST.
-    # =================================================================
 
     def cleanup(self) -> None:
         """Clean up extractor resources after all files processed.
@@ -208,35 +186,32 @@ class ExtractorRegistry:
         """
         extractor_dir = Path(__file__).parent
 
-        # Find all Python files in the extractors directory
         for file_path in extractor_dir.glob("*.py"):
-            if file_path.name.startswith('_'):
-                continue  # Skip __init__.py and private modules
+            if file_path.name.startswith("_"):
+                continue
 
             module_name = file_path.stem
 
             try:
-                # Import the module
-                module = importlib.import_module(f'.{module_name}', package='theauditor.indexer.extractors')
+                module = importlib.import_module(
+                    f".{module_name}", package="theauditor.indexer.extractors"
+                )
 
-                # Find extractor class (looking for subclasses of BaseExtractor)
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
-                    if (isinstance(attr, type) and
-                        issubclass(attr, BaseExtractor) and
-                        attr != BaseExtractor):
-
-                        # Instantiate the extractor
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, BaseExtractor)
+                        and attr != BaseExtractor
+                    ):
                         extractor = attr(self.root_path, self.ast_parser)
 
-                        # Register for all supported extensions
                         for ext in extractor.supported_extensions():
                             self.extractors[ext] = extractor
 
-                        break  # One extractor per module
+                        break
 
             except (ImportError, AttributeError) as e:
-                # Skip modules that can't be imported or don't have extractors
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"Debug: Failed to load extractor {module_name}: {e}")
                 continue
@@ -255,10 +230,7 @@ class ExtractorRegistry:
         if not extractor:
             return None
 
-        # Enforce should_extract() filter if extractor provides it
-        # This allows extractors like JsonConfigExtractor to handle specific files
-        # (e.g., package.json) without processing all files of that extension (.json)
-        if hasattr(extractor, 'should_extract'):
+        if hasattr(extractor, "should_extract"):
             if not extractor.should_extract(file_path):
                 return None
 

@@ -16,12 +16,16 @@ from theauditor.utils.error_handler import handle_exceptions
 
 
 @click.command()
-@click.option("--file", "-f", "context_file", required=True, type=click.Path(exists=True),
-              help="Semantic context YAML file")
-@click.option("--output", "-o", type=click.Path(),
-              help="Custom output JSON file (optional)")
-@click.option("--verbose", "-v", is_flag=True,
-              help="Show detailed findings in report")
+@click.option(
+    "--file",
+    "-f",
+    "context_file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Semantic context YAML file",
+)
+@click.option("--output", "-o", type=click.Path(), help="Custom output JSON file (optional)")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed findings in report")
 @handle_exceptions
 def context(context_file: str, output: str | None, verbose: bool):
     """Apply user-defined semantic rules to classify findings based on business logic and refactoring context.
@@ -178,15 +182,13 @@ def context(context_file: str, output: str | None, verbose: bool):
     """
     from theauditor.insights import SemanticContext
 
-    # Find .pf directory
     pf_dir = Path.cwd() / ".pf"
     db_path = pf_dir / "repo_index.db"
 
-    # Simple check: Does database file exist?
     if not db_path.exists():
-        click.echo("\n" + "="*60, err=True)
+        click.echo("\n" + "=" * 60, err=True)
         click.echo("❌ ERROR: Database not found", err=True)
-        click.echo("="*60, err=True)
+        click.echo("=" * 60, err=True)
         click.echo("\nSemantic context requires analysis data.", err=True)
         click.echo("\nPlease run ONE of these first:", err=True)
         click.echo("\n  Option A (Recommended):", err=True)
@@ -195,10 +197,9 @@ def context(context_file: str, output: str | None, verbose: bool):
         click.echo(f"    aud context --file {context_file}\n", err=True)
         raise click.Abort()
 
-    # Load semantic context
-    click.echo("\n" + "="*80)
+    click.echo("\n" + "=" * 80)
     click.echo("SEMANTIC CONTEXT ANALYSIS")
-    click.echo("="*80)
+    click.echo("=" * 80)
     click.echo(f"\n📋 Loading semantic context: {context_file}")
 
     try:
@@ -211,7 +212,6 @@ def context(context_file: str, output: str | None, verbose: bool):
     click.echo(f"  Version: {context.version}")
     click.echo(f"  Description: {context.description}")
 
-    # Load findings from database
     click.echo(f"\n📊 Loading findings from database...")
 
     try:
@@ -219,7 +219,6 @@ def context(context_file: str, output: str | None, verbose: bool):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check if findings table exists
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='findings_consolidated'
@@ -233,7 +232,6 @@ def context(context_file: str, output: str | None, verbose: bool):
             conn.close()
             raise click.Abort()
 
-        # Load all findings
         cursor.execute("""
             SELECT file, line, column, rule, tool, message, severity, category, code_snippet, cwe
             FROM findings_consolidated
@@ -242,18 +240,20 @@ def context(context_file: str, output: str | None, verbose: bool):
 
         findings = []
         for row in cursor.fetchall():
-            findings.append({
-                'file': row['file'],
-                'line': row['line'],
-                'column': row['column'],
-                'rule': row['rule'],
-                'tool': row['tool'],
-                'message': row['message'],
-                'severity': row['severity'],
-                'category': row['category'],
-                'code_snippet': row['code_snippet'],
-                'cwe': row['cwe']
-            })
+            findings.append(
+                {
+                    "file": row["file"],
+                    "line": row["line"],
+                    "column": row["column"],
+                    "rule": row["rule"],
+                    "tool": row["tool"],
+                    "message": row["message"],
+                    "severity": row["severity"],
+                    "category": row["category"],
+                    "code_snippet": row["code_snippet"],
+                    "cwe": row["cwe"],
+                }
+            )
 
         conn.close()
 
@@ -261,7 +261,6 @@ def context(context_file: str, output: str | None, verbose: bool):
         click.echo(f"\n❌ ERROR reading database: {e}", err=True)
         raise click.Abort()
 
-    # Handle empty findings
     if not findings:
         click.echo("\n⚠️  No findings in database")
         click.echo("\nThis could mean:")
@@ -273,13 +272,11 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     click.echo(f"✓ Loaded {len(findings)} findings from database")
 
-    # Show pattern summary
     click.echo(f"\n🔍 Applying semantic patterns:")
     click.echo(f"  Obsolete patterns:     {len(context.obsolete_patterns)}")
     click.echo(f"  Current patterns:      {len(context.current_patterns)}")
     click.echo(f"  Transitional patterns: {len(context.transitional_patterns)}")
 
-    # Classify findings
     click.echo(f"\n⚙️  Classifying findings...")
     result = context.classify_findings(findings)
 
@@ -287,15 +284,13 @@ def context(context_file: str, output: str | None, verbose: bool):
     click.echo(f"  Classified: {result.summary['classified']}")
     click.echo(f"  Unclassified: {result.summary['unclassified']}")
 
-    # Generate and display report
-    click.echo("\n" + "="*80)
+    click.echo("\n" + "=" * 80)
     report = context.generate_report(result, verbose=verbose)
     click.echo(report)
 
-    # Write to .pf/raw/ for extraction
-    click.echo("\n" + "="*80)
+    click.echo("\n" + "=" * 80)
     click.echo("💾 Writing results...")
-    click.echo("="*80)
+    click.echo("=" * 80)
 
     raw_dir = pf_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -304,13 +299,11 @@ def context(context_file: str, output: str | None, verbose: bool):
     context.export_to_json(result, output_file)
     click.echo(f"\n✓ Raw results: {output_file}")
 
-    # AUTO-EXTRACT for AI consumption
     click.echo(f"\n🔧 Auto-extracting chunks for AI consumption...")
 
     readthis_dir = pf_dir / "readthis"
     readthis_dir.mkdir(parents=True, exist_ok=True)
 
-    # Simple chunking logic
     chunks_created = _extract_semantic_chunks(output_file, readthis_dir, context.context_name)
 
     if chunks_created > 0:
@@ -318,27 +311,24 @@ def context(context_file: str, output: str | None, verbose: bool):
     else:
         click.echo(f"✓ Results fit in single file (no chunking needed)")
 
-    # User-specified output file (optional)
     if output:
         context.export_to_json(result, Path(output))
         click.echo(f"\n✓ Custom output: {output}")
 
-    # Summary of outputs
-    click.echo("\n" + "="*80)
+    click.echo("\n" + "=" * 80)
     click.echo("📂 OUTPUT LOCATIONS")
-    click.echo("="*80)
+    click.echo("=" * 80)
     click.echo(f"\n  Raw JSON:     {output_file}")
     click.echo(f"  AI Chunks:    .pf/readthis/semantic_context_{context.context_name}_chunk*.json")
     if output:
         click.echo(f"  Custom:       {output}")
 
-    # Next steps
-    click.echo("\n" + "="*80)
+    click.echo("\n" + "=" * 80)
     click.echo("✅ SEMANTIC CONTEXT ANALYSIS COMPLETE")
-    click.echo("="*80)
+    click.echo("=" * 80)
 
     migration_progress = result.get_migration_progress()
-    if migration_progress['files_need_migration'] > 0:
+    if migration_progress["files_need_migration"] > 0:
         click.echo(f"\n📋 Next steps:")
         click.echo(f"  1. Address {len(result.get_high_priority_files())} high-priority files")
         click.echo(f"  2. Update {len(result.mixed_files)} mixed files")
@@ -359,77 +349,66 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
     Returns:
         Number of chunks created (0 if no chunking needed)
     """
-    # Load the JSON file
-    with open(json_file, 'r', encoding='utf-8') as f:
+
+    with open(json_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Calculate size
     json_str = json.dumps(data, indent=2)
-    size_bytes = len(json_str.encode('utf-8'))
+    size_bytes = len(json_str.encode("utf-8"))
 
-    # Chunking threshold (65KB)
     MAX_CHUNK_SIZE = 65_000
 
-    # If small enough, write single file and return 0
     if size_bytes <= MAX_CHUNK_SIZE:
         output_file = readthis_dir / f"semantic_context_{context_name}.json"
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         return 0
 
-    # Need to chunk - split by sections
     chunks = []
 
-    # Chunk 1: Summary + metadata
     chunk1 = {
-        'context_name': data.get('context_name'),
-        'description': data.get('description'),
-        'version': data.get('version'),
-        'generated_at': data.get('generated_at'),
-        'migration_progress': data.get('migration_progress'),
-        'high_priority_files': data.get('high_priority_files'),
-        'summary': data.get('classification', {}).get('summary', {})
+        "context_name": data.get("context_name"),
+        "description": data.get("description"),
+        "version": data.get("version"),
+        "generated_at": data.get("generated_at"),
+        "migration_progress": data.get("migration_progress"),
+        "high_priority_files": data.get("high_priority_files"),
+        "summary": data.get("classification", {}).get("summary", {}),
     }
     chunks.append(chunk1)
 
-    # Chunk 2: Obsolete findings (if any)
-    classification = data.get('classification', {})
-    if classification.get('obsolete'):
+    classification = data.get("classification", {})
+    if classification.get("obsolete"):
         chunk2 = {
-            'context_name': data.get('context_name'),
-            'type': 'obsolete_findings',
-            'obsolete': classification['obsolete'],
-            'mixed_files': classification.get('mixed_files', {})
+            "context_name": data.get("context_name"),
+            "type": "obsolete_findings",
+            "obsolete": classification["obsolete"],
+            "mixed_files": classification.get("mixed_files", {}),
         }
         chunks.append(chunk2)
 
-    # Chunk 3: Current findings (if any)
-    if classification.get('current'):
+    if classification.get("current"):
         chunk3 = {
-            'context_name': data.get('context_name'),
-            'type': 'current_findings',
-            'current': classification['current']
+            "context_name": data.get("context_name"),
+            "type": "current_findings",
+            "current": classification["current"],
         }
         chunks.append(chunk3)
 
-    # Chunk 4: Transitional + migration suggestions
     chunk4 = {
-        'context_name': data.get('context_name'),
-        'type': 'transitional_and_suggestions',
-        'transitional': classification.get('transitional', []),
-        'migration_suggestions': data.get('migration_suggestions', [])
+        "context_name": data.get("context_name"),
+        "type": "transitional_and_suggestions",
+        "transitional": classification.get("transitional", []),
+        "migration_suggestions": data.get("migration_suggestions", []),
     }
     chunks.append(chunk4)
 
-    # Write chunks
     for i, chunk in enumerate(chunks, 1):
         chunk_file = readthis_dir / f"semantic_context_{context_name}_chunk{i:02d}.json"
-        with open(chunk_file, 'w', encoding='utf-8') as f:
+        with open(chunk_file, "w", encoding="utf-8") as f:
             json.dump(chunk, f, indent=2)
 
     return len(chunks)
 
 
-
-# Export for CLI registration
 context_command = context

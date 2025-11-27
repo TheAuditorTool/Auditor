@@ -8,7 +8,6 @@ Loads execution history from archived runs in .pf/history/full/*/
 - Git churn (commit frequency)
 """
 
-
 import json
 import sqlite3
 from collections import defaultdict
@@ -39,16 +38,13 @@ def load_journal_stats(
     )
 
     try:
-        # Find historical journal files based on run type
         if run_type == "full":
             journal_files = list(history_dir.glob("full/*/journal.ndjson"))
         elif run_type == "diff":
             journal_files = list(history_dir.glob("diff/*/journal.ndjson"))
-        else:  # run_type == "all"
+        else:
             journal_files = list(history_dir.glob("*/*/journal.ndjson"))
 
-        # NO FALLBACK - Hard fail if journal missing
-        # Per CLAUDE.md ZERO FALLBACK POLICY: Fallbacks hide bugs
         if not journal_files:
             raise FileNotFoundError(
                 f"No journal.ndjson files found in {history_dir}. "
@@ -60,7 +56,6 @@ def load_journal_stats(
         for journal_path in journal_files:
             try:
                 with open(journal_path) as f:
-                    # Approximate last N runs per file
                     lines = f.readlines()[-window * 20 :]
 
                     for line in lines:
@@ -81,9 +76,9 @@ def load_journal_stats(
                         except json.JSONDecodeError:
                             continue
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -108,12 +103,11 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
     )
 
     try:
-        # Find historical FCE files based on run type
         if run_type == "full":
             fce_files = list(history_dir.glob("full/*/fce.json"))
         elif run_type == "diff":
             fce_files = list(history_dir.glob("diff/*/fce.json"))
-        else:  # run_type == "all"
+        else:
             fce_files = list(history_dir.glob("*/*/fce.json"))
 
         for fce_path in fce_files:
@@ -130,9 +124,9 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
                         if "message" in failure:
                             stats[file]["messages"].append(failure["message"][:100])
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -157,12 +151,11 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
     )
 
     try:
-        # Find historical AST proof files based on run type
         if run_type == "full":
             ast_files = list(history_dir.glob("full/*/ast_proofs.json"))
         elif run_type == "diff":
             ast_files = list(history_dir.glob("diff/*/ast_proofs.json"))
-        else:  # run_type == "all"
+        else:
             ast_files = list(history_dir.glob("*/*/ast_proofs.json"))
 
         for ast_path in ast_files:
@@ -179,9 +172,9 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
                         elif check["status"] == "PASS":
                             stats[file]["invariant_passes"] += 1
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -205,7 +198,6 @@ def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[
     )
 
     try:
-        # Find historical database files
         if run_type == "full":
             db_files = list(history_dir.glob("full/*/repo_index.db"))
         elif run_type == "diff":
@@ -237,12 +229,14 @@ def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[
             except Exception:
                 continue
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
 
-def load_git_churn(file_paths: list[str], window_days: int = 90, root_path: Path = Path(".")) -> dict[str, dict]:
+def load_git_churn(
+    file_paths: list[str], window_days: int = 90, root_path: Path = Path(".")
+) -> dict[str, dict]:
     """
     Load git churn data with author diversity and recency.
 
@@ -272,12 +266,9 @@ def load_git_churn(file_paths: list[str], window_days: int = 90, root_path: Path
         from . import intelligence
 
         return intelligence.parse_git_churn(
-            root_path=root_path,
-            days=window_days,
-            file_paths=file_paths
+            root_path=root_path, days=window_days, file_paths=file_paths
         )
     except Exception:
-        # Gracefully degrade if git not available
         return {}
 
 
@@ -294,5 +285,5 @@ def load_all_historical_data(
         "rca_stats": load_rca_stats(history_dir, run_type),
         "ast_stats": load_ast_stats(history_dir, run_type),
         "historical_findings": load_historical_findings(history_dir, run_type),
-        "git_churn": {},  # Will be populated in build_feature_matrix if enabled
+        "git_churn": {},
     }

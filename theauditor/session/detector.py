@@ -1,12 +1,11 @@
 """Auto-detect Claude Code and Codex session directories."""
 
-
 import json
 from pathlib import Path
 from typing import Literal
 
 
-AgentType = Literal['claude-code', 'codex', 'unknown']
+AgentType = Literal["claude-code", "codex", "unknown"]
 
 
 def detect_session_directory(root_path: Path) -> Path | None:
@@ -25,12 +24,10 @@ def detect_session_directory(root_path: Path) -> Path | None:
     """
     home = Path.home()
 
-    # Try Claude Code first (project-specific directory)
     claude_dir = detect_claude_code_sessions(root_path, home)
     if claude_dir:
         return claude_dir
 
-    # Try Codex (requires filtering by cwd)
     codex_dir = detect_codex_sessions(root_path, home)
     if codex_dir:
         return codex_dir
@@ -40,16 +37,16 @@ def detect_session_directory(root_path: Path) -> Path | None:
 
 def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
     """Detect Claude Code session directory."""
-    # Pattern: ~/.claude/projects/C--Users-santa-Desktop-TheAuditor
-    project_name = str(root_path).replace('/', '-').replace('\\', '-').replace(':', '-')
+
+    project_name = str(root_path).replace("/", "-").replace("\\", "-").replace(":", "-")
 
     candidates = [
-        home / '.claude' / 'projects' / project_name,
-        root_path / '.claude-sessions',  # Custom location
+        home / ".claude" / "projects" / project_name,
+        root_path / ".claude-sessions",
     ]
 
     for candidate in candidates:
-        if candidate.exists() and list(candidate.glob('*.jsonl')):
+        if candidate.exists() and list(candidate.glob("*.jsonl")):
             return candidate
 
     return None
@@ -64,34 +61,28 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
 
     Returns path to ~/.codex/sessions if sessions with matching cwd found.
     """
-    codex_sessions = home / '.codex' / 'sessions'
+    codex_sessions = home / ".codex" / "sessions"
 
     if not codex_sessions.exists():
         return None
 
-    # Quick check: scan recent sessions (last 30 days) for matching cwd
-    # Format: rollout-2025-11-02T04-05-04-019a413c-f30a-7721-94a8-e5a2f6391957.jsonl
     try:
-        # Get all .jsonl files recursively
-        session_files = list(codex_sessions.rglob('*.jsonl'))
+        session_files = list(codex_sessions.rglob("*.jsonl"))
 
         if not session_files:
             return None
 
-        # Check first line of recent sessions for cwd match
-        for session_file in session_files[:50]:  # Check last 50 sessions
+        for session_file in session_files[:50]:
             try:
                 with open(session_file) as f:
                     first_line = f.readline()
                     data = json.loads(first_line)
 
-                    if data.get('type') == 'session_meta':
-                        payload = data.get('payload', {})
-                        cwd = payload.get('cwd', '')
+                    if data.get("type") == "session_meta":
+                        payload = data.get("payload", {})
+                        cwd = payload.get("cwd", "")
 
-                        # Normalize paths for comparison
                         if Path(cwd).resolve() == root_path.resolve():
-                            # Found matching session - return base sessions dir
                             return codex_sessions
             except (json.JSONDecodeError, OSError):
                 continue
@@ -114,15 +105,15 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
     """
     matching = []
 
-    for session_file in sessions_dir.rglob('*.jsonl'):
+    for session_file in sessions_dir.rglob("*.jsonl"):
         try:
             with open(session_file) as f:
                 first_line = f.readline()
                 data = json.loads(first_line)
 
-                if data.get('type') == 'session_meta':
-                    payload = data.get('payload', {})
-                    cwd = payload.get('cwd', '')
+                if data.get("type") == "session_meta":
+                    payload = data.get("payload", {})
+                    cwd = payload.get("cwd", "")
 
                     if Path(cwd).resolve() == root_path.resolve():
                         matching.append(session_file)
@@ -142,10 +133,10 @@ def detect_agent_type(session_dir: Path) -> AgentType:
     Returns:
         'claude-code', 'codex', or 'unknown'
     """
-    # Check first .jsonl file found
-    for jsonl_file in session_dir.glob('*.jsonl'):
+
+    for jsonl_file in session_dir.glob("*.jsonl"):
         try:
-            with open(jsonl_file, encoding='utf-8') as f:
+            with open(jsonl_file, encoding="utf-8") as f:
                 first_line = f.readline()
 
             if not first_line.strip():
@@ -153,17 +144,15 @@ def detect_agent_type(session_dir: Path) -> AgentType:
 
             data = json.loads(first_line)
 
-            # Codex has session_meta with originator field
-            if data.get('type') == 'session_meta':
-                originator = data.get('payload', {}).get('originator', '')
-                if 'codex' in originator.lower():
-                    return 'codex'
+            if data.get("type") == "session_meta":
+                originator = data.get("payload", {}).get("originator", "")
+                if "codex" in originator.lower():
+                    return "codex"
 
-            # Claude Code has file-history-snapshot
-            if data.get('type') == 'file-history-snapshot':
-                return 'claude-code'
+            if data.get("type") == "file-history-snapshot":
+                return "claude-code"
 
         except (json.JSONDecodeError, OSError, KeyError):
             continue
 
-    return 'unknown'
+    return "unknown"

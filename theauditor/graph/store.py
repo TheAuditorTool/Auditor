@@ -1,6 +1,5 @@
 """Graph store module - persistence and database operations for graphs."""
 
-
 import json
 import sqlite3
 from pathlib import Path
@@ -15,7 +14,7 @@ class XGraphStore:
     def __init__(self, db_path: str = "./.pf/graphs.db"):
         """
         Initialize store with database path.
-        
+
         Args:
             db_path: Path to SQLite database
         """
@@ -28,11 +27,9 @@ class XGraphStore:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # Create tables using schema definitions from graphs_schema.py
             for table_name, schema in GRAPH_TABLES.items():
                 cursor.execute(schema.create_table_sql())
 
-                # Create indexes for this table
                 for index_sql in schema.create_indexes_sql():
                     cursor.execute(index_sql)
 
@@ -43,7 +40,7 @@ class XGraphStore:
         graph: dict[str, Any],
         graph_type: str,
         default_node_type: str = "node",
-        default_edge_type: str = "edge"
+        default_edge_type: str = "edge",
     ) -> None:
         """
         Generic bulk saver using executemany for 10x performance.
@@ -58,40 +55,44 @@ class XGraphStore:
             default_edge_type: Default type for edges if not specified
         """
         with sqlite3.connect(self.db_path) as conn:
-            # Clear existing graph data of this type
             conn.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
             conn.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
 
-            # Prepare node data for bulk insert
             nodes_data = []
             for node in graph.get("nodes", []):
-                metadata_json = json.dumps(node.get("metadata", {})) if node.get("metadata") else None
-                nodes_data.append((
-                    node["id"],
-                    node["file"],
-                    node.get("lang"),
-                    node.get("loc", 0),
-                    node.get("churn"),
-                    node.get("type", default_node_type),
-                    graph_type,
-                    metadata_json,
-                ))
+                metadata_json = (
+                    json.dumps(node.get("metadata", {})) if node.get("metadata") else None
+                )
+                nodes_data.append(
+                    (
+                        node["id"],
+                        node["file"],
+                        node.get("lang"),
+                        node.get("loc", 0),
+                        node.get("churn"),
+                        node.get("type", default_node_type),
+                        graph_type,
+                        metadata_json,
+                    )
+                )
 
-            # Prepare edge data for bulk insert
             edges_data = []
             for edge in graph.get("edges", []):
-                metadata_json = json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
-                edges_data.append((
-                    edge["source"],
-                    edge["target"],
-                    edge.get("type", default_edge_type),
-                    edge.get("file"),
-                    edge.get("line"),
-                    graph_type,
-                    metadata_json,
-                ))
+                metadata_json = (
+                    json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
+                )
+                edges_data.append(
+                    (
+                        edge["source"],
+                        edge["target"],
+                        edge.get("type", default_edge_type),
+                        edge.get("file"),
+                        edge.get("line"),
+                        graph_type,
+                        metadata_json,
+                    )
+                )
 
-            # Bulk insert nodes (single transaction)
             if nodes_data:
                 conn.executemany(
                     """
@@ -99,10 +100,9 @@ class XGraphStore:
                     (id, file, lang, loc, churn, type, graph_type, metadata)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    nodes_data
+                    nodes_data,
                 )
 
-            # Bulk insert edges (single transaction)
             if edges_data:
                 conn.executemany(
                     """
@@ -110,7 +110,7 @@ class XGraphStore:
                     (source, target, type, file, line, graph_type, metadata)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    edges_data
+                    edges_data,
                 )
 
             conn.commit()
@@ -122,7 +122,9 @@ class XGraphStore:
         Args:
             graph: Import graph with nodes and edges
         """
-        self._save_graph_bulk(graph, "import", default_node_type="module", default_edge_type="import")
+        self._save_graph_bulk(
+            graph, "import", default_node_type="module", default_edge_type="import"
+        )
 
     def save_call_graph(self, graph: dict[str, Any]) -> None:
         """
@@ -140,7 +142,9 @@ class XGraphStore:
         Args:
             graph: Data flow graph with nodes (variables, return values) and edges (assignments, returns)
         """
-        self._save_graph_bulk(graph, "data_flow", default_node_type="variable", default_edge_type="assignment")
+        self._save_graph_bulk(
+            graph, "data_flow", default_node_type="variable", default_edge_type="assignment"
+        )
 
     def save_custom_graph(self, graph: dict[str, Any], graph_type: str) -> None:
         """Save custom graph type to database.
@@ -160,7 +164,9 @@ class XGraphStore:
             ... }
             >>> store.save_custom_graph(terraform_graph, 'terraform_provisioning')
         """
-        self._save_graph_bulk(graph, graph_type, default_node_type="resource", default_edge_type="edge")
+        self._save_graph_bulk(
+            graph, graph_type, default_node_type="resource", default_edge_type="edge"
+        )
 
     def _load_graph(self, graph_type: str) -> dict[str, Any]:
         """
@@ -175,34 +181,32 @@ class XGraphStore:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Load nodes
             nodes = []
-            for row in conn.execute(
-                "SELECT * FROM nodes WHERE graph_type = ?", (graph_type,)
-            ):
-                nodes.append({
-                    "id": row["id"],
-                    "file": row["file"],
-                    "lang": row["lang"],
-                    "loc": row["loc"],
-                    "churn": row["churn"],
-                    "type": row["type"],
-                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
-                })
+            for row in conn.execute("SELECT * FROM nodes WHERE graph_type = ?", (graph_type,)):
+                nodes.append(
+                    {
+                        "id": row["id"],
+                        "file": row["file"],
+                        "lang": row["lang"],
+                        "loc": row["loc"],
+                        "churn": row["churn"],
+                        "type": row["type"],
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                    }
+                )
 
-            # Load edges
             edges = []
-            for row in conn.execute(
-                "SELECT * FROM edges WHERE graph_type = ?", (graph_type,)
-            ):
-                edges.append({
-                    "source": row["source"],
-                    "target": row["target"],
-                    "type": row["type"],
-                    "file": row["file"],
-                    "line": row["line"],
-                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
-                })
+            for row in conn.execute("SELECT * FROM edges WHERE graph_type = ?", (graph_type,)):
+                edges.append(
+                    {
+                        "source": row["source"],
+                        "target": row["target"],
+                        "type": row["type"],
+                        "file": row["file"],
+                        "line": row["line"],
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                    }
+                )
 
             return {"nodes": nodes, "edges": edges}
 
@@ -225,19 +229,16 @@ class XGraphStore:
         return self._load_graph("call")
 
     def query_dependencies(
-        self, 
-        node_id: str, 
-        direction: str = "both",
-        graph_type: str = "import"
+        self, node_id: str, direction: str = "both", graph_type: str = "import"
     ) -> dict[str, list[str]]:
         """
         Query dependencies of a node.
-        
+
         Args:
             node_id: Node to query
             direction: 'upstream', 'downstream', or 'both'
             graph_type: 'import' or 'call'
-            
+
         Returns:
             Dict with upstream and/or downstream dependencies
         """
@@ -245,39 +246,33 @@ class XGraphStore:
 
         with sqlite3.connect(self.db_path) as conn:
             if direction in ["upstream", "both"]:
-                # Find who depends on this node
                 upstream = []
                 for row in conn.execute(
                     "SELECT DISTINCT source FROM edges WHERE target = ? AND graph_type = ?",
-                    (node_id, graph_type)
+                    (node_id, graph_type),
                 ):
                     upstream.append(row[0])
                 result["upstream"] = upstream
 
             if direction in ["downstream", "both"]:
-                # Find what this node depends on
                 downstream = []
                 for row in conn.execute(
                     "SELECT DISTINCT target FROM edges WHERE source = ? AND graph_type = ?",
-                    (node_id, graph_type)
+                    (node_id, graph_type),
                 ):
                     downstream.append(row[0])
                 result["downstream"] = downstream
 
         return result
 
-    def query_calls(
-        self,
-        node_id: str,
-        direction: str = "both"
-    ) -> dict[str, list[str]]:
+    def query_calls(self, node_id: str, direction: str = "both") -> dict[str, list[str]]:
         """
         Query function calls related to a node.
-        
+
         Args:
             node_id: Node to query
             direction: 'callers', 'callees', or 'both'
-            
+
         Returns:
             Dict with callers and/or callees
         """
@@ -285,35 +280,29 @@ class XGraphStore:
 
         with sqlite3.connect(self.db_path) as conn:
             if direction in ["callers", "both"]:
-                # Find who calls this function
                 callers = []
                 for row in conn.execute(
                     "SELECT DISTINCT source FROM edges WHERE target = ? AND graph_type = 'call'",
-                    (node_id,)
+                    (node_id,),
                 ):
                     callers.append(row[0])
                 result["callers"] = callers
 
             if direction in ["callees", "both"]:
-                # Find what this function calls
                 callees = []
                 for row in conn.execute(
                     "SELECT DISTINCT target FROM edges WHERE source = ? AND graph_type = 'call'",
-                    (node_id,)
+                    (node_id,),
                 ):
                     callees.append(row[0])
                 result["callees"] = callees
 
         return result
 
-    def save_analysis_result(
-        self, 
-        analysis_type: str, 
-        result: dict[str, Any]
-    ) -> None:
+    def save_analysis_result(self, analysis_type: str, result: dict[str, Any]) -> None:
         """
         Save analysis result to database.
-        
+
         Args:
             analysis_type: Type of analysis (e.g., 'cycles', 'hotspots')
             result: Analysis result dict
@@ -324,17 +313,17 @@ class XGraphStore:
                 INSERT INTO analysis_results (analysis_type, result_json)
                 VALUES (?, ?)
                 """,
-                (analysis_type, json.dumps(result))
+                (analysis_type, json.dumps(result)),
             )
             conn.commit()
 
     def get_latest_analysis(self, analysis_type: str) -> dict[str, Any] | None:
         """
         Get most recent analysis result of given type.
-        
+
         Args:
             analysis_type: Type of analysis
-            
+
         Returns:
             Analysis result dict or None if not found
         """
@@ -346,7 +335,7 @@ class XGraphStore:
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                (analysis_type,)
+                (analysis_type,),
             ).fetchone()
 
             if row:
@@ -356,7 +345,7 @@ class XGraphStore:
     def get_graph_stats(self) -> dict[str, Any]:
         """
         Get summary statistics about stored graphs.
-        
+
         Returns:
             Dict with node and edge counts
         """
@@ -381,18 +370,17 @@ class XGraphStore:
     def get_high_risk_nodes(self, threshold: float = 0.5, limit: int = 10) -> list[dict[str, Any]]:
         """
         Get nodes with high risk based on connectivity and churn.
-        
+
         Args:
             threshold: Risk threshold (0-1)
             limit: Maximum number of nodes to return
-            
+
         Returns:
             List of high-risk nodes
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
-            # Calculate risk based on in-degree and churn
             query = """
                 SELECT 
                     n.id,
@@ -411,12 +399,14 @@ class XGraphStore:
 
             nodes = []
             for row in conn.execute(query, (threshold, limit)):
-                nodes.append({
-                    "id": row["id"],
-                    "file": row["file"],
-                    "churn": row["churn"],
-                    "in_degree": row["in_degree"],
-                    "risk_score": row["risk_score"],
-                })
+                nodes.append(
+                    {
+                        "id": row["id"],
+                        "file": row["file"],
+                        "churn": row["churn"],
+                        "in_degree": row["in_degree"],
+                        "risk_score": row["risk_score"],
+                    }
+                )
 
             return nodes

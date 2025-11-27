@@ -10,12 +10,12 @@ from .rate_limiting import check_rate_limiting
 from .sensitive_fields import check_sensitive_fields
 
 __all__ = [
-    'check_mutation_auth',
-    'check_query_depth',
-    'check_input_validation',
-    'check_sensitive_fields',
-    'check_rate_limiting',
-    'check_graphql_injection',
-    'check_graphql_nplus1',
-    'check_graphql_overfetch',
+    "check_mutation_auth",
+    "check_query_depth",
+    "check_input_validation",
+    "check_sensitive_fields",
+    "check_rate_limiting",
+    "check_graphql_injection",
+    "check_graphql_nplus1",
+    "check_graphql_overfetch",
 ]

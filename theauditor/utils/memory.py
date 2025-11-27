@@ -4,7 +4,6 @@ This module provides intelligent memory limit detection based on system resource
 Philosophy: SAST tools need RAM. If you're running complex analysis, allocate accordingly.
 """
 
-
 import os
 import platform
 
@@ -19,15 +18,13 @@ from .constants import (
 
 logger = setup_logger(__name__)
 
-# ============================================================================
-# WINDOWS MEMORY STATUS STRUCTURE (Module-level to avoid duplication)
-# ============================================================================
 
-if platform.system() == 'Windows':
+if platform.system() == "Windows":
     import ctypes
 
     class MEMORYSTATUSEX(ctypes.Structure):
         """Windows memory status structure for GlobalMemoryStatusEx API."""
+
         _fields_ = [
             ("dwLength", ctypes.c_ulong),
             ("dwMemoryLoad", ctypes.c_ulong),
@@ -40,8 +37,8 @@ if platform.system() == 'Windows':
             ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
         ]
 else:
-    MEMORYSTATUSEX = None  # Not used on non-Windows platforms
-    ctypes = None  # Avoid import errors on non-Windows
+    MEMORYSTATUSEX = None
+    ctypes = None
 
 
 def get_recommended_memory_limit() -> int:
@@ -58,22 +55,20 @@ def get_recommended_memory_limit() -> int:
     Returns:
         Memory limit in MB (minimum 2GB, maximum 48GB)
     """
-    # Check environment variable first - user knows best
+
     env_limit = os.environ.get(ENV_MEMORY_LIMIT)
     if env_limit:
         try:
             limit = int(env_limit)
-            # Sanity check but respect user choice
+
             if limit < 1000:
                 logger.warning(f"Memory limit {limit}MB is very low, performance will suffer")
             return limit
         except ValueError:
             logger.warning(f"Invalid {ENV_MEMORY_LIMIT} value: {env_limit}")
 
-    # Try to detect system RAM
     try:
-        if platform.system() == 'Windows':
-            # Windows memory detection via ctypes (using module-level MEMORYSTATUSEX)
+        if platform.system() == "Windows":
             memory_status = MEMORYSTATUSEX()
             memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
             kernel32 = ctypes.windll.kernel32
@@ -82,35 +77,33 @@ def get_recommended_memory_limit() -> int:
             total_mb = memory_status.ullTotalPhys // (1024 * 1024)
 
         else:
-            # Linux/Mac - try multiple methods
             total_mb = None
 
-            # Method 1: Try psutil if available
             try:
                 import psutil
+
                 total_mb = psutil.virtual_memory().total // (1024 * 1024)
             except ImportError:
                 pass
 
-            # Method 2: Read from /proc/meminfo (Linux)
-            if not total_mb and platform.system() == 'Linux':
+            if not total_mb and platform.system() == "Linux":
                 try:
-                    with open('/proc/meminfo') as f:
+                    with open("/proc/meminfo") as f:
                         for line in f:
-                            if line.startswith('MemTotal:'):
-                                # MemTotal is in KB
+                            if line.startswith("MemTotal:"):
                                 kb = int(line.split()[1])
                                 total_mb = kb // 1024
                                 break
                 except Exception:
                     pass
 
-            # Method 3: Use sysctl (Mac)
-            if not total_mb and platform.system() == 'Darwin':
+            if not total_mb and platform.system() == "Darwin":
                 try:
                     import subprocess
-                    result = subprocess.run(['sysctl', '-n', 'hw.memsize'], 
-                                         capture_output=True, text=True)
+
+                    result = subprocess.run(
+                        ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
+                    )
                     if result.returncode == 0:
                         bytes_total = int(result.stdout.strip())
                         total_mb = bytes_total // (1024 * 1024)
@@ -121,20 +114,17 @@ def get_recommended_memory_limit() -> int:
                 raise Exception("Could not detect system memory")
 
     except Exception as e:
-        # Fallback if detection fails - assume modern system
         logger.warning(f"Could not detect system RAM: {e}")
         logger.info(f"Using fallback memory limit of {DEFAULT_MEMORY_LIMIT_MB}MB")
         return DEFAULT_MEMORY_LIMIT_MB
 
-    # Use 60% of total RAM - SAST needs resources, deal with it
-    # This is for serious code analysis, not toy projects
     recommended = int(total_mb * MEMORY_ALLOCATION_RATIO)
 
-    # Apply minimum and maximum bounds
     final_limit = max(MIN_MEMORY_LIMIT_MB, min(MAX_MEMORY_LIMIT_MB, recommended))
 
-    # Log the decision
-    logger.info(f"System RAM: {total_mb}MB, Using: {final_limit}MB ({int(MEMORY_ALLOCATION_RATIO * 100)}% of total)")
+    logger.info(
+        f"System RAM: {total_mb}MB, Using: {final_limit}MB ({int(MEMORY_ALLOCATION_RATIO * 100)}% of total)"
+    )
 
     return final_limit
 
@@ -146,8 +136,7 @@ def get_available_memory() -> int:
         Available memory in MB, or -1 if cannot detect
     """
     try:
-        if platform.system() == 'Windows':
-            # Windows memory detection via ctypes (using module-level MEMORYSTATUSEX)
+        if platform.system() == "Windows":
             memory_status = MEMORYSTATUSEX()
             memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
             kernel32 = ctypes.windll.kernel32
@@ -155,21 +144,20 @@ def get_available_memory() -> int:
 
             return memory_status.ullAvailPhys // (1024 * 1024)
         else:
-            # Try psutil first
             try:
                 import psutil
+
                 return psutil.virtual_memory().available // (1024 * 1024)
             except ImportError:
                 pass
 
-            # Linux fallback
-            if platform.system() == 'Linux':
-                with open('/proc/meminfo') as f:
+            if platform.system() == "Linux":
+                with open("/proc/meminfo") as f:
                     for line in f:
-                        if line.startswith('MemAvailable:'):
+                        if line.startswith("MemAvailable:"):
                             kb = int(line.split()[1])
                             return kb // 1024
     except Exception:
         pass
 
-    return -1  # Cannot detect
+    return -1
