@@ -613,10 +613,9 @@ class IndexerOrchestrator:
                   f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
                   f"{jsx_counts['returns']} returns stored to _jsx tables")
 
-        # Flush all generic batches (validation_framework_usage, etc.)
-        for table_name in self.db_manager.generic_batches.keys():
-            if self.db_manager.generic_batches[table_name]:  # Only flush if non-empty
-                self.db_manager.flush_generic_batch(table_name)
+        # ZERO FALLBACK: All tables must be in flush_order (base_database.py)
+        # Removed catch-all loop that masked missing flush_order entries (2025-11-27)
+        # If you see unflushed data, ADD THE TABLE TO flush_order - don't resurrect this fallback
         self.db_manager.commit()
 
         # Cleanup extractor resources (LSP sessions, temp directories, etc.)

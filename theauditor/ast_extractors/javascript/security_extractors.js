@@ -91,9 +91,16 @@ function extractAPIEndpoints(functionCallArgs) {
         if (!callee.includes('.')) continue;
 
         const parts = callee.split('.');
+        const receiver = parts.slice(0, -1).join('.').toLowerCase();
         const method = parts[parts.length - 1];
 
-        if (!HTTP_METHODS.has(method)) continue;
+        // Only match Express router patterns, not arbitrary method calls
+        // FIX 2025-11-27: Prevents destructionService.delete() from being captured as route
+        // because 'delete' is an HTTP verb. Must check receiver is actually a router.
+        const ROUTER_PATTERNS = ['router', 'app', 'express', 'server', 'route'];
+        const isRouter = ROUTER_PATTERNS.some(p => receiver.includes(p));
+
+        if (!isRouter || !HTTP_METHODS.has(method)) continue;
 
         // Group by line number
         if (!callsByLine[call.line]) {
@@ -145,20 +152,16 @@ function extractAPIEndpoints(functionCallArgs) {
             const isController = i === calls.length - 1;
 
             // Extract handler_function from handler_expr
-            // For "accountingController.exportData" -> "AccountingController.exportData" (capitalize class)
+            // CRITICAL FIX 2025-11-27: Store EXACT variable name from source code
+            // Previously capitalized "authController" -> "AuthController" which broke
+            // resolution against import_specifiers (which stores exact names).
             // For inline arrow functions -> null (can't resolve)
             let handlerFunction = null;
             const expr = call.argument_expr || '';
             if (expr && !expr.includes('=>') && !expr.includes('function')) {
                 // It's a reference like "controller.method" or "methodName"
-                // Capitalize first letter of class name to match DFG format
-                if (expr.includes('.')) {
-                    const parts = expr.split('.');
-                    parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
-                    handlerFunction = parts.join('.');
-                } else {
-                    handlerFunction = expr;
-                }
+                // Store exact name - do NOT modify case
+                handlerFunction = expr;
             }
 
             middlewareChains.push({

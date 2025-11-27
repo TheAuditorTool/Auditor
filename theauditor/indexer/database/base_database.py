@@ -453,6 +453,19 @@ class BaseDatabaseManager:
                 ('import_styles', 'INSERT'),
                 ('import_style_names', 'INSERT'),  # Junction table
 
+                # Node.js Normalized Junction Tables (normalize-all-node-extractors)
+                # CRITICAL: Must be flushed BEFORE resolve_handler_file_paths() runs
+                ('func_params', 'INSERT'),
+                ('func_decorators', 'INSERT'),
+                ('func_decorator_args', 'INSERT'),
+                ('func_param_decorators', 'INSERT'),
+                ('class_decorators', 'INSERT'),
+                ('class_decorator_args', 'INSERT'),
+                ('assignment_source_vars', 'INSERT'),
+                ('return_source_vars', 'INSERT'),
+                ('import_specifiers', 'INSERT'),
+                ('sequelize_model_fields', 'INSERT'),
+
                 # Framework detection tables
                 ('frameworks', 'INSERT OR IGNORE'),  # Avoid duplicates from multiple scans
                 ('framework_safe_sinks', 'INSERT OR IGNORE'),
