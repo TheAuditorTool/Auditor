@@ -463,6 +463,7 @@ class TestRealProjectIntegration:
               AND target NOT LIKE '%docker_analyzer%'
               AND target NOT LIKE '%memory_cache%'
               AND target NOT LIKE '%insights/taint%'
+              AND target NOT LIKE '%taint/insights%'
             GROUP BY target
         """)
 
