@@ -145,6 +145,12 @@ REPOSITORY_PATTERNS = frozenset(
 )
 
 
+# Taint analysis pattern constants - TypeORM query sources
+TYPEORM_SOURCES = frozenset(
+    ["find", "findOne", "findOneBy", "findBy", "where", "andWhere", "orWhere", "having"]
+)
+
+
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect TypeORM anti-patterns and performance issues.
 
@@ -590,14 +596,9 @@ def register_taint_patterns(taint_registry):
     Args:
         taint_registry: TaintRegistry instance
     """
-
     for pattern in RAW_QUERY_METHODS:
         taint_registry.register_sink(pattern, "sql", "javascript")
         taint_registry.register_sink(pattern, "sql", "typescript")
-
-    TYPEORM_SOURCES = frozenset(
-        ["find", "findOne", "findOneBy", "findBy", "where", "andWhere", "orWhere", "having"]
-    )
 
     for pattern in TYPEORM_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")

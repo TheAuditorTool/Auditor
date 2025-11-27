@@ -49,7 +49,7 @@ def fix_forward_references(file_path):
             re.MULTILINE
         )
         if pattern2.search(content):
-            content = pattern2.sub(rf'\1"\2"\3', content)
+            content = pattern2.sub(r'\1"\2"\3', content)
             modified = True
 
         # Pattern 3: Optional[ClassName] or ClassName | None
@@ -58,7 +58,7 @@ def fix_forward_references(file_path):
             re.MULTILINE
         )
         if pattern3.search(content):
-            content = pattern3.sub(rf'\1"\2"\3', content)
+            content = pattern3.sub(r'\1"\2"\3', content)
             modified = True
 
         # Pattern 4: Union syntax with forward ref
@@ -67,7 +67,7 @@ def fix_forward_references(file_path):
             re.MULTILINE
         )
         if pattern4.search(content):
-            content = pattern4.sub(rf'\1"\2"\3', content)
+            content = pattern4.sub(r'\1"\2"\3', content)
             modified = True
 
     if modified and content != original_content:

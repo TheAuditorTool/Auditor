@@ -160,6 +160,22 @@ class SequelizePatterns:
     )
 
 
+# Taint analysis pattern constants - Sequelize query sources
+SEQUELIZE_SOURCES = frozenset(
+    [
+        "findAll",
+        "findOne",
+        "findByPk",
+        "findOrCreate",
+        "where",
+        "attributes",
+        "order",
+        "group",
+        "having",
+    ]
+)
+
+
 class SequelizeAnalyzer:
     """Analyzer for Sequelize ORM anti-patterns and security issues."""
 
@@ -648,20 +664,6 @@ def register_taint_patterns(taint_registry):
 
     for pattern in patterns.RAW_QUERY_METHODS:
         taint_registry.register_sink(pattern, "sql", "javascript")
-
-    SEQUELIZE_SOURCES = frozenset(
-        [
-            "findAll",
-            "findOne",
-            "findByPk",
-            "findOrCreate",
-            "where",
-            "attributes",
-            "order",
-            "group",
-            "having",
-        ]
-    )
 
     for pattern in SEQUELIZE_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")

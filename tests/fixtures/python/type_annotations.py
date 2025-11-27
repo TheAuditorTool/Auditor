@@ -20,19 +20,10 @@ from dataclasses import dataclass
 from typing import (
     Any,
     ClassVar,
-    Dict,
     Final,
-    Generic,
-    List,
     Literal,
-    Optional,
     Protocol,
-    Set,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
-    cast,
     overload,
     runtime_checkable,
 )
@@ -302,9 +293,8 @@ def complex_tuple_processing(
     """
     result: dict[str, list[int]] = {}
     for key, values in data:
-        if values is not None and len(values) > 0:
-            if isinstance(values[0], int):
-                result[key] = [values[0]]
+        if values is not None and len(values) > 0 and isinstance(values[0], int):
+            result[key] = [values[0]]
     return result
 
 
@@ -498,9 +488,7 @@ def get_item(container: dict[str, int] | list[str], key: str | int) -> int | str
     Get item with overloaded signatures.
     Tests: @overload decorator with multiple type signatures.
     """
-    if isinstance(container, dict) and isinstance(key, str):
-        return container[key]
-    elif isinstance(container, list) and isinstance(key, int):
+    if isinstance(container, dict) and isinstance(key, str) or isinstance(container, list) and isinstance(key, int):
         return container[key]
     raise TypeError("Invalid types")
 

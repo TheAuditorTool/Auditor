@@ -1,4 +1,5 @@
 """TheAuditor CLI - Main entry point and command registration hub."""
+# ruff: noqa: E402 - Intentional lazy loading: commands imported after cli group definition
 
 import platform
 import subprocess

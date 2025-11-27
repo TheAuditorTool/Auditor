@@ -87,7 +87,7 @@ def dict_comprehension():
 
 def large_list_comprehension():
     """Test large list allocation."""
-    return [x for x in range(10000)]  # Large list (>1000 elements)
+    return list(range(10000))  # Large list (>1000 elements)
 
 
 def large_dict_literal():
@@ -119,7 +119,7 @@ def large_range_comprehension():
 
 def multiple_large_structures():
     """Test multiple large allocations."""
-    list1 = [x for x in range(2000)]  # Large list 1
+    list1 = list(range(2000))  # Large list 1
     list2 = [x * 2 for x in range(2000)]  # Large list 2
     dict1 = {i: i ** 2 for i in range(200)}  # Large dict
     return list1, list2, dict1
@@ -196,7 +196,7 @@ def matrix_multiplication(a, b):
 def process_large_dataset():
     """Test multiple performance patterns together."""
     # Large allocation
-    data = [x for x in range(10000)]  # Large list
+    data = list(range(10000))  # Large list
 
     # Nested loops with growing operations
     transformed = []

@@ -24,6 +24,12 @@ from .sanitizer_util import SanitizerRegistry
 
 logger = setup_logger(__name__)
 
+# Flow resolution effort limits for infrastructure vs user code
+INFRASTRUCTURE_MAX_EFFORT = 5_000
+INFRASTRUCTURE_MAX_VISITS = 2
+USERCODE_MAX_EFFORT = 25_000
+USERCODE_MAX_VISITS = 10
+
 
 class FlowResolver:
     """Resolves ALL control flows in codebase to populate resolved_flow_audit table.
@@ -421,11 +427,11 @@ class FlowResolver:
         )
 
         if is_infrastructure:
-            CURRENT_MAX_EFFORT = 5_000
-            CURRENT_MAX_VISITS = 2
+            current_max_effort = INFRASTRUCTURE_MAX_EFFORT
+            current_max_visits = INFRASTRUCTURE_MAX_VISITS
         else:
-            CURRENT_MAX_EFFORT = 25_000
-            CURRENT_MAX_VISITS = 10
+            current_max_effort = USERCODE_MAX_EFFORT
+            current_max_visits = USERCODE_MAX_VISITS
 
         worklist = [(entry_id, [entry_id])]
         visited_edges: set[tuple[str, str]] = set()
@@ -440,7 +446,7 @@ class FlowResolver:
             and flows_from_this_entry < self.max_flows_per_entry
         ):
             effort_counter += 1
-            if effort_counter > CURRENT_MAX_EFFORT:
+            if effort_counter > current_max_effort:
                 break
 
             current_id, path = worklist.pop()
@@ -461,7 +467,7 @@ class FlowResolver:
                 if edge in visited_edges:
                     continue
 
-                if node_visit_counts[successor_id] >= CURRENT_MAX_VISITS:
+                if node_visit_counts[successor_id] >= current_max_visits:
                     continue
 
                 node_visit_counts[successor_id] += 1

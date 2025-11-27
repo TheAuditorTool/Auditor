@@ -710,6 +710,30 @@ class FlaskAnalyzer:
             pass
 
 
+# Taint analysis patterns for Flask framework
+FLASK_INPUT_SOURCES = frozenset(
+    [
+        "request.args",
+        "request.form",
+        "request.values",
+        "request.json",
+        "request.data",
+        "request.files",
+        "request.cookies",
+        "request.headers",
+        "request.environ",
+        "request.get_json",
+        "request.get_data",
+    ]
+)
+
+FLASK_SSTI_SINKS = frozenset(["render_template_string", "Markup", "jinja2.Template"])
+
+FLASK_REDIRECT_SINKS = frozenset(["redirect", "url_for", "make_response"])
+
+FLASK_SQL_SINKS = frozenset(["execute", "executemany", "db.execute", "session.execute"])
+
+
 def register_taint_patterns(taint_registry):
     """Register Flask-specific taint patterns.
 
@@ -720,36 +744,14 @@ def register_taint_patterns(taint_registry):
         taint_registry: TaintRegistry instance
     """
 
-    FLASK_INPUT_SOURCES = frozenset(
-        [
-            "request.args",
-            "request.form",
-            "request.values",
-            "request.json",
-            "request.data",
-            "request.files",
-            "request.cookies",
-            "request.headers",
-            "request.environ",
-            "request.get_json",
-            "request.get_data",
-        ]
-    )
-
     for pattern in FLASK_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "python")
-
-    FLASK_SSTI_SINKS = frozenset(["render_template_string", "Markup", "jinja2.Template"])
 
     for pattern in FLASK_SSTI_SINKS:
         taint_registry.register_sink(pattern, "ssti", "python")
 
-    FLASK_REDIRECT_SINKS = frozenset(["redirect", "url_for", "make_response"])
-
     for pattern in FLASK_REDIRECT_SINKS:
         taint_registry.register_sink(pattern, "redirect", "python")
-
-    FLASK_SQL_SINKS = frozenset(["execute", "executemany", "db.execute", "session.execute"])
 
     for pattern in FLASK_SQL_SINKS:
         taint_registry.register_sink(pattern, "sql", "python")

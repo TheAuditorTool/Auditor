@@ -7,6 +7,9 @@ from pathlib import Path
 
 import click
 
+# Cache directories to preserve during archive (unless --wipe-cache is specified)
+CACHE_DIRS = frozenset({".cache", "context", "ml"})
+
 
 @click.command(name="_archive")
 @click.option(
@@ -40,8 +43,6 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
 
     pf_dir = Path(".pf")
     history_dir = pf_dir / "history"
-
-    CACHE_DIRS = {".cache", "context", "ml"}
 
     if not pf_dir.exists() or not any(pf_dir.iterdir()):
         print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)

@@ -27,6 +27,91 @@ try:
 except ImportError:
     pass
 
+# FNV-1a hash constants for feature hashing
+FNV_PRIME = 0x01000193
+FNV_OFFSET = 0x811C9DC5
+
+# Library categories for semantic import analysis
+HTTP_LIBS = frozenset(
+    {
+        "requests",
+        "aiohttp",
+        "httpx",
+        "urllib",
+        "axios",
+        "fetch",
+        "superagent",
+        "express",
+        "fastapi",
+        "flask",
+        "django.http",
+        "tornado",
+        "starlette",
+    }
+)
+
+DB_LIBS = frozenset(
+    {
+        "sqlalchemy",
+        "psycopg2",
+        "psycopg",
+        "pymongo",
+        "redis",
+        "django.db",
+        "peewee",
+        "tortoise",
+        "databases",
+        "asyncpg",
+        "sqlite3",
+        "mysql",
+        "mongoose",
+        "sequelize",
+        "typeorm",
+        "prisma",
+        "knex",
+        "pg",
+    }
+)
+
+AUTH_LIBS = frozenset(
+    {
+        "jwt",
+        "pyjwt",
+        "passlib",
+        "oauth",
+        "oauth2",
+        "authlib",
+        "django.contrib.auth",
+        "flask_login",
+        "flask_jwt",
+        "bcrypt",
+        "cryptography",
+        "passport",
+        "jsonwebtoken",
+        "express-jwt",
+        "firebase-auth",
+        "auth0",
+    }
+)
+
+TEST_LIBS = frozenset(
+    {
+        "pytest",
+        "unittest",
+        "mock",
+        "faker",
+        "factory_boy",
+        "hypothesis",
+        "jest",
+        "mocha",
+        "chai",
+        "sinon",
+        "enzyme",
+        "vitest",
+        "testing-library",
+    }
+)
+
 
 _SCHEMA_VALIDATED = False
 
@@ -122,9 +207,6 @@ def check_ml_available():
 
 def fowler_noll_hash(text: str, dim: int = 2000) -> int:
     """Simple FNV-1a hash for text feature hashing."""
-    FNV_PRIME = 0x01000193
-    FNV_OFFSET = 0x811C9DC5
-
     hash_val = FNV_OFFSET
     for char in text.encode("utf-8"):
         hash_val ^= char
@@ -774,86 +856,6 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
     """
     if not Path(db_path).exists() or not file_paths:
         return {}
-
-    HTTP_LIBS = frozenset(
-        {
-            "requests",
-            "aiohttp",
-            "httpx",
-            "urllib",
-            "axios",
-            "fetch",
-            "superagent",
-            "express",
-            "fastapi",
-            "flask",
-            "django.http",
-            "tornado",
-            "starlette",
-        }
-    )
-
-    DB_LIBS = frozenset(
-        {
-            "sqlalchemy",
-            "psycopg2",
-            "psycopg",
-            "pymongo",
-            "redis",
-            "django.db",
-            "peewee",
-            "tortoise",
-            "databases",
-            "asyncpg",
-            "sqlite3",
-            "mysql",
-            "mongoose",
-            "sequelize",
-            "typeorm",
-            "prisma",
-            "knex",
-            "pg",
-        }
-    )
-
-    AUTH_LIBS = frozenset(
-        {
-            "jwt",
-            "pyjwt",
-            "passlib",
-            "oauth",
-            "oauth2",
-            "authlib",
-            "django.contrib.auth",
-            "flask_login",
-            "flask_jwt",
-            "bcrypt",
-            "cryptography",
-            "passport",
-            "jsonwebtoken",
-            "express-jwt",
-            "firebase-auth",
-            "auth0",
-        }
-    )
-
-    TEST_LIBS = frozenset(
-        {
-            "pytest",
-            "unittest",
-            "mock",
-            "faker",
-            "factory_boy",
-            "hypothesis",
-            "jest",
-            "mocha",
-            "chai",
-            "sinon",
-            "enzyme",
-            "vitest",
-            "testing-library",
-        }
-    )
 
     stats = defaultdict(
         lambda: {

@@ -737,7 +737,7 @@ def audit():
                 )]
                 if json_fields:
                     print(f"  [WARNING] Contains JSON fields: {json_fields}")
-                    print(f"            These should be in junction tables!")
+                    print("            These should be in junction tables!")
 
     # Cleanup
     try:

@@ -37,6 +37,37 @@ METADATA = RuleMetadata(
     requires_jsx_pass=False,
 )
 
+# Counter operation patterns for detecting unprotected increments
+COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])
+
+# Task creator functions that don't need await
+TASK_CREATORS = frozenset(
+    [
+        "asyncio.create_task",
+        "asyncio.ensure_future",
+        "create_task",
+        "ensure_future",
+        "loop.create_task",
+    ]
+)
+
+# Executor patterns for parallel execution
+EXECUTOR_PATTERNS = ["ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit"]
+
+# Shared state taint sources for concurrency analysis
+SHARED_STATE_SOURCES = [
+    "global",
+    "self.",
+    "cls.",
+    "__class__.",
+    "threading.local",
+    "asyncio.Queue",
+    "multiprocessing.Queue",
+    "shared_memory",
+    "mmap",
+    "memoryview",
+]
+
 
 @dataclass(frozen=True)
 class ConcurrencyPatterns:
@@ -416,10 +447,8 @@ class AsyncConcurrencyAnalyzer:
         query = build_query("assignments", ["file", "line", "target_var", "source_expr"])
         self.cursor.execute(query)
 
-        counter_ops = frozenset(["+= 1", "-= 1", "+= ", "-= "])
-
         for file, line, var, expr in self.cursor.fetchall():
-            if not expr or not any(op in expr for op in counter_ops):
+            if not expr or not any(op in expr for op in COUNTER_OPS):
                 continue
 
             if not (var.startswith("self.") or var.startswith("cls.")):
@@ -494,16 +523,6 @@ class AsyncConcurrencyAnalyzer:
         )
         self.cursor.execute(query)
 
-        task_creators = frozenset(
-            [
-                "asyncio.create_task",
-                "asyncio.ensure_future",
-                "create_task",
-                "ensure_future",
-                "loop.create_task",
-            ]
-        )
-
         for file, line, func, caller, arg_expr in self.cursor.fetchall():
             if func not in async_functions:
                 continue
@@ -511,7 +530,7 @@ class AsyncConcurrencyAnalyzer:
             if arg_expr and "await" in arg_expr:
                 continue
 
-            if func in task_creators:
+            if func in TASK_CREATORS:
                 continue
 
             if caller in async_functions:
@@ -570,8 +589,7 @@ class AsyncConcurrencyAnalyzer:
                     )
                 )
 
-        executor_patterns = ["ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit"]
-        executor_placeholders = ",".join("?" * len(executor_patterns))
+        executor_placeholders = ",".join("?" * len(EXECUTOR_PATTERNS))
         write_placeholders = ",".join("?" * len(self.patterns.WRITE_OPERATIONS))
 
         self.cursor.execute(
@@ -587,7 +605,7 @@ class AsyncConcurrencyAnalyzer:
                     AND f2.callee_function IN ({write_placeholders})
               )
         """,
-            executor_patterns + list(self.patterns.WRITE_OPERATIONS),
+            EXECUTOR_PATTERNS + list(self.patterns.WRITE_OPERATIONS),
         )
 
         for file, line, executor in self.cursor.fetchall():
@@ -943,19 +961,6 @@ def register_taint_patterns(taint_registry):
         taint_registry: TaintRegistry instance
     """
     patterns = ConcurrencyPatterns()
-
-    SHARED_STATE_SOURCES = [
-        "global",
-        "self.",
-        "cls.",
-        "__class__.",
-        "threading.local",
-        "asyncio.Queue",
-        "multiprocessing.Queue",
-        "shared_memory",
-        "mmap",
-        "memoryview",
-    ]
 
     for pattern in SHARED_STATE_SOURCES:
         taint_registry.register_source(pattern, "shared_state", "python")

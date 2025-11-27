@@ -871,6 +871,38 @@ class ReactAnalyzer:
             pass
 
 
+# Taint analysis patterns for React framework
+REACT_INPUT_SOURCES = frozenset(
+    [
+        "props.user",
+        "props.input",
+        "props.data",
+        "props.content",
+        "location.search",
+        "params",
+        "query",
+        "formData",
+        "event.target.value",
+        "e.target.value",
+        "useState",
+        "this.props",
+        "this.state",
+    ]
+)
+
+REACT_XSS_SINKS = frozenset(
+    ["dangerouslySetInnerHTML", "innerHTML", "outerHTML", "document.write", "document.writeln"]
+)
+
+REACT_CODE_EXEC_SINKS = frozenset(
+    ["eval", "Function", "setTimeout", "setInterval", "new Function"]
+)
+
+REACT_STORAGE_SINKS = frozenset(
+    ["localStorage.setItem", "sessionStorage.setItem", "document.cookie"]
+)
+
+
 def register_taint_patterns(taint_registry):
     """Register React-specific taint patterns.
 
@@ -881,44 +913,14 @@ def register_taint_patterns(taint_registry):
         taint_registry: TaintRegistry instance
     """
 
-    REACT_INPUT_SOURCES = frozenset(
-        [
-            "props.user",
-            "props.input",
-            "props.data",
-            "props.content",
-            "location.search",
-            "params",
-            "query",
-            "formData",
-            "event.target.value",
-            "e.target.value",
-            "useState",
-            "this.props",
-            "this.state",
-        ]
-    )
-
     for pattern in REACT_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")
-
-    REACT_XSS_SINKS = frozenset(
-        ["dangerouslySetInnerHTML", "innerHTML", "outerHTML", "document.write", "document.writeln"]
-    )
 
     for pattern in REACT_XSS_SINKS:
         taint_registry.register_sink(pattern, "xss", "javascript")
 
-    REACT_CODE_EXEC_SINKS = frozenset(
-        ["eval", "Function", "setTimeout", "setInterval", "new Function"]
-    )
-
     for pattern in REACT_CODE_EXEC_SINKS:
         taint_registry.register_sink(pattern, "code_execution", "javascript")
-
-    REACT_STORAGE_SINKS = frozenset(
-        ["localStorage.setItem", "sessionStorage.setItem", "document.cookie"]
-    )
 
     for pattern in REACT_STORAGE_SINKS:
         taint_registry.register_sink(pattern, "storage", "javascript")

@@ -3,18 +3,18 @@ Django blog platform - Real-world signals, managers, and querysets.
 
 Complete blog system showing:
 - Signal chains for notifications and caching
-- Custom managers for published/draft content  
+- Custom managers for published/draft content
 - QuerySets for complex filtering
 - Manager/QuerySet integration with as_manager()
 """
 from django.contrib.auth.models import User
 from django.db import models
-from django.db.models import Count, Manager, Q, QuerySet
+from django.db.models import Count, Manager, QuerySet
 from django.dispatch import Signal, receiver
 
 # Custom signals
 post_published = Signal(providing_args=["post", "author"])
-comment_approved = Signal(providing_args=["comment", "post"])  
+comment_approved = Signal(providing_args=["comment", "post"])
 user_activity = Signal(providing_args=["user", "action", "target"])
 
 # QuerySets with business logic
@@ -56,7 +56,7 @@ class PublishedManager(Manager):
         cutoff = timezone.now() - timedelta(days=days)
         return self.get_queryset().filter(published_at__gte=cutoff)
 
-# Models using managers and querysets  
+# Models using managers and querysets
 class Post(models.Model):
     title = models.CharField(max_length=200)
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
@@ -85,7 +85,7 @@ def notify_subscribers(sender, post, author, **kwargs):
     for user in subscribers:
         user_activity.send(sender=User, user=user, action='notified', target=post)
 
-@receiver(post_published)  
+@receiver(post_published)
 def clear_cache(sender, post, **kwargs):
     """Clear cached post list when new post published."""
     from django.core.cache import cache

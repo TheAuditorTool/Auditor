@@ -19,6 +19,9 @@ import yaml
 
 MAX_RESULTS_PER_QUERY = 500
 
+# Batch size for chunking term searches
+BATCH_SIZE = 50
+
 
 def _coerce_list(value: Iterable[str] | None) -> list[str]:
     if not value:
@@ -347,7 +350,6 @@ class RefactorRuleEngine:
             else:
                 term_patterns[term] = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
 
-        BATCH_SIZE = 50
         for chunk in self._chunk_list(unique_terms, BATCH_SIZE):
             like_params = []
             for t in chunk:

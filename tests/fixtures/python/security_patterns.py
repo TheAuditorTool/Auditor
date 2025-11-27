@@ -3,7 +3,7 @@ Realistic security patterns - Corporate web application with vulnerabilities.
 
 Real-world user management and reporting system with authentic security issues:
 - JWT auth with hardcoded secrets
-- User search with SQL injection in admin panel  
+- User search with SQL injection in admin panel
 - File uploads with path traversal
 - Report generation with eval() for calculations
 - Password resets with weak crypto
@@ -80,7 +80,7 @@ def search_users_by_name(db, search_term):
     query = f"SELECT * FROM users WHERE name LIKE '%{search_term}%'"
     return db.execute(query)
 
-@admin_only 
+@admin_only
 def get_user_by_id(db, user_id):
     query = f"SELECT * FROM users WHERE id = {user_id}"
     return db.execute(query)
@@ -139,7 +139,7 @@ def decrypt_reset_token(token):
 
 # Helper stubs
 def check_session(): return True
-def is_admin(): return False  
+def is_admin(): return False
 def has_permission(p): return True
 class db:
     @staticmethod

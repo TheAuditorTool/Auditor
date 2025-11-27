@@ -21,7 +21,7 @@ Validates that:
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ==============================================================================
 # Basic Async Functions
@@ -347,7 +347,7 @@ async def retry_async_operation(max_attempts: int = 3):
         try:
             result = await risky_async_operation(should_fail=(attempt < max_attempts))
             return result
-        except AsyncOperationError as e:
+        except AsyncOperationError:
             if attempt == max_attempts:
                 raise
 
@@ -385,7 +385,7 @@ def async_retry(max_attempts: int = 3):
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
-                except Exception as e:
+                except Exception:
                     if attempt == max_attempts:
                         raise
                     await asyncio.sleep(0.1 * attempt)

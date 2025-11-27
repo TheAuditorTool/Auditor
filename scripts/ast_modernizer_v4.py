@@ -31,10 +31,10 @@ Usage:
 import argparse
 import shutil
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Sequence, Union
 
 import libcst as cst
 from libcst import matchers as m
@@ -68,7 +68,7 @@ class ModernizationStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nTransformations applied:")
+        print("\nTransformations applied:")
         print(f"  ast.Str -> ast.Constant: {self.ast_str_fixed}")
         print(f"  ast.Num -> ast.Constant: {self.ast_num_fixed}")
         print(f"  ast.Bytes -> ast.Constant: {self.ast_bytes_fixed}")
@@ -132,7 +132,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     # ------------------------------------------------------------------------
 
     def _create_safe_check(self, node_arg: cst.BaseExpression,
-                           value_type: Union[cst.Name, cst.Tuple]) -> cst.BooleanOperation:
+                           value_type: cst.Name | cst.Tuple) -> cst.BooleanOperation:
         """
         Creates a safe, parenthesized boolean check:
         (isinstance(node, ast.Constant) and isinstance(node.value, <value_type>))
@@ -469,7 +469,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
         self,
         original_node: cst.Call,
         updated_node: cst.Call
-    ) -> Union[cst.Call, cst.BooleanOperation]:
+    ) -> cst.Call | cst.BooleanOperation:
         """Simplify tuples like (ast.Str, ast.Num, ast.Constant) → just ast.Constant
         Also handles pure deprecated tuples like (ast.Str, ast.Num) → ast.Constant"""
 
@@ -637,7 +637,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
         self,
         original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom
-    ) -> Union[cst.ImportFrom, cst.RemovalSentinel]:
+    ) -> cst.ImportFrom | cst.RemovalSentinel:
         """Remove imports of deprecated AST node types."""
 
         # Only process ast imports
@@ -844,7 +844,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     # Helper methods
     # ------------------------------------------------------------------------
 
-    def _get_base_name(self, attr: cst.Attribute) -> Optional[str]:
+    def _get_base_name(self, attr: cst.Attribute) -> str | None:
         """Get the base name from a potentially chained attribute."""
         current = attr
         while isinstance(current, cst.Attribute):

@@ -10,7 +10,6 @@ This fixture demonstrates:
 
 import os
 import sqlite3
-from typing import Dict, List, Optional
 
 
 def get_database_connection():

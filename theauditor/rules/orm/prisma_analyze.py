@@ -21,6 +21,9 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
+# Database URL variable name patterns for connection limit checks
+DB_VAR_PATTERNS = frozenset(["DATABASE_URL", "DATABASE", "POSTGRES", "MYSQL"])
+
 METADATA = RuleMetadata(
     name="prisma_orm_issues",
     category="orm",
@@ -116,6 +119,12 @@ CONNECTION_DANGER_PATTERNS = frozenset(
         "pool_size=100",
         "pool_size=50",
     ]
+)
+
+
+# Taint analysis pattern constants - Prisma query sources
+PRISMA_SOURCES = frozenset(
+    ["findMany", "findFirst", "findUnique", "where", "select", "include", "orderBy"]
 )
 
 
@@ -361,8 +370,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
             )
             cursor.execute(query)
 
-            DB_VAR_PATTERNS = frozenset(["DATABASE_URL", "DATABASE", "POSTGRES", "MYSQL"])
-
             for file, line, var, expr in cursor.fetchall():
                 var_upper = var.upper()
                 if not any(pattern in var_upper for pattern in DB_VAR_PATTERNS):
@@ -436,15 +443,10 @@ def register_taint_patterns(taint_registry):
     Args:
         taint_registry: TaintRegistry instance
     """
-
     for pattern in RAW_QUERY_METHODS:
         taint_registry.register_sink(pattern, "sql", "javascript")
         taint_registry.register_sink(f"prisma.{pattern}", "sql", "javascript")
         taint_registry.register_sink(f"db.{pattern}", "sql", "javascript")
-
-    PRISMA_SOURCES = frozenset(
-        ["findMany", "findFirst", "findUnique", "where", "select", "include", "orderBy"]
-    )
 
     for pattern in PRISMA_SOURCES:
         taint_registry.register_source(f"prisma.{pattern}", "user_input", "javascript")

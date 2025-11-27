@@ -12,7 +12,6 @@ import os
 import sqlite3
 
 from aws_cognito import CognitoIdentityClient
-from exceptions import ExpiredTokenError, InvalidTokenError
 from validators import extract_groups, extract_permissions, extract_user_id, validate_cognito_token
 
 

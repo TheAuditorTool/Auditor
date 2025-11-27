@@ -51,6 +51,9 @@ from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
+# Dynamic attribute methods for interception detection
+DYNAMIC_METHODS = frozenset({"__getattr__", "__setattr__", "__getattribute__", "__delattr__"})
+
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
@@ -482,8 +485,6 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
             if start <= line_no <= end:
                 return cname
         return None
-
-    DYNAMIC_METHODS = {"__getattr__", "__setattr__", "__getattribute__", "__delattr__"}
 
     for node in context.find_nodes(ast.FunctionDef):
         if node.name not in DYNAMIC_METHODS:

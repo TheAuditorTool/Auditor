@@ -19,7 +19,6 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Set
 
 # ============================================================================
 # Risk Report Data Classes
@@ -32,11 +31,11 @@ class ExtractorInfo:
     function_name: str
     line_number: int
     uses_parser_self: bool = False
-    parser_self_usages: List[str] = field(default_factory=list)
+    parser_self_usages: list[str] = field(default_factory=list)
     has_complex_walk: bool = False
-    complex_walk_patterns: List[str] = field(default_factory=list)
+    complex_walk_patterns: list[str] = field(default_factory=list)
     has_context_variable: bool = False
-    context_variable_lines: List[int] = field(default_factory=list)
+    context_variable_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -51,11 +50,11 @@ class CallerInfo:
 @dataclass
 class VerificationReport:
     """Complete verification report."""
-    extractors: List[ExtractorInfo] = field(default_factory=list)
-    callers: List[CallerInfo] = field(default_factory=list)
-    parser_self_files: Set[str] = field(default_factory=set)
-    complex_walk_files: Set[str] = field(default_factory=set)
-    context_collision_files: Set[str] = field(default_factory=set)
+    extractors: list[ExtractorInfo] = field(default_factory=list)
+    callers: list[CallerInfo] = field(default_factory=list)
+    parser_self_files: set[str] = field(default_factory=set)
+    complex_walk_files: set[str] = field(default_factory=set)
+    context_collision_files: set[str] = field(default_factory=set)
 
     # Statistics
     total_extractors: int = 0
@@ -92,7 +91,7 @@ class VerificationReport:
                     if ext.uses_parser_self:
                         print(f"\n  File: {ext.file_path}")
                         print(f"  Function: {ext.function_name} (line {ext.line_number})")
-                        print(f"  Usages:")
+                        print("  Usages:")
                         for usage in ext.parser_self_usages[:5]:  # Show first 5
                             print(f"    - {usage}")
                         if len(ext.parser_self_usages) > 5:
@@ -242,7 +241,7 @@ class ExtractorAnalyzer(ast.NodeVisitor):
 class CallerFinder(ast.NodeVisitor):
     """Find locations where extractors are called."""
 
-    def __init__(self, extractor_names: Set[str]):
+    def __init__(self, extractor_names: set[str]):
         self.extractor_names = extractor_names
         self.calls = []
 
@@ -354,7 +353,7 @@ def analyze_extractor_file(file_path: Path, report: VerificationReport) -> None:
         print(f"  Error analyzing {file_path}: {e}")
 
 
-def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
+def find_extractor_callers(root_dir: Path, extractor_names: set[str],
                            report: VerificationReport) -> None:
     """Find all locations where extractors are called."""
 

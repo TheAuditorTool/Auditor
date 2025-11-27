@@ -1,7 +1,6 @@
 """Pydantic fixture exercising validators and nested models."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -12,7 +11,7 @@ class Address(BaseModel):
     postal_code: str
 
     @validator("postal_code")
-    def postal_code_length(cls, value: str) -> str:
+    def postal_code_length(self, value: str) -> str:
         if len(value) != 5 or not value.isdigit():
             raise ValueError("postal code must be 5 digits")
         return value
@@ -23,7 +22,7 @@ class UserSettings(BaseModel):
     timezone: str = "UTC"
 
     @validator("timezone")
-    def timezone_not_empty(cls, value: str) -> str:
+    def timezone_not_empty(self, value: str) -> str:
         if not value:
             raise ValueError("timezone required")
         return value
@@ -39,13 +38,13 @@ class UserPayload(BaseModel):
     address: Address | None = None
 
     @validator("email")
-    def email_must_have_at(cls, value: str) -> str:
+    def email_must_have_at(self, value: str) -> str:
         if "@" not in value:
             raise ValueError("invalid email")
         return value
 
     @root_validator
-    def passwords_match(cls, values):
+    def passwords_match(self, values):
         if values.get("password") != values.get("password_confirm"):
             raise ValueError("password mismatch")
         return values
@@ -56,7 +55,7 @@ class BulkInvite(BaseModel):
     invite_message: str | None = None
 
     @validator("emails")
-    def emails_not_empty(cls, values: list[str]) -> list[str]:
+    def emails_not_empty(self, values: list[str]) -> list[str]:
         if not values:
             raise ValueError("at least one email required")
         return values

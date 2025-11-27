@@ -496,17 +496,9 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
-def register_taint_patterns(taint_registry):
-    """Register FastAPI-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
-
-    FASTAPI_RESPONSE_SINKS = [
+# Taint analysis patterns for FastAPI framework
+FASTAPI_RESPONSE_SINKS = frozenset(
+    [
         "JSONResponse",
         "HTMLResponse",
         "PlainTextResponse",
@@ -514,11 +506,10 @@ def register_taint_patterns(taint_registry):
         "FileResponse",
         "RedirectResponse",
     ]
+)
 
-    for pattern in FASTAPI_RESPONSE_SINKS:
-        taint_registry.register_sink(pattern, "response", "python")
-
-    FASTAPI_INPUT_SOURCES = [
+FASTAPI_INPUT_SOURCES = frozenset(
+    [
         "Request",
         "Body",
         "Query",
@@ -529,11 +520,28 @@ def register_taint_patterns(taint_registry):
         "Cookie",
         "Depends",
     ]
+)
+
+FASTAPI_SQL_SINKS = frozenset(
+    ["execute", "executemany", "execute_async", "fetch", "fetchone", "fetchall"]
+)
+
+
+def register_taint_patterns(taint_registry):
+    """Register FastAPI-specific taint patterns.
+
+    This function is called by the orchestrator to register
+    framework-specific sources and sinks for taint analysis.
+
+    Args:
+        taint_registry: TaintRegistry instance
+    """
+
+    for pattern in FASTAPI_RESPONSE_SINKS:
+        taint_registry.register_sink(pattern, "response", "python")
 
     for pattern in FASTAPI_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "python")
-
-    FASTAPI_SQL_SINKS = ["execute", "executemany", "execute_async", "fetch", "fetchone", "fetchall"]
 
     for pattern in FASTAPI_SQL_SINKS:
         taint_registry.register_sink(pattern, "sql", "python")

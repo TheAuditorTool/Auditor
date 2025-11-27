@@ -431,6 +431,25 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
+# Taint analysis patterns for Vue.js framework
+VUE_ADDITIONAL_SINKS = frozenset(
+    ["$refs.innerHTML", "$refs.outerHTML", "this.$refs", "vm.$refs"]
+)
+
+VUE_INPUT_SOURCES = frozenset(
+    [
+        "$route.params",
+        "$route.query",
+        "this.$route",
+        "props.",
+        "v-model",
+        "$emit",
+        "$attrs",
+        "$listeners",
+    ]
+)
+
+
 def register_taint_patterns(taint_registry):
     """Register Vue.js-specific taint patterns.
 
@@ -444,25 +463,8 @@ def register_taint_patterns(taint_registry):
     for pattern in VUE_XSS_DIRECTIVES:
         taint_registry.register_sink(pattern, "xss", "javascript")
 
-    VUE_ADDITIONAL_SINKS = frozenset(
-        ["$refs.innerHTML", "$refs.outerHTML", "this.$refs", "vm.$refs"]
-    )
-
     for pattern in VUE_ADDITIONAL_SINKS:
         taint_registry.register_sink(pattern, "xss", "javascript")
-
-    VUE_INPUT_SOURCES = frozenset(
-        [
-            "$route.params",
-            "$route.query",
-            "this.$route",
-            "props.",
-            "v-model",
-            "$emit",
-            "$attrs",
-            "$listeners",
-        ]
-    )
 
     for pattern in VUE_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")

@@ -5,7 +5,7 @@ Test fixture for extract_celery_tasks().
 Covers @task, @shared_task, @app.task decorators with various security configurations.
 """
 
-from celery import Task, shared_task
+from celery import shared_task
 from celery_app import app
 
 

@@ -637,6 +637,43 @@ class ExpressAnalyzer:
         conn.close()
 
 
+# Taint analysis patterns for Express.js framework
+EXPRESS_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "req.cookies",
+        "req.headers",
+        "req.ip",
+        "req.hostname",
+        "req.path",
+        "request.body",
+        "request.query",
+        "request.params",
+        "request.headers",
+        "request.cookies",
+    ]
+)
+
+EXPRESS_RESPONSE_SINKS = frozenset(
+    [
+        "res.send",
+        "res.json",
+        "res.jsonp",
+        "res.render",
+        "res.write",
+        "res.end",
+        "response.send",
+        "response.json",
+        "response.render",
+        "response.write",
+    ]
+)
+
+EXPRESS_REDIRECT_SINKS = frozenset(["res.redirect", "response.redirect", "res.location"])
+
+
 def register_taint_patterns(taint_registry):
     """Register Express.js-specific taint patterns.
 
@@ -647,46 +684,11 @@ def register_taint_patterns(taint_registry):
         taint_registry: TaintRegistry instance
     """
 
-    EXPRESS_INPUT_SOURCES = frozenset(
-        [
-            "req.body",
-            "req.query",
-            "req.params",
-            "req.cookies",
-            "req.headers",
-            "req.ip",
-            "req.hostname",
-            "req.path",
-            "request.body",
-            "request.query",
-            "request.params",
-            "request.headers",
-            "request.cookies",
-        ]
-    )
-
     for pattern in EXPRESS_INPUT_SOURCES:
         taint_registry.register_source(pattern, "http_request", "javascript")
 
-    EXPRESS_RESPONSE_SINKS = frozenset(
-        [
-            "res.send",
-            "res.json",
-            "res.jsonp",
-            "res.render",
-            "res.write",
-            "res.end",
-            "response.send",
-            "response.json",
-            "response.render",
-            "response.write",
-        ]
-    )
-
     for pattern in EXPRESS_RESPONSE_SINKS:
         taint_registry.register_sink(pattern, "response", "javascript")
-
-    EXPRESS_REDIRECT_SINKS = frozenset(["res.redirect", "response.redirect", "res.location"])
 
     for pattern in EXPRESS_REDIRECT_SINKS:
         taint_registry.register_sink(pattern, "redirect", "javascript")

@@ -115,11 +115,10 @@ def complex_authorization(user, resource):
 
 def nested_validation(config):
     """Test deeply nested conditionals."""
-    if config.debug:
-        if config.verbose:
-            enable_detailed_logging()  # Nesting level 2
-            if config.trace:
-                enable_stack_traces()  # Nesting level 3
+    if config.debug and config.verbose:
+        enable_detailed_logging()  # Nesting level 2
+        if config.trace:
+            enable_stack_traces()  # Nesting level 3
 
 
 # ============================================================================

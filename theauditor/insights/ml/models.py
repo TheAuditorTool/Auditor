@@ -31,6 +31,9 @@ try:
 except ImportError:
     pass
 
+# FNV-1a hash constants for feature hashing
+FNV_PRIME = 0x01000193
+FNV_OFFSET = 0x811C9DC5
 
 _SCHEMA_VALIDATED = False
 
@@ -126,9 +129,6 @@ def check_ml_available():
 
 def fowler_noll_hash(text: str, dim: int = 2000) -> int:
     """Simple FNV-1a hash for text feature hashing."""
-    FNV_PRIME = 0x01000193
-    FNV_OFFSET = 0x811C9DC5
-
     hash_val = FNV_OFFSET
     for char in text.encode("utf-8"):
         hash_val ^= char

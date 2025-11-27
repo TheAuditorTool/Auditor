@@ -27,6 +27,23 @@ by providing O(1) line-to-function lookups for accurate scope resolution.
 import sys
 from typing import Any
 
+from .base import sanitize_call_name
+
+# Common JavaScript/TypeScript parameter names for detection
+PARAMETER_NAMES = frozenset({
+    "req",
+    "res",
+    "next",
+    "err",
+    "error",
+    "ctx",
+    "request",
+    "response",
+    "callback",
+    "done",
+    "cb",
+})
+
 
 def _strip_comment_prefix(text: str | None) -> str:
     """Return the first non-comment, non-empty line from the given text."""
@@ -142,9 +159,6 @@ def _canonical_callee_from_call(node: dict[str, Any]) -> str:
         return sanitize_call_name(_strip_comment_prefix(name))
 
     return sanitize_call_name(_strip_comment_prefix(_identifier_from_node(node)))
-
-
-from .base import sanitize_call_name
 
 
 def extract_semantic_ast_symbols(node, depth=0):
@@ -591,20 +605,6 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
 
     if not ast_root:
         return functions
-
-    PARAMETER_NAMES = {
-        "req",
-        "res",
-        "next",
-        "err",
-        "error",
-        "ctx",
-        "request",
-        "response",
-        "callback",
-        "done",
-        "cb",
-    }
 
     class_stack = []
 

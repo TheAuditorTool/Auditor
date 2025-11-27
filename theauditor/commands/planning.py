@@ -14,6 +14,37 @@ from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Agent trigger block markers for documentation injection
+TRIGGER_START = "<!-- THEAUDITOR:START -->"
+TRIGGER_END = "<!-- THEAUDITOR:END -->"
+
+# Complete agent trigger block content for documentation injection
+TRIGGER_BLOCK = f"""{TRIGGER_START}
+# TheAuditor Planning Agent System
+
+When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
+
+**Agent Triggers:**
+- "refactor", "split", "extract", "merge", "modularize" => @/.theauditor_tools/agents/refactor.md
+- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.theauditor_tools/agents/security.md
+- "plan", "architecture", "design", "organize", "structure", "approach" => @/.theauditor_tools/agents/planning.md
+- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.theauditor_tools/agents/dataflow.md
+
+**Agent Purpose:**
+These agents enforce query-driven workflows using TheAuditor's database:
+- NO file reading - use `aud query`, `aud blueprint`, `aud context`
+- NO guessing patterns - follow detected precedents from blueprint
+- NO assuming conventions - match detected naming/frameworks
+- MANDATORY sequence: blueprint => query => synthesis
+- ALL recommendations cite database query results
+
+**Agent Files Location:**
+Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
+Run `aud init` to install the venv if agents are missing.
+
+{TRIGGER_END}
+"""
+
 
 @click.group()
 @click.help_option("-h", "--help")
@@ -1222,34 +1253,6 @@ def setup_agents(target):
         aud planning setup-agents --target CLAUDE.md   # Inject into CLAUDE.md
         aud planning setup-agents --target both        # Inject into both files
     """
-    TRIGGER_START = "<!-- THEAUDITOR:START -->"
-    TRIGGER_END = "<!-- THEAUDITOR:END -->"
-
-    TRIGGER_BLOCK = f"""{TRIGGER_START}
-# TheAuditor Planning Agent System
-
-When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
-
-**Agent Triggers:**
-- "refactor", "split", "extract", "merge", "modularize" => @/.theauditor_tools/agents/refactor.md
-- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.theauditor_tools/agents/security.md
-- "plan", "architecture", "design", "organize", "structure", "approach" => @/.theauditor_tools/agents/planning.md
-- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.theauditor_tools/agents/dataflow.md
-
-**Agent Purpose:**
-These agents enforce query-driven workflows using TheAuditor's database:
-- NO file reading - use `aud query`, `aud blueprint`, `aud context`
-- NO guessing patterns - follow detected precedents from blueprint
-- NO assuming conventions - match detected naming/frameworks
-- MANDATORY sequence: blueprint => query => synthesis
-- ALL recommendations cite database query results
-
-**Agent Files Location:**
-Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
-Run `aud init` to install the venv if agents are missing.
-
-{TRIGGER_END}
-"""
 
     def inject_into_file(file_path: Path) -> bool:
         """Inject trigger block into file if not already present."""

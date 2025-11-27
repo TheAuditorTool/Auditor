@@ -14,6 +14,9 @@ import click
 
 from theauditor.utils.error_handler import handle_exceptions
 
+# Maximum chunk size for AI-consumable JSON output (in bytes)
+MAX_CHUNK_SIZE = 65_000
+
 
 @click.command()
 @click.option(
@@ -355,8 +358,6 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
 
     json_str = json.dumps(data, indent=2)
     size_bytes = len(json_str.encode("utf-8"))
-
-    MAX_CHUNK_SIZE = 65_000
 
     if size_bytes <= MAX_CHUNK_SIZE:
         output_file = readthis_dir / f"semantic_context_{context_name}.json"

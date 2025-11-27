@@ -63,13 +63,13 @@ class Account(BaseModel):
     password_confirm: str
 
     @validator("email")
-    def email_must_have_at(cls, value: str) -> str:
+    def email_must_have_at(self, value: str) -> str:
         if "@" not in value:
             raise ValueError("invalid email")
         return value
 
     @root_validator
-    def passwords_match(cls, values):
+    def passwords_match(self, values):
         if values.get("password") != values.get("password_confirm"):
             raise ValueError("password mismatch")
         return values

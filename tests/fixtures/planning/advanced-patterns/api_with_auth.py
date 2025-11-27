@@ -4,7 +4,7 @@ Tests: api_endpoints JOIN api_endpoint_controls
 """
 
 from decorators import admin_required, login_required, rate_limit
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify
 
 admin_api = Blueprint('admin', __name__)
 

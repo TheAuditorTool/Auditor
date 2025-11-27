@@ -424,9 +424,9 @@ def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
 
     for file, line, source in cursor.fetchall():
         has_scoped_slots = "scopedSlots" in source
-        has_innerHTML = "innerHTML" in source
+        has_inner_html = "innerHTML" in source
 
-        if not (has_scoped_slots and has_innerHTML):
+        if not (has_scoped_slots and has_inner_html):
             continue
 
         findings.append(
@@ -528,13 +528,13 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
             [file, line, line],
         )
 
-        has_innerHTML = False
+        has_inner_html = False
         for (target_var,) in cursor.fetchall():
             if ".innerHTML" in target_var:
-                has_innerHTML = True
+                has_inner_html = True
                 break
 
-        if has_innerHTML:
+        if has_inner_html:
             findings.append(
                 StandardFinding(
                     rule_name="vue-watcher-innerhtml",

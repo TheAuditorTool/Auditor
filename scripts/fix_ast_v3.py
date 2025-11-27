@@ -20,7 +20,6 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
 import libcst as cst
 from libcst import matchers as m
@@ -73,7 +72,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         self.stats = stats
 
         # Scope Stack: Tracks [FuncDef, FuncDef, ...] to handle nesting
-        self.function_stack: List[cst.FunctionDef] = []
+        self.function_stack: list[cst.FunctionDef] = []
 
         # Track if we need ast import
         self.needs_ast_import = False
@@ -99,7 +98,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         # Check if any parent in the stack starts with 'extract_'
         return any(f.name.value.startswith("extract_") for f in self.function_stack)
 
-    def _get_current_func_params(self) -> List[str]:
+    def _get_current_func_params(self) -> list[str]:
         """Get list of parameter names for current function."""
         if not self.function_stack:
             return []
@@ -108,7 +107,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             params.append(param.name.value)
         return params
 
-    def _get_best_node_param(self) -> Optional[str]:
+    def _get_best_node_param(self) -> str | None:
         """
         Get the most likely parameter representing a node/subtree.
 
@@ -260,7 +259,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
 
         return updated_node
 
-    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> Optional[cst.BaseExpression]:
+    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> cst.BaseExpression | None:
         """
         Extract node type from isinstance check in loop body.
 
@@ -399,7 +398,7 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
             return False
 
     if verbose:
-        print(f"  No changes needed")
+        print("  No changes needed")
     return False
 
 # ============================================================================

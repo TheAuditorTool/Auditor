@@ -52,6 +52,50 @@ from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
+# I/O operation type mappings for extract_io_operations()
+FILE_OPS = {
+    "open": "FILE_WRITE",
+    "write": "FILE_WRITE",
+    "write_text": "FILE_WRITE",
+    "write_bytes": "FILE_WRITE",
+    "read": "FILE_READ",
+    "read_text": "FILE_READ",
+    "read_bytes": "FILE_READ",
+    "readlines": "FILE_READ",
+}
+
+DB_OPS = {
+    "commit": "DB_COMMIT",
+    "execute": "DB_QUERY",
+    "executemany": "DB_QUERY",
+    "rollback": "DB_ROLLBACK",
+    "query": "DB_QUERY",
+    "add": "DB_INSERT",
+    "delete": "DB_DELETE",
+    "update": "DB_UPDATE",
+}
+
+NETWORK_OPS = {
+    "get": "NETWORK",
+    "post": "NETWORK",
+    "put": "NETWORK",
+    "delete": "NETWORK",
+    "patch": "NETWORK",
+    "request": "NETWORK",
+    "urlopen": "NETWORK",
+    "fetch": "NETWORK",
+}
+
+PROCESS_OPS = {
+    "run": "PROCESS",
+    "call": "PROCESS",
+    "check_call": "PROCESS",
+    "check_output": "PROCESS",
+    "system": "PROCESS",
+    "popen": "PROCESS",
+    "spawn": "PROCESS",
+}
+
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
@@ -112,49 +156,6 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
             if start <= line_no <= end:
                 return fname
         return "global"
-
-    FILE_OPS = {
-        "open": "FILE_WRITE",
-        "write": "FILE_WRITE",
-        "write_text": "FILE_WRITE",
-        "write_bytes": "FILE_WRITE",
-        "read": "FILE_READ",
-        "read_text": "FILE_READ",
-        "read_bytes": "FILE_READ",
-        "readlines": "FILE_READ",
-    }
-
-    DB_OPS = {
-        "commit": "DB_COMMIT",
-        "execute": "DB_QUERY",
-        "executemany": "DB_QUERY",
-        "rollback": "DB_ROLLBACK",
-        "query": "DB_QUERY",
-        "add": "DB_INSERT",
-        "delete": "DB_DELETE",
-        "update": "DB_UPDATE",
-    }
-
-    NETWORK_OPS = {
-        "get": "NETWORK",
-        "post": "NETWORK",
-        "put": "NETWORK",
-        "delete": "NETWORK",
-        "patch": "NETWORK",
-        "request": "NETWORK",
-        "urlopen": "NETWORK",
-        "fetch": "NETWORK",
-    }
-
-    PROCESS_OPS = {
-        "run": "PROCESS",
-        "call": "PROCESS",
-        "check_call": "PROCESS",
-        "check_output": "PROCESS",
-        "system": "PROCESS",
-        "popen": "PROCESS",
-        "spawn": "PROCESS",
-    }
 
     for node in context.find_nodes(ast.Call):
         in_function = find_containing_function(node.lineno)

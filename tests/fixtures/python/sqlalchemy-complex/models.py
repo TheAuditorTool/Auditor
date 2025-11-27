@@ -1,10 +1,8 @@
 """Complex SQLAlchemy models with advanced patterns."""
 
 import hashlib
-import json
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
@@ -22,7 +20,6 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     event,
-    exists,
     func,
     or_,
     select,
@@ -31,22 +28,19 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
-from sqlalchemy.ext.mutable import MutableDict, MutableList
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import (
     Query,
-    Session,
     backref,
     column_property,
     joinedload,
     object_session,
     relationship,
-    selectinload,
     validates,
 )
 from sqlalchemy.orm.collections import attribute_mapped_collection
-from sqlalchemy.schema import DDL
-from sqlalchemy.sql import case, expression
+from sqlalchemy.sql import case
 
 Base = declarative_base()
 
@@ -55,11 +49,11 @@ class TimestampMixin:
     """Mixin for automatic timestamp management."""
 
     @declared_attr
-    def created_at(cls):
+    def created_at(self):
         return Column(DateTime, default=func.now(), nullable=False)
 
     @declared_attr
-    def updated_at(cls):
+    def updated_at(self):
         return Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 
 
@@ -67,12 +61,12 @@ class SoftDeleteMixin:
     """Mixin for soft delete functionality."""
 
     @declared_attr
-    def deleted_at(cls):
+    def deleted_at(self):
         return Column(DateTime, nullable=True)
 
     @declared_attr
-    def is_deleted(cls):
-        return column_property(cls.deleted_at != None)  # noqa: E711 - SQLAlchemy IS NOT NULL
+    def is_deleted(self):
+        return column_property(self.deleted_at != None)  # noqa: E711 - SQLAlchemy IS NOT NULL
 
     def soft_delete(self):
         self.deleted_at = datetime.utcnow()
@@ -173,11 +167,11 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         return self.username
 
     @full_name.expression
-    def full_name(cls):
+    def full_name(self):
         return case(
-            [(and_(cls.first_name != None, cls.last_name != None),  # noqa: E711 - SQLAlchemy IS NOT NULL
-              func.concat(cls.first_name, ' ', cls.last_name))],
-            else_=cls.username
+            [(and_(self.first_name != None, self.last_name != None),  # noqa: E711 - SQLAlchemy IS NOT NULL
+              func.concat(self.first_name, ' ', self.last_name))],
+            else_=self.username
         )
 
     @hybrid_method
@@ -185,8 +179,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         return any(role.name == role_name for role in self.roles)
 
     @has_role.expression
-    def has_role(cls, role_name):
-        return cls.roles.any(Role.name == role_name)
+    def has_role(self, role_name):
+        return self.roles.any(Role.name == role_name)
 
     # Validation
     @validates('email')
@@ -280,10 +274,10 @@ class Product(Base, TimestampMixin):
         return 0
 
     @profit_margin.expression
-    def profit_margin(cls):
+    def profit_margin(self):
         return case(
-            [(and_(cls.cost != None, cls.price != None, cls.price > 0),  # noqa: E711 - SQLAlchemy IS NOT NULL
-              ((cls.price - cls.cost) / cls.price) * 100)],
+            [(and_(self.cost != None, self.price != None, self.price > 0),  # noqa: E711 - SQLAlchemy IS NOT NULL
+              ((self.price - self.cost) / self.price) * 100)],
             else_=0
         )
 
@@ -292,9 +286,9 @@ class Product(Base, TimestampMixin):
         return sum(wa.quantity for wa in self.warehouse_associations)
 
     @total_stock.expression
-    def total_stock(cls):
+    def total_stock(self):
         return select([func.sum(ProductWarehouse.quantity)])\
-            .where(ProductWarehouse.product_id == cls.id)\
+            .where(ProductWarehouse.product_id == self.id)\
             .label('total_stock')
 
     @hybrid_property
@@ -304,9 +298,9 @@ class Product(Base, TimestampMixin):
         return None
 
     @average_rating.expression
-    def average_rating(cls):
+    def average_rating(self):
         return select([func.avg(Review.rating)])\
-            .where(and_(Review.reviewable_id == cls.id,
+            .where(and_(Review.reviewable_id == self.id,
                        Review.reviewable_type == 'Product'))\
             .label('average_rating')
 
@@ -320,9 +314,8 @@ class Product(Base, TimestampMixin):
         if key == 'price' and self.cost:
             if value < self.cost * 1.1:  # Minimum 10% markup
                 raise ValueError("Price must be at least 10% above cost")
-        elif key == 'cost' and self.price:
-            if self.price < value * 1.1:
-                raise ValueError("Cost would result in less than 10% markup")
+        elif key == 'cost' and self.price and self.price < value * 1.1:
+            raise ValueError("Cost would result in less than 10% markup")
 
         return value
 

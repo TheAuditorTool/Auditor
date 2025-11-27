@@ -35,43 +35,8 @@ METADATA = RuleMetadata(
 )
 
 
-def register_taint_patterns(taint_registry):
-    """Register GitHub Actions taint patterns for flow analysis.
-
-    This function is called by the orchestrator to register GitHub Actions
-    specific taint sources (untrusted PR/issue data) and sinks (shell execution).
-
-    Args:
-        taint_registry: TaintRegistry instance from orchestrator
-    """
-
-    PR_SOURCES = [
-        "github.event.pull_request.title",
-        "github.event.pull_request.body",
-        "github.event.pull_request.head.ref",
-        "github.event.pull_request.head.label",
-        "github.event.issue.title",
-        "github.event.issue.body",
-        "github.event.comment.body",
-        "github.event.review.body",
-        "github.event.head_commit.message",
-        "github.head_ref",
-    ]
-
-    for source in PR_SOURCES:
-        taint_registry.register_source(source, "github", "github")
-
-    GITHUB_SINKS = [
-        "run",
-        "shell",
-        "bash",
-    ]
-
-    for sink in GITHUB_SINKS:
-        taint_registry.register_sink(sink, "command_execution", "github")
-
-
-UNTRUSTED_PATHS: set[str] = {
+# Taint analysis pattern constants - untrusted PR/issue data sources
+PR_SOURCES = frozenset([
     "github.event.pull_request.title",
     "github.event.pull_request.body",
     "github.event.pull_request.head.ref",
@@ -82,7 +47,46 @@ UNTRUSTED_PATHS: set[str] = {
     "github.event.review.body",
     "github.event.head_commit.message",
     "github.head_ref",
-}
+])
+
+
+# Taint analysis pattern constants - GitHub Actions shell execution sinks
+GITHUB_SINKS = frozenset([
+    "run",
+    "shell",
+    "bash",
+])
+
+
+def register_taint_patterns(taint_registry):
+    """Register GitHub Actions taint patterns for flow analysis.
+
+    This function is called by the orchestrator to register GitHub Actions
+    specific taint sources (untrusted PR/issue data) and sinks (shell execution).
+
+    Args:
+        taint_registry: TaintRegistry instance from orchestrator
+    """
+    for source in PR_SOURCES:
+        taint_registry.register_source(source, "github", "github")
+
+    for sink in GITHUB_SINKS:
+        taint_registry.register_sink(sink, "command_execution", "github")
+
+
+# Untrusted GitHub context paths that can be controlled by attackers
+UNTRUSTED_PATHS = frozenset([
+    "github.event.pull_request.title",
+    "github.event.pull_request.body",
+    "github.event.pull_request.head.ref",
+    "github.event.pull_request.head.label",
+    "github.event.issue.title",
+    "github.event.issue.body",
+    "github.event.comment.body",
+    "github.event.review.body",
+    "github.event.head_commit.message",
+    "github.head_ref",
+])
 
 
 def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFinding]:

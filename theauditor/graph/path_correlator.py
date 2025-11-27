@@ -10,6 +10,9 @@ from typing import Any
 
 from theauditor.graph.cfg_builder import CFGBuilder
 
+# Adaptive strategy threshold for pathfinding vs block clustering
+COMPLEXITY_THRESHOLD = 25
+
 
 class PathCorrelator:
     """Correlate findings based on shared execution paths in CFG.
@@ -131,8 +134,6 @@ class PathCorrelator:
         """
 
         finding_blocks = list(findings_to_blocks.keys())
-
-        COMPLEXITY_THRESHOLD = 25
 
         if len(finding_blocks) > COMPLEXITY_THRESHOLD:
             return self._fast_block_clustering(findings_to_blocks)

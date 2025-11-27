@@ -490,9 +490,9 @@ def purge_directory(
     safe_print(f"Skipping: {', '.join(sorted(skip_dirs))}")
     safe_print(f"Debt markers: {len(DEBT_MARKERS)} types tracked")
     if preserve_semantic:
-        safe_print(f"PRESERVING: Semantic comments (type:, noqa, pylint:, etc.)")
+        safe_print("PRESERVING: Semantic comments (type:, noqa, pylint:, etc.)")
     if preserve_copyright:
-        safe_print(f"PRESERVING: Copyright/license headers")
+        safe_print("PRESERVING: Copyright/license headers")
     safe_print("")
 
     for root, dirs, files in os.walk(directory):

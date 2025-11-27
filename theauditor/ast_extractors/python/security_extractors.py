@@ -63,6 +63,24 @@ DANGEROUS_FUNCTIONS = {
     "__import__",
 }
 
+# SQL method names for query extraction
+SQL_METHODS = frozenset([
+    "execute",
+    "executemany",
+    "executescript",
+    "query",
+    "raw",
+    "exec_driver_sql",
+    "select",
+    "insert",
+    "update",
+    "delete",
+])
+
+# JWT operation methods
+JWT_ENCODE_METHODS = frozenset(["encode"])
+JWT_DECODE_METHODS = frozenset(["decode"])
+
 
 def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
     """Extract authentication and authorization decorators.
@@ -491,21 +509,6 @@ def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return queries
 
-    SQL_METHODS = frozenset(
-        [
-            "execute",
-            "executemany",
-            "executescript",
-            "query",
-            "raw",
-            "exec_driver_sql",
-            "select",
-            "insert",
-            "update",
-            "delete",
-        ]
-    )
-
     for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
@@ -571,9 +574,6 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
     patterns = []
     if not isinstance(context.tree, ast.AST):
         return patterns
-
-    JWT_ENCODE_METHODS = frozenset(["encode"])
-    JWT_DECODE_METHODS = frozenset(["decode"])
 
     for node in context.walk_tree():
         if not isinstance(node, ast.Call):

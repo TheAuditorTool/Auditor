@@ -5,20 +5,14 @@ import random
 import time
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
-import requests
-from celery import Celery, Task, chain, chord, group, signature
-from celery.exceptions import MaxRetriesExceededError, Retry
-from celery.result import AsyncResult, GroupResult
+from celery import Celery, Task, chain, chord, group
+from celery.exceptions import Retry
 from celery.signals import (
-    before_task_publish,
     task_failure,
-    task_postrun,
     task_prerun,
-    task_retry,
-    task_revoked,
     task_success,
 )
 from celery.utils.log import get_task_logger
