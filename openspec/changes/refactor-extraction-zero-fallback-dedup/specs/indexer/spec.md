@@ -10,12 +10,13 @@ Duplicates are identified by unique identity keys:
 - Function Returns: `(file_path, line, function_name)`
 - Environment Variable Usage: `(file_path, line, var_name, access_type)`
 - Files: `(path,)`
+- Nginx Configs: `(file_path, block_type, block_context)`
 
 When a duplicate is detected, the system MUST raise a `ValueError` with:
 - Error type: "EXTRACTOR BUG"
 - File path where duplicate occurred
 - Identity key that was duplicated
-- Reference to the fix pattern (`typescript_impl.py:493-505`)
+- Reference to the fix pattern (`typescript_impl.py:535-545`)
 
 #### Scenario: Duplicate assignment detected
 - **WHEN** an extractor produces two assignments with the same `(file_path, line, target_var)` identity
@@ -156,7 +157,10 @@ Every data anomaly MUST result in an exception that halts the pipeline.
 ### Requirement: Deduplication in Storage Layer
 **Reason**: Deduplication masks extractor bugs by silently dropping data. This causes incomplete analysis results.
 
-**Migration**: Extractors must be fixed to not produce duplicates. Use `visited_nodes` pattern (see `typescript_impl.py:493-505`).
+**Migration**: Extractors must be fixed to not produce duplicates. Use language-appropriate `visited_nodes` patterns:
+- TypeScript/JS: `typescript_impl.py:535-545` - `node.get("line"), node.get("kind")`
+- Python: `node.lineno, type(node).__name__`
+- Rust/HCL: `node.start_point[0], node.type`
 
 ### Requirement: Deduplication in Database Layer
 **Reason**: The `add_file` method's `if not any(...)` check is a fallback that hides upstream bugs.

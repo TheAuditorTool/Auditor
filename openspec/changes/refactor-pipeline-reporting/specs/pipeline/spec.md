@@ -7,7 +7,7 @@
 The pipeline final status SHALL be determined by querying the findings_consolidated database table directly, not by reading JSON artifact files.
 
 #### Scenario: Database query for aggregation
-- **WHEN** the pipeline generates final status (pipelines.py around line 1645)
+- **WHEN** the pipeline generates final status (pipelines.py around line 1588)
 - **THEN** status SHALL be determined by querying findings_consolidated table
 - **AND** the query SHALL use `SELECT severity, COUNT(*) FROM findings_consolidated WHERE tool IN (...) GROUP BY severity`
 - **AND** no JSON files SHALL be read for status determination
@@ -24,10 +24,10 @@ The pipeline final status SHALL be determined by querying the findings_consolida
 - **WHEN** findings_consolidated contains critical severity findings from security tools
 - **THEN** final status SHALL indicate "[CRITICAL]" (not "[CLEAN]")
 - **AND** exit code SHALL be CRITICAL_SEVERITY
-- **AND** findings breakdown SHALL show actual counts (e.g., Critical: 226, High: 4177)
+- **AND** findings breakdown SHALL show actual counts from database (not zeros)
 
 #### Scenario: Return dict structure preserved
-- **WHEN** run_full_pipeline() completes (pipelines.py line 1731)
+- **WHEN** run_full_pipeline() completes (pipelines.py line 1677)
 - **THEN** return dict SHALL include findings.critical, findings.high, findings.medium, findings.low
 - **AND** findings.total_vulnerabilities SHALL equal sum of severity counts
 - **AND** structure SHALL be identical to current structure for full.py and journal.py compatibility
@@ -43,7 +43,7 @@ JSON files in .pf/raw/ SHALL be write-only artifacts for human inspection and SH
 - **THEN** the pipeline SHALL NOT read patterns.json (formerly misnamed as findings.json)
 - **AND** the pipeline SHALL NOT read taint_analysis.json for status aggregation
 - **AND** the pipeline SHALL NOT read vulnerabilities.json for status aggregation
-- **AND** the pipeline SHALL NOT use json.load() in the aggregation code section (lines 1645-1713)
+- **AND** the pipeline SHALL NOT use json.load() in the aggregation code section (lines 1588-1660)
 - **AND** JSON files SHALL continue to be written for human inspection
 
 ### Requirement: Zero Fallback Status Logic
@@ -84,9 +84,9 @@ A helper function SHALL encapsulate the database query logic.
 **Reason**: Violates ZERO FALLBACK policy - silent failures hid the "[CLEAN]" bug for unknown duration
 
 **What was removed**:
-- try/except blocks around taint_analysis.json reading (lines 1655-1668)
-- try/except blocks around vulnerabilities.json reading (lines 1672-1690)
-- try/except blocks around findings.json reading (lines 1695-1713)
+- try/except blocks around taint_analysis.json reading (lines 1596-1612)
+- try/except blocks around vulnerabilities.json reading (lines 1616-1636)
+- try/except blocks around findings.json reading (lines 1640-1660)
 - All "continue without stats" fallback comments
 
 **Migration**:
@@ -99,6 +99,6 @@ A helper function SHALL encapsulate the database query logic.
 **Reason**: File doesn't exist - was always reading non-existent file
 
 **What was removed**:
-- Line 1694: `patterns_path = Path(root) / ".pf" / "raw" / "findings.json"`
+- Line 1638: `patterns_path = Path(root) / ".pf" / "raw" / "findings.json"`
 - The actual file is `patterns.json` but this code path never worked
 - No migration needed - this was dead code producing zero findings

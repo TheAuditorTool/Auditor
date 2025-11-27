@@ -7,12 +7,12 @@
 ## 0. Verification (Prime Directive - Complete Before Any Implementation)
 
 ### 0.1 Verify Deduplication Locations
-- [ ] **0.1.1** Read `core_storage.py` and confirm dedup blocks at lines 294-302, 388-396, 553-561
+- [ ] **0.1.1** Read `core_storage.py` and confirm dedup blocks at lines 351-359, 456-464, 615-623
   - **HOW**: Open file, search for `seen = set()`, verify each location matches Pre-Implementation Plan
   - **WHY**: Ensure we're editing the correct code - wrong line numbers could cause partial fix
   - **EXPECTED**: 3 distinct `seen = set()` blocks with `if key not in seen:` pattern
 
-- [ ] **0.1.2** Read `core_database.py` and confirm dedup at lines 28-30
+- [ ] **0.1.2** Read `core_database.py` and confirm dedup at lines 22-24
   - **HOW**: Open file, search for `if not any(item[0] == path`
   - **WHY**: This is the `add_file` method's fallback logic
   - **EXPECTED**: Single check before `batch.append((path, sha256, ext, bytes_size, loc))`
@@ -23,12 +23,12 @@
   - **EXPECTED**: Zero matches (file is dead code)
 
 - [ ] **0.1.4** Verify existing `visited_nodes` pattern in extractors
-  - **HOW**: Read `typescript_impl.py:493-505` and `module_framework.js:149-163`
+  - **HOW**: Read `typescript_impl.py:535-545` and `module_framework.js:149-163`
   - **WHY**: This is the reference pattern for fixing extractor bugs when Phase 1 crashes
-  - **EXPECTED**: Pattern uses `(line, col, kind)` tuple as node identity
+  - **EXPECTED**: Pattern uses `(line, column, kind)` tuple as node identity
 
 ### 0.2 Verify Flush Order
-- [ ] **0.2.1** Read `base_database.py` flush_order list (lines 294-437)
+- [ ] **0.2.1** Read `base_database.py` flush_order list (lines 266-440)
   - **HOW**: Open file, locate `flush_order = [` variable
   - **WHY**: FK enforcement (Phase 3) requires correct parent-before-child order
   - **EXPECTED**: `files` appears before `symbols`, `symbols` before `assignments`
@@ -43,15 +43,15 @@
 ## 1. Phase 1: Truth Serum - Remove Deduplication Fallbacks
 
 ### 1.1 Modify `_store_assignments` in `core_storage.py`
-- [ ] **1.1.1** Locate the deduplication block (lines 294-305)
-  - **HOW**: Open `theauditor/indexer/storage/core_storage.py`, go to line 294
+- [ ] **1.1.1** Locate the deduplication block (lines 351-364)
+  - **HOW**: Open `theauditor/indexer/storage/core_storage.py`, go to line 351
   - **WHY**: This is the first of 3 dedup blocks to convert
   - **CURRENT CODE**:
     ```python
     seen = set()
     deduplicated = []
     for assignment in assignments:
-        key = (file_path, assignment['line'], assignment['target_var'])
+        key = (file_path, assignment["line"], assignment["target_var"])
         if key not in seen:
             seen.add(key)
             deduplicated.append(assignment)
@@ -72,31 +72,31 @@
                 f"  File: {file_path}\n"
                 f"  Identity: {key}\n"
                 f"  Fix extractor logic to visit nodes only once.\n"
-                f"  Reference: typescript_impl.py:493-505 for visited_nodes pattern."
+                f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
             )
         seen.add(key)
     ```
   - **WHY**: Hard fail exposes extractor bugs that were previously hidden
   - **NOTE**: Keep the `seen.add(key)` for duplicate detection, but iterate over original `assignments` list
 
-- [ ] **1.1.3** Update the loop that processes assignments (lines 307-323)
+- [ ] **1.1.3** Update the loop that processes assignments (lines 366-384)
   - **HOW**: Change `for assignment in deduplicated:` to `for assignment in assignments:`
   - **WHY**: We no longer have a `deduplicated` list - use original
   - **VERIFY**: The storage logic itself (db_manager.add_assignment) remains unchanged
 
-- [ ] **1.1.4** Remove the info log about removed duplicates (lines 304-305)
+- [ ] **1.1.4** Remove the info log about removed duplicates (lines 361-364)
   - **HOW**: Delete the `if len(deduplicated) < len(assignments):` block
   - **WHY**: No longer relevant - duplicates now crash instead of being filtered
 
 ### 1.2 Modify `_store_returns` in `core_storage.py`
-- [ ] **1.2.1** Locate the deduplication block (lines 388-399)
-  - **HOW**: Open file, go to line 388
+- [ ] **1.2.1** Locate the deduplication block (lines 456-469)
+  - **HOW**: Open file, go to line 456
   - **CURRENT CODE**:
     ```python
     seen = set()
     deduplicated = []
     for ret in returns:
-        key = (file_path, ret['line'], ret['function_name'])
+        key = (file_path, ret["line"], ret["function_name"])
         if key not in seen:
             seen.add(key)
             deduplicated.append(ret)
@@ -117,12 +117,12 @@
                 f"  File: {file_path}\n"
                 f"  Identity: {key}\n"
                 f"  Fix extractor logic to visit nodes only once.\n"
-                f"  Reference: typescript_impl.py:493-505 for visited_nodes pattern."
+                f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
             )
         seen.add(key)
     ```
 
-- [ ] **1.2.3** Update the loop (lines 401-417)
+- [ ] **1.2.3** Update the loop (lines 471-489)
   - **HOW**: Change `for ret in deduplicated:` to `for ret in returns:`
   - **VERIFY**: Storage logic unchanged
 
@@ -130,14 +130,14 @@
   - **HOW**: Delete the `if len(deduplicated) < len(returns):` block
 
 ### 1.3 Modify `_store_env_var_usage` in `core_storage.py`
-- [ ] **1.3.1** Locate the deduplication block (lines 553-564)
-  - **HOW**: Open file, go to line 553
+- [ ] **1.3.1** Locate the deduplication block (lines 615-628)
+  - **HOW**: Open file, go to line 615
   - **CURRENT CODE**:
     ```python
     seen = set()
     deduplicated = []
     for usage in env_var_usage:
-        key = (file_path, usage['line'], usage['var_name'], usage['access_type'])
+        key = (file_path, usage["line"], usage["var_name"], usage["access_type"])
         if key not in seen:
             seen.add(key)
             deduplicated.append(usage)
@@ -158,20 +158,20 @@
                 f"  File: {file_path}\n"
                 f"  Identity: {key}\n"
                 f"  Fix extractor logic to visit nodes only once.\n"
-                f"  Reference: typescript_impl.py:493-505 for visited_nodes pattern."
+                f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
             )
         seen.add(key)
     ```
 
-- [ ] **1.3.3** Update the loop (lines 566-577)
+- [ ] **1.3.3** Update the loop (lines 630-641)
   - **HOW**: Change `for usage in deduplicated:` to `for usage in env_var_usage:`
 
 - [ ] **1.3.4** Remove the info log about removed duplicates
   - **HOW**: Delete the `if len(deduplicated) < len(env_var_usage):` block
 
 ### 1.4 Modify `add_file` in `core_database.py`
-- [ ] **1.4.1** Locate the deduplication check (lines 22-31)
-  - **HOW**: Open `theauditor/indexer/database/core_database.py`, go to line 22
+- [ ] **1.4.1** Locate the deduplication check (lines 15-24)
+  - **HOW**: Open `theauditor/indexer/database/core_database.py`, go to line 15
   - **CURRENT CODE**:
     ```python
     def add_file(self, path: str, sha256: str, ext: str, bytes_size: int, loc: int):
@@ -180,7 +180,7 @@
         Deduplicates paths to prevent UNIQUE constraint violations.
         This can happen with symlinks, junction points, or case sensitivity issues.
         """
-        batch = self.generic_batches['files']
+        batch = self.generic_batches["files"]
         if not any(item[0] == path for item in batch):
             batch.append((path, sha256, ext, bytes_size, loc))
     ```
@@ -199,41 +199,98 @@
     ```
   - **WHY**: Symlink handling belongs in FileWalker, not database layer
 
-### 1.5 Run Tests and Fix Extractor Bugs
-- [ ] **1.5.1** Run test suite
+### 1.5 Modify `add_nginx_config` in `infrastructure_database.py`
+- [ ] **1.5.1** Locate the deduplication check (lines 119-122)
+  - **HOW**: Open `theauditor/indexer/database/infrastructure_database.py`, go to line 119
+  - **CURRENT CODE**:
+    ```python
+    batch = self.generic_batches["nginx_configs"]
+    batch_key = (file_path, block_type, block_context)
+    if not any(b[:3] == batch_key for b in batch):
+        batch.append((file_path, block_type, block_context, directives_json, level))
+    ```
+
+- [ ] **1.5.2** Replace with direct insert
+  - **HOW**: Replace the dedup check with:
+    ```python
+    batch = self.generic_batches["nginx_configs"]
+    # ZERO FALLBACK POLICY: No deduplication.
+    # If extractor sends same nginx config twice, SQLite UNIQUE constraint catches it.
+    batch.append((file_path, block_type, block_context, directives_json, level))
+    ```
+  - **WHY**: Deduplication masks extractor bugs
+
+### 1.6 Run Tests and Fix Extractor Bugs
+- [ ] **1.6.1** Run test suite
   - **HOW**: `cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -m pytest tests/ -v --tb=short`
   - **WHY**: Phase 1 changes will likely cause crashes exposing extractor bugs
   - **EXPECTED**: ValueError exceptions with "EXTRACTOR BUG" messages
 
-- [ ] **1.5.2** For each crash, identify and fix the extractor
+- [ ] **1.6.2** For each crash, identify and fix the extractor using LANGUAGE-APPROPRIATE pattern
   - **HOW**: Read the error message which specifies file and identity key
-  - **PATTERN**: Apply `visited_nodes` pattern from `typescript_impl.py:493-505`:
+  - **CRITICAL**: Use the correct pattern for the language - see design.md Decision 4 for polyglot reference
+
+  **TypeScript/JS Pattern** (`typescript_impl.py:535-545`):
     ```python
     visited_nodes = set()
-    for node in nodes:
-        node_id = (node.get('line'), node.get('col'), node.get('kind'))
+    def traverse(node, depth=0):
+        node_id = (node.get("line"), node.get("column", 0), node.get("kind"))
+        if node_id in visited_nodes:
+            return
+        visited_nodes.add(node_id)
+    ```
+
+  **Python AST Pattern** (for `ast_extractors/python/*.py`):
+    ```python
+    visited_nodes = set()
+    for node in ast.walk(tree):
+        node_id = (getattr(node, 'lineno', 0), getattr(node, 'col_offset', 0), type(node).__name__)
         if node_id in visited_nodes:
             continue
         visited_nodes.add(node_id)
-        # ... process node ...
     ```
-  - **LOCATIONS TO CHECK**:
-    - `theauditor/ast_extractors/typescript_impl.py` - TypeScript extraction
-    - `theauditor/ast_extractors/javascript/*.js` - JavaScript AST processing
-    - `theauditor/indexer/extractors/python.py` - Python extraction
 
-- [ ] **1.5.3** Re-run tests until all pass
-  - **HOW**: Repeat 1.5.1 and 1.5.2 until `pytest` exits 0
+  **Rust/HCL (tree-sitter) Pattern** (for `rust_impl.py`, `hcl_impl.py`):
+    ```python
+    visited_nodes = set()
+    def traverse(node):
+        node_id = (node.start_point[0], node.start_point[1], node.type)
+        if node_id in visited_nodes:
+            return
+        visited_nodes.add(node_id)
+    ```
+
+  - **POLYGLOT LOCATIONS TO CHECK**:
+    - **TypeScript**: `theauditor/ast_extractors/typescript_impl.py`
+    - **JavaScript**: `theauditor/ast_extractors/javascript/*.js` (10 files)
+    - **Python Coordinator**: `theauditor/indexer/extractors/python.py`
+    - **Python AST**: `theauditor/ast_extractors/python_impl.py`
+    - **Python Specialized** (30+ files):
+      - `theauditor/ast_extractors/python/fundamental_extractors.py`
+      - `theauditor/ast_extractors/python/data_flow_extractors.py`
+      - `theauditor/ast_extractors/python/control_flow_extractors.py`
+      - `theauditor/ast_extractors/python/core_extractors.py`
+      - `theauditor/ast_extractors/python/orm_extractors.py`
+      - `theauditor/ast_extractors/python/security_extractors.py`
+      - `theauditor/ast_extractors/python/async_extractors.py`
+      - `theauditor/ast_extractors/python/class_feature_extractors.py`
+      - `theauditor/ast_extractors/python/*.py` (all others)
+    - **Rust**: `theauditor/ast_extractors/rust_impl.py`
+    - **HCL/Terraform**: `theauditor/ast_extractors/hcl_impl.py`
+    - **Tree-sitter**: `theauditor/ast_extractors/treesitter_impl.py`
+
+- [ ] **1.6.3** Re-run tests until all pass
+  - **HOW**: Repeat 1.6.1 and 1.6.2 until `pytest` exits 0
   - **WHY**: Must have clean test suite before Phase 2
 
-- [ ] **1.5.4** Run full pipeline on fixture
+- [ ] **1.6.4** Run full pipeline on fixture
   - **HOW**: `cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "from theauditor.indexer import IndexerOrchestrator; orch = IndexerOrchestrator('tests/fixtures/typescript'); orch.run()"`
   - **WHY**: Integration test beyond unit tests
 
-### 1.6 Commit Phase 1
-- [ ] **1.6.1** Create commit with all Phase 1 changes
+### 1.7 Commit Phase 1
+- [ ] **1.7.1** Create commit with all Phase 1 changes
   - **HOW**: `git add -A && git commit -m "refactor(extraction): Phase 1 - replace deduplication with hard fail per ZERO FALLBACK"`
-  - **FILES CHANGED**: `core_storage.py`, `core_database.py`, possibly extractor files
+  - **FILES CHANGED**: `core_storage.py`, `core_database.py`, `infrastructure_database.py`, possibly extractor files
   - **NOTE**: Do NOT include "Co-authored-by" per CLAUDE.md
 
 ---
@@ -241,8 +298,8 @@
 ## 2. Phase 2: Bouncer - Add Type Assertions at Storage Boundary
 
 ### 2.1 Add Type Assertions to `_store_symbols`
-- [ ] **2.1.1** Locate method (lines 193-215 in `core_storage.py`)
-  - **HOW**: Open file, find `def _store_symbols(`
+- [ ] **2.1.1** Locate method in `core_storage.py`
+  - **HOW**: Open file, find `def _store_symbols(` (search by function name, not line number)
 
 - [ ] **2.1.2** Add validation block before storage loop
   - **HOW**: Insert after `for idx, symbol in enumerate(symbols):`:
@@ -320,8 +377,8 @@
     ```
 
 ### 2.3 Add Type Assertions to `_store_function_calls`
-- [ ] **2.3.1** Add validation after existing TypeError checks (lines 364-374)
-  - **HOW**: Extend existing checks with:
+- [ ] **2.3.1** Add validation after existing TypeError checks
+  - **HOW**: Find `def _store_function_calls(` and extend existing checks with:
     ```python
     # Additional type assertions (after existing callee_file_path/param_name checks)
     if not isinstance(call.get('line'), int) or call['line'] < 1:
@@ -402,7 +459,7 @@
 ## 3. Phase 3: Lockdown - Enable Foreign Key Enforcement
 
 ### 3.1 Verify Flush Order in `base_database.py`
-- [ ] **3.1.1** Read flush_order list (lines 294-437)
+- [ ] **3.1.1** Read flush_order list (lines 266-440)
   - **HOW**: Open file, verify order follows parent-before-child pattern
   - **REQUIRED ORDER**:
     ```python
@@ -424,8 +481,8 @@
   - **WHY**: FK enforcement will fail if children inserted before parents
 
 ### 3.2 Enable Foreign Keys in `base_database.py`
-- [ ] **3.2.1** Locate `__init__` method (around line 49)
-  - **HOW**: Open file, find `def __init__(self, db_path: str,`
+- [ ] **3.2.1** Locate `__init__` method
+  - **HOW**: Open file, find `def __init__(self, db_path: str,` (search by function name)
 
 - [ ] **3.2.2** Add FK pragma after connection
   - **HOW**: Insert after `self.conn = sqlite3.connect(db_path)`:
@@ -437,8 +494,8 @@
   - **WHY**: SQLite FKs are OFF by default, allowing orphaned records
 
 ### 3.3 Enhance Error Messages in `flush_batch`
-- [ ] **3.3.1** Locate exception handler (lines 556-591)
-  - **HOW**: Find `except sqlite3.Error as e:` block
+- [ ] **3.3.1** Locate exception handler in `flush_batch` method
+  - **HOW**: Find `except sqlite3.Error as e:` block within `flush_batch`
 
 - [ ] **3.3.2** Replace with specific IntegrityError handling
   - **HOW**: Replace the exception block with:
@@ -557,10 +614,19 @@
 |------|-------|---------|
 | `theauditor/indexer/storage/core_storage.py` | 1, 2 | Remove dedup, add assertions |
 | `theauditor/indexer/database/core_database.py` | 1 | Remove `add_file` dedup |
+| `theauditor/indexer/database/infrastructure_database.py` | 1 | Remove `add_nginx_config` dedup |
 | `theauditor/indexer/database/base_database.py` | 3 | FK pragma, flush order, error messages |
 | `theauditor/indexer/schemas/generated_validators.py` | 2 | DELETE |
-| `theauditor/ast_extractors/typescript_impl.py` | 1 (if crashes) | Add `visited_nodes` pattern |
-| `theauditor/ast_extractors/javascript/*.js` | 1 (if crashes) | Add `visitedNodes` pattern |
+
+### POLYGLOT Extractors (if Phase 1 crashes expose duplicates)
+| Language | Files | Pattern |
+|----------|-------|---------|
+| TypeScript | `ast_extractors/typescript_impl.py` | `node.get("line"), node.get("column"), node.get("kind")` |
+| JavaScript | `ast_extractors/javascript/*.js` (10 files) | `node.loc.start.line, node.loc.start.column, node.type` |
+| Python | `ast_extractors/python_impl.py` + `python/*.py` (30+ files) | `node.lineno, node.col_offset, type(node).__name__` |
+| Rust | `ast_extractors/rust_impl.py` | `node.start_point[0], node.start_point[1], node.type` |
+| HCL | `ast_extractors/hcl_impl.py` | `node.start_point[0], node.start_point[1], node.type` |
+| Generic | `ast_extractors/treesitter_impl.py` | tree-sitter convention |
 
 ### Test Commands
 ```bash

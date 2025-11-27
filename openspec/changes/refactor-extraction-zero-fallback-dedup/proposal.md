@@ -8,9 +8,10 @@ TheAuditor's extraction pipeline currently optimizes for "not crashing" instead 
 
 The extraction pipeline has three fallback patterns that violate CLAUDE.md's ZERO FALLBACK POLICY:
 
-1. **Storage-level deduplication** (`core_storage.py:294-305, 388-399, 551-564`): Silently drops duplicate assignments, returns, and env_var_usage instead of failing on extractor bugs
-2. **Database-level deduplication** (`core_database.py:28-30`): `add_file()` checks `if not any(item[0] == path...)` before appending
-3. **Dead validation code** (`generated_validators.py`): Validators exist but are never called - worse than no validation
+1. **Storage-level deduplication** (`core_storage.py:351-364, 456-469, 615-628`): Silently drops duplicate assignments, returns, and env_var_usage instead of failing on extractor bugs
+2. **Database-level deduplication** (`core_database.py:15-24`): `add_file()` checks `if not any(item[0] == path...)` before appending
+3. **Database-level deduplication** (`infrastructure_database.py:119-122`): `add_nginx_config()` checks `if not any(b[:3] == batch_key...)` before appending
+4. **Dead validation code** (`generated_validators.py`): Validators exist but are never called - worse than no validation
 
 ### Impact of Current Behavior
 
@@ -54,10 +55,20 @@ The extraction pipeline has three fallback patterns that violate CLAUDE.md's ZER
 |------|---------|
 | `theauditor/indexer/storage/core_storage.py` | Remove dedup (3 locations), add type assertions |
 | `theauditor/indexer/database/core_database.py` | Remove `add_file` dedup check |
+| `theauditor/indexer/database/infrastructure_database.py` | Remove `add_nginx_config` dedup check |
 | `theauditor/indexer/database/base_database.py` | Add FK pragma, enforce flush order, enhance errors |
 | `theauditor/indexer/schemas/generated_validators.py` | **DELETE** |
-| `theauditor/ast_extractors/typescript_impl.py` | Potential fixes for exposed extractor bugs |
-| `theauditor/ast_extractors/javascript/*.js` | Potential fixes for exposed extractor bugs |
+
+### POLYGLOT Impact - Extractors That May Need Fixes
+When deduplication is removed, ANY extractor producing duplicates will crash. Use language-appropriate fix patterns:
+
+| Language | Files | AST Pattern |
+|----------|-------|-------------|
+| TypeScript | `ast_extractors/typescript_impl.py` | `node.get("line"), node.get("kind")` |
+| JavaScript | `ast_extractors/javascript/*.js` (10 files) | `node.loc.start.line, node.type` |
+| Python | `ast_extractors/python_impl.py` + `python/*.py` (30+ files) | `node.lineno, type(node).__name__` |
+| Rust | `ast_extractors/rust_impl.py` | `node.start_point[0], node.type` |
+| HCL | `ast_extractors/hcl_impl.py` | tree-sitter convention |
 
 ### Risk Assessment
 | Risk | Likelihood | Impact | Mitigation |
