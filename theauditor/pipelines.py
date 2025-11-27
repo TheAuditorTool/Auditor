@@ -40,6 +40,11 @@ COMMAND_TIMEOUTS = {
 
 DEFAULT_TIMEOUT = int(os.environ.get("THEAUDITOR_TIMEOUT_SECONDS", "900"))
 
+# Tool categories for final status determination
+# Security tools produce actual vulnerabilities (affect exit code)
+# Quality tools (ruff, eslint, mypy) are informational only
+SECURITY_TOOLS = frozenset({'patterns', 'taint', 'terraform', 'cdk'})
+
 
 def get_command_timeout(cmd: list[str]) -> int:
     """
@@ -239,6 +244,51 @@ async def run_chain_async(
         "output": "\n".join(chain_output),
         "errors": "\n".join(chain_errors) if chain_errors else "",
         "elapsed": elapsed,
+    }
+
+
+def _get_findings_from_db(root: Path) -> dict:
+    """Query findings_consolidated for severity counts.
+
+    ZERO FALLBACK: No try/except. If DB query fails, pipeline crashes.
+    This exposes bugs instead of hiding them with false "[CLEAN]" status.
+
+    Args:
+        root: Project root path containing .pf/ directory
+
+    Returns:
+        Dict with critical, high, medium, low, total_vulnerabilities counts.
+        Only counts SECURITY_TOOLS (patterns, taint, terraform, cdk).
+        Quality tools (ruff, eslint, mypy) are excluded from security status.
+    """
+    import sqlite3
+
+    db_path = root / ".pf" / "repo_index.db"
+
+    # ZERO FALLBACK: If DB doesn't exist, this crashes with FileNotFoundError
+    # That's correct behavior - can't report findings without a database
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    # Query security tools only
+    # Uses parameterized query to avoid SQL injection (even though we control the values)
+    placeholders = ','.join('?' * len(SECURITY_TOOLS))
+    cursor.execute(f"""
+        SELECT severity, COUNT(*)
+        FROM findings_consolidated
+        WHERE tool IN ({placeholders})
+        GROUP BY severity
+    """, tuple(SECURITY_TOOLS))
+
+    counts = dict(cursor.fetchall())
+    conn.close()
+
+    return {
+        'critical': counts.get('critical', 0),
+        'high': counts.get('high', 0),
+        'medium': counts.get('medium', 0),
+        'low': counts.get('low', 0),
+        'total_vulnerabilities': sum(counts.values())
     }
 
 
@@ -1527,7 +1577,7 @@ async def run_full_pipeline(
         write_summary("  * .pf/allfiles.md - Complete file list")
         write_summary("  * .pf/pipeline.log - Full execution log")
         write_summary("  * .pf/fce.log - FCE detailed output (if FCE was run)")
-        write_summary("  * .pf/findings.json - Pattern detection results")
+        write_summary("  * .pf/raw/patterns.json - Pattern detection results")
         write_summary("  * .pf/risk_scores.json - Risk analysis")
 
     write_summary("\n" + "=" * 60)
@@ -1585,79 +1635,14 @@ async def run_full_pipeline(
         except Exception as e:
             print(f"[WARNING] Could not clean status files: {e}", file=sys.stderr)
 
-    critical_findings = 0
-    high_findings = 0
-    medium_findings = 0
-    low_findings = 0
-    total_vulnerabilities = 0
-
-    taint_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
-    if taint_path.exists():
-        try:
-            import json
-
-            with open(taint_path, encoding="utf-8") as f:
-                taint_data = json.load(f)
-                if taint_data.get("success"):
-                    summary = taint_data.get("summary", {})
-                    critical_findings += summary.get("critical_count", 0)
-                    high_findings += summary.get("high_count", 0)
-                    medium_findings += summary.get("medium_count", 0)
-                    low_findings += summary.get("low_count", 0)
-                    total_vulnerabilities = taint_data.get("total_vulnerabilities", 0)
-        except Exception as e:
-            print(
-                f"[WARNING] Could not read taint analysis results from {taint_path}: {e}",
-                file=sys.stderr,
-            )
-
-    vuln_path = Path(root) / ".pf" / "raw" / "vulnerabilities.json"
-    if vuln_path.exists():
-        try:
-            import json
-
-            with open(vuln_path, encoding="utf-8") as f:
-                vuln_data = json.load(f)
-                if vuln_data.get("vulnerabilities"):
-                    for vuln in vuln_data["vulnerabilities"]:
-                        severity = vuln.get("severity", "").lower()
-                        if severity == "critical":
-                            critical_findings += 1
-                        elif severity == "high":
-                            high_findings += 1
-                        elif severity == "medium":
-                            medium_findings += 1
-                        elif severity == "low":
-                            low_findings += 1
-        except Exception as e:
-            print(
-                f"[WARNING] Could not read vulnerability scan results from {vuln_path}: {e}",
-                file=sys.stderr,
-            )
-
-    patterns_path = Path(root) / ".pf" / "raw" / "findings.json"
-    if patterns_path.exists():
-        try:
-            import json
-
-            with open(patterns_path, encoding="utf-8") as f:
-                patterns_data = json.load(f)
-
-                for finding in patterns_data.get("findings", []):
-                    severity = finding.get("severity", "").lower()
-                    if severity == "critical":
-                        critical_findings += 1
-                    elif severity == "high":
-                        high_findings += 1
-                    elif severity == "medium":
-                        medium_findings += 1
-                    elif severity == "low":
-                        low_findings += 1
-        except Exception as e:
-            print(
-                f"[WARNING] Could not read pattern results from {patterns_path}: {e}",
-                file=sys.stderr,
-            )
+    # Query findings from database (source of truth)
+    # ZERO FALLBACK: No try/except - if DB missing, crash is correct behavior
+    findings_data = _get_findings_from_db(Path(root))
+    critical_findings = findings_data['critical']
+    high_findings = findings_data['high']
+    medium_findings = findings_data['medium']
+    low_findings = findings_data['low']
+    total_vulnerabilities = findings_data['total_vulnerabilities']
 
     if journal:
         try:
