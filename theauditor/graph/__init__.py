@@ -21,8 +21,12 @@ try:
 except ImportError:
     INSIGHTS_AVAILABLE = False
     GraphInsights = None
-    check_insights_available = lambda: False
-    create_insights = lambda weights=None: None
+
+    def check_insights_available():
+        return False
+
+    def create_insights(weights=None):
+        return None
 
 __all__ = [
     "XGraphBuilder",

@@ -400,25 +400,24 @@ class RuntimeAnalyzer:
                         is_merge = True
                         break
 
-                if is_merge and args:
-                    if "..." in args:
-                        for source in self.patterns.USER_INPUT_SOURCES:
-                            if source in args:
-                                self.findings.append(
-                                    StandardFinding(
-                                        rule_name="prototype-pollution-spread",
-                                        message=f"Prototype pollution: {func} with spread of user input",
-                                        file_path=file,
-                                        line=line,
-                                        severity=Severity.HIGH,
-                                        category="runtime-security",
-                                        confidence=Confidence.HIGH,
-                                        snippet=f"{func}({args[:50]}...)"
-                                        if len(args) > 50
-                                        else f"{func}({args})",
-                                    )
+                if is_merge and args and "..." in args:
+                    for source in self.patterns.USER_INPUT_SOURCES:
+                        if source in args:
+                            self.findings.append(
+                                StandardFinding(
+                                    rule_name="prototype-pollution-spread",
+                                    message=f"Prototype pollution: {func} with spread of user input",
+                                    file_path=file,
+                                    line=line,
+                                    severity=Severity.HIGH,
+                                    category="runtime-security",
+                                    confidence=Confidence.HIGH,
+                                    snippet=f"{func}({args[:50]}...)"
+                                    if len(args) > 50
+                                    else f"{func}({args})",
                                 )
-                                break
+                            )
+                            break
 
             query = build_query(
                 "symbols",

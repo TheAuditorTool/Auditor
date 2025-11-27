@@ -594,20 +594,19 @@ def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
                 not key_value.startswith("${")
                 and not key_value.startswith("process.")
                 and key_value not in PLACEHOLDER_VALUES
-            ):
-                if len(key_value) > 10 and _is_likely_secret(key_value):
-                    findings.append(
-                        StandardFinding(
-                            rule_name="secret-api-key-in-url",
-                            message="API key hardcoded in URL parameter",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            category="security",
-                            confidence=Confidence.HIGH,
-                            cwe_id="CWE-598",
-                        )
+            ) and len(key_value) > 10 and _is_likely_secret(key_value):
+                findings.append(
+                    StandardFinding(
+                        rule_name="secret-api-key-in-url",
+                        message="API key hardcoded in URL parameter",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="security",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-598",
                     )
+                )
 
     return findings
 
@@ -737,9 +736,8 @@ def _is_sequential(s: str) -> bool:
 
     for pattern in SEQUENTIAL_PATTERNS:
         for i in range(len(pattern) - 4):
-            if pattern[i : i + 5] in s_lower:
-                if len(s) <= 10 or pattern[i : i + 5] * 2 in s_lower:
-                    return True
+            if pattern[i : i + 5] in s_lower and (len(s) <= 10 or pattern[i : i + 5] * 2 in s_lower):
+                return True
 
     return False
 
@@ -749,9 +747,8 @@ def _is_keyboard_walk(s: str) -> bool:
     s_lower = s.lower()
 
     for pattern in KEYBOARD_PATTERNS:
-        if pattern in s_lower:
-            if len(s) <= 10 or s_lower.count(pattern) * len(pattern) > len(s) / 2:
-                return True
+        if pattern in s_lower and (len(s) <= 10 or s_lower.count(pattern) * len(pattern) > len(s) / 2):
+            return True
 
     return False
 
@@ -825,20 +822,19 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFin
                 var_name = assignment_match.group(1)
                 value = assignment_match.group(2)
 
-                if any(kw in var_name.lower() for kw in SECRET_KEYWORDS):
-                    if _is_likely_secret(value):
-                        findings.append(
-                            StandardFinding(
-                                rule_name="secret-high-entropy",
-                                message=f'High-entropy string in variable "{var_name}"',
-                                file_path=relative_path,
-                                line=i,
-                                severity=Severity.HIGH,
-                                category="security",
-                                confidence=Confidence.MEDIUM,
-                                cwe_id="CWE-798",
-                            )
+                if any(kw in var_name.lower() for kw in SECRET_KEYWORDS) and _is_likely_secret(value):
+                    findings.append(
+                        StandardFinding(
+                            rule_name="secret-high-entropy",
+                            message=f'High-entropy string in variable "{var_name}"',
+                            file_path=relative_path,
+                            line=i,
+                            severity=Severity.HIGH,
+                            category="security",
+                            confidence=Confidence.MEDIUM,
+                            cwe_id="CWE-798",
                         )
+                    )
 
     except (OSError, UnicodeDecodeError):
         pass

@@ -187,14 +187,14 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
                             model_name = get_node_name(item.value)
                         elif target.id == "template_name":
                             template_name = _get_str_constant(item.value)
-                        elif target.id == "http_method_names":
-                            if isinstance(item.value, ast.List):
-                                methods = []
-                                for elt in item.value.elts:
-                                    method = _get_str_constant(elt)
-                                    if method:
-                                        methods.append(method)
-                                http_method_names = ",".join(methods)
+                        elif (target.id == "http_method_names" and
+                            isinstance(item.value, ast.List)):
+                            methods = []
+                            for elt in item.value.elts:
+                                method = _get_str_constant(elt)
+                                if method:
+                                    methods.append(method)
+                            http_method_names = ",".join(methods)
 
             elif isinstance(item, ast.FunctionDef):
                 if item.name == "dispatch":
@@ -267,11 +267,11 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
-                    if isinstance(target, ast.Name):
-                        if isinstance(item.value, ast.Call):
-                            field_type_name = get_node_name(item.value.func)
-                            if "Field" in field_type_name:
-                                field_count += 1
+                    if (isinstance(target, ast.Name) and
+                        isinstance(item.value, ast.Call)):
+                        field_type_name = get_node_name(item.value.func)
+                        if "Field" in field_type_name:
+                            field_count += 1
 
             elif isinstance(item, ast.ClassDef) and item.name == "Meta":
                 for meta_item in item.body:
@@ -280,9 +280,9 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
                             if isinstance(target, ast.Name) and target.id == "model":
                                 model_name = get_node_name(meta_item.value)
 
-            elif isinstance(item, ast.FunctionDef):
-                if item.name == "clean" or item.name.startswith("clean_"):
-                    has_custom_clean = True
+            elif (isinstance(item, ast.FunctionDef) and
+                item.name == "clean" or item.name.startswith("clean_")):
+                has_custom_clean = True
 
         forms.append(
             {
@@ -353,9 +353,9 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
                                 if keyword.arg == "required":
                                     if isinstance(keyword.value, ast.Constant):
                                         required = bool(keyword.value.value)
-                                elif keyword.arg == "max_length":
-                                    if isinstance(keyword.value, ast.Constant):
-                                        max_length = keyword.value.value
+                                elif (keyword.arg == "max_length" and
+                                    isinstance(keyword.value, ast.Constant)):
+                                    max_length = keyword.value.value
 
                             has_custom_validator = field_name in custom_validators
 
@@ -448,11 +448,10 @@ def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
                             search_fields = _extract_list_of_strings(item.value)
                         elif attr_name == "readonly_fields":
                             readonly_fields = _extract_list_of_strings(item.value)
-                        elif attr_name == "actions":
-                            if not (
-                                isinstance(item.value, ast.Constant) and item.value.value is None
-                            ):
-                                has_custom_actions = True
+                        elif attr_name == "actions" and not (
+                            isinstance(item.value, ast.Constant) and item.value.value is None
+                        ):
+                            has_custom_actions = True
 
             elif isinstance(item, ast.FunctionDef):
                 for decorator in item.decorator_list:

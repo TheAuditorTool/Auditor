@@ -642,9 +642,7 @@ def audit():
 
     for key in sorted(result.keys()):
         value = result[key]
-        if isinstance(value, list) and len(value) > 0:
-            keys_with_data.append(key)
-        elif isinstance(value, dict) and len(value) > 0:
+        if isinstance(value, list) and len(value) > 0 or isinstance(value, dict) and len(value) > 0:
             keys_with_data.append(key)
         else:
             keys_without_data.append(key)
@@ -677,11 +675,11 @@ def audit():
                 if discriminator_keys:
                     print("  VALUE SAMPLES (discriminators):")
                     for dk in discriminator_keys:
-                        values = sorted(list(set(
+                        values = sorted({
                             str(item.get(dk, ''))
                             for item in value
                             if item.get(dk)
-                        )))[:8]
+                        })[:8]
                         if values:
                             print(f"    {dk}: {values}")
 

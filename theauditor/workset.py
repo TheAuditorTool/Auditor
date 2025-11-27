@@ -34,10 +34,7 @@ def validate_diff_spec(diff_spec: str) -> list[str]:
             "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed."
         )
 
-    if ".." in diff_spec:
-        parts = diff_spec.split("..", 1)
-    else:
-        parts = [diff_spec]
+    parts = diff_spec.split("..", 1) if ".." in diff_spec else [diff_spec]
 
     return parts
 

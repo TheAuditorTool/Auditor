@@ -751,42 +751,41 @@ class ReactAnalyzer:
                 else:
                     has_modifying_method = False
 
-                if has_modifying_method:
-                    if "csrf" not in form_lower and "xsrf" not in form_lower:
-                        query_csrf = build_query(
-                            "assignments",
-                            ["target_var", "source_expr"],
-                            where="file = ? AND line BETWEEN ? AND ?",
-                        )
-                        cursor.execute(query_csrf, (file, line - 10, line + 10))
+                if has_modifying_method and "csrf" not in form_lower and "xsrf" not in form_lower:
+                    query_csrf = build_query(
+                        "assignments",
+                        ["target_var", "source_expr"],
+                        where="file = ? AND line BETWEEN ? AND ?",
+                    )
+                    cursor.execute(query_csrf, (file, line - 10, line + 10))
 
-                        has_csrf_nearby = False
-                        for target_var, source_expr in cursor.fetchall():
-                            target_lower = target_var.lower()
-                            source_lower = source_expr.lower()
-                            if (
-                                "csrf" in target_lower
-                                or "csrf" in source_lower
-                                or "xsrf" in target_lower
-                                or "xsrf" in source_lower
-                            ):
-                                has_csrf_nearby = True
-                                break
+                    has_csrf_nearby = False
+                    for target_var, source_expr in cursor.fetchall():
+                        target_lower = target_var.lower()
+                        source_lower = source_expr.lower()
+                        if (
+                            "csrf" in target_lower
+                            or "csrf" in source_lower
+                            or "xsrf" in target_lower
+                            or "xsrf" in source_lower
+                        ):
+                            has_csrf_nearby = True
+                            break
 
-                        if not has_csrf_nearby:
-                            self.findings.append(
-                                StandardFinding(
-                                    rule_name="react-missing-csrf",
-                                    message="Form submission without CSRF token",
-                                    file_path=file,
-                                    line=line,
-                                    severity=Severity.HIGH,
-                                    category="csrf",
-                                    confidence=Confidence.MEDIUM,
-                                    snippet="Form with POST/PUT/DELETE without CSRF",
-                                    cwe_id="CWE-352",
-                                )
+                    if not has_csrf_nearby:
+                        self.findings.append(
+                            StandardFinding(
+                                rule_name="react-missing-csrf",
+                                message="Form submission without CSRF token",
+                                file_path=file,
+                                line=line,
+                                severity=Severity.HIGH,
+                                category="csrf",
+                                confidence=Confidence.MEDIUM,
+                                snippet="Form with POST/PUT/DELETE without CSRF",
+                                cwe_id="CWE-352",
                             )
+                        )
 
             conn.close()
 

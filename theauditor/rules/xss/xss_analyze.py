@@ -150,9 +150,8 @@ def _check_response_methods(
         if func in safe_sinks:
             continue
 
-        if "express" in frameworks or "express.js" in frameworks:
-            if func in EXPRESS_SAFE_SINKS:
-                continue
+        if ("express" in frameworks or "express.js" in frameworks) and func in EXPRESS_SAFE_SINKS:
+            continue
 
         has_user_input = any(source in (args or "") for source in COMMON_INPUT_SOURCES)
 

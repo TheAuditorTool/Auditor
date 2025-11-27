@@ -276,22 +276,21 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
-            if isinstance(target, ast.Attribute):
-                if isinstance(target.value, ast.Name):
-                    class_or_cls = target.value.id
+            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                class_or_cls = target.value.id
 
-                    if class_or_cls == "cls" or class_or_cls in class_names:
-                        in_function, is_cm = find_containing_function(node.lineno)
-                        mutations.append(
-                            {
-                                "line": node.lineno,
-                                "class_name": class_or_cls,
-                                "attribute": target.attr,
-                                "operation": "assignment",
-                                "in_function": in_function,
-                                "is_classmethod": is_cm,
-                            }
-                        )
+                if class_or_cls == "cls" or class_or_cls in class_names:
+                    in_function, is_cm = find_containing_function(node.lineno)
+                    mutations.append(
+                        {
+                            "line": node.lineno,
+                            "class_name": class_or_cls,
+                            "attribute": target.attr,
+                            "operation": "assignment",
+                            "in_function": in_function,
+                            "is_classmethod": is_cm,
+                        }
+                    )
 
     seen = set()
     deduped = []
@@ -371,48 +370,48 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
                 var_name = target.id
                 in_function = find_containing_function(node.lineno)
 
-                if in_function != "global" and in_function in globals_by_function:
-                    if var_name in globals_by_function[in_function]:
-                        mutations.append(
-                            {
-                                "line": node.lineno,
-                                "global_name": var_name,
-                                "operation": "assignment",
-                                "in_function": in_function,
-                            }
-                        )
+                if (in_function != "global" and in_function in globals_by_function and
+                    var_name in globals_by_function[in_function]):
+                    mutations.append(
+                        {
+                            "line": node.lineno,
+                            "global_name": var_name,
+                            "operation": "assignment",
+                            "in_function": in_function,
+                        }
+                    )
 
             elif isinstance(target, ast.Subscript):
                 if isinstance(target.value, ast.Name):
                     var_name = target.value.id
                     in_function = find_containing_function(node.lineno)
 
-                    if in_function != "global" and in_function in globals_by_function:
-                        if var_name in globals_by_function[in_function]:
-                            mutations.append(
-                                {
-                                    "line": node.lineno,
-                                    "global_name": var_name,
-                                    "operation": "item_assignment",
-                                    "in_function": in_function,
-                                }
-                            )
+                    if (in_function != "global" and in_function in globals_by_function and
+                        var_name in globals_by_function[in_function]):
+                        mutations.append(
+                            {
+                                "line": node.lineno,
+                                "global_name": var_name,
+                                "operation": "item_assignment",
+                                "in_function": in_function,
+                            }
+                        )
 
             elif isinstance(target, ast.Attribute):
                 if isinstance(target.value, ast.Name):
                     var_name = target.value.id
                     in_function = find_containing_function(node.lineno)
 
-                    if in_function != "global" and in_function in globals_by_function:
-                        if var_name in globals_by_function[in_function]:
-                            mutations.append(
-                                {
-                                    "line": node.lineno,
-                                    "global_name": var_name,
-                                    "operation": "attr_assignment",
-                                    "in_function": in_function,
-                                }
-                            )
+                    if (in_function != "global" and in_function in globals_by_function and
+                        var_name in globals_by_function[in_function]):
+                        mutations.append(
+                            {
+                                "line": node.lineno,
+                                "global_name": var_name,
+                                "operation": "attr_assignment",
+                                "in_function": in_function,
+                            }
+                        )
 
     seen = set()
     deduped = []
@@ -512,21 +511,21 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
         param_names = function_params[in_function]
 
         if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    var_name = node.func.value.id
-                    method_name = node.func.attr
+            if (isinstance(node.func, ast.Attribute) and
+                isinstance(node.func.value, ast.Name)):
+                var_name = node.func.value.id
+                method_name = node.func.attr
 
-                    if var_name in param_names and method_name in MUTATION_METHODS:
-                        mutations.append(
-                            {
-                                "line": node.lineno,
-                                "parameter_name": var_name,
-                                "mutation_type": "method_call",
-                                "mutation_detail": method_name,
-                                "in_function": in_function,
-                            }
-                        )
+                if var_name in param_names and method_name in MUTATION_METHODS:
+                    mutations.append(
+                        {
+                            "line": node.lineno,
+                            "parameter_name": var_name,
+                            "mutation_type": "method_call",
+                            "mutation_detail": method_name,
+                            "in_function": in_function,
+                        }
+                    )
 
         elif isinstance(node, ast.Assign):
             for target in node.targets:
@@ -571,19 +570,18 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
                             }
                         )
 
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Name):
-                var_name = node.target.id
-                if var_name in param_names:
-                    mutations.append(
-                        {
-                            "line": node.lineno,
-                            "parameter_name": var_name,
-                            "mutation_type": "augmented_assignment",
-                            "mutation_detail": node.op.__class__.__name__,
-                            "in_function": in_function,
-                        }
-                    )
+        elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            var_name = node.target.id
+            if var_name in param_names:
+                mutations.append(
+                    {
+                        "line": node.lineno,
+                        "parameter_name": var_name,
+                        "mutation_type": "augmented_assignment",
+                        "mutation_detail": node.op.__class__.__name__,
+                        "in_function": in_function,
+                    }
+                )
 
     seen = set()
     deduped = []

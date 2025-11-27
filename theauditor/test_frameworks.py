@@ -177,9 +177,8 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
                         }
 
                 elif search_configs == "content_search":
-                    if isinstance(manifest_data, str):
-                        if tf_config.get("content_patterns"):
-                            for pattern in tf_config["content_patterns"]:
+                    if isinstance(manifest_data, str) and tf_config.get("content_patterns"):
+                        for pattern in tf_config["content_patterns"]:
                                 if pattern in manifest_data:
                                     cmd = tf_config.get("command", "")
                                     if tf_name == "junit":

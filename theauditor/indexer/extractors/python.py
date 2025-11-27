@@ -149,10 +149,7 @@ class PythonExtractor(BaseExtractor):
                 base_parts = package_parts.copy()
 
                 if level:
-                    if level <= len(base_parts):
-                        base_parts = base_parts[:-level]
-                    else:
-                        base_parts = []
+                    base_parts = base_parts[:-level] if level <= len(base_parts) else []
 
                 module_name = node.module or ""
                 module_name_parts = module_name.split(".") if module_name else []

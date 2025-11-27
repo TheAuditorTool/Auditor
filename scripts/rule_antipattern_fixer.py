@@ -157,10 +157,9 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
                     if isinstance(target.target, cst.Name):
                         var_name = target.target.value.lower()
                         # Strict matching - only known counter patterns
-                        if var_name in self.COUNTER_NAMES:
-                            if isinstance(stmt.value, cst.Integer):
-                                if stmt.value.value == '0':
-                                    return cst.RemovalSentinel.REMOVE
+                        if (var_name in self.COUNTER_NAMES and isinstance(stmt.value, cst.Integer) and
+                            stmt.value.value == '0'):
+                            return cst.RemovalSentinel.REMOVE
 
         return updated_node
 
@@ -235,9 +234,8 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
 
     def _iterates_over_fetchall(self, node: cst.For) -> bool:
         """Check if for loop iterates over cursor.fetchall()."""
-        if isinstance(node.iter, cst.Call):
-            if isinstance(node.iter.func, cst.Attribute):
-                return node.iter.func.attr.value == 'fetchall'
+        if isinstance(node.iter, cst.Call) and isinstance(node.iter.func, cst.Attribute):
+            return node.iter.func.attr.value == 'fetchall'
         return False
 
     def _is_counter_init(self, stmt: cst.BaseStatement) -> bool:
@@ -248,48 +246,43 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
                     for target in inner.targets:
                         if isinstance(target.target, cst.Name):
                             var_name = target.target.value.lower()
-                            if var_name in self.COUNTER_NAMES:
-                                if isinstance(inner.value, cst.Integer):
-                                    return inner.value.value == '0'
+                            if var_name in self.COUNTER_NAMES and isinstance(inner.value, cst.Integer):
+                                return inner.value.value == '0'
         return False
 
     def _is_counter_increment(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement is: checked_count += 1 or similar."""
         if isinstance(stmt, cst.SimpleStatementLine):
             for inner in stmt.body:
-                if isinstance(inner, cst.AugAssign):
-                    if isinstance(inner.target, cst.Name):
-                        var_name = inner.target.value.lower()
-                        if var_name in self.COUNTER_NAMES:
-                            if isinstance(inner.operator, cst.AddAssign):
-                                return True
+                if isinstance(inner, cst.AugAssign) and isinstance(inner.target, cst.Name):
+                    var_name = inner.target.value.lower()
+                    if var_name in self.COUNTER_NAMES and isinstance(inner.operator, cst.AddAssign):
+                        return True
         return False
 
     def _is_counter_break(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement is: if checked_count > N: break."""
-        if isinstance(stmt, cst.If):
+        if isinstance(stmt, cst.If) and isinstance(stmt.test, cst.Comparison):
             # Check if test is comparison with counter
-            if isinstance(stmt.test, cst.Comparison):
-                left = stmt.test.left
-                if isinstance(left, cst.Name):
-                    var_name = left.value.lower()
-                    if var_name in self.COUNTER_NAMES:
-                        # Check if body contains break
-                        for body_stmt in stmt.body.body:
-                            if isinstance(body_stmt, cst.SimpleStatementLine):
-                                for inner in body_stmt.body:
-                                    if isinstance(inner, cst.Break):
-                                        return True
+            left = stmt.test.left
+            if isinstance(left, cst.Name):
+                var_name = left.value.lower()
+                if var_name in self.COUNTER_NAMES:
+                    # Check if body contains break
+                    for body_stmt in stmt.body.body:
+                        if isinstance(body_stmt, cst.SimpleStatementLine):
+                            for inner in body_stmt.body:
+                                if isinstance(inner, cst.Break):
+                                    return True
         return False
 
     def _is_cursor_execute(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement contains cursor.execute()."""
         if isinstance(stmt, cst.SimpleStatementLine):
             for inner in stmt.body:
-                if isinstance(inner, cst.Expr):
-                    if isinstance(inner.value, cst.Call):
-                        if isinstance(inner.value.func, cst.Attribute):
-                            return inner.value.func.attr.value == 'execute'
+                if (isinstance(inner, cst.Expr) and isinstance(inner.value, cst.Call) and
+                    isinstance(inner.value.func, cst.Attribute)):
+                    return inner.value.func.attr.value == 'execute'
         return False
 
     def _is_python_filter(self, stmt: cst.BaseStatement) -> bool:

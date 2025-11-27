@@ -199,9 +199,8 @@ def _check_dangerous_operations(job_id: str, cursor) -> list[str]:
         script = row["run_script"].lower()
 
         for op_type, patterns in dangerous_patterns.items():
-            if any(pattern in script for pattern in patterns):
-                if op_type not in dangerous_ops:
-                    dangerous_ops.append(op_type)
+            if any(pattern in script for pattern in patterns) and op_type not in dangerous_ops:
+                dangerous_ops.append(op_type)
 
     return dangerous_ops
 

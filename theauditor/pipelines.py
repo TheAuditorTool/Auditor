@@ -205,10 +205,7 @@ async def run_chain_async(
             or "workflows" in cmd_str
         )
 
-        if is_findings_command:
-            success = result["returncode"] in [0, 1, 2]
-        else:
-            success = result["success"]
+        success = result["returncode"] in [0, 1, 2] if is_findings_command else result["success"]
 
         if success:
             completed_count += 1
@@ -232,9 +229,8 @@ async def run_chain_async(
 
     elapsed = time.time() - chain_start
     status = "FAILED" if failed else "COMPLETED"
-    if observer:
-        if not failed:
-            observer.on_parallel_track_complete(chain_name, elapsed)
+    if observer and not failed:
+        observer.on_parallel_track_complete(chain_name, elapsed)
     print(f"[{status}] {chain_name} ({elapsed:.1f}s)", file=sys.stderr)
 
     return {
@@ -301,7 +297,7 @@ async def run_full_pipeline(
     error_log_path = pf_dir / "error.log"
     log_lines = []
 
-    log_file = open(log_file_path, "w", encoding="utf-8", buffering=1)
+    log_file = open(log_file_path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115 - stored for streaming writes
 
     raw_dir = Path(root) / ".pf" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)

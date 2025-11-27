@@ -220,11 +220,10 @@ class GitHubWorkflowExtractor(BaseExtractor):
 
             uses_action = step.get("uses")
             uses_version = None
-            if uses_action:
-                if "@" in uses_action:
-                    action_parts = uses_action.split("@", 1)
-                    uses_action = action_parts[0]
-                    uses_version = action_parts[1]
+            if uses_action and "@" in uses_action:
+                action_parts = uses_action.split("@", 1)
+                uses_action = action_parts[0]
+                uses_version = action_parts[1]
 
             run_script = step.get("run")
 

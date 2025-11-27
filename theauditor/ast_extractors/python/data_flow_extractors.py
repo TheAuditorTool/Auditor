@@ -499,16 +499,16 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             body = [body]
 
         for child in ast.walk(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                if child != node:
-                    is_direct_child = False
-                    for body_item in body:
-                        if child in ast.walk(body_item):
-                            is_direct_child = True
-                            break
-                    if is_direct_child and child not in analyzed_functions:
-                        analyzed_functions.add(child)
-                        analyze_function(child, parent_func=func_name)
+            if (isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and
+                child != node):
+                is_direct_child = False
+                for body_item in body:
+                    if child in ast.walk(body_item):
+                        is_direct_child = True
+                        break
+                if is_direct_child and child not in analyzed_functions:
+                    analyzed_functions.add(child)
+                    analyze_function(child, parent_func=func_name)
 
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         analyze_function(node, parent_func="global")
@@ -624,16 +624,16 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
                 var_name = target.id
                 in_function = find_containing_function(node.lineno)
 
-                if in_function != "global" and in_function in nonlocals_by_function:
-                    if var_name in nonlocals_by_function[in_function]:
-                        nonlocal_accesses.append(
-                            {
-                                "line": node.lineno,
-                                "variable_name": var_name,
-                                "access_type": "write",
-                                "in_function": in_function,
-                            }
-                        )
+                if (in_function != "global" and in_function in nonlocals_by_function and
+                    var_name in nonlocals_by_function[in_function]):
+                    nonlocal_accesses.append(
+                        {
+                            "line": node.lineno,
+                            "variable_name": var_name,
+                            "access_type": "write",
+                            "in_function": in_function,
+                        }
+                    )
 
     seen = set()
     deduped = []

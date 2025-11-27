@@ -119,13 +119,12 @@ class WorkflowChecker:
                 if "aud blueprint" in command or "aud full" in command:
                     blueprint_run = True
 
-            if call.tool_name in ["Edit", "Write"]:
-                if not blueprint_run:
-                    logger.debug(
-                        f"Workflow violation: Edit/Write before blueprint "
-                        f"(file: {call.input_params.get('file_path')})"
-                    )
-                    return False
+            if call.tool_name in ["Edit", "Write"] and not blueprint_run:
+                logger.debug(
+                    f"Workflow violation: Edit/Write before blueprint "
+                    f"(file: {call.input_params.get('file_path')})"
+                )
+                return False
 
         return True
 

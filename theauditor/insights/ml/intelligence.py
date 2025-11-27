@@ -167,9 +167,8 @@ def parse_journal_events(journal_path: Path) -> dict:
 
                     if event_type == "phase_start":
                         phase = event.get("phase")
-                        if phase:
-                            if phase not in phase_timing:
-                                phase_timing[phase] = {"start_time": event.get("timestamp")}
+                        if phase and phase not in phase_timing:
+                            phase_timing[phase] = {"start_time": event.get("timestamp")}
 
                     elif event_type == "phase_end":
                         phase = event.get("phase")

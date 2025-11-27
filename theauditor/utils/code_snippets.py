@@ -72,10 +72,7 @@ class CodeSnippetManager:
         if start_idx < 0 or start_idx >= len(lines):
             return f"[Line {line} out of range (file has {len(lines)} lines)]"
 
-        if expand_block:
-            end_idx = self._expand_block(lines, start_idx)
-        else:
-            end_idx = start_idx
+        end_idx = self._expand_block(lines, start_idx) if expand_block else start_idx
 
         return self._format_snippet(lines, start_idx, end_idx)
 

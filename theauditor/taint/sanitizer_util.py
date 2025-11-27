@@ -252,18 +252,17 @@ class SanitizerRegistry:
 
             if hop_line > 0:
                 for san in self.validation_sanitizers:
-                    if san["file"].endswith(hop_file) or hop_file.endswith(san["file"]):
-                        if abs(san["line"] - hop_line) <= 10:
-                            if self.debug:
-                                print(
-                                    f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}",
-                                    file=sys.stderr,
-                                )
-                            return {
-                                "file": hop_file,
-                                "line": hop_line,
-                                "method": f"{san['framework']}:{san.get('schema', 'validation')}",
-                            }
+                    if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and abs(san["line"] - hop_line) <= 10:
+                        if self.debug:
+                            print(
+                                f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}",
+                                file=sys.stderr,
+                            )
+                        return {
+                            "file": hop_file,
+                            "line": hop_line,
+                            "method": f"{san['framework']}:{san.get('schema', 'validation')}",
+                        }
 
             if hop_line > 0:
                 callees = self.call_args_cache.get((hop_file, hop_line), [])

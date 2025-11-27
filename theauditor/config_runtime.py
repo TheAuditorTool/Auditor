@@ -98,9 +98,8 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                 for section in ["paths", "limits", "timeouts", "report"]:
                     if section in user and isinstance(user[section], dict):
                         for key, value in user[section].items():
-                            if key in cfg[section]:
-                                if isinstance(value, type(cfg[section][key])):
-                                    cfg[section][key] = value
+                            if key in cfg[section] and isinstance(value, type(cfg[section][key])):
+                                cfg[section][key] = value
     except (json.JSONDecodeError, OSError) as e:
         print(f"[WARNING] Could not load config file from {path}: {e}")
         print("[INFO] Continuing with default configuration")

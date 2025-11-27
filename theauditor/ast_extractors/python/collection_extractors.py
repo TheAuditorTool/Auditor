@@ -413,23 +413,22 @@ def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
     infinite_functions = {"cycle", "count"}
 
     for node in context.find_nodes(ast.Call):
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "itertools":
-                    func_name = node.func.attr
-                    if func_name in ITERTOOLS_FUNCTIONS:
-                        is_infinite = func_name in infinite_functions
+        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "itertools"):
+            func_name = node.func.attr
+            if func_name in ITERTOOLS_FUNCTIONS:
+                is_infinite = func_name in infinite_functions
 
-                        if func_name == "repeat" and len(node.args) > 1:
-                            is_infinite = False
+                if func_name == "repeat" and len(node.args) > 1:
+                    is_infinite = False
 
-                        itertools_data = {
-                            "line": node.lineno,
-                            "function": func_name,
-                            "is_infinite": is_infinite,
-                            "in_function": _find_containing_function(node, function_ranges),
-                        }
-                        itertools_usage.append(itertools_data)
+                itertools_data = {
+                    "line": node.lineno,
+                    "function": func_name,
+                    "is_infinite": is_infinite,
+                    "in_function": _find_containing_function(node, function_ranges),
+                }
+                itertools_usage.append(itertools_data)
 
     return itertools_usage
 
@@ -460,25 +459,24 @@ def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             if isinstance(decorator, ast.Name):
                 decorator_usage.add((decorator.lineno, decorator.id))
-            elif isinstance(decorator, ast.Attribute):
-                if isinstance(decorator.value, ast.Name) and decorator.value.id == "functools":
-                    decorator_usage.add((decorator.lineno, decorator.attr))
+            elif (isinstance(decorator, ast.Attribute) and
+                  isinstance(decorator.value, ast.Name) and decorator.value.id == "functools"):
+                decorator_usage.add((decorator.lineno, decorator.attr))
 
     for node in context.find_nodes(ast.Call):
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "functools":
-                    func_name = node.func.attr
-                    if func_name in FUNCTOOLS_FUNCTIONS:
-                        is_decorator = (node.lineno, func_name) in decorator_usage
+        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "functools"):
+            func_name = node.func.attr
+            if func_name in FUNCTOOLS_FUNCTIONS:
+                is_decorator = (node.lineno, func_name) in decorator_usage
 
-                        functools_data = {
-                            "line": node.lineno,
-                            "function": func_name,
-                            "is_decorator": is_decorator,
-                            "in_function": _find_containing_function(node, function_ranges),
-                        }
-                        functools_usage.append(functools_data)
+                functools_data = {
+                    "line": node.lineno,
+                    "function": func_name,
+                    "is_decorator": is_decorator,
+                    "in_function": _find_containing_function(node, function_ranges),
+                }
+                functools_usage.append(functools_data)
 
     return functools_usage
 
@@ -507,15 +505,14 @@ def extract_collections_usage(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Call):
         collection_type = None
 
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "collections":
-                    if node.func.attr in COLLECTIONS_TYPES:
-                        collection_type = node.func.attr
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "collections" and
+            node.func.attr in COLLECTIONS_TYPES):
+            collection_type = node.func.attr
 
-        elif isinstance(node.func, ast.Name):
-            if node.func.id in COLLECTIONS_TYPES:
-                collection_type = node.func.id
+        elif isinstance(node.func, ast.Name) and node.func.id in COLLECTIONS_TYPES:
+            collection_type = node.func.id
 
         if collection_type:
             default_factory = None

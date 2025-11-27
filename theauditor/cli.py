@@ -223,10 +223,7 @@ class VerboseGroup(click.Group):
 
                 first_line = (cmd.help or "").split("\n")[0].strip()
                 period_idx = first_line.find(".")
-                if period_idx > 0:
-                    short_help = first_line[:period_idx]
-                else:
-                    short_help = first_line
+                short_help = first_line[:period_idx] if period_idx > 0 else first_line
 
                 if len(short_help) > 50:
                     short_help = short_help[:50].rsplit(" ", 1)[0] + "..."

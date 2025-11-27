@@ -817,10 +817,7 @@ def graph_viz(
                 click.echo(f"  Edges: {len(graph['edges'])}")
                 dot_content = visualizer.generate_dot(graph, analysis, options)
 
-            if view != "full":
-                output_filename = f"{output_name}_{view}"
-            else:
-                output_filename = output_name
+            output_filename = f"{output_name}_{view}" if view != "full" else output_name
 
             dot_file = out_path / f"{output_filename}.dot"
             with open(dot_file, "w") as f:

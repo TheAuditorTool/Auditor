@@ -865,10 +865,7 @@ Examples:
         print("Creating FileContext Infrastructure")
         print("="*60)
 
-        if args.target_dir.is_file():
-            output_dir = args.target_dir.parent
-        else:
-            output_dir = args.target_dir
+        output_dir = args.target_dir.parent if args.target_dir.is_file() else args.target_dir
 
         create_filecontext_module(output_dir)
         print("\nFileContext modules created successfully!")

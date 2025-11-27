@@ -174,7 +174,7 @@ async def _fetch_docs_async(
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for dep, result in zip(needs_fetch, results):
+        for dep, result in zip(needs_fetch, results, strict=True):
             if isinstance(result, Exception):
                 stats["errors"].append(f"{dep['name']}: {type(result).__name__}")
                 stats["skipped"] += 1
@@ -416,10 +416,7 @@ async def _fetch_github_readme_async(
 ) -> str | None:
     """Fetch README from GitHub repository."""
 
-    if isinstance(repository, dict):
-        repo_url = repository.get("url", "")
-    else:
-        repo_url = repository or ""
+    repo_url = repository.get("url", "") if isinstance(repository, dict) else repository or ""
 
     urls_to_try = [repo_url, homepage] if homepage else [repo_url]
 

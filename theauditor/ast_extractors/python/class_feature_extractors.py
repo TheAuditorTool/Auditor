@@ -178,10 +178,7 @@ def extract_descriptors(context: FileContext) -> list[dict[str, Any]]:
                     has_delete = True
 
         if has_get:
-            if has_set or has_delete:
-                descriptor_type = "data"
-            else:
-                descriptor_type = "non-data"
+            descriptor_type = "data" if has_set or has_delete else "non-data"
 
             descriptor_data = {
                 "line": node.lineno,
@@ -222,17 +219,16 @@ def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
                 has_dataclass = True
-            elif isinstance(decorator, ast.Call):
-                if isinstance(decorator.func, ast.Name) and decorator.func.id == "dataclass":
-                    has_dataclass = True
+            elif (isinstance(decorator, ast.Call) and
+                  isinstance(decorator.func, ast.Name) and decorator.func.id == "dataclass"):
+                has_dataclass = True
 
-                    for keyword in decorator.keywords:
-                        if keyword.arg == "frozen":
-                            if (
-                                isinstance(keyword.value, ast.Constant)
-                                and keyword.value.value is True
-                            ):
-                                frozen = True
+                for keyword in decorator.keywords:
+                    if keyword.arg == "frozen" and (
+                        isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is True
+                    ):
+                        frozen = True
 
         if has_dataclass:
             field_count = 0
@@ -498,15 +494,15 @@ def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.ClassDef):
         for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                if item.name.startswith("__") and item.name.endswith("__"):
-                    dunder_data = {
-                        "line": item.lineno,
-                        "method_name": item.name,
-                        "category": categorize_dunder(item.name),
-                        "in_class": node.name,
-                    }
-                    dunder_methods.append(dunder_data)
+            if (isinstance(item, ast.FunctionDef) and
+                item.name.startswith("__") and item.name.endswith("__")):
+                dunder_data = {
+                    "line": item.lineno,
+                    "method_name": item.name,
+                    "category": categorize_dunder(item.name),
+                    "in_class": node.name,
+                }
+                dunder_methods.append(dunder_data)
 
     return dunder_methods
 

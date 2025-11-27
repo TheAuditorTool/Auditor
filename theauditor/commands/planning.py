@@ -629,10 +629,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                         click.echo(f"    ... and {len(rule_result.violations) - 5} more")
 
         cursor = manager.conn.cursor()
-        if total_violations == 0:
-            audit_status = "pass"
-        else:
-            audit_status = "fail"
+        audit_status = "pass" if total_violations == 0 else "fail"
 
         cursor.execute(
             "UPDATE plan_tasks SET audit_status = ? WHERE id = ?", (audit_status, task_id)

@@ -35,7 +35,7 @@ def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
     current = node
     while current in parent_map:
         current = parent_map[current]
-        if isinstance(current, ast.FunctionDef) or isinstance(current, ast.AsyncFunctionDef):
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
             return current.name
     return "global"
 
@@ -62,19 +62,17 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     parent_map = _get_parent_map(context.tree)
 
     for node in context.find_nodes(ast.Call):
-        if isinstance(node.func, ast.Attribute):
-            if (
-                isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "pkgutil"
-                and node.func.attr == "extend_path"
-            ):
-                results.append(
-                    {
-                        "line": node.lineno,
-                        "pattern": "extend_path",
-                        "in_function": _get_enclosing_function(node, parent_map),
-                    }
-                )
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == "pkgutil" and
+            node.func.attr == "extend_path"):
+            results.append(
+                {
+                    "line": node.lineno,
+                    "pattern": "extend_path",
+                    "in_function": _get_enclosing_function(node, parent_map),
+                }
+            )
 
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -120,11 +118,11 @@ def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
 
                     if isinstance(dec, ast.Name):
                         decorator_name = dec.id
-                    elif isinstance(dec, ast.Attribute):
-                        if isinstance(dec.value, ast.Name):
-                            if dec.value.id == "functools" and dec.attr == "cached_property":
-                                decorator_name = "cached_property"
-                                is_functools = True
+                    elif (isinstance(dec, ast.Attribute) and
+                          isinstance(dec.value, ast.Name) and
+                          dec.value.id == "functools" and dec.attr == "cached_property"):
+                        decorator_name = "cached_property"
+                        is_functools = True
 
                     if decorator_name and "cached_property" in decorator_name.lower():
                         results.append(
@@ -383,15 +381,14 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
                     }
                 )
 
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, bytes):
-                results.append(
-                    {
-                        "line": node.lineno,
-                        "operation": "literal",
-                        "in_function": _get_enclosing_function(node, parent_map),
-                    }
-                )
+        if isinstance(node, ast.Constant) and isinstance(node.value, bytes):
+            results.append(
+                {
+                    "line": node.lineno,
+                    "operation": "literal",
+                    "in_function": _get_enclosing_function(node, parent_map),
+                }
+            )
 
     return results
 

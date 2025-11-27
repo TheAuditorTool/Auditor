@@ -228,21 +228,24 @@ class SourcemapAnalyzer:
                     )
                     break
 
-            if "production" in file.lower() and expr_lower not in ["false", "none", ""]:
-                if expr_lower not in self.patterns.SAFE_DEVTOOLS:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="production-sourcemap-enabled",
-                            message="Source maps enabled in production webpack config",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.HIGH,
-                            category="security",
-                            snippet=f"devtool: {expr[:50]}",
-                            confidence=Confidence.MEDIUM,
-                            cwe_id="CWE-540",
-                        )
+            if (
+                "production" in file.lower()
+                and expr_lower not in ["false", "none", ""]
+                and expr_lower not in self.patterns.SAFE_DEVTOOLS
+            ):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="production-sourcemap-enabled",
+                        message="Source maps enabled in production webpack config",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="security",
+                        snippet=f"devtool: {expr[:50]}",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-540",
                     )
+                )
 
     def _check_typescript_configs(self):
         """Check TypeScript configurations for source map settings."""

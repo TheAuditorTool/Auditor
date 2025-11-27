@@ -378,10 +378,7 @@ def generate_project_summary(
             path = file_info["path"]
             if len(path) > 40:
                 parts = Path(path).parts
-                if len(parts) > 2:
-                    path = f".../{parts[-2]}/{parts[-1]}"
-                else:
-                    path = "/".join(parts)
+                path = f".../{parts[-2]}/{parts[-1]}" if len(parts) > 2 else "/".join(parts)
             lines.append(f"| `{path}` | {file_info['purpose']} | {file_info['loc']:,} |")
 
         lines.append("")

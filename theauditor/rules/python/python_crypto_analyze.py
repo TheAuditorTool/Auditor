@@ -305,9 +305,11 @@ class CryptoAnalyzer:
 
         for file, line, method, args in self.cursor.fetchall():
             method_upper = method.upper()
-            if not ("DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper):
-                if not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO)):
-                    continue
+            if (
+                not ("DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper)
+                and not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO))
+            ):
+                continue
             algo = "DES" if "DES" in method else "RC4" if "RC4" in method else "broken algorithm"
 
             self.findings.append(
@@ -411,20 +413,19 @@ class CryptoAnalyzer:
                 or expr.startswith("'")
                 or expr.startswith('b"')
                 or expr.startswith("b'")
-            ):
-                if len(expr) > 10:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="python-hardcoded-key",
-                            message=f"Hardcoded cryptographic key/secret: {var}",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            category="cryptography",
-                            confidence=Confidence.HIGH,
-                            cwe_id="CWE-798",
-                        )
+            ) and len(expr) > 10:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="python-hardcoded-key",
+                        message=f"Hardcoded cryptographic key/secret: {var}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="cryptography",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-798",
                     )
+                )
 
     def _check_weak_kdf(self):
         """Detect weak key derivation functions."""
@@ -491,9 +492,12 @@ class CryptoAnalyzer:
 
         for file, line, method, args in self.cursor.fetchall():
             method_lower = method.lower()
-            if method not in self.patterns.JWT_PATTERNS and "jwt." not in method_lower:
-                if not (args and "algorithm" in args.lower()):
-                    continue
+            if (
+                method not in self.patterns.JWT_PATTERNS
+                and "jwt." not in method_lower
+                and not (args and "algorithm" in args.lower())
+            ):
+                continue
             if not args:
                 continue
 

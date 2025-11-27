@@ -32,7 +32,7 @@ class JournalWriter:
     def _open_journal(self):
         """Open journal file for writing."""
         try:
-            self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)
+            self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 - stored for later writes
         except Exception as e:
             print(f"[WARNING] Could not open journal file {self.journal_path}: {e}")
             self.file_handle = None

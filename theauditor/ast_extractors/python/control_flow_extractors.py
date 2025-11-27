@@ -179,9 +179,8 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
         if isinstance(node.test, ast.Constant):
             if node.test.value is True or node.test.value == 1:
                 is_infinite = True
-        elif isinstance(node.test, ast.Name):
-            if node.test.id == "True":
-                is_infinite = True
+        elif isinstance(node.test, ast.Name) and node.test.id == "True":
+            is_infinite = True
 
         while_data = {
             "line": node.lineno,
@@ -453,12 +452,11 @@ def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
         condition_type = "simple"
         if isinstance(node.test, ast.Compare):
             condition_type = "comparison"
-        elif isinstance(node.test, ast.Call):
-            if isinstance(node.test.func, ast.Name):
-                if node.test.func.id == "isinstance":
-                    condition_type = "isinstance"
-                elif node.test.func.id == "callable":
-                    condition_type = "callable"
+        elif isinstance(node.test, ast.Call) and isinstance(node.test.func, ast.Name):
+            if node.test.func.id == "isinstance":
+                condition_type = "isinstance"
+            elif node.test.func.id == "callable":
+                condition_type = "callable"
 
         assert_data = {
             "line": node.lineno,

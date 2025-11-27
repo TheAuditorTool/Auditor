@@ -107,22 +107,21 @@ def find_untrusted_checkout_sequence(context: StandardRuleContext) -> list[Stand
 
                     is_untrusted = _check_untrusted_ref(step_id, with_args, cursor)
 
-                    if is_untrusted:
-                        if sequence_order < 3:
-                            permissions_json = job_row["permissions"]
-                            permissions = json.loads(permissions_json) if permissions_json else {}
+                    if is_untrusted and sequence_order < 3:
+                        permissions_json = job_row["permissions"]
+                        permissions = json.loads(permissions_json) if permissions_json else {}
 
-                            findings.append(
-                                _build_untrusted_checkout_finding(
-                                    workflow_path=workflow_path,
-                                    workflow_name=workflow_name,
-                                    job_key=job_key,
-                                    step_name=step_name,
-                                    sequence_order=sequence_order,
-                                    permissions=permissions,
-                                    with_args=with_args,
-                                )
+                        findings.append(
+                            _build_untrusted_checkout_finding(
+                                workflow_path=workflow_path,
+                                workflow_name=workflow_name,
+                                job_key=job_key,
+                                step_name=step_name,
+                                sequence_order=sequence_order,
+                                permissions=permissions,
+                                with_args=with_args,
                             )
+                        )
 
     finally:
         conn.close()

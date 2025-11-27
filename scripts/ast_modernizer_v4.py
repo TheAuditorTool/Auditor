@@ -586,11 +586,11 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
 
         for i, statement in enumerate(updated_node.body):
             # Skip docstrings at the beginning
-            if i == 0 and isinstance(statement, cst.SimpleStatementLine):
-                if len(statement.body) == 1 and isinstance(statement.body[0], cst.Expr):
-                    if isinstance(statement.body[0].value, (cst.SimpleString, cst.ConcatenatedString)):
-                        new_body.append(statement)
-                        continue
+            if (i == 0 and isinstance(statement, cst.SimpleStatementLine) and
+                len(statement.body) == 1 and isinstance(statement.body[0], cst.Expr) and
+                isinstance(statement.body[0].value, (cst.SimpleString, cst.ConcatenatedString))):
+                new_body.append(statement)
+                continue
 
             # Add import after existing imports but before other code
             if not import_added:
@@ -625,9 +625,8 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     def visit_Import(self, node: cst.Import) -> None:
         """Track if we have 'import ast' in the file."""
         for name in node.names:
-            if isinstance(name, cst.ImportAlias):
-                if hasattr(name.name, 'value') and name.name.value == "ast":
-                    self.has_ast_import = True
+            if isinstance(name, cst.ImportAlias) and hasattr(name.name, 'value') and name.name.value == "ast":
+                self.has_ast_import = True
 
     # ------------------------------------------------------------------------
     # Transform: Clean up imports
@@ -716,11 +715,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
                     attr=m.Name("walk")
                 )
             )
-        ):
-            contains_ast_walk = True
-
-        # Check for list(ast.walk(...))
-        elif m.matches(
+        ) or m.matches(
             node.value,
             m.Call(
                 func=m.Name("list"),
@@ -735,11 +730,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
                     )
                 ]
             )
-        ):
-            contains_ast_walk = True
-
-        # Check for tuple(ast.walk(...))
-        elif m.matches(
+        ) or m.matches(
             node.value,
             m.Call(
                 func=m.Name("tuple"),
@@ -815,24 +806,18 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     ) -> cst.For:
         """Exit ast.walk() context when leaving the loop."""
         # Check both direct and indirect patterns
-        is_ast_walk_loop = False
-
-        # Direct pattern
-        if m.matches(
-            original_node.iter,
-            m.Call(
-                func=m.Attribute(
-                    value=m.Name("ast"),
-                    attr=m.Name("walk")
+        is_ast_walk_loop = (
+            m.matches(
+                original_node.iter,
+                m.Call(
+                    func=m.Attribute(
+                        value=m.Name("ast"),
+                        attr=m.Name("walk")
+                    )
                 )
             )
-        ):
-            is_ast_walk_loop = True
-
-        # Indirect pattern
-        elif isinstance(original_node.iter, cst.Name):
-            if original_node.iter.value in self.ast_walk_result_vars:
-                is_ast_walk_loop = True
+            or (isinstance(original_node.iter, cst.Name) and original_node.iter.value in self.ast_walk_result_vars)
+        )
 
         if is_ast_walk_loop:
             self.inside_ast_context = False

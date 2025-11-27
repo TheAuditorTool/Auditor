@@ -227,10 +227,9 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             # context.tree
             if m.matches(walk_arg, m.Attribute(value=m.Name("context"), attr=m.Name("tree"))):
                 is_global_tree = True
-        elif isinstance(walk_arg, cst.Name):
+        elif isinstance(walk_arg, cst.Name) and walk_arg.value in ['tree', 'actual_tree', 'ast_tree', 'source_tree']:
             # variables named 'tree', 'actual_tree'
-            if walk_arg.value in ['tree', 'actual_tree', 'ast_tree', 'source_tree']:
-                is_global_tree = True
+            is_global_tree = True
 
         if not is_global_tree:
             return updated_node
@@ -472,7 +471,7 @@ Examples:
     if args.target_dir.is_file():
         files = [args.target_dir]
     else:
-        files = sorted(list(args.target_dir.rglob("*.py")))
+        files = sorted(args.target_dir.rglob("*.py"))
         # Filter out tests, backups, utils
         files = [
             f for f in files

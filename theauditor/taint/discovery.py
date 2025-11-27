@@ -84,10 +84,9 @@ class TaintDiscovery:
 
             if combined_patterns and any(
                 var_name == p or var_name.startswith(p + ".") for p in combined_patterns
-            ):
-                if var_name not in seen_vars:
-                    seen_vars.add(var_name)
-                    sources.append(
+            ) and var_name not in seen_vars:
+                seen_vars.add(var_name)
+                sources.append(
                         {
                             "type": "http_request",
                             "name": var_name,
@@ -105,10 +104,9 @@ class TaintDiscovery:
 
             if combined_patterns and any(
                 name == p or name.startswith(p + ".") for p in combined_patterns
-            ):
-                if name not in seen_vars:
-                    seen_vars.add(name)
-                    sources.append(
+            ) and name not in seen_vars:
+                seen_vars.add(name)
+                sources.append(
                         {
                             "type": "http_request",
                             "name": name,
@@ -263,10 +261,7 @@ class TaintDiscovery:
                 )
 
                 result_row = cursor2.fetchone()
-                if result_row:
-                    pattern = result_row["target_var"]
-                else:
-                    pattern = func_name
+                pattern = result_row["target_var"] if result_row else func_name
 
                 sinks.append(
                     {
@@ -361,10 +356,7 @@ class TaintDiscovery:
                 )
 
                 result_row = cursor2.fetchone()
-                if result_row:
-                    pattern = result_row["target_var"]
-                else:
-                    pattern = func_name
+                pattern = result_row["target_var"] if result_row else func_name
 
                 sinks.append(
                     {

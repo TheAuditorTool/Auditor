@@ -359,10 +359,7 @@ class SchemaCodeGenerator:
         Args:
             output_dir: Directory to write files to (defaults to same dir as codegen.py)
         """
-        if output_dir is None:
-            output_dir = Path(__file__).parent
-        else:
-            output_dir = Path(output_dir)
+        output_dir = Path(__file__).parent if output_dir is None else Path(output_dir)
 
         output_dir.mkdir(parents=True, exist_ok=True)
 

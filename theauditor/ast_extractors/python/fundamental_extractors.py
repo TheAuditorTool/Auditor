@@ -169,7 +169,7 @@ def _detect_closure_captures(
     }
 
     captured = referenced_names - lambda_params - builtins
-    return sorted(list(captured))
+    return sorted(captured)
 
 
 def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
@@ -631,15 +631,15 @@ def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes((ast.If, ast.While)):
-        if not isinstance(node.test, (ast.Compare, ast.UnaryOp)):
-            if not isinstance(node.test, ast.BoolOp):
-                truthiness_data = {
-                    "line": node.lineno,
-                    "pattern": "implicit_bool",
-                    "expression": _get_node_text(node.test),
-                    "in_function": _find_containing_function(node, function_ranges),
-                }
-                truthiness.append(truthiness_data)
+        if (not isinstance(node.test, (ast.Compare, ast.UnaryOp)) and
+            not isinstance(node.test, ast.BoolOp)):
+            truthiness_data = {
+                "line": node.lineno,
+                "pattern": "implicit_bool",
+                "expression": _get_node_text(node.test),
+                "in_function": _find_containing_function(node, function_ranges),
+            }
+            truthiness.append(truthiness_data)
 
     return truthiness
 
@@ -679,9 +679,9 @@ def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
 
         has_expressions = False
         for part in node.values:
-            if isinstance(part, ast.FormattedValue):
-                if not isinstance(part.value, ast.Name):
-                    has_expressions = True
+            if (isinstance(part, ast.FormattedValue) and
+                not isinstance(part.value, ast.Name)):
+                has_expressions = True
 
         formatting_data = {
             "line": node.lineno,

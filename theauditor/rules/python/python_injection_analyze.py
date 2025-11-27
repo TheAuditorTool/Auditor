@@ -353,17 +353,16 @@ class InjectionAnalyzer:
                 )
 
             is_fstring = False
-            if expr_to_check:
-                if (
-                    'f"' in expr_to_check
-                    or "f'" in expr_to_check
-                    or (
-                        arg_is_identifier
-                        and assignment_expr
-                        and ('f"' in assignment_expr or "f'" in assignment_expr)
-                    )
-                ):
-                    is_fstring = True
+            if expr_to_check and (
+                'f"' in expr_to_check
+                or "f'" in expr_to_check
+                or (
+                    arg_is_identifier
+                    and assignment_expr
+                    and ('f"' in assignment_expr or "f'" in assignment_expr)
+                )
+            ):
+                is_fstring = True
 
             if is_fstring:
                 self.findings.append(
@@ -451,10 +450,13 @@ class InjectionAnalyzer:
             severity = Severity.CRITICAL
             confidence = Confidence.HIGH
 
-            if args and (args.startswith('"') or args.startswith("'")):
-                if not any(inp in args for inp in self.patterns.USER_INPUTS):
-                    confidence = Confidence.MEDIUM
-                    severity = Severity.HIGH
+            if (
+                args
+                and (args.startswith('"') or args.startswith("'"))
+                and not any(inp in args for inp in self.patterns.USER_INPUTS)
+            ):
+                confidence = Confidence.MEDIUM
+                severity = Severity.HIGH
 
             self.findings.append(
                 StandardFinding(

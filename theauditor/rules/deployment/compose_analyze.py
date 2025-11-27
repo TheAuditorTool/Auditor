@@ -370,7 +370,7 @@ def analyze_service(row: tuple) -> list[StandardFinding]:
 
                 is_sensitive = any(pattern in key_upper for pattern in SENSITIVE_ENV_PATTERNS)
 
-                if is_sensitive:
+                if is_sensitive:  # noqa: SIM102
                     if not value.startswith("${") and not value.startswith("$"):
                         if value.lower() in WEAK_PASSWORDS:
                             findings.append(
@@ -596,10 +596,7 @@ def check_image_security(file_path: str, service_name: str, image: str) -> list[
             )
             break
 
-    if ":" in image:
-        image_name = image.split(":")[0]
-    else:
-        image_name = image
+    image_name = image.split(":")[0] if ":" in image else image
 
     if "/" not in image_name and image_name not in [
         "alpine",

@@ -49,13 +49,12 @@ def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
                 scope = "function"
                 if isinstance(dec, ast.Call):
                     for keyword in dec.keywords:
-                        if keyword.arg == "scope":
-                            if (
-                                isinstance(keyword.value, ast.Constant)
-                                or isinstance(keyword.value, ast.Constant)
-                                and isinstance(keyword.value.value, str)
-                            ):
-                                scope = keyword.value.value
+                        if keyword.arg == "scope" and (
+                            isinstance(keyword.value, ast.Constant)
+                            or isinstance(keyword.value, ast.Constant)
+                            and isinstance(keyword.value.value, str)
+                        ):
+                            scope = keyword.value.value
 
                 fixtures.append(
                     {

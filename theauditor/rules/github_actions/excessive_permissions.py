@@ -181,9 +181,8 @@ def _check_dangerous_permissions(permissions: dict) -> list[str]:
         return ["write-all"]
 
     for perm_name, perm_level in permissions.items():
-        if perm_name in DANGEROUS_WRITE_PERMISSIONS:
-            if perm_level in ["write", "write-all"]:
-                dangerous.append(perm_name)
+        if perm_name in DANGEROUS_WRITE_PERMISSIONS and perm_level in ["write", "write-all"]:
+            dangerous.append(perm_name)
 
     return dangerous
 
@@ -222,10 +221,7 @@ def _build_permission_finding(
     trigger_str = ", ".join(triggers)
     perms_str = ", ".join(dangerous_perms)
 
-    if scope == "workflow":
-        location = "workflow-level"
-    else:
-        location = f"job '{job_key}'"
+    location = "workflow-level" if scope == "workflow" else f"job '{job_key}'"
 
     message = (
         f"Workflow '{workflow_name}' grants dangerous write permissions ({perms_str}) at {location} "

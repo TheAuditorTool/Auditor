@@ -287,14 +287,13 @@ def extract_command_injection_patterns(context: FileContext) -> list[dict[str, A
         if "subprocess" in func_name.lower():
             shell_true = False
             for keyword in node.keywords:
-                if keyword.arg == "shell":
-                    if (
-                        isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is True
-                        or isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is True
-                    ):
-                        shell_true = True
+                if keyword.arg == "shell" and (
+                    isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                    or isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                ):
+                    shell_true = True
 
             if shell_true:
                 cmd_patterns.append(
@@ -585,9 +584,8 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
         if isinstance(node.func, ast.Attribute):
             method_name = node.func.attr
 
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "jwt":
-                    is_jwt_call = True
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "jwt":
+                is_jwt_call = True
 
         if not is_jwt_call or not method_name:
             continue
@@ -611,9 +609,9 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
                 secret_node = node.args[1]
 
             for keyword in node.keywords:
-                if keyword.arg == "algorithm":
-                    if isinstance(keyword.value, ast.Constant):
-                        algorithm = keyword.value.value
+                if (keyword.arg == "algorithm" and
+                    isinstance(keyword.value, ast.Constant)):
+                    algorithm = keyword.value.value
 
             secret_type = "unknown"
             if secret_node:
@@ -621,23 +619,23 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
                     secret_type = "hardcoded"
                 elif isinstance(secret_node, ast.Subscript):
                     if isinstance(secret_node.value, ast.Attribute):
-                        if hasattr(secret_node.value, "attr"):
-                            if secret_node.value.attr == "environ":
-                                secret_type = "environment"
-                    elif isinstance(secret_node.value, ast.Name):
-                        if secret_node.value.id in ["config", "settings", "secrets"]:
-                            secret_type = "config"
+                        if (hasattr(secret_node.value, "attr") and
+                            secret_node.value.attr == "environ"):
+                            secret_type = "environment"
+                    elif (isinstance(secret_node.value, ast.Name) and
+                        secret_node.value.id in ["config", "settings", "secrets"]):
+                        secret_type = "config"
                 elif isinstance(secret_node, ast.Call):
                     if isinstance(secret_node.func, ast.Attribute):
                         if secret_node.func.attr == "getenv":
                             secret_type = "environment"
-                    elif isinstance(secret_node.func, ast.Name):
-                        if secret_node.func.id == "getenv":
-                            secret_type = "environment"
+                    elif (isinstance(secret_node.func, ast.Name) and
+                        secret_node.func.id == "getenv"):
+                        secret_type = "environment"
                 elif isinstance(secret_node, ast.Attribute):
-                    if isinstance(secret_node.value, ast.Name):
-                        if secret_node.value.id in ["config", "settings", "secrets"]:
-                            secret_type = "config"
+                    if (isinstance(secret_node.value, ast.Name) and
+                        secret_node.value.id in ["config", "settings", "secrets"]):
+                        secret_type = "config"
                 elif isinstance(secret_node, ast.Name):
                     secret_type = "variable"
 
@@ -657,12 +655,12 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
             algorithm = None
 
             for keyword in node.keywords:
-                if keyword.arg == "algorithms":
-                    if isinstance(keyword.value, ast.List):
-                        if keyword.value.elts:
-                            first_algo = keyword.value.elts[0]
-                            if isinstance(first_algo, ast.Constant):
-                                algorithm = first_algo.value
+                if (keyword.arg == "algorithms" and
+                    isinstance(keyword.value, ast.List) and
+                    keyword.value.elts):
+                    first_algo = keyword.value.elts[0]
+                    if isinstance(first_algo, ast.Constant):
+                        algorithm = first_algo.value
 
             full_match = "jwt.decode(...)"
 

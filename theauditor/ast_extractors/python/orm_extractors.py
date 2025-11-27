@@ -92,9 +92,8 @@ def _extract_backref_name(backref_value: ast.AST) -> str | None:
     if name:
         return name
 
-    if isinstance(backref_value, ast.Call):
-        if backref_value.args:
-            return _get_str_constant(backref_value.args[0]) or get_node_name(backref_value.args[0])
+    if isinstance(backref_value, ast.Call) and backref_value.args:
+        return _get_str_constant(backref_value.args[0]) or get_node_name(backref_value.args[0])
     return get_node_name(backref_value)
 
 
@@ -334,20 +333,19 @@ def extract_sqlalchemy_definitions(
                 )
 
                 backref_node = _keyword_arg(value, "backref")
-                if backref_node and target_model:
-                    if target_model != node.name:
-                        backref_name = _extract_backref_name(backref_node)
-                        inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
-                        inverse_type = _inverse_relationship_type(relationship_type)
-                        _add_relationship(
-                            target_model,
-                            node.name,
-                            inverse_type,
-                            backref_name,
-                            inverse_cascade,
-                            foreign_key,
-                            line_no,
-                        )
+                if backref_node and target_model and target_model != node.name:
+                    backref_name = _extract_backref_name(backref_node)
+                    inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
+                    inverse_type = _inverse_relationship_type(relationship_type)
+                    _add_relationship(
+                        target_model,
+                        node.name,
+                        inverse_type,
+                        backref_name,
+                        inverse_cascade,
+                        foreign_key,
+                        line_no,
+                    )
 
     return models, fields, relationships
 

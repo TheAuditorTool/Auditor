@@ -236,9 +236,9 @@ def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
 
             if hook_type:
                 app_var = None
-                if isinstance(decorator, ast.Attribute):
-                    if isinstance(decorator.value, ast.Name):
-                        app_var = decorator.value.id
+                if (isinstance(decorator, ast.Attribute) and
+                    isinstance(decorator.value, ast.Name)):
+                    app_var = decorator.value.id
 
                 hooks.append(
                     {

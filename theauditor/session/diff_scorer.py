@@ -190,9 +190,8 @@ class DiffScorer:
 
         risk = 0.0
 
-        if "password" in new_code.lower() and ("=" in new_code or ":" in new_code):
-            if '"' in new_code or "'" in new_code:
-                risk = max(risk, 0.6)
+        if "password" in new_code.lower() and ("=" in new_code or ":" in new_code) and ('"' in new_code or "'" in new_code):
+            risk = max(risk, 0.6)
 
         if "TODO" in new_code or "FIXME" in new_code:
             risk = max(risk, 0.2)
