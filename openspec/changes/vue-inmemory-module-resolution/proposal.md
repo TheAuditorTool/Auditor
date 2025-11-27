@@ -27,10 +27,10 @@ const tempFilePath = createVueTempPath(scopeId, langHint);
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');  // LINE 147
 
 // 2. TypeScript program uses temp file path
-fileEntry.absolute = vueMeta.tempFilePath;  // LINE 258-259
+fileEntry.absolute = vueMeta.tempFilePath;  // LINE 259
 
 // 3. Cleanup temp file after processing
-safeUnlink(fileInfo.cleanup);  // LINE 542-544
+safeUnlink(fileInfo.cleanup);  // LINE 618-621
 ```
 
 **Measured Impact**:
@@ -44,7 +44,7 @@ safeUnlink(fileInfo.cleanup);  // LINE 542-544
 JavaScript/TypeScript import resolution extracts only the basename:
 
 ```python
-# CURRENT FLOW (javascript.py:855-858):
+# CURRENT FLOW (javascript.py:747-749):
 module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
 if module_name:
     result['resolved_imports'][module_name] = imp_path
@@ -65,7 +65,7 @@ if module_name:
 ### Task 3: Vue In-Memory Compilation
 
 **Files Modified**:
-- `theauditor/ast_extractors/javascript/batch_templates.js` (lines 119-175, 646-700)
+- `theauditor/ast_extractors/javascript/batch_templates.js` (lines 119-175, 703-760)
 
 **Change**: Pass compiled Vue script content directly to TypeScript API without disk I/O
 
@@ -101,7 +101,7 @@ customHost.readFile = (fileName) => {
 ### Task 4: Node Module Resolution
 
 **Files Modified**:
-- `theauditor/indexer/extractors/javascript.py` (lines 840-860)
+- `theauditor/indexer/extractors/javascript.py` (lines 740-760)
 
 **Change**: Implement proper TypeScript-style module resolution algorithm
 
@@ -145,8 +145,8 @@ def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
 **Modified Files**:
 | File | Lines | Change Type |
 |------|-------|-------------|
-| `theauditor/ast_extractors/javascript/batch_templates.js` | 119-175, 646-700 | Vue in-memory |
-| `theauditor/indexer/extractors/javascript.py` | 784-804 | Module resolution |
+| `theauditor/ast_extractors/javascript/batch_templates.js` | 119-175, 703-760 | Vue in-memory |
+| `theauditor/indexer/extractors/javascript.py` | 740-760 | Module resolution |
 
 **Read-Only** (for understanding):
 | File | Purpose |
@@ -296,5 +296,6 @@ def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 2.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 2.0 | Complete rewrite with verified paths/line numbers |
 | Original | 1.0 | Initial proposal (OBSOLETE - wrong paths) |

@@ -10,4 +10,4 @@ This ensures that:
   - import theauditor.graph.insights  # STILL WORKS
 """
 
-from theauditor.insights.graph import *
+from theauditor.insights.graph import *  # noqa: F403 - intentional re-export shim

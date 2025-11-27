@@ -1,6 +1,8 @@
 # Auto-generated validators from schema
-from typing import Any, Callable
+from collections.abc import Callable
 from functools import wraps
+from typing import Any
+
 from ..schema import TABLES
 from .codegen import SchemaCodeGenerator
 

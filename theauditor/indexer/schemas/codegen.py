@@ -152,7 +152,7 @@ class SchemaCodeGenerator:
 
             # Generate get_by_{column} for indexed columns
             for idx_def in schema.indexes:
-                idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
+                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
                 if len(idx_cols) == 1:  # Single column index
                     col_name = idx_cols[0]
 
@@ -219,7 +219,7 @@ class SchemaCodeGenerator:
         code.append("")
         code.append("            # Auto-build indexes for indexed columns (always create, even if empty)")
         code.append("            for idx_def in schema.indexes:")
-        code.append("                idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples")
+        code.append("                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples")
         code.append("                if len(idx_cols) == 1:  # Single column index")
         code.append("                    col_name = idx_cols[0]")
         code.append(
@@ -259,7 +259,7 @@ class SchemaCodeGenerator:
         code.append("    def get_cache_stats(self) -> dict[str, int]:")
         code.append('        """Get statistics about cached data."""')
         code.append("        stats = {}")
-        code.append("        for table_name in TABLES.keys():")
+        code.append("        for table_name in TABLES:")
         code.append("            stats[table_name] = self.get_table_size(table_name)")
         code.append("        return stats")
 

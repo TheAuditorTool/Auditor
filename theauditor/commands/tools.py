@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -323,7 +323,7 @@ def tools_report(out_dir: str, fmt: str) -> None:
     out_path.mkdir(parents=True, exist_ok=True)
 
     all_tools = detect_all_tools()
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     # Build JSON structure
     json_data = {

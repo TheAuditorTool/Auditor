@@ -136,15 +136,12 @@ class LinterOrchestrator:
             cursor = self.db.conn.cursor()
             placeholders = ",".join("?" * len(extensions))
 
-            cursor.execute(
-                f"""
-                SELECT path FROM files
-                WHERE ext IN ({placeholders})
-                AND file_category = 'source'
-                ORDER BY path
-            """,
-                extensions,
+            query = (
+                "SELECT path FROM files WHERE ext IN ("
+                + placeholders
+                + ") AND file_category = 'source' ORDER BY path"
             )
+            cursor.execute(query, extensions)
 
             files = [row[0] for row in cursor.fetchall()]
             logger.debug(f"Found {len(files)} files with extensions {extensions}")
@@ -290,8 +287,8 @@ class LinterOrchestrator:
 
         try:
             output_file.unlink()
-        except Exception:
-            pass
+        except OSError:
+            logger.debug(f"Could not remove temp file: {output_file}")
 
         return findings
 
@@ -412,8 +409,8 @@ class LinterOrchestrator:
 
         try:
             output_file.unlink()
-        except Exception:
-            pass
+        except OSError:
+            logger.debug(f"Could not remove temp file: {output_file}")
 
         return findings
 
@@ -558,8 +555,8 @@ class LinterOrchestrator:
 
         try:
             output_file.unlink()
-        except Exception:
-            pass
+        except OSError:
+            logger.debug(f"Could not remove temp file: {output_file}")
 
         return findings
 

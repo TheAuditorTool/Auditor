@@ -10,7 +10,6 @@ from typing import Any
 
 from theauditor.graph.cfg_builder import CFGBuilder
 
-
 COMPLEXITY_THRESHOLD = 25
 
 

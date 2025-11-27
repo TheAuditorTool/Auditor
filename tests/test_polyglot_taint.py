@@ -8,9 +8,9 @@ Phase 4 validation for refactor-polyglot-taint-engine ticket.
 """
 
 import os
+import shutil
 import sqlite3
 import tempfile
-import shutil
 from pathlib import Path
 
 import pytest
@@ -18,7 +18,6 @@ import pytest
 # Import TheAuditor components
 from theauditor.indexer import run_repository_index
 from theauditor.taint.core import TaintRegistry, trace_taint
-
 
 # Path to the polyglot test fixture
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "polyglot_taint"

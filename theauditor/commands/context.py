@@ -14,7 +14,6 @@ import click
 
 from theauditor.utils.error_handler import handle_exceptions
 
-
 MAX_CHUNK_SIZE = 65_000
 
 

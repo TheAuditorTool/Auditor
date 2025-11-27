@@ -10,15 +10,16 @@ now owns all ORM relationship logic. Taint layer is pure consumer of graph edges
 """
 
 import sqlite3
-from dataclasses import asdict, dataclass, field
-from typing import Any, TYPE_CHECKING
 from collections.abc import Iterable
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import click
 
-from .base import GraphStrategy
-from ..types import DFGNode, DFGEdge, create_bidirectional_edges
 from theauditor.indexer.schema import build_query
+
+from ..types import DFGEdge, DFGNode, create_bidirectional_edges
+from .base import GraphStrategy
 
 if TYPE_CHECKING:
     from theauditor.taint.memory_cache import MemoryCache
@@ -42,12 +43,12 @@ class PythonOrmContext:
     fk_fields: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     param_types: dict[tuple[str, str, str], str] = field(default_factory=dict)
     cache_assignments_lookup: dict[tuple[str, str], list[dict[str, str]]] | None = None
-    cache: "MemoryCache | None" = None
+    cache: MemoryCache | None = None
     cursor: sqlite3.Cursor | None = None
     _assignment_cache: dict[tuple[str, str], list[dict[str, str]]] = field(default_factory=dict)
 
     @classmethod
-    def from_cache(cls, cache: "MemoryCache", cursor: sqlite3.Cursor | None) -> "PythonOrmContext":
+    def from_cache(cls, cache: MemoryCache, cursor: sqlite3.Cursor | None) -> PythonOrmContext:
         return cls(
             model_names=set(cache.python_model_names),
             table_to_model=dict(cache.python_table_to_model),
@@ -60,7 +61,7 @@ class PythonOrmContext:
         )
 
     @classmethod
-    def from_database(cls, cursor: sqlite3.Cursor) -> "PythonOrmContext":
+    def from_database(cls, cursor: sqlite3.Cursor) -> PythonOrmContext:
         context = cls(cursor=cursor)
         context._load_models()
         context._load_relationships()
@@ -324,8 +325,6 @@ class PythonOrmContext:
 # PythonOrmStrategy
 # =============================================================================
 
-from ..types import DFGEdge, DFGNode, create_bidirectional_edges
-from .base import GraphStrategy
 
 
 class PythonOrmStrategy(GraphStrategy):

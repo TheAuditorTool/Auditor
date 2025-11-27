@@ -34,8 +34,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -48,8 +48,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Optional rich support for prettier output
 try:
     from rich.console import Console
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
     from rich.table import Table
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
     RICH_AVAILABLE = True
     console = Console()
 except ImportError:
@@ -215,6 +215,7 @@ class CLISmokeTest:
         """Lazy load the CLI and runner."""
         if self._cli is None:
             from click.testing import CliRunner
+
             from theauditor.cli import cli
             self._cli = cli
             self._runner = CliRunner()
@@ -495,7 +496,7 @@ class CLISmokeTest:
         if results.no_args_test.status == TestStatus.PASS:
             self.log(f"  no-args: PASS ({results.no_args_test.duration_ms:.0f}ms)", "PASS")
         elif has_required or expected_fail:
-            self.log(f"  no-args: EXPECTED FAIL (requires args)", "WARN")
+            self.log("  no-args: EXPECTED FAIL (requires args)", "WARN")
         else:
             self.log(f"  no-args: {results.no_args_test.status} - {results.no_args_test.failure_category}", "FAIL")
 
@@ -551,7 +552,7 @@ class CLISmokeTest:
         if not self.commands:
             self.log("No commands found! Check CLI import.", "FAIL")
             return TestSuiteResults(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 duration_seconds=0,
                 total_commands=0,
                 total_groups=0,
@@ -707,7 +708,7 @@ class CLISmokeTest:
 
         # Build results
         suite_results = TestSuiteResults(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             duration_seconds=duration_seconds,
             total_commands=total_commands,
             total_groups=total_groups,
@@ -1081,7 +1082,7 @@ Examples:
     json_path = runner.save_results(results)
     junit_path = runner.save_junit_xml(results)
 
-    print(f"\nResults saved to:")
+    print("\nResults saved to:")
     print(f"  JSON:  {json_path}")
     print(f"  JUnit: {junit_path}")
 

@@ -20,16 +20,14 @@ from typing import Any
 
 import click
 
-# Shared types (extracted to prevent circular imports with strategies)
-from .types import DFGNode, DFGEdge, create_bidirectional_edges
+from .strategies.interceptors import InterceptorStrategy
+from .strategies.node_express import NodeExpressStrategy
+from .strategies.node_orm import NodeOrmStrategy
 
 # Strategy Pattern: Language-specific logic delegated to strategies
 from .strategies.python_orm import PythonOrmStrategy
-from .strategies.node_orm import NodeOrmStrategy
-from .strategies.node_express import NodeExpressStrategy
-from .strategies.interceptors import InterceptorStrategy
-from .strategies.node_express import NodeExpressStrategy
-from .strategies.python_orm import PythonOrmStrategy
+
+# Shared types (extracted to prevent circular imports with strategies)
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 

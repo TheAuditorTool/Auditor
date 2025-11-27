@@ -34,7 +34,6 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
-
 UNSAFE_SINKS = frozenset(
     [
         "console.log",
