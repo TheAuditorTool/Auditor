@@ -74,13 +74,22 @@ The taint analysis engine is currently "Express-locked" - it works well for Node
 | `graph/strategies/node_orm.py` | NEW | CREATE |
 
 ### Database Tables Used (Already Exist)
-- `framework_safe_sinks` - Safe sink patterns by framework
-- `validation_framework_usage` - Validation sanitizers by framework
-- `api_endpoints` - Entry points by framework
+
+**Pattern Sources (for TaintRegistry):**
+- `frameworks` - Framework definitions with language (node_schema.py:522-536)
+- `framework_safe_sinks` - Safe sink patterns by framework (node_schema.py:538-548)
+- `validation_framework_usage` - Validation sanitizers Zod/Joi/Yup (node_schema.py:550-566)
+- `api_endpoints` - Entry points by framework (frameworks_schema.py)
+- `express_middleware_chains` - Middleware chain order (node_schema.py:572-593)
+
+**ORM Relationship Data (for Graph Strategies):**
 - `sequelize_models` - Node.js Sequelize ORM models
-- `sequelize_associations` - Sequelize relationships
+- `sequelize_associations` - Sequelize relationships (hasMany, belongsTo)
+- `sequelize_model_fields` - Sequelize field definitions
 - `python_orm_models` - Python SQLAlchemy/Django models
 - `python_orm_relationships` - Python ORM relationships
+
+**Full schema definitions: See design.md Appendix F-H**
 
 ### Risk Assessment
 

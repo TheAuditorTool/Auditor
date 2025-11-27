@@ -86,6 +86,12 @@
   ```
 
 - [ ] 1.1.3 Create `graph/strategies/node_orm.py`
+
+  **Required imports** (see design.md Appendix I for full DFGEdge and create_bidirectional_edges):
+  ```python
+  from theauditor.graph.types import DFGNode, DFGEdge, create_bidirectional_edges
+  ```
+
   ```python
   # File: graph/strategies/node_orm.py
   """Node.js ORM Strategy - Handles Sequelize/TypeORM/Prisma relationship edges.
@@ -95,17 +101,19 @@
   - Post.author -> User (belongsTo)
   - User.profile -> Profile (hasOne)
 
-  Schema Reference (from indexer/schemas/node_schema.py):
-    sequelize_associations(file, line, model_name, association_type, target_model, foreign_key, through_table)
-    sequelize_models(file, line, model_name, table_name, extends_model)
-    sequelize_model_fields(file, model_name, field_name, data_type, is_primary_key, ...)
+  Schema Reference: See design.md Appendix H for express_middleware_chains schema
+  Sequelize tables: sequelize_models, sequelize_associations, sequelize_model_fields
   """
   import sqlite3
   from typing import Any
-  from .base import GraphStrategy
-  from ..dfg_builder import DFGEdge, create_bidirectional_edges
 
-  class NodeOrmStrategy(GraphStrategy):
+  # Import from types.py (NOT dfg_builder to avoid circular imports)
+  from theauditor.graph.types import DFGNode, DFGEdge, create_bidirectional_edges
+
+
+  class NodeOrmStrategy:
+      """Strategy for building Node.js ORM relationship edges."""
+
       name = "node_orm"
 
       def build(self, db_path: str, project_root: str) -> dict[str, Any]:
@@ -134,6 +142,7 @@
               target_id = f"{row['file']}::{row['target_model']}::instance"
 
               # Create bidirectional edges for ORM relationship
+              # See design.md Appendix I for create_bidirectional_edges signature
               new_edges = create_bidirectional_edges(
                   source=source_id,
                   target=target_id,
@@ -170,7 +179,28 @@
 
 - [ ] 1.1.4 Register `NodeOrmStrategy` in `dfg_builder.py`
   - Location: `graph/dfg_builder.py:53-57`
-  - Add to strategies list after `PythonOrmStrategy`
+  - See design.md Appendix K for full current code context
+
+  **Current code (theauditor/graph/dfg_builder.py:53-57):**
+  ```python
+  self.strategies = [
+      PythonOrmStrategy(),
+      NodeExpressStrategy(),
+      InterceptorStrategy(),
+  ]
+  ```
+
+  **Target code:**
+  ```python
+  from .strategies.node_orm import NodeOrmStrategy  # Add import at top
+
+  self.strategies = [
+      PythonOrmStrategy(),
+      NodeOrmStrategy(),       # <-- INSERT HERE
+      NodeExpressStrategy(),
+      InterceptorStrategy(),
+  ]
+  ```
 
 - [ ] 1.1.5 Verify strategy execution order
   - Run `aud graph build` with debug output
@@ -194,14 +224,21 @@
   - Add method: `load_from_database(self, cursor: sqlite3.Cursor)`
 
 - [ ] 2.1.2 Implement `_load_safe_sinks()` method
+
+  **Schema references:**
+  - **frameworks table**: See design.md Appendix G (node_schema.py:522-536)
+  - **framework_safe_sinks table**: See design.md Appendix (node_schema.py:538-548)
+  - **register_sanitizer method**: See design.md Appendix J (taint/core.py:81-92)
+
   ```python
   def _load_safe_sinks(self, cursor: sqlite3.Cursor):
       """Load safe sink patterns from framework_safe_sinks table.
 
-      Schema (from indexer/schemas/node_schema.py:539-548):
+      Schemas (theauditor/indexer/schemas/node_schema.py):
+          frameworks(id, name, version, language, path, source, package_manager, is_primary)
           framework_safe_sinks(framework_id, sink_pattern, sink_type, is_safe, reason)
 
-      Note: No 'language' column - JOIN with frameworks table to get language.
+      Note: No 'language' column on framework_safe_sinks - JOIN with frameworks.
       """
       cursor.execute("""
           SELECT f.language, fss.sink_pattern, fss.sink_type
@@ -211,19 +248,40 @@
       """)
       for row in cursor.fetchall():
           lang = row['language'] or 'global'
+          # See design.md Appendix J for register_sanitizer signature
           self.register_sanitizer(row['sink_pattern'], lang)
   ```
 
 - [ ] 2.1.3 Implement `_load_validation_sanitizers()` method
+
+  **Schema reference: See design.md Appendix F for validation_framework_usage schema**
+
   ```python
   def _load_validation_sanitizers(self, cursor: sqlite3.Cursor):
-      """Load validation patterns from validation_framework_usage table."""
+      """Load validation patterns from validation_framework_usage table.
+
+      Schema (theauditor/indexer/schemas/node_schema.py:550-566):
+          validation_framework_usage(
+              file_path TEXT NOT NULL,
+              line INTEGER NOT NULL,
+              framework TEXT NOT NULL,        -- 'zod', 'joi', 'yup'
+              method TEXT NOT NULL,           -- 'parse', 'parseAsync', 'validate'
+              variable_name TEXT,             -- 'schema', 'userSchema' or NULL
+              is_validator BOOLEAN DEFAULT 1, -- True for validators
+              argument_expr TEXT              -- Expression validated (e.g., 'req.body')
+          )
+      """
       cursor.execute("""
-          SELECT DISTINCT framework, variable_name, file_path
+          SELECT DISTINCT framework, method, variable_name
           FROM validation_framework_usage
           WHERE is_validator = 1
       """)
-      # Register each validation pattern
+      for row in cursor.fetchall():
+          # Register both method and variable_name as sanitizer patterns
+          # e.g., 'parse', 'userSchema.parse'
+          self.register_sanitizer(row['method'], 'javascript')
+          if row['variable_name']:
+              self.register_sanitizer(f"{row['variable_name']}.{row['method']}", 'javascript')
   ```
 
 - [ ] 2.1.4 Implement `get_source_patterns(language: str)` method
