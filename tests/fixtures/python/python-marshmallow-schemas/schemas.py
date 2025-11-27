@@ -1,7 +1,7 @@
 """Marshmallow schema extraction test fixture."""
 
-from marshmallow import Schema, fields, validate, validates, ValidationError
-from marshmallow.validate import Length, Range, Email
+from marshmallow import Schema, ValidationError, fields, validate, validates
+from marshmallow.validate import Email, Length, Range
 
 
 class UserSchema(Schema):

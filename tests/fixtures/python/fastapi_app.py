@@ -1,6 +1,6 @@
 """FastAPI fixture covering route metadata and dependency injection."""
 
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel

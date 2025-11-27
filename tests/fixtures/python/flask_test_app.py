@@ -12,16 +12,17 @@ This file contains comprehensive Flask patterns to test all 9 Flask extractors:
 - Caching decorators
 """
 
-from flask import Flask, request, jsonify, render_template
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
-from flask_migrate import Migrate
+import click
+from flask import Flask, jsonify, render_template, request
+from flask_caching import Cache
 from flask_cors import CORS, cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_caching import Cache
+from flask_login import LoginManager
+from flask_migrate import Migrate
 from flask_socketio import SocketIO, emit
-import click
+from flask_sqlalchemy import SQLAlchemy
+
 
 # Flask Application Factory Pattern
 def create_app(config_name='development'):

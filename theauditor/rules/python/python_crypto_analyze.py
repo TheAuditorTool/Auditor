@@ -267,7 +267,7 @@ class CryptoAnalyzer:
             ):
                 weak_hash_usages.append((file, line, method, args))
 
-        for file, line, method, args in weak_hash_usages:
+        for file, line, method, _args in weak_hash_usages:
             is_security_context = self._check_security_context(file, line)
 
             if is_security_context:
@@ -371,7 +371,7 @@ class CryptoAnalyzer:
 
         insecure_random_usages = self.cursor.fetchall()
 
-        for file, line, method, args, caller in insecure_random_usages:
+        for file, line, method, _args, caller in insecure_random_usages:
             if "SystemRandom" in method:
                 continue
 

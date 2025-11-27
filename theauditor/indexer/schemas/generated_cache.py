@@ -24,7 +24,7 @@ class SchemaMemoryCache:
                 data = []
             setattr(self, table_name, data)
 
-            for idx_name, idx_cols in schema.indexes:
+            for _idx_name, idx_cols in schema.indexes:
                 if len(idx_cols) == 1:
                     col_name = idx_cols[0]
                     index = self._build_index(data, table_name, col_name, schema)

@@ -349,7 +349,7 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
         usage_context = "assignment"
 
         for parent in all_nodes:
-            for child_field, child_value in ast.iter_fields(parent):
+            for _child_field, child_value in ast.iter_fields(parent):
                 if isinstance(child_value, list):
                     if node in child_value:
                         if isinstance(parent, ast.Call):

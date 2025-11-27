@@ -154,7 +154,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, query_type, has_limit in cursor.fetchall():
+        for file, line, query_type, _has_limit in cursor.fetchall():
             if not any(f".{method}" in query_type for method in UNBOUNDED_METHODS):
                 continue
             model = query_type.split(".")[0] if "." in query_type else "unknown"
@@ -181,7 +181,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, query_type, includes in cursor.fetchall():
+        for file, line, query_type, _includes in cursor.fetchall():
             if ".findMany" not in query_type:
                 continue
             model = query_type.split(".")[0] if "." in query_type else "unknown"

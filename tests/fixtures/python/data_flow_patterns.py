@@ -14,9 +14,8 @@ Expected extractions:
 """
 
 import os
-import subprocess
 import sqlite3
-
+import subprocess
 
 # ============================================================================
 # PATTERN 1: I/O Operations

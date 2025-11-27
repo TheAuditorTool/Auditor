@@ -9,10 +9,16 @@ Real-world user management and reporting system with authentic security issues:
 - Password resets with weak crypto
 - Admin commands with shell injection
 """
-import os, subprocess, jwt, hashlib, bcrypt
-from pathlib import Path
+import hashlib
+import os
+import subprocess
 from functools import wraps
+from pathlib import Path
+
+import bcrypt
+import jwt
 from Crypto.Cipher import DES
+
 
 # Auth decorators
 def login_required(f):

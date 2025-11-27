@@ -142,7 +142,7 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
 
             is_generator = False
             if "__iter__" in methods:
-                for subnode in context.find_nodes((ast.Yield, ast.YieldFrom)):
+                for _subnode in context.find_nodes((ast.Yield, ast.YieldFrom)):
                     is_generator = True
                     break
 

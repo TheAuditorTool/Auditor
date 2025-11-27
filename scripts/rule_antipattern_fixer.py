@@ -21,9 +21,10 @@ WARNING: Review diff carefully before applying. Some fixes may need manual adjus
 """
 
 import re
-import libcst as cst
-from libcst.codemod import CodemodContext, VisitorBasedCodemodCommand, SkipFile
 from typing import Union
+
+import libcst as cst
+from libcst.codemod import CodemodContext, SkipFile, VisitorBasedCodemodCommand
 
 
 class RuleAntiPatternFixer(VisitorBasedCodemodCommand):

@@ -1,11 +1,11 @@
 """Test CDK stack with security vulnerabilities for extraction verification."""
 
 from aws_cdk import Stack
-from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_rds as rds
-from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_dynamodb as dynamodb
+from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_rds as rds
+from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 

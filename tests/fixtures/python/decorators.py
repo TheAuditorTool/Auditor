@@ -16,11 +16,9 @@ Validates that:
 - Security-relevant decorators (auth, validation, rate_limit) are visible
 """
 
+from collections.abc import Callable
 from functools import wraps
 from typing import Any
-
-from collections.abc import Callable
-
 
 # ==============================================================================
 # Basic Custom Decorators

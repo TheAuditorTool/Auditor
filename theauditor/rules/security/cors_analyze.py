@@ -922,7 +922,7 @@ class CORSAnalyzer:
             )
 
             routes_before = 0
-            for callee, callee_line in self.cursor.fetchall():
+            for callee, _callee_line in self.cursor.fetchall():
                 if ".get" in callee or ".post" in callee or ".route" in callee:
                     routes_before += 1
 
@@ -950,7 +950,7 @@ class CORSAnalyzer:
                 ORDER BY file, line
             """)
 
-            for file, line, func, args in self.cursor.fetchall():
+            for file, line, _func, args in self.cursor.fetchall():
                 if not ("resources" in args and "/*" in args):
                     continue
 

@@ -26,18 +26,17 @@ Usage:
     python ast_walk_to_filecontext.py --target-dir ./theauditor/ast_extractors/python/
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Optional, Sequence
+import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Sequence, Union
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -408,7 +407,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
         imports_added = False
 
         # Find where to insert imports (after initial docstring/comments)
-        for i, stmt in enumerate(updated_node.body):
+        for _i, stmt in enumerate(updated_node.body):
             if not imports_added:
                 # Skip docstrings and comments
                 if m.matches(stmt, m.SimpleStatementLine(body=[m.Expr(m.SimpleString())])):
@@ -749,7 +748,7 @@ def process_file(filepath: Path, stats: TransformationStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if not an extractor file

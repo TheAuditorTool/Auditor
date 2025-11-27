@@ -264,7 +264,7 @@ def _check_middleware_injection(conn) -> list[StandardFinding]:
         ORDER BY f.file, f.line
     """)
 
-    for file, line, func, middleware in cursor.fetchall():
+    for file, line, _func, middleware in cursor.fetchall():
         has_res_write = "res.write" in middleware
         has_user_input = any(pattern in middleware for pattern in user_input_patterns)
 
@@ -407,7 +407,7 @@ def _check_jsonp_callback(conn) -> list[StandardFinding]:
         ORDER BY f.file, f.line
     """)
 
-    for file, line, data in cursor.fetchall():
+    for file, line, _data in cursor.fetchall():
         cursor.execute(
             """
             SELECT a.target_var, a.source_expr

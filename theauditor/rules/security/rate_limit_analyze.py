@@ -739,7 +739,7 @@ def _detect_memory_storage(cursor) -> list[StandardFinding]:
         WHERE callee_function = 'Limiter'
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, _func, args in cursor.fetchall():
         if args and "storage_uri" in args.lower():
             continue
 
@@ -827,7 +827,7 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
             (file, rate_limit_line),
         )
 
-        for exp_line, exp_func, exp_args in cursor.fetchall():
+        for exp_line, exp_func, _exp_args in cursor.fetchall():
             exp_func_lower = exp_func.lower()
             if not any(op in exp_func_lower for op in EXPENSIVE_OPERATIONS):
                 continue

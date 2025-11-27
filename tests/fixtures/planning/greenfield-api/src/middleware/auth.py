@@ -8,10 +8,11 @@ This fixture demonstrates:
 - Middleware chaining for api_endpoint_controls testing
 """
 
-from functools import wraps
-from flask import request, g, abort, jsonify
-import jwt
 import os
+from functools import wraps
+
+import jwt
+from flask import abort, g, jsonify, request
 
 
 def require_auth(f):

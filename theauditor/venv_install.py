@@ -788,7 +788,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
 
             cmd = [str(binary_path), "scan"]
 
-            for ecosystem, lockfile in lockfiles.items():
+            for _ecosystem, lockfile in lockfiles.items():
                 cmd.extend(["-L", str(lockfile)])
 
             if not lockfiles:

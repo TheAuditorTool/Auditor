@@ -548,8 +548,8 @@ def audit():
 
     # Import the required modules
     try:
-        from theauditor.js_semantic_parser import JSSemanticParser
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+        from theauditor.js_semantic_parser import JSSemanticParser
     except ImportError as e:
         print(f"[ERROR] Failed to import required modules: {e}")
         print("Make sure you're running from the project root.")

@@ -6,12 +6,12 @@ Phase 2: Performance fixes for cross-boundary edges and ORM edges
 These are REAL tests against actual databases, not mocks.
 """
 
-import pytest
+import os
 import sqlite3
 import tempfile
-import os
 from pathlib import Path
 
+import pytest
 
 # =============================================================================
 # PHASE 1 TESTS: db_cache.resolve_filename()
@@ -509,8 +509,9 @@ class TestPerformance:
 
     def test_resolve_filename_is_o1(self):
         """Test that resolve_filename is O(1) via set lookup."""
-        from theauditor.graph.db_cache import GraphDatabaseCache
         import time
+
+        from theauditor.graph.db_cache import GraphDatabaseCache
 
         # Create a large cache
         fd, path = tempfile.mkstemp(suffix='.db')

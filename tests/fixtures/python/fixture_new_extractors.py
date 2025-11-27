@@ -70,7 +70,8 @@ del obj.attr
 import os
 import sys as system
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
+
 from ..parent import something
 
 # With statements
@@ -121,6 +122,7 @@ class MyCallable:
 
 # Comparison protocol
 from functools import total_ordering
+
 
 @total_ordering
 class MyComparable:

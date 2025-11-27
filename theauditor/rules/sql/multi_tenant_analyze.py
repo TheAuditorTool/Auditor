@@ -548,7 +548,7 @@ def _find_bulk_operations_without_tenant(
         (sensitive_pattern, sensitive_pattern, tenant_pattern),
     )
 
-    for file, line, query, command, tables in cursor.fetchall():
+    for file, line, query, command, _tables in cursor.fetchall():
         if command == "INSERT":
             severity = Severity.HIGH
             message = "Bulk INSERT without tenant field - data will be unfiltered"
@@ -598,7 +598,7 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[Stan
         ORDER BY sq.file_path, sq.line_number
     """)
 
-    for file, line, query, command, tables in cursor.fetchall():
+    for file, line, query, _command, _tables in cursor.fetchall():
         query_lower = query.lower()
 
         on_start = query_lower.find(" on ")
@@ -647,7 +647,7 @@ def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> list
         (sensitive_pattern,),
     )
 
-    for file, line, query, command in cursor.fetchall():
+    for file, line, query, _command in cursor.fetchall():
         query_lower = query.lower()
 
         subquery_start = query_lower.find("(select")

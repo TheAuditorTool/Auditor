@@ -10,10 +10,10 @@ Tests extraction when:
 Validates deep circular import resolution.
 """
 
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 # Import from controllers (which imports from models and services)
-from controllers import UserController, PostController, CommentController
+from controllers import CommentController, PostController, UserController
 
 
 def get_user_summary(user_id: int) -> dict[str, Any]:
@@ -96,7 +96,7 @@ def search_users_and_posts(query: str) -> dict[str, list[Any]]:
 
 
 # Import at module level (tests top-level circular import)
-from models import User, Post
+from models import Post, User
 
 
 def create_post_with_author(username: str, email: str, title: str, content: str) -> Post:

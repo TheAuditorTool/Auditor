@@ -153,7 +153,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, target, html_content in cursor.fetchall():
+        for file, line, _target, html_content in cursor.fetchall():
             if not any(pattern in html_content for pattern in VUE_XSS_DIRECTIVES):
                 continue
             findings.append(
@@ -177,7 +177,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
         eval_usages = cursor.fetchall()
 
-        for file, line, eval_content in eval_usages:
+        for file, line, _eval_content in eval_usages:
             cursor.execute(
                 """
                 SELECT src FROM refs
@@ -249,7 +249,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, target, interpolation in cursor.fetchall():
+        for file, line, _target, interpolation in cursor.fetchall():
             if "{{{" not in interpolation or "}}}" not in interpolation:
                 continue
             findings.append(
@@ -272,7 +272,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, target, component_code in cursor.fetchall():
+        for file, line, _target, component_code in cursor.fetchall():
             if "<component" not in component_code or ":is" not in component_code:
                 continue
 
@@ -296,7 +296,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, target, link_code in cursor.fetchall():
+        for file, line, _target, link_code in cursor.fetchall():
             if not ('target="_blank"' in link_code or "target='_blank'" in link_code):
                 continue
 
@@ -395,7 +395,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
             ):
                 storage_operations.append((file, line, storage_method, data))
 
-        for file, line, storage_method, data in storage_operations:
+        for file, line, storage_method, _data in storage_operations:
             is_vue_file = file.endswith(".vue")
             if not is_vue_file:
                 cursor.execute(

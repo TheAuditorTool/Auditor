@@ -28,18 +28,17 @@ Usage:
     python ast_modernizer_v2.py --target-dir ./theauditor/ast_extractors/python/
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Sequence, Optional
+import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Sequence, Union
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -880,7 +879,7 @@ def process_file(filepath: Path, stats: ModernizationStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if doesn't use AST

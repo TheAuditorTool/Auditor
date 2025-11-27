@@ -91,7 +91,7 @@ def _extract_fastapi_dependencies(func_node):
     defaults = list(func_node.args.defaults)
     pos_defaults_start = len(positional) - len(defaults)
 
-    for idx, arg in enumerate(positional):
+    for idx, _arg in enumerate(positional):
         default = None
         if idx >= pos_defaults_start and defaults:
             default = defaults[idx - pos_defaults_start]
@@ -100,7 +100,7 @@ def _extract_fastapi_dependencies(func_node):
             if dep:
                 dependencies.append(dep)
 
-    for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):  # noqa: B905 - AST guarantees equal length
+    for _kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):  # noqa: B905 - AST guarantees equal length
         if isinstance(default, ast.Call):
             dep = _dependency_name(default)
             if dep:

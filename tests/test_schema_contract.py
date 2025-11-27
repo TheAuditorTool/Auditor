@@ -12,9 +12,9 @@ Purpose: Prevent the 22MB data loss bug from recurring
 """
 
 import pytest
-from theauditor.indexer.schemas.python_schema import PYTHON_TABLES
-from theauditor.indexer.schema import TABLES
 
+from theauditor.indexer.schema import TABLES
+from theauditor.indexer.schemas.python_schema import PYTHON_TABLES
 
 # Known columns that are infrastructure, not extractor output
 INFRASTRUCTURE_COLUMNS = {'id', 'file', 'line'}
@@ -120,7 +120,7 @@ class TestSchemaContract:
         """Verify tables with consolidated extractors have *_kind discriminator."""
         violations = []
 
-        for table_name, (kind_col, type_col) in TWO_DISCRIMINATOR_TABLES.items():
+        for table_name, (kind_col, _type_col) in TWO_DISCRIMINATOR_TABLES.items():
             if table_name not in PYTHON_TABLES:
                 violations.append(f"{table_name}: table not found")
                 continue

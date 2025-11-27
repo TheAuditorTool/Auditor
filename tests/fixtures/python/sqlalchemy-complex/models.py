@@ -1,28 +1,52 @@
 """Complex SQLAlchemy models with advanced patterns."""
 
-from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Boolean, Text, JSON,
-    ForeignKey, Table, UniqueConstraint, CheckConstraint, Index,
-    event, func, select, and_, or_, exists
-)
-from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import (
-    relationship, backref, validates, column_property,
-    object_session, Session, Query, joinedload, selectinload
-)
-from sqlalchemy.ext.hybrid import hybrid_property, hybrid_method
-from sqlalchemy.ext.associationproxy import association_proxy
-from sqlalchemy.ext.orderinglist import ordering_list
-from sqlalchemy.ext.mutable import MutableDict, MutableList
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB, TSVECTOR
-from sqlalchemy.schema import DDL
-from sqlalchemy.sql import case, expression
-from sqlalchemy.orm.collections import attribute_mapped_collection
-import uuid
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
 import hashlib
 import json
+import uuid
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+    and_,
+    event,
+    exists,
+    func,
+    or_,
+    select,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.ext.declarative import declarative_base, declared_attr
+from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
+from sqlalchemy.ext.mutable import MutableDict, MutableList
+from sqlalchemy.ext.orderinglist import ordering_list
+from sqlalchemy.orm import (
+    Query,
+    Session,
+    backref,
+    column_property,
+    joinedload,
+    object_session,
+    relationship,
+    selectinload,
+    validates,
+)
+from sqlalchemy.orm.collections import attribute_mapped_collection
+from sqlalchemy.schema import DDL
+from sqlalchemy.sql import case, expression
 
 Base = declarative_base()
 

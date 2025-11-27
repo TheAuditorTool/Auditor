@@ -412,7 +412,7 @@ class AsyncConcurrencyAnalyzer:
 
             promise_all_calls = list(cursor.fetchall())
 
-            for file, line, callee in promise_all_calls:
+            for file, line, _callee in promise_all_calls:
                 error_query = build_query(
                     "function_call_args",
                     ["callee_function"],
@@ -460,7 +460,7 @@ class AsyncConcurrencyAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee_function, args in cursor.fetchall():
+            for file, line, _callee_function, args in cursor.fetchall():
                 has_writes = False
                 for write_op in self.patterns.WRITE_OPERATIONS:
                     if write_op in args.lower():
@@ -497,7 +497,7 @@ class AsyncConcurrencyAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, target, source in cursor.fetchall():
+            for file, line, target, _source in cursor.fetchall():
                 is_shared = False
                 for pattern in self.patterns.SHARED_STATE:
                     if pattern in target:
@@ -1084,7 +1084,7 @@ class AsyncConcurrencyAnalyzer:
                 ):
                     nested_callbacks.append((file, line, func, args))
 
-            for file, line, func, args in nested_callbacks[:50]:
+            for file, line, _func, args in nested_callbacks[:50]:
                 nesting = max(args.lower().count("function"), args.count("=>"))
 
                 if nesting >= 2:

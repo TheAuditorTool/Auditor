@@ -1,5 +1,5 @@
 """Advanced type system patterns - Protocol, Generic, TypedDict, Literal, @overload."""
-from typing import Protocol, Generic, TypeVar, TypedDict, Literal, overload, runtime_checkable
+from typing import Generic, Literal, Protocol, TypedDict, TypeVar, overload, runtime_checkable
 
 
 # Protocol patterns

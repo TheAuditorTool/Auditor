@@ -1426,7 +1426,7 @@ def _detect_direct_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, _expr in cursor.fetchall():
         var_lower = var.lower()
         pii_category = None
         pii_pattern = None
@@ -1783,7 +1783,7 @@ def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFind
         ORDER BY path, line
     """)
 
-    for file, handler_line, handler_name in cursor.fetchall():
+    for file, handler_line, _handler_name in cursor.fetchall():
         cursor.execute(
             """
             SELECT callee_function, line, argument_expr
@@ -1947,7 +1947,7 @@ def _detect_third_party_pii(cursor, pii_categories: dict) -> list[StandardFindin
 
         args_lower = args.lower()
         detected_pii = []
-        for category, patterns in pii_categories.items():
+        for _category, patterns in pii_categories.items():
             for pattern in patterns:
                 if pattern in args_lower:
                     detected_pii.append(pattern)
@@ -2148,7 +2148,7 @@ def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding
         args_lower = args.lower()
         pii_count = 0
         detected_types = []
-        for category, patterns in pii_categories.items():
+        for _category, patterns in pii_categories.items():
             for pattern in patterns:
                 if pattern in args_lower:
                     pii_count += 1

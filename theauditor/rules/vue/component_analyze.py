@@ -238,7 +238,7 @@ def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
         if any(pattern in target for pattern in IMMUTABLE_PROPS):
             props_mutations.append((file, line, target, source))
 
-    for file, line, target, source in props_mutations:
+    for file, line, target, _source in props_mutations:
         findings.append(
             StandardFinding(
                 rule_name="vue-props-mutation",
@@ -434,7 +434,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFin
         list(vue_files) + render_triggers,
     )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, _args in cursor.fetchall():
         if func == "$forceUpdate" or func == "forceUpdate":
             severity = Severity.HIGH
             message = "Using $forceUpdate - indicates reactivity issue"
@@ -535,7 +535,7 @@ def _find_inefficient_computed(cursor, vue_files: set[str]) -> list[StandardFind
         if "computed" in computed_name or "get " in computed_name:
             expensive_computed.append((file, line, operation, computed_name))
 
-    for file, line, operation, computed_name in expensive_computed:
+    for file, line, operation, _computed_name in expensive_computed:
         findings.append(
             StandardFinding(
                 rule_name="vue-expensive-computed",
@@ -573,7 +573,7 @@ def _find_complex_template_expressions(cursor, vue_files: set[str]) -> list[Stan
         list(vue_files),
     )
 
-    for file, line, expression in cursor.fetchall():
+    for file, line, _expression in cursor.fetchall():
         findings.append(
             StandardFinding(
                 rule_name="vue-complex-template",

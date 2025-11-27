@@ -891,7 +891,7 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
 
             if isinstance(child, ast.While):
                 if isinstance(child.test, ast.Constant) and child.test.value is True:
-                    for body_node in context.find_nodes((ast.Yield, ast.YieldFrom)):
+                    for _body_node in context.find_nodes((ast.Yield, ast.YieldFrom)):
                         is_infinite = True
                         break
 

@@ -449,7 +449,7 @@ def _check_dom_clobbering(conn) -> list[StandardFinding]:
         ORDER BY f.file, f.line
     """)
 
-    for file, line, func in cursor.fetchall():
+    for file, line, _func in cursor.fetchall():
         cursor.execute(
             """
             SELECT a.source_expr
@@ -585,7 +585,7 @@ def _check_web_messaging(conn) -> list[StandardFinding]:
           AND f.argument_expr LIKE '%message%'
     """)
 
-    for file, line, func, event_type in cursor:
+    for file, line, _func, _event_type in cursor:
         cursor.execute(
             """
             SELECT 1
@@ -637,7 +637,7 @@ def _check_web_messaging(conn) -> list[StandardFinding]:
           AND (f.argument_expr = "'*'" OR f.argument_expr = '"*"')
     """)
 
-    for file, line, func in cursor:
+    for file, line, _func in cursor:
         findings.append(
             StandardFinding(
                 rule_name="dom-xss-postmessage-wildcard",

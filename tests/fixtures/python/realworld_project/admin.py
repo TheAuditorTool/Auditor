@@ -7,9 +7,10 @@ list_display, list_filter, search_fields, readonly_fields, custom actions.
 
 from django.contrib import admin
 from django.utils.html import format_html
+
+from .models.accounts import Account
 from .models.article import Article
 from .models.user import User
-from .models.accounts import Account
 
 
 # 1. Basic ModelAdmin - minimal configuration

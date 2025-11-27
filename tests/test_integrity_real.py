@@ -9,13 +9,12 @@ Tier 2: Filesystem operations work (init scaffolding)
 Tier 3: Full 4-layer pipeline (Parser -> Extractor -> Indexer -> Database)
 """
 
+import sqlite3
 import subprocess
 import sys
-import sqlite3
 from pathlib import Path
 
 import pytest
-
 
 # The CLI entry point - use theauditor.cli module directly
 # (aud = "theauditor.cli:main" in pyproject.toml)

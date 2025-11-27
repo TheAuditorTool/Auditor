@@ -1,8 +1,9 @@
 """Celery task extraction test fixture."""
 
+from datetime import datetime, timedelta
+
 from celery import Celery, Task
 from celery.schedules import crontab
-from datetime import timedelta, datetime
 
 app = Celery('tasks', broker='redis://localhost:6379/0')
 

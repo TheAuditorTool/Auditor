@@ -244,7 +244,7 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
         sink_groups.setdefault(sink_key, []).append(path)
 
     deduped_paths: list[Any] = []
-    for sink_key, sink_paths in sink_groups.items():
+    for _sink_key, sink_paths in sink_groups.items():
         if not sink_paths:
             continue
 

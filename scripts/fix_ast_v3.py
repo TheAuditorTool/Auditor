@@ -15,12 +15,12 @@ Author: TheAuditor Team (V2 by Lead Auditor, V3 refinements)
 Date: November 2025
 """
 
-import sys
-import shutil
 import argparse
+import shutil
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
-from dataclasses import dataclass
 
 import libcst as cst
 from libcst import matchers as m
@@ -270,7 +270,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             return None
 
         # Check first 3 statements (handles comments, debug prints, etc.)
-        for i, stmt in enumerate(body.body[:3]):
+        for _i, stmt in enumerate(body.body[:3]):
             if m.matches(stmt, m.If(test=m.Call(func=m.Name("isinstance")))):
                 isinstance_call = stmt.test
                 if len(isinstance_call.args) >= 2:
@@ -330,7 +330,7 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
     stats.files_processed += 1
 
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source = f.read()
     except Exception as e:
         print(f"  ERROR reading {filepath.name}: {e}")

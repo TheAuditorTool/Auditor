@@ -15,17 +15,27 @@ Tests extraction of:
 Validates that complex type annotations are correctly extracted and stored.
 """
 
-from typing import (
-    List, Dict, Set, Tuple, Optional, Union, Any,
-    TypeVar, Generic, Protocol, runtime_checkable,
-    Literal, Final, ClassVar,
-    Type, cast, overload
-)
-
-from collections.abc import Callable, Sequence, Mapping, Iterable
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Final,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+    overload,
+    runtime_checkable,
+)
 
 # ==============================================================================
 # TypeVar and Generic Classes

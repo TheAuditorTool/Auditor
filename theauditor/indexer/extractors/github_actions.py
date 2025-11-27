@@ -268,10 +268,10 @@ class GitHubWorkflowExtractor(BaseExtractor):
             self._extract_references(step_id, "run", run_script)
             self._extract_references(step_id, "if", if_condition)
             if env:
-                for env_key, env_value in env.items():
+                for _env_key, env_value in env.items():
                     self._extract_references(step_id, "env", str(env_value))
             if with_args:
-                for with_key, with_value in with_args.items():
+                for _with_key, with_value in with_args.items():
                     self._extract_references(step_id, "with", str(with_value))
 
     def _extract_references(self, step_id: str, location: str, text: str | None):

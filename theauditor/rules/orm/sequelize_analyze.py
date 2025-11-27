@@ -347,7 +347,7 @@ class SequelizeAnalyzer:
 
         all_calls = self.cursor.fetchall()
 
-        for file, line, func, args in all_calls:
+        for file, line, func, _args in all_calls:
             if not any(f".{method}" in func for method in self.patterns.RACE_CONDITION_METHODS):
                 continue
 

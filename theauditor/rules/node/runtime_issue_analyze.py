@@ -291,7 +291,7 @@ class RuntimeAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, target, expr in cursor.fetchall():
+            for file, line, _target, expr in cursor.fetchall():
                 if not ("`" in expr and "$" in expr):
                     continue
 
@@ -461,7 +461,7 @@ class RuntimeAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, func_name, func_type in cursor.fetchall():
+            for file, line, func_name, _func_type in cursor.fetchall():
                 func_name_lower = func_name.lower()
                 if "merge" not in func_name_lower and "extend" not in func_name_lower:
                     continue

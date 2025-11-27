@@ -325,7 +325,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFin
         list(vue_files) + triggers,
     )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, _args in cursor.fetchall():
         if func in ["$forceUpdate", "forceUpdate"]:
             severity = Severity.HIGH
             message = "Using $forceUpdate indicates reactivity system failure"
@@ -435,7 +435,7 @@ def _find_complex_render_functions(cursor, vue_files: set[str]) -> list[Standard
         list(vue_files) + render_funcs,
     )
 
-    for file, function, count in cursor.fetchall():
+    for file, _function, count in cursor.fetchall():
         findings.append(
             StandardFinding(
                 rule_name="vue-complex-render",
@@ -614,7 +614,7 @@ def _find_missing_optimizations(cursor, vue_files: set[str]) -> list[StandardFin
         (file, line, name) for file, line, name in cursor.fetchall() if "computed" in name
     ]
 
-    for file, line, name in computed_symbols:
+    for file, line, _name in computed_symbols:
         cursor.execute(
             """
             SELECT callee_function

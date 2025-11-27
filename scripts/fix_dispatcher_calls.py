@@ -7,6 +7,7 @@ Replaces all variations of extractor calls with context parameter.
 import re
 from pathlib import Path
 
+
 def fix_python_dispatcher():
     """Fix the remaining extractor calls in python.py"""
 

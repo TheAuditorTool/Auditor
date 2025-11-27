@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run pyupgrade --py314-plus on all Python files in the project."""
 
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 # Find all Python files in theauditor/ and tests/
 files = list(Path('theauditor').rglob('*.py')) + list(Path('tests').rglob('*.py'))

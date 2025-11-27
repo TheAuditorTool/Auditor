@@ -8,6 +8,7 @@ See CLAUDE.md: NEVER USE EMOJIS IN PYTHON OUTPUT
 
 import pytest
 from click.testing import CliRunner
+
 from theauditor.cli import cli
 from theauditor.commands.manual import EXPLANATIONS
 

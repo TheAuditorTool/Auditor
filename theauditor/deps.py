@@ -153,7 +153,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
         deps = []
 
-        for file_path, pkg_name, pkg_version, deps_json, dev_deps_json in cursor.fetchall():
+        for file_path, _pkg_name, _pkg_version, deps_json, dev_deps_json in cursor.fetchall():
             if not deps_json:
                 continue
 
@@ -237,9 +237,9 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
         for (
             file_path,
-            file_type,
-            proj_name,
-            proj_version,
+            _file_type,
+            _proj_name,
+            _proj_version,
             deps_json,
             optional_deps_json,
         ) in cursor.fetchall():
@@ -371,7 +371,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
         if not data or "services" not in data:
             return deps
 
-        for service_name, service_config in data["services"].items():
+        for _service_name, service_config in data["services"].items():
             if not isinstance(service_config, dict):
                 continue
 

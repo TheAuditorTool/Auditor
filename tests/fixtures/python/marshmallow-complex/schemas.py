@@ -1,22 +1,40 @@
 """Complex Marshmallow schemas with advanced validation and nested relationships."""
 
-from marshmallow import (
-    Schema, fields, validates, validates_schema, pre_load, post_load,
-    pre_dump, post_dump, ValidationError, missing
-)
-from marshmallow.validate import (
-    Length, Range, Email, Regexp, OneOf, ContainsOnly,
-    NoneOf, Equal, Predicate, And, URL
-)
-from marshmallow.decorators import validates_field
-from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
-from marshmallow_enum import EnumField
-from marshmallow.fields import Nested, Method, Function
-from typing import Dict, Any, List, Optional
+import enum
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal
-import enum
+from typing import Any, Dict, List, Optional
+
+from marshmallow import (
+    Schema,
+    ValidationError,
+    fields,
+    missing,
+    post_dump,
+    post_load,
+    pre_dump,
+    pre_load,
+    validates,
+    validates_schema,
+)
+from marshmallow.decorators import validates_field
+from marshmallow.fields import Function, Method, Nested
+from marshmallow.validate import (
+    URL,
+    And,
+    ContainsOnly,
+    Email,
+    Equal,
+    Length,
+    NoneOf,
+    OneOf,
+    Predicate,
+    Range,
+    Regexp,
+)
+from marshmallow_enum import EnumField
+from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
 
 
 # Custom validators

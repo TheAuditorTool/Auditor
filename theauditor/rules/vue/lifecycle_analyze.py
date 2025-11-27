@@ -492,7 +492,7 @@ def _find_computed_side_effects(cursor, vue_files: set[str]) -> list[StandardFin
         list(vue_files) + side_effects,
     )
 
-    for file, line, name, effect, f_line in cursor.fetchall():
+    for file, line, name, effect, _f_line in cursor.fetchall():
         if "computed" not in name.lower():
             continue
         findings.append(

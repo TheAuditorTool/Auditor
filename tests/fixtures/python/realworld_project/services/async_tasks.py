@@ -1,8 +1,7 @@
 """Async task service demonstrating async/await patterns."""
 import asyncio
-from typing import List
-
 from collections.abc import AsyncIterator
+from typing import List
 
 
 async def fetch_user_data(user_id: int) -> dict:

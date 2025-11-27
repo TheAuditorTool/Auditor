@@ -250,7 +250,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query, [f"%{sp}%", f"%{sp}%"])
 
-        for file, line, func, args in cursor.fetchall():
+        for file, line, _func, args in cursor.fetchall():
             if not args:
                 continue
 

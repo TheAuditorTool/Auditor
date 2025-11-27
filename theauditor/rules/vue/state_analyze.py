@@ -228,7 +228,7 @@ def _find_direct_state_mutations(cursor, store_files: set[str]) -> list[Standard
         list(store_files),
     )
 
-    for file, line, target, source in cursor.fetchall():
+    for file, line, target, _source in cursor.fetchall():
         if not any(
             pattern in target
             for pattern in ["state.", "this.state.", "$store.state.", "store.state."]

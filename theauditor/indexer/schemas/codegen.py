@@ -150,7 +150,7 @@ class SchemaCodeGenerator:
             )
             code.append("")
 
-            for idx_name, idx_cols in schema.indexes:
+            for _idx_name, idx_cols in schema.indexes:
                 if len(idx_cols) == 1:
                     col_name = idx_cols[0]
 
@@ -218,7 +218,7 @@ class SchemaCodeGenerator:
         code.append(
             "            # Auto-build indexes for indexed columns (always create, even if empty)"
         )
-        code.append("            for idx_name, idx_cols in schema.indexes:")
+        code.append("            for _idx_name, idx_cols in schema.indexes:")
         code.append("                if len(idx_cols) == 1:  # Single column index")
         code.append("                    col_name = idx_cols[0]")
         code.append(

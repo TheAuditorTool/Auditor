@@ -1,11 +1,10 @@
 """Synthetic Python fixtures to exercise extraction parity features."""
 
-from flask import Blueprint
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, validator, root_validator
+from flask import Blueprint
+from pydantic import BaseModel, root_validator, validator
 from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import declarative_base, relationship, backref
-
+from sqlalchemy.orm import backref, declarative_base, relationship
 
 # SQLAlchemy setup
 Base = declarative_base()

@@ -420,7 +420,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+        for file, line, _method, pattern, controls_str in self.cursor.fetchall():
             pattern_lower = pattern.lower() if pattern else ""
             if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
                 continue
@@ -545,7 +545,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_concat in self.cursor.fetchall():
+        for file, line, _method, pattern, controls_concat in self.cursor.fetchall():
             controls = controls_concat.split("|") if controls_concat else []
             controls_str = " ".join(str(c).lower() for c in controls if c)
 

@@ -1168,7 +1168,7 @@ def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
 
     sensitive_keywords = ["password", "token", "secret", "key", "hash", "signature"]
 
-    for file, name, line, sym_type in cursor.fetchall():
+    for file, name, line, _sym_type in cursor.fetchall():
         name_lower = name.lower()
         if not any(kw in name_lower for kw in sensitive_keywords):
             continue

@@ -358,7 +358,7 @@ class ExpressAnalyzer:
 
         response_outputs = cursor.fetchall()
 
-        for file, line, method, arg_expr in response_outputs:
+        for file, line, _method, arg_expr in response_outputs:
             has_user_input = False
             input_source = None
 
@@ -517,7 +517,7 @@ class ExpressAnalyzer:
         )
         cursor.execute(query)
 
-        for file, line, callee, config in cursor.fetchall():
+        for file, line, _callee, config in cursor.fetchall():
             if (
                 "origin:*" in config
                 or "origin: *" in config

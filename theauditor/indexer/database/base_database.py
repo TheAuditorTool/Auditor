@@ -134,7 +134,7 @@ class BaseDatabaseManager:
         """
         cursor = self.conn.cursor()
 
-        for table_name, table_schema in TABLES.items():
+        for _table_name, table_schema in TABLES.items():
             create_table_sql = table_schema.create_table_sql()
             cursor.execute(create_table_sql)
 

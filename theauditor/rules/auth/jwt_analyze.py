@@ -166,7 +166,7 @@ def find_jwt_flaws(context: StandardRuleContext) -> list[StandardFinding]:
         )
         cursor.execute(query)
 
-        for file, line, func, secret_expr, arg_idx in cursor.fetchall():
+        for file, line, func, secret_expr, _arg_idx in cursor.fetchall():
             if any(env in secret_expr for env in ENV_PATTERNS):
                 continue
 

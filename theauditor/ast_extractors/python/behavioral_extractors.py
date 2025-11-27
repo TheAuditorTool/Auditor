@@ -106,7 +106,7 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
         is_async = isinstance(node, ast.AsyncFunctionDef)
         function_definitions[func_name] = (node, is_async)
 
-    for func_name, (func_node, is_async) in function_definitions.items():
+    for func_name, (_func_node, _is_async) in function_definitions.items():
         calls_in_function = []
 
         for child in context.find_nodes(ast.Call):
@@ -118,14 +118,14 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
 
         function_calls[func_name] = calls_in_function
 
-    for func_name, (func_node, is_async) in function_definitions.items():
+    for func_name, (_func_node, _is_async) in function_definitions.items():
         calls_in_func = function_calls.get(func_name, [])
 
         direct_recursive_calls = [
             (line, called) for line, called in calls_in_func if called == func_name
         ]
 
-        for call_line, called_func in direct_recursive_calls:
+        for call_line, _called_func in direct_recursive_calls:
             is_tail = False
 
             for return_node in context.find_nodes(ast.Return):

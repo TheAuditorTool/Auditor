@@ -3,8 +3,8 @@ Advanced API pattern testing - Multiple authentication controls per endpoint.
 Tests: api_endpoints JOIN api_endpoint_controls
 """
 
-from flask import Blueprint, request, jsonify
-from decorators import login_required, admin_required, rate_limit
+from decorators import admin_required, login_required, rate_limit
+from flask import Blueprint, jsonify, request
 
 admin_api = Blueprint('admin', __name__)
 

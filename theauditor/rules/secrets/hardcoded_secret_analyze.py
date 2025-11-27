@@ -429,7 +429,7 @@ def _find_connection_strings(cursor) -> list[StandardFinding]:
         -- REMOVED LIMIT: was hiding bugs
         """)
 
-    for file, line, var, conn_str in cursor.fetchall():
+    for file, line, _var, conn_str in cursor.fetchall():
         has_protocol = any(proto in conn_str for proto in DB_PROTOCOLS)
         if not has_protocol:
             continue

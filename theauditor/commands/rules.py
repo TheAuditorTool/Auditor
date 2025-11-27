@@ -259,7 +259,7 @@ def scan_python_rules(rules_path: Path) -> dict[str, list[str]]:
         try:
             module = importlib.import_module("theauditor.rules")
             exposed_functions = []
-            for name, obj in inspect.getmembers(module, inspect.isfunction):
+            for name, _obj in inspect.getmembers(module, inspect.isfunction):
                 if name.startswith("find_"):
                     exposed_functions.append(name)
             if exposed_functions:
