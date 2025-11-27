@@ -545,7 +545,7 @@ def write_deps_json(deps: list[dict[str, Any]], output_path: str = "./.pf/deps.j
         with open(output, "w", encoding="utf-8") as f:
             json.dump(deps, f, indent=2, sort_keys=True)
     except SecurityError as e:
-        raise SecurityError(f"Invalid output path: {e}")
+        raise SecurityError(f"Invalid output path: {e}") from e
 
 
 async def _fetch_npm_async(client, name: str) -> str | None:
@@ -580,7 +580,7 @@ async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | 
             return data.get("info", {}).get("version")
 
         releases = data.get("releases", {})
-        stable = [v for v in releases.keys() if not _is_prerelease_version(v)]
+        stable = [v for v in releases if not _is_prerelease_version(v)]
         if stable:
             stable.sort(key=_parse_pypi_version, reverse=True)
             return stable[0]
@@ -1221,7 +1221,7 @@ def write_deps_latest_json(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(latest_info, f, indent=2, sort_keys=True)
     except SecurityError as e:
-        raise SecurityError(f"Invalid output path: {e}")
+        raise SecurityError(f"Invalid output path: {e}") from e
 
 
 def _create_versioned_backup(path: Path) -> Path:

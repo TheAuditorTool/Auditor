@@ -238,11 +238,7 @@ class PatternDetector:
         text_lower = text.lower()
         all_patterns = KEYBOARD_CONFIG.get_all_patterns()
 
-        for pattern in all_patterns:
-            if pattern in text_lower or text_lower in pattern:
-                return True
-
-        return False
+        return any(pattern in text_lower or text_lower in pattern for pattern in all_patterns)
 
     @staticmethod
     def is_repetitive(text: str) -> bool:

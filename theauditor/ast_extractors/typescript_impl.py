@@ -528,7 +528,7 @@ def extract_typescript_calls_with_args(
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] Built scope map with {len(scope_map)} line mappings")
 
-        sample_lines = sorted([l for l in scope_map.keys() if scope_map[l] != "global"])[:5]
+        sample_lines = sorted([ln for ln in scope_map if scope_map[ln] != "global"])[:5]
         for line in sample_lines:
             print(f"[DEBUG]   Line {line} -> {scope_map[line]}")
 

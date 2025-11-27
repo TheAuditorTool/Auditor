@@ -1172,11 +1172,12 @@ def run_fce(
                     "sample_findings": cycle_findings[:3],
                 }
 
+                cycle_size = cycle.get("size", len(cycle_files))
                 register_meta(
                     entry,
                     ("SYSTEMIC_DEBT_CLUSTER", tuple(sorted(cycle_files))),
-                    log_fn=lambda e, size=cycle.get("size", len(cycle_files)): (
-                        f"[FCE] Meta-finding: Debt cluster in {size}-file dependency cycle"
+                    log_fn=lambda e, _size=cycle_size: (
+                        f"[FCE] Meta-finding: Debt cluster in {_size}-file dependency cycle"
                     ),
                 )
 

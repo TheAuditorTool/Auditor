@@ -62,7 +62,9 @@ class ContextPattern:
         try:
             self.compiled_regex = re.compile(self.pattern, re.IGNORECASE)
         except re.error as e:
-            raise ValueError(f"Invalid regex pattern '{self.pattern}' in pattern '{self.id}': {e}")
+            raise ValueError(
+                f"Invalid regex pattern '{self.pattern}' in pattern '{self.id}': {e}"
+            ) from e
 
         if self.category not in ["obsolete", "current", "transitional"]:
             raise ValueError(
@@ -281,7 +283,7 @@ class SemanticContext:
             try:
                 data = yaml.safe_load(f)
             except yaml.YAMLError as e:
-                raise ValueError(f"Invalid YAML in {yaml_path}: {e}")
+                raise ValueError(f"Invalid YAML in {yaml_path}: {e}") from e
 
         if not isinstance(data, dict):
             raise ValueError(
@@ -311,7 +313,7 @@ class SemanticContext:
                 )
                 instance.obsolete_patterns.append(pattern)
             except (KeyError, ValueError) as e:
-                raise ValueError(f"Invalid obsolete pattern in {yaml_path}: {e}")
+                raise ValueError(f"Invalid obsolete pattern in {yaml_path}: {e}") from e
 
         for pattern_data in patterns_data.get("current", []):
             try:
@@ -324,7 +326,7 @@ class SemanticContext:
                 )
                 instance.current_patterns.append(pattern)
             except (KeyError, ValueError) as e:
-                raise ValueError(f"Invalid current pattern in {yaml_path}: {e}")
+                raise ValueError(f"Invalid current pattern in {yaml_path}: {e}") from e
 
         for pattern_data in patterns_data.get("transitional", []):
             try:
@@ -338,7 +340,7 @@ class SemanticContext:
                 )
                 instance.transitional_patterns.append(pattern)
             except (KeyError, ValueError) as e:
-                raise ValueError(f"Invalid transitional pattern in {yaml_path}: {e}")
+                raise ValueError(f"Invalid transitional pattern in {yaml_path}: {e}") from e
 
         total_patterns = (
             len(instance.obsolete_patterns)

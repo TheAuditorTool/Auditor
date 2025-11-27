@@ -182,11 +182,11 @@ def analyze(root, db, severity, output_format, output):
 
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(3)
+        raise SystemExit(3) from e
     except Exception as e:
         logger.error(f"CDK analysis failed: {e}", exc_info=True)
         click.echo(f"Error during CDK analysis: {e}", err=True)
-        raise SystemExit(3)
+        raise SystemExit(3) from e
 
 
 def _count_by_severity(findings):

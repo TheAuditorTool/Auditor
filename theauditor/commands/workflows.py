@@ -190,11 +190,11 @@ def analyze(root, workset, severity, output, db, chunk_size):
 
     except sqlite3.Error as e:
         click.echo(f"Database error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze workflows: {e}", exc_info=True)
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 def _extract_workflow_data(cursor, file_filter=None):

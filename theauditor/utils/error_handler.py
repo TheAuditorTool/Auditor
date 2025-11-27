@@ -58,6 +58,6 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
                 f"Please check the log file for the full traceback and debugging information."
             )
 
-            raise click.ClickException(user_message)
+            raise click.ClickException(user_message) from e
 
     return wrapper

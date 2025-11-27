@@ -100,7 +100,7 @@ def _get_node_text(node: ast.AST) -> str:
             return f"{left} {op_symbol} {right}"
         else:
             return f"<{type(node).__name__}>"
-    except:
+    except Exception:
         return "<unknown>"
 
 

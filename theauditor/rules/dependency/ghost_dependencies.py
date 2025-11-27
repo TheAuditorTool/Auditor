@@ -212,7 +212,7 @@ def _get_declared_dependencies(cursor) -> set[str]:
             try:
                 deps_dict = json.loads(deps_str)
                 if isinstance(deps_dict, dict):
-                    declared.update(pkg.lower() for pkg in deps_dict.keys())
+                    declared.update(pkg.lower() for pkg in deps_dict)
             except (json.JSONDecodeError, AttributeError):
                 continue
 

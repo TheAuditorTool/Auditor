@@ -37,10 +37,10 @@ def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
 
     try:
         target.relative_to(root)
-    except ValueError:
+    except ValueError as e:
         raise SecurityError(
             f"Path traversal attempt detected: {path_str} resolves outside project root"
-        )
+        ) from e
 
     return target
 

@@ -29,10 +29,10 @@ def parse_sql_query(query_text: str) -> tuple[str, list[str]] | None:
     """
     try:
         import sqlparse
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "sqlparse is required for SQL query parsing. Install with: pip install sqlparse"
-        )
+        ) from e
 
     try:
         parsed = sqlparse.parse(query_text)

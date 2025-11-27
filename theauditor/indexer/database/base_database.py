@@ -80,7 +80,7 @@ class BaseDatabaseManager:
             self.conn.commit()
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise RuntimeError(f"Failed to commit database changes: {e}")
+            raise RuntimeError(f"Failed to commit database changes: {e}") from e
 
     def rollback(self) -> None:
         """Rollback the current transaction."""
@@ -173,12 +173,12 @@ class BaseDatabaseManager:
         cursor = self.conn.cursor()
 
         try:
-            for table_name in TABLES.keys():
+            for table_name in TABLES:
                 validated_table = validate_table_name(table_name)
                 cursor.execute(f"DELETE FROM {validated_table}")
         except sqlite3.Error as e:
             self.conn.rollback()
-            raise RuntimeError(f"Failed to clear existing data: {e}")
+            raise RuntimeError(f"Failed to clear existing data: {e}") from e
 
     def flush_generic_batch(self, table_name: str, insert_mode: str = "INSERT") -> None:
         """Flush a single table's batch using schema-driven INSERT.
@@ -593,9 +593,9 @@ class BaseDatabaseManager:
                 pass
 
             if batch_idx is not None:
-                raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}")
+                raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e
             else:
-                raise RuntimeError(f"Batch insert failed: {e}")
+                raise RuntimeError(f"Batch insert failed: {e}") from e
 
     def _flush_jwt_patterns(self):
         """Flush JWT patterns batch (special dict-based interface).

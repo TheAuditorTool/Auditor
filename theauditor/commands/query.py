@@ -296,7 +296,7 @@ def query(
         engine = CodeQueryEngine(Path.cwd())
     except FileNotFoundError as e:
         click.echo(f"\nERROR: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
     results = None
 
@@ -451,7 +451,7 @@ def query(
 
     except ValueError as e:
         click.echo(f"\nERROR: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     finally:
         engine.close()
 

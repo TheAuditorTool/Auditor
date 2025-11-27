@@ -206,7 +206,7 @@ def context(context_file: str, output: str | None, verbose: bool):
         context = SemanticContext.load(Path(context_file))
     except (FileNotFoundError, ValueError) as e:
         click.echo(f"\n❌ ERROR loading context file: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
     click.echo(f"✓ Loaded context: {context.context_name}")
     click.echo(f"  Version: {context.version}")
@@ -259,7 +259,7 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     except sqlite3.Error as e:
         click.echo(f"\n❌ ERROR reading database: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
     if not findings:
         click.echo("\n⚠️  No findings in database")

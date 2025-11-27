@@ -292,7 +292,7 @@ def _find_queries_in_loops(cursor) -> list[StandardFinding]:
         if block_type in ("loop", "for_loop", "while_loop", "do_while") or "loop" in block_lower:
             loops.append((file, function, start_line, end_line))
 
-    for file, function, loop_start, loop_end in loops:
+    for file, _function, loop_start, loop_end in loops:
         cursor.execute(
             f"""
             SELECT line, callee_function, argument_expr
@@ -306,7 +306,7 @@ def _find_queries_in_loops(cursor) -> list[StandardFinding]:
             [file, loop_start, loop_end] + db_ops_list,
         )
 
-        for line, operation, args in cursor.fetchall():
+        for line, operation, _args in cursor.fetchall():
             nested_query = build_query(
                 "cfg_blocks", ["block_type"], where="file = ? AND start_line < ? AND end_line > ?"
             )
@@ -395,7 +395,7 @@ def _find_expensive_operations_in_loops(cursor) -> list[StandardFinding]:
         )
         cursor.execute(query, [file, loop_start, loop_end] + expensive_ops_list)
 
-        for line, operation, args in cursor.fetchall():
+        for line, operation, _args in cursor.fetchall():
             if operation in ["sleep", "time.sleep", "execSync", "spawnSync"]:
                 severity = Severity.CRITICAL
                 message = f'Blocking operation "{operation}" in loop severely degrades performance'
@@ -442,7 +442,7 @@ def _find_inefficient_string_concat(cursor) -> list[StandardFinding]:
         if "loop" in block_type.lower():
             loops.append((file, start_line, end_line, function))
 
-    for file, loop_start, loop_end, function in loops:
+    for file, loop_start, loop_end, _function in loops:
         query = build_query(
             "assignments",
             ["line", "target_var", "source_expr"],
@@ -497,7 +497,7 @@ def _find_synchronous_io_patterns(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query, sync_ops_list)
 
-    for file, line, operation, caller, args in cursor.fetchall():
+    for file, line, operation, caller, _args in cursor.fetchall():
         is_async_context = False
         confidence = Confidence.MEDIUM
 
@@ -583,7 +583,7 @@ def _find_unbounded_operations(cursor) -> list[StandardFinding]:
 
     large_file_extensions = frozenset([".log", ".csv", ".json", ".xml", ".sql", ".txt"])
 
-    for file, line, operation, file_arg in cursor.fetchall():
+    for file, line, _operation, file_arg in cursor.fetchall():
         if not file_arg:
             continue
         file_arg_lower = file_arg.lower()
@@ -809,7 +809,7 @@ def _find_large_object_operations(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query)
 
-    for file, line, var_name, expr in cursor.fetchall():
+    for file, line, _var_name, expr in cursor.fetchall():
         if not expr or not any(json_op in expr for json_op in ["JSON.parse", "JSON.stringify"]):
             continue
         expr_len = len(expr)

@@ -218,10 +218,7 @@ class PythonDepsExtractor(BaseExtractor):
         if file_name == "pyproject.toml":
             return True
 
-        if file_name.startswith("requirements") and path.suffix == ".txt":
-            return True
-
-        return False
+        return file_name.startswith("requirements") and path.suffix == ".txt"
 
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None

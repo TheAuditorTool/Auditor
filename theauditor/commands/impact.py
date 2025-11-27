@@ -338,4 +338,4 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
     except Exception as e:
         if "No function or class found at" not in str(e):
             click.echo(f"Error during impact analysis: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e

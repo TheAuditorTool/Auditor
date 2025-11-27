@@ -264,10 +264,7 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
 
     def is_in_loop(line_no):
         """Check if line is inside a loop."""
-        for start, end in loop_ranges:
-            if start <= line_no <= end:
-                return True
-        return False
+        return any(start <= line_no <= end for start, end in loop_ranges)
 
     for node in context.find_nodes(ast.Yield):
         generator_function = find_containing_function(node.lineno)

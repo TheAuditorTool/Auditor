@@ -147,7 +147,7 @@ class JSSemanticParser:
                 )
                 if result.returncode == 0:
                     return result.stdout.strip()
-            except:
+            except Exception:
                 pass
         return path_str
 

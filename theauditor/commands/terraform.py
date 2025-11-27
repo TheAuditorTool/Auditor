@@ -179,11 +179,11 @@ def provision(root, workset, output, db, graphs_db):
 
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to build provisioning graph: {e}", exc_info=True)
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 @terraform.command("analyze")
@@ -289,11 +289,11 @@ def analyze(root, severity, categories, output, db):
 
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze Terraform: {e}", exc_info=True)
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 @terraform.command("report")
