@@ -290,7 +290,7 @@ The CFG extractor already produces nested output, and `core_storage.py` already 
 
 ## 9. Phase 9: Batch Templates + Python Storage
 
-**Status:** IN PROGRESS (Batch Templates COMPLETE)
+**Status:** COMPLETE (2025-11-27)
 
 ### 9.1 Batch Templates (ES Module)
 
@@ -326,40 +326,43 @@ The CFG extractor already produces nested output, and `core_storage.py` already 
 ### 9.3 Python Database Methods
 
 **Target:** `theauditor/indexer/database/node_database.py`
+**Status:** COMPLETE (2025-11-26)
 
-- [ ] **9.3.1** Add `add_func_param()` method
-- [ ] **9.3.2** Add `add_func_decorator()` method
-- [ ] **9.3.3** Add `add_func_decorator_arg()` method
-- [ ] **9.3.4** Add `add_func_param_decorator()` method
-- [ ] **9.3.5** Add `add_class_decorator()` method
-- [ ] **9.3.6** Add `add_class_decorator_arg()` method
-- [ ] **9.3.7** Add `add_assignment_source_var()` method
-- [ ] **9.3.8** Add `add_return_source_var()` method
-- [ ] **9.3.9** Add `add_import_specifier()` method
-- [ ] **9.3.10** Add `add_sequelize_model_field()` method
+- [x] **9.3.1** Add `add_func_param()` method (line 481)
+- [x] **9.3.2** Add `add_func_decorator()` method (line 491)
+- [x] **9.3.3** Add `add_func_decorator_arg()` method (line 502)
+- [x] **9.3.4** Add `add_func_param_decorator()` method (line 512)
+- [x] **9.3.5** Add `add_class_decorator()` method (line 523)
+- [x] **9.3.6** Add `add_class_decorator_arg()` method (line 534)
+- [x] **9.3.7** Add `add_assignment_source_var()` method (line 548)
+- [x] **9.3.8** Add `add_return_source_var()` method (line 558)
+- [x] **9.3.9** Add `add_import_specifier()` method (line 572)
+- [x] **9.3.10** Add `add_sequelize_model_field()` method (line 588)
 
 ### 9.4 Python Storage Handlers
 
 **Target:** `theauditor/indexer/storage/node_storage.py`
+**Status:** COMPLETE (2025-11-26)
 
-- [ ] **9.4.1** Add `_store_func_params()` handler
-- [ ] **9.4.2** Add `_store_func_decorators()` handler
-- [ ] **9.4.3** Add `_store_func_decorator_args()` handler
-- [ ] **9.4.4** Add `_store_func_param_decorators()` handler
-- [ ] **9.4.5** Add `_store_class_decorators()` handler
-- [ ] **9.4.6** Add `_store_class_decorator_args()` handler
-- [ ] **9.4.7** Add `_store_assignment_source_vars()` handler
-- [ ] **9.4.8** Add `_store_return_source_vars()` handler
-- [ ] **9.4.9** Add `_store_import_specifiers()` handler
-- [ ] **9.4.10** Add `_store_sequelize_model_fields()` handler
-- [ ] **9.4.11** Register all 10 handlers in `self.handlers` dict
+- [x] **9.4.1** Add `_store_func_params()` handler (line 463)
+- [x] **9.4.2** Add `_store_func_decorators()` handler (line 476)
+- [x] **9.4.3** Add `_store_func_decorator_args()` handler (line 489)
+- [x] **9.4.4** Add `_store_func_param_decorators()` handler (line 502)
+- [x] **9.4.5** Add `_store_class_decorators()` handler (line 515)
+- [x] **9.4.6** Add `_store_class_decorator_args()` handler (line 528)
+- [x] **9.4.7** Add `_store_assignment_source_vars()` handler (line 545)
+- [x] **9.4.8** Add `_store_return_source_vars()` handler (line 557)
+- [x] **9.4.9** Add `_store_import_specifiers()` handler (line 573)
+- [x] **9.4.10** Add `_store_sequelize_model_fields()` handler (line 601)
+- [x] **9.4.11** Register all 10 handlers in `self.handlers` dict (lines 59-69)
 
 ### 9.5 Python Extractor Mapping
 
 **Target:** `theauditor/indexer/extractors/javascript.py`
+**Status:** COMPLETE (2025-11-26)
 
-- [ ] **9.5.1** Add all 10 new key mappings to result dict initialization
-- [ ] **9.5.2** Add all 10 key mappings to `key_mappings` dict
+- [x] **9.5.1** Add all 10 new key mappings to result dict initialization (lines 109-122)
+- [x] **9.5.2** Add all 10 key mappings to `key_mappings` dict (lines 191-204)
 
 ---
 
@@ -423,10 +426,45 @@ SELECT 'sequelize_model_fields' as tbl, COUNT(*) as cnt FROM sequelize_model_fie
 | 6. Security | -- | -- | REMOVED |
 | 7. Sequelize | 8 | 8 | DONE |
 | 8. CFG | -- | -- | REMOVED |
-| 9. Batch + Storage | 25 | 8 | IN PROGRESS |
+| 9. Batch + Storage | 25 | 25 | DONE |
 | 10. Verification | 10 | 0 | PENDING |
 
-**Total: 93 tasks, 66 complete (71%)**
+**Total: 93 tasks, 83 complete (89%)**
+
+**Remaining: Phase 10 verification only**
+
+---
+
+## ADDENDUM: Phase 6.9 Handler File Resolution (2025-11-27)
+
+**Status:** COMPLETE
+**Scope:** Bug fix + feature enhancement (not part of original OpenSpec)
+
+### Problem
+`express_middleware_chains.handler_file` was NULL for 98%+ of entries, preventing flow resolver from building correct DFG node IDs.
+
+### Root Causes Found & Fixed
+
+| Issue | File | Fix |
+|-------|------|-----|
+| Wrapper patterns not extracted | javascript.py:1744-1766 | Extract inner from `handler(controller.list)` |
+| Empty parens not parsed | javascript.py:1746-1750 | Handle `requireAuth()` separately |
+| Middleware not resolved | javascript.py:1771-1787 | Resolve via import_specifiers |
+| Class instantiation not tracked | javascript.py:1680-1694 | Map `new ExportController()` to variable |
+| Service methods captured as routes | security_extractors.js:94-103 | Add router receiver check |
+| TypeScript `!` not stripped | javascript.py:1776-1779 | Strip `userId!` → `userId` |
+| `.bind()` pattern not handled | javascript.py:1744-1750 | Strip `.bind(...)` before resolution |
+
+### Results
+
+| Project | Before | After |
+|---------|--------|-------|
+| plant | 9/558 (1.6%) | 415/420 (98.8%) |
+| PlantFlow | N/A | 248/255 (97.3%) |
+| **Combined** | ~2% | **97.9%** |
+
+### Remaining Unresolved (Legitimate)
+- 12 total: All `NULL (inline)` - inline arrow functions cannot be resolved to files
 
 ---
 

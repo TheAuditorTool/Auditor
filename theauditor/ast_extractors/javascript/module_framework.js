@@ -111,17 +111,92 @@ function extractImports(sourceFile, ts, filePath) {
         }
 
         // CommonJS require: const x = require('bar')
+        // CRITICAL FIX 2025-11-27: Also populate import_specifiers for CommonJS
+        // Without this, resolve_handler_file_paths() in javascript.py cannot
+        // resolve handler_file for express_middleware_chains, breaking the graph.
         else if (node.kind === ts.SyntaxKind.CallExpression) {
             const expr = node.expression;
             if (expr && (expr.text === 'require' || expr.escapedText === 'require')) {
                 const args = node.arguments;
                 if (args && args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
                     const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart ? node.getStart(sourceFile) : node.pos);
+                    const importLine = line + 1;
+                    const modulePath = args[0].text;
+
                     imports.push({
                         kind: 'require',
-                        module: args[0].text,
-                        line: line + 1
+                        module: modulePath,
+                        line: importLine
                     });
+
+                    // CRITICAL FIX: Extract variable name from parent VariableDeclaration
+                    // AST structure: VariableDeclaration -> initializer: CallExpression
+                    // We need to traverse up to find the variable name being assigned
+                    let parent = node.parent;
+
+                    // Handle: const x = require('bar').default or require('bar').someExport
+                    // AST: PropertyAccessExpression -> expression: CallExpression
+                    if (parent && parent.kind === ts.SyntaxKind.PropertyAccessExpression) {
+                        parent = parent.parent;
+                    }
+
+                    // Now parent should be VariableDeclaration
+                    if (parent && parent.kind === ts.SyntaxKind.VariableDeclaration) {
+                        const declName = parent.name;
+
+                        // Case 1: Simple identifier - const x = require('bar')
+                        if (declName.kind === ts.SyntaxKind.Identifier) {
+                            const specName = declName.text || declName.escapedText;
+                            import_specifiers.push({
+                                file: filePath,
+                                import_line: importLine,
+                                specifier_name: specName,
+                                original_name: specName,
+                                is_default: 1,
+                                is_namespace: 0,
+                                is_named: 0
+                            });
+                        }
+                        // Case 2: Destructuring - const { a, b } = require('bar')
+                        else if (declName.kind === ts.SyntaxKind.ObjectBindingPattern && declName.elements) {
+                            declName.elements.forEach(element => {
+                                if (element.name && element.name.kind === ts.SyntaxKind.Identifier) {
+                                    const localName = element.name.text || element.name.escapedText;
+                                    // propertyName is the original name when aliased: { foo: bar }
+                                    let originalName = localName;
+                                    if (element.propertyName) {
+                                        originalName = element.propertyName.text || element.propertyName.escapedText;
+                                    }
+                                    import_specifiers.push({
+                                        file: filePath,
+                                        import_line: importLine,
+                                        specifier_name: localName,
+                                        original_name: originalName,
+                                        is_default: 0,
+                                        is_namespace: 0,
+                                        is_named: 1
+                                    });
+                                }
+                            });
+                        }
+                        // Case 3: Array destructuring - const [a, b] = require('bar')
+                        else if (declName.kind === ts.SyntaxKind.ArrayBindingPattern && declName.elements) {
+                            declName.elements.forEach((element, idx) => {
+                                if (element.name && element.name.kind === ts.SyntaxKind.Identifier) {
+                                    const localName = element.name.text || element.name.escapedText;
+                                    import_specifiers.push({
+                                        file: filePath,
+                                        import_line: importLine,
+                                        specifier_name: localName,
+                                        original_name: `[${idx}]`,
+                                        is_default: 0,
+                                        is_namespace: 0,
+                                        is_named: 1
+                                    });
+                                }
+                            });
+                        }
+                    }
                 }
             }
         }
