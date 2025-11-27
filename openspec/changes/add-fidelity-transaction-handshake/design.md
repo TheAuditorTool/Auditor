@@ -107,28 +107,56 @@ if dropped_cols:
 - **Inside fidelity.py**: Rejected - creates circular import risk with extractors
 - **Inside extractors base**: Rejected - Storage also needs it
 
-### Decision 5: Receipt Columns Match Extractor Output
+### Decision 5: Receipt Columns Reflect Actual Storage Behavior (Receipt Integrity)
 
-**What**: Receipt `columns` are derived from extractor output data (`data[0].keys()`), not from database schema columns.
+**What**: Receipt `columns` are derived from the **columns actually passed to SQL builders**, not from raw input `data[0].keys()`.
 
-**Why**:
-- Extractor and Storage see the same data structure at the handoff point
-- Schema verification happens at the extractor->storage boundary
-- Database may have additional auto-generated columns (e.g., `id`, `created_at`) that shouldn't affect fidelity
-- If storage handler silently drops columns from extractor data, topology check catches it because both manifest and receipt use extractor output keys
+**Why (The Receipt Integrity Trap)**:
+If Storage has a hardcoded SQL bug that drops columns, looking at the *input data* for the receipt will hide the bug:
 
-**Example Flow**:
+```
+Scenario: Extractor sends {'id': 1, 'email': 'x'}
+Buggy Storage: Hardcoded SQL is `INSERT INTO users (id) ...` (drops email)
+WRONG Receipt: columns = data[0].keys() -> ['id', 'email']
+Result: Manifest says ['id', 'email']. Receipt says ['id', 'email'].
+        Fidelity check PASSES, but data was lost!
+```
+
+**The Fix**: Receipt must reflect what Storage *executed*, not what it *received*.
+
+**Implementation Pattern**:
+```python
+# In storage/__init__.py
+
+# WRONG (Optimistic Receipt - hides bugs):
+columns = sorted(list(data[0].keys()))  # Just echoing input
+
+# CORRECT (Verified Receipt - catches SQL bugs):
+inserted_cols = self._dispatch_storage(table, data)  # Returns actual columns
+receipt[table] = FidelityToken.create_receipt(..., columns=inserted_cols, ...)
+```
+
+**Two Receipt Modes**:
+| Mode | Source | What It Checks |
+|------|--------|----------------|
+| Optimistic | `data[0].keys()` | Handoff only - did Storage receive the data? |
+| Verified | SQL builder output | Persistence - did Storage actually write the data? |
+
+**Example Flow (Verified)**:
 ```
 Extractor produces: [{name: "foo", type: "function", line: 10}]
 Manifest columns:   ["line", "name", "type"]  (from extractor output)
 Storage receives:   [{name: "foo", type: "function", line: 10}]
-Receipt columns:    ["line", "name", "type"]  (from storage input = extractor output)
-DB actually writes: [id, file, name, type, line, created_at]  (schema has more columns)
+SQL builder uses:   ["name", "type", "line"]  (confirmed from _insert_batch)
+Receipt columns:    ["line", "name", "type"]  (from SQL builder, sorted)
+DB actually writes: [id, file, name, type, line, created_at]  (schema has more)
 
-Comparison: manifest columns == receipt columns (both from extractor output)
+Comparison: manifest columns == receipt columns (both verified at write)
 ```
 
-**Implication**: Fidelity verifies extractor->storage handoff, NOT storage->database insertion. Database schema contract is enforced by SQLite constraints, not fidelity system.
+**Fallback for Legacy Handlers**: If internal storage method returns `None` (legacy handler not yet updated), fall back to `data[0].keys()` but log a warning that receipt integrity is "optimistic".
+
+**Implication**: Fidelity now verifies extractor->storage->SQL handoff, catching bugs in all three layers.
 
 ---
 
@@ -158,6 +186,8 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 | Column list memory | Sorted list, typically <20 columns, ~200 bytes |
 | False positives on byte collapse | Use as warning only, threshold at 90% collapse |
 | Extractor adoption friction | Provide `FidelityToken.attach_manifest()` one-liner |
+| Python version compat | Uses `list[str]` (3.9+), `str \| None` (3.10+); project requires 3.9+ |
+| Byte calculation perf | O(N) string alloc acceptable for <1000 rows; add threshold guard if needed |
 
 ## Migration Plan
 
@@ -194,3 +224,13 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 - Nested dicts/lists become string representations, contributing to byte count
 - Approximation is acceptable - the 90% collapse threshold provides margin for serialization variance
 - False positives are warnings, not hard fails (Decision 6)
+
+### Question 3: What is the default strictness mode?
+
+**Decision**: `strict=True` by default in orchestrator.
+
+**Rationale**:
+- A fidelity check that only logs warnings to a log file is functionally useless
+- The existing `reconcile_fidelity(strict=True)` call in `orchestrator.py:819-830` already uses strict mode
+- In strict mode, fidelity violations raise `DataFidelityError`, halting the pipeline
+- Non-strict mode (for debugging/migration) only logs warnings without halting

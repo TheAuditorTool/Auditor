@@ -2,6 +2,8 @@
 
 **Status**: VERIFICATION PHASE
 
+**Note on Task Numbering**: Tasks are numbered 3, 4, 5 (not 1, 2, 3) because this proposal was originally part of a parent proposal that was never created. Numbering preserved for historical consistency with verification.md references.
+
 **CRITICAL**: Do NOT start implementation until:
 1. [x] Architect approves `proposal.md`
 2. [x] Verification phase completed (see `verification.md`)
@@ -259,13 +261,22 @@
 
 ### 4.5 Integrate with Indexer Pipeline
 
-- [ ] 4.5.1 Find post-indexing hook location
-  - **Search**: Where `resolve_handler_file_paths` is called
-  - **File**: Likely `indexer/__init__.py` or orchestrator
-
-- [ ] 4.5.2 Add call to `resolve_import_paths()`
-  - **Location**: After all files indexed, with other resolvers
-  - **Order**: Before other resolvers that might depend on it
+- [ ] 4.5.1 Add `resolve_import_paths()` call to orchestrator
+  - **File**: `theauditor/indexer/orchestrator.py`
+  - **Location**: Line 491 (after `resolve_handler_file_paths` call at line 490)
+  - **Code to add**:
+    ```python
+    JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+    ```
+  - **Context** (existing lines 474-490 for reference):
+    ```python
+    # Line 474:
+    JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
+    # Line 490:
+    JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
+    # Line 491 (ADD HERE):
+    JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+    ```
 
 ### 4.6 Testing
 
@@ -343,6 +354,7 @@
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 3.1 | **IRONCLAD**: Task 4.5.1 now action task with exact file:line, added numbering note |
 | 2025-11-28 | 3.0 | **ARCHITECTURE REWRITE**: Task 4 now post-indexing DB-first (not filesystem) |
 | 2025-11-28 | 2.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 2.0 | Complete rewrite with verified paths and atomic tasks |
