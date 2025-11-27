@@ -412,7 +412,7 @@ def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
                 except SyntaxError:
                     pass
 
-            except Exception as e:
+            except Exception:
                 pass  # Silent fail for files we can't read
 
 

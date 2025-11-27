@@ -20,7 +20,6 @@ def fix_python_dispatcher():
     print(f"Fixing dispatcher calls in {python_file}...")
 
     content = python_file.read_text(encoding="utf-8")
-    original = content
 
     # Patterns to replace
     patterns = [

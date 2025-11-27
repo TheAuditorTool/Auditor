@@ -151,14 +151,12 @@ def read_file_with_fallback(filepath: str) -> tuple[str, str]:
     Returns: (content, encoding_used)
     Raises: UnicodeDecodeError if all encodings fail
     """
-    last_error = None
     for encoding in FILE_ENCODINGS:
         try:
             with open(filepath, encoding=encoding) as f:
                 content = f.read()
             return content, encoding
-        except UnicodeDecodeError as e:
-            last_error = e
+        except UnicodeDecodeError:
             continue
 
     # All encodings failed

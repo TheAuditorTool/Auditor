@@ -45,7 +45,6 @@ def fix_future_imports():
             if future_line and context_line:
                 # Find where to insert (after docstring)
                 insert_index = 0
-                in_docstring = False
                 docstring_count = 0
 
                 for i, line in enumerate(new_lines):

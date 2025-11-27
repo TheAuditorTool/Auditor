@@ -241,10 +241,6 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
         if not self.inside_extractor:
             return updated_node
 
-        # Extract the tree argument (might be actual_tree, tree, etc.)
-        walk_call = updated_node.iter
-        tree_arg = walk_call.args[0].value
-
         # Check if the loop body starts with isinstance check
         node_type = self._extract_isinstance_node_type(updated_node.body)
 
