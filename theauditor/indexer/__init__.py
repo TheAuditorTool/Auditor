@@ -33,15 +33,11 @@ See also:
 - ast_extractors/*_impl.py - IMPLEMENTATION layer (returns line numbers only)
 """
 
-from .orchestrator import IndexerOrchestrator
-
-
-from .core import FileWalker
 from ..cache.ast_cache import ASTCache
+from .core import FileWalker
 from .database import DatabaseManager
 from .extractors import ExtractorRegistry
-
-
+from .orchestrator import IndexerOrchestrator
 from .runner import run_repository_index
 
 __all__ = [

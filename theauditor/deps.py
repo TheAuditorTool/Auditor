@@ -5,18 +5,19 @@ import platform
 import re
 import shutil
 import sys
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
+
 from theauditor import __version__
 from theauditor.security import (
+    SecurityError,
     sanitize_path,
     sanitize_url_component,
     validate_package_name,
-    SecurityError,
 )
-
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -29,7 +30,7 @@ def _canonicalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-from theauditor.utils.rate_limiter import get_rate_limiter, RATE_LIMIT_BACKOFF
+from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
 
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:

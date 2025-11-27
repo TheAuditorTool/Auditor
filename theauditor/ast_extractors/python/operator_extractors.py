@@ -39,12 +39,11 @@ Expected extraction from TheAuditor codebase:
 Total: ~1,250 operator pattern records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 

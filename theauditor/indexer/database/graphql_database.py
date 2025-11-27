@@ -52,7 +52,8 @@ class GraphQLDatabaseMixin:
 
         NO FALLBACKS. Type resolution happens at extraction time.
         """
-        import os, sys
+        import os
+        import sys
 
         tuple_data = (schema_path, type_name, kind, implements, description, line)
 
@@ -61,7 +62,7 @@ class GraphQLDatabaseMixin:
                 "graphql_types" not in self.generic_batches
                 or len(self.generic_batches["graphql_types"]) == 0
             ):
-                print(f"[DEBUG] Database: add_graphql_type - First tuple", file=sys.stderr)
+                print("[DEBUG] Database: add_graphql_type - First tuple", file=sys.stderr)
                 print(f"  Tuple length: {len(tuple_data)}", file=sys.stderr)
                 print(f"  Tuple data: {tuple_data}", file=sys.stderr)
 

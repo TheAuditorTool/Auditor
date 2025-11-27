@@ -13,20 +13,17 @@ Architecture:
 """
 
 import sqlite3
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-from collections import defaultdict
 
 import click
 
-
-from .types import DFGNode, DFGEdge, create_bidirectional_edges
-
-
-from .strategies.python_orm import PythonOrmStrategy
-from .strategies.node_express import NodeExpressStrategy
 from .strategies.interceptors import InterceptorStrategy
+from .strategies.node_express import NodeExpressStrategy
+from .strategies.python_orm import PythonOrmStrategy
+from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
 class DFGBuilder:
@@ -69,8 +66,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             "total_assignments": 0,
@@ -191,8 +188,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             "total_returns": 0,
@@ -308,8 +305,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             "total_calls": 0,
@@ -446,8 +443,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, "DFGNode"] = {}
-        edges: list["DFGEdge"] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             "total_matches": 0,

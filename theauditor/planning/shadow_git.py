@@ -13,9 +13,9 @@ Architecture:
 NO FALLBACKS. Hard failure if pygit2 operations fail.
 """
 
-from pathlib import Path
-from datetime import datetime, UTC
 import warnings
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pygit2
 

@@ -154,7 +154,7 @@ class AccessPath:
             max_length=self.max_length,
         )
 
-    def strip_fields(self, count: int) -> "AccessPath":
+    def strip_fields(self, count: int) -> AccessPath:
         """Remove N fields from the end (for reification).
 
         Used in backward analysis when traversing field stores:
@@ -188,7 +188,7 @@ class AccessPath:
             max_length=self.max_length,
         )
 
-    def change_base(self, new_base: str) -> "AccessPath":
+    def change_base(self, new_base: str) -> AccessPath:
         """Replace the base variable (for assignments: x = y.f).
 
         Args:

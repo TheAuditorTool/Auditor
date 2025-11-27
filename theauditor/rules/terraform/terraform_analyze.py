@@ -17,9 +17,9 @@ from typing import Any
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 from theauditor.rules.common.util import EntropyCalculator
 

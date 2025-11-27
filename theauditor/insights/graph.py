@@ -125,7 +125,7 @@ class GraphInsights:
             nodes.add(edge["source"])
             nodes.add(edge["target"])
 
-        scores = {node: 1.0 for node in nodes}
+        scores = dict.fromkeys(nodes, 1.0)
         damping = 0.85
         iterations = 10
 
@@ -414,7 +414,7 @@ def check_insights_available() -> bool:
     return True
 
 
-def create_insights(weights: dict[str, float] | None = None) -> "GraphInsights":
+def create_insights(weights: dict[str, float] | None = None) -> GraphInsights:
     """
     Factory function to create GraphInsights instance.
 

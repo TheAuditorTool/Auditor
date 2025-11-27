@@ -13,12 +13,13 @@ Database Tables Used:
 - package_configs: Dependency declarations
 """
 
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import DependencyThresholds
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import DependencyThresholds
 
 METADATA = RuleMetadata(
     name="dependency_bloat",

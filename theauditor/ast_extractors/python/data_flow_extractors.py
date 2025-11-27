@@ -41,13 +41,12 @@ Expected extraction from TheAuditor codebase:
 Total: ~3,850 data flow records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 import os
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
 
@@ -723,29 +722,7 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
                         }
                     )
 
-            elif isinstance(node, ast.Assign):
-                if isinstance(node.value, ast.Call):
-                    call_node = node.value
-                    func_name = None
-                    if isinstance(call_node.func, ast.Name):
-                        func_name = call_node.func.id
-                    elif isinstance(call_node.func, ast.Attribute):
-                        func_name = ast.unparse(call_node.func)
-
-                    if func_name:
-                        in_function = get_function_name(node.lineno)
-                        conditional_calls.append(
-                            {
-                                "line": node.lineno,
-                                "function_call": func_name,
-                                "condition_expr": condition_expr,
-                                "condition_type": condition_type,
-                                "in_function": in_function,
-                                "nesting_level": nesting_level,
-                            }
-                        )
-
-            elif isinstance(node, ast.Return) and node.value:
+            elif isinstance(node, ast.Assign) or isinstance(node, ast.Return) and node.value:
                 if isinstance(node.value, ast.Call):
                     call_node = node.value
                     func_name = None

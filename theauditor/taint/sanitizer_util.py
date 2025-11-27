@@ -283,6 +283,6 @@ class SanitizerRegistry:
                         return {"file": hop_file, "line": hop_line, "method": callee}
 
         if self.debug:
-            print(f"[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
+            print("[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
 
         return None

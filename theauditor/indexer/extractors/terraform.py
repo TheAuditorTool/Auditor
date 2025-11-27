@@ -24,8 +24,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import BaseExtractor
 from ...utils.logger import setup_logger
+from . import BaseExtractor
 
 logger = setup_logger(__name__)
 
@@ -514,7 +514,7 @@ class TerraformExtractor(BaseExtractor):
     def _identify_sensitive_properties(self, properties: dict[str, Any]) -> list[str]:
         sensitive = []
         keywords = ("password", "secret", "key", "token", "credential", "private")
-        for prop_name in properties.keys():
+        for prop_name in properties:
             lower = prop_name.lower()
             if any(keyword in lower for keyword in keywords):
                 sensitive.append(prop_name)

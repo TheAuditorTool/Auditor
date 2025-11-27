@@ -10,10 +10,9 @@ Optional modules:
 """
 
 from .analyzer import XGraphAnalyzer
-from .builder import XGraphBuilder, GraphNode, GraphEdge, Cycle, Hotspot, ImpactAnalysis
+from .builder import Cycle, GraphEdge, GraphNode, Hotspot, ImpactAnalysis, XGraphBuilder
 from .store import XGraphStore
 from .visualizer import GraphVisualizer
-
 
 try:
     from .insights import GraphInsights, check_insights_available, create_insights

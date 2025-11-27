@@ -23,13 +23,12 @@ import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="python_injection",
@@ -355,12 +354,14 @@ class InjectionAnalyzer:
 
             is_fstring = False
             if expr_to_check:
-                if 'f"' in expr_to_check or "f'" in expr_to_check:
-                    is_fstring = True
-                elif (
-                    arg_is_identifier
-                    and assignment_expr
-                    and ('f"' in assignment_expr or "f'" in assignment_expr)
+                if (
+                    'f"' in expr_to_check
+                    or "f'" in expr_to_check
+                    or (
+                        arg_is_identifier
+                        and assignment_expr
+                        and ('f"' in assignment_expr or "f'" in assignment_expr)
+                    )
                 ):
                     is_fstring = True
 
@@ -368,7 +369,7 @@ class InjectionAnalyzer:
                 self.findings.append(
                     StandardFinding(
                         rule_name="python-sql-fstring",
-                        message=f"F-string used in SQL query - high injection risk",
+                        message="F-string used in SQL query - high injection risk",
                         file_path=file,
                         line=line,
                         severity=Severity.CRITICAL,
@@ -406,7 +407,7 @@ class InjectionAnalyzer:
                 self.findings.append(
                     StandardFinding(
                         rule_name="python-shell-true",
-                        message=f"Command execution with shell=True is dangerous",
+                        message="Command execution with shell=True is dangerous",
                         file_path=file,
                         line=line,
                         severity=Severity.CRITICAL,

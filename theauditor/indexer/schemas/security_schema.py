@@ -17,8 +17,7 @@ These tables are populated by multiple extractors:
 - JWT_PATTERNS: Python extractor, Node extractor
 """
 
-from .utils import Column, TableSchema, ForeignKey
-
+from .utils import Column, ForeignKey, TableSchema
 
 ENV_VAR_USAGE = TableSchema(
     name="env_var_usage",

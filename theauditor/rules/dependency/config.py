@@ -11,7 +11,6 @@ Design principles:
 
 from dataclasses import dataclass
 
-
 PYTHON_TYPOSQUATS: frozenset[tuple[str, str]] = frozenset(
     [
         ("requets", "requests"),

@@ -43,13 +43,12 @@ Expected extraction from TheAuditor codebase:
 Total: ~3,000 state mutation records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 import os
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 

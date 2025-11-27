@@ -16,11 +16,11 @@ NO FALLBACKS. Database-first. If tables don't exist, we skip gracefully
 """
 
 import sqlite3
+from collections import defaultdict
 from dataclasses import asdict
 from typing import Any
-from collections import defaultdict
 
-from theauditor.graph.types import DFGNode, DFGEdge, create_bidirectional_edges
+from theauditor.graph.types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
 class InterceptorStrategy:

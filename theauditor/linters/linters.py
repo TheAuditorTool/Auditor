@@ -19,12 +19,13 @@ ARCHITECT APPROVED: 2025-10-10
 AUDIT FIXES APPLIED: 2025-10-10
 """
 
-from pathlib import Path
-from typing import Any
 import json
-import subprocess
 import platform
 import sqlite3
+import subprocess
+from pathlib import Path
+from typing import Any
+
 from theauditor.indexer.database import DatabaseManager
 from theauditor.utils.logger import setup_logger
 

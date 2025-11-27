@@ -9,7 +9,8 @@ Truth Courier Design: Reports facts about tenant isolation patterns, not recomme
 import re
 import sqlite3
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:
@@ -550,13 +551,13 @@ def _find_bulk_operations_without_tenant(
     for file, line, query, command, tables in cursor.fetchall():
         if command == "INSERT":
             severity = Severity.HIGH
-            message = f"Bulk INSERT without tenant field - data will be unfiltered"
+            message = "Bulk INSERT without tenant field - data will be unfiltered"
         elif command == "UPDATE":
             severity = Severity.CRITICAL
-            message = f"Bulk UPDATE without tenant field - cross-tenant data leak"
+            message = "Bulk UPDATE without tenant field - cross-tenant data leak"
         else:
             severity = Severity.CRITICAL
-            message = f"Bulk DELETE without tenant field - cross-tenant data deletion"
+            message = "Bulk DELETE without tenant field - cross-tenant data deletion"
 
         findings.append(
             StandardFinding(

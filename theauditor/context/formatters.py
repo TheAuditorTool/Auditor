@@ -17,8 +17,8 @@ Usage:
 """
 
 import json
-from typing import Any
 from dataclasses import asdict, is_dataclass
+from typing import Any
 
 
 def format_output(results: Any, format: str = "text") -> str:
@@ -66,7 +66,7 @@ def _format_text(results: Any) -> str:
         count = results.get("count", 0)
         symbols = results.get("symbols", [])
 
-        lines.append(f"Symbol Discovery Results")
+        lines.append("Symbol Discovery Results")
         lines.append(f"  Filter: {filter_str}")
         lines.append(f"  Path:   {path_str}")
         lines.append(f"  Type:   {type_str}")
@@ -114,7 +114,7 @@ def _format_text(results: Any) -> str:
                 if sym.signature:
                     lines.append(f"     Signature: {sym.signature}")
                 if sym.is_exported:
-                    lines.append(f"     Exported: Yes")
+                    lines.append("     Exported: Yes")
                 lines.append("")
         else:
             lines.append("No symbol definitions found.")
@@ -279,7 +279,7 @@ def _format_text(results: Any) -> str:
         reads = results["reads"]
         writes = results["writes"]
 
-        lines.append(f"Data Dependencies:")
+        lines.append("Data Dependencies:")
         lines.append("")
         lines.append(f"  Reads ({len(reads)}):")
         if reads:

@@ -19,10 +19,11 @@ Database Tables Used:
 """
 
 import sqlite3
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import FRONTEND_FRAMEWORKS, META_FRAMEWORKS
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import FRONTEND_FRAMEWORKS, META_FRAMEWORKS
 
 METADATA = RuleMetadata(
     name="bundle_size",

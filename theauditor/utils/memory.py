@@ -7,14 +7,14 @@ Philosophy: SAST tools need RAM. If you're running complex analysis, allocate ac
 import os
 import platform
 
-from .logger import setup_logger
 from .constants import (
     DEFAULT_MEMORY_LIMIT_MB,
-    MIN_MEMORY_LIMIT_MB,
+    ENV_MEMORY_LIMIT,
     MAX_MEMORY_LIMIT_MB,
     MEMORY_ALLOCATION_RATIO,
-    ENV_MEMORY_LIMIT,
+    MIN_MEMORY_LIMIT_MB,
 )
+from .logger import setup_logger
 
 logger = setup_logger(__name__)
 

@@ -586,7 +586,7 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
     import os
 
     if os.getenv("THEAUDITOR_DEBUG"):
-        print(f"[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
+        print("[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
     ast_root = actual_tree.get("ast", {})
 
     if not ast_root:
@@ -901,7 +901,7 @@ def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
         import os
 
         if os.getenv("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
+            print("[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
         ast_root = actual_tree.get("ast")
         if ast_root:
             calls = extract_semantic_ast_symbols(ast_root)

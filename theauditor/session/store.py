@@ -10,7 +10,7 @@ Implements dual-write principle: all data written to both storage types for cons
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 

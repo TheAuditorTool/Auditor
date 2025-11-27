@@ -69,9 +69,9 @@ class GraphQLBuilder:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
 
-        self.types: dict[int, "GraphQLType"] = {}
-        self.fields: dict[int, "GraphQLField"] = {}
-        self.resolvers: list["ResolverCandidate"] = []
+        self.types: dict[int, GraphQLType] = {}
+        self.fields: dict[int, GraphQLField] = {}
+        self.resolvers: list[ResolverCandidate] = []
 
         self.mappings: list[tuple[int, int, str, str, int, str, str]] = []
         self.edges: list[tuple[int, int, str]] = []

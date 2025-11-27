@@ -5,10 +5,12 @@
 
 import asyncio
 import sys
+
 import click
+
+from theauditor.events import ConsoleLogger
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
-from theauditor.events import ConsoleLogger
 
 
 @click.command()

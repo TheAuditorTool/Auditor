@@ -21,9 +21,10 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from . import BaseExtractor
-from theauditor.ast_extractors.python_impl import extract_all_python_data
 from theauditor.ast_extractors.python.utils.context import build_file_context
+from theauditor.ast_extractors.python_impl import extract_all_python_data
+
+from . import BaseExtractor
 
 
 class PythonExtractor(BaseExtractor):
@@ -218,5 +219,5 @@ class PythonExtractor(BaseExtractor):
 
         if not actual_tree or not isinstance(actual_tree, ast.Module):
             if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG]   Returning empty - actual_tree check failed")
+                print("[DEBUG]   Returning empty - actual_tree check failed")
             return imports

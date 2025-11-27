@@ -1,12 +1,13 @@
 """Framework detection for various languages and ecosystems."""
 
+import glob
 import json
 import re
-import glob
 from pathlib import Path
 from typing import Any
-from theauditor.manifest_parser import ManifestParser
+
 from theauditor.framework_registry import FRAMEWORK_REGISTRY
+from theauditor.manifest_parser import ManifestParser
 from theauditor.utils.validation_debug import log_validation
 
 
@@ -71,9 +72,7 @@ class FrameworkDetector:
         seen = {}
         for fw in self.detected_frameworks:
             key = (fw["framework"], fw["language"], fw.get("path", "."))
-            if key not in seen:
-                seen[key] = fw
-            elif fw["version"] != "unknown" and seen[key]["version"] == "unknown":
+            if key not in seen or fw["version"] != "unknown" and seen[key]["version"] == "unknown":
                 seen[key] = fw
 
         final_frameworks = list(seen.values())
@@ -173,18 +172,17 @@ class FrameworkDetector:
                         parsed_data[manifest_key] = parser.parse_ini(path)
                     elif filename.endswith(".txt"):
                         parsed_data[manifest_key] = parser.parse_requirements_txt(path)
-                    elif filename == "Gemfile" or filename == "Gemfile.lock":
-                        with open(path, encoding="utf-8") as f:
-                            parsed_data[manifest_key] = f.read()
                     elif (
-                        filename.endswith(".xml")
-                        or filename.endswith(".gradle")
-                        or filename.endswith(".kts")
-                        or filename.endswith(".mod")
+                        filename == "Gemfile"
+                        or filename == "Gemfile.lock"
+                        or (
+                            filename.endswith(".xml")
+                            or filename.endswith(".gradle")
+                            or filename.endswith(".kts")
+                            or filename.endswith(".mod")
+                        )
+                        or filename == "setup.py"
                     ):
-                        with open(path, encoding="utf-8") as f:
-                            parsed_data[manifest_key] = f.read()
-                    elif filename == "setup.py":
                         with open(path, encoding="utf-8") as f:
                             parsed_data[manifest_key] = f.read()
                 except Exception as e:

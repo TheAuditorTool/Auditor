@@ -15,7 +15,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
 DOCKER_IMAGES = TableSchema(
     name="docker_images",
     columns=[

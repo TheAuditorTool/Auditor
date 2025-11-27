@@ -191,7 +191,7 @@ def setup_ai(target, sync, dry_run, show_versions):
         raise click.ClickException(f"Target directory does not exist: {target_dir}")
 
     click.echo(f"\n{'=' * 60}")
-    click.echo(f"AI Development Setup - Zero-Optional Installation")
+    click.echo("AI Development Setup - Zero-Optional Installation")
     click.echo(f"{'=' * 60}")
     click.echo(f"Target:  {target_dir}")
     click.echo(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}")
@@ -200,8 +200,8 @@ def setup_ai(target, sync, dry_run, show_versions):
     if dry_run:
         click.echo("DRY RUN - Plan of operations:")
         click.echo(f"1. Create/verify venv at {target_dir}/.auditor_venv")
-        click.echo(f"2. Install TheAuditor (editable) into venv")
-        click.echo(f"3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
+        click.echo("2. Install TheAuditor (editable) into venv")
+        click.echo("3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
         click.echo("\nNo files will be modified.")
         return
 

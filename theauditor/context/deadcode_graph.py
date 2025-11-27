@@ -11,10 +11,10 @@ The old SQL-based approximation (deadcode.py) has been merged here.
 """
 
 import sqlite3
-import networkx as nx
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
+import networkx as nx
 
 DEFAULT_EXCLUSIONS = [
     "__init__.py",

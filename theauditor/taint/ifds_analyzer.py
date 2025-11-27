@@ -24,13 +24,11 @@ Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
 
 import sqlite3
 import sys
-from typing import TYPE_CHECKING
 from collections import deque
-
-from .sanitizer_util import SanitizerRegistry
+from typing import TYPE_CHECKING
 
 from .access_path import AccessPath
-
+from .sanitizer_util import SanitizerRegistry
 
 if TYPE_CHECKING:
     from .taint_path import TaintPath
@@ -178,7 +176,7 @@ class IFDSTaintAnalyzer:
             iteration += 1
             if iteration > 10000:
                 if self.debug:
-                    print(f"[IFDS] Hit iteration limit", file=sys.stderr)
+                    print("[IFDS] Hit iteration limit", file=sys.stderr)
                 break
 
             current_ap, depth, hop_chain, matched_source = worklist.popleft()

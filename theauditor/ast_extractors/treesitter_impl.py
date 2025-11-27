@@ -197,11 +197,10 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> list[dict]:
     if node.type in node_types:
         name = "unknown"
         for child in node.children:
-            if child.type in ["identifier", "member_expression", "attribute"]:
-                name = child.text.decode("utf-8", errors="ignore")
-                break
-
-            elif child.type == "member_access_expression":
+            if (
+                child.type in ["identifier", "member_expression", "attribute"]
+                or child.type == "member_access_expression"
+            ):
                 name = child.text.decode("utf-8", errors="ignore")
                 break
 

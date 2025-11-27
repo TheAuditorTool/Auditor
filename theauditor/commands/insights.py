@@ -11,7 +11,6 @@ from typing import Any
 
 import click
 
-
 SECURITY_SINKS = {
     "sql": ["execute", "query", "raw", "literal"],
     "command": ["exec", "system", "spawn", "popen"],
@@ -222,8 +221,8 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     else:
         click.echo("[OK] All insights generated successfully")
 
-    click.echo(f"\n[TIP] Insights are interpretive and optional.")
-    click.echo(f"      Raw facts remain in .pf/raw/ unchanged.")
+    click.echo("\n[TIP] Insights are interpretive and optional.")
+    click.echo("      Raw facts remain in .pf/raw/ unchanged.")
 
     sys.exit(1 if errors else 0)
 
@@ -264,8 +263,8 @@ def run_ml_insights(train: bool, topk: int, output_dir: Path) -> dict[str, Any]:
 def run_graph_insights(output_dir: Path) -> dict[str, Any]:
     """Run graph health insights."""
     try:
-        from theauditor.graph.insights import GraphInsights
         from theauditor.graph.analyzer import XGraphAnalyzer
+        from theauditor.graph.insights import GraphInsights
         from theauditor.graph.store import XGraphStore
 
         store = XGraphStore(db_path="./.pf/graphs.db")
@@ -323,7 +322,8 @@ def run_graph_insights(output_dir: Path) -> dict[str, Any]:
 def run_taint_insights(output_dir: Path) -> dict[str, Any]:
     """Run taint severity insights."""
     try:
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
+
         from theauditor.insights.taint import (
             calculate_severity,
             classify_vulnerability,
@@ -467,9 +467,9 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
 
     if "ml" in summary:
         if summary["ml"]["status"] == "success":
-            click.echo(f"\n[ML] Machine Learning Insights:")
+            click.echo("\n[ML] Machine Learning Insights:")
             click.echo(f"  • Workset size: {summary['ml'].get('workset_size', 0)} files")
-            click.echo(f"  • Predictions: Generated successfully")
+            click.echo("  • Predictions: Generated successfully")
         else:
             click.echo(f"\n[ML] Machine Learning Insights: {summary['ml'].get('error')}")
 
@@ -487,7 +487,7 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
                 if health >= 60
                 else "F"
             )
-            click.echo(f"\n[GRAPH] Architecture Health:")
+            click.echo("\n[GRAPH] Architecture Health:")
             click.echo(f"  • Health score: {health}/100 (Grade: {grade})")
         else:
             click.echo(f"\n[GRAPH] Architecture Health: {summary['graph'].get('error')}")
@@ -495,14 +495,14 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
     if "taint" in summary:
         if summary["taint"]["status"] == "success":
             risk = summary["taint"].get("risk_level", "unknown")
-            click.echo(f"\n[TAINT] Security Risk:")
+            click.echo("\n[TAINT] Security Risk:")
             click.echo(f"  • Risk level: {risk.upper()}")
         else:
             click.echo(f"\n[TAINT] Security Risk: {summary['taint'].get('error')}")
 
     if "impact" in summary:
         if summary["impact"]["status"] == "success":
-            click.echo(f"\n[IMPACT] Change Impact:")
+            click.echo("\n[IMPACT] Change Impact:")
             click.echo(f"  • Files analyzed: {summary['impact'].get('files_analyzed', 0)}")
         else:
             click.echo(f"\n[IMPACT] Change Impact: {summary['impact'].get('error')}")

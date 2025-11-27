@@ -8,15 +8,15 @@ Extracted from dfg_builder.py as part of Phase 3: Strategy Pattern refactoring.
 """
 
 import sqlite3
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-from collections import defaultdict
 
 import click
 
+from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
-from ..types import DFGNode, DFGEdge, create_bidirectional_edges
 
 
 class NodeExpressStrategy(GraphStrategy):

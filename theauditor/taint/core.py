@@ -7,12 +7,12 @@ Schema Contract:
     Table existence is guaranteed by schema contract - no checks needed.
 """
 
-import sys
 import json
 import sqlite3
-from pathlib import Path
-from typing import Any, TYPE_CHECKING
+import sys
 from collections import defaultdict
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
@@ -317,11 +317,11 @@ def trace_taint(
         - vulnerabilities: Count by vulnerability type
         - total_flows_resolved: Number of flows resolved (forward mode only)
     """
-    import sqlite3
     import os
+    import sqlite3
 
     if mode == "forward":
-        print(f"[TAINT] Using forward-only flow resolution mode", file=sys.stderr)
+        print("[TAINT] Using forward-only flow resolution mode", file=sys.stderr)
 
         if graph_db_path is None:
             db_dir = Path(db_path).parent
@@ -365,11 +365,11 @@ def trace_taint(
 
     if mode == "complete":
         print(
-            f"[TAINT] Using complete mode: IFDS (backward) + FlowResolver (forward)",
+            "[TAINT] Using complete mode: IFDS (backward) + FlowResolver (forward)",
             file=sys.stderr,
         )
 
-        print(f"[TAINT] STEP 1/2: Running FlowResolver (forward analysis)", file=sys.stderr)
+        print("[TAINT] STEP 1/2: Running FlowResolver (forward analysis)", file=sys.stderr)
 
         if graph_db_path is None:
             db_dir = Path(db_path).parent
@@ -397,7 +397,7 @@ def trace_taint(
                 "NO FALLBACKS ALLOWED."
             )
 
-        print(f"[TAINT] STEP 2/2: Running IFDS (backward vulnerability analysis)", file=sys.stderr)
+        print("[TAINT] STEP 2/2: Running IFDS (backward vulnerability analysis)", file=sys.stderr)
 
     if registry is None:
         raise ValueError(
@@ -485,6 +485,7 @@ def trace_taint(
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
 
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
+
         from .schema_cache_adapter import SchemaMemoryCacheAdapter
 
         print("[TAINT] Creating SchemaMemoryCache (mandatory for discovery)", file=sys.stderr)
@@ -558,7 +559,7 @@ def trace_taint(
                 f"NO FALLBACKS - Taint analysis requires pre-computed graphs."
             )
 
-        print(f"[TAINT] Using IFDS mode with graphs.db", file=sys.stderr)
+        print("[TAINT] Using IFDS mode with graphs.db", file=sys.stderr)
         sys.stderr.flush()
 
         from .ifds_analyzer import IFDSTaintAnalyzer
@@ -767,7 +768,7 @@ def trace_taint(
             result["mode"] = "complete"
             result["engines_used"] = ["IFDS (backward)", "FlowResolver (forward)"]
 
-            print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+            print("[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
             print(f"[TAINT]   IFDS found: {len(unique_paths)} vulnerable paths", file=sys.stderr)
             print(f"[TAINT]   FlowResolver resolved: {total_flows} total flows", file=sys.stderr)
             print(

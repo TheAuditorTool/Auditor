@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 try:
     import json5
 
@@ -51,8 +50,8 @@ class ModuleResolver:
         if not self.db_path.exists():
             return
 
-        import sqlite3
         import os
+        import sqlite3
 
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
@@ -139,10 +138,10 @@ class ModuleResolver:
             error_msg = str(e)
             if "database is locked" in error_msg:
                 print(
-                    f"[WARNING] Database locked (indexing in progress?), using empty path mappings"
+                    "[WARNING] Database locked (indexing in progress?), using empty path mappings"
                 )
             elif "no such table" in error_msg:
-                print(f"[WARNING] config_files table not found, using empty mappings")
+                print("[WARNING] config_files table not found, using empty mappings")
             else:
                 print(f"[WARNING] Failed to load config_files: {error_msg}")
 

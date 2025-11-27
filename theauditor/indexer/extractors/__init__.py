@@ -20,8 +20,8 @@ FORBIDDEN:
 - Regex-based JWT extraction (use AST via function_calls data)
 """
 
-import os
 import importlib
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any

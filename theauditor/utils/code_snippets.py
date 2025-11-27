@@ -140,11 +140,11 @@ class CodeSnippetManager:
             return None
 
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
+            with open(full_path, encoding="utf-8") as f:
                 lines = f.readlines()
         except UnicodeDecodeError:
             try:
-                with open(full_path, "r", encoding="latin-1") as f:
+                with open(full_path, encoding="latin-1") as f:
                     lines = f.readlines()
             except Exception:
                 logger.debug(f"Cannot decode file: {full_path}")

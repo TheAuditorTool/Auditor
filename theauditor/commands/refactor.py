@@ -10,9 +10,9 @@ import json
 import re
 import sqlite3
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable
 
 import click
 
@@ -266,8 +266,9 @@ def refactor(
         click.echo("\nNo schema changes detected in migrations.")
         click.echo("Tip: This command looks for removeColumn, dropTable, renameColumn, etc.")
         if not profile_report:
-            from theauditor.indexer.database import DatabaseManager
             from datetime import datetime
+
+            from theauditor.indexer.database import DatabaseManager
 
             db = DatabaseManager(str(db_path))
             db.add_refactor_history(
@@ -344,8 +345,9 @@ def refactor(
             json.dump(report, f, indent=2, default=str)
         click.echo(f"\nDetailed report saved: {output}")
 
-    from theauditor.indexer.database import DatabaseManager
     from datetime import datetime
+
+    from theauditor.indexer.database import DatabaseManager
 
     db = DatabaseManager(str(db_path))
     db.add_refactor_history(
@@ -440,7 +442,7 @@ def _analyze_migrations(
 
     for mig_file in migrations:
         try:
-            with open(mig_file, "r", encoding="utf-8") as f:
+            with open(mig_file, encoding="utf-8") as f:
                 content = f.read()
 
             if mig_file.endswith((".js", ".ts")):

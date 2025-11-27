@@ -84,8 +84,8 @@ RULE METADATA: JSX-specific with framework detection
 
 import sqlite3
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="your_jsx_rule_name",

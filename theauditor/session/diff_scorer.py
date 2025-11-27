@@ -11,7 +11,7 @@ Aggregate scores into a single risk metric (0.0-1.0).
 
 import logging
 import tempfile
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 

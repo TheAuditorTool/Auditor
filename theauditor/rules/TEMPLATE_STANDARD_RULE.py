@@ -57,8 +57,8 @@ RULE METADATA: Declares file targeting to skip frontend files
 
 import sqlite3
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="your_rule_name",

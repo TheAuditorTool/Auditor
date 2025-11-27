@@ -38,12 +38,11 @@ Expected extraction from TheAuditor codebase:
 Total: ~2,115 control flow records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 

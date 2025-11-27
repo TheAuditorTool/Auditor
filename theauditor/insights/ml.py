@@ -18,9 +18,9 @@ ML_AVAILABLE = False
 try:
     import joblib
     import numpy as np
+    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.isotonic import IsotonicRegression
     from sklearn.linear_model import Ridge
-    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
 
     ML_AVAILABLE = True

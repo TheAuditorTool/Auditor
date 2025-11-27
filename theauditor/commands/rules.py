@@ -1,12 +1,12 @@
 """Rules command - inspect and summarize detection capabilities."""
 
-import os
-import yaml
 import importlib
 import inspect
+import os
 from pathlib import Path
 
 import click
+import yaml
 
 from theauditor.utils import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
@@ -185,7 +185,7 @@ def rules_command(summary: bool) -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(output_lines))
 
-    click.echo(click.style(f"\n[SUCCESS] Capability report generated successfully", fg="green"))
+    click.echo(click.style("\n[SUCCESS] Capability report generated successfully", fg="green"))
     click.echo(f"[INFO] Report saved to: {output_file}")
     raise SystemExit(ExitCodes.SUCCESS)
 
@@ -222,7 +222,7 @@ def scan_yaml_patterns(patterns_path: Path) -> dict[str, dict[str, list[str]]]:
                     results[category] = {}
 
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, encoding="utf-8") as f:
                         data = yaml.safe_load(f)
 
                     if data and isinstance(data, list):
@@ -278,7 +278,7 @@ def scan_python_rules(rules_path: Path) -> dict[str, list[str]]:
                     continue
 
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, encoding="utf-8") as f:
                         content = f.read()
 
                     import re

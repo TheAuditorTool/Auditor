@@ -10,13 +10,12 @@ import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="react_state_issues",

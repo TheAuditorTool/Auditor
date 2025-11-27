@@ -6,6 +6,7 @@ graphs, and detecting infrastructure security issues.
 
 import json
 from pathlib import Path
+
 import click
 
 from ..utils.logger import setup_logger
@@ -153,7 +154,7 @@ def provision(root, workset, output, db, graphs_db):
 
         stats = graph["metadata"]["stats"]
 
-        click.echo(f"\nProvisioning Graph Built:")
+        click.echo("\nProvisioning Graph Built:")
         click.echo(f"  Variables: {stats['total_variables']}")
         click.echo(f"  Resources: {stats['total_resources']}")
         click.echo(f"  Outputs: {stats['total_outputs']}")
@@ -261,7 +262,7 @@ def analyze(root, severity, categories, output, db):
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(findings_json, f, indent=2)
 
-        click.echo(f"\nTerraform Security Analysis Complete:")
+        click.echo("\nTerraform Security Analysis Complete:")
         click.echo(f"  Total findings: {len(findings)}")
 
         from collections import Counter
@@ -272,15 +273,15 @@ def analyze(root, severity, categories, output, db):
                 click.echo(f"  {sev.capitalize()}: {severity_counts[sev]}")
 
         category_counts = Counter(f.category for f in findings)
-        click.echo(f"\nFindings by category:")
+        click.echo("\nFindings by category:")
         for cat, count in category_counts.most_common():
             click.echo(f"  {cat}: {count}")
 
         click.echo(f"\nFindings exported to: {output_path}")
-        click.echo(f"Findings stored in terraform_findings table for FCE correlation")
+        click.echo("Findings stored in terraform_findings table for FCE correlation")
 
         if findings:
-            click.echo(f"\nSample findings (first 3):")
+            click.echo("\nSample findings (first 3):")
             for finding in findings[:3]:
                 click.echo(f"\n  [{finding.severity.upper()}] {finding.title}")
                 click.echo(f"  File: {finding.file_path}:{finding.line}")

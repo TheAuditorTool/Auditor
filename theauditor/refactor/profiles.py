@@ -10,13 +10,12 @@ import fnmatch
 import functools
 import re
 import sqlite3
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable, Sequence
 
 import yaml
-
 
 MAX_RESULTS_PER_QUERY = 500
 
@@ -59,7 +58,7 @@ class PatternSpec:
     api_routes: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any] | None) -> "PatternSpec":
+    def from_dict(cls, raw: dict[str, Any] | None) -> PatternSpec:
         raw = raw or {}
         return cls(
             identifiers=_coerce_list(raw.get("identifiers")),
@@ -86,7 +85,7 @@ class RefactorRule:
     guidance: str | None = None
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "RefactorRule":
+    def from_dict(cls, raw: dict[str, Any]) -> RefactorRule:
         if "id" not in raw or "description" not in raw:
             raise ValueError("Each refactor rule must include 'id' and 'description'")
         severity = raw.get("severity", "medium").lower()
@@ -115,17 +114,17 @@ class RefactorProfile:
     refactor_name: str
     description: str
     version: str | None
-    rules: list["RefactorRule"]
+    rules: list[RefactorRule]
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Path) -> "RefactorProfile":
+    def load(cls, path: Path) -> RefactorProfile:
         """Load profile from a YAML file path."""
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         return cls._from_dict(data)
 
     @classmethod
-    def load_from_string(cls, yaml_text: str) -> "RefactorProfile":
+    def load_from_string(cls, yaml_text: str) -> RefactorProfile:
         """Load profile from a YAML string (no temp file needed).
 
         This is the preferred method when you already have the YAML content
@@ -144,7 +143,7 @@ class RefactorProfile:
         return cls._from_dict(data)
 
     @classmethod
-    def _from_dict(cls, data: dict | None) -> "RefactorProfile":
+    def _from_dict(cls, data: dict | None) -> RefactorProfile:
         """Internal: Create profile from parsed YAML dict."""
         if not isinstance(data, dict):
             raise ValueError("Refactor profile must be a YAML mapping")
@@ -208,7 +207,7 @@ class ProfileEvaluation:
     """Full evaluation summary for a profile."""
 
     profile: RefactorProfile
-    rule_results: list["RuleResult"]
+    rule_results: list[RuleResult]
 
     def total_violations(self) -> int:
         return sum(len(rule.violations) for rule in self.rule_results)
@@ -234,7 +233,7 @@ class _SourceQuery:
     context_field: str | None = None
 
 
-IDENTIFIER_SOURCES: tuple["_SourceQuery", ...] = (
+IDENTIFIER_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("symbols", "name", "path", "line", "symbols", "type"),
     _SourceQuery("symbols_jsx", "name", "path", "line", "symbols_jsx", "type"),
     _SourceQuery("variable_usage", "variable_name", "file", "line", "variable_usage", "usage_type"),
@@ -249,7 +248,7 @@ IDENTIFIER_SOURCES: tuple["_SourceQuery", ...] = (
     ),
 )
 
-EXPRESSION_SOURCES: tuple["_SourceQuery", ...] = (
+EXPRESSION_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("assignments", "source_expr", "file", "line", "assignments"),
     _SourceQuery(
         "function_call_args",
@@ -263,11 +262,11 @@ EXPRESSION_SOURCES: tuple["_SourceQuery", ...] = (
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
-SQL_TABLE_SOURCES: tuple["_SourceQuery", ...] = (
+SQL_TABLE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("sql_query_tables", "table_name", "query_file", "query_line", "sql_query_tables"),
 )
 
-API_ROUTE_SOURCES: tuple["_SourceQuery", ...] = (
+API_ROUTE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
@@ -288,14 +287,14 @@ class RefactorRuleEngine:
             self.conn.close()
             self.conn = None
 
-    def __enter__(self) -> "RefactorRuleEngine":
+    def __enter__(self) -> RefactorRuleEngine:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def evaluate(self, profile: RefactorProfile) -> "ProfileEvaluation":
-        results: list["RuleResult"] = []
+    def evaluate(self, profile: RefactorProfile) -> ProfileEvaluation:
+        results: list[RuleResult] = []
         for rule in profile.rules:
             violations = self._run_spec(rule.match, rule.scope)
             expected = self._run_spec(rule.expect, rule.scope) if not rule.expect.is_empty() else []
@@ -319,7 +318,7 @@ class RefactorRuleEngine:
     def _query_sources(
         self,
         terms: Sequence[str],
-        sources: tuple["_SourceQuery", ...],
+        sources: tuple[_SourceQuery, ...],
         scope: dict[str, list[str]],
     ) -> list[dict[str, Any]]:
         """Query sources with batched SQL and regex boundary filtering.

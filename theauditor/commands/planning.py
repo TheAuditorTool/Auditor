@@ -1,14 +1,16 @@
 """Planning and verification commands for implementation workflows."""
 
-import click
 import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, UTC
+
+import click
+
+from theauditor.planning import snapshots, verification
+from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.logger import setup_logger
-from theauditor.planning.manager import PlanningManager
-from theauditor.planning import verification, snapshots
 
 logger = setup_logger(__name__)
 
@@ -173,7 +175,7 @@ def show(plan_id, tasks, verbose, format):
 
     if verbose and plan["metadata_json"]:
         metadata = json.loads(plan["metadata_json"])
-        click.echo(f"\nMetadata:")
+        click.echo("\nMetadata:")
         for key, value in metadata.items():
             click.echo(f"  {key}: {value}")
 
@@ -193,7 +195,7 @@ def show(plan_id, tasks, verbose, format):
             phases = cursor.fetchall()
 
             if phases:
-                click.echo(f"\nPhase → Task → Job Hierarchy:")
+                click.echo("\nPhase → Task → Job Hierarchy:")
                 for phase in phases:
                     phase_id, phase_num, phase_title, phase_desc, success_criteria, phase_status = (
                         phase
@@ -255,7 +257,7 @@ def show(plan_id, tasks, verbose, format):
                 orphaned_tasks = cursor.fetchall()
 
                 if orphaned_tasks:
-                    click.echo(f"\nOrphaned Tasks (not in any phase):")
+                    click.echo("\nOrphaned Tasks (not in any phase):")
                     for task in orphaned_tasks:
                         task_id, task_num, task_title, task_status, audit_status = task
                         task_icon = "[X]" if task_status == "completed" else "[ ]"
@@ -265,7 +267,7 @@ def show(plan_id, tasks, verbose, format):
                         click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
             else:
                 click.echo(
-                    f"\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'"
+                    "\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'"
                 )
 
         else:
@@ -574,19 +576,19 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
         is_regression = was_previously_completed and total_violations > 0
 
-        click.echo(f"\nVerification complete:")
+        click.echo("\nVerification complete:")
         click.echo(f"  Total violations: {total_violations}")
 
         if is_regression:
-            click.echo(f"\n  WARNING: REGRESSION DETECTED", err=True)
+            click.echo("\n  WARNING: REGRESSION DETECTED", err=True)
             click.echo(
                 f"  Task {task_number} was previously completed but now has {total_violations} violation(s)",
                 err=True,
             )
-            click.echo(f"  Code changes since completion have broken verification", err=True)
+            click.echo("  Code changes since completion have broken verification", err=True)
 
         if verbose and total_violations > 0:
-            click.echo(f"\nViolations by rule:")
+            click.echo("\nViolations by rule:")
             for rule_result in result.rule_results:
                 if rule_result.violations:
                     click.echo(f"  {rule_result.rule.id}: {len(rule_result.violations)} violations")
@@ -824,9 +826,9 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             click.echo(f"Rewind to checkpoint: {snapshot_row[1]}")
             click.echo(f"Timestamp: {snapshot_row[2]}")
             click.echo(f"Git ref: {snapshot_row[3]}")
-            click.echo(f"\nTo revert to this state, run:")
+            click.echo("\nTo revert to this state, run:")
             click.echo(f"  git checkout {snapshot_row[3]}")
-            click.echo(f"\nOr to create a new branch from this state:")
+            click.echo("\nOr to create a new branch from this state:")
             click.echo(f"  git checkout -b rewind-{snapshot_row[1]} {snapshot_row[3]}")
         else:
             cursor.execute(

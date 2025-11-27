@@ -15,9 +15,9 @@ Usage:
     # Returns: {'nodes': [...], 'edges': [...], 'metadata': {...}}
 """
 
-import sqlite3
 import json
 import re
+import sqlite3
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -89,8 +89,8 @@ class TerraformGraphBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, "ProvisioningNode"] = {}
-        edges: list["ProvisioningEdge"] = []
+        nodes: dict[str, ProvisioningNode] = {}
+        edges: list[ProvisioningEdge] = []
 
         stats = {
             "total_resources": 0,
@@ -419,4 +419,4 @@ class TerraformGraphBuilder:
             graph_type="terraform_provisioning",
         )
 
-        logger.debug(f"Wrote Terraform provisioning graph to graphs.db")
+        logger.debug("Wrote Terraform provisioning graph to graphs.db")

@@ -20,18 +20,17 @@ Detects 15+ real-world CORS vulnerabilities:
 - Framework-specific misconfigurations
 """
 
-import sqlite3
 import re
+import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="cors_security",

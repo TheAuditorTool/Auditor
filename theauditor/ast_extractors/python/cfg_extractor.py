@@ -14,12 +14,11 @@ All functions here:
 File path context is provided by the INDEXER layer when storing to database.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 

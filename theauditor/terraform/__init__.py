@@ -6,9 +6,9 @@ implementation in theauditor.rules.terraform.terraform_analyze while
 preserving backwards compatibility with aud terraform analyze.
 """
 
-from .parser import TerraformParser
 from .analyzer import TerraformAnalyzer, TerraformFinding
 from .graph import TerraformGraphBuilder
+from .parser import TerraformParser
 
 __all__ = [
     "TerraformParser",

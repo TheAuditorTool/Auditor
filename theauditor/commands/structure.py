@@ -1,8 +1,10 @@
 """Project structure and intelligence report command."""
 
-import click
 import sqlite3
 from pathlib import Path
+
+import click
+
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -162,7 +164,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         if manifest_exists:
             import json
 
-            with open(manifest, "r") as f:
+            with open(manifest) as f:
                 manifest_data = json.load(f)
 
             total_files = len(manifest_data)
@@ -170,7 +172,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
             total_bytes = sum(f.get("bytes", 0) for f in manifest_data)
             total_tokens = total_bytes // 4
 
-            click.echo(f"\nProject Summary:")
+            click.echo("\nProject Summary:")
             click.echo(f"  Files: {total_files:,}")
             click.echo(f"  LOC: {total_loc:,}")
             click.echo(f"  Tokens: ~{total_tokens:,}")
@@ -265,8 +267,8 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
                 click.echo(f"[MONOLITH] {path}")
                 click.echo(f"  Lines: {lines:,} (>{threshold})")
                 click.echo(f"  Symbols: {symbols:,} functions/classes")
-                click.echo(f"  Recommend: Refactor using chunked reading")
-                click.echo(f"             See agents/refactor.md Task 3.4 for workflow")
+                click.echo("  Recommend: Refactor using chunked reading")
+                click.echo("             See agents/refactor.md Task 3.4 for workflow")
                 click.echo()
 
             click.echo("=" * 80)

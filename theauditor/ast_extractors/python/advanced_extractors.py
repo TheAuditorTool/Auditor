@@ -15,11 +15,10 @@ All extraction functions:
 File path context is provided by the INDEXER layer when storing to database.
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 def _get_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
@@ -36,9 +35,7 @@ def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
     current = node
     while current in parent_map:
         current = parent_map[current]
-        if isinstance(current, ast.FunctionDef):
-            return current.name
-        elif isinstance(current, ast.AsyncFunctionDef):
+        if isinstance(current, ast.FunctionDef) or isinstance(current, ast.AsyncFunctionDef):
             return current.name
     return "global"
 

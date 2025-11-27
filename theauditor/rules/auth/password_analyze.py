@@ -20,15 +20,14 @@ CWE Coverage:
 
 import sqlite3
 
+from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-from theauditor.indexer.schema import build_query
-
 
 METADATA = RuleMetadata(
     name="password_security",

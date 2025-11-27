@@ -37,13 +37,12 @@ Expected extraction from TheAuditor codebase:
 Total: ~400 performance indicator records
 """
 
-from theauditor.ast_extractors.python.utils.context import FileContext
-
-
 import ast
 import logging
 import os
 from typing import Any
+
+from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
 

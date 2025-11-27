@@ -1,7 +1,9 @@
 """[DEPRECATED] Index command - now redirects to 'aud full' for data fidelity."""
 
 import time
+
 import click
+
 from theauditor.utils.error_handler import handle_exceptions
 
 

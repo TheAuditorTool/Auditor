@@ -13,8 +13,8 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 from theauditor.indexer.schema import build_query
+from theauditor.rules.base import Severity, StandardFinding, StandardRuleContext
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:
@@ -258,7 +258,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 findings.append(
                     StandardFinding(
                         rule_name="sql-injection-stored-proc",
-                        message=f"Stored procedure call with dynamic input",
+                        message="Stored procedure call with dynamic input",
                         file_path=file,
                         line=line,
                         severity=Severity.HIGH,

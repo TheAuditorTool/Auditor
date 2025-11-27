@@ -10,9 +10,9 @@ This module contains the BaseDatabaseManager class which provides:
 All language-specific add_* methods are provided by mixin classes.
 """
 
-import sqlite3
 import json
 import os
+import sqlite3
 import sys
 from collections import defaultdict
 
@@ -100,8 +100,9 @@ class BaseDatabaseManager:
         Returns:
             True if all schemas valid, False if mismatches found
         """
-        from ..schema import validate_all_tables
         import sys
+
+        from ..schema import validate_all_tables
 
         cursor = self.conn.cursor()
         mismatches = validate_all_tables(cursor)
@@ -570,18 +571,20 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["cfg_block_statements_jsx"] = []
 
-            import os, sys
+            import os
+            import sys
 
             for table_name, insert_mode in flush_order:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
                     self.flush_generic_batch(table_name, insert_mode)
 
         except sqlite3.Error as e:
-            import os, sys
+            import os
+            import sys
 
             if os.environ.get("THEAUDITOR_DEBUG") == "1":
                 print(f"\n[DEBUG] SQL Error: {type(e).__name__}: {e}", file=sys.stderr)
-                print(f"[DEBUG] Tables with pending batches:", file=sys.stderr)
+                print("[DEBUG] Tables with pending batches:", file=sys.stderr)
                 for table_name, batch in self.generic_batches.items():
                     if batch:
                         print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
@@ -641,7 +644,7 @@ class BaseDatabaseManager:
         if not findings:
             return
 
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
 
         cursor = self.conn.cursor()
 

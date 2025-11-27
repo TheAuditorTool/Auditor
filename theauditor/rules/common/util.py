@@ -169,7 +169,7 @@ class EntropyCalculator:
         return frequencies
 
     @staticmethod
-    def classify_entropy(entropy: float) -> "EntropyLevel":
+    def classify_entropy(entropy: float) -> EntropyLevel:
         """Classify entropy into meaningful categories."""
         if entropy < EntropyLevel.VERY_LOW.value:
             return EntropyLevel.VERY_LOW

@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+
 import click
+
 from theauditor.config_runtime import load_runtime_config
 
 
@@ -154,7 +156,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
             click.echo("Loading file manifest...")
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest_data = json.load(f)
 
             if workset_files:
@@ -224,9 +226,10 @@ def graph_build_dfg(root, db, repo_db):
       - Edges created
       - Unique variables tracked
     """
+    from pathlib import Path
+
     from theauditor.graph.dfg_builder import DFGBuilder
     from theauditor.graph.store import XGraphStore
-    from pathlib import Path
 
     try:
         repo_db_path = Path(repo_db)
@@ -243,18 +246,18 @@ def graph_build_dfg(root, db, repo_db):
         graph = builder.build_unified_flow_graph(root)
 
         stats = graph["metadata"]["stats"]
-        click.echo(f"\nData Flow Graph Statistics:")
-        click.echo(f"  Assignment Stats:")
+        click.echo("\nData Flow Graph Statistics:")
+        click.echo("  Assignment Stats:")
         click.echo(f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}")
         click.echo(
             f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}"
         )
         click.echo(f"    Edges created:     {stats['assignment_stats']['edges_created']:,}")
-        click.echo(f"  Return Stats:")
+        click.echo("  Return Stats:")
         click.echo(f"    Total returns:     {stats['return_stats']['total_returns']:,}")
         click.echo(f"    With variables:    {stats['return_stats']['returns_with_vars']:,}")
         click.echo(f"    Edges created:     {stats['return_stats']['edges_created']:,}")
-        click.echo(f"  Totals:")
+        click.echo("  Totals:")
         click.echo(f"    Total nodes:       {stats['total_nodes']:,}")
         click.echo(f"    Total edges:       {stats['total_edges']:,}")
 
@@ -374,7 +377,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
         if insights:
             click.echo("Ranking hotspots...")
             hotspots = insights.rank_hotspots(import_graph, call_graph)
-            click.echo(f"  Top 10 hotspots:")
+            click.echo("  Top 10 hotspots:")
             for i, hotspot in enumerate(hotspots[:10], 1):
                 click.echo(f"    {i}. {hotspot['id'][:50]} (score: {hotspot['score']})")
         else:
@@ -385,7 +388,7 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                 key=lambda x: x[1],
                 reverse=True,
             )[:10]
-            click.echo(f"  Top 10 most connected nodes:")
+            click.echo("  Top 10 most connected nodes:")
             for i, (node, connections) in enumerate(connected, 1):
                 click.echo(f"    {i}. {node[:50]} ({connections} connections)")
 
@@ -460,8 +463,8 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             "summary": summary,
         }
 
-        from theauditor.utils.meta_findings import format_hotspot_finding, format_cycle_finding
         from theauditor.indexer.database import DatabaseManager
+        from theauditor.utils.meta_findings import format_cycle_finding, format_hotspot_finding
 
         meta_findings = []
 

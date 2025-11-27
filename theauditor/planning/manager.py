@@ -9,12 +9,13 @@ ARCHITECTURE: Separate planning.db from repo_index.db
 - NO FALLBACKS. Hard failure if planning.db malformed or missing.
 """
 
-from pathlib import Path
-import sqlite3
 import json
-from datetime import datetime, UTC
+import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
 
 from theauditor.indexer.schema import TABLES
+
 from .shadow_git import ShadowRepoManager
 
 
@@ -47,7 +48,7 @@ class PlanningManager:
         self._ensure_schema_compliance()
 
     @classmethod
-    def init_database(cls, db_path: Path) -> "PlanningManager":
+    def init_database(cls, db_path: Path) -> PlanningManager:
         """Create planning.db if it doesn't exist and initialize schema.
 
         Also initializes shadow git repository (.pf/snapshots.git) for

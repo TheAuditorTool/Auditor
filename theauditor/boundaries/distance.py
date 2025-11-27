@@ -26,8 +26,8 @@ import sqlite3
 from collections import deque
 from pathlib import Path
 
-from theauditor.graph.store import XGraphStore
 from theauditor.graph.analyzer import XGraphAnalyzer
+from theauditor.graph.store import XGraphStore
 
 
 def calculate_distance(

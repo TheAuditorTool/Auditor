@@ -14,12 +14,13 @@ Database Tables Used:
 - import_styles: Imported packages
 """
 
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import TYPOSQUATTING_MAP
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import TYPOSQUATTING_MAP
 
 METADATA = RuleMetadata(
     name="typosquatting",

@@ -340,7 +340,7 @@ class GraphVisualizer:
         dot_lines.extend(self._generate_graph_attrs(options))
         dot_lines.append("  rankdir=TB;")
 
-        valid_layer_nums = [k for k in layers.keys() if k is not None]
+        valid_layer_nums = [k for k in layers if k is not None]
         for layer_num in sorted(valid_layer_nums):
             layer_nodes = layers[layer_num]
             if not layer_nodes:
@@ -348,11 +348,11 @@ class GraphVisualizer:
 
             dot_lines.append(f"  subgraph cluster_layer{layer_num} {{")
             dot_lines.append(f'    label="Layer {layer_num}";')
-            dot_lines.append(f"    style=filled;")
-            dot_lines.append(f'    fillcolor="#F0F0F0";')
-            dot_lines.append(f'    color="#CCCCCC";')
-            dot_lines.append(f"    fontsize=12;")
-            dot_lines.append(f"    rank=same;")
+            dot_lines.append("    style=filled;")
+            dot_lines.append('    fillcolor="#F0F0F0";')
+            dot_lines.append('    color="#CCCCCC";')
+            dot_lines.append("    fontsize=12;")
+            dot_lines.append("    rank=same;")
 
             for node_id in layer_nodes:
                 if node_id not in node_map:

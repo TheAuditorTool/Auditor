@@ -21,12 +21,12 @@ Replaces:
 """
 
 import json
-import yaml
 from pathlib import Path
 from typing import Any
 
-from . import BaseExtractor
+import yaml
 
+from . import BaseExtractor
 
 COMPOSE_FILE_PATTERNS: frozenset = frozenset(
     [

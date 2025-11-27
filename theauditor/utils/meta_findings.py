@@ -6,7 +6,7 @@ CFG, churn, coverage analyzers) into the standard findings_consolidated format
 for dual-write pattern: database (FCE performance) + JSON (AI consumption).
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 

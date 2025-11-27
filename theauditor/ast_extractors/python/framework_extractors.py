@@ -14,42 +14,35 @@ This file was reduced from 2222 lines to ~150 lines as part of refactor-framewor
 All implementation moved to domain-specific files. This file now serves as a re-export facade only.
 """
 
-from .orm_extractors import (
-    extract_sqlalchemy_definitions,
-    extract_django_definitions,
-    extract_flask_blueprints,
-)
-
-
-from .validation_extractors import (
-    extract_pydantic_validators,
-    extract_marshmallow_schemas,
-    extract_marshmallow_fields,
-    extract_drf_serializers,
-    extract_drf_serializer_fields,
-    extract_wtforms_forms,
-    extract_wtforms_fields,
-)
-
-
 from .django_web_extractors import (
-    extract_django_cbvs,
-    extract_django_forms,
-    extract_django_form_fields,
     extract_django_admin,
+    extract_django_cbvs,
+    extract_django_form_fields,
+    extract_django_forms,
     extract_django_middleware,
 )
-
-
+from .orm_extractors import (
+    extract_django_definitions,
+    extract_flask_blueprints,
+    extract_sqlalchemy_definitions,
+)
 from .task_graphql_extractors import (
-    extract_celery_tasks,
-    extract_celery_task_calls,
-    extract_celery_beat_schedules,
-    extract_graphene_resolvers,
     extract_ariadne_resolvers,
+    extract_celery_beat_schedules,
+    extract_celery_task_calls,
+    extract_celery_tasks,
+    extract_graphene_resolvers,
     extract_strawberry_resolvers,
 )
-
+from .validation_extractors import (
+    extract_drf_serializer_fields,
+    extract_drf_serializers,
+    extract_marshmallow_fields,
+    extract_marshmallow_schemas,
+    extract_pydantic_validators,
+    extract_wtforms_fields,
+    extract_wtforms_forms,
+)
 
 FASTAPI_HTTP_METHODS = {
     "get",
@@ -75,6 +68,7 @@ def _extract_fastapi_dependencies(func_node):
         List of dependency target names extracted from Depends() calls
     """
     import ast
+
     from ..base import get_node_name
 
     dependencies = []

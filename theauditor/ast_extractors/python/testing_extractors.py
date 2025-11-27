@@ -50,10 +50,10 @@ def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
                 if isinstance(dec, ast.Call):
                     for keyword in dec.keywords:
                         if keyword.arg == "scope":
-                            if isinstance(keyword.value, ast.Constant):
-                                scope = keyword.value.value
-                            elif isinstance(keyword.value, ast.Constant) and isinstance(
-                                keyword.value.value, str
+                            if (
+                                isinstance(keyword.value, ast.Constant)
+                                or isinstance(keyword.value, ast.Constant)
+                                and isinstance(keyword.value.value, str)
                             ):
                                 scope = keyword.value.value
 
@@ -100,9 +100,11 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
                 param_names = []
                 if isinstance(dec, ast.Call) and dec.args:
                     first_arg = dec.args[0]
-                    if isinstance(first_arg, ast.Constant):
-                        param_names = [first_arg.value]
-                    elif isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        or isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                    ):
                         param_names = [first_arg.value]
 
                 parametrizes.append(
@@ -170,9 +172,11 @@ def extract_mock_patterns(context: FileContext) -> list[dict[str, Any]]:
                 mock_target = None
                 if isinstance(dec, ast.Call) and dec.args:
                     first_arg = dec.args[0]
-                    if isinstance(first_arg, ast.Constant):
-                        mock_target = first_arg.value
-                    elif isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        or isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                    ):
                         mock_target = first_arg.value
 
                 mocks.append(

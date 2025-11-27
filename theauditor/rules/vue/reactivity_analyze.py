@@ -11,16 +11,16 @@ Database-First Architecture (v1.1+):
 - NO manual AST traversal (indexer already extracted this data)
 """
 
-import sqlite3
 import json
+import sqlite3
+
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="vue_reactivity",

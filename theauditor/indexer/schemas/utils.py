@@ -12,8 +12,8 @@ Design Philosophy:
 - Pure class definitions only (no table registries)
 """
 
-from dataclasses import dataclass, field
 import sqlite3
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -69,7 +69,7 @@ class ForeignKey:
     foreign_table: str
     foreign_columns: list[str]
 
-    def validate(self, local_table: str, all_tables: dict[str, "TableSchema"]) -> list[str]:
+    def validate(self, local_table: str, all_tables: dict[str, TableSchema]) -> list[str]:
         """Validate foreign key definition against schema.
 
         Returns:
@@ -134,11 +134,11 @@ class TableSchema:
     """
 
     name: str
-    columns: list["Column"]
+    columns: list[Column]
     indexes: list[tuple[str, list[str]]] = field(default_factory=list)
     primary_key: list[str] | None = None
     unique_constraints: list[list[str]] = field(default_factory=list)
-    foreign_keys: list["ForeignKey"] = field(default_factory=list)
+    foreign_keys: list[ForeignKey] = field(default_factory=list)
 
     def column_names(self) -> list[str]:
         """Get list of column names in definition order."""

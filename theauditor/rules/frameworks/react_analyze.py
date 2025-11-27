@@ -13,15 +13,14 @@ Follows schema contract architecture (v1.1+):
 import sqlite3
 from dataclasses import dataclass
 
+from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-from theauditor.indexer.schema import build_query
-
 
 METADATA = RuleMetadata(
     name="react_security",

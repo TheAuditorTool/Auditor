@@ -1,10 +1,11 @@
 """Universal parser for all manifest file types used in framework detection."""
 
-import json
-import yaml
 import configparser
+import json
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 class ManifestParser:

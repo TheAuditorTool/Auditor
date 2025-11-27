@@ -7,13 +7,12 @@ instead of traversing AST structures.
 import sqlite3
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="websocket_security",

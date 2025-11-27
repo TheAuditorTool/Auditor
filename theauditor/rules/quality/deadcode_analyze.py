@@ -6,9 +6,8 @@ Generates findings with severity='info' (quality concern, not security).
 Pattern: Follows progress.md rules - analyze() function, execution_scope='database'.
 """
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.context.deadcode_graph import DEFAULT_EXCLUSIONS
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="deadcode",
@@ -48,6 +47,7 @@ def find_dead_code(context: StandardRuleContext) -> list[StandardFinding]:
 
     try:
         from pathlib import Path
+
         from theauditor.context.deadcode_graph import GraphDeadCodeDetector
 
         graphs_db = Path(context.db_path).parent / "graphs.db"

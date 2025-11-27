@@ -6,8 +6,7 @@ These are particularly dangerous as they can bypass server-side protections.
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="dom_xss",

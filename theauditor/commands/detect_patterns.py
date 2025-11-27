@@ -1,7 +1,9 @@
 """Detect universal runtime, DB, and logic patterns in code."""
 
-import click
 from pathlib import Path
+
+import click
+
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
@@ -156,9 +158,7 @@ def detect_patterns(
                 click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
                 click.echo("[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo(
-                f"[DB] Database not found - run 'aud full' first for optimal FCE performance"
-            )
+            click.echo("[DB] Database not found - run 'aud full' first for optimal FCE performance")
 
         output_path = (
             Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")

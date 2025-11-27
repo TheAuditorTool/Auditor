@@ -9,8 +9,8 @@ during the indexing phase. It provides analysis capabilities including:
 """
 
 import sqlite3
-from typing import Any
 from collections import defaultdict
+from typing import Any
 
 
 class CFGBuilder:

@@ -19,11 +19,10 @@ from pathlib import Path
 
 import click
 
-from theauditor.context.query import CodeQueryEngine
 from theauditor.context.explain_formatter import ExplainFormatter
+from theauditor.context.query import CodeQueryEngine
 from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
-
 
 FILE_EXTENSIONS = {
     ".ts",

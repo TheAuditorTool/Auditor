@@ -24,8 +24,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="dockerfile_security",
@@ -365,7 +364,7 @@ def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> list[Stand
             findings.append(
                 StandardFinding(
                     rule_name="dockerfile-unpinned-version",
-                    message=f"Base image uses unpinned version (non-reproducible builds)",
+                    message="Base image uses unpinned version (non-reproducible builds)",
                     file_path=file_path,
                     line=1,
                     severity=Severity.MEDIUM,

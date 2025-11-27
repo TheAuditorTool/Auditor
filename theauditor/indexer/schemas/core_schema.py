@@ -17,7 +17,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
 FILES = TableSchema(
     name="files",
     columns=[

@@ -19,6 +19,7 @@ import sqlite3
 from collections import defaultdict
 
 from theauditor.utils.logger import setup_logger
+
 from .sanitizer_util import SanitizerRegistry
 
 logger = setup_logger(__name__)

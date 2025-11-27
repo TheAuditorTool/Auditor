@@ -13,12 +13,13 @@ Database Tables Used:
 - package_configs: Dependency version specifications
 """
 
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import RANGE_PREFIXES
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import RANGE_PREFIXES
 
 METADATA = RuleMetadata(
     name="version_pinning",

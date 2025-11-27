@@ -13,23 +13,18 @@ REFACTORED (2025-11-22):
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
-
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 from theauditor.rules.xss.constants import (
+    ANGULAR_AUTO_ESCAPED,
+    COMMON_INPUT_SOURCES,
     EXPRESS_SAFE_SINKS,
     REACT_AUTO_ESCAPED,
-    VUE_AUTO_ESCAPED,
-    ANGULAR_AUTO_ESCAPED,
     UNIVERSAL_DANGEROUS_SINKS,
-    COMMON_INPUT_SOURCES,
+    VUE_AUTO_ESCAPED,
     XSS_TARGET_EXTENSIONS,
     is_sanitized,
 )
-
-
 from theauditor.taint.sanitizer_util import SanitizerRegistry
-
 
 METADATA = RuleMetadata(
     name="xss_core",
@@ -416,7 +411,7 @@ def _check_react_dangerouslysetinnerhtml(cursor: sqlite3.Cursor) -> list[Standar
                             line=line,
                             severity=Severity.CRITICAL,
                             category="xss",
-                            snippet=f"dangerouslySetInnerHTML={{__html: ...}}",
+                            snippet="dangerouslySetInnerHTML={__html: ...}",
                             cwe_id="CWE-79",
                         )
                     )

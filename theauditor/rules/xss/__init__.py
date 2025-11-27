@@ -6,15 +6,14 @@ Dramatically reduces false positives by understanding framework context.
 
 import sqlite3
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding
+from theauditor.rules.base import StandardFinding, StandardRuleContext
 
-
-from .xss_analyze import find_xss_issues
+from .dom_xss_analyze import find_dom_xss
 from .express_xss_analyze import find_express_xss
 from .react_xss_analyze import find_react_xss
-from .vue_xss_analyze import find_vue_xss
-from .dom_xss_analyze import find_dom_xss
 from .template_xss_analyze import find_template_injection
+from .vue_xss_analyze import find_vue_xss
+from .xss_analyze import find_xss_issues
 
 
 def find_all_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:

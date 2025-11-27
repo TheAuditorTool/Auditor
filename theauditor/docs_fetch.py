@@ -189,7 +189,7 @@ async def _fetch_docs_async(
 
 
 async def _fetch_one_doc(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     dep: dict[str, Any],
     output_path: Path,
     allowlist: list[str],
@@ -264,7 +264,7 @@ def _is_url_allowed(url: str, allowlist: list[str]) -> bool:
 
 
 async def _fetch_npm_docs_async(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     dep: dict[str, Any],
     output_dir: Path,
     allowlist: list[str],
@@ -327,7 +327,7 @@ async def _fetch_npm_docs_async(
 
 
 async def _fetch_pypi_docs_async(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     dep: dict[str, Any],
     output_dir: Path,
     allowlist: list[str],
@@ -409,7 +409,7 @@ async def _fetch_pypi_docs_async(
 
 
 async def _fetch_github_readme_async(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     repository: dict | str,
     homepage: str,
     allowlist: list[str],
@@ -459,7 +459,7 @@ async def _fetch_github_readme_async(
 
 
 async def _try_github_from_project_urls(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     project_urls: dict,
     info: dict,
     allowlist: list[str],
@@ -479,7 +479,7 @@ async def _try_github_from_project_urls(
 
 
 async def _crawl_docs_smart(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     project_urls: dict,
     package_name: str,
     version: str,
@@ -553,7 +553,7 @@ async def _crawl_docs_smart(
 
 
 async def _probe_url(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     url: str,
     allowlist: list[str],
 ) -> bool:
@@ -569,7 +569,7 @@ async def _probe_url(
 
 
 async def _fetch_and_convert_async(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     url: str,
     allowlist: list[str],
 ) -> str | None:

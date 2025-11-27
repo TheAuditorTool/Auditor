@@ -15,17 +15,16 @@ Follows v1.1+ schema contract compliance for database queries:
 """
 
 import sqlite3
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 from theauditor.rules.base import (
-    StandardRuleContext,
-    StandardFinding,
-    Severity,
     Confidence,
     RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
 )
-
 
 METADATA = RuleMetadata(
     name="sourcemap_exposure",

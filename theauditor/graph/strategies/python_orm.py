@@ -12,11 +12,10 @@ from typing import Any
 
 import click
 
-from .base import GraphStrategy
-from ..types import DFGNode, DFGEdge, create_bidirectional_edges
-
-
 from theauditor.taint.orm_utils import PythonOrmContext
+
+from ..types import DFGEdge, DFGNode, create_bidirectional_edges
+from .base import GraphStrategy
 
 
 class PythonOrmStrategy(GraphStrategy):

@@ -5,14 +5,14 @@ including full tracebacks, while presenting clean error messages to users.
 All detailed debugging information is logged to .pf/error.log.
 """
 
-import click
 import traceback
+from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from collections.abc import Callable
+import click
 
-from .constants import PF_DIR, ERROR_LOG_FILE
+from .constants import ERROR_LOG_FILE, PF_DIR
 
 
 def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:

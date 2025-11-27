@@ -1,6 +1,7 @@
 """Metadata collection commands for churn and coverage analysis."""
 
 import click
+
 from theauditor.utils.logger import setup_logger
 
 logger = setup_logger(__name__)

@@ -7,9 +7,9 @@ Maintains Truth Courier principles - reports only facts, no interpretation.
 
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime, UTC
 
 
 class MetadataCollector:
@@ -55,7 +55,7 @@ class MetadataCollector:
             if result.returncode != 0:
                 return {"error": "Not a git repository or git not available", "files": []}
         except subprocess.TimeoutExpired:
-            return {"error": f"Git history analysis timed out after 30 seconds", "files": []}
+            return {"error": "Git history analysis timed out after 30 seconds", "files": []}
         except FileNotFoundError:
             return {"error": "Git command not found", "files": []}
 
@@ -124,8 +124,8 @@ class MetadataCollector:
             "files": files,
         }
 
-        from theauditor.utils.meta_findings import format_churn_finding
         from theauditor.indexer.database import DatabaseManager
+        from theauditor.utils.meta_findings import format_churn_finding
 
         meta_findings = []
         churn_threshold = 50
@@ -290,8 +290,8 @@ class MetadataCollector:
             "files": files,
         }
 
-        from theauditor.utils.meta_findings import format_coverage_finding
         from theauditor.indexer.database import DatabaseManager
+        from theauditor.utils.meta_findings import format_coverage_finding
 
         meta_findings = []
         coverage_threshold = 50.0

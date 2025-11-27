@@ -23,11 +23,12 @@ Usage:
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
+
 from .core_storage import CoreStorage
-from .python_storage import PythonStorage
-from .node_storage import NodeStorage
 from .infrastructure_storage import InfrastructureStorage
+from .node_storage import NodeStorage
+from .python_storage import PythonStorage
 
 
 class DataStorer:
@@ -66,7 +67,7 @@ class DataStorer:
 
     def store(
         self, file_path: str, extracted: dict[str, Any], jsx_pass: bool = False
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Store extracted data via domain-specific handlers.
 
         Args:

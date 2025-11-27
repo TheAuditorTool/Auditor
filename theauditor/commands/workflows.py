@@ -7,11 +7,12 @@ vulnerabilities, and reporting on workflow misconfigurations.
 import json
 import sqlite3
 from pathlib import Path
+
 import click
 
-from ..utils.logger import setup_logger
-from ..utils.error_handler import handle_exceptions
 from .. import __version__
+from ..utils.error_handler import handle_exceptions
+from ..utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -162,7 +163,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
 
         click.echo(f"[OK] Workflows analysis saved to {output_path}")
 
-        click.echo(f"\nGitHub Actions Workflow Analysis:")
+        click.echo("\nGitHub Actions Workflow Analysis:")
         click.echo(f"  Workflows: {analysis['summary']['total_workflows']}")
         click.echo(f"  Jobs: {analysis['summary']['total_jobs']}")
         click.echo(f"  Steps: {analysis['summary']['total_steps']}")
@@ -173,7 +174,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
                 if count > 0:
                     click.echo(f"    {sev.title()}: {count}")
 
-        click.echo(f"\nOutput:")
+        click.echo("\nOutput:")
         click.echo(f"  Full report: {output_path}")
 
         critical_workflows = [

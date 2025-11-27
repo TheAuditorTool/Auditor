@@ -212,7 +212,7 @@ def context(context_file: str, output: str | None, verbose: bool):
     click.echo(f"  Version: {context.version}")
     click.echo(f"  Description: {context.description}")
 
-    click.echo(f"\n📊 Loading findings from database...")
+    click.echo("\n📊 Loading findings from database...")
 
     try:
         conn = sqlite3.connect(db_path)
@@ -272,15 +272,15 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     click.echo(f"✓ Loaded {len(findings)} findings from database")
 
-    click.echo(f"\n🔍 Applying semantic patterns:")
+    click.echo("\n🔍 Applying semantic patterns:")
     click.echo(f"  Obsolete patterns:     {len(context.obsolete_patterns)}")
     click.echo(f"  Current patterns:      {len(context.current_patterns)}")
     click.echo(f"  Transitional patterns: {len(context.transitional_patterns)}")
 
-    click.echo(f"\n⚙️  Classifying findings...")
+    click.echo("\n⚙️  Classifying findings...")
     result = context.classify_findings(findings)
 
-    click.echo(f"✓ Classification complete")
+    click.echo("✓ Classification complete")
     click.echo(f"  Classified: {result.summary['classified']}")
     click.echo(f"  Unclassified: {result.summary['unclassified']}")
 
@@ -299,7 +299,7 @@ def context(context_file: str, output: str | None, verbose: bool):
     context.export_to_json(result, output_file)
     click.echo(f"\n✓ Raw results: {output_file}")
 
-    click.echo(f"\n🔧 Auto-extracting chunks for AI consumption...")
+    click.echo("\n🔧 Auto-extracting chunks for AI consumption...")
 
     readthis_dir = pf_dir / "readthis"
     readthis_dir.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ def context(context_file: str, output: str | None, verbose: bool):
     if chunks_created > 0:
         click.echo(f"✓ Created {chunks_created} chunk file(s) in .pf/readthis/")
     else:
-        click.echo(f"✓ Results fit in single file (no chunking needed)")
+        click.echo("✓ Results fit in single file (no chunking needed)")
 
     if output:
         context.export_to_json(result, Path(output))
@@ -329,13 +329,13 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     migration_progress = result.get_migration_progress()
     if migration_progress["files_need_migration"] > 0:
-        click.echo(f"\n📋 Next steps:")
+        click.echo("\n📋 Next steps:")
         click.echo(f"  1. Address {len(result.get_high_priority_files())} high-priority files")
         click.echo(f"  2. Update {len(result.mixed_files)} mixed files")
         click.echo(f"  3. Migrate {migration_progress['files_need_migration']} files total")
-        click.echo(f"\n  Run with --verbose for detailed file list")
+        click.echo("\n  Run with --verbose for detailed file list")
     else:
-        click.echo(f"\n🎉 All files migrated! No obsolete patterns found.")
+        click.echo("\n🎉 All files migrated! No obsolete patterns found.")
 
 
 def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: str) -> int:
@@ -350,7 +350,7 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
         Number of chunks created (0 if no chunking needed)
     """
 
-    with open(json_file, "r", encoding="utf-8") as f:
+    with open(json_file, encoding="utf-8") as f:
         data = json.load(f)
 
     json_str = json.dumps(data, indent=2)
