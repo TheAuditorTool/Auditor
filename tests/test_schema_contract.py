@@ -11,8 +11,6 @@ Created as part of: python-extractor-consolidation-fidelity
 Purpose: Prevent the 22MB data loss bug from recurring
 """
 
-import pytest
-
 from theauditor.indexer.schema import TABLES
 from theauditor.indexer.schemas.python_schema import PYTHON_TABLES
 

@@ -1,6 +1,5 @@
 """Integration tests for explain command."""
 
-import pytest
 from click.testing import CliRunner
 
 from theauditor.commands.explain import detect_target_type, explain
