@@ -8,7 +8,6 @@ Test fixture demonstrating:
 - @periodic_task decorator (deprecated)
 """
 
-from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab, schedule

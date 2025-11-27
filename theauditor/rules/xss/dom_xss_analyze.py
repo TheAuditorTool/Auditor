@@ -465,10 +465,10 @@ def _check_dom_clobbering(conn) -> list[StandardFinding]:
         if result:
             source_expr = result[0]
 
-            has_getElementByID = "getElementById" in source_expr
+            has_get_element_by_id = "getElementById" in source_expr
             has_null_check = "?" in source_expr or "&&" in source_expr
 
-            if has_getElementByID and not has_null_check:
+            if has_get_element_by_id and not has_null_check:
                 findings.append(
                     StandardFinding(
                         rule_name="dom-clobbering-no-null-check",
@@ -499,10 +499,10 @@ def _check_client_side_templates(conn) -> list[StandardFinding]:
     """)
 
     for file, line, target, source in cursor.fetchall():
-        is_innerHTML = ".innerHTML" in target
+        is_inner_html = ".innerHTML" in target
         has_template_literal = "`" in source and "${" in source
 
-        if not (is_innerHTML and has_template_literal):
+        if not (is_inner_html and has_template_literal):
             continue
 
         has_dom_source = any(s in source for s in DOM_XSS_SOURCES)
@@ -670,10 +670,10 @@ def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
     """)
 
     for file, line, target, source in cursor.fetchall():
-        is_innerHTML = ".innerHTML" in target
-        has_DOMPurify = "DOMPurify.sanitize" in source
+        is_inner_html = ".innerHTML" in target
+        has_dom_purify = "DOMPurify.sanitize" in source
 
-        if not (is_innerHTML and has_DOMPurify):
+        if not (is_inner_html and has_dom_purify):
             continue
 
         for config in dangerous_configs:

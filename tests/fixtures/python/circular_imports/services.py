@@ -9,7 +9,6 @@ Tests extraction when:
 Validates that import resolution handles circular imports without crashing.
 """
 
-from typing import List, Optional
 
 # DIRECT import from models - creates circular dependency
 from models import Comment, Post, User

@@ -7,7 +7,7 @@ Tests: imports JOIN import_style_names
 # Should create 5 rows in import_style_names
 # Single import with 3 names
 # Should create 3 rows in import_style_names
-from auth import admin_required, check_permissions, login_required
+from auth import admin_required, check_permissions
 
 # Aliased imports with 2 names
 # Should create 2 rows in import_style_names
@@ -17,7 +17,7 @@ from flask import Blueprint, g, jsonify, request, session
 
 # Single import with 4 names
 # Should create 4 rows in import_style_names
-from models import Order, Payment, Product, User
+from models import Order, Payment, User
 
 # Star import (anti-pattern)
 # Should create 1 row with '*' as imported name

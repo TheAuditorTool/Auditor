@@ -23,7 +23,7 @@ class VulnerableStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # VULN 1: Public S3 bucket (CRITICAL - public_read_access)
-        public_bucket = s3.Bucket(
+        s3.Bucket(
             self,
             "PublicBucket",
             public_read_access=True,
@@ -31,7 +31,7 @@ class VulnerableStack(Stack):
         )
 
         # VULN 2: S3 bucket missing block_public_access (HIGH)
-        unprotected_bucket = s3.Bucket(
+        s3.Bucket(
             self,
             "UnprotectedBucket",
             versioned=True
@@ -39,7 +39,7 @@ class VulnerableStack(Stack):
         )
 
         # VULN 3: Unencrypted RDS instance (HIGH)
-        unencrypted_db = rds.DatabaseInstance(
+        rds.DatabaseInstance(
             self,
             "UnencryptedDB",
             engine=rds.DatabaseInstanceEngine.POSTGRES,
@@ -52,7 +52,7 @@ class VulnerableStack(Stack):
         )
 
         # VULN 4: Unencrypted EBS volume (HIGH)
-        unencrypted_volume = ec2.Volume(
+        ec2.Volume(
             self,
             "UnencryptedVolume",
             availability_zone="us-east-1a",
@@ -61,7 +61,7 @@ class VulnerableStack(Stack):
         )
 
         # VULN 5: DynamoDB with default encryption (MEDIUM)
-        unprotected_table = dynamodb.Table(
+        dynamodb.Table(
             self,
             "UnprotectedTable",
             partition_key=dynamodb.Attribute(
@@ -72,19 +72,19 @@ class VulnerableStack(Stack):
         )
 
         # VULN 6: IAM policy with wildcard actions (HIGH)
-        wildcard_policy = iam.PolicyStatement(
+        iam.PolicyStatement(
             actions=["*"],  # Wildcard action
             resources=["arn:aws:s3:::my-bucket/*"]
         )
 
         # VULN 7: IAM policy with wildcard resources (HIGH)
-        wildcard_resource_policy = iam.PolicyStatement(
+        iam.PolicyStatement(
             actions=["s3:GetObject", "s3:PutObject"],
             resources=["*"]  # Wildcard resource
         )
 
         # VULN 8: IAM role with AdministratorAccess (CRITICAL)
-        admin_role = iam.Role(
+        iam.Role(
             self,
             "AdminRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),

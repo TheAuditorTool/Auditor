@@ -29,14 +29,14 @@ for pyfile in files:
         print(f'+ {pyfile}')
 
 print(f'\n{"="*60}')
-print(f'PYUPGRADE SUMMARY')
+print('PYUPGRADE SUMMARY')
 print(f'{"="*60}')
 print(f'Files processed: {len(files)}')
 print(f'Files modified: {len(modified_files)}')
 print(f'Errors: {len(errors)}')
 
 if errors:
-    print(f'\nErrors encountered:')
+    print('\nErrors encountered:')
     for err in errors[:10]:  # Show first 10 errors
         print(f'  {err}')
     sys.exit(1)

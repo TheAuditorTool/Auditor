@@ -3,7 +3,6 @@
 
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional
 
 from ..models.accounts import Organization, Profile, User
 from ..models.audit import AuditLog

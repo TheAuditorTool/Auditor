@@ -12,7 +12,7 @@ Tests extraction of:
 This fixture validates that Django ORM extraction has parity with SQLAlchemy extraction.
 """
 
-from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 

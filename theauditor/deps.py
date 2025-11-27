@@ -18,6 +18,7 @@ from theauditor.security import (
     sanitize_url_component,
     validate_package_name,
 )
+from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -28,9 +29,6 @@ def _canonicalize_name(name: str) -> str:
     Converts 'PyYAML' -> 'pyyaml', 'My-Package.Cool' -> 'my-package-cool'
     """
     return re.sub(r"[-_.]+", "-", name).lower()
-
-
-from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
 
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:

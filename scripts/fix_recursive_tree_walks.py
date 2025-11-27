@@ -27,7 +27,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Set
 
 import libcst as cst
 from libcst import matchers as m
@@ -53,7 +52,7 @@ class FixStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nFixes applied:")
+        print("\nFixes applied:")
         print(f"  Helper functions fixed: {self.helper_functions_fixed}")
         print(f"  context.walk_tree() replaced: {self.context_walk_tree_replaced}")
         print(f"  Recursive patterns converted: {self.recursive_patterns_converted}")
@@ -86,7 +85,7 @@ class RecursiveTreeWalkFixer(cst.CSTTransformer):
         self.current_helper_name = None
 
         # Track functions seen for recursion detection
-        self.helper_functions_in_extractor: Set[str] = set()
+        self.helper_functions_in_extractor: set[str] = set()
 
         # Track if we need to add imports
         self.needs_ast_import = False

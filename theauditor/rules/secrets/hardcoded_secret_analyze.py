@@ -34,6 +34,17 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
+# Unsafe sinks where secrets should never be logged/exposed
+UNSAFE_SINKS = frozenset([
+    "console.log",
+    "print",
+    "logger.info",
+    "logger.debug",
+    "response.write",
+    "res.send",
+    "res.json",
+])
+
 METADATA = RuleMetadata(
     name="hardcoded_secrets",
     category="secrets",
@@ -844,18 +855,6 @@ def register_taint_patterns(taint_registry):
 
     for keyword in SECRET_KEYWORDS:
         taint_registry.register_source(keyword, "secret", "all")
-
-    UNSAFE_SINKS = frozenset(
-        [
-            "console.log",
-            "print",
-            "logger.info",
-            "logger.debug",
-            "response.write",
-            "res.send",
-            "res.json",
-        ]
-    )
 
     for sink in UNSAFE_SINKS:
         taint_registry.register_sink(sink, "logging", "all")

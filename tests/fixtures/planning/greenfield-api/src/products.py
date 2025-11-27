@@ -12,7 +12,7 @@ This fixture demonstrates:
 import os
 import sqlite3
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, jsonify, request
 from middleware.auth import rate_limit, require_auth, require_permission, require_role
 from models import Product, db
 

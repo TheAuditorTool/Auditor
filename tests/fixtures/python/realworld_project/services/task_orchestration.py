@@ -11,7 +11,6 @@ Test fixture demonstrating:
 """
 
 from celery import chain, chord, group
-from celery_app import app
 from tasks.celery_tasks import (
     cleanup_old_data,
     generate_report,
@@ -39,7 +38,6 @@ def schedule_payment_processing(user_id, amount, currency):
 # 3. .apply_async() with eta (exact time execution)
 def schedule_report_at_time(report_id, eta_datetime):
     """Schedule report generation at exact time."""
-    from datetime import datetime
     generate_report.apply_async(
         args=(report_id,),
         eta=eta_datetime  # Execute at specific datetime

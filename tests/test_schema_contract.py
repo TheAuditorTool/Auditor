@@ -110,7 +110,7 @@ class TestSchemaContract:
                 violations.append(f"{table_name}: {forbidden_found}")
 
         assert not violations, (
-            f"JSON blob columns still exist (should use junction tables):\n"
+            "JSON blob columns still exist (should use junction tables):\n"
             + "\n".join(violations)
         )
 
@@ -133,7 +133,7 @@ class TestSchemaContract:
             # Just verify kind_col exists
 
         assert not violations, (
-            f"Two-discriminator pattern violations:\n"
+            "Two-discriminator pattern violations:\n"
             + "\n".join(violations)
         )
 
@@ -188,7 +188,7 @@ class TestSchemaContract:
                 violations.append(f"{table_name}: missing 'line' column")
 
         assert not violations, (
-            f"Tables missing required columns:\n"
+            "Tables missing required columns:\n"
             + "\n".join(violations)
         )
 
@@ -211,7 +211,7 @@ class TestSchemaContract:
                     break
 
         assert not violations, (
-            f"Discriminator columns should be NOT NULL:\n"
+            "Discriminator columns should be NOT NULL:\n"
             + "\n".join(violations)
         )
 

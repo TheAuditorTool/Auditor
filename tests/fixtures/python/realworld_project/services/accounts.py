@@ -2,7 +2,6 @@
 
 
 from collections.abc import Iterable
-from typing import List
 
 from ..config.settings import DEFAULT_EMAIL_SETTINGS
 from ..models.accounts import Profile, User

@@ -52,6 +52,39 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 
+# Methods that mutate their receiver (for argument mutation detection)
+MUTATION_METHODS = frozenset({
+    "append",
+    "extend",
+    "insert",
+    "remove",
+    "pop",
+    "clear",
+    "update",
+    "add",
+    "discard",
+    "sort",
+    "reverse",
+    "setdefault",
+    "popitem",
+})
+
+# Augmented assignment operator mapping
+OP_MAP = {
+    ast.Add: "+=",
+    ast.Sub: "-=",
+    ast.Mult: "*=",
+    ast.Div: "/=",
+    ast.FloorDiv: "//=",
+    ast.Mod: "%=",
+    ast.Pow: "**=",
+    ast.LShift: "<<=",
+    ast.RShift: ">>=",
+    ast.BitOr: "|=",
+    ast.BitXor: "^=",
+    ast.BitAnd: "&=",
+}
+
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
@@ -470,22 +503,6 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
                 return fname
         return "global"
 
-    MUTATION_METHODS = {
-        "append",
-        "extend",
-        "insert",
-        "remove",
-        "pop",
-        "clear",
-        "update",
-        "add",
-        "discard",
-        "sort",
-        "reverse",
-        "setdefault",
-        "popitem",
-    }
-
     for node in context.walk_tree():
         in_function = find_containing_function(node.lineno) if hasattr(node, "lineno") else "global"
 
@@ -636,21 +653,6 @@ def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
             if start <= line_no <= end:
                 return fname
         return "global"
-
-    OP_MAP = {
-        ast.Add: "+=",
-        ast.Sub: "-=",
-        ast.Mult: "*=",
-        ast.Div: "/=",
-        ast.FloorDiv: "//=",
-        ast.Mod: "%=",
-        ast.Pow: "**=",
-        ast.LShift: "<<=",
-        ast.RShift: ">>=",
-        ast.BitOr: "|=",
-        ast.BitXor: "^=",
-        ast.BitAnd: "&=",
-    }
 
     for node in context.find_nodes(ast.AugAssign):
         in_function = find_containing_function(node.lineno)

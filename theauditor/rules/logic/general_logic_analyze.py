@@ -176,6 +176,61 @@ LOCK_FUNCTIONS = frozenset(
 LOCK_RELEASE = frozenset(["unlock", "release", "free", "signal"])
 
 
+# Taint analysis pattern constants - datetime sources
+DATETIME_SOURCES = frozenset([
+    "datetime.now",
+    "datetime.today",
+    "datetime.utcnow",
+    "Date.now",
+    "new Date",
+    "Date.parse",
+    "time.time",
+    "time.localtime",
+    "time.gmtime",
+])
+
+
+# Taint analysis pattern constants - resource sinks
+RESOURCE_SINKS = frozenset([
+    "open",
+    "createReadStream",
+    "createWriteStream",
+    "socket",
+    "createSocket",
+    "connect",
+    "createConnection",
+    "begin_transaction",
+    "start_transaction",
+    "beginTransaction",
+    "acquire",
+    "lock",
+    "getLock",
+])
+
+
+# Taint analysis pattern constants - money/financial sinks
+MONEY_SINKS = frozenset([
+    "parseFloat",
+    "float",
+    "toFixed",
+    "toPrecision",
+    "price",
+    "cost",
+    "amount",
+    "total",
+    "balance",
+    "payment",
+    "fee",
+    "money",
+    "charge",
+    "refund",
+])
+
+
+# Taint analysis pattern constants - division sinks
+DIVISION_SINKS = frozenset(["divide", "div", "quotient", "average", "mean"])
+
+
 def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect common logic and resource management issues using indexed data.
 
@@ -743,62 +798,14 @@ def register_taint_patterns(taint_registry):
     Args:
         taint_registry: TaintRegistry instance
     """
-
-    DATETIME_SOURCES = [
-        "datetime.now",
-        "datetime.today",
-        "datetime.utcnow",
-        "Date.now",
-        "new Date",
-        "Date.parse",
-        "time.time",
-        "time.localtime",
-        "time.gmtime",
-    ]
-
     for pattern in DATETIME_SOURCES:
         taint_registry.register_source(pattern, "datetime", "any")
-
-    RESOURCE_SINKS = [
-        "open",
-        "createReadStream",
-        "createWriteStream",
-        "socket",
-        "createSocket",
-        "connect",
-        "createConnection",
-        "begin_transaction",
-        "start_transaction",
-        "beginTransaction",
-        "acquire",
-        "lock",
-        "getLock",
-    ]
 
     for pattern in RESOURCE_SINKS:
         taint_registry.register_sink(pattern, "resource", "any")
 
-    MONEY_SINKS = [
-        "parseFloat",
-        "float",
-        "toFixed",
-        "toPrecision",
-        "price",
-        "cost",
-        "amount",
-        "total",
-        "balance",
-        "payment",
-        "fee",
-        "money",
-        "charge",
-        "refund",
-    ]
-
     for pattern in MONEY_SINKS:
         taint_registry.register_sink(pattern, "financial", "any")
-
-    DIVISION_SINKS = ["divide", "div", "quotient", "average", "mean"]
 
     for pattern in DIVISION_SINKS:
         taint_registry.register_sink(pattern, "division", "any")

@@ -1,6 +1,5 @@
 """Fixture module for verifying Python type hint extraction."""
 
-from typing import Dict, List, Optional, Tuple, Union
 
 
 def add(x: int, y: int) -> int:
@@ -21,10 +20,7 @@ def find_user(user_id: int | None) -> str | None:
 
 
 def parse_payload(payload: str | bytes) -> tuple[str, int]:
-    if isinstance(payload, bytes):
-        decoded = payload.decode("utf-8")
-    else:
-        decoded = payload
+    decoded = payload.decode("utf-8") if isinstance(payload, bytes) else payload
     return decoded, len(decoded)
 
 

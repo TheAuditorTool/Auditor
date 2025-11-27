@@ -466,7 +466,7 @@ def with_transaction(func: Callable) -> Callable:
             result = func(*args, **kwargs)
             print("COMMIT")
             return result
-        except Exception as e:
+        except Exception:
             print("ROLLBACK")
             raise
     return wrapper

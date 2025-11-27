@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from celery import Celery, Task
+from celery import Celery
 from celery.schedules import crontab
 
 app = Celery('tasks', broker='redis://localhost:6379/0')

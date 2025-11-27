@@ -22,7 +22,23 @@ from theauditor.refactor import (
     RefactorRuleEngine,
 )
 
+# Severity ordering for sorting violations (lower number = higher priority)
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+# Migration file regex patterns for detecting schema changes
+DROP_TABLE = re.compile(r'(?:dropTable|DROP\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
+REMOVE_COLUMN = re.compile(
+    r'(?:removeColumn|dropColumn|DROP\s+COLUMN)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
+    re.IGNORECASE,
+)
+RENAME_TABLE = re.compile(
+    r'(?:renameTable|RENAME\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
+    re.IGNORECASE,
+)
+RENAME_COLUMN = re.compile(
+    r'(?:renameColumn)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
+    re.IGNORECASE,
+)
 
 
 @click.command()
@@ -425,20 +441,6 @@ def _analyze_migrations(
     removed_tables = set()
     removed_columns = []
     renamed_items = []
-
-    DROP_TABLE = re.compile(r'(?:dropTable|DROP\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
-    REMOVE_COLUMN = re.compile(
-        r'(?:removeColumn|dropColumn|DROP\s+COLUMN)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
-        re.IGNORECASE,
-    )
-    RENAME_TABLE = re.compile(
-        r'(?:renameTable|RENAME\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
-        re.IGNORECASE,
-    )
-    RENAME_COLUMN = re.compile(
-        r'(?:renameColumn)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]',
-        re.IGNORECASE,
-    )
 
     for mig_file in migrations:
         try:

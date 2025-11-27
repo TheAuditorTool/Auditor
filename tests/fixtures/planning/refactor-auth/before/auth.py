@@ -11,7 +11,6 @@ import os
 import sqlite3
 
 from auth0 import Auth0Client
-from exceptions import ExpiredTokenError, InvalidTokenError
 from validators import extract_permissions, extract_user_id, validate_auth0_token
 
 

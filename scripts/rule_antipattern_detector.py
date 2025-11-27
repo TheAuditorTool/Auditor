@@ -14,7 +14,6 @@ import ast
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 
 @dataclass
@@ -32,7 +31,7 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
     def __init__(self, filepath: str):
         self.filepath = filepath
-        self.issues: List[AntiPattern] = []
+        self.issues: list[AntiPattern] = []
         self.in_loop = False
         self.loop_iterates_fetchall = False
 
@@ -146,7 +145,7 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def analyze_rule_file(filepath: Path) -> List[AntiPattern]:
+def analyze_rule_file(filepath: Path) -> list[AntiPattern]:
     """Analyze a single rule file for anti-patterns."""
     try:
         content = filepath.read_text(encoding='utf-8')

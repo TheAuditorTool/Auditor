@@ -10,7 +10,6 @@ Tests extraction when:
 Validates that import resolution handles complex circular dependency graphs.
 """
 
-from typing import List, Optional
 
 # Import from both modules that have circular dependency with each other
 from models import Comment, Post, User
@@ -40,7 +39,7 @@ class UserController:
         user = User(user_id=0, username=username, email=email)
 
         # Get service for the user (circular: User → UserService)
-        service = user.get_service()
+        user.get_service()
 
         return user
 
@@ -104,7 +103,7 @@ class PostController:
         )
 
         # Get author user (circular: Post → User via author)
-        author = post.get_author()
+        post.get_author()
 
         return post
 
@@ -130,7 +129,7 @@ class PostController:
         if post:
             # Delete comments first
             comment_service = CommentService(post_id)
-            comments = comment_service.get_comments()
+            comment_service.get_comments()
 
             # Would delete each comment
 

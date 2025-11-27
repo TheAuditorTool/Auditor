@@ -96,6 +96,7 @@ class DockerfilePatterns:
     )
 
 
+# Compiled regex patterns for detecting secret formats (GitHub PAT, Slack, AWS)
 SECRET_VALUE_PATTERNS = [
     re.compile(r"^ghp_[A-Za-z0-9]{36}$"),
     re.compile(r"^ghs_[A-Za-z0-9]{36}$"),
@@ -103,6 +104,22 @@ SECRET_VALUE_PATTERNS = [
     re.compile(r"^xox[baprs]-[A-Za-z0-9-]+$"),
     re.compile(r"^AKIA[A-Z0-9]{16}$"),
 ]
+
+
+# Sensitive port numbers that should not be exposed in production
+SENSITIVE_PORT_NUMS = frozenset([
+    "22",     # SSH
+    "23",     # Telnet
+    "135",    # Windows RPC
+    "139",    # NetBIOS
+    "445",    # SMB
+    "3389",   # RDP
+    "3306",   # MySQL
+    "5432",   # PostgreSQL
+    "6379",   # Redis
+    "27017",  # MongoDB
+    "9200",   # Elasticsearch
+])
 
 
 def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
@@ -479,22 +496,6 @@ def _check_sensitive_ports(cursor) -> list[StandardFinding]:
     Checks docker_images.exposed_ports field against known sensitive ports.
     """
     findings = []
-
-    SENSITIVE_PORT_NUMS = frozenset(
-        [
-            "22",
-            "23",
-            "135",
-            "139",
-            "445",
-            "3389",
-            "3306",
-            "5432",
-            "6379",
-            "27017",
-            "9200",
-        ]
-    )
 
     from theauditor.indexer.schema import build_query
 

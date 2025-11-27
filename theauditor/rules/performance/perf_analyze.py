@@ -220,6 +220,28 @@ PROPERTY_CHAIN_PATTERNS = frozenset(
     ]
 )
 
+# String variable patterns for detecting string concatenation in loops
+STRING_VAR_PATTERNS = frozenset(["str", "text", "result", "output", "html", "message"])
+
+# Pagination keywords for detecting bounded queries
+PAGINATION_KEYWORDS = frozenset(["limit", "take", "first", "pagesize", "max"])
+
+# Large file extensions for read operations
+LARGE_FILE_EXTENSIONS = frozenset([".log", ".csv", ".json", ".xml", ".sql", ".txt"])
+
+# Performance taint sources (user input that flows into performance-sensitive operations)
+PERF_SOURCES = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "process.argv",
+        "process.env",
+        "fs.readFile",
+        "fs.readdir",
+    ]
+)
+
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect performance anti-patterns and inefficiencies.
@@ -451,15 +473,13 @@ def _find_inefficient_string_concat(cursor) -> list[StandardFinding]:
         )
         cursor.execute(query, (file, loop_start, loop_end))
 
-        string_var_patterns = frozenset(["str", "text", "result", "output", "html", "message"])
-
         for line, var_name, expr in cursor.fetchall():
             if not expr or not any(op in expr for op in ["+=", "+", "concat"]):
                 continue
 
             var_lower = var_name.lower()
 
-            is_string_var = any(pattern in var_lower for pattern in string_var_patterns)
+            is_string_var = any(pattern in var_lower for pattern in STRING_VAR_PATTERNS)
             has_string_literal = any(quote in expr for quote in ['"', "'", "`"])
 
             if not (is_string_var or has_string_literal):
@@ -550,15 +570,13 @@ def _find_unbounded_operations(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query)
 
-    pagination_keywords = frozenset(["limit", "take", "first", "pagesize", "max"])
-
     for file, line, operation, args in cursor.fetchall():
         if operation in ["findOne", "findUnique", "first", "get"]:
             continue
 
         if args:
             args_lower = args.lower()
-            if any(keyword in args_lower for keyword in pagination_keywords):
+            if any(keyword in args_lower for keyword in PAGINATION_KEYWORDS):
                 continue
 
         findings.append(
@@ -581,13 +599,11 @@ def _find_unbounded_operations(cursor) -> list[StandardFinding]:
     )
     cursor.execute(query)
 
-    large_file_extensions = frozenset([".log", ".csv", ".json", ".xml", ".sql", ".txt"])
-
     for file, line, _operation, file_arg in cursor.fetchall():
         if not file_arg:
             continue
         file_arg_lower = file_arg.lower()
-        if not any(ext in file_arg_lower for ext in large_file_extensions):
+        if not any(ext in file_arg_lower for ext in LARGE_FILE_EXTENSIONS):
             continue
         findings.append(
             StandardFinding(
@@ -879,18 +895,6 @@ def register_taint_patterns(taint_registry):
 
     for pattern in EXPENSIVE_OPS:
         taint_registry.register_sink(pattern, "expensive_op", "all")
-
-    PERF_SOURCES = frozenset(
-        [
-            "req.body",
-            "req.query",
-            "req.params",
-            "process.argv",
-            "process.env",
-            "fs.readFile",
-            "fs.readdir",
-        ]
-    )
 
     for pattern in PERF_SOURCES:
         taint_registry.register_source(pattern, "user_input", "all")

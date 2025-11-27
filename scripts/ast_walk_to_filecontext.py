@@ -32,7 +32,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import libcst as cst
 from libcst import matchers as m
@@ -60,7 +59,7 @@ class TransformationStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nTransformations applied:")
+        print("\nTransformations applied:")
         print(f"  Function signatures updated: {self.signatures_changed}")
         print(f"  ast.walk() -> context.find_nodes(): {self.ast_walks_replaced}")
         print(f"  tree.get('tree') removed: {self.tree_gets_replaced}")
@@ -277,7 +276,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
 
             return updated_node.with_changes(iter=new_iter)
 
-    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> Optional[cst.BaseExpression]:
+    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> cst.BaseExpression | None:
         """Extract the node type from isinstance check at start of loop body."""
         if not body.body:
             return None

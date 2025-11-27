@@ -1,15 +1,12 @@
 """Graph builder module - constructs dependency and call graphs."""
 
 import os
-import platform
 import sqlite3
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-
-IS_WINDOWS = platform.system() == "Windows"
 
 import click
 

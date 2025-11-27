@@ -13,6 +13,9 @@ import click
 
 from theauditor.utils.error_handler import handle_exceptions
 
+# Valid database tables for query safety (prevents SQL injection via table names)
+VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
+
 
 @click.command()
 @click.option("--structure", is_flag=True, help="Drill down into codebase structure details")
@@ -687,7 +690,6 @@ def _get_performance(cursor, db_path: Path) -> dict:
     if db_path.exists():
         metrics["db_size_mb"] = round(db_path.stat().st_size / (1024 * 1024), 2)
 
-    VALID_TABLES = {"symbols", "function_call_args", "assignments", "api_endpoints"}
     tables = ["symbols", "function_call_args", "assignments", "api_endpoints"]
     total = 0
     for table in tables:

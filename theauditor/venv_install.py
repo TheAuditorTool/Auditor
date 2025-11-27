@@ -20,6 +20,10 @@ from theauditor.utils.temp_manager import TempManager
 
 IS_WINDOWS = platform.system() == "Windows"
 
+# TheAuditor agent trigger block markers for CLAUDE.md injection
+TRIGGER_START = "<!-- THEAUDITOR:START -->"
+TRIGGER_END = "<!-- THEAUDITOR:END -->"
+
 
 NODE_VERSION = "v20.11.1"
 NODE_BASE_URL = "https://nodejs.org/dist"
@@ -157,10 +161,7 @@ def _inject_agents_md(target_dir: Path) -> None:
     Creates files if they don't exist, or injects trigger block if not already present.
     This tells AI assistants where to find specialized agent workflows.
     """
-    TRIGGER_START = "<!-- THEAUDITOR:START -->"
-    TRIGGER_END = "<!-- THEAUDITOR:END -->"
-
-    TRIGGER_BLOCK = f"""{TRIGGER_START}
+    trigger_block = f"""{TRIGGER_START}
 # TheAuditor Agent System
 
 For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
@@ -190,14 +191,14 @@ For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
         target_file = target_dir / filename
 
         if not target_file.exists():
-            target_file.write_text(TRIGGER_BLOCK + "\n", encoding="utf-8")
+            target_file.write_text(trigger_block + "\n", encoding="utf-8")
             print(f"    {check_mark} Created {filename} with agent triggers")
         else:
             content = target_file.read_text(encoding="utf-8")
             if TRIGGER_START in content:
                 print(f"    {check_mark} {filename} already has agent triggers")
             else:
-                new_content = TRIGGER_BLOCK + "\n" + content
+                new_content = trigger_block + "\n" + content
                 target_file.write_text(new_content, encoding="utf-8")
                 print(f"    {check_mark} Injected agent triggers into {filename}")
 

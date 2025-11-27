@@ -155,7 +155,7 @@ class TestNoJsonBlobColumns:
                 violations.append(f"{table_name}: {forbidden_found}")
 
         assert not violations, (
-            f"JSON blob columns found in Node tables (should use junction tables):\n"
+            "JSON blob columns found in Node tables (should use junction tables):\n"
             + "\n".join(violations)
         )
 
@@ -263,7 +263,7 @@ class TestJunctionTableStructures:
                 violations.append(f"{table_name}: first column is '{columns[0] if columns else 'EMPTY'}', expected 'file'")
 
         assert not violations, (
-            f"Junction tables missing 'file' as first column:\n"
+            "Junction tables missing 'file' as first column:\n"
             + "\n".join(violations)
         )
 
@@ -379,7 +379,7 @@ class TestSchemaContractIntegrity:
                 violations.append(f"{table_name}: no indexes defined")
 
         assert not violations, (
-            f"Junction tables missing indexes:\n"
+            "Junction tables missing indexes:\n"
             + "\n".join(violations)
         )
 
@@ -395,6 +395,6 @@ class TestSchemaContractIntegrity:
                 violations.append(f"{table_name}: no index on 'file' column")
 
         assert not violations, (
-            f"Junction tables missing file index:\n"
+            "Junction tables missing file index:\n"
             + "\n".join(violations)
         )

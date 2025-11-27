@@ -428,6 +428,12 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
+# Taint analysis patterns for Next.js framework
+DANGEROUS_SINKS = frozenset(
+    ["dangerouslySetInnerHTML", "eval", "Function", "setTimeout", "setInterval"]
+)
+
+
 def register_taint_patterns(taint_registry):
     """Register Next.js-specific taint patterns.
 
@@ -443,10 +449,6 @@ def register_taint_patterns(taint_registry):
 
     for pattern in USER_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")
-
-    DANGEROUS_SINKS = frozenset(
-        ["dangerouslySetInnerHTML", "eval", "Function", "setTimeout", "setInterval"]
-    )
 
     for pattern in DANGEROUS_SINKS:
         taint_registry.register_sink(pattern, "code_execution", "javascript")

@@ -8,7 +8,6 @@ This fixture demonstrates:
 - Methods as potential taint sinks
 """
 
-from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.ext.hybrid import hybrid_property

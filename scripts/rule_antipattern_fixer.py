@@ -21,7 +21,6 @@ WARNING: Review diff carefully before applying. Some fixes may need manual adjus
 """
 
 import re
-from typing import Union
 
 import libcst as cst
 from libcst.codemod import CodemodContext, SkipFile, VisitorBasedCodemodCommand
@@ -149,7 +148,7 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
         self,
         original_node: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
-    ) -> Union[cst.SimpleStatementLine, cst.RemovalSentinel]:
+    ) -> cst.SimpleStatementLine | cst.RemovalSentinel:
         """Remove checked_count = 0 initializations before loops."""
         if len(updated_node.body) == 1:
             stmt = updated_node.body[0]

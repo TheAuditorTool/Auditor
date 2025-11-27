@@ -6,7 +6,6 @@ queryset overrides, http_method_names restrictions, and template associations.
 """
 
 from django.contrib.auth.decorators import login_required, permission_required
-from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
 from django.utils.decorators import method_decorator
 from django.views.generic import (
@@ -22,7 +21,6 @@ from django.views.generic import (
 
 from ..forms.article_forms import ArticleForm, ArticleSearchForm
 from ..models.article import Article
-from ..models.user import User
 
 
 # 1. Basic ListView - no auth, no custom queryset

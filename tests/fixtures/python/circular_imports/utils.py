@@ -10,7 +10,7 @@ Tests extraction when:
 Validates deep circular import resolution.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 # Import from controllers (which imports from models and services)
 from controllers import CommentController, PostController, UserController
@@ -62,7 +62,7 @@ def get_post_with_comments(post_id: int) -> dict[str, Any]:
     Tests: Deep traversal through circular imports.
     """
     post_controller = PostController()
-    comment_controller = CommentController()
+    CommentController()
 
     post = post_controller.get_post(post_id)
     if not post:
@@ -84,8 +84,8 @@ def search_users_and_posts(query: str) -> dict[str, list[Any]]:
     Search across users and posts.
     Tests: Multiple circular import paths in one function.
     """
-    user_controller = UserController()
-    post_controller = PostController()
+    UserController()
+    PostController()
 
     # Would search in real code
     # This function demonstrates multiple circular import dependencies
