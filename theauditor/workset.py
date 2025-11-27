@@ -103,7 +103,7 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
         try:
             with open(stderr_path, encoding="utf-8") as f:
                 error_msg = f.read()
-        except:
+        except Exception:
             error_msg = "git not available"
         finally:
             if "stdout_path" in locals() and os.path.exists(stdout_path):

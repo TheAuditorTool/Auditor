@@ -135,7 +135,7 @@ def summary(root, raw_dir, out):
     if framework_list:
         audit_summary["metrics_by_phase"]["detect_frameworks"] = {
             "frameworks_detected": len(framework_list),
-            "languages": list(set(f.get("language", "") for f in framework_list)),
+            "languages": list({f.get("language", "") for f in framework_list}),
         }
 
     deps = load_json(raw_path / "deps.json")
@@ -255,7 +255,7 @@ def summary(root, raw_dir, out):
             "by_severity": terraform_by_severity,
             "by_category": terraform_by_category,
             "resources_analyzed": len(
-                set(f.get("resource_id", "") for f in terraform_findings if f.get("resource_id"))
+                {f.get("resource_id", "") for f in terraform_findings if f.get("resource_id")}
             ),
         }
 
@@ -316,7 +316,7 @@ def summary(root, raw_dir, out):
                         parts = line.split(":")[-1].strip().replace("s", "").split("(")[0]
                         audit_summary["total_runtime_seconds"] = float(parts)
                         break
-        except:
+        except Exception:
             pass
 
     out_path = Path(out)

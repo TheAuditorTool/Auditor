@@ -239,7 +239,7 @@ class IndexerOrchestrator:
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
                 print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
-                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
         self.frameworks = self._detect_frameworks_inline()
 
@@ -529,7 +529,7 @@ class IndexerOrchestrator:
                 f"{jsx_counts['returns']} returns stored to _jsx tables"
             )
 
-        for table_name in self.db_manager.generic_batches.keys():
+        for table_name in self.db_manager.generic_batches:
             if self.db_manager.generic_batches[table_name]:
                 self.db_manager.flush_generic_batch(table_name)
         self.db_manager.commit()

@@ -175,7 +175,7 @@ def _find_explicit_any_types(cursor, ts_files: set[str]) -> list[StandardFinding
         if "as any" in expr:
             any_assertions.append((file, line, var, expr))
 
-    for file, line, var, expr in any_assertions:
+    for file, line, var, _expr in any_assertions:
         findings.append(
             StandardFinding(
                 rule_name="typescript-any-assertion",
@@ -225,7 +225,7 @@ def _find_missing_return_types(cursor, ts_files: set[str]) -> list[StandardFindi
         ]
     )
 
-    for file, line, name, return_type in missing_returns:
+    for file, line, name, _return_type in missing_returns:
         if name not in known_exceptions:
             findings.append(
                 StandardFinding(
@@ -265,7 +265,7 @@ def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFi
         if "function" in func.lower():
             function_calls.append((file, line, func, args))
 
-    for file, line, func, args in function_calls:
+    for file, line, _func, args in function_calls:
         if args and "function(" in args.lower():
             if ":" not in args and "(" in args and ")" in args:
                 findings.append(
@@ -345,7 +345,7 @@ def _find_non_null_assertions(cursor, ts_files: set[str]) -> list[StandardFindin
         if any(pattern in expr for pattern in ["!.", "!)", "!;"]):
             non_null_assertions.append((file, line, expr))
 
-    for file, line, expr in non_null_assertions:
+    for file, line, _expr in non_null_assertions:
         findings.append(
             StandardFinding(
                 rule_name="typescript-non-null-assertion",
@@ -424,7 +424,7 @@ def _find_untyped_json_parse(cursor, ts_files: set[str]) -> list[StandardFinding
         if "JSON.parse" in func:
             json_parses.append((file, line, func, args))
 
-    for file, line, func, args in json_parses:
+    for file, line, _func, _args in json_parses:
         cursor.execute(
             """
                 SELECT source_expr
@@ -482,7 +482,7 @@ def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFind
     for pattern in api_patterns:
         api_calls = [(file, line, func) for file, line, func in all_calls if pattern in func]
 
-        for file, line, func in api_calls:
+        for file, line, _func in api_calls:
             cursor.execute(
                 """
                     SELECT target_var, source_expr
@@ -602,12 +602,12 @@ def _find_type_suppression_comments(cursor, ts_files: set[str]) -> list[Standard
 
     all_comments = cursor.fetchall()
 
-    for suppression, severity, confidence, description in suppressions:
+    for suppression, severity, confidence, _description in suppressions:
         suppression_comments = [
             (file, line, comment) for file, line, comment in all_comments if suppression in comment
         ]
 
-        for file, line, comment in suppression_comments:
+        for file, line, _comment in suppression_comments:
             findings.append(
                 StandardFinding(
                     rule_name=f"typescript-suppression-{suppression.replace('@', '').replace('-', '_')}",
@@ -682,7 +682,7 @@ def _find_missing_generic_types(cursor, ts_files: set[str]) -> list[StandardFind
 
         untyped_generics = cursor.fetchall()
 
-        for file, line, name, type_ann, type_params in untyped_generics:
+        for file, line, _name, type_ann, _type_params in untyped_generics:
             findings.append(
                 StandardFinding(
                     rule_name=f"typescript-untyped-{generic.lower()}",
@@ -725,7 +725,7 @@ def _find_untyped_event_handlers(cursor, ts_files: set[str]) -> list[StandardFin
             if (func and pattern in func) or (args and pattern in args)
         ]
 
-        for file, line, func, args in event_handlers:
+        for file, line, _func, args in event_handlers:
             if args and "event" in args.lower() and ":" not in args:
                 findings.append(
                     StandardFinding(
@@ -774,7 +774,7 @@ def _find_type_mismatches(cursor, ts_files: set[str]) -> list[StandardFinding]:
         ):
             mismatches.append((file, line, var, expr))
 
-    for file, line, var, expr in mismatches:
+    for file, line, var, _expr in mismatches:
         findings.append(
             StandardFinding(
                 rule_name="typescript-type-mismatch",
@@ -854,7 +854,7 @@ def _find_unknown_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
 
     unknown_types = cursor.fetchall()
 
-    for file, line, name, type_ann, kind in unknown_types:
+    for file, line, name, type_ann, _kind in unknown_types:
         findings.append(
             StandardFinding(
                 rule_name="typescript-unknown-type",

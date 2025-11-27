@@ -385,10 +385,7 @@ class IFDSTaintAnalyzer:
         if ap1.base == ap2.base:
             return True
 
-        if ap1.matches(ap2):
-            return True
-
-        return False
+        return bool(ap1.matches(ap2))
 
     def _access_paths_match(self, ap1: AccessPath, ap2: AccessPath) -> bool:
         """Check if two access paths represent the same data.
@@ -418,10 +415,7 @@ class IFDSTaintAnalyzer:
         if ap1.base == ap2.base and ap1.fields == ap2.fields:
             return True
 
-        if ap1.matches(ap2):
-            return True
-
-        return False
+        return bool(ap1.matches(ap2))
 
     def _dict_to_access_path(self, node_dict: dict) -> AccessPath | None:
         """Convert source/sink dict to AccessPath.

@@ -131,7 +131,7 @@ def analyze_churn(root, days, output):
     except Exception as e:
         logger.error(f"Churn analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e
 
 
 @metadata.command("coverage")
@@ -201,7 +201,7 @@ def analyze_coverage(root, coverage_file, output):
     except Exception as e:
         logger.error(f"Coverage analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e
 
 
 @metadata.command("analyze")
@@ -268,4 +268,4 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
     except Exception as e:
         logger.error(f"Metadata analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e

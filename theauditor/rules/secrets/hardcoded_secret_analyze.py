@@ -697,10 +697,7 @@ def _is_likely_secret(value: str) -> bool:
             if unique_chars >= 5:
                 return True
 
-    if _is_base64_secret(value):
-        return True
-
-    return False
+    return bool(_is_base64_secret(value))
 
 
 def _calculate_entropy(s: str) -> float:
@@ -763,7 +760,7 @@ def _is_base64_secret(value: str) -> bool:
 
         try:
             decoded_str = decoded.decode("utf-8", errors="ignore")
-        except:
+        except Exception:
             decoded_str = str(decoded)
 
         entropy = _calculate_entropy(decoded_str)

@@ -171,10 +171,7 @@ class XGraphBuilder:
                 return True
 
         path_str = str(file_path)
-        for pattern in self.exclude_patterns:
-            if pattern in path_str:
-                return True
-        return False
+        return any(pattern in path_str for pattern in self.exclude_patterns)
 
     def extract_imports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
         """Return structured import metadata for the given file.

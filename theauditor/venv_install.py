@@ -246,7 +246,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
             except Exception as e:
                 print(f"[ERROR] Failed to remove broken venv: {e}")
                 print(f"[TIP] Manually delete {venv_path} and retry")
-                raise RuntimeError(f"Cannot remove broken venv: {e}")
+                raise RuntimeError(f"Cannot remove broken venv: {e}") from e
 
     print(f"Creating venv at {venv_path}...", flush=True)
 
@@ -641,13 +641,13 @@ def download_portable_node(sandbox_dir: Path) -> Path:
 
     except urllib.error.URLError as e:
         print(f"    ❌ Network error downloading Node.js: {e}")
-        raise RuntimeError(f"Failed to download Node.js: {e}")
+        raise RuntimeError(f"Failed to download Node.js: {e}") from e
     except Exception as e:
         print(f"    ❌ Failed to install Node.js: {e}")
 
         if "download_path" in locals() and download_path.exists():
             download_path.unlink()
-        raise RuntimeError(f"Failed to install Node.js: {e}")
+        raise RuntimeError(f"Failed to install Node.js: {e}") from e
 
 
 def setup_osv_scanner(sandbox_dir: Path) -> Path | None:

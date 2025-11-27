@@ -251,7 +251,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
     except Exception as e:
         logger.error(f"CFG analysis failed: {e}")
         click.echo(f"Error: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e
 
 
 @cfg.command("viz")
@@ -371,4 +371,4 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
     except Exception as e:
         logger.error(f"CFG visualization failed: {e}")
         click.echo(f"Error: {e}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e

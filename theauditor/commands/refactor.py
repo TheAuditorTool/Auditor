@@ -235,7 +235,7 @@ def refactor(
             profile = RefactorProfile.load(Path(profile_file))
         except Exception as exc:
             click.echo(f"Error loading profile: {exc}", err=True)
-            raise click.Abort()
+            raise click.Abort() from exc
 
         click.echo(f"  Profile: {profile.refactor_name}")
         click.echo(f"  Rules: {len(profile.rules)}")

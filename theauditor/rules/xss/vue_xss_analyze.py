@@ -81,10 +81,7 @@ def _is_vue_app(cursor: sqlite3.Cursor) -> bool:
         -- REMOVED LIMIT: was hiding bugs
         """)
 
-    if cursor.fetchone()["cnt"] > 0:
-        return True
-
-    return False
+    return cursor.fetchone()["cnt"] > 0
 
 
 def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
@@ -142,7 +139,7 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY vd1.file, vd1.line
     """)
 
-    for file, line, component in cursor.fetchall():
+    for file, line, _component in cursor.fetchall():
         findings.append(
             StandardFinding(
                 rule_name="vue-xss-vhtml-vonce",
@@ -330,7 +327,7 @@ def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFin
         WHERE vc.props_definition IS NOT NULL
     """)
 
-    for file, line, comp_name, props_def in cursor.fetchall():
+    for file, _line, comp_name, _props_def in cursor.fetchall():
         cursor.execute(
             """
             SELECT vd.line, vd.expression
@@ -368,7 +365,7 @@ def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFin
         ORDER BY vd.file, vd.line
     """)
 
-    for file, line, expression, component in cursor.fetchall():
+    for file, line, expression, _component in cursor.fetchall():
         if "$attrs" not in expression:
             continue
 
@@ -400,7 +397,7 @@ def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY vd.file, vd.line
     """)
 
-    for file, line, expression, component in cursor.fetchall():
+    for file, line, expression, _component in cursor.fetchall():
         has_slot = "$slots" in expression or "slot." in expression
         if not has_slot:
             continue
@@ -493,7 +490,7 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY vh.file, vh.line
     """)
 
-    for file, line, comp_name, hook_name, return_val in cursor.fetchall():
+    for file, line, _comp_name, hook_name, return_val in cursor.fetchall():
         if any(tag in (return_val or "") for tag in ["<div", "<span", "<script", "<img"]):
             has_user_input = any(src in return_val for src in VUE_INPUT_SOURCES)
 
@@ -518,7 +515,7 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         ORDER BY vh.file, vh.line
     """)
 
-    for file, line, comp_name, watched_prop in cursor.fetchall():
+    for file, line, _comp_name, watched_prop in cursor.fetchall():
         cursor.execute(
             """
             SELECT a.target_var

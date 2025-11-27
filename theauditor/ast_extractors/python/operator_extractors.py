@@ -71,7 +71,7 @@ def _get_node_text(node: ast.AST) -> str:
             return f"{_get_node_text(node.value)}.{node.attr}"
         else:
             return f"<{type(node).__name__}>"
-    except:
+    except Exception:
         return "<unknown>"
 
 

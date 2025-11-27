@@ -340,9 +340,9 @@ class FlaskAnalyzer:
                     file_validators[file].append(line)
 
             seen = set()
-            for save_file, save_line, save_callee, save_arg in save_calls:
+            for save_file, save_line, _save_callee, _save_arg in save_calls:
                 has_file_input = False
-                for file, line, callee, arg_expr in all_calls:
+                for file, line, _callee, arg_expr in all_calls:
                     if file == save_file and abs(line - save_line) <= 10:
                         if "request.files" in arg_expr:
                             has_file_input = True
@@ -433,7 +433,7 @@ class FlaskAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee, redirect_arg in cursor.fetchall():
+            for file, line, _callee, redirect_arg in cursor.fetchall():
                 if not (
                     "request.args.get" in redirect_arg
                     or "request.values.get" in redirect_arg
@@ -473,7 +473,7 @@ class FlaskAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee, eval_arg in cursor.fetchall():
+            for file, line, _callee, eval_arg in cursor.fetchall():
                 if "request." not in eval_arg:
                     continue
                 self.findings.append(
@@ -535,7 +535,7 @@ class FlaskAnalyzer:
             )
             cursor.execute(query2)
 
-            for file, line, callee, cors_arg in cursor.fetchall():
+            for file, line, _callee, cors_arg in cursor.fetchall():
                 if "*" not in cors_arg:
                     continue
                 self.findings.append(
@@ -571,7 +571,7 @@ class FlaskAnalyzer:
             )
             cursor.execute(query)
 
-            for file, line, callee, pickle_arg in cursor.fetchall():
+            for file, line, _callee, pickle_arg in cursor.fetchall():
                 if "request." not in pickle_arg:
                     continue
                 self.findings.append(

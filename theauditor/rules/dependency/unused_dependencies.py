@@ -79,7 +79,7 @@ def _get_declared_with_locations(cursor) -> dict[str, tuple]:
             try:
                 deps_dict = json.loads(deps)
                 if isinstance(deps_dict, dict):
-                    for pkg in deps_dict.keys():
+                    for pkg in deps_dict:
                         declared[pkg.lower()] = (file_path, False, False)
             except json.JSONDecodeError:
                 pass
@@ -88,7 +88,7 @@ def _get_declared_with_locations(cursor) -> dict[str, tuple]:
             try:
                 dev_dict = json.loads(dev_deps)
                 if isinstance(dev_dict, dict):
-                    for pkg in dev_dict.keys():
+                    for pkg in dev_dict:
                         if pkg.lower() not in declared:
                             declared[pkg.lower()] = (file_path, True, False)
             except json.JSONDecodeError:
@@ -98,7 +98,7 @@ def _get_declared_with_locations(cursor) -> dict[str, tuple]:
             try:
                 peer_dict = json.loads(peer_deps)
                 if isinstance(peer_dict, dict):
-                    for pkg in peer_dict.keys():
+                    for pkg in peer_dict:
                         if pkg.lower() not in declared:
                             declared[pkg.lower()] = (file_path, False, True)
             except json.JSONDecodeError:

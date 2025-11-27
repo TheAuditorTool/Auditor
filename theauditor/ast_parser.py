@@ -83,7 +83,7 @@ class ASTParser(ASTPatternMixin):
                     "This is often due to missing build tools or corrupted installation.\n"
                     "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
                     "Or install with AST support: pip install -e '.[ast]'"
-                )
+                ) from e
 
             try:
                 ts_lang = get_language("typescript")
@@ -96,7 +96,7 @@ class ASTParser(ASTPatternMixin):
                     "This is often due to missing build tools or corrupted installation.\n"
                     "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
                     "Or install with AST support: pip install -e '.[ast]'"
-                )
+                ) from e
 
             try:
                 hcl_lang = get_language("hcl")
@@ -219,7 +219,7 @@ class ASTParser(ASTPatternMixin):
                         f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
                         f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
                         f"DO NOT use fallback parsers - they produce corrupted data."
-                    )
+                    ) from e
 
                 if not semantic_result.get("success"):
                     error_msg = semantic_result.get("error", "Unknown error")
@@ -336,10 +336,7 @@ class ASTParser(ASTPatternMixin):
         if language in ["javascript", "typescript"]:
             return True
 
-        if self.has_tree_sitter and language in self.parsers:
-            return True
-
-        return False
+        return self.has_tree_sitter and language in self.parsers
 
     def parse_content(
         self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = "transformed"
@@ -391,7 +388,7 @@ class ASTParser(ASTPatternMixin):
                         f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
                         f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
                         f"DO NOT use fallback parsers - they produce corrupted data."
-                    )
+                    ) from e
 
                 if not (semantic_result and semantic_result.get("success")):
                     error_msg = (

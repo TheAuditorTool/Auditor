@@ -212,7 +212,7 @@ class JournalWriter:
         if self.file_handle:
             try:
                 self.file_handle.close()
-            except:
+            except Exception:
                 pass
             self.file_handle = None
 

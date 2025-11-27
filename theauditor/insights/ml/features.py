@@ -651,7 +651,6 @@ def load_comment_hallucination_features(
                     continue
 
                 mentioned_files = finding.evidence.get("mentioned_files", [])
-                files_with_removed = finding.evidence.get("files_with_removed_comments", [])
 
                 for file in mentioned_files:
                     try:

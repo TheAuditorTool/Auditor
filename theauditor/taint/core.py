@@ -96,9 +96,9 @@ class TaintRegistry:
         if "global" in self.sanitizers and function_name in self.sanitizers["global"]:
             return True
 
-        if language and language in self.sanitizers and function_name in self.sanitizers[language]:
-            return True
-        return False
+        return bool(
+            language and language in self.sanitizers and function_name in self.sanitizers[language]
+        )
 
     def get_sources_for_language(self, language: str) -> dict[str, list[str]]:
         """Get all source patterns for a specific language.
@@ -171,11 +171,7 @@ def has_sanitizer_between(
 
     intermediate_calls = cursor.fetchall()
 
-    for call_name, _ in intermediate_calls:
-        if registry.is_sanitizer(call_name):
-            return True
-
-    return False
+    return any(registry.is_sanitizer(call_name) for call_name, _ in intermediate_calls)
 
 
 def deduplicate_paths(paths: list[Any]) -> list[Any]:
@@ -482,7 +478,7 @@ def trace_taint(
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
                 print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
-                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
 

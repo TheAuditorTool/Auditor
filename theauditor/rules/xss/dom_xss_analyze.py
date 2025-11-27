@@ -544,9 +544,9 @@ def _check_client_side_templates(conn) -> list[StandardFinding]:
 
         if has_user_input:
             lib = "template library"
-            for l in ["Handlebars", "Mustache", "doT", "ejs", "underscore", "lodash"]:
-                if l in func:
-                    lib = l
+            for lib_name in ["Handlebars", "Mustache", "doT", "ejs", "underscore", "lodash"]:
+                if lib_name in func:
+                    lib = lib_name
                     break
 
             findings.append(

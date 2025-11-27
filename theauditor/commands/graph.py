@@ -268,10 +268,10 @@ def graph_build_dfg(root, db, repo_db):
 
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     except Exception as e:
         click.echo(f"ERROR: Failed to build DFG: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 @graph.command("analyze")

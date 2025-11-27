@@ -62,6 +62,6 @@ class SchemaMemoryCache:
     def get_cache_stats(self) -> dict[str, int]:
         """Get statistics about cached data."""
         stats = {}
-        for table_name in TABLES.keys():
+        for table_name in TABLES:
             stats[table_name] = self.get_table_size(table_name)
         return stats

@@ -464,11 +464,7 @@ class SourcemapAnalyzer:
             return True
 
         bundle_files = ["bundle.js", "main.js", "app.js", "vendor.js"]
-        for bundle in bundle_files:
-            if (directory / bundle).exists():
-                return True
-
-        return False
+        return any((directory / bundle).exists() for bundle in bundle_files)
 
     def _scan_map_files(self, build_dir: Path, project_root: Path):
         """Scan for exposed .map files."""
@@ -494,7 +490,7 @@ class SourcemapAnalyzer:
                             first_line = f.read(200)
                             if '"sources"' in first_line or '"mappings"' in first_line:
                                 is_js_map = True
-                    except:
+                    except Exception:
                         is_js_map = True
 
                     if is_js_map:
@@ -553,7 +549,7 @@ class SourcemapAnalyzer:
 
                     try:
                         content_tail = content_bytes.decode("utf-8", errors="ignore")
-                    except:
+                    except Exception:
                         continue
 
                     has_external_map = False

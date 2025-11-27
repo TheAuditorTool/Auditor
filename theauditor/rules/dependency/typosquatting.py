@@ -85,7 +85,7 @@ def _check_declared_packages(cursor) -> list[StandardFinding]:
                 if not isinstance(deps_dict, dict):
                     continue
 
-                for package in deps_dict.keys():
+                for package in deps_dict:
                     package_lower = package.lower()
 
                     if package_lower in seen:

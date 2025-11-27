@@ -755,10 +755,7 @@ def _is_valid_identifier(text: str) -> bool:
     if not all(c.isalnum() or c == "_" for c in text):
         return False
 
-    if text.strip("_") == "":
-        return False
-
-    return True
+    return text.strip("_") != ""
 
 
 def _build_function_scope_map(tree, content: str) -> dict[int, str]:

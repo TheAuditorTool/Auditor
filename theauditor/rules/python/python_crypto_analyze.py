@@ -647,11 +647,7 @@ class CryptoAnalyzer:
         )
         self.cursor.execute(query, (file, line))
 
-        for (callee,) in self.cursor.fetchall():
-            if "crypt" in callee.lower():
-                return True
-
-        return False
+        return any("crypt" in callee.lower() for (callee,) in self.cursor.fetchall())
 
 
 """

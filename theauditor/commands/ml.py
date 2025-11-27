@@ -813,7 +813,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
 
     except Exception as e:
         click.echo(f"[FAIL] Invalid feedback file format: {e}", err=True)
-        raise click.ClickException(f"Invalid feedback file: {e}")
+        raise click.ClickException(f"Invalid feedback file: {e}") from e
 
     click.echo(f"[ML] Re-training models with human feedback (using {train_on} runs)...")
 

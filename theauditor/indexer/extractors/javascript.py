@@ -1546,8 +1546,6 @@ class JavaScriptExtractor(BaseExtractor):
             conn.close()
             return
 
-        import_lookup = {}
-
         cursor.execute("""
             SELECT file, import_line, specifier_name
             FROM import_specifiers

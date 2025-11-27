@@ -324,7 +324,7 @@ def _get_structure(cursor) -> dict:
     try:
         cursor.execute("SELECT type, COUNT(*) as count FROM symbols GROUP BY type")
         structure["by_type"] = {row["type"]: row["count"] for row in cursor.fetchall()}
-    except:
+    except Exception:
         pass
 
     return structure
@@ -572,19 +572,19 @@ def _get_security_surface(cursor) -> dict:
                 security["jwt"]["sign"] += 1
             elif "verify" in row[0] or "decode" in row[0]:
                 security["jwt"]["verify"] += 1
-    except:
+    except Exception:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM oauth_patterns")
         security["oauth"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM password_patterns")
         security["password"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
@@ -604,7 +604,7 @@ def _get_security_surface(cursor) -> dict:
               AND file NOT LIKE '%migration%'
         """)
         security["sql_queries"]["raw"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
@@ -621,7 +621,7 @@ def _get_security_surface(cursor) -> dict:
         security["api_endpoints"]["unprotected"] = (
             security["api_endpoints"]["total"] - security["api_endpoints"]["protected"]
         )
-    except:
+    except Exception:
         pass
 
     return security
@@ -638,19 +638,19 @@ def _get_data_flow(cursor) -> dict:
     try:
         cursor.execute("SELECT COUNT(*) FROM findings_consolidated WHERE tool = 'taint'")
         data_flow["taint_paths"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
         cursor.execute("SELECT COUNT(DISTINCT source_var_name) FROM assignment_sources")
         data_flow["taint_sources"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM function_return_sources")
         data_flow["cross_function_flows"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     return data_flow
@@ -674,7 +674,7 @@ def _get_import_graph(graphs_db_path: Path) -> dict:
         imports["internal"] = imports["total"] - imports["external"]
 
         conn.close()
-    except:
+    except Exception:
         pass
 
     return imports
@@ -696,7 +696,7 @@ def _get_performance(cursor, db_path: Path) -> dict:
                 continue
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             total += cursor.fetchone()[0] or 0
-        except:
+        except Exception:
             pass
 
     metrics["total_rows"] = total
@@ -704,13 +704,13 @@ def _get_performance(cursor, db_path: Path) -> dict:
     try:
         cursor.execute("SELECT COUNT(DISTINCT path) FROM symbols")
         metrics["files_indexed"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     try:
         cursor.execute("SELECT COUNT(*) FROM symbols")
         metrics["symbols_extracted"] = cursor.fetchone()[0] or 0
-    except:
+    except Exception:
         pass
 
     return metrics
@@ -832,9 +832,9 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
 
     click.echo("\nMonorepo Detection:")
     by_dir = struct["by_directory"]
-    has_backend = any("backend" in d for d in by_dir.keys())
-    has_frontend = any("frontend" in d for d in by_dir.keys())
-    has_packages = any("packages" in d for d in by_dir.keys())
+    has_backend = any("backend" in d for d in by_dir)
+    has_frontend = any("frontend" in d for d in by_dir)
+    has_packages = any("packages" in d for d in by_dir)
 
     if has_backend or has_frontend or has_packages:
         click.echo(
@@ -981,8 +981,8 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         click.echo("  → Use 'aud query' for targeted analysis instead of reading all files")
 
     click.echo("\nMigration Paths Detected:")
-    migration_paths = [d for d in by_dir.keys() if "migration" in d.lower()]
-    legacy_paths = [d for d in by_dir.keys() if "legacy" in d.lower() or "deprecated" in d.lower()]
+    migration_paths = [d for d in by_dir if "migration" in d.lower()]
+    legacy_paths = [d for d in by_dir if "legacy" in d.lower() or "deprecated" in d.lower()]
 
     if migration_paths:
         for path in migration_paths:

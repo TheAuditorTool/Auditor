@@ -336,7 +336,7 @@ class TerraformGraphBuilder:
 
         try:
             expr = json.loads(expr_json) if isinstance(expr_json, str) else expr_json
-        except:
+        except Exception:
             expr = str(expr_json)
 
         matches = re.findall(

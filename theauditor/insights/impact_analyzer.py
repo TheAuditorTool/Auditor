@@ -154,11 +154,7 @@ def analyze_impact(
                             "total_downstream": len(all_impacts),
                             "total_impact": len(all_impacts),
                             "affected_files": len(
-                                set(
-                                    item["file"]
-                                    for item in all_impacts
-                                    if item["file"] != "external"
-                                )
+                                {item["file"] for item in all_impacts if item["file"] != "external"}
                             ),
                             "cross_stack": True,
                         },
@@ -231,7 +227,7 @@ def analyze_impact(
                 "total_downstream": len(downstream) + len(downstream_transitive),
                 "total_impact": len(all_impacts),
                 "affected_files": len(
-                    set(item["file"] for item in all_impacts if item["file"] != "external")
+                    {item["file"] for item in all_impacts if item["file"] != "external"}
                 ),
             },
             "risk_assessment": {
