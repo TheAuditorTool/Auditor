@@ -48,18 +48,16 @@ class RustExtractor(BaseExtractor):
             return self._parser
 
         try:
-            from tree_sitter import Language, Parser
-            import tree_sitter_rust as ts_rust
+            # Use tree-sitter-language-pack (same as ast_parser.py for JS/TS/HCL)
+            from tree_sitter_language_pack import get_parser
 
-            self._parser = Parser()
-            # tree-sitter v0.20+ uses property assignment, not set_language()
-            self._parser.language = Language(ts_rust.language())
+            self._parser = get_parser("rust")
             return self._parser
 
         except ImportError as e:
             logger.error(
-                f"tree-sitter-rust not installed: {e}\n"
-                f"Install with: pip install tree-sitter tree-sitter-rust"
+                f"tree-sitter-language-pack not installed or missing Rust support: {e}\n"
+                f"Install with: pip install tree-sitter-language-pack"
             )
             raise
 
