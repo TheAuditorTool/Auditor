@@ -10,4 +10,4 @@ This ensures that:
   - import theauditor.ml  # STILL WORKS
 """
 
-from theauditor.insights.ml import *  # noqa: F403 - intentional re-export for backward compat
+from theauditor.insights.ml import *

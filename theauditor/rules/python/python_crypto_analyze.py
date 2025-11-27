@@ -305,10 +305,9 @@ class CryptoAnalyzer:
 
         for file, line, method, args in self.cursor.fetchall():
             method_upper = method.upper()
-            if (
-                not ("DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper)
-                and not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO))
-            ):
+            if not (
+                "DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper
+            ) and not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO)):
                 continue
             algo = "DES" if "DES" in method else "RC4" if "RC4" in method else "broken algorithm"
 
@@ -408,12 +407,16 @@ class CryptoAnalyzer:
             ):
                 continue
 
-            if expr and (
-                expr.startswith('"')
-                or expr.startswith("'")
-                or expr.startswith('b"')
-                or expr.startswith("b'")
-            ) and len(expr) > 10:
+            if (
+                expr
+                and (
+                    expr.startswith('"')
+                    or expr.startswith("'")
+                    or expr.startswith('b"')
+                    or expr.startswith("b'")
+                )
+                and len(expr) > 10
+            ):
                 self.findings.append(
                     StandardFinding(
                         rule_name="python-hardcoded-key",

@@ -155,8 +155,7 @@ def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
                         elif keyword.arg == "time_limit":
                             if isinstance(keyword.value, ast.Constant):
                                 time_limit = keyword.value.value
-                        elif (keyword.arg == "queue" and
-                            isinstance(keyword.value, ast.Constant)):
+                        elif keyword.arg == "queue" and isinstance(keyword.value, ast.Constant):
                             queue = keyword.value.value
 
         if not is_celery_task:
@@ -301,10 +300,13 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.Assign):
         for target in node.targets:
-            if (isinstance(target, ast.Attribute) and target.attr == "beat_schedule" and
-                isinstance(node.value, ast.Dict)):
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == "beat_schedule"
+                and isinstance(node.value, ast.Dict)
+            ):
                 for _i, (key_node, value_node) in enumerate(
-                    zip(node.value.keys, node.value.values)  # noqa: B905 - AST guarantees equal length
+                    zip(node.value.keys, node.value.values)
                 ):
                     if not isinstance(key_node, ast.Constant):
                         continue
@@ -318,7 +320,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
                         args_expr = None
                         kwargs_expr = None
 
-                        for sched_key, sched_value in zip(value_node.keys, value_node.values):  # noqa: B905 - AST guarantees equal length
+                        for sched_key, sched_value in zip(value_node.keys, value_node.values):
                             if not isinstance(sched_key, ast.Constant):
                                 continue
 

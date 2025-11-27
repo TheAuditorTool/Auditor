@@ -19,7 +19,7 @@ import yaml
 
 MAX_RESULTS_PER_QUERY = 500
 
-# Batch size for chunking term searches
+
 BATCH_SIZE = 50
 
 

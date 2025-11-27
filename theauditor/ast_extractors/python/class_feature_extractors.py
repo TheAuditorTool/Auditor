@@ -219,14 +219,16 @@ def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
                 has_dataclass = True
-            elif (isinstance(decorator, ast.Call) and
-                  isinstance(decorator.func, ast.Name) and decorator.func.id == "dataclass"):
+            elif (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Name)
+                and decorator.func.id == "dataclass"
+            ):
                 has_dataclass = True
 
                 for keyword in decorator.keywords:
                     if keyword.arg == "frozen" and (
-                        isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is True
+                        isinstance(keyword.value, ast.Constant) and keyword.value.value is True
                     ):
                         frozen = True
 
@@ -494,8 +496,11 @@ def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
 
     for node in context.find_nodes(ast.ClassDef):
         for item in node.body:
-            if (isinstance(item, ast.FunctionDef) and
-                item.name.startswith("__") and item.name.endswith("__")):
+            if (
+                isinstance(item, ast.FunctionDef)
+                and item.name.startswith("__")
+                and item.name.endswith("__")
+            ):
                 dunder_data = {
                     "line": item.lineno,
                     "method_name": item.name,

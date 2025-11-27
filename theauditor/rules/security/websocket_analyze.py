@@ -215,7 +215,9 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
 
         nearby_auth = []
         for callee, func_line in cursor.fetchall():
-            if line - 30 <= func_line <= line + 30 and any(auth in callee for auth in AUTH_PATTERNS):
+            if line - 30 <= func_line <= line + 30 and any(
+                auth in callee for auth in AUTH_PATTERNS
+            ):
                 nearby_auth.append((callee, func_line))
 
         has_auth = len(nearby_auth) > 0
@@ -233,7 +235,9 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
 
             nearby_sym = []
             for name, sym_line in cursor.fetchall():
-                if line - 30 <= sym_line <= line + 30 and any(auth in name for auth in AUTH_PATTERNS):
+                if line - 30 <= sym_line <= line + 30 and any(
+                    auth in name for auth in AUTH_PATTERNS
+                ):
                     nearby_sym.append((name, sym_line))
 
             has_auth = len(nearby_sym) > 0

@@ -370,7 +370,7 @@ def analyze_service(row: tuple) -> list[StandardFinding]:
 
                 is_sensitive = any(pattern in key_upper for pattern in SENSITIVE_ENV_PATTERNS)
 
-                if is_sensitive:  # noqa: SIM102
+                if is_sensitive:
                     if not value.startswith("${") and not value.startswith("$"):
                         if value.lower() in WEAK_PASSWORDS:
                             findings.append(

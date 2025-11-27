@@ -132,9 +132,7 @@ class RulesOrchestrator:
 
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
                         if name.startswith("find_") and obj.__module__ == module_name:
-                            rule_info = self._analyze_rule(
-                                name, obj, module, module_name, category
-                            )
+                            rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
 
                             if self._debug:
@@ -358,7 +356,10 @@ class RulesOrchestrator:
                 if pattern in file_path_str:
                     return False
 
-        if metadata.target_extensions and file_path.suffix.lower() not in metadata.target_extensions:
+        if (
+            metadata.target_extensions
+            and file_path.suffix.lower() not in metadata.target_extensions
+        ):
             return False
 
         return not (

@@ -132,7 +132,7 @@ def sanitize_config_path(
     if not config_value:
         raise SecurityError(f"Empty path in config[{config_section}][{config_key}]")
 
-    if config_section == "paths" and config_key in ["manifest", "db", "workset", "pf_dir"]:  # noqa: SIM102
+    if config_section == "paths" and config_key in ["manifest", "db", "workset", "pf_dir"]:
         if not config_value.startswith("./.pf/") and not config_value.startswith(".pf/"):
             config_value = f"./.pf/{Path(config_value).name}"
 

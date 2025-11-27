@@ -88,8 +88,11 @@ def extract_generics(context: FileContext) -> list[dict[str, Any]]:
         type_params = []
 
         for base in node.bases:
-            if (isinstance(base, ast.Subscript) and
-                isinstance(base.value, ast.Name) and base.value.id == "Generic"):
+            if (
+                isinstance(base, ast.Subscript)
+                and isinstance(base.value, ast.Name)
+                and base.value.id == "Generic"
+            ):
                 has_generic = True
 
                 if isinstance(base.slice, ast.Tuple):

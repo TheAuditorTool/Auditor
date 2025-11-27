@@ -187,8 +187,7 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
                             model_name = get_node_name(item.value)
                         elif target.id == "template_name":
                             template_name = _get_str_constant(item.value)
-                        elif (target.id == "http_method_names" and
-                            isinstance(item.value, ast.List)):
+                        elif target.id == "http_method_names" and isinstance(item.value, ast.List):
                             methods = []
                             for elt in item.value.elts:
                                 method = _get_str_constant(elt)
@@ -267,8 +266,7 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
-                    if (isinstance(target, ast.Name) and
-                        isinstance(item.value, ast.Call)):
+                    if isinstance(target, ast.Name) and isinstance(item.value, ast.Call):
                         field_type_name = get_node_name(item.value.func)
                         if "Field" in field_type_name:
                             field_count += 1
@@ -280,8 +278,11 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
                             if isinstance(target, ast.Name) and target.id == "model":
                                 model_name = get_node_name(meta_item.value)
 
-            elif (isinstance(item, ast.FunctionDef) and
-                item.name == "clean" or item.name.startswith("clean_")):
+            elif (
+                isinstance(item, ast.FunctionDef)
+                and item.name == "clean"
+                or item.name.startswith("clean_")
+            ):
                 has_custom_clean = True
 
         forms.append(
@@ -353,8 +354,9 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
                                 if keyword.arg == "required":
                                     if isinstance(keyword.value, ast.Constant):
                                         required = bool(keyword.value.value)
-                                elif (keyword.arg == "max_length" and
-                                    isinstance(keyword.value, ast.Constant)):
+                                elif keyword.arg == "max_length" and isinstance(
+                                    keyword.value, ast.Constant
+                                ):
                                     max_length = keyword.value.value
 
                             has_custom_validator = field_name in custom_validators

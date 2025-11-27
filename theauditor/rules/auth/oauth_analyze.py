@@ -266,7 +266,9 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
         var_lower = var.lower()
         expr_lower = expr.lower() if expr else ""
 
-        if any(keyword in var_lower for keyword in REDIRECT_KEYWORDS) and any(user_input in expr_lower for user_input in USER_INPUT_SOURCES):
+        if any(keyword in var_lower for keyword in REDIRECT_KEYWORDS) and any(
+            user_input in expr_lower for user_input in USER_INPUT_SOURCES
+        ):
             redirect_assignments.append((file, line, var, expr))
 
     for file, line, var, expr in redirect_assignments:
@@ -282,7 +284,9 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
             val_func_lower = val_func.lower()
             val_args_lower = val_args.lower()
 
-            if var.lower() in val_args_lower and any(keyword in val_func_lower for keyword in VALIDATION_KEYWORDS):
+            if var.lower() in val_args_lower and any(
+                keyword in val_func_lower for keyword in VALIDATION_KEYWORDS
+            ):
                 has_validation = True
                 break
 

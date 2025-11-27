@@ -160,8 +160,7 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
-                    if (isinstance(target, ast.Name) and
-                        isinstance(item.value, ast.Call)):
+                    if isinstance(target, ast.Name) and isinstance(item.value, ast.Call):
                         field_type_name = get_node_name(item.value.func)
 
                         if (
@@ -331,8 +330,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
-                    if (isinstance(target, ast.Name) and
-                        isinstance(item.value, ast.Call)):
+                    if isinstance(target, ast.Name) and isinstance(item.value, ast.Call):
                         field_type_name = get_node_name(item.value.func)
 
                         if "serializers." in field_type_name or "Field" in field_type_name:
@@ -348,8 +346,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
                                 elif target.id == "read_only_fields":
                                     has_read_only_fields = True
 
-            elif (isinstance(item, ast.FunctionDef) and
-                item.name.startswith("validate_")):
+            elif isinstance(item, ast.FunctionDef) and item.name.startswith("validate_"):
                 has_custom_validators = True
 
         serializers_list.append(
@@ -407,8 +404,11 @@ def extract_drf_serializer_fields(context: FileContext) -> list[dict[str, Any]]:
 
         field_validators = set()
         for item in node.body:
-            if (isinstance(item, ast.FunctionDef) and
-                item.name.startswith("validate_") and item.name != "validate"):
+            if (
+                isinstance(item, ast.FunctionDef)
+                and item.name.startswith("validate_")
+                and item.name != "validate"
+            ):
                 field_name = item.name[9:]
                 field_validators.add(field_name)
 
@@ -520,8 +520,7 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:
-                    if (isinstance(target, ast.Name) and
-                        isinstance(item.value, ast.Call)):
+                    if isinstance(target, ast.Name) and isinstance(item.value, ast.Call):
                         field_type_name = get_node_name(item.value.func)
 
                         if "Field" in field_type_name and (
@@ -544,8 +543,7 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
                         ):
                             field_count += 1
 
-            elif (isinstance(item, ast.FunctionDef) and
-                item.name.startswith("validate_")):
+            elif isinstance(item, ast.FunctionDef) and item.name.startswith("validate_"):
                 has_custom_validators = True
 
         forms_list.append(

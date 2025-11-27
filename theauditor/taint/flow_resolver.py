@@ -24,7 +24,7 @@ from .sanitizer_util import SanitizerRegistry
 
 logger = setup_logger(__name__)
 
-# Flow resolution effort limits for infrastructure vs user code
+
 INFRASTRUCTURE_MAX_EFFORT = 5_000
 INFRASTRUCTURE_MAX_VISITS = 2
 USERCODE_MAX_EFFORT = 25_000

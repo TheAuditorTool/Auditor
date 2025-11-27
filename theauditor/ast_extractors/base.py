@@ -145,10 +145,13 @@ def find_containing_function_python(tree: ast.AST, line: int) -> str | None:
     containing_func = None
 
     for node in ast.walk(tree):
-        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and
-            hasattr(node, "lineno") and hasattr(node, "end_lineno") and
-            node.lineno <= line <= (node.end_lineno or node.lineno) and
-            (containing_func is None or node.lineno > containing_func[1])):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and hasattr(node, "lineno")
+            and hasattr(node, "end_lineno")
+            and node.lineno <= line <= (node.end_lineno or node.lineno)
+            and (containing_func is None or node.lineno > containing_func[1])
+        ):
             containing_func = (node.name, node.lineno)
 
     return containing_func[0] if containing_func else None
@@ -159,10 +162,13 @@ def find_containing_class_python(tree: ast.AST, line: int) -> str | None:
     containing_class = None
 
     for node in ast.walk(tree):
-        if (isinstance(node, ast.ClassDef) and
-            hasattr(node, "lineno") and hasattr(node, "end_lineno") and
-            node.lineno <= line <= (node.end_lineno or node.lineno) and
-            (containing_class is None or node.lineno > containing_class[1])):
+        if (
+            isinstance(node, ast.ClassDef)
+            and hasattr(node, "lineno")
+            and hasattr(node, "end_lineno")
+            and node.lineno <= line <= (node.end_lineno or node.lineno)
+            and (containing_class is None or node.lineno > containing_class[1])
+        ):
             containing_class = (node.name, node.lineno)
 
     return containing_class[0] if containing_class else None

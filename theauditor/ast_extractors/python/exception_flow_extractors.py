@@ -108,8 +108,7 @@ def _detect_handling_strategy(handler_body: list[ast.stmt]) -> str:
             if isinstance(stmt.value.func, ast.Attribute):
                 if stmt.value.func.attr in ["error", "warning", "exception", "debug", "info"]:
                     has_log = True
-            elif (isinstance(stmt.value.func, ast.Name) and
-                stmt.value.func.id == "print"):
+            elif isinstance(stmt.value.func, ast.Name) and stmt.value.func.id == "print":
                 has_log = True
         elif isinstance(stmt, ast.Pass):
             has_pass = True
@@ -485,8 +484,14 @@ def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
         if "lock" in expr_lower or "rlock" in expr_lower or "semaphore" in expr_lower:
             return "lock"
 
-        if ("session" in expr_lower or "connection" in expr_lower or "transaction" in expr_lower and
-            "db" in expr_lower or "sql" in expr_lower or "engine" in expr_lower):
+        if (
+            "session" in expr_lower
+            or "connection" in expr_lower
+            or "transaction" in expr_lower
+            and "db" in expr_lower
+            or "sql" in expr_lower
+            or "engine" in expr_lower
+        ):
             return "database"
 
         if "client" in expr_lower or "request" in expr_lower or "http" in expr_lower:

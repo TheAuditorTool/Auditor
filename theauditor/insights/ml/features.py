@@ -14,7 +14,7 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-# Library categories for semantic import analysis
+
 HTTP_LIBS = frozenset(
     {
         "requests",

@@ -34,16 +34,18 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 
-# Unsafe sinks where secrets should never be logged/exposed
-UNSAFE_SINKS = frozenset([
-    "console.log",
-    "print",
-    "logger.info",
-    "logger.debug",
-    "response.write",
-    "res.send",
-    "res.json",
-])
+
+UNSAFE_SINKS = frozenset(
+    [
+        "console.log",
+        "print",
+        "logger.info",
+        "logger.debug",
+        "response.write",
+        "res.send",
+        "res.json",
+    ]
+)
 
 METADATA = RuleMetadata(
     name="hardcoded_secrets",
@@ -591,10 +593,14 @@ def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
             key_value = key_match.group(2)
 
             if (
-                not key_value.startswith("${")
-                and not key_value.startswith("process.")
-                and key_value not in PLACEHOLDER_VALUES
-            ) and len(key_value) > 10 and _is_likely_secret(key_value):
+                (
+                    not key_value.startswith("${")
+                    and not key_value.startswith("process.")
+                    and key_value not in PLACEHOLDER_VALUES
+                )
+                and len(key_value) > 10
+                and _is_likely_secret(key_value)
+            ):
                 findings.append(
                     StandardFinding(
                         rule_name="secret-api-key-in-url",
@@ -736,7 +742,9 @@ def _is_sequential(s: str) -> bool:
 
     for pattern in SEQUENTIAL_PATTERNS:
         for i in range(len(pattern) - 4):
-            if pattern[i : i + 5] in s_lower and (len(s) <= 10 or pattern[i : i + 5] * 2 in s_lower):
+            if pattern[i : i + 5] in s_lower and (
+                len(s) <= 10 or pattern[i : i + 5] * 2 in s_lower
+            ):
                 return True
 
     return False
@@ -747,7 +755,9 @@ def _is_keyboard_walk(s: str) -> bool:
     s_lower = s.lower()
 
     for pattern in KEYBOARD_PATTERNS:
-        if pattern in s_lower and (len(s) <= 10 or s_lower.count(pattern) * len(pattern) > len(s) / 2):
+        if pattern in s_lower and (
+            len(s) <= 10 or s_lower.count(pattern) * len(pattern) > len(s) / 2
+        ):
             return True
 
     return False
@@ -822,7 +832,9 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFin
                 var_name = assignment_match.group(1)
                 value = assignment_match.group(2)
 
-                if any(kw in var_name.lower() for kw in SECRET_KEYWORDS) and _is_likely_secret(value):
+                if any(kw in var_name.lower() for kw in SECRET_KEYWORDS) and _is_likely_secret(
+                    value
+                ):
                     findings.append(
                         StandardFinding(
                             rule_name="secret-high-entropy",

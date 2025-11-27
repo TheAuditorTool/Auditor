@@ -160,7 +160,6 @@ class SequelizePatterns:
     )
 
 
-# Taint analysis pattern constants - Sequelize query sources
 SEQUELIZE_SOURCES = frozenset(
     [
         "findAll",

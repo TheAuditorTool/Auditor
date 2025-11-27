@@ -82,42 +82,46 @@ class TaintDiscovery:
         for var_usage in self.cache.variable_usage:
             var_name = var_usage.get("variable_name", "")
 
-            if combined_patterns and any(
-                var_name == p or var_name.startswith(p + ".") for p in combined_patterns
-            ) and var_name not in seen_vars:
+            if (
+                combined_patterns
+                and any(var_name == p or var_name.startswith(p + ".") for p in combined_patterns)
+                and var_name not in seen_vars
+            ):
                 seen_vars.add(var_name)
                 sources.append(
-                        {
-                            "type": "http_request",
-                            "name": var_name,
-                            "file": var_usage.get("file", ""),
-                            "line": var_usage.get("line", 0),
-                            "pattern": var_name,
-                            "category": "http_request",
-                            "risk": "high",
-                            "metadata": var_usage,
-                        }
-                    )
+                    {
+                        "type": "http_request",
+                        "name": var_name,
+                        "file": var_usage.get("file", ""),
+                        "line": var_usage.get("line", 0),
+                        "pattern": var_name,
+                        "category": "http_request",
+                        "risk": "high",
+                        "metadata": var_usage,
+                    }
+                )
 
         for symbol in self.cache.symbols_by_type.get("property", []):
             name = symbol.get("name", "")
 
-            if combined_patterns and any(
-                name == p or name.startswith(p + ".") for p in combined_patterns
-            ) and name not in seen_vars:
+            if (
+                combined_patterns
+                and any(name == p or name.startswith(p + ".") for p in combined_patterns)
+                and name not in seen_vars
+            ):
                 seen_vars.add(name)
                 sources.append(
-                        {
-                            "type": "http_request",
-                            "name": name,
-                            "file": symbol.get("path", ""),
-                            "line": symbol.get("line", 0),
-                            "pattern": name,
-                            "category": "http_request",
-                            "risk": "high",
-                            "metadata": symbol,
-                        }
-                    )
+                    {
+                        "type": "http_request",
+                        "name": name,
+                        "file": symbol.get("path", ""),
+                        "line": symbol.get("line", 0),
+                        "pattern": name,
+                        "category": "http_request",
+                        "risk": "high",
+                        "metadata": symbol,
+                    }
+                )
 
         for env in self.cache.env_var_usage:
             sources.append(

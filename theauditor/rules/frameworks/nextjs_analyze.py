@@ -428,7 +428,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
-# Taint analysis patterns for Next.js framework
 DANGEROUS_SINKS = frozenset(
     ["dangerouslySetInnerHTML", "eval", "Function", "setTimeout", "setInterval"]
 )

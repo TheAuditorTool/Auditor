@@ -220,16 +220,16 @@ PROPERTY_CHAIN_PATTERNS = frozenset(
     ]
 )
 
-# String variable patterns for detecting string concatenation in loops
+
 STRING_VAR_PATTERNS = frozenset(["str", "text", "result", "output", "html", "message"])
 
-# Pagination keywords for detecting bounded queries
+
 PAGINATION_KEYWORDS = frozenset(["limit", "take", "first", "pagesize", "max"])
 
-# Large file extensions for read operations
+
 LARGE_FILE_EXTENSIONS = frozenset([".log", ".csv", ".json", ".xml", ".sql", ".txt"])
 
-# Performance taint sources (user input that flows into performance-sensitive operations)
+
 PERF_SOURCES = frozenset(
     [
         "req.body",

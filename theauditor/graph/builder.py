@@ -101,7 +101,7 @@ class XGraphBuilder:
         self.module_resolver = ModuleResolver(db_path=str(self.db_path))
         self.ast_parser = ASTParser()
 
-    @lru_cache(maxsize=1024)  # noqa: B019 - long-lived builder, intentional caching
+    @lru_cache(maxsize=1024)
     def _find_tsconfig_context(self, folder_path: Path) -> str:
         """Recursive lookup for the nearest tsconfig.json.
 

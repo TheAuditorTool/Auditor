@@ -37,10 +37,10 @@ METADATA = RuleMetadata(
     requires_jsx_pass=False,
 )
 
-# Counter operation patterns for detecting unprotected increments
+
 COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])
 
-# Task creator functions that don't need await
+
 TASK_CREATORS = frozenset(
     [
         "asyncio.create_task",
@@ -51,10 +51,10 @@ TASK_CREATORS = frozenset(
     ]
 )
 
-# Executor patterns for parallel execution
+
 EXECUTOR_PATTERNS = ["ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit"]
 
-# Shared state taint sources for concurrency analysis
+
 SHARED_STATE_SOURCES = [
     "global",
     "self.",

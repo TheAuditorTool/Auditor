@@ -431,10 +431,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     return findings
 
 
-# Taint analysis patterns for Vue.js framework
-VUE_ADDITIONAL_SINKS = frozenset(
-    ["$refs.innerHTML", "$refs.outerHTML", "this.$refs", "vm.$refs"]
-)
+VUE_ADDITIONAL_SINKS = frozenset(["$refs.innerHTML", "$refs.outerHTML", "this.$refs", "vm.$refs"])
 
 VUE_INPUT_SOURCES = frozenset(
     [

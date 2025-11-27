@@ -10,7 +10,7 @@ from typing import Any
 
 from theauditor.graph.cfg_builder import CFGBuilder
 
-# Adaptive strategy threshold for pathfinding vs block clustering
+
 COMPLEXITY_THRESHOLD = 25
 
 
@@ -291,7 +291,11 @@ class PathCorrelator:
             if not block:
                 continue
 
-            if block["type"] in ["condition", "loop_condition"] and block.get("condition") and i + 1 < len(path_blocks):
+            if (
+                block["type"] in ["condition", "loop_condition"]
+                and block.get("condition")
+                and i + 1 < len(path_blocks)
+            ):
                 next_block = path_blocks[i + 1]
 
                 for edge in edges_dict.get(block_id, []):

@@ -145,7 +145,6 @@ REPOSITORY_PATTERNS = frozenset(
 )
 
 
-# Taint analysis pattern constants - TypeORM query sources
 TYPEORM_SOURCES = frozenset(
     ["find", "findOne", "findOneBy", "findBy", "where", "andWhere", "orWhere", "having"]
 )
