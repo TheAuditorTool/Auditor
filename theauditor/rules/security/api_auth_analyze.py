@@ -17,157 +17,297 @@ Detects:
 - API key authentication issues
 """
 
-
 import sqlite3
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
-# ============================================================================
-# RULE METADATA (Golden Standard)
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
 
 METADATA = RuleMetadata(
     name="api_authentication",
     category="security",
-    target_extensions=['.py', '.js', '.ts'],
-    exclude_patterns=['test/', 'spec.', '__tests__'],
+    target_extensions=[".py", ".js", ".ts"],
+    exclude_patterns=["test/", "spec.", "__tests__"],
     requires_jsx_pass=False,
-    execution_scope="database"  # Database-wide query, not per-file iteration
+    execution_scope="database",
 )
 
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
-# ============================================================================
 
 @dataclass(frozen=True)
 class ApiAuthPatterns:
     """Immutable pattern definitions for API authentication detection."""
 
-    # State-changing HTTP methods that require authentication
-    STATE_CHANGING_METHODS = frozenset([
-        'POST', 'PUT', 'PATCH', 'DELETE', 'post', 'put', 'patch', 'delete'
-    ])
+    STATE_CHANGING_METHODS = frozenset(
+        ["POST", "PUT", "PATCH", "DELETE", "post", "put", "patch", "delete"]
+    )
 
-    # GraphQL mutations that require authentication
-    GRAPHQL_MUTATIONS = frozenset([
-        'mutation', 'Mutation', 'createMutation', 'updateMutation',
-        'deleteMutation', 'upsertMutation'
-    ])
+    GRAPHQL_MUTATIONS = frozenset(
+        [
+            "mutation",
+            "Mutation",
+            "createMutation",
+            "updateMutation",
+            "deleteMutation",
+            "upsertMutation",
+        ]
+    )
 
-    # Authentication middleware/decorator patterns
-    AUTH_MIDDLEWARE = frozenset([
-        # Generic authentication
-        'auth', 'authenticate', 'authenticated', 'authorization', 'authorize',
-        'authorized', 'requireAuth', 'requiresAuth', 'isAuthenticated',
-        'ensureAuthenticated', 'protect', 'protected', 'secure', 'secured',
-        'checkAuth', 'validateAuth', 'verifyAuth', 'authRequired',
+    AUTH_MIDDLEWARE = frozenset(
+        [
+            "auth",
+            "authenticate",
+            "authenticated",
+            "authorization",
+            "authorize",
+            "authorized",
+            "requireAuth",
+            "requiresAuth",
+            "isAuthenticated",
+            "ensureAuthenticated",
+            "protect",
+            "protected",
+            "secure",
+            "secured",
+            "checkAuth",
+            "validateAuth",
+            "verifyAuth",
+            "authRequired",
+            "jwt",
+            "verifyToken",
+            "validateToken",
+            "checkToken",
+            "jwtAuth",
+            "verifyJWT",
+            "validateJWT",
+            "checkJWT",
+            "decodeToken",
+            "verifyJwt",
+            "jwtMiddleware",
+            "jwtRequired",
+            "requireJWT",
+            "jwtVerify",
+            "session",
+            "checkSession",
+            "validateSession",
+            "requireSession",
+            "cookie",
+            "checkCookie",
+            "validateCookie",
+            "sessionAuth",
+            "sessionRequired",
+            "cookieAuth",
+            "cookieRequired",
+            "hasSession",
+            "passport",
+            "passport.authenticate",
+            "ensureLoggedIn",
+            "requireUser",
+            "currentUser",
+            "isLoggedIn",
+            "loggedIn",
+            "ensureUser",
+            "login_required",
+            "permission_required",
+            "requires_auth",
+            "auth_required",
+            "token_required",
+            "api_key_required",
+            "@login_required",
+            "@auth_required",
+            "@authenticated",
+            "[Authorize]",
+            "[Authentication]",
+            "[RequireAuth]",
+            "AuthorizeAttribute",
+            "AuthenticationAttribute",
+            "role",
+            "checkRole",
+            "hasRole",
+            "requireRole",
+            "roleRequired",
+            "permission",
+            "checkPermission",
+            "hasPermission",
+            "permissionRequired",
+            "admin",
+            "requireAdmin",
+            "isAdmin",
+            "checkAdmin",
+            "adminOnly",
+            "rbac",
+            "acl",
+            "checkAcl",
+            "hasAccess",
+            "accessControl",
+            "apiKey",
+            "api_key",
+            "checkApiKey",
+            "validateApiKey",
+            "requireApiKey",
+            "verifyApiKey",
+            "x-api-key",
+            "apiKeyRequired",
+            "apiKeyAuth",
+            "apiKeyMiddleware",
+            "hasApiKey",
+            "oauth",
+            "checkOAuth",
+            "validateOAuth",
+            "oauthAuth",
+            "oauth2",
+            "bearerToken",
+            "bearerAuth",
+            "checkBearer",
+            "guard",
+            "Guard",
+            "authGuard",
+            "AuthGuard",
+            "canActivate",
+            "UseGuards",
+            "@UseGuards",
+            "JwtGuard",
+            "LocalGuard",
+            "middleware",
+            "authMiddleware",
+            "securityMiddleware",
+            "authenticationMiddleware",
+            "authorizationMiddleware",
+            "tokenMiddleware",
+            "userMiddleware",
+        ]
+    )
 
-        # JWT specific
-        'jwt', 'verifyToken', 'validateToken', 'checkToken', 'jwtAuth',
-        'verifyJWT', 'validateJWT', 'checkJWT', 'decodeToken', 'verifyJwt',
-        'jwtMiddleware', 'jwtRequired', 'requireJWT', 'jwtVerify',
+    PUBLIC_ENDPOINT_PATTERNS = frozenset(
+        [
+            "public",
+            "open",
+            "anonymous",
+            "noauth",
+            "no-auth",
+            "skipAuth",
+            "skipAuthentication",
+            "allowAnonymous",
+            "isPublic",
+            "publicRoute",
+            "publicEndpoint",
+            "health",
+            "healthcheck",
+            "health-check",
+            "ping",
+            "status",
+            "version",
+            "metrics",
+            "swagger",
+            "docs",
+            "documentation",
+            "spec",
+        ]
+    )
 
-        # Session/Cookie
-        'session', 'checkSession', 'validateSession', 'requireSession',
-        'cookie', 'checkCookie', 'validateCookie', 'sessionAuth',
-        'sessionRequired', 'cookieAuth', 'cookieRequired', 'hasSession',
+    SENSITIVE_OPERATIONS = frozenset(
+        [
+            "user",
+            "users",
+            "profile",
+            "account",
+            "settings",
+            "password",
+            "reset",
+            "change-password",
+            "update-password",
+            "admin",
+            "administrator",
+            "superuser",
+            "root",
+            "config",
+            "configuration",
+            "system",
+            "backup",
+            "payment",
+            "billing",
+            "invoice",
+            "subscription",
+            "checkout",
+            "purchase",
+            "order",
+            "transaction",
+            "delete",
+            "remove",
+            "destroy",
+            "purge",
+            "truncate",
+            "export",
+            "download",
+            "backup",
+            "restore",
+            "token",
+            "key",
+            "secret",
+            "credential",
+            "certificate",
+            "audit",
+            "log",
+            "security",
+            "permission",
+            "role",
+        ]
+    )
 
-        # Framework specific - Express/Node.js
-        'passport', 'passport.authenticate', 'ensureLoggedIn', 'requireUser',
-        'currentUser', 'isLoggedIn', 'loggedIn', 'ensureUser',
+    RATE_LIMIT_PATTERNS = frozenset(
+        [
+            "rateLimit",
+            "rate-limit",
+            "throttle",
+            "rateLimiter",
+            "speedLimiter",
+            "bruteForce",
+            "ddos",
+            "flood",
+            "requestLimit",
+            "apiLimit",
+            "quotaLimit",
+        ]
+    )
 
-        # Framework specific - Python
-        'login_required', 'permission_required', 'requires_auth',
-        'auth_required', 'token_required', 'api_key_required',
-        '@login_required', '@auth_required', '@authenticated',
+    CSRF_PATTERNS = frozenset(
+        [
+            "csrf",
+            "xsrf",
+            "csrfToken",
+            "xsrfToken",
+            "csrfProtection",
+            "validateCsrf",
+            "checkCsrf",
+            "verifyCsrf",
+            "csrfMiddleware",
+            "doubleCookie",
+            "sameSite",
+            "origin-check",
+        ]
+    )
 
-        # Framework specific - .NET
-        '[Authorize]', '[Authentication]', '[RequireAuth]',
-        'AuthorizeAttribute', 'AuthenticationAttribute',
+    GRAPHQL_PATTERNS = frozenset(
+        [
+            "graphql",
+            "GraphQL",
+            "apollo",
+            "relay",
+            "query",
+            "Query",
+            "mutation",
+            "Mutation",
+            "subscription",
+            "Subscription",
+            "resolver",
+            "Resolver",
+        ]
+    )
 
-        # Role-based access control
-        'role', 'checkRole', 'hasRole', 'requireRole', 'roleRequired',
-        'permission', 'checkPermission', 'hasPermission', 'permissionRequired',
-        'admin', 'requireAdmin', 'isAdmin', 'checkAdmin', 'adminOnly',
-        'rbac', 'acl', 'checkAcl', 'hasAccess', 'accessControl',
-
-        # API Key authentication
-        'apiKey', 'api_key', 'checkApiKey', 'validateApiKey',
-        'requireApiKey', 'verifyApiKey', 'x-api-key', 'apiKeyRequired',
-        'apiKeyAuth', 'apiKeyMiddleware', 'hasApiKey',
-
-        # OAuth/OAuth2
-        'oauth', 'checkOAuth', 'validateOAuth', 'oauthAuth',
-        'oauth2', 'bearerToken', 'bearerAuth', 'checkBearer',
-
-        # Guards (Angular/NestJS pattern)
-        'guard', 'Guard', 'authGuard', 'AuthGuard', 'canActivate',
-        'UseGuards', '@UseGuards', 'JwtGuard', 'LocalGuard',
-
-        # Other security middleware
-        'middleware', 'authMiddleware', 'securityMiddleware',
-        'authenticationMiddleware', 'authorizationMiddleware',
-        'tokenMiddleware', 'userMiddleware'
-    ])
-
-    # Patterns indicating public/open endpoints (no auth needed)
-    PUBLIC_ENDPOINT_PATTERNS = frozenset([
-        'public', 'open', 'anonymous', 'noauth', 'no-auth',
-        'skipAuth', 'skipAuthentication', 'allowAnonymous',
-        'isPublic', 'publicRoute', 'publicEndpoint', 'health',
-        'healthcheck', 'health-check', 'ping', 'status', 'version',
-        'metrics', 'swagger', 'docs', 'documentation', 'spec'
-    ])
-
-    # Sensitive operations that ALWAYS need auth
-    SENSITIVE_OPERATIONS = frozenset([
-        # User management
-        'user', 'users', 'profile', 'account', 'settings',
-        'password', 'reset', 'change-password', 'update-password',
-
-        # Admin operations
-        'admin', 'administrator', 'superuser', 'root',
-        'config', 'configuration', 'system', 'backup',
-
-        # Financial/payment
-        'payment', 'billing', 'invoice', 'subscription',
-        'checkout', 'purchase', 'order', 'transaction',
-
-        # Data operations
-        'delete', 'remove', 'destroy', 'purge', 'truncate',
-        'export', 'download', 'backup', 'restore',
-
-        # Security operations
-        'token', 'key', 'secret', 'credential', 'certificate',
-        'audit', 'log', 'security', 'permission', 'role'
-    ])
-
-    # Rate limiting patterns (sometimes used instead of auth)
-    RATE_LIMIT_PATTERNS = frozenset([
-        'rateLimit', 'rate-limit', 'throttle', 'rateLimiter',
-        'speedLimiter', 'bruteForce', 'ddos', 'flood',
-        'requestLimit', 'apiLimit', 'quotaLimit'
-    ])
-
-    # CSRF protection patterns
-    CSRF_PATTERNS = frozenset([
-        'csrf', 'xsrf', 'csrfToken', 'xsrfToken', 'csrfProtection',
-        'validateCsrf', 'checkCsrf', 'verifyCsrf', 'csrfMiddleware',
-        'doubleCookie', 'sameSite', 'origin-check'
-    ])
-
-    # GraphQL specific patterns
-    GRAPHQL_PATTERNS = frozenset([
-        'graphql', 'GraphQL', 'apollo', 'relay',
-        'query', 'Query', 'mutation', 'Mutation',
-        'subscription', 'Subscription', 'resolver', 'Resolver'
-    ])
-
-
-# ============================================================================
-# ANALYZER CLASS (Golden Standard)
-# ============================================================================
 
 class ApiAuthAnalyzer:
     """Analyzer for API authentication security issues."""
@@ -195,7 +335,6 @@ class ApiAuthAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run authentication checks
             self._check_missing_auth_on_mutations()
             self._check_sensitive_endpoints()
             self._check_graphql_mutations()
@@ -209,11 +348,10 @@ class ApiAuthAnalyzer:
 
     def _check_missing_auth_on_mutations(self):
         """Check for state-changing endpoints without authentication."""
-        # Convert patterns to lowercase for case-insensitive matching
+
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
-        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
             SELECT
                 ae.file,
@@ -231,48 +369,41 @@ class ApiAuthAnalyzer:
         """)
 
         for file, line, method, pattern, controls_str in self.cursor.fetchall():
-            # Parse controls from concatenated string
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            controls = controls_str.split('|') if controls_str else []
+            controls = controls_str.split("|") if controls_str else []
 
-            # Convert to lowercase for matching
             controls_lower = [str(c).lower() for c in controls if c]
-            pattern_lower = pattern.lower() if pattern else ''
+            pattern_lower = pattern.lower() if pattern else ""
 
-            # Check if this is explicitly a public endpoint
             is_public = any(pub in pattern_lower for pub in public_patterns_lower)
             if is_public:
-                continue  # Skip public endpoints
+                continue
 
-            # Check for authentication middleware
             has_auth = any(
-                any(auth in control for auth in auth_patterns_lower)
-                for control in controls_lower
+                any(auth in control for auth in auth_patterns_lower) for control in controls_lower
             )
 
             if not has_auth:
-                # Determine severity based on endpoint pattern
                 severity = self._determine_severity(pattern, method)
                 confidence = self._determine_confidence(pattern, controls)
 
-                self.findings.append(StandardFinding(
-                    rule_name='api-missing-auth',
-                    message=f'State-changing endpoint lacks authentication: {method} {pattern}',
-                    file_path=file,
-                    line=line or 1,
-                    severity=severity,
-                    category='authentication',
-                    confidence=confidence,
-                    cwe_id='CWE-306'  # Missing Authentication for Critical Function
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="api-missing-auth",
+                        message=f"State-changing endpoint lacks authentication: {method} {pattern}",
+                        file_path=file,
+                        line=line or 1,
+                        severity=severity,
+                        category="authentication",
+                        confidence=confidence,
+                        cwe_id="CWE-306",
+                    )
+                )
 
     def _check_sensitive_endpoints(self):
         """Check if sensitive operations have proper authentication."""
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
             SELECT
                 ae.file,
@@ -289,35 +420,31 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_str in self.cursor.fetchall():
-            # Check if pattern contains any sensitive operation
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            pattern_lower = pattern.lower() if pattern else ''
+        for file, line, _method, pattern, controls_str in self.cursor.fetchall():
+            pattern_lower = pattern.lower() if pattern else ""
             if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
                 continue
 
-            # Parse controls from concatenated string
-            controls = controls_str.split('|') if controls_str else []
+            controls = controls_str.split("|") if controls_str else []
             controls_lower = [str(c).lower() for c in controls if c]
 
-            # Check for authentication
             has_auth = any(
-                any(auth in control for auth in auth_patterns_lower)
-                for control in controls_lower
+                any(auth in control for auth in auth_patterns_lower) for control in controls_lower
             )
 
             if not has_auth:
-                self.findings.append(StandardFinding(
-                    rule_name='api-sensitive-no-auth',
-                    message=f'Sensitive endpoint "{pattern}" lacks authentication',
-                    file_path=file,
-                    line=line or 1,
-                    severity=Severity.CRITICAL,
-                    category='authentication',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-306'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="api-sensitive-no-auth",
+                        message=f'Sensitive endpoint "{pattern}" lacks authentication',
+                        file_path=file,
+                        line=line or 1,
+                        severity=Severity.CRITICAL,
+                        category="authentication",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-306",
+                    )
+                )
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication using database queries.
@@ -327,15 +454,14 @@ class ApiAuthAnalyzer:
         - graphql_fields (to get mutation fields)
         - graphql_resolver_mappings (to find resolver implementations)
         """
-        # Check if GraphQL tables exist (may not be in all databases)
+
         self.cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='graphql_resolver_mappings'
         """)
         if not self.cursor.fetchone():
-            return  # No GraphQL data indexed, skip
+            return
 
-        # Find all Mutation fields with their resolver paths
         self.cursor.execute("""
             SELECT
                 f.field_name,
@@ -351,46 +477,58 @@ class ApiAuthAnalyzer:
             ORDER BY f.field_name
         """)
 
-        for field_name, field_line, schema_path, resolver_path, resolver_line, directives_json in self.cursor.fetchall():
-            # Check for @auth directive on field
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
+        for (
+            field_name,
+            field_line,
+            schema_path,
+            resolver_path,
+            resolver_line,
+            directives_json,
+        ) in self.cursor.fetchall():
             has_auth_directive = False
             if directives_json:
                 import json
+
                 try:
                     directives = json.loads(directives_json)
                     for directive in directives:
-                        if any(auth in directive.get('name', '') for auth in ['@auth', '@authenticated', '@requireAuth', '@authorize']):
+                        if any(
+                            auth in directive.get("name", "")
+                            for auth in ["@auth", "@authenticated", "@requireAuth", "@authorize"]
+                        ):
                             has_auth_directive = True
                             break
                 except json.JSONDecodeError:
                     pass
 
             if has_auth_directive:
-                continue  # Has auth directive, skip
+                continue
 
-            # Check if resolver exists and has auth nearby
             if resolver_path and resolver_line:
                 has_auth = self._check_auth_nearby(resolver_path, resolver_line)
                 if has_auth:
-                    continue  # Has auth check, skip
+                    continue
 
-            # No authentication found - report finding
-            self.findings.append(StandardFinding(
-                rule_name='graphql-mutation-no-auth',
-                message=f'GraphQL mutation "{field_name}" lacks authentication directive or resolver protection',
-                file_path=schema_path if schema_path else resolver_path if resolver_path else 'unknown',
-                line=field_line if field_line else resolver_line if resolver_line else 0,
-                severity=Severity.HIGH,
-                category='authentication',
-                confidence=Confidence.HIGH,  # Upgraded from MEDIUM since database-based detection is more accurate
-                cwe_id='CWE-306'
-            ))
+            self.findings.append(
+                StandardFinding(
+                    rule_name="graphql-mutation-no-auth",
+                    message=f'GraphQL mutation "{field_name}" lacks authentication directive or resolver protection',
+                    file_path=schema_path
+                    if schema_path
+                    else resolver_path
+                    if resolver_path
+                    else "unknown",
+                    line=field_line if field_line else resolver_line if resolver_line else 0,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-306",
+                )
+            )
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-        # JOIN with api_endpoint_controls to get controls for each endpoint
+
         self.cursor.execute("""
             SELECT
                 ae.file,
@@ -407,42 +545,42 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_concat in self.cursor.fetchall():
-            # Parse controls from concatenated string
-            controls = controls_concat.split('|') if controls_concat else []
-            controls_str = ' '.join(str(c).lower() for c in controls if c)
+        for file, line, _method, pattern, controls_concat in self.cursor.fetchall():
+            controls = controls_concat.split("|") if controls_concat else []
+            controls_str = " ".join(str(c).lower() for c in controls if c)
 
-            # Check for basic auth (weak)
-            if 'basic' in controls_str and 'auth' in controls_str:
-                self.findings.append(StandardFinding(
-                    rule_name='api-basic-auth',
-                    message=f'Basic authentication used for {pattern}',
-                    file_path=file,
-                    line=line or 1,
-                    severity=Severity.MEDIUM,
-                    category='authentication',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-344'  # Use of Weak Authentication
-                ))
+            if "basic" in controls_str and "auth" in controls_str:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="api-basic-auth",
+                        message=f"Basic authentication used for {pattern}",
+                        file_path=file,
+                        line=line or 1,
+                        severity=Severity.MEDIUM,
+                        category="authentication",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-344",
+                    )
+                )
 
-            # Check for API key in URL (bad practice)
-            if pattern and ('api_key=' in pattern or 'apikey=' in pattern):
-                self.findings.append(StandardFinding(
-                    rule_name='api-key-in-url',
-                    message=f'API key passed in URL: {pattern}',
-                    file_path=file,
-                    line=line or 1,
-                    severity=Severity.HIGH,
-                    category='authentication',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-598'  # Information Exposure Through Query Strings
-                ))
+            if pattern and ("api_key=" in pattern or "apikey=" in pattern):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="api-key-in-url",
+                        message=f"API key passed in URL: {pattern}",
+                        file_path=file,
+                        line=line or 1,
+                        severity=Severity.HIGH,
+                        category="authentication",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-598",
+                    )
+                )
 
     def _check_csrf_protection(self):
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
             SELECT
                 ae.file,
@@ -460,46 +598,45 @@ class ApiAuthAnalyzer:
         """)
 
         for file, line, method, pattern, controls_str in self.cursor.fetchall():
-            # Skip if this looks like a pure API endpoint
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
+            if pattern and ("/api/" in pattern or "/v1/" in pattern or "/v2/" in pattern):
                 continue
 
-            # Parse controls from concatenated string
-            controls = controls_str.split('|') if controls_str else []
+            controls = controls_str.split("|") if controls_str else []
             controls_lower = [str(c).lower() for c in controls if c]
 
-            # Check for CSRF protection
             has_csrf = any(
-                any(csrf in control for csrf in csrf_patterns_lower)
-                for control in controls_lower
+                any(csrf in control for csrf in csrf_patterns_lower) for control in controls_lower
             )
 
             if not has_csrf:
-                self.findings.append(StandardFinding(
-                    rule_name='api-missing-csrf',
-                    message=f'State-changing endpoint lacks CSRF protection: {method} {pattern}',
-                    file_path=file,
-                    line=line or 1,
-                    severity=Severity.MEDIUM,
-                    category='authentication',
-                    confidence=Confidence.LOW,  # Low confidence as it might be an API
-                    cwe_id='CWE-352'  # Cross-Site Request Forgery
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="api-missing-csrf",
+                        message=f"State-changing endpoint lacks CSRF protection: {method} {pattern}",
+                        file_path=file,
+                        line=line or 1,
+                        severity=Severity.MEDIUM,
+                        category="authentication",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-352",
+                    )
+                )
 
     def _check_auth_nearby(self, file: str, line: int) -> bool:
         """Check if there's authentication middleware nearby."""
         auth_patterns = list(self.patterns.AUTH_MIDDLEWARE)
-        placeholders = ','.join('?' * len(auth_patterns))
+        placeholders = ",".join("?" * len(auth_patterns))
 
-        self.cursor.execute(f"""
+        self.cursor.execute(
+            f"""
             SELECT COUNT(*) FROM function_call_args
             WHERE file = ?
               AND ABS(line - ?) <= 20
               AND callee_function IN ({placeholders})
             LIMIT 1
-        """, [file, line] + auth_patterns)
+        """,
+            [file, line] + auth_patterns,
+        )
 
         return self.cursor.fetchone()[0] > 0
 
@@ -510,52 +647,41 @@ class ApiAuthAnalyzer:
 
         pattern_lower = pattern.lower()
 
-        # Critical severity for sensitive operations
         for sensitive in self.patterns.SENSITIVE_OPERATIONS:
             if sensitive.lower() in pattern_lower:
                 return Severity.CRITICAL
 
-        # DELETE operations are always high severity
-        if method.upper() == 'DELETE':
+        if method.upper() == "DELETE":
             return Severity.HIGH
 
-        # User/admin operations are critical
-        if any(word in pattern_lower for word in ['admin', 'user', 'account', 'password']):
+        if any(word in pattern_lower for word in ["admin", "user", "account", "password"]):
             return Severity.CRITICAL
 
-        # Financial operations are critical
-        if any(word in pattern_lower for word in ['payment', 'billing', 'checkout']):
+        if any(word in pattern_lower for word in ["payment", "billing", "checkout"]):
             return Severity.CRITICAL
 
         return Severity.HIGH
 
     def _determine_confidence(self, pattern: str, controls: list) -> Confidence:
         """Determine confidence level based on available information."""
-        # High confidence if we have clear pattern and no controls
+
         if pattern and not controls:
             return Confidence.HIGH
 
-        # Medium confidence if we have controls but no auth detected
         if controls:
-            # Check if there might be custom auth we didn't detect
-            controls_str = ' '.join(str(c) for c in controls)
-            if 'custom' in controls_str.lower() or 'internal' in controls_str.lower():
+            controls_str = " ".join(str(c) for c in controls)
+            if "custom" in controls_str.lower() or "internal" in controls_str.lower():
                 return Confidence.LOW
 
             return Confidence.MEDIUM
 
-        # Low confidence if pattern suggests it might be public
         if pattern:
             pattern_lower = pattern.lower()
-            if any(word in pattern_lower for word in ['public', 'open', 'health']):
+            if any(word in pattern_lower for word in ["public", "open", "health"]):
                 return Confidence.LOW
 
         return Confidence.MEDIUM
 
-
-# ============================================================================
-# MISSING DATABASE FEATURES FLAGGED
-# ============================================================================
 
 """
 FLAGGED: Missing database features for better API auth detection:
@@ -582,10 +708,6 @@ FLAGGED: Missing database features for better API auth detection:
 """
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
-
 def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect API authentication security issues.
 
@@ -599,10 +721,6 @@ def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     return analyzer.analyze()
 
 
-# ============================================================================
-# TAINT REGISTRATION (For Orchestrator)
-# ============================================================================
-
 def register_taint_patterns(taint_registry):
     """Register API auth-specific taint patterns.
 
@@ -611,14 +729,11 @@ def register_taint_patterns(taint_registry):
     """
     patterns = ApiAuthPatterns()
 
-    # Register sensitive operations as sinks
     for pattern in patterns.SENSITIVE_OPERATIONS:
         taint_registry.register_sink(pattern, "sensitive_operation", "api")
 
-    # Register auth middleware as sanitizers (they clean/validate)
     for pattern in patterns.AUTH_MIDDLEWARE:
         taint_registry.register_sanitizer(pattern, "api")
 
-    # Register public patterns as sources (untrusted)
     for pattern in patterns.PUBLIC_ENDPOINT_PATTERNS:
         taint_registry.register_source(pattern, "public_endpoint", "api")

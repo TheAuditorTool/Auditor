@@ -11,10 +11,8 @@ Created as part of: python-extractor-consolidation-fidelity
 Purpose: Prevent the 22MB data loss bug from recurring
 """
 
-import pytest
-from theauditor.indexer.schemas.python_schema import PYTHON_TABLES
 from theauditor.indexer.schema import TABLES
-
+from theauditor.indexer.schemas.python_schema import PYTHON_TABLES
 
 # Known columns that are infrastructure, not extractor output
 INFRASTRUCTURE_COLUMNS = {'id', 'file', 'line'}
@@ -94,9 +92,9 @@ class TestSchemaContract:
 
     def test_total_tables_count(self):
         """Verify total table count matches assertion in schema.py."""
-        # Updated 2025-11-26: 136 + 8 Node junction tables = 144
-        assert len(TABLES) == 144, (
-            f"Expected 144 total tables, got {len(TABLES)}. "
+        # Updated 2025-11-27: 146 + 8 Node junction tables = 154
+        assert len(TABLES) == 154, (
+            f"Expected 154 total tables, got {len(TABLES)}. "
             "Update this test if intentionally adding/removing tables."
         )
 
@@ -112,7 +110,7 @@ class TestSchemaContract:
                 violations.append(f"{table_name}: {forbidden_found}")
 
         assert not violations, (
-            f"JSON blob columns still exist (should use junction tables):\n"
+            "JSON blob columns still exist (should use junction tables):\n"
             + "\n".join(violations)
         )
 
@@ -120,7 +118,7 @@ class TestSchemaContract:
         """Verify tables with consolidated extractors have *_kind discriminator."""
         violations = []
 
-        for table_name, (kind_col, type_col) in TWO_DISCRIMINATOR_TABLES.items():
+        for table_name, (kind_col, _type_col) in TWO_DISCRIMINATOR_TABLES.items():
             if table_name not in PYTHON_TABLES:
                 violations.append(f"{table_name}: table not found")
                 continue
@@ -135,7 +133,7 @@ class TestSchemaContract:
             # Just verify kind_col exists
 
         assert not violations, (
-            f"Two-discriminator pattern violations:\n"
+            "Two-discriminator pattern violations:\n"
             + "\n".join(violations)
         )
 
@@ -190,7 +188,7 @@ class TestSchemaContract:
                 violations.append(f"{table_name}: missing 'line' column")
 
         assert not violations, (
-            f"Tables missing required columns:\n"
+            "Tables missing required columns:\n"
             + "\n".join(violations)
         )
 
@@ -213,7 +211,7 @@ class TestSchemaContract:
                     break
 
         assert not violations, (
-            f"Discriminator columns should be NOT NULL:\n"
+            "Discriminator columns should be NOT NULL:\n"
             + "\n".join(violations)
         )
 

@@ -7,7 +7,6 @@ IMPORTANT UTILITIES:
   This function normalizes both to match.
 """
 
-
 import hashlib
 import json
 from pathlib import Path
@@ -16,22 +15,6 @@ from typing import Any
 from .logger import setup_logger
 
 logger = setup_logger(__name__)
-
-
-# =============================================================================
-# PATH NORMALIZATION - CRITICAL FOR DATABASE QUERIES
-# =============================================================================
-#
-# The database stores file paths as Unix-style relative paths:
-#   - Forward slashes: theauditor/context/query.py
-#   - Relative to project root: No C:\Users\... prefix
-#
-# Users (and Windows) may pass:
-#   - Backslashes: theauditor\context\query.py
-#   - Absolute paths: C:\Users\santa\Desktop\TheAuditor\theauditor\context\query.py
-#
-# ALL database queries using file paths MUST normalize first.
-# =============================================================================
 
 
 def normalize_path_for_db(file_path: str, project_root: Path | str | None = None) -> str:
@@ -77,23 +60,19 @@ def normalize_path_for_db(file_path: str, project_root: Path | str | None = None
             cursor.execute("SELECT * FROM symbols WHERE path LIKE ?",
                           (f"%{normalized}",))
     """
-    # Step 1: Convert backslashes to forward slashes
+
     normalized = file_path.replace("\\", "/")
 
-    # Step 2: Strip project root if provided
     if project_root is not None:
         root_str = str(project_root).replace("\\", "/")
-        # Remove trailing slash from root for clean comparison
+
         root_str = root_str.rstrip("/")
 
         if normalized.startswith(root_str + "/"):
-            # Exact match with separator - strip root and separator
-            normalized = normalized[len(root_str) + 1:]
+            normalized = normalized[len(root_str) + 1 :]
         elif normalized.startswith(root_str):
-            # Root without trailing content - strip root only
-            normalized = normalized[len(root_str):]
+            normalized = normalized[len(root_str) :]
 
-    # Step 3: Strip any leading slashes
     normalized = normalized.lstrip("/")
 
     return normalized
@@ -132,7 +111,7 @@ def load_json_file(file_path: str) -> dict[str, Any]:
         PermissionError: If file cannot be read
     """
     try:
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         logger.error(f"JSON file not found: {file_path}")
@@ -174,18 +153,18 @@ def count_lines_in_file(file_path: Path) -> int:
 def extract_data_array(data: Any, key: str, path: str) -> list:
     """
     Extract array from potentially wrapped data structure.
-    
+
     This function provides a standardized way to handle both legacy flat arrays
     and current wrapped object formats that include metadata.
-    
+
     Args:
         data: The loaded JSON data (could be dict, list, or other)
         key: The key to look for if data is a dictionary
         path: The file path for logging warnings
-        
+
     Returns:
         The extracted list of items, or empty list if invalid format
-        
+
     Examples:
         >>> extract_data_array({"results": [1, 2, 3]}, "results", "file.json")
         [1, 2, 3]
@@ -195,13 +174,10 @@ def extract_data_array(data: Any, key: str, path: str) -> list:
         []
     """
     if isinstance(data, dict) and key in data:
-        # Current format: wrapped with metadata
         return data[key]
     elif isinstance(data, list):
-        # Legacy format: flat array (backward compatibility)
         return data
     else:
-        # Invalid format - log warning and return empty list
         logger.warning(f"Invalid format in {path} - expected dict with '{key}' key or flat list")
         return []
 
@@ -209,20 +185,19 @@ def extract_data_array(data: Any, key: str, path: str) -> list:
 def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
     """
     Get exclusion patterns for TheAuditor's own files.
-    
+
     Centralized function to provide consistent exclusion patterns
     across all commands that support --exclude-self.
-    
+
     Args:
         exclude_self_enabled: Whether to exclude TheAuditor's own files
-        
+
     Returns:
         List of exclusion patterns if enabled, empty list otherwise
     """
     if not exclude_self_enabled:
         return []
 
-    # Exclude all TheAuditor's own directories
     patterns = [
         "theauditor/**",
         "tests/**",
@@ -232,14 +207,12 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
         ".auditor_venv/**",
     ]
 
-    # Exclude ALL root-level files to prevent framework/project detection
-    # This makes TheAuditor think there's no project at root level
     root_files_to_exclude = [
         "pyproject.toml",
-        "pyproject.toml.bak",  # Created by deps --upgrade-all
-        "package.json.bak",  # Created by deps --upgrade-all
-        "requirements*.txt.bak",  # Created by deps --upgrade-all
-        "*.bak",  # Catch any other backup files from deps
+        "pyproject.toml.bak",
+        "package.json.bak",
+        "requirements*.txt.bak",
+        "*.bak",
         "package-template.json",
         "Makefile",
         "Dockerfile",
@@ -251,7 +224,7 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
         "requirements*.txt",
         "tox.ini",
         ".dockerignore",
-        "*.md",  # All markdown files at root
+        "*.md",
         "LICENSE*",
         ".gitignore",
         ".gitattributes",

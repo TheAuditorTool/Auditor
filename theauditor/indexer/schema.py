@@ -45,36 +45,27 @@ Schema Contract:
 - Breaking changes detected at runtime, not production
 """
 
-
 import sqlite3
 
-# Import utility classes from schemas/utils.py
+from .schemas.core_schema import CORE_TABLES
+from .schemas.frameworks_schema import FRAMEWORKS_TABLES
+from .schemas.graphql_schema import GRAPHQL_TABLES
+from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
+from .schemas.node_schema import NODE_TABLES
+from .schemas.planning_schema import PLANNING_TABLES
+from .schemas.python_schema import PYTHON_TABLES
+from .schemas.security_schema import SECURITY_TABLES
 from .schemas.utils import TableSchema
 
-# Import all table registries
-from .schemas.core_schema import CORE_TABLES
-from .schemas.security_schema import SECURITY_TABLES
-from .schemas.frameworks_schema import FRAMEWORKS_TABLES
-from .schemas.python_schema import PYTHON_TABLES
-from .schemas.node_schema import NODE_TABLES
-from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
-from .schemas.planning_schema import PLANNING_TABLES
-from .schemas.graphql_schema import GRAPHQL_TABLES
-
-
-# ============================================================================
-# SCHEMA REGISTRY - Single source of truth (merged from all modules)
-# ============================================================================
-
 TABLES: dict[str, TableSchema] = {
-    **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
-    **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
-    **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
-    **PYTHON_TABLES,         # 35 tables (Python-specific: 8 original + 20 consolidated + 2 decomposed + 5 junction)
-    **NODE_TABLES,           # 46 tables (React/Vue/TypeScript/Angular/Sequelize + build tools + 18 junction)
-    **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
-    **PLANNING_TABLES,       # 9 tables (Planning/meta-system + refactor candidates + Eric's Framework)
-    **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
+    **CORE_TABLES,
+    **SECURITY_TABLES,
+    **FRAMEWORKS_TABLES,
+    **PYTHON_TABLES,
+    **NODE_TABLES,
+    **INFRASTRUCTURE_TABLES,
+    **PLANNING_TABLES,
+    **GRAPHQL_TABLES,
 }
 
 # Total: 155 tables (after 2025-11-28 framework_taint_patterns for polyglot taint)
@@ -90,198 +81,171 @@ assert len(TABLES) == 155, f"Schema contract violation: Expected 155 tables, got
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
-# ============================================================================
-# RE-EXPORT INDIVIDUAL TABLE CONSTANTS (Backward Compatibility)
-# ============================================================================
-# Consumer code and tests may import individual table constants directly.
-# Extract all table schemas from the merged registry and export them.
-#
-# Tables are organized by their source module for maintainability.
-
-# -------------------------
-# CORE TABLES (21 tables from schemas/core_schema.py)
-# -------------------------
-FILES = TABLES['files']
-CONFIG_FILES = TABLES['config_files']
-REFS = TABLES['refs']
-SYMBOLS = TABLES['symbols']
-SYMBOLS_JSX = TABLES['symbols_jsx']
-ASSIGNMENTS = TABLES['assignments']
-ASSIGNMENTS_JSX = TABLES['assignments_jsx']
-ASSIGNMENT_SOURCES = TABLES['assignment_sources']
-ASSIGNMENT_SOURCES_JSX = TABLES['assignment_sources_jsx']
-FUNCTION_CALL_ARGS = TABLES['function_call_args']
-FUNCTION_CALL_ARGS_JSX = TABLES['function_call_args_jsx']
-FUNCTION_RETURNS = TABLES['function_returns']
-FUNCTION_RETURNS_JSX = TABLES['function_returns_jsx']
-FUNCTION_RETURN_SOURCES = TABLES['function_return_sources']
-FUNCTION_RETURN_SOURCES_JSX = TABLES['function_return_sources_jsx']
-VARIABLE_USAGE = TABLES['variable_usage']
-OBJECT_LITERALS = TABLES['object_literals']
-CFG_BLOCKS = TABLES['cfg_blocks']
-CFG_EDGES = TABLES['cfg_edges']
-CFG_BLOCK_STATEMENTS = TABLES['cfg_block_statements']
-FINDINGS_CONSOLIDATED = TABLES['findings_consolidated']
-
-# -------------------------
-# SECURITY TABLES (7 tables from schemas/security_schema.py)
-# -------------------------
-SQL_OBJECTS = TABLES['sql_objects']
-SQL_QUERIES = TABLES['sql_queries']
-SQL_QUERY_TABLES = TABLES['sql_query_tables']
-JWT_PATTERNS = TABLES['jwt_patterns']
-ENV_VAR_USAGE = TABLES['env_var_usage']
-TAINT_FLOWS = TABLES['taint_flows']  # Legacy table
-RESOLVED_FLOW_AUDIT = TABLES['resolved_flow_audit']  # Phase 6: Full provenance
-
-# -------------------------
-# FRAMEWORK TABLES (5 tables from schemas/frameworks_schema.py)
-# -------------------------
-ORM_QUERIES = TABLES['orm_queries']
-ORM_RELATIONSHIPS = TABLES['orm_relationships']
-PRISMA_MODELS = TABLES['prisma_models']
-API_ENDPOINTS = TABLES['api_endpoints']
-API_ENDPOINT_CONTROLS = TABLES['api_endpoint_controls']
-
-# -------------------------
-# PYTHON TABLES (30 tables from schemas/python_schema.py)
-# -------------------------
-# ORIGINAL TABLES (8 with verified consumers)
-# ORM - consumers: overfetch.py, discovery.py, schema_cache_adapter.py
-PYTHON_ORM_MODELS = TABLES['python_orm_models']
-PYTHON_ORM_FIELDS = TABLES['python_orm_fields']
-
-# Routes - consumers: boundary_analyzer.py, deadcode_graph.py, query.py
-PYTHON_ROUTES = TABLES['python_routes']
-
-# Validators - consumers: discovery.py (via SchemaMemoryCache)
-PYTHON_VALIDATORS = TABLES['python_validators']
-
-# Package configs - consumers: deps.py, blueprint.py
-PYTHON_PACKAGE_CONFIGS = TABLES['python_package_configs']
-
-# Decorators - consumers: interceptors.py, deadcode_graph.py, query.py
-PYTHON_DECORATORS = TABLES['python_decorators']
-
-# Django - consumers: interceptors.py
-PYTHON_DJANGO_VIEWS = TABLES['python_django_views']
-PYTHON_DJANGO_MIDDLEWARE = TABLES['python_django_middleware']
-
-# CONSOLIDATED TABLES (20 new - wire-extractors-to-consolidated-schema)
-# Group 1: Control & Data Flow
-PYTHON_LOOPS = TABLES['python_loops']
-PYTHON_BRANCHES = TABLES['python_branches']
-PYTHON_FUNCTIONS_ADVANCED = TABLES['python_functions_advanced']
-PYTHON_IO_OPERATIONS = TABLES['python_io_operations']
-PYTHON_STATE_MUTATIONS = TABLES['python_state_mutations']
-
-# Group 2: Object-Oriented & Types
-PYTHON_CLASS_FEATURES = TABLES['python_class_features']
-PYTHON_PROTOCOLS = TABLES['python_protocols']
-PYTHON_DESCRIPTORS = TABLES['python_descriptors']
-PYTHON_TYPE_DEFINITIONS = TABLES['python_type_definitions']
-PYTHON_LITERALS = TABLES['python_literals']
-
-# Group 3: Security & Testing
-PYTHON_SECURITY_FINDINGS = TABLES['python_security_findings']
-PYTHON_TEST_CASES = TABLES['python_test_cases']
-PYTHON_TEST_FIXTURES = TABLES['python_test_fixtures']
-PYTHON_FRAMEWORK_CONFIG = TABLES['python_framework_config']
-PYTHON_VALIDATION_SCHEMAS = TABLES['python_validation_schemas']
-
-# Group 4: Low-Level & Misc
-PYTHON_OPERATORS = TABLES['python_operators']
-PYTHON_COLLECTIONS = TABLES['python_collections']
-PYTHON_STDLIB_USAGE = TABLES['python_stdlib_usage']
-PYTHON_IMPORTS_ADVANCED = TABLES['python_imports_advanced']
-PYTHON_EXPRESSIONS = TABLES['python_expressions']
-
-# Group 5: Expression Decomposition (Phase 2 Fidelity Control)
-PYTHON_COMPREHENSIONS = TABLES['python_comprehensions']
-PYTHON_CONTROL_STATEMENTS = TABLES['python_control_statements']
-
-# -------------------------
-# NODE TABLES (17 tables from schemas/node_schema.py)
-# -------------------------
-CLASS_PROPERTIES = TABLES['class_properties']
-TYPE_ANNOTATIONS = TABLES['type_annotations']
-
-# React framework
-REACT_COMPONENTS = TABLES['react_components']
-REACT_COMPONENT_HOOKS = TABLES['react_component_hooks']
-REACT_HOOKS = TABLES['react_hooks']
-REACT_HOOK_DEPENDENCIES = TABLES['react_hook_dependencies']
-
-# Vue framework
-VUE_COMPONENTS = TABLES['vue_components']
-VUE_HOOKS = TABLES['vue_hooks']
-VUE_DIRECTIVES = TABLES['vue_directives']
-VUE_PROVIDE_INJECT = TABLES['vue_provide_inject']
-
-# Package management
-PACKAGE_CONFIGS = TABLES['package_configs']
-DEPENDENCY_VERSIONS = TABLES['dependency_versions']
-LOCK_ANALYSIS = TABLES['lock_analysis']
-IMPORT_STYLES = TABLES['import_styles']
-IMPORT_STYLE_NAMES = TABLES['import_style_names']
-
-# Framework detection
-FRAMEWORKS = TABLES['frameworks']
-FRAMEWORK_SAFE_SINKS = TABLES['framework_safe_sinks']
-VALIDATION_FRAMEWORK_USAGE = TABLES['validation_framework_usage']
-
-# Express framework
-EXPRESS_MIDDLEWARE_CHAINS = TABLES['express_middleware_chains']
-
-# Frontend API calls (cross-boundary flow tracking)
-FRONTEND_API_CALLS = TABLES['frontend_api_calls']
-
-# -------------------------
-# INFRASTRUCTURE TABLES (18 tables from schemas/infrastructure_schema.py)
-# -------------------------
-# Docker
-DOCKER_IMAGES = TABLES['docker_images']
-COMPOSE_SERVICES = TABLES['compose_services']
-NGINX_CONFIGS = TABLES['nginx_configs']
-
-# Terraform
-TERRAFORM_FILES = TABLES['terraform_files']
-TERRAFORM_RESOURCES = TABLES['terraform_resources']
-TERRAFORM_VARIABLES = TABLES['terraform_variables']
-TERRAFORM_VARIABLE_VALUES = TABLES['terraform_variable_values']
-TERRAFORM_OUTPUTS = TABLES['terraform_outputs']
-TERRAFORM_FINDINGS = TABLES['terraform_findings']
-
-# AWS CDK
-CDK_CONSTRUCTS = TABLES['cdk_constructs']
-CDK_CONSTRUCT_PROPERTIES = TABLES['cdk_construct_properties']
-CDK_FINDINGS = TABLES['cdk_findings']
-
-# GitHub Actions
-GITHUB_WORKFLOWS = TABLES['github_workflows']
-GITHUB_JOBS = TABLES['github_jobs']
-GITHUB_JOB_DEPENDENCIES = TABLES['github_job_dependencies']
-GITHUB_STEPS = TABLES['github_steps']
-GITHUB_STEP_OUTPUTS = TABLES['github_step_outputs']
-GITHUB_STEP_REFERENCES = TABLES['github_step_references']
-
-# -------------------------
-# PLANNING TABLES (5 tables from schemas/planning_schema.py)
-# -------------------------
-PLANS = TABLES['plans']
-PLAN_TASKS = TABLES['plan_tasks']
-PLAN_SPECS = TABLES['plan_specs']
-CODE_SNAPSHOTS = TABLES['code_snapshots']
-CODE_DIFFS = TABLES['code_diffs']
+FILES = TABLES["files"]
+CONFIG_FILES = TABLES["config_files"]
+REFS = TABLES["refs"]
+SYMBOLS = TABLES["symbols"]
+SYMBOLS_JSX = TABLES["symbols_jsx"]
+ASSIGNMENTS = TABLES["assignments"]
+ASSIGNMENTS_JSX = TABLES["assignments_jsx"]
+ASSIGNMENT_SOURCES = TABLES["assignment_sources"]
+ASSIGNMENT_SOURCES_JSX = TABLES["assignment_sources_jsx"]
+FUNCTION_CALL_ARGS = TABLES["function_call_args"]
+FUNCTION_CALL_ARGS_JSX = TABLES["function_call_args_jsx"]
+FUNCTION_RETURNS = TABLES["function_returns"]
+FUNCTION_RETURNS_JSX = TABLES["function_returns_jsx"]
+FUNCTION_RETURN_SOURCES = TABLES["function_return_sources"]
+FUNCTION_RETURN_SOURCES_JSX = TABLES["function_return_sources_jsx"]
+VARIABLE_USAGE = TABLES["variable_usage"]
+OBJECT_LITERALS = TABLES["object_literals"]
+CFG_BLOCKS = TABLES["cfg_blocks"]
+CFG_EDGES = TABLES["cfg_edges"]
+CFG_BLOCK_STATEMENTS = TABLES["cfg_block_statements"]
+FINDINGS_CONSOLIDATED = TABLES["findings_consolidated"]
 
 
-# ============================================================================
-# QUERY BUILDER UTILITIES
-# ============================================================================
+SQL_OBJECTS = TABLES["sql_objects"]
+SQL_QUERIES = TABLES["sql_queries"]
+SQL_QUERY_TABLES = TABLES["sql_query_tables"]
+JWT_PATTERNS = TABLES["jwt_patterns"]
+ENV_VAR_USAGE = TABLES["env_var_usage"]
+TAINT_FLOWS = TABLES["taint_flows"]
+RESOLVED_FLOW_AUDIT = TABLES["resolved_flow_audit"]
 
-def build_query(table_name: str, columns: list[str] | None = None,
-                where: str | None = None, order_by: str | None = None,
-                limit: int | None = None) -> str:
+
+ORM_QUERIES = TABLES["orm_queries"]
+ORM_RELATIONSHIPS = TABLES["orm_relationships"]
+PRISMA_MODELS = TABLES["prisma_models"]
+API_ENDPOINTS = TABLES["api_endpoints"]
+API_ENDPOINT_CONTROLS = TABLES["api_endpoint_controls"]
+
+
+PYTHON_ORM_MODELS = TABLES["python_orm_models"]
+PYTHON_ORM_FIELDS = TABLES["python_orm_fields"]
+
+
+PYTHON_ROUTES = TABLES["python_routes"]
+
+
+PYTHON_VALIDATORS = TABLES["python_validators"]
+
+
+PYTHON_PACKAGE_CONFIGS = TABLES["python_package_configs"]
+
+
+PYTHON_DECORATORS = TABLES["python_decorators"]
+
+
+PYTHON_DJANGO_VIEWS = TABLES["python_django_views"]
+PYTHON_DJANGO_MIDDLEWARE = TABLES["python_django_middleware"]
+
+
+PYTHON_LOOPS = TABLES["python_loops"]
+PYTHON_BRANCHES = TABLES["python_branches"]
+PYTHON_FUNCTIONS_ADVANCED = TABLES["python_functions_advanced"]
+PYTHON_IO_OPERATIONS = TABLES["python_io_operations"]
+PYTHON_STATE_MUTATIONS = TABLES["python_state_mutations"]
+
+
+PYTHON_CLASS_FEATURES = TABLES["python_class_features"]
+PYTHON_PROTOCOLS = TABLES["python_protocols"]
+PYTHON_DESCRIPTORS = TABLES["python_descriptors"]
+PYTHON_TYPE_DEFINITIONS = TABLES["python_type_definitions"]
+PYTHON_LITERALS = TABLES["python_literals"]
+
+
+PYTHON_SECURITY_FINDINGS = TABLES["python_security_findings"]
+PYTHON_TEST_CASES = TABLES["python_test_cases"]
+PYTHON_TEST_FIXTURES = TABLES["python_test_fixtures"]
+PYTHON_FRAMEWORK_CONFIG = TABLES["python_framework_config"]
+PYTHON_VALIDATION_SCHEMAS = TABLES["python_validation_schemas"]
+
+
+PYTHON_OPERATORS = TABLES["python_operators"]
+PYTHON_COLLECTIONS = TABLES["python_collections"]
+PYTHON_STDLIB_USAGE = TABLES["python_stdlib_usage"]
+PYTHON_IMPORTS_ADVANCED = TABLES["python_imports_advanced"]
+PYTHON_EXPRESSIONS = TABLES["python_expressions"]
+
+
+PYTHON_COMPREHENSIONS = TABLES["python_comprehensions"]
+PYTHON_CONTROL_STATEMENTS = TABLES["python_control_statements"]
+
+
+CLASS_PROPERTIES = TABLES["class_properties"]
+TYPE_ANNOTATIONS = TABLES["type_annotations"]
+
+
+REACT_COMPONENTS = TABLES["react_components"]
+REACT_COMPONENT_HOOKS = TABLES["react_component_hooks"]
+REACT_HOOKS = TABLES["react_hooks"]
+REACT_HOOK_DEPENDENCIES = TABLES["react_hook_dependencies"]
+
+
+VUE_COMPONENTS = TABLES["vue_components"]
+VUE_HOOKS = TABLES["vue_hooks"]
+VUE_DIRECTIVES = TABLES["vue_directives"]
+VUE_PROVIDE_INJECT = TABLES["vue_provide_inject"]
+
+
+PACKAGE_CONFIGS = TABLES["package_configs"]
+DEPENDENCY_VERSIONS = TABLES["dependency_versions"]
+LOCK_ANALYSIS = TABLES["lock_analysis"]
+IMPORT_STYLES = TABLES["import_styles"]
+IMPORT_STYLE_NAMES = TABLES["import_style_names"]
+
+
+FRAMEWORKS = TABLES["frameworks"]
+FRAMEWORK_SAFE_SINKS = TABLES["framework_safe_sinks"]
+VALIDATION_FRAMEWORK_USAGE = TABLES["validation_framework_usage"]
+
+
+EXPRESS_MIDDLEWARE_CHAINS = TABLES["express_middleware_chains"]
+
+
+FRONTEND_API_CALLS = TABLES["frontend_api_calls"]
+
+
+DOCKER_IMAGES = TABLES["docker_images"]
+COMPOSE_SERVICES = TABLES["compose_services"]
+NGINX_CONFIGS = TABLES["nginx_configs"]
+
+
+TERRAFORM_FILES = TABLES["terraform_files"]
+TERRAFORM_RESOURCES = TABLES["terraform_resources"]
+TERRAFORM_VARIABLES = TABLES["terraform_variables"]
+TERRAFORM_VARIABLE_VALUES = TABLES["terraform_variable_values"]
+TERRAFORM_OUTPUTS = TABLES["terraform_outputs"]
+TERRAFORM_FINDINGS = TABLES["terraform_findings"]
+
+
+CDK_CONSTRUCTS = TABLES["cdk_constructs"]
+CDK_CONSTRUCT_PROPERTIES = TABLES["cdk_construct_properties"]
+CDK_FINDINGS = TABLES["cdk_findings"]
+
+
+GITHUB_WORKFLOWS = TABLES["github_workflows"]
+GITHUB_JOBS = TABLES["github_jobs"]
+GITHUB_JOB_DEPENDENCIES = TABLES["github_job_dependencies"]
+GITHUB_STEPS = TABLES["github_steps"]
+GITHUB_STEP_OUTPUTS = TABLES["github_step_outputs"]
+GITHUB_STEP_REFERENCES = TABLES["github_step_references"]
+
+
+PLANS = TABLES["plans"]
+PLAN_TASKS = TABLES["plan_tasks"]
+PLAN_SPECS = TABLES["plan_specs"]
+CODE_SNAPSHOTS = TABLES["code_snapshots"]
+CODE_DIFFS = TABLES["code_diffs"]
+
+
+def build_query(
+    table_name: str,
+    columns: list[str] | None = None,
+    where: str | None = None,
+    order_by: str | None = None,
+    limit: int | None = None,
+) -> str:
     """
     Build a SELECT query using schema definitions.
 
@@ -306,14 +270,15 @@ def build_query(table_name: str, columns: list[str] | None = None,
         'SELECT name, line FROM symbols WHERE type = \\'function\\' ORDER BY line DESC LIMIT 1'
     """
     if table_name not in TABLES:
-        raise ValueError(f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}")
+        raise ValueError(
+            f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}"
+        )
 
     schema = TABLES[table_name]
 
     if columns is None:
         columns = schema.column_names()
     else:
-        # Validate columns exist
         valid_cols = set(schema.column_names())
         for col in columns:
             if col not in valid_cols:
@@ -322,12 +287,7 @@ def build_query(table_name: str, columns: list[str] | None = None,
                     f"Valid columns: {', '.join(sorted(valid_cols))}"
                 )
 
-    query_parts = [
-        "SELECT",
-        ", ".join(columns),
-        "FROM",
-        table_name
-    ]
+    query_parts = ["SELECT", ", ".join(columns), "FROM", table_name]
 
     if where:
         query_parts.extend(["WHERE", where])
@@ -352,7 +312,7 @@ def build_join_query(
     group_by: list[str] | None = None,
     order_by: str | None = None,
     limit: int | None = None,
-    join_type: str = "LEFT"
+    join_type: str = "LEFT",
 ) -> str:
     """Build a JOIN query using schema definitions and foreign keys.
 
@@ -390,16 +350,19 @@ def build_join_query(
     Raises:
         ValueError: If tables don't exist, columns invalid, or foreign key not found
     """
-    # Validate tables exist
+
     if base_table not in TABLES:
-        raise ValueError(f"Unknown base table: {base_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+        raise ValueError(
+            f"Unknown base table: {base_table}. Available: {', '.join(sorted(TABLES.keys()))}"
+        )
     if join_table not in TABLES:
-        raise ValueError(f"Unknown join table: {join_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+        raise ValueError(
+            f"Unknown join table: {join_table}. Available: {', '.join(sorted(TABLES.keys()))}"
+        )
 
     base_schema = TABLES[base_table]
     join_schema = TABLES[join_table]
 
-    # Validate base columns exist
     base_col_names = set(base_schema.column_names())
     for col in base_columns:
         if col not in base_col_names:
@@ -408,7 +371,6 @@ def build_join_query(
                 f"Valid columns: {', '.join(sorted(base_col_names))}"
             )
 
-    # Validate join columns exist (unless they're being aggregated)
     join_col_names = set(join_schema.column_names())
     for col in join_columns:
         if col not in join_col_names:
@@ -417,9 +379,7 @@ def build_join_query(
                 f"Valid columns: {', '.join(sorted(join_col_names))}"
             )
 
-    # Determine JOIN ON conditions
     if join_on is None:
-        # Auto-discover from foreign keys
         fk = None
         for foreign_key in join_schema.foreign_keys:
             if foreign_key.foreign_table == base_table:
@@ -432,50 +392,38 @@ def build_join_query(
                 f"Either define foreign_keys in schema or provide explicit join_on parameter."
             )
 
-        # Build JOIN conditions from foreign key
         join_on = list(zip(fk.foreign_columns, fk.local_columns, strict=True))
 
-    # Validate JOIN ON columns
     for base_col, join_col in join_on:
         if base_col not in base_col_names:
             raise ValueError(f"JOIN ON column '{base_col}' not found in base table '{base_table}'")
         if join_col not in join_col_names:
             raise ValueError(f"JOIN ON column '{join_col}' not found in join table '{join_table}'")
 
-    # Generate table aliases
-    base_alias = ''.join([c for c in base_table if c.isalpha()])[:2]  # First 2 letters
-    join_alias = ''.join([c for c in join_table if c.isalpha()])[:3]  # First 3 letters
+    base_alias = "".join([c for c in base_table if c.isalpha()])[:2]
+    join_alias = "".join([c for c in join_table if c.isalpha()])[:3]
 
-    # Build SELECT clause
     select_parts = [f"{base_alias}.{col}" for col in base_columns]
 
     if aggregate:
         for col, agg_func in aggregate.items():
-            if agg_func == 'GROUP_CONCAT':
-                select_parts.append(
-                    f"GROUP_CONCAT({join_alias}.{col}, '|') as {col}_concat"
-                )
-            elif agg_func in ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']:
-                select_parts.append(
-                    f"{agg_func}({join_alias}.{col}) as {col}_{agg_func.lower()}"
-                )
+            if agg_func == "GROUP_CONCAT":
+                select_parts.append(f"GROUP_CONCAT({join_alias}.{col}, '|') as {col}_concat")
+            elif agg_func in ["COUNT", "SUM", "AVG", "MIN", "MAX"]:
+                select_parts.append(f"{agg_func}({join_alias}.{col}) as {col}_{agg_func.lower()}")
             else:
                 raise ValueError(
                     f"Unknown aggregation function '{agg_func}'. "
                     f"Supported: GROUP_CONCAT, COUNT, SUM, AVG, MIN, MAX"
                 )
     else:
-        # No aggregation - select join columns directly
         select_parts.extend([f"{join_alias}.{col}" for col in join_columns])
 
-    # Build JOIN ON clause
     on_conditions = [
-        f"{base_alias}.{base_col} = {join_alias}.{join_col}"
-        for base_col, join_col in join_on
+        f"{base_alias}.{base_col} = {join_alias}.{join_col}" for base_col, join_col in join_on
     ]
     on_clause = " AND ".join(on_conditions)
 
-    # Assemble query
     query_parts = [
         "SELECT",
         ", ".join(select_parts),
@@ -484,17 +432,16 @@ def build_join_query(
         f"{join_type} JOIN",
         f"{join_table} {join_alias}",
         "ON",
-        on_clause
+        on_clause,
     ]
 
     if where:
         query_parts.extend(["WHERE", where])
 
     if group_by:
-        # Prefix group_by columns with base alias if not already qualified
         qualified_group_by = []
         for col in group_by:
-            if '.' not in col:
+            if "." not in col:
                 qualified_group_by.append(f"{base_alias}.{col}")
             else:
                 qualified_group_by.append(col)
@@ -540,15 +487,10 @@ def get_table_schema(table_name: str) -> TableSchema:
     """
     if table_name not in TABLES:
         raise ValueError(
-            f"Unknown table: {table_name}. "
-            f"Available tables: {', '.join(sorted(TABLES.keys()))}"
+            f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}"
         )
     return TABLES[table_name]
 
-
-# ============================================================================
-# SELF-TEST
-# ============================================================================
 
 if __name__ == "__main__":
     print("=" * 80)
@@ -570,14 +512,15 @@ if __name__ == "__main__":
     print("Query Builder Examples:")
     print("=" * 80)
 
-    # Test query builder
-    query1 = build_query('variable_usage', ['file', 'line', 'variable_name'])
+    query1 = build_query("variable_usage", ["file", "line", "variable_name"])
     print(f"\nExample 1:\n  {query1}")
 
-    query2 = build_query('sql_queries', where="command != 'UNKNOWN'", order_by="file_path, line_number")
+    query2 = build_query(
+        "sql_queries", where="command != 'UNKNOWN'", order_by="file_path, line_number"
+    )
     print(f"\nExample 2:\n  {query2}")
 
-    query3 = build_query('function_returns')
+    query3 = build_query("function_returns")
     print(f"\nExample 3 (all columns):\n  {query3}")
 
     print("\n" + "=" * 80)

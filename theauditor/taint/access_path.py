@@ -7,7 +7,6 @@ Based on: "IFDS Taint Analysis with Access Paths" (Allen et al., 2021)
 Section 1: Access Paths - page 3
 """
 
-
 from dataclasses import dataclass
 
 
@@ -50,7 +49,7 @@ class AccessPath:
     @property
     def node_id(self) -> str:
         """Convert to graphs.db node ID format: file::function::var.field"""
-        path_str = str(self)  # base or base.field1.field2
+        path_str = str(self)
         return f"{self.file}::{self.function}::{path_str}"
 
     @staticmethod
@@ -75,26 +74,22 @@ class AccessPath:
             AccessPath(file="service.ts", function="save",
                       base="user", fields=())
         """
-        if not node_id or '::' not in node_id:
+        if not node_id or "::" not in node_id:
             return None
 
         parts = node_id.split("::")
 
-        # Handle various formats
         if len(parts) < 2:
             return None
 
         if len(parts) == 2:
-            # "file::variable" (global scope)
             file, var_path = parts
             function = "global"
         else:
-            # "file::function::variable" or "file::function::var.field"
             file = parts[0]
             function = parts[1]
-            var_path = "::".join(parts[2:])  # Handle :: in variable names
+            var_path = "::".join(parts[2:])
 
-        # Parse variable.field.field...
         if not var_path:
             return None
 
@@ -102,16 +97,11 @@ class AccessPath:
         base = var_parts[0]
         fields = tuple(var_parts[1:]) if len(var_parts) > 1 else ()
 
-        # k-limiting: Truncate fields beyond max_length
         if len(fields) > max_length:
             fields = fields[:max_length]
 
         return AccessPath(
-            file=file,
-            function=function,
-            base=base,
-            fields=fields,
-            max_length=max_length
+            file=file, function=function, base=base, fields=fields, max_length=max_length
         )
 
     def matches(self, other: AccessPath) -> bool:
@@ -133,10 +123,8 @@ class AccessPath:
         if self.base != other.base:
             return False
 
-        # Check field prefix match
         min_len = min(len(self.fields), len(other.fields))
         if min_len == 0:
-            # One has no fields (just base var) - conservative match
             return True
 
         return self.fields[:min_len] == other.fields[:min_len]
@@ -156,17 +144,17 @@ class AccessPath:
             AccessPath(..., base="req", fields=("body", "userId"))
         """
         if len(self.fields) >= self.max_length:
-            return None  # k-limiting: truncate
+            return None
 
         return AccessPath(
             file=self.file,
             function=self.function,
             base=self.base,
             fields=self.fields + (field,),
-            max_length=self.max_length
+            max_length=self.max_length,
         )
 
-    def strip_fields(self, count: int) -> "AccessPath":
+    def strip_fields(self, count: int) -> AccessPath:
         """Remove N fields from the end (for reification).
 
         Used in backward analysis when traversing field stores:
@@ -184,13 +172,12 @@ class AccessPath:
             AccessPath(..., base="x", fields=("f",))
         """
         if count >= len(self.fields):
-            # Stripping all fields - just return base
             return AccessPath(
                 file=self.file,
                 function=self.function,
                 base=self.base,
                 fields=(),
-                max_length=self.max_length
+                max_length=self.max_length,
             )
 
         return AccessPath(
@@ -198,10 +185,10 @@ class AccessPath:
             function=self.function,
             base=self.base,
             fields=self.fields[:-count] if count > 0 else self.fields,
-            max_length=self.max_length
+            max_length=self.max_length,
         )
 
-    def change_base(self, new_base: str) -> "AccessPath":
+    def change_base(self, new_base: str) -> AccessPath:
         """Replace the base variable (for assignments: x = y.f).
 
         Args:
@@ -220,7 +207,7 @@ class AccessPath:
             function=self.function,
             base=new_base,
             fields=self.fields,
-            max_length=self.max_length
+            max_length=self.max_length,
         )
 
     def to_pattern_set(self) -> set[str]:

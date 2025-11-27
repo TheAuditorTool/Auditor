@@ -1,6 +1,5 @@
 """Offline ML signals for TheAuditor - manual trigger, non-blocking."""
 
-
 import json
 import os
 import sqlite3
@@ -14,21 +13,106 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import numpy as np
 
-# Safe import of ML dependencies
+
 ML_AVAILABLE = False
 try:
     import joblib
     import numpy as np
+    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.isotonic import IsotonicRegression
     from sklearn.linear_model import Ridge
-    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
 
     ML_AVAILABLE = True
 except ImportError:
     pass
 
-# Schema contract validation
+
+FNV_PRIME = 0x01000193
+FNV_OFFSET = 0x811C9DC5
+
+
+HTTP_LIBS = frozenset(
+    {
+        "requests",
+        "aiohttp",
+        "httpx",
+        "urllib",
+        "axios",
+        "fetch",
+        "superagent",
+        "express",
+        "fastapi",
+        "flask",
+        "django.http",
+        "tornado",
+        "starlette",
+    }
+)
+
+DB_LIBS = frozenset(
+    {
+        "sqlalchemy",
+        "psycopg2",
+        "psycopg",
+        "pymongo",
+        "redis",
+        "django.db",
+        "peewee",
+        "tortoise",
+        "databases",
+        "asyncpg",
+        "sqlite3",
+        "mysql",
+        "mongoose",
+        "sequelize",
+        "typeorm",
+        "prisma",
+        "knex",
+        "pg",
+    }
+)
+
+AUTH_LIBS = frozenset(
+    {
+        "jwt",
+        "pyjwt",
+        "passlib",
+        "oauth",
+        "oauth2",
+        "authlib",
+        "django.contrib.auth",
+        "flask_login",
+        "flask_jwt",
+        "bcrypt",
+        "cryptography",
+        "passport",
+        "jsonwebtoken",
+        "express-jwt",
+        "firebase-auth",
+        "auth0",
+    }
+)
+
+TEST_LIBS = frozenset(
+    {
+        "pytest",
+        "unittest",
+        "mock",
+        "faker",
+        "factory_boy",
+        "hypothesis",
+        "jest",
+        "mocha",
+        "chai",
+        "sinon",
+        "enzyme",
+        "vitest",
+        "testing-library",
+    }
+)
+
+
 _SCHEMA_VALIDATED = False
 
 
@@ -48,31 +132,26 @@ def validate_ml_schema():
     try:
         from theauditor.indexer.schema import get_table_schema
 
-        # Validate refs table columns (used in load_graph_stats, load_semantic_import_features)
         refs_schema = get_table_schema("refs")
         refs_cols = set(refs_schema.column_names())
         assert "src" in refs_cols, "refs table missing 'src' column"
         assert "value" in refs_cols, "refs table missing 'value' column"
         assert "kind" in refs_cols, "refs table missing 'kind' column"
 
-        # Validate symbols table columns (used in load_ast_complexity_metrics)
         symbols_schema = get_table_schema("symbols")
         symbols_cols = set(symbols_schema.column_names())
         assert "path" in symbols_cols, "symbols table missing 'path' column"
         assert "type" in symbols_cols, "symbols table missing 'type' column"
         assert "name" in symbols_cols, "symbols table missing 'name' column"
 
-        # Validate api_endpoints table columns (used in load_graph_stats)
         api_endpoints_schema = get_table_schema("api_endpoints")
         api_cols = set(api_endpoints_schema.column_names())
         assert "file" in api_cols, "api_endpoints table missing 'file' column"
 
-        # Validate sql_objects table columns (used in load_graph_stats)
         sql_objects_schema = get_table_schema("sql_objects")
         sql_cols = set(sql_objects_schema.column_names())
         assert "file" in sql_cols, "sql_objects table missing 'file' column"
 
-        # Validate new enhancement tables
         jwt_patterns_schema = get_table_schema("jwt_patterns")
         jwt_cols = set(jwt_patterns_schema.column_names())
         assert "file_path" in jwt_cols, "jwt_patterns table missing 'file_path' column"
@@ -109,12 +188,10 @@ def validate_ml_schema():
         _SCHEMA_VALIDATED = True
 
     except ImportError:
-        # Schema module not available - skip validation
         pass
     except AssertionError as e:
-        # Schema mismatch - log but don't crash
         print(f"[ML] Schema validation warning: {e}")
-        _SCHEMA_VALIDATED = True  # Mark as validated to avoid repeated warnings
+        _SCHEMA_VALIDATED = True
 
 
 def check_ml_available():
@@ -123,16 +200,13 @@ def check_ml_available():
         print("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
         print("These are now installed by default. Reinstall: pip install -e .")
         return False
-    # Validate schema contract on first ML operation
+
     validate_ml_schema()
     return True
 
 
 def fowler_noll_hash(text: str, dim: int = 2000) -> int:
     """Simple FNV-1a hash for text feature hashing."""
-    FNV_PRIME = 0x01000193
-    FNV_OFFSET = 0x811C9DC5
-
     hash_val = FNV_OFFSET
     for char in text.encode("utf-8"):
         hash_val ^= char
@@ -147,21 +221,18 @@ def extract_text_features(
     """Extract hashed text features from path and RCA messages."""
     features = defaultdict(float)
 
-    # Hash path components
     parts = Path(path).parts
     for part in parts:
         idx = fowler_noll_hash(part, dim)
         features[idx] += 1.0
 
-    # Hash basename
     basename = Path(path).name
     idx = fowler_noll_hash(basename, dim)
     features[idx] += 2.0
 
-    # Hash RCA messages if present
     if rca_messages:
-        for msg in rca_messages[:5]:  # Limit to recent 5
-            tokens = msg.lower().split()[:10]  # First 10 tokens
+        for msg in rca_messages[:5]:
+            tokens = msg.lower().split()[:10]
             for token in tokens:
                 idx = fowler_noll_hash(token, dim)
                 features[idx] += 0.5
@@ -193,16 +264,13 @@ def load_journal_stats(
     )
 
     try:
-        # Find historical journal files based on run type
         if run_type == "full":
             journal_files = list(history_dir.glob("full/*/journal.ndjson"))
         elif run_type == "diff":
             journal_files = list(history_dir.glob("diff/*/journal.ndjson"))
-        else:  # run_type == "all"
+        else:
             journal_files = list(history_dir.glob("*/*/journal.ndjson"))
 
-        # NO FALLBACK - Hard fail if journal missing
-        # Per CLAUDE.md ZERO FALLBACK POLICY: Fallbacks hide bugs
         if not journal_files:
             raise FileNotFoundError(
                 f"No journal.ndjson files found in {history_dir}. "
@@ -214,7 +282,6 @@ def load_journal_stats(
         for journal_path in journal_files:
             try:
                 with open(journal_path) as f:
-                    # Approximate last N runs per file
                     lines = f.readlines()[-window * 20 :]
 
                     for line in lines:
@@ -235,9 +302,9 @@ def load_journal_stats(
                         except json.JSONDecodeError:
                             continue
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -262,12 +329,11 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
     )
 
     try:
-        # Find historical FCE files based on run type
         if run_type == "full":
             fce_files = list(history_dir.glob("full/*/fce.json"))
         elif run_type == "diff":
             fce_files = list(history_dir.glob("diff/*/fce.json"))
-        else:  # run_type == "all"
+        else:
             fce_files = list(history_dir.glob("*/*/fce.json"))
 
         for fce_path in fce_files:
@@ -284,9 +350,9 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
                         if "message" in failure:
                             stats[file]["messages"].append(failure["message"][:100])
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -311,12 +377,11 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
     )
 
     try:
-        # Find historical AST proof files based on run type
         if run_type == "full":
             ast_files = list(history_dir.glob("full/*/ast_proofs.json"))
         elif run_type == "diff":
             ast_files = list(history_dir.glob("diff/*/ast_proofs.json"))
-        else:  # run_type == "all"
+        else:
             ast_files = list(history_dir.glob("*/*/ast_proofs.json"))
 
         for ast_path in ast_files:
@@ -333,9 +398,9 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
                         elif check["status"] == "PASS":
                             stats[file]["invariant_passes"] += 1
             except Exception:
-                continue  # Skip files that can't be read
+                continue
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -363,7 +428,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query jwt_patterns table
         cursor.execute(
             f"""
             SELECT file_path, COUNT(*) as count
@@ -377,7 +441,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for file_path, count in cursor.fetchall():
             stats[file_path]["jwt_usage_count"] = count
 
-        # Query for hardcoded secrets
         cursor.execute(
             f"""
             SELECT DISTINCT file_path
@@ -391,7 +454,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_hardcoded_secret"] = True
 
-        # Query for weak crypto algorithms
         cursor.execute(
             f"""
             SELECT DISTINCT file_path
@@ -405,7 +467,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_weak_crypto"] = True
 
-        # Query sql_queries table
         cursor.execute(
             f"""
             SELECT file_path, COUNT(*) as count
@@ -422,7 +483,7 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -450,7 +511,6 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query findings_consolidated (dual-write pattern table)
         cursor.execute(
             f"""
             SELECT file, severity, COUNT(*) as count
@@ -470,7 +530,6 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
             elif severity == "medium":
                 stats[file_path]["medium_findings"] = count
 
-        # Count unique CWEs per file
         cursor.execute(
             f"""
             SELECT file, COUNT(DISTINCT cwe) as unique_cwes
@@ -487,7 +546,7 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -517,7 +576,6 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query type_annotations table (13 field semantic analysis!)
         cursor.execute(
             f"""
             SELECT file,
@@ -538,13 +596,12 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
             stats[file_path]["unknown_type_count"] = unknown_count
             stats[file_path]["generic_type_count"] = generic_count
 
-            # Calculate type coverage (1.0 - ratio of any/unknown types)
             typed = total - any_count - unknown_count
             stats[file_path]["type_coverage_ratio"] = typed / total if total > 0 else 0.0
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -571,7 +628,6 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query cfg_blocks table
         cursor.execute(
             f"""
             SELECT file, COUNT(*) as block_count
@@ -585,7 +641,6 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
         for file_path, block_count in cursor.fetchall():
             stats[file_path]["cfg_block_count"] = block_count
 
-        # Query cfg_edges for complexity
         cursor.execute(
             f"""
             SELECT file, COUNT(*) as edge_count
@@ -598,13 +653,13 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
 
         for file_path, edge_count in cursor.fetchall():
             stats[file_path]["cfg_edge_count"] = edge_count
-            # Cyclomatic complexity = edges - blocks + 2
+
             blocks = stats[file_path]["cfg_block_count"]
             stats[file_path]["cyclomatic_complexity"] = edge_count - blocks + 2
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -628,7 +683,6 @@ def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[
     )
 
     try:
-        # Find historical database files
         if run_type == "full":
             db_files = list(history_dir.glob("full/*/repo_index.db"))
         elif run_type == "diff":
@@ -660,7 +714,7 @@ def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[
             except Exception:
                 continue
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -683,10 +737,8 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Get refs (imports/exports)
         placeholders = ",".join("?" * len(file_paths))
 
-        # In-degree: files that import this file
         cursor.execute(
             f"""
             SELECT value, COUNT(*) as count
@@ -700,7 +752,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for file_path, count in cursor.fetchall():
             stats[file_path]["in_degree"] = count
 
-        # Out-degree: files this file imports
         cursor.execute(
             f"""
             SELECT src, COUNT(*) as count
@@ -714,7 +765,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for file_path, count in cursor.fetchall():
             stats[file_path]["out_degree"] = count
 
-        # Check for routes (now stored in api_endpoints table after refactor)
         cursor.execute(
             f"""
             SELECT DISTINCT file
@@ -727,7 +777,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_routes"] = True
 
-        # Check for SQL objects
         cursor.execute(
             f"""
             SELECT DISTINCT file
@@ -742,7 +791,7 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
 
         conn.close()
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -755,7 +804,6 @@ def load_git_churn(file_paths: list[str], window_days: int = 30) -> dict[str, in
     churn = defaultdict(int)
 
     try:
-        # Use temp files to avoid buffer overflow
         with (
             tempfile.NamedTemporaryFile(
                 mode="w+", delete=False, suffix="_stdout.txt", encoding="utf-8"
@@ -795,7 +843,7 @@ def load_git_churn(file_paths: list[str], window_days: int = 30) -> dict[str, in
                 if line and line in file_paths:
                     churn[line] += 1
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(churn)
 
@@ -808,87 +856,6 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
     """
     if not Path(db_path).exists() or not file_paths:
         return {}
-
-    # Common library patterns for different purposes (frozensets for O(1) lookup)
-    HTTP_LIBS = frozenset(
-        {
-            "requests",
-            "aiohttp",
-            "httpx",
-            "urllib",
-            "axios",
-            "fetch",
-            "superagent",
-            "express",
-            "fastapi",
-            "flask",
-            "django.http",
-            "tornado",
-            "starlette",
-        }
-    )
-
-    DB_LIBS = frozenset(
-        {
-            "sqlalchemy",
-            "psycopg2",
-            "psycopg",
-            "pymongo",
-            "redis",
-            "django.db",
-            "peewee",
-            "tortoise",
-            "databases",
-            "asyncpg",
-            "sqlite3",
-            "mysql",
-            "mongoose",
-            "sequelize",
-            "typeorm",
-            "prisma",
-            "knex",
-            "pg",
-        }
-    )
-
-    AUTH_LIBS = frozenset(
-        {
-            "jwt",
-            "pyjwt",
-            "passlib",
-            "oauth",
-            "oauth2",
-            "authlib",
-            "django.contrib.auth",
-            "flask_login",
-            "flask_jwt",
-            "bcrypt",
-            "cryptography",
-            "passport",
-            "jsonwebtoken",
-            "express-jwt",
-            "firebase-auth",
-            "auth0",
-        }
-    )
-
-    TEST_LIBS = frozenset(
-        {
-            "pytest",
-            "unittest",
-            "mock",
-            "faker",
-            "factory_boy",
-            "hypothesis",
-            "jest",
-            "mocha",
-            "chai",
-            "sinon",
-            "enzyme",
-            "vitest",
-            "testing-library",
-        }
-    )
 
     stats = defaultdict(
         lambda: {
@@ -905,7 +872,6 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
         placeholders = ",".join("?" * len(file_paths))
 
-        # Get all imports for the specified files
         cursor.execute(
             f"""
             SELECT src, value
@@ -917,15 +883,13 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
         )
 
         for file_path, import_value in cursor.fetchall():
-            # Normalize import value (strip quotes, extract package name)
             import_name = import_value.lower().strip("\"'")
-            # Handle scoped packages like @angular/core
+
             if "/" in import_name:
                 import_name = import_name.split("/")[0].lstrip("@")
-            # Handle sub-modules like django.contrib.auth
+
             base_import = import_name.split(".")[0]
 
-            # Check against our semantic categories
             if any(lib in import_name or base_import == lib for lib in HTTP_LIBS):
                 stats[file_path]["has_http_import"] = True
 
@@ -940,7 +904,7 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -971,7 +935,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 
         placeholders = ",".join("?" * len(file_paths))
 
-        # Count different symbol types per file
         cursor.execute(
             f"""
             SELECT path, type, COUNT(*) as count
@@ -990,8 +953,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
             elif symbol_type == "call":
                 stats[file_path]["call_count"] = count
 
-        # Count async functions (those with 'async' in the name)
-        # This is a heuristic since we don't have a dedicated async flag
         cursor.execute(
             f"""
             SELECT path, COUNT(*) as count
@@ -1007,8 +968,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
         for file_path, count in cursor.fetchall():
             stats[file_path]["async_def_count"] = count
 
-        # Count try/except patterns - look for exception handling calls
-        # Common patterns: catch, except, rescue, error
         cursor.execute(
             f"""
             SELECT path, COUNT(*) as count
@@ -1026,7 +985,7 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -1044,7 +1003,6 @@ def build_feature_matrix(
     if not ML_AVAILABLE:
         return None, {}
 
-    # Load manifest for file metadata
     manifest_map = {}
     try:
         with open(manifest_path) as f:
@@ -1052,21 +1010,19 @@ def build_feature_matrix(
         for entry in manifest:
             manifest_map[entry["path"]] = entry
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
-    # Use provided stats or default to empty dicts
     journal_stats = journal_stats if journal_stats is not None else {}
     rca_stats = rca_stats if rca_stats is not None else {}
     ast_stats = ast_stats if ast_stats is not None else {}
     graph_stats = load_graph_stats(db_path, file_paths)
 
-    # Load centrality from graph metrics if available
     try:
         metrics_path = Path("./.pf/raw/graph_metrics.json")
         if metrics_path.exists():
             with open(metrics_path) as f:
                 graph_metrics = json.load(f)
-            # Merge into existing stats
+
             for path in file_paths:
                 if path in graph_metrics:
                     if path not in graph_stats:
@@ -1078,128 +1034,106 @@ def build_feature_matrix(
                         }
                     graph_stats[path]["centrality"] = graph_metrics[path]
     except (json.JSONDecodeError, OSError):
-        pass  # Proceed without centrality scores
+        pass
 
     git_churn = load_git_churn(file_paths) if enable_git else {}
 
-    # Load new advanced features
     semantic_imports = load_semantic_import_features(db_path, file_paths)
     complexity_metrics = load_ast_complexity_metrics(db_path, file_paths)
 
-    # Load security pattern features
     security_patterns = load_security_pattern_features(db_path, file_paths)
 
-    # Load vulnerability flow features
     vulnerability_flows = load_vulnerability_flow_features(db_path, file_paths)
 
-    # Load type coverage features (TypeScript)
     type_coverage = load_type_coverage_features(db_path, file_paths)
 
-    # Load CFG complexity features
     cfg_complexity = load_cfg_complexity_features(db_path, file_paths)
 
-    # Load historical findings
     history_dir = Path("./.pf/history")
     historical_findings = load_historical_findings(history_dir, run_type="full")
 
-    # Build feature vectors
     feature_names = []
     features = []
 
     for file_path in file_paths:
         feat = []
 
-        # Basic metadata features
         meta = manifest_map.get(file_path, {})
-        feat.append(meta.get("bytes", 0) / 10000.0)  # Normalized
-        feat.append(meta.get("loc", 0) / 100.0)  # Normalized
+        feat.append(meta.get("bytes", 0) / 10000.0)
+        feat.append(meta.get("loc", 0) / 100.0)
 
-        # Extension as categorical
         ext = meta.get("ext", "")
         feat.append(1.0 if ext in [".ts", ".tsx", ".js", ".jsx"] else 0.0)
         feat.append(1.0 if ext == ".py" else 0.0)
 
-        # Graph topology
         graph = graph_stats.get(file_path, {})
         feat.append(graph.get("in_degree", 0) / 10.0)
         feat.append(graph.get("out_degree", 0) / 10.0)
         feat.append(1.0 if graph.get("has_routes") else 0.0)
         feat.append(1.0 if graph.get("has_sql") else 0.0)
-        feat.append(graph.get("centrality", 0.0))  # Already normalized [0,1]
+        feat.append(graph.get("centrality", 0.0))
 
-        # Journal history
         journal = journal_stats.get(file_path, {})
         feat.append(journal.get("touches", 0) / 10.0)
         feat.append(journal.get("failures", 0) / 5.0)
         feat.append(journal.get("successes", 0) / 5.0)
 
-        # RCA history
         rca = rca_stats.get(file_path, {})
         feat.append(rca.get("fail_count", 0) / 5.0)
 
-        # AST checks
         ast = ast_stats.get(file_path, {})
         feat.append(ast.get("invariant_fails", 0) / 3.0)
         feat.append(ast.get("invariant_passes", 0) / 3.0)
 
-        # Git churn
         feat.append(git_churn.get(file_path, 0) / 5.0)
 
-        # NEW: Semantic import features
         semantic = semantic_imports.get(file_path, {})
         feat.append(1.0 if semantic.get("has_http_import") else 0.0)
         feat.append(1.0 if semantic.get("has_db_import") else 0.0)
         feat.append(1.0 if semantic.get("has_auth_import") else 0.0)
         feat.append(1.0 if semantic.get("has_test_import") else 0.0)
 
-        # NEW: AST complexity metrics
         complexity = complexity_metrics.get(file_path, {})
-        feat.append(complexity.get("function_count", 0) / 20.0)  # Normalized
-        feat.append(complexity.get("class_count", 0) / 10.0)  # Normalized
-        feat.append(complexity.get("call_count", 0) / 50.0)  # Normalized
-        feat.append(complexity.get("try_except_count", 0) / 5.0)  # Normalized
-        feat.append(complexity.get("async_def_count", 0) / 5.0)  # Normalized
+        feat.append(complexity.get("function_count", 0) / 20.0)
+        feat.append(complexity.get("class_count", 0) / 10.0)
+        feat.append(complexity.get("call_count", 0) / 50.0)
+        feat.append(complexity.get("try_except_count", 0) / 5.0)
+        feat.append(complexity.get("async_def_count", 0) / 5.0)
 
-        # NEW: Security pattern features
         security = security_patterns.get(file_path, {})
-        feat.append(security.get("jwt_usage_count", 0) / 5.0)  # Normalized
-        feat.append(security.get("sql_query_count", 0) / 10.0)  # Normalized
+        feat.append(security.get("jwt_usage_count", 0) / 5.0)
+        feat.append(security.get("sql_query_count", 0) / 10.0)
         feat.append(1.0 if security.get("has_hardcoded_secret") else 0.0)
         feat.append(1.0 if security.get("has_weak_crypto") else 0.0)
 
-        # NEW: Vulnerability flow features
         vuln = vulnerability_flows.get(file_path, {})
-        feat.append(vuln.get("critical_findings", 0) / 3.0)  # Normalized
-        feat.append(vuln.get("high_findings", 0) / 5.0)  # Normalized
-        feat.append(vuln.get("medium_findings", 0) / 10.0)  # Normalized
-        feat.append(vuln.get("unique_cwe_count", 0) / 5.0)  # Normalized
+        feat.append(vuln.get("critical_findings", 0) / 3.0)
+        feat.append(vuln.get("high_findings", 0) / 5.0)
+        feat.append(vuln.get("medium_findings", 0) / 10.0)
+        feat.append(vuln.get("unique_cwe_count", 0) / 5.0)
 
-        # NEW: Type coverage features (TypeScript)
         types = type_coverage.get(file_path, {})
-        feat.append(types.get("type_annotation_count", 0) / 50.0)  # Normalized
-        feat.append(types.get("any_type_count", 0) / 10.0)  # Normalized
-        feat.append(types.get("unknown_type_count", 0) / 10.0)  # Normalized
-        feat.append(types.get("generic_type_count", 0) / 10.0)  # Normalized
-        feat.append(types.get("type_coverage_ratio", 0.0))  # Already [0,1]
+        feat.append(types.get("type_annotation_count", 0) / 50.0)
+        feat.append(types.get("any_type_count", 0) / 10.0)
+        feat.append(types.get("unknown_type_count", 0) / 10.0)
+        feat.append(types.get("generic_type_count", 0) / 10.0)
+        feat.append(types.get("type_coverage_ratio", 0.0))
 
-        # NEW: CFG complexity features
         cfg = cfg_complexity.get(file_path, {})
-        feat.append(cfg.get("cfg_block_count", 0) / 20.0)  # Normalized
-        feat.append(cfg.get("cfg_edge_count", 0) / 30.0)  # Normalized
-        feat.append(cfg.get("cyclomatic_complexity", 0) / 10.0)  # Normalized
+        feat.append(cfg.get("cfg_block_count", 0) / 20.0)
+        feat.append(cfg.get("cfg_edge_count", 0) / 30.0)
+        feat.append(cfg.get("cyclomatic_complexity", 0) / 10.0)
 
-        # NEW: Historical findings features
         hist = historical_findings.get(file_path, {})
-        feat.append(hist.get("total_findings", 0) / 10.0)  # Normalized
-        feat.append(hist.get("critical_count", 0) / 3.0)  # Normalized
-        feat.append(hist.get("high_count", 0) / 5.0)  # Normalized
-        feat.append(len(hist.get("recurring_cwes", [])) / 5.0)  # Normalized
+        feat.append(hist.get("total_findings", 0) / 10.0)
+        feat.append(hist.get("critical_count", 0) / 3.0)
+        feat.append(hist.get("high_count", 0) / 5.0)
+        feat.append(len(hist.get("recurring_cwes", [])) / 5.0)
 
-        # Text features (simplified - just path hash)
         text_feats = extract_text_features(
             file_path,
             rca.get("messages", []),
-            dim=50,  # Small for speed
+            dim=50,
         )
         text_vec = [0.0] * 50
         for idx, val in text_feats.items():
@@ -1209,7 +1143,6 @@ def build_feature_matrix(
 
         features.append(feat)
 
-    # Feature names for debugging
     feature_names = [
         "bytes_norm",
         "loc_norm",
@@ -1227,38 +1160,31 @@ def build_feature_matrix(
         "ast_fails",
         "ast_passes",
         "git_churn",
-        # Semantic import features
         "has_http_import",
         "has_db_import",
         "has_auth_import",
         "has_test_import",
-        # AST complexity metrics
         "function_count",
         "class_count",
         "call_count",
         "try_except_count",
         "async_def_count",
-        # Security pattern features
         "jwt_usage_count",
         "sql_query_count",
         "has_hardcoded_secret",
         "has_weak_crypto",
-        # Vulnerability flow features
         "critical_findings",
         "high_findings",
         "medium_findings",
         "unique_cwe_count",
-        # Type coverage features (TypeScript)
         "type_annotation_count",
         "any_type_count",
         "unknown_type_count",
         "generic_type_count",
         "type_coverage_ratio",
-        # CFG complexity features
         "cfg_block_count",
         "cfg_edge_count",
         "cyclomatic_complexity",
-        # Historical findings features
         "total_findings_hist",
         "critical_count_hist",
         "high_count_hist",
@@ -1279,17 +1205,14 @@ def build_labels(
     if not ML_AVAILABLE:
         return None, None, None
 
-    # Root cause labels (binary): file failed in RCA
     root_cause_labels = np.array(
         [1.0 if rca_stats.get(fp, {}).get("fail_count", 0) > 0 else 0.0 for fp in file_paths]
     )
 
-    # Next edit labels (binary): file was edited in journal
     next_edit_labels = np.array(
         [1.0 if journal_stats.get(fp, {}).get("touches", 0) > 0 else 0.0 for fp in file_paths]
     )
 
-    # Risk scores (continuous): failure ratio
     risk_labels = np.array(
         [
             min(
@@ -1319,29 +1242,24 @@ def train_models(
     if not ML_AVAILABLE:
         return None, None, None, None, None, None
 
-    # Handle empty or all-same labels
     if len(np.unique(root_cause_labels)) < 2:
-        root_cause_labels[0] = 1 - root_cause_labels[0]  # Flip one for training
+        root_cause_labels[0] = 1 - root_cause_labels[0]
     if len(np.unique(next_edit_labels)) < 2:
         next_edit_labels[0] = 1 - next_edit_labels[0]
 
-    # Scale features
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
-    # Train root cause classifier with GradientBoostingClassifier
-    # More powerful ensemble model that captures non-linear relationships
     root_cause_clf = GradientBoostingClassifier(
-        n_estimators=50,  # Reduced for speed
+        n_estimators=50,
         learning_rate=0.1,
         max_depth=3,
         random_state=seed,
-        subsample=0.8,  # Stochastic gradient boosting
-        min_samples_split=5,  # Prevent overfitting
+        subsample=0.8,
+        min_samples_split=5,
     )
     root_cause_clf.fit(features_scaled, root_cause_labels, sample_weight=sample_weight)
 
-    # Train next edit classifier with GradientBoostingClassifier
     next_edit_clf = GradientBoostingClassifier(
         n_estimators=50,
         learning_rate=0.1,
@@ -1352,12 +1270,9 @@ def train_models(
     )
     next_edit_clf.fit(features_scaled, next_edit_labels, sample_weight=sample_weight)
 
-    # Train risk regressor (keep Ridge for regression task)
     risk_reg = Ridge(alpha=1.0, random_state=seed)
     risk_reg.fit(features_scaled, risk_labels, sample_weight=sample_weight)
 
-    # Calibrate probabilities using isotonic regression (already imported at top!)
-    # This improves probability estimates for more accurate risk scoring
     root_cause_calibrator = IsotonicRegression(out_of_bounds="clip")
     root_cause_probs = root_cause_clf.predict_proba(features_scaled)[:, 1]
     root_cause_calibrator.fit(root_cause_probs, root_cause_labels)
@@ -1393,7 +1308,6 @@ def save_models(
 
     Path(model_dir).mkdir(parents=True, exist_ok=True)
 
-    # Save models and calibrators
     model_data = {
         "root_cause_clf": root_cause_clf,
         "next_edit_clf": next_edit_clf,
@@ -1404,28 +1318,22 @@ def save_models(
     }
     joblib.dump(model_data, Path(model_dir) / "model.joblib")
 
-    # Save feature map
     with open(Path(model_dir) / "feature_map.json", "w") as f:
         json.dump(feature_name_map, f, indent=2)
 
-    # Save training stats
     with open(Path(model_dir) / "training_stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 
-    # Extract and save feature importance
     feature_importance = {}
     if hasattr(root_cause_clf, "feature_importances_"):
         importance = root_cause_clf.feature_importances_
-        # Get feature names
+
         feature_names = list(feature_name_map.keys())
-        # Sort by importance
+
         importance_pairs = sorted(
             zip(feature_names, importance, strict=False), key=lambda x: x[1], reverse=True
         )
-        feature_importance["root_cause"] = {
-            name: float(imp)
-            for name, imp in importance_pairs[:20]  # Top 20
-        }
+        feature_importance["root_cause"] = {name: float(imp) for name, imp in importance_pairs[:20]}
 
     if hasattr(next_edit_clf, "feature_importances_"):
         importance = next_edit_clf.feature_importances_
@@ -1433,10 +1341,7 @@ def save_models(
         importance_pairs = sorted(
             zip(feature_names, importance, strict=False), key=lambda x: x[1], reverse=True
         )
-        feature_importance["next_edit"] = {
-            name: float(imp)
-            for name, imp in importance_pairs[:20]  # Top 20
-        }
+        feature_importance["next_edit"] = {name: float(imp) for name, imp in importance_pairs[:20]}
 
     if feature_importance:
         with open(Path(model_dir) / "feature_importance.json", "w") as f:
@@ -1447,7 +1352,6 @@ def is_source_file(file_path: str) -> bool:
     """Check if a file is a source code file (not test, config, or docs)."""
     path = Path(file_path)
 
-    # Skip test files and test directories
     if any(part in ["test", "tests", "__tests__", "spec"] for part in path.parts):
         return False
     if (
@@ -1458,11 +1362,9 @@ def is_source_file(file_path: str) -> bool:
     ):
         return False
 
-    # Skip documentation
     if path.suffix.lower() in [".md", ".rst", ".txt", ".yaml", ".yml"]:
         return False
 
-    # Skip configuration files
     config_files = {
         ".gitignore",
         ".gitattributes",
@@ -1493,7 +1395,6 @@ def is_source_file(file_path: str) -> bool:
     if path.name.lower() in config_files:
         return False
 
-    # Skip non-source extensions
     non_source_exts = {
         ".json",
         ".xml",
@@ -1509,12 +1410,10 @@ def is_source_file(file_path: str) -> bool:
     if path.suffix.lower() in non_source_exts and path.name != "manifest.json":
         return False
 
-    # Skip directories that are typically not source
     skip_dirs = {"docs", "documentation", "examples", "samples", "fixtures"}
     if any(part.lower() in skip_dirs for part in path.parts):
         return False
 
-    # Accept common source file extensions
     source_exts = {
         ".py",
         ".js",
@@ -1565,12 +1464,11 @@ def load_models(model_dir: str) -> tuple[Any, Any, Any, Any, Any, Any, dict]:
             model_data["next_edit_clf"],
             model_data["risk_reg"],
             model_data["scaler"],
-            model_data.get("root_cause_calibrator"),  # Backward compatibility
-            model_data.get("next_edit_calibrator"),  # Backward compatibility
+            model_data.get("root_cause_calibrator"),
+            model_data.get("next_edit_calibrator"),
             feature_map,
         )
     except (ImportError, ValueError, AttributeError):
-        # ML unavailable - return graceful defaults
         return None, None, None, None, None, None, {}
 
 
@@ -1592,13 +1490,11 @@ def learn(
     if not check_ml_available():
         return {"success": False, "error": "ML not available"}
 
-    # Get all files from manifest
     try:
         with open(manifest_path) as f:
             manifest = json.load(f)
         all_file_paths = [entry["path"] for entry in manifest]
 
-        # Filter to only source files
         file_paths = [fp for fp in all_file_paths if is_source_file(fp)]
 
         if print_stats:
@@ -1612,15 +1508,12 @@ def learn(
     if not file_paths:
         return {"success": False, "error": "No source files found in manifest"}
 
-    # Define history directory
     history_dir = Path("./.pf/history")
 
-    # Load historical data based on train_on parameter
     journal_stats = load_journal_stats(history_dir, window, run_type=train_on)
     rca_stats = load_rca_stats(history_dir, run_type=train_on)
     ast_stats = load_ast_stats(history_dir, run_type=train_on)
 
-    # Build features with loaded stats
     features, feature_name_map = build_feature_matrix(
         file_paths,
         manifest_path,
@@ -1631,39 +1524,30 @@ def learn(
         enable_git,
     )
 
-    # Build labels with loaded stats
     root_cause_labels, next_edit_labels, risk_labels = build_labels(
         file_paths,
         journal_stats,
         rca_stats,
     )
 
-    # Load human feedback if provided
     sample_weight = None
     if feedback_path and Path(feedback_path).exists():
         try:
             with open(feedback_path) as f:
                 feedback_data = json.load(f)
 
-            # Create sample weights array
             sample_weight = np.ones(len(file_paths))
 
-            # Increase weight for files with human feedback
             for i, fp in enumerate(file_paths):
                 if fp in feedback_data:
-                    # Weight human-reviewed files 5x higher
                     sample_weight[i] = 5.0
 
-                    # Also update labels based on feedback
                     feedback = feedback_data[fp]
                     if "is_risky" in feedback:
-                        # Human says file is risky - treat as positive for risk
                         risk_labels[i] = 1.0 if feedback["is_risky"] else 0.0
                     if "is_root_cause" in feedback:
-                        # Human says file is root cause
                         root_cause_labels[i] = 1.0 if feedback["is_root_cause"] else 0.0
                     if "will_need_edit" in feedback:
-                        # Human says file will need editing
                         next_edit_labels[i] = 1.0 if feedback["will_need_edit"] else 0.0
 
             if print_stats:
@@ -1674,7 +1558,6 @@ def learn(
             if print_stats:
                 print(f"Warning: Could not load feedback file: {e}")
 
-    # Check data size
     n_samples = len(file_paths)
     cold_start = n_samples < 500
 
@@ -1687,7 +1570,6 @@ def learn(
         if cold_start:
             print("WARNING: Cold-start with <500 samples, expect noisy signals")
 
-    # Train models with optional sample weights from human feedback
     root_cause_clf, next_edit_clf, risk_reg, scaler, root_cause_calibrator, next_edit_calibrator = (
         train_models(
             features,
@@ -1699,7 +1581,6 @@ def learn(
         )
     )
 
-    # Calculate simple metrics
     stats = {
         "n_samples": n_samples,
         "n_features": features.shape[1],
@@ -1710,7 +1591,6 @@ def learn(
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
-    # Save models with calibrators
     save_models(
         model_dir,
         root_cause_clf,
@@ -1751,7 +1631,6 @@ def suggest(
     if not check_ml_available():
         return {"success": False, "error": "ML not available"}
 
-    # Load models and calibrators
     (
         root_cause_clf,
         next_edit_clf,
@@ -1766,13 +1645,11 @@ def suggest(
         print(f"No models found in {model_dir}. Run 'aud learn' first.")
         return {"success": False, "error": "Models not found"}
 
-    # Load workset
     try:
         with open(workset_path) as f:
             workset = json.load(f)
         all_file_paths = [p["path"] for p in workset.get("paths", [])]
 
-        # Filter to only source files
         file_paths = [fp for fp in all_file_paths if is_source_file(fp)]
 
         if print_plan:
@@ -1786,7 +1663,6 @@ def suggest(
     if not file_paths:
         return {"success": False, "error": "No source files in workset"}
 
-    # Load current FCE and AST stats if available
     current_fce_stats = {}
     if fce_path and Path(fce_path).exists():
         try:
@@ -1832,37 +1708,31 @@ def suggest(
         except Exception:
             pass
 
-    # Build features for workset files
     features, _ = build_feature_matrix(
         file_paths,
         manifest_path,
         db_path,
-        None,  # No journal for prediction
-        current_fce_stats,  # Use current FCE if available
-        current_ast_stats,  # Use current AST if available
-        False,  # No git for speed
+        None,
+        current_fce_stats,
+        current_ast_stats,
+        False,
     )
 
-    # Scale features
     features_scaled = scaler.transform(features)
 
-    # Get predictions
     root_cause_scores = root_cause_clf.predict_proba(features_scaled)[:, 1]
     next_edit_scores = next_edit_clf.predict_proba(features_scaled)[:, 1]
     risk_scores = np.clip(risk_reg.predict(features_scaled), 0, 1)
 
-    # Apply calibration if available
     if root_cause_calibrator is not None:
         root_cause_scores = root_cause_calibrator.transform(root_cause_scores)
     if next_edit_calibrator is not None:
         next_edit_scores = next_edit_calibrator.transform(next_edit_scores)
 
-    # Calculate confidence intervals (standard deviation across trees)
     root_cause_std = np.zeros(len(file_paths))
     next_edit_std = np.zeros(len(file_paths))
 
     if hasattr(root_cause_clf, "estimators_"):
-        # Get predictions from all trees
         tree_preds = np.array(
             [tree.predict_proba(features_scaled)[:, 1] for tree in root_cause_clf.estimators_]
         )
@@ -1874,7 +1744,6 @@ def suggest(
         )
         next_edit_std = np.std(tree_preds, axis=0)
 
-    # Rank files with confidence
     root_cause_ranked = sorted(
         zip(file_paths, root_cause_scores, root_cause_std, strict=False),
         key=lambda x: x[1],
@@ -1893,7 +1762,6 @@ def suggest(
         reverse=True,
     )[:topk]
 
-    # Build output with confidence intervals
     output = {
         "generated_at": datetime.now(UTC).isoformat(),
         "workset_size": len(file_paths),
@@ -1908,10 +1776,8 @@ def suggest(
         "risk": [{"path": path, "score": float(score)} for path, score in risk_ranked],
     }
 
-    # Ensure output directory exists
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Write output atomically
     tmp_path = f"{out_path}.tmp"
     with open(tmp_path, "w") as f:
         json.dump(output, f, indent=2, sort_keys=True)

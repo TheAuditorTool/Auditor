@@ -8,11 +8,11 @@ Demonstrates:
 - Migration from Auth0 to Cognito patterns
 """
 
-from aws_cognito import CognitoIdentityClient
-from validators import validate_cognito_token, extract_user_id, extract_groups, extract_permissions
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
 import sqlite3
+
+from aws_cognito import CognitoIdentityClient
+from validators import extract_groups, extract_permissions, extract_user_id, validate_cognito_token
 
 
 class AuthService:

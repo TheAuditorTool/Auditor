@@ -13,15 +13,14 @@ Attack Pattern:
 CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
 """
 
-
 import logging
 import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,10 +28,10 @@ logger = logging.getLogger(__name__)
 METADATA = RuleMetadata(
     name="github_actions_reusable_workflow_risks",
     category="supply-chain",
-    target_extensions=['.yml', '.yaml'],
-    exclude_patterns=['.pf/', 'test/', '__tests__/', 'node_modules/'],
+    target_extensions=[".yml", ".yaml"],
+    exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
     requires_jsx_pass=False,
-    execution_scope='database',
+    execution_scope="database",
 )
 
 
@@ -61,7 +60,6 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
     cursor = conn.cursor()
 
     try:
-        # Find all jobs using reusable workflows
         cursor.execute("""
             SELECT j.job_id, j.workflow_path, j.job_key, j.job_name,
                    j.uses_reusable_workflow, j.reusable_workflow_path,
@@ -73,28 +71,20 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
         """)
 
         for row in cursor.fetchall():
-            reusable_path = row['reusable_workflow_path']
+            reusable_path = row["reusable_workflow_path"]
 
-            # Parse reusable workflow path
-            # Format: org/repo/.github/workflows/workflow.yml@ref
-            if '@' not in reusable_path:
-                continue  # Invalid format, skip
-
-            workflow_ref, version = reusable_path.rsplit('@', 1)
-
-            # Check if external (not local ./ reference)
-            is_external = not workflow_ref.startswith('./')
-
-            if not is_external:
-                # Internal reusable workflow, lower risk
+            if "@" not in reusable_path:
                 continue
 
-            # Check if version is mutable
-            is_mutable = version in {'main', 'master', 'develop', 'v1', 'v2', 'v3'}
+            workflow_ref, version = reusable_path.rsplit("@", 1)
 
-            # Check if job passes secrets (look for secret references in env)
-            # Note: secrets: inherit is not stored in database currently,
-            # so we check for explicit secret passing
+            is_external = not workflow_ref.startswith("./")
+
+            if not is_external:
+                continue
+
+            is_mutable = version in {"main", "master", "develop", "v1", "v2", "v3"}
+
             cursor.execute("""
                 SELECT step_id
                 FROM github_step_references
@@ -102,24 +92,25 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
                 AND step_id IS NOT NULL
             """)
 
-            # Filter in Python: Count step IDs belonging to this job
             job_prefix = f"{row['job_id']}::"
-            secret_count = sum(1 for (step_id,) in cursor.fetchall()
-                             if step_id.startswith(job_prefix))
+            secret_count = sum(
+                1 for (step_id,) in cursor.fetchall() if step_id.startswith(job_prefix)
+            )
 
-            # Report finding if external + (mutable OR has secrets)
             if is_mutable or secret_count > 0:
-                findings.append(_build_reusable_workflow_finding(
-                    workflow_path=row['workflow_path'],
-                    workflow_name=row['workflow_name'],
-                    job_key=row['job_key'],
-                    job_name=row['job_name'],
-                    reusable_path=reusable_path,
-                    workflow_ref=workflow_ref,
-                    version=version,
-                    is_mutable=is_mutable,
-                    secret_count=secret_count
-                ))
+                findings.append(
+                    _build_reusable_workflow_finding(
+                        workflow_path=row["workflow_path"],
+                        workflow_name=row["workflow_name"],
+                        job_key=row["job_key"],
+                        job_name=row["job_name"],
+                        reusable_path=reusable_path,
+                        workflow_ref=workflow_ref,
+                        version=version,
+                        is_mutable=is_mutable,
+                        secret_count=secret_count,
+                    )
+                )
 
     finally:
         conn.close()
@@ -127,11 +118,17 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
     return findings
 
 
-def _build_reusable_workflow_finding(workflow_path: str, workflow_name: str,
-                                     job_key: str, job_name: str,
-                                     reusable_path: str, workflow_ref: str,
-                                     version: str, is_mutable: bool,
-                                     secret_count: int) -> StandardFinding:
+def _build_reusable_workflow_finding(
+    workflow_path: str,
+    workflow_name: str,
+    job_key: str,
+    job_name: str,
+    reusable_path: str,
+    workflow_ref: str,
+    version: str,
+    is_mutable: bool,
+    secret_count: int,
+) -> StandardFinding:
     """Build finding for reusable workflow risk.
 
     Args:
@@ -148,10 +145,8 @@ def _build_reusable_workflow_finding(workflow_path: str, workflow_name: str,
     Returns:
         StandardFinding object
     """
-    # Determine severity
-    if is_mutable and secret_count > 0:
-        severity = Severity.HIGH
-    elif secret_count > 2:
+
+    if is_mutable and secret_count > 0 or secret_count > 2:
         severity = Severity.HIGH
     elif is_mutable:
         severity = Severity.MEDIUM
@@ -164,7 +159,7 @@ def _build_reusable_workflow_finding(workflow_path: str, workflow_name: str,
     if secret_count > 0:
         risk_factors.append(f"{secret_count} secret(s) passed")
 
-    risk_str = ' + '.join(risk_factors) if risk_factors else 'external workflow'
+    risk_str = " + ".join(risk_factors) if risk_factors else "external workflow"
 
     message = (
         f"Workflow '{workflow_name}' job '{job_key}' calls external reusable workflow "
@@ -183,20 +178,20 @@ jobs:
     """
 
     details = {
-        'workflow': workflow_path,
-        'workflow_name': workflow_name,
-        'job_key': job_key,
-        'job_name': job_name,
-        'reusable_workflow_path': reusable_path,
-        'reusable_workflow_ref': workflow_ref,
-        'version': version,
-        'is_mutable_version': is_mutable,
-        'secret_count': secret_count,
-        'mitigation': (
+        "workflow": workflow_path,
+        "workflow_name": workflow_name,
+        "job_key": job_key,
+        "job_name": job_name,
+        "reusable_workflow_path": reusable_path,
+        "reusable_workflow_ref": workflow_ref,
+        "version": version,
+        "is_mutable_version": is_mutable,
+        "secret_count": secret_count,
+        "mitigation": (
             f"1. Pin reusable workflow to immutable SHA: {workflow_ref}@<sha256>, or "
             "2. Pass only required secrets explicitly (not secrets: inherit), or "
             "3. Use internal reusable workflows (./.github/workflows/...) instead"
-        )
+        ),
     }
 
     return StandardFinding(
@@ -209,5 +204,5 @@ jobs:
         confidence="high",
         snippet=code_snippet.strip(),
         cwe_id="CWE-200",
-        additional_info=details
+        additional_info=details,
     )

@@ -13,13 +13,11 @@ Usage:
     log_validation("L3-TAINT", "Checking sanitizer", {"source_line": 10, "sink_line": 60})
 """
 
-
+import json
 import os
 import sys
-import json
 
-
-VALIDATION_DEBUG = os.getenv('THEAUDITOR_VALIDATION_DEBUG', '0') == '1'
+VALIDATION_DEBUG = os.getenv("THEAUDITOR_VALIDATION_DEBUG", "0") == "1"
 
 
 def log_validation(layer: str, message: str, data: dict = None):
@@ -44,10 +42,9 @@ def log_validation(layer: str, message: str, data: dict = None):
     print(f"{prefix} {message}", file=sys.stderr)
 
     if data:
-        # Pretty print JSON data with indentation
         data_str = json.dumps(data, indent=2)
-        # Indent each line for visual hierarchy
-        for line in data_str.split('\n'):
+
+        for line in data_str.split("\n"):
             print(f"{prefix}   {line}", file=sys.stderr)
 
 

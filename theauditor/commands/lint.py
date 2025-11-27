@@ -28,7 +28,7 @@ def lint_command(
     Returns:
         Dictionary with success status and statistics
     """
-    # Load workset files if in workset mode
+
     workset_files = None
     if workset_path is not None:
         try:
@@ -40,39 +40,33 @@ def lint_command(
 
     if print_plan:
         print("Lint Plan:")
-        print(f"  Mode: CHECK-ONLY")
+        print("  Mode: CHECK-ONLY")
         if workset_files:
             print(f"  Workset: {len(workset_files)} files")
         else:
-            print(f"  Scope: All source files")
+            print("  Scope: All source files")
         print("  Linters: ESLint, Ruff, Mypy")
         print("  Output: .pf/raw/lint.json + findings_consolidated table")
         return {"success": True, "printed_plan": True}
 
-    # Initialize orchestrator
     db_path = Path(root_path) / ".pf" / "repo_index.db"
     if not db_path.exists():
-        return {
-            "success": False,
-            "error": f"Database not found: {db_path}. Run 'aud full' first."
-        }
+        return {"success": False, "error": f"Database not found: {db_path}. Run 'aud full' first."}
 
     try:
         orchestrator = LinterOrchestrator(root_path, str(db_path))
     except RuntimeError as e:
         return {"success": False, "error": str(e)}
 
-    # Run all linters
     try:
         findings = orchestrator.run_all_linters(workset_files)
     except Exception as e:
         logger.error(f"Linter execution failed: {e}")
         return {"success": False, "error": f"Linter execution failed: {e}"}
 
-    # Statistics
     stats = {
         "total_findings": len(findings),
-        "tools_run": 3,  # ESLint, Ruff, Mypy
+        "tools_run": 3,
         "workset_size": len(workset_files) if workset_files else 0,
         "errors": sum(1 for f in findings if f.get("severity") == "error"),
         "warnings": sum(1 for f in findings if f.get("severity") == "warning"),
@@ -82,8 +76,8 @@ def lint_command(
     print(f"  Total findings: {stats['total_findings']}")
     print(f"  Errors: {stats['errors']}")
     print(f"  Warnings: {stats['warnings']}")
-    print(f"  Output: .pf/raw/lint.json")
-    print(f"  Database: findings written to findings_consolidated table")
+    print("  Output: .pf/raw/lint.json")
+    print("  Database: findings written to findings_consolidated table")
 
     return {
         "success": True,
@@ -96,7 +90,9 @@ def lint_command(
 @click.command()
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
-@click.option("--workset", is_flag=True, help="Use workset mode (lint only files in .pf/workset.json)")
+@click.option(
+    "--workset", is_flag=True, help="Use workset mode (lint only files in .pf/workset.json)"
+)
 @click.option("--workset-path", default=None, help="Custom workset path (rarely needed)")
 @click.option("--manifest", default=None, help="Manifest file path")
 @click.option("--timeout", default=None, type=int, help="Timeout in seconds for each linter")
@@ -166,10 +162,8 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
       eslint --fix, ruff --fix, prettier --write, black ."""
     from theauditor.config_runtime import load_runtime_config
 
-    # Load configuration
     config = load_runtime_config(root)
 
-    # Use config defaults if not provided
     if manifest is None:
         manifest = config["paths"]["manifest"]
     if timeout is None:
@@ -177,7 +171,6 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
     if workset_path is None and workset:
         workset_path = config["paths"]["workset"]
 
-    # Use workset path only if --workset flag is set
     actual_workset_path = workset_path if workset else None
 
     result = lint_command(
@@ -186,7 +179,7 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
         manifest_path=manifest,
         timeout=timeout,
         print_plan=print_plan,
-        auto_fix=False,  # Auto-fix permanently disabled
+        auto_fix=False,
     )
 
     if result.get("printed_plan"):

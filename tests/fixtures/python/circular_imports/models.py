@@ -9,7 +9,7 @@ Tests extraction when:
 Validates that import resolution doesn't infinite loop or crash.
 """
 
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING
 
 # TYPE_CHECKING guard prevents runtime circular import
 # But static analysis tools should still track this import
@@ -69,7 +69,6 @@ class Post:
         Get post author using UserService.
         Tests: Method that imports from circular module.
         """
-        from services import UserService
 
         # Would fetch from service in real code
         return None
@@ -97,6 +96,5 @@ class Comment:
 
     def get_post(self) -> Post | None:
         """Get the parent post."""
-        from controllers import PostController
         # Would use controller to fetch post
         return None

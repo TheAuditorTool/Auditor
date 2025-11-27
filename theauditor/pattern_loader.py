@@ -1,6 +1,5 @@
 """Pattern loader for universal issue detection."""
 
-
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,14 +13,14 @@ class Pattern:
 
     name: str
     description: str
-    regex: str | None  # Can be None if using AST pattern
+    regex: str | None
     languages: list[str]
     severity: str
-    ast_pattern: dict | None = None  # Optional AST pattern
-    confidence: float | None = None  # Confidence score for the pattern
-    files: list[str] | None = None  # File patterns to match
-    examples: list[str] | None = None  # Example code that should match
-    counter_examples: list[str] | None = None  # Example code that should NOT match
+    ast_pattern: dict | None = None
+    confidence: float | None = None
+    files: list[str] | None = None
+    examples: list[str] | None = None
+    counter_examples: list[str] | None = None
     compiled_regex: re.Pattern | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
@@ -52,7 +51,7 @@ class PatternLoader:
         if patterns_dir is None:
             patterns_dir = Path(__file__).parent / "rules" / "YAML"
         self.patterns_dir = Path(patterns_dir)
-        self.patterns: dict[str, list["Pattern"]] = {}
+        self.patterns: dict[str, list[Pattern]] = {}
         self._loaded = False
 
     def load_patterns(self, categories: list[str] | None = None) -> dict[str, list[Pattern]]:
@@ -68,24 +67,21 @@ class PatternLoader:
         if not self.patterns_dir.exists():
             raise FileNotFoundError(f"Patterns directory not found: {self.patterns_dir}")
 
-        yaml_files = list(self.patterns_dir.glob("**/*.yml")) + list(self.patterns_dir.glob("**/*.yaml"))
+        yaml_files = list(self.patterns_dir.glob("**/*.yml")) + list(
+            self.patterns_dir.glob("**/*.yaml")
+        )
 
-        # Filter out template files (*.template, *.yml.template, *.yaml.template)
-        yaml_files = [f for f in yaml_files if '.template' not in f.suffixes]
+        yaml_files = [f for f in yaml_files if ".template" not in f.suffixes]
 
         if not yaml_files:
-            # No pattern files found - return empty dict (graceful degradation)
-            # This is expected when only template files exist
             self._loaded = True
             return {}
 
         for yaml_file in yaml_files:
-            # Determine category from path relative to patterns_dir
             rel_path = yaml_file.relative_to(self.patterns_dir)
-            # Category is the path without extension (e.g., "frameworks/react" for "frameworks/react.yml")
-            category = str(rel_path.with_suffix(''))
 
-            # Skip if category filtering is enabled and this isn't included
+            category = str(rel_path.with_suffix(""))
+
             if categories and category not in categories:
                 continue
 
@@ -93,7 +89,6 @@ class PatternLoader:
                 patterns = self._load_yaml_file(yaml_file)
                 self.patterns[category] = patterns
             except Exception as e:
-                # Log warning but continue loading other files
                 print(f"Warning: Failed to load {yaml_file}: {e}")
 
         self._loaded = True
@@ -108,7 +103,7 @@ class PatternLoader:
         Returns:
             List of Pattern objects.
         """
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         if not isinstance(data, dict) or "patterns" not in data:
@@ -120,14 +115,14 @@ class PatternLoader:
                 pattern = Pattern(
                     name=pattern_data["name"],
                     description=pattern_data["description"],
-                    regex=pattern_data.get("regex"),  # Optional now
+                    regex=pattern_data.get("regex"),
                     languages=pattern_data.get("languages", ["*"]),
                     severity=pattern_data.get("severity", "medium"),
-                    ast_pattern=pattern_data.get("ast_pattern"),  # Optional AST pattern
-                    confidence=pattern_data.get("confidence"),  # Optional confidence score
-                    files=pattern_data.get("files"),  # Optional file patterns
-                    examples=pattern_data.get("examples"),  # Optional examples
-                    counter_examples=pattern_data.get("counter_examples"),  # Optional counter examples
+                    ast_pattern=pattern_data.get("ast_pattern"),
+                    confidence=pattern_data.get("confidence"),
+                    files=pattern_data.get("files"),
+                    examples=pattern_data.get("examples"),
+                    counter_examples=pattern_data.get("counter_examples"),
                 )
                 patterns.append(pattern)
             except (KeyError, ValueError) as e:
@@ -185,20 +180,16 @@ class PatternLoader:
             category_errors = []
 
             for pattern in patterns:
-                # Check for duplicate names within category
                 names = [p.name for p in patterns]
                 if names.count(pattern.name) > 1:
                     category_errors.append(f"Duplicate pattern name: {pattern.name}")
 
-                # Check severity values
                 valid_severities = ["critical", "high", "medium", "low"]
                 if pattern.severity not in valid_severities:
                     category_errors.append(
                         f"Invalid severity '{pattern.severity}' for pattern '{pattern.name}'"
                     )
 
-                # Check regex compilation (already done in Pattern.__post_init__)
-                # Only check if pattern has a regex (not AST-only patterns)
                 if pattern.regex and pattern.compiled_regex is None:
                     category_errors.append(f"Failed to compile regex for pattern '{pattern.name}'")
 

@@ -31,24 +31,21 @@ This replaces the old Phase 4 architecture where all JavaScript was embedded as
 Python string constants with f-string injection points.
 """
 
-
 from pathlib import Path
 from typing import Literal
 
-
-# Module-level cache for JavaScript file contents (loaded once on first use)
 _JS_CACHE = {
-    'core_language': None,
-    'data_flow': None,
-    'module_framework': None,
-    'security_extractors': None,
-    'framework_extractors': None,
-    'sequelize_extractors': None,
-    'bullmq_extractors': None,
-    'angular_extractors': None,
-    'cfg_extractor': None,
-    'batch_es_module': None,
-    'batch_commonjs': None
+    "core_language": None,
+    "data_flow": None,
+    "module_framework": None,
+    "security_extractors": None,
+    "framework_extractors": None,
+    "sequelize_extractors": None,
+    "bullmq_extractors": None,
+    "angular_extractors": None,
+    "cfg_extractor": None,
+    "batch_es_module": None,
+    "batch_commonjs": None,
 }
 
 
@@ -65,11 +62,9 @@ def _load_javascript_modules():
     """
     global _JS_CACHE
 
-    # Get the directory containing this Python file
     current_dir = Path(__file__).parent
-    js_dir = current_dir / 'javascript'
+    js_dir = current_dir / "javascript"
 
-    # Verify javascript directory exists
     if not js_dir.exists():
         raise FileNotFoundError(
             f"JavaScript modules directory not found: {js_dir}\n"
@@ -81,93 +76,82 @@ def _load_javascript_modules():
             f"  {js_dir}/batch_templates.js"
         )
 
-    # Load core language extractors (language structure layer)
-    core_lang_path = js_dir / 'core_language.js'
+    core_lang_path = js_dir / "core_language.js"
     if not core_lang_path.exists():
         raise FileNotFoundError(f"Missing core language extractors: {core_lang_path}")
-    _JS_CACHE['core_language'] = core_lang_path.read_text(encoding='utf-8')
+    _JS_CACHE["core_language"] = core_lang_path.read_text(encoding="utf-8")
 
-    # Load data flow extractors (data flow & taint layer)
-    data_flow_path = js_dir / 'data_flow.js'
+    data_flow_path = js_dir / "data_flow.js"
     if not data_flow_path.exists():
         raise FileNotFoundError(f"Missing data flow extractors: {data_flow_path}")
-    _JS_CACHE['data_flow'] = data_flow_path.read_text(encoding='utf-8')
+    _JS_CACHE["data_flow"] = data_flow_path.read_text(encoding="utf-8")
 
-    # Load module/framework extractors (integration layer)
-    module_fw_path = js_dir / 'module_framework.js'
+    module_fw_path = js_dir / "module_framework.js"
     if not module_fw_path.exists():
         raise FileNotFoundError(f"Missing module/framework extractors: {module_fw_path}")
-    _JS_CACHE['module_framework'] = module_fw_path.read_text(encoding='utf-8')
+    _JS_CACHE["module_framework"] = module_fw_path.read_text(encoding="utf-8")
 
-    # Load security extractors (SAST patterns)
-    security_path = js_dir / 'security_extractors.js'
+    security_path = js_dir / "security_extractors.js"
     if not security_path.exists():
         raise FileNotFoundError(f"Missing security extractors: {security_path}")
-    _JS_CACHE['security_extractors'] = security_path.read_text(encoding='utf-8')
+    _JS_CACHE["security_extractors"] = security_path.read_text(encoding="utf-8")
 
-    # Load framework extractors (React, Vue, TypeScript, etc.)
-    framework_path = js_dir / 'framework_extractors.js'
+    framework_path = js_dir / "framework_extractors.js"
     if not framework_path.exists():
         raise FileNotFoundError(f"Missing framework extractors: {framework_path}")
-    _JS_CACHE['framework_extractors'] = framework_path.read_text(encoding='utf-8')
+    _JS_CACHE["framework_extractors"] = framework_path.read_text(encoding="utf-8")
 
-    # Load Sequelize ORM extractors
-    sequelize_path = js_dir / 'sequelize_extractors.js'
+    sequelize_path = js_dir / "sequelize_extractors.js"
     if not sequelize_path.exists():
         raise FileNotFoundError(f"Missing Sequelize extractors: {sequelize_path}")
-    _JS_CACHE['sequelize_extractors'] = sequelize_path.read_text(encoding='utf-8')
+    _JS_CACHE["sequelize_extractors"] = sequelize_path.read_text(encoding="utf-8")
 
-    # Load BullMQ job queue extractors
-    bullmq_path = js_dir / 'bullmq_extractors.js'
+    bullmq_path = js_dir / "bullmq_extractors.js"
     if not bullmq_path.exists():
         raise FileNotFoundError(f"Missing BullMQ extractors: {bullmq_path}")
-    _JS_CACHE['bullmq_extractors'] = bullmq_path.read_text(encoding='utf-8')
+    _JS_CACHE["bullmq_extractors"] = bullmq_path.read_text(encoding="utf-8")
 
-    # Load Angular framework extractors
-    angular_path = js_dir / 'angular_extractors.js'
+    angular_path = js_dir / "angular_extractors.js"
     if not angular_path.exists():
         raise FileNotFoundError(f"Missing Angular extractors: {angular_path}")
-    _JS_CACHE['angular_extractors'] = angular_path.read_text(encoding='utf-8')
+    _JS_CACHE["angular_extractors"] = angular_path.read_text(encoding="utf-8")
 
-    # Load CFG extractor
-    cfg_path = js_dir / 'cfg_extractor.js'
+    cfg_path = js_dir / "cfg_extractor.js"
     if not cfg_path.exists():
         raise FileNotFoundError(f"Missing CFG extractor: {cfg_path}")
-    _JS_CACHE['cfg_extractor'] = cfg_path.read_text(encoding='utf-8')
+    _JS_CACHE["cfg_extractor"] = cfg_path.read_text(encoding="utf-8")
 
-    # Load and split batch templates
-    batch_path = js_dir / 'batch_templates.js'
+    batch_path = js_dir / "batch_templates.js"
     if not batch_path.exists():
         raise FileNotFoundError(f"Missing batch templates: {batch_path}")
 
-    batch_content = batch_path.read_text(encoding='utf-8')
+    batch_content = batch_path.read_text(encoding="utf-8")
 
-    # Split on separator comments
-    es_separator = '// === ES_MODULE_BATCH ==='
-    cjs_separator = '// === COMMONJS_BATCH ==='
+    es_separator = "// === ES_MODULE_BATCH ==="
+    cjs_separator = "// === COMMONJS_BATCH ==="
 
     if es_separator not in batch_content:
         raise RuntimeError(f"Batch templates missing ES Module separator: {es_separator}")
     if cjs_separator not in batch_content:
         raise RuntimeError(f"Batch templates missing CommonJS separator: {cjs_separator}")
 
-    # Split the file into sections
     parts = batch_content.split(es_separator)
     if len(parts) != 2:
-        raise RuntimeError(f"Expected exactly one {es_separator} separator, found {len(parts)-1}")
+        raise RuntimeError(f"Expected exactly one {es_separator} separator, found {len(parts) - 1}")
 
     remaining = parts[1]
 
-    # Split ES Module and CommonJS sections
     parts = remaining.split(cjs_separator)
     if len(parts) != 2:
-        raise RuntimeError(f"Expected exactly one {cjs_separator} separator, found {len(parts)-1}")
+        raise RuntimeError(
+            f"Expected exactly one {cjs_separator} separator, found {len(parts) - 1}"
+        )
 
     es_template = parts[0].strip()
     cjs_template = parts[1].strip()
 
-    _JS_CACHE['batch_es_module'] = es_template
-    _JS_CACHE['batch_commonjs'] = cjs_template
+    _JS_CACHE["batch_es_module"] = es_template
+    _JS_CACHE["batch_commonjs"] = cjs_template
 
 
 def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
@@ -211,41 +195,37 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
         >>> temp_path.write_text(script)
         >>> subprocess.run(['node', str(temp_path), ...])
     """
-    # Load JavaScript modules from disk (cached after first call)
-    if _JS_CACHE['core_language'] is None:
+
+    if _JS_CACHE["core_language"] is None:
         _load_javascript_modules()
 
-    # Select the appropriate batch template
     if module_type == "module":
-        batch_template = _JS_CACHE['batch_es_module']
+        batch_template = _JS_CACHE["batch_es_module"]
     elif module_type == "commonjs":
-        batch_template = _JS_CACHE['batch_commonjs']
+        batch_template = _JS_CACHE["batch_commonjs"]
     else:
         raise ValueError(f"Invalid module_type: {module_type}. Expected 'module' or 'commonjs'")
 
-    # Assemble the complete script via string concatenation
-    # Order: core → security → framework → sequelize → bullmq → angular → cfg → batch_template
-    # This ensures all functions are defined before the main() function tries to call them
     assembled_script = (
-        _JS_CACHE['core_language'] +
-        '\n\n' +
-        _JS_CACHE['data_flow'] +
-        '\n\n' +
-        _JS_CACHE['module_framework'] +
-        '\n\n' +
-        _JS_CACHE['security_extractors'] +
-        '\n\n' +
-        _JS_CACHE['framework_extractors'] +
-        '\n\n' +
-        _JS_CACHE['sequelize_extractors'] +
-        '\n\n' +
-        _JS_CACHE['bullmq_extractors'] +
-        '\n\n' +
-        _JS_CACHE['angular_extractors'] +
-        '\n\n' +
-        _JS_CACHE['cfg_extractor'] +
-        '\n\n' +
-        batch_template
+        _JS_CACHE["core_language"]
+        + "\n\n"
+        + _JS_CACHE["data_flow"]
+        + "\n\n"
+        + _JS_CACHE["module_framework"]
+        + "\n\n"
+        + _JS_CACHE["security_extractors"]
+        + "\n\n"
+        + _JS_CACHE["framework_extractors"]
+        + "\n\n"
+        + _JS_CACHE["sequelize_extractors"]
+        + "\n\n"
+        + _JS_CACHE["bullmq_extractors"]
+        + "\n\n"
+        + _JS_CACHE["angular_extractors"]
+        + "\n\n"
+        + _JS_CACHE["cfg_extractor"]
+        + "\n\n"
+        + batch_template
     )
 
     return assembled_script
@@ -273,6 +253,6 @@ def get_single_file_helper(module_type: Literal["module", "commonjs"]) -> str:
 
 
 __all__ = [
-    'get_single_file_helper',
-    'get_batch_helper',
+    "get_single_file_helper",
+    "get_batch_helper",
 ]

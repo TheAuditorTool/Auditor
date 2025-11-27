@@ -6,7 +6,8 @@ Covers ModelSerializer, Serializer, read_only/write_only fields, and custom vali
 """
 
 from rest_framework import serializers
-from ..models.user_models import User, Article
+
+from ..models.user_models import Article, User
 
 
 # 1. Basic Serializer with various field types

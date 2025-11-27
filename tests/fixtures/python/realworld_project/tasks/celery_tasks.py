@@ -5,7 +5,7 @@ Test fixture for extract_celery_tasks().
 Covers @task, @shared_task, @app.task decorators with various security configurations.
 """
 
-from celery import shared_task, Task
+from celery import shared_task
 from celery_app import app
 
 
@@ -23,7 +23,7 @@ def retry_task(self, data):
     try:
         pass
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 # 3. Task with JSON serializer (SAFE - no pickle RCE risk)

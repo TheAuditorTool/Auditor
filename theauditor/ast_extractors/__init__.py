@@ -20,21 +20,19 @@ Example flow:
 WHY: Single source of truth for file paths, prevents architectural violations.
 """
 
-# Import all implementations for direct use by indexer extractors
-from . import python as python_impl, typescript_impl, treesitter_impl
+from . import python as python_impl
+from . import treesitter_impl, typescript_impl
 from .base import detect_language
 
-# Import semantic parser if available
 try:
     from ..js_semantic_parser import get_semantic_ast_batch
 except ImportError:
     get_semantic_ast_batch = None
 
 __all__ = [
-    'python_impl',
-    'typescript_impl',
-    'treesitter_impl',
-    'detect_language',
-    'get_semantic_ast_batch',
+    "python_impl",
+    "typescript_impl",
+    "treesitter_impl",
+    "detect_language",
+    "get_semantic_ast_batch",
 ]
-

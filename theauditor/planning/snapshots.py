@@ -20,8 +20,8 @@ Migration path:
 """
 
 import warnings
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, UTC
 
 from .shadow_git import ShadowRepoManager
 
@@ -57,9 +57,7 @@ def create_snapshot(
         stacklevel=2,
     )
 
-    # If manager provided, use the new shadow git path
     if manager:
-        # Get list of changed files from git status
         import subprocess
 
         result = subprocess.run(
@@ -68,20 +66,18 @@ def create_snapshot(
             capture_output=True,
             text=True,
             check=True,
-            shell=False,  # No shell=True, it's a security risk
+            shell=False,
         )
 
         files_affected = []
         for line in result.stdout.strip().split("\n"):
             if line:
-                # Status is first 2 chars, then space, then filename
                 filename = line[3:].strip()
-                # Handle renamed files (old -> new format)
+
                 if " -> " in filename:
                     filename = filename.split(" -> ")[1]
                 files_affected.append(filename)
 
-        # Use new shadow git method
         snapshot_id, shadow_sha = manager.create_snapshot(
             plan_id=plan_id,
             checkpoint_name=checkpoint_name,
@@ -96,10 +92,9 @@ def create_snapshot(
             "checkpoint_name": checkpoint_name,
             "timestamp": datetime.now(UTC).isoformat(),
             "files_affected": files_affected,
-            "diffs": [],  # Diffs now retrieved on-demand from shadow git
+            "diffs": [],
         }
 
-    # No manager - return minimal snapshot data without persistence
     return {
         "checkpoint_name": checkpoint_name,
         "timestamp": datetime.now(UTC).isoformat(),
@@ -132,5 +127,4 @@ def load_snapshot(snapshot_id: int, manager) -> dict | None:
     return manager.get_snapshot(snapshot_id)
 
 
-# Re-export ShadowRepoManager for direct access
 __all__ = ["create_snapshot", "load_snapshot", "ShadowRepoManager"]

@@ -10,14 +10,13 @@ Test fixture demonstrating:
 - task.s() / task.si() - task signatures
 """
 
-from celery import chain, group, chord
-from celery_app import app
+from celery import chain, chord, group
 from tasks.celery_tasks import (
-    send_email,
-    process_payment,
+    cleanup_old_data,
     generate_report,
+    process_payment,
+    send_email,
     send_sms,
-    cleanup_old_data
 )
 
 
@@ -39,7 +38,6 @@ def schedule_payment_processing(user_id, amount, currency):
 # 3. .apply_async() with eta (exact time execution)
 def schedule_report_at_time(report_id, eta_datetime):
     """Schedule report generation at exact time."""
-    from datetime import datetime
     generate_report.apply_async(
         args=(report_id,),
         eta=eta_datetime  # Execute at specific datetime

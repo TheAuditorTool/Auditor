@@ -32,7 +32,9 @@ class ExplainFormatter:
 
     SEPARATOR = "=" * 80
 
-    def __init__(self, snippet_manager: CodeSnippetManager, show_code: bool = True, limit: int = 20):
+    def __init__(
+        self, snippet_manager: CodeSnippetManager, show_code: bool = True, limit: int = 20
+    ):
         """Initialize formatter.
 
         Args:
@@ -58,66 +60,58 @@ class ExplainFormatter:
         lines = []
         target = data.get("target", "(unknown)")
 
-        # Header
         lines.append(self.SEPARATOR)
         lines.append(f"EXPLAIN: {target}")
         lines.append(self.SEPARATOR)
         lines.append("")
 
-        # Symbols section
         symbols = data.get("symbols", [])
-        lines.append(self._format_section(
-            f"SYMBOLS DEFINED ({len(symbols)})",
-            symbols,
-            self._format_symbol_item
-        ))
+        lines.append(
+            self._format_section(
+                f"SYMBOLS DEFINED ({len(symbols)})", symbols, self._format_symbol_item
+            )
+        )
 
-        # Hooks section (React/Vue hooks)
         hooks = data.get("hooks", [])
         if hooks:
-            lines.append(self._format_section(
-                f"HOOKS USED ({len(hooks)})",
-                hooks,
-                self._format_hook_item
-            ))
+            lines.append(
+                self._format_section(f"HOOKS USED ({len(hooks)})", hooks, self._format_hook_item)
+            )
 
-        # Framework info section (if present AND detected)
         framework_info = data.get("framework_info", {})
-        # [FIX] Only show if 'framework' key exists and is not None
-        if framework_info and framework_info.get('framework'):
+
+        if framework_info and framework_info.get("framework"):
             lines.append(self._format_framework_section(framework_info))
 
-        # Dependencies (imports) section
         imports = data.get("imports", [])
-        lines.append(self._format_section(
-            f"DEPENDENCIES ({len(imports)} imports)",
-            imports,
-            self._format_import_item
-        ))
+        lines.append(
+            self._format_section(
+                f"DEPENDENCIES ({len(imports)} imports)", imports, self._format_import_item
+            )
+        )
 
-        # Dependents (importers) section
         importers = data.get("importers", [])
-        lines.append(self._format_section(
-            f"DEPENDENTS ({len(importers)} files import this)",
-            importers,
-            self._format_importer_item
-        ))
+        lines.append(
+            self._format_section(
+                f"DEPENDENTS ({len(importers)} files import this)",
+                importers,
+                self._format_importer_item,
+            )
+        )
 
-        # Outgoing calls section
         outgoing = data.get("outgoing_calls", [])
-        lines.append(self._format_section(
-            f"OUTGOING CALLS ({len(outgoing)})",
-            outgoing,
-            self._format_outgoing_call_item
-        ))
+        lines.append(
+            self._format_section(
+                f"OUTGOING CALLS ({len(outgoing)})", outgoing, self._format_outgoing_call_item
+            )
+        )
 
-        # Incoming calls section
         incoming = data.get("incoming_calls", [])
-        lines.append(self._format_section(
-            f"INCOMING CALLS ({len(incoming)})",
-            incoming,
-            self._format_incoming_call_item
-        ))
+        lines.append(
+            self._format_section(
+                f"INCOMING CALLS ({len(incoming)})", incoming, self._format_incoming_call_item
+            )
+        )
 
         lines.append(self.SEPARATOR)
         return "\n".join(lines)
@@ -136,7 +130,6 @@ class ExplainFormatter:
         target = data.get("target", "(unknown)")
         resolved = data.get("resolved_as", [target])
 
-        # Header
         lines.append(self.SEPARATOR)
         lines.append(f"EXPLAIN: {target}")
         if resolved and resolved[0] != target:
@@ -144,7 +137,6 @@ class ExplainFormatter:
         lines.append(self.SEPARATOR)
         lines.append("")
 
-        # Definition section
         definition = data.get("definition")
         if definition and definition.get("file"):
             lines.append("DEFINITION:")
@@ -172,21 +164,15 @@ class ExplainFormatter:
             lines.append("DEFINITION: Not found in index")
             lines.append("")
 
-        # Callers section
         callers = data.get("callers", [])
-        lines.append(self._format_section(
-            f"CALLERS ({len(callers)})",
-            callers,
-            self._format_caller_item
-        ))
+        lines.append(
+            self._format_section(f"CALLERS ({len(callers)})", callers, self._format_caller_item)
+        )
 
-        # Callees section
         callees = data.get("callees", [])
-        lines.append(self._format_section(
-            f"CALLEES ({len(callees)})",
-            callees,
-            self._format_callee_item
-        ))
+        lines.append(
+            self._format_section(f"CALLEES ({len(callees)})", callees, self._format_callee_item)
+        )
 
         lines.append(self.SEPARATOR)
         return "\n".join(lines)
@@ -203,13 +189,11 @@ class ExplainFormatter:
         lines = []
         target = data.get("target", data.get("name", "(unknown)"))
 
-        # Header
         lines.append(self.SEPARATOR)
         lines.append(f"EXPLAIN COMPONENT: {target}")
         lines.append(self.SEPARATOR)
         lines.append("")
 
-        # Component info
         lines.append("COMPONENT INFO:")
         lines.append(f"  Name: {data.get('name', target)}")
         lines.append(f"  Type: {data.get('type', 'unknown')}")
@@ -227,33 +211,29 @@ class ExplainFormatter:
         lines.append(f"  Has JSX: {'Yes' if has_jsx else 'No'}")
         lines.append("")
 
-        # Hooks section
         hooks = data.get("hooks", [])
         if isinstance(hooks, list) and hooks:
             if isinstance(hooks[0], str):
-                # Simple list of hook names
                 lines.append(f"HOOKS USED ({len(hooks)}):")
-                for hook in hooks[:self.limit]:
+                for hook in hooks[: self.limit]:
                     lines.append(f"  - {hook}")
                 if len(hooks) > self.limit:
                     lines.append(f"  (and {len(hooks) - self.limit} more)")
             else:
-                # List of hook dicts
-                lines.append(self._format_section(
-                    f"HOOKS USED ({len(hooks)})",
-                    hooks,
-                    self._format_hook_item
-                ))
+                lines.append(
+                    self._format_section(
+                        f"HOOKS USED ({len(hooks)})", hooks, self._format_hook_item
+                    )
+                )
         else:
             lines.append("HOOKS USED (0):")
             lines.append("  (none)")
         lines.append("")
 
-        # Children section
         children = data.get("children", [])
         lines.append(f"CHILD COMPONENTS ({len(children)}):")
         if children:
-            for i, child in enumerate(children[:self.limit], 1):
+            for i, child in enumerate(children[: self.limit], 1):
                 if isinstance(child, dict):
                     child_name = child.get("child_component", child.get("name", "(unknown)"))
                     child_line = child.get("line", "?")
@@ -296,7 +276,7 @@ class ExplainFormatter:
         if not items:
             lines.append("  (none)")
         else:
-            displayed = items[:self.limit]
+            displayed = items[: self.limit]
             for i, item in enumerate(displayed, 1):
                 formatted = format_fn(item, i)
                 lines.append(formatted)
@@ -321,7 +301,6 @@ class ExplainFormatter:
         framework = framework_info.get("framework", "unknown")
         lines.append(f"FRAMEWORK INFO ({framework}):")
 
-        # Routes
         routes = framework_info.get("routes", [])
         if routes:
             lines.append(f"  Routes ({len(routes)}):")
@@ -332,7 +311,6 @@ class ExplainFormatter:
             if len(routes) > 5:
                 lines.append(f"    (and {len(routes) - 5} more)")
 
-        # Middleware
         middleware = framework_info.get("middleware", [])
         if middleware:
             lines.append(f"  Middleware ({len(middleware)}):")
@@ -341,7 +319,6 @@ class ExplainFormatter:
             if len(middleware) > 5:
                 lines.append(f"    (and {len(middleware) - 5} more)")
 
-        # Models
         models = framework_info.get("models", [])
         if models:
             lines.append(f"  ORM Models ({len(models)}):")
@@ -385,12 +362,8 @@ class ExplainFormatter:
         module = imp.get("module", imp.get("value", "(unknown)"))
         line_num = imp.get("line", "?")
 
-        # [FIX] Smarter internal/external detection
-        # Internal: starts with . or / OR is a known project package
         is_internal = (
-            module.startswith(".") or
-            module.startswith("/") or
-            module.startswith("theauditor")  # Project-specific
+            module.startswith(".") or module.startswith("/") or module.startswith("theauditor")
         )
         scope = "internal" if is_internal else "external"
 
@@ -410,7 +383,9 @@ class ExplainFormatter:
         args = call.get("arguments", "")
         file_path = call.get("file", "")
 
-        result = f"  {index}. line {line_num}: {callee}({args[:30]}{'...' if len(args) > 30 else ''})"
+        result = (
+            f"  {index}. line {line_num}: {callee}({args[:30]}{'...' if len(args) > 30 else ''})"
+        )
 
         if self.show_code and file_path and line_num:
             snippet = self.snippet_manager.get_snippet(file_path, line_num, expand_block=False)
@@ -445,7 +420,9 @@ class ExplainFormatter:
         result += f"\n     Called from: {caller_func}()"
 
         if self.show_code and caller_file and caller_line and caller_line != "?":
-            snippet = self.snippet_manager.get_snippet(caller_file, int(caller_line), expand_block=False)
+            snippet = self.snippet_manager.get_snippet(
+                caller_file, int(caller_line), expand_block=False
+            )
             if not snippet.startswith("["):
                 result += f"\n      {snippet}"
 

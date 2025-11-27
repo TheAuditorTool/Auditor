@@ -6,12 +6,12 @@ Phase 2: Performance fixes for cross-boundary edges and ORM edges
 These are REAL tests against actual databases, not mocks.
 """
 
-import pytest
+import os
 import sqlite3
 import tempfile
-import os
 from pathlib import Path
 
+import pytest
 
 # =============================================================================
 # PHASE 1 TESTS: db_cache.resolve_filename()
@@ -265,7 +265,6 @@ class TestCrossBoundaryVectorization:
 
         # Check that /api/users/profile matched (most specific) not /api/users
         edges = result['edges']
-        profile_edges = [e for e in edges if 'profile' in str(e.get('metadata', {}))]
 
         # Should have created edges for the profile endpoint
         assert len(edges) > 0, "Should have created cross-boundary edges"
@@ -464,6 +463,7 @@ class TestRealProjectIntegration:
               AND target NOT LIKE '%docker_analyzer%'
               AND target NOT LIKE '%memory_cache%'
               AND target NOT LIKE '%insights/taint%'
+              AND target NOT LIKE '%taint/insights%'
             GROUP BY target
         """)
 
@@ -509,8 +509,9 @@ class TestPerformance:
 
     def test_resolve_filename_is_o1(self):
         """Test that resolve_filename is O(1) via set lookup."""
-        from theauditor.graph.db_cache import GraphDatabaseCache
         import time
+
+        from theauditor.graph.db_cache import GraphDatabaseCache
 
         # Create a large cache
         fd, path = tempfile.mkstemp(suffix='.db')

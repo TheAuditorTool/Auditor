@@ -2,7 +2,6 @@
 
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 
@@ -15,7 +14,7 @@ class AccountPayload(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @validator("timezone")
-    def timezone_supported(cls, value: str) -> str:
+    def timezone_supported(self, value: str) -> str:
         if not value:
             raise ValueError("timezone required")
         if value not in {"UTC", "US/Pacific", "US/Eastern"}:
@@ -23,7 +22,7 @@ class AccountPayload(BaseModel):
         return value
 
     @root_validator
-    def title_matches_role(cls, values: dict) -> dict:
+    def title_matches_role(self, values: dict) -> dict:
         title = values.get("title")
         if title and len(title) < 3:
             raise ValueError("title too short")

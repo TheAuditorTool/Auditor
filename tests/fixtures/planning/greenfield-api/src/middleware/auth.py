@@ -8,10 +8,11 @@ This fixture demonstrates:
 - Middleware chaining for api_endpoint_controls testing
 """
 
-from functools import wraps
-from flask import request, g, abort, jsonify
-import jwt
 import os
+from functools import wraps
+
+import jwt
+from flask import abort, g, request
 
 
 def require_auth(f):
@@ -74,7 +75,6 @@ def require_role(role_name):
             user_id = g.user_id
 
             # Import here to avoid circular dependency
-            from models import User
             from services.user_service import get_user_role
 
             # TAINT FLOW: User lookup with raw SQL (in user_service)

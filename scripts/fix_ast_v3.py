@@ -15,12 +15,11 @@ Author: TheAuditor Team (V2 by Lead Auditor, V3 refinements)
 Date: November 2025
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from typing import List, Optional
+import shutil
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import libcst as cst
 from libcst import matchers as m
@@ -73,7 +72,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         self.stats = stats
 
         # Scope Stack: Tracks [FuncDef, FuncDef, ...] to handle nesting
-        self.function_stack: List[cst.FunctionDef] = []
+        self.function_stack: list[cst.FunctionDef] = []
 
         # Track if we need ast import
         self.needs_ast_import = False
@@ -99,7 +98,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         # Check if any parent in the stack starts with 'extract_'
         return any(f.name.value.startswith("extract_") for f in self.function_stack)
 
-    def _get_current_func_params(self) -> List[str]:
+    def _get_current_func_params(self) -> list[str]:
         """Get list of parameter names for current function."""
         if not self.function_stack:
             return []
@@ -108,7 +107,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             params.append(param.name.value)
         return params
 
-    def _get_best_node_param(self) -> Optional[str]:
+    def _get_best_node_param(self) -> str | None:
         """
         Get the most likely parameter representing a node/subtree.
 
@@ -228,10 +227,9 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             # context.tree
             if m.matches(walk_arg, m.Attribute(value=m.Name("context"), attr=m.Name("tree"))):
                 is_global_tree = True
-        elif isinstance(walk_arg, cst.Name):
+        elif isinstance(walk_arg, cst.Name) and walk_arg.value in ['tree', 'actual_tree', 'ast_tree', 'source_tree']:
             # variables named 'tree', 'actual_tree'
-            if walk_arg.value in ['tree', 'actual_tree', 'ast_tree', 'source_tree']:
-                is_global_tree = True
+            is_global_tree = True
 
         if not is_global_tree:
             return updated_node
@@ -260,7 +258,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
 
         return updated_node
 
-    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> Optional[cst.BaseExpression]:
+    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> cst.BaseExpression | None:
         """
         Extract node type from isinstance check in loop body.
 
@@ -270,7 +268,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             return None
 
         # Check first 3 statements (handles comments, debug prints, etc.)
-        for i, stmt in enumerate(body.body[:3]):
+        for _i, stmt in enumerate(body.body[:3]):
             if m.matches(stmt, m.If(test=m.Call(func=m.Name("isinstance")))):
                 isinstance_call = stmt.test
                 if len(isinstance_call.args) >= 2:
@@ -330,7 +328,7 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
     stats.files_processed += 1
 
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source = f.read()
     except Exception as e:
         print(f"  ERROR reading {filepath.name}: {e}")
@@ -399,7 +397,7 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
             return False
 
     if verbose:
-        print(f"  No changes needed")
+        print("  No changes needed")
     return False
 
 # ============================================================================
@@ -473,7 +471,7 @@ Examples:
     if args.target_dir.is_file():
         files = [args.target_dir]
     else:
-        files = sorted(list(args.target_dir.rglob("*.py")))
+        files = sorted(args.target_dir.rglob("*.py"))
         # Filter out tests, backups, utils
         files = [
             f for f in files

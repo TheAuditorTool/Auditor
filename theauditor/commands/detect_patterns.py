@@ -1,21 +1,41 @@
 """Detect universal runtime, DB, and logic patterns in code."""
 
-import click
 from pathlib import Path
+
+import click
+
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
 @click.command("detect-patterns")
 @click.option("--project-path", default=".", help="Root directory to analyze")
-@click.option("--patterns", multiple=True, help="Pattern categories to use (e.g., runtime_issues, db_issues)")
+@click.option(
+    "--patterns", multiple=True, help="Pattern categories to use (e.g., runtime_issues, db_issues)"
+)
 @click.option("--output-json", help="Path to output JSON file")
 @click.option("--file-filter", help="Glob pattern to filter files")
 @click.option("--max-rows", default=50, type=int, help="Maximum rows to display in table")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
 @click.option("--with-ast/--no-ast", default=True, help="Enable AST-based pattern matching")
-@click.option("--with-frameworks/--no-frameworks", default=True, help="Enable framework detection and framework-specific patterns")
-@click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
-def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, print_stats, with_ast, with_frameworks, exclude_self):
+@click.option(
+    "--with-frameworks/--no-frameworks",
+    default=True,
+    help="Enable framework detection and framework-specific patterns",
+)
+@click.option(
+    "--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)"
+)
+def detect_patterns(
+    project_path,
+    patterns,
+    output_json,
+    file_filter,
+    max_rows,
+    print_stats,
+    with_ast,
+    with_frameworks,
+    exclude_self,
+):
     """Detect security vulnerabilities and code quality issues.
 
     Runs 100+ security pattern rules across your codebase using both
@@ -98,84 +118,72 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
     from theauditor.universal_detector import UniversalPatternDetector
 
     try:
-        # Initialize detector
         project_path = Path(project_path).resolve()
         pattern_loader = PatternLoader()
 
-        # Get exclusion patterns using centralized function
         exclude_patterns = get_self_exclusion_patterns(exclude_self)
 
         detector = UniversalPatternDetector(
-            project_path, 
+            project_path,
             pattern_loader,
             with_ast=with_ast,
             with_frameworks=with_frameworks,
-            exclude_patterns=exclude_patterns
+            exclude_patterns=exclude_patterns,
         )
 
-        # Run detection
         categories = list(patterns) if patterns else None
         findings = detector.detect_patterns(categories=categories, file_filter=file_filter)
 
-        # ===== DUAL-WRITE PATTERN =====
-        # Write to DATABASE first (for FCE performance), then JSON (for AI consumption)
-        # This eliminates FCE file I/O while preserving extraction.py pipeline
         db_path = project_path / ".pf" / "repo_index.db"
         if db_path.exists():
             try:
                 from theauditor.indexer.database import DatabaseManager
+
                 db_manager = DatabaseManager(str(db_path))
 
-                # Convert findings to dict if needed (handles both dict and object formats)
                 findings_dicts = []
                 for f in findings:
-                    if hasattr(f, 'to_dict'):
+                    if hasattr(f, "to_dict"):
                         findings_dicts.append(f.to_dict())
                     elif isinstance(f, dict):
                         findings_dicts.append(f)
                     else:
-                        # Fallback: try to convert to dict
                         findings_dicts.append(dict(f))
 
-                db_manager.write_findings_batch(findings_dicts, tool_name='patterns')
+                db_manager.write_findings_batch(findings_dicts, tool_name="patterns")
                 db_manager.close()
 
                 click.echo(f"[DB] Wrote {len(findings)} findings to database for FCE correlation")
             except Exception as e:
-                # Non-fatal: if DB write fails, JSON write still succeeds
                 click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
                 click.echo("[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo(f"[DB] Database not found - run 'aud full' first for optimal FCE performance")
-        # ===== END DUAL-WRITE =====
+            click.echo("[DB] Database not found - run 'aud full' first for optimal FCE performance")
 
-        # Write results to JSON
-        output_path = Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
+        output_path = (
+            Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
+        )
         detector.to_json(output_path)
         click.echo(f"[OK] Patterns analysis saved to {output_path}")
 
-        # Display table
         table = detector.format_table(max_rows=max_rows)
         click.echo(table)
 
-        # Print statistics if requested
         if print_stats:
             stats = detector.get_summary_stats()
             click.echo("\n--- Summary Statistics ---")
             click.echo(f"Total findings: {stats['total_findings']}")
             click.echo(f"Files affected: {stats['files_affected']}")
 
-            if stats['by_severity']:
+            if stats["by_severity"]:
                 click.echo("\nBy severity:")
-                for severity, count in sorted(stats['by_severity'].items()):
+                for severity, count in sorted(stats["by_severity"].items()):
                     click.echo(f"  {severity}: {count}")
 
-            if stats['by_category']:
+            if stats["by_category"]:
                 click.echo("\nBy category:")
-                for category, count in sorted(stats['by_category'].items()):
+                for category, count in sorted(stats["by_category"].items()):
                     click.echo(f"  {category}: {count}")
-
-        # Successfully completed - found and reported all issues
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)

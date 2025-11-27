@@ -26,18 +26,16 @@ Usage:
     python ast_walk_to_filecontext.py --target-dir ./theauditor/ast_extractors/python/
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Optional, Sequence
+import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -61,7 +59,7 @@ class TransformationStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nTransformations applied:")
+        print("\nTransformations applied:")
         print(f"  Function signatures updated: {self.signatures_changed}")
         print(f"  ast.walk() -> context.find_nodes(): {self.ast_walks_replaced}")
         print(f"  tree.get('tree') removed: {self.tree_gets_replaced}")
@@ -180,7 +178,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
             # Use the module's code generation
             code = cst.Module(body=[node]).code
             return 'tree.get("tree")' in code or "tree.get('tree')" in code
-        except:
+        except Exception:
             # If that fails, assume it might contain the pattern
             return True
 
@@ -242,10 +240,6 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
         if not self.inside_extractor:
             return updated_node
 
-        # Extract the tree argument (might be actual_tree, tree, etc.)
-        walk_call = updated_node.iter
-        tree_arg = walk_call.args[0].value
-
         # Check if the loop body starts with isinstance check
         node_type = self._extract_isinstance_node_type(updated_node.body)
 
@@ -282,7 +276,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
 
             return updated_node.with_changes(iter=new_iter)
 
-    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> Optional[cst.BaseExpression]:
+    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> cst.BaseExpression | None:
         """Extract the node type from isinstance check at start of loop body."""
         if not body.body:
             return None
@@ -408,7 +402,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
         imports_added = False
 
         # Find where to insert imports (after initial docstring/comments)
-        for i, stmt in enumerate(updated_node.body):
+        for _i, stmt in enumerate(updated_node.body):
             if not imports_added:
                 # Skip docstrings and comments
                 if m.matches(stmt, m.SimpleStatementLine(body=[m.Expr(m.SimpleString())])):
@@ -749,7 +743,7 @@ def process_file(filepath: Path, stats: TransformationStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if not an extractor file
@@ -871,10 +865,7 @@ Examples:
         print("Creating FileContext Infrastructure")
         print("="*60)
 
-        if args.target_dir.is_file():
-            output_dir = args.target_dir.parent
-        else:
-            output_dir = args.target_dir
+        output_dir = args.target_dir.parent if args.target_dir.is_file() else args.target_dir
 
         create_filecontext_module(output_dir)
         print("\nFileContext modules created successfully!")

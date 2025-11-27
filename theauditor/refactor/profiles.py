@@ -6,21 +6,21 @@ The profile describes what *old* schema references must disappear and which
 to find exact files/lines without any AI guesses.
 """
 
-
-
 import fnmatch
 import functools
 import re
 import sqlite3
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable, Sequence
 
 import yaml
 
-
 MAX_RESULTS_PER_QUERY = 500
+
+
+BATCH_SIZE = 50
 
 
 def _coerce_list(value: Iterable[str] | None) -> list[str]:
@@ -61,7 +61,7 @@ class PatternSpec:
     api_routes: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any] | None) -> "PatternSpec":
+    def from_dict(cls, raw: dict[str, Any] | None) -> PatternSpec:
         raw = raw or {}
         return cls(
             identifiers=_coerce_list(raw.get("identifiers")),
@@ -88,7 +88,7 @@ class RefactorRule:
     guidance: str | None = None
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "RefactorRule":
+    def from_dict(cls, raw: dict[str, Any]) -> RefactorRule:
         if "id" not in raw or "description" not in raw:
             raise ValueError("Each refactor rule must include 'id' and 'description'")
         severity = raw.get("severity", "medium").lower()
@@ -117,17 +117,17 @@ class RefactorProfile:
     refactor_name: str
     description: str
     version: str | None
-    rules: list["RefactorRule"]
+    rules: list[RefactorRule]
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Path) -> "RefactorProfile":
+    def load(cls, path: Path) -> RefactorProfile:
         """Load profile from a YAML file path."""
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         return cls._from_dict(data)
 
     @classmethod
-    def load_from_string(cls, yaml_text: str) -> "RefactorProfile":
+    def load_from_string(cls, yaml_text: str) -> RefactorProfile:
         """Load profile from a YAML string (no temp file needed).
 
         This is the preferred method when you already have the YAML content
@@ -146,7 +146,7 @@ class RefactorProfile:
         return cls._from_dict(data)
 
     @classmethod
-    def _from_dict(cls, data: dict | None) -> "RefactorProfile":
+    def _from_dict(cls, data: dict | None) -> RefactorProfile:
         """Internal: Create profile from parsed YAML dict."""
         if not isinstance(data, dict):
             raise ValueError("Refactor profile must be a YAML mapping")
@@ -210,7 +210,7 @@ class ProfileEvaluation:
     """Full evaluation summary for a profile."""
 
     profile: RefactorProfile
-    rule_results: list["RuleResult"]
+    rule_results: list[RuleResult]
 
     def total_violations(self) -> int:
         return sum(len(rule.violations) for rule in self.rule_results)
@@ -236,26 +236,40 @@ class _SourceQuery:
     context_field: str | None = None
 
 
-IDENTIFIER_SOURCES: tuple["_SourceQuery", ...] = (
+IDENTIFIER_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("symbols", "name", "path", "line", "symbols", "type"),
     _SourceQuery("symbols_jsx", "name", "path", "line", "symbols_jsx", "type"),
     _SourceQuery("variable_usage", "variable_name", "file", "line", "variable_usage", "usage_type"),
     _SourceQuery("assignments", "target_var", "file", "line", "assignments", "source_expr"),
-    _SourceQuery("function_call_args", "callee_function", "file", "line", "function_call_args", "caller_function"),
+    _SourceQuery(
+        "function_call_args",
+        "callee_function",
+        "file",
+        "line",
+        "function_call_args",
+        "caller_function",
+    ),
 )
 
-EXPRESSION_SOURCES: tuple["_SourceQuery", ...] = (
+EXPRESSION_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("assignments", "source_expr", "file", "line", "assignments"),
-    _SourceQuery("function_call_args", "argument_expr", "file", "line", "function_call_args", "callee_function"),
+    _SourceQuery(
+        "function_call_args",
+        "argument_expr",
+        "file",
+        "line",
+        "function_call_args",
+        "callee_function",
+    ),
     _SourceQuery("sql_queries", "query_text", "file_path", "line_number", "sql_queries", "command"),
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
-SQL_TABLE_SOURCES: tuple["_SourceQuery", ...] = (
+SQL_TABLE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("sql_query_tables", "table_name", "query_file", "query_line", "sql_query_tables"),
 )
 
-API_ROUTE_SOURCES: tuple["_SourceQuery", ...] = (
+API_ROUTE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
@@ -276,18 +290,20 @@ class RefactorRuleEngine:
             self.conn.close()
             self.conn = None
 
-    def __enter__(self) -> "RefactorRuleEngine":
+    def __enter__(self) -> RefactorRuleEngine:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def evaluate(self, profile: RefactorProfile) -> "ProfileEvaluation":
-        results: list["RuleResult"] = []
+    def evaluate(self, profile: RefactorProfile) -> ProfileEvaluation:
+        results: list[RuleResult] = []
         for rule in profile.rules:
             violations = self._run_spec(rule.match, rule.scope)
             expected = self._run_spec(rule.expect, rule.scope) if not rule.expect.is_empty() else []
-            results.append(RuleResult(rule=rule, violations=violations, expected_references=expected))
+            results.append(
+                RuleResult(rule=rule, violations=violations, expected_references=expected)
+            )
         return ProfileEvaluation(profile=profile, rule_results=results)
 
     def _run_spec(self, spec: PatternSpec, scope: dict[str, list[str]]) -> list[dict[str, Any]]:
@@ -305,7 +321,7 @@ class RefactorRuleEngine:
     def _query_sources(
         self,
         terms: Sequence[str],
-        sources: tuple["_SourceQuery", ...],
+        sources: tuple[_SourceQuery, ...],
         scope: dict[str, list[str]],
     ) -> list[dict[str, Any]]:
         """Query sources with batched SQL and regex boundary filtering.
@@ -321,45 +337,30 @@ class RefactorRuleEngine:
         results: list[dict[str, Any]] = []
         seen: set = set()
 
-        # Deduplicate and prepare terms
-        unique_terms = list(dict.fromkeys(terms))  # Preserves order, removes dupes
+        unique_terms = list(dict.fromkeys(terms))
 
-        # Pre-compile regex patterns for strict filtering
-        # Supports two modes:
-        #   /pattern/  -> Raw regex (e.g., "/item\..*\.id/" matches item.product.id)
-        #   plain      -> Word boundary match (e.g., "id" matches "id" but not "grid")
         term_patterns = {}
         for term in unique_terms:
             if term.startswith("/") and term.endswith("/") and len(term) > 2:
-                # Raw regex mode - user provides their own pattern
                 raw_pattern = term[1:-1]
                 try:
                     term_patterns[term] = re.compile(raw_pattern, re.IGNORECASE)
                 except re.error:
-                    # Invalid regex - fall back to escaped literal
                     term_patterns[term] = re.compile(re.escape(term), re.IGNORECASE)
             else:
-                # Default: word boundary match
                 term_patterns[term] = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
 
-        # Batch terms to reduce query count (SQLite limit is 999 variables)
-        BATCH_SIZE = 50
         for chunk in self._chunk_list(unique_terms, BATCH_SIZE):
-            # For SQL LIKE, strip /.../ delimiters from regex terms
             like_params = []
             for t in chunk:
                 if t.startswith("/") and t.endswith("/") and len(t) > 2:
-                    # Extract core pattern for LIKE (remove regex metacharacters)
                     core = t[1:-1].replace(".*", "").replace("\\.", ".")
                     like_params.append(f"%{core}%")
                 else:
                     like_params.append(f"%{t}%")
 
             for source in sources:
-                # Build batched WHERE clause: (col LIKE ? OR col LIKE ? ...)
-                or_clauses = " OR ".join(
-                    [f"{source.column} LIKE ? COLLATE NOCASE"] * len(chunk)
-                )
+                or_clauses = " OR ".join([f"{source.column} LIKE ? COLLATE NOCASE"] * len(chunk))
 
                 query = (
                     f"SELECT {source.file_field} AS file_path, "
@@ -385,8 +386,6 @@ class RefactorRuleEngine:
 
                     match_value = row["match_value"] or ""
 
-                    # Strict filter: find which term actually matched with word boundaries
-                    # This eliminates 'id' matching 'product_id' or 'grid'
                     matched_term = None
                     for term in chunk:
                         if term_patterns[term].search(match_value):
@@ -394,7 +393,7 @@ class RefactorRuleEngine:
                             break
 
                     if not matched_term:
-                        continue  # SQL LIKE matched but regex boundary check failed
+                        continue
 
                     line = row["line_number"] or 0
                     context_value = row["context_value"] if source.context_field else None
@@ -413,8 +412,8 @@ class RefactorRuleEngine:
                             "term": matched_term,
                         }
                     )
-        # Sort for deterministic output (same results every run)
-        return sorted(results, key=lambda x: (x['file'], x['line'], x['match']))
+
+        return sorted(results, key=lambda x: (x["file"], x["line"], x["match"]))
 
     @staticmethod
     def _chunk_list(data: Sequence, size: int):

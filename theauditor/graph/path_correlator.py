@@ -1,26 +1,28 @@
 """Path-Based Factual Correlation using Control Flow Graphs.
 
-This module correlates findings based on control flow structure - purely factual 
+This module correlates findings based on control flow structure - purely factual
 relationships about which findings execute together on the same paths.
 """
 
-
 import sqlite3
-from typing import Any
 from collections import defaultdict
+from typing import Any
 
 from theauditor.graph.cfg_builder import CFGBuilder
 
 
+COMPLEXITY_THRESHOLD = 25
+
+
 class PathCorrelator:
     """Correlate findings based on shared execution paths in CFG.
-    
+
     Reports structural facts about control flow relationships, not interpretations.
     """
 
     def __init__(self, db_path: str):
         """Initialize with database connection.
-        
+
         Args:
             db_path: Path to repo_index.db
         """
@@ -31,36 +33,31 @@ class PathCorrelator:
 
     def correlate(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Find findings that co-exist on same execution paths.
-        
+
         Args:
             findings: List of finding dictionaries with file, line, tool, etc.
-            
+
         Returns:
             List of path clusters with findings guaranteed to be on same path
         """
-        # Group findings by function
+
         findings_by_function = self._group_findings_by_function(findings)
         path_clusters = []
 
         for (file_path, func_name), func_findings in findings_by_function.items():
             if len(func_findings) < 2:
-                continue  # Need at least 2 findings to correlate
-
-            # Get CFG for this function (hard fail if missing - no fallback)
-            cfg = self.cfg_builder.get_function_cfg(file_path, func_name)
-            if not cfg or not cfg.get("blocks"):
-                # Skip function if CFG doesn't exist (not an error, just no CFG)
                 continue
 
-            # Map findings to CFG blocks
+            cfg = self.cfg_builder.get_function_cfg(file_path, func_name)
+            if not cfg or not cfg.get("blocks"):
+                continue
+
             findings_to_blocks = self._map_findings_to_blocks(cfg, func_findings)
 
-            # Find paths connecting multiple findings with conditions
             clusters = self._find_finding_paths_with_conditions(
                 cfg, findings_to_blocks, func_findings
             )
 
-            # Add function context to clusters
             for cluster in clusters:
                 cluster["function"] = func_name
                 cluster["file"] = file_path
@@ -71,7 +68,7 @@ class PathCorrelator:
 
     def _group_findings_by_function(self, findings: list[dict]) -> dict[tuple[str, str], list]:
         """Group findings by their containing function.
-        
+
         Uses symbols table to find function boundaries.
         """
         grouped = defaultdict(list)
@@ -84,8 +81,8 @@ class PathCorrelator:
             if not file_path or line <= 0:
                 continue
 
-            # Find containing function
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT name, type
                 FROM symbols
                 WHERE path = ?
@@ -93,7 +90,9 @@ class PathCorrelator:
                   AND type = 'function'
                 ORDER BY line DESC
                 LIMIT 1
-            """, (file_path, line))
+            """,
+                (file_path, line),
+            )
 
             result = cursor.fetchone()
             if result:
@@ -109,7 +108,6 @@ class PathCorrelator:
         for finding in findings:
             line = finding.get("line", 0)
 
-            # Find block containing this line
             for block in cfg.get("blocks", []):
                 if block["start_line"] <= line <= block["end_line"]:
                     block_findings[block["id"]].append(finding)
@@ -117,8 +115,9 @@ class PathCorrelator:
 
         return dict(block_findings)
 
-    def _find_finding_paths_with_conditions(self, cfg: dict, findings_to_blocks: dict,
-                                           all_findings: list) -> list[dict]:
+    def _find_finding_paths_with_conditions(
+        self, cfg: dict, findings_to_blocks: dict, all_findings: list
+    ) -> list[dict]:
         """Find execution paths containing multiple findings with path conditions.
 
         ADAPTIVE STRATEGY (v1.3+):
@@ -133,35 +132,21 @@ class PathCorrelator:
 
         Reports factual control flow conditions, not interpretations.
         """
-        # Get all block IDs with findings
+
         finding_blocks = list(findings_to_blocks.keys())
 
-        # --- ADAPTIVE ALGORITHM SELECTION ---
-        # Complexity threshold: 25 locations = ~600 BFS runs (acceptable, <0.5s)
-        # Above this, O(N²) pathfinding causes performance cliff (>10s freeze)
-        # Switch to O(N) block clustering for complex functions
-        COMPLEXITY_THRESHOLD = 25
-
         if len(finding_blocks) > COMPLEXITY_THRESHOLD:
-            # Algorithm selection: Use fast clustering for complex functions
-            # This is NOT a fallback - it's choosing the right algorithm for input size
-            # Note: Explicit metadata in result distinguishes this from high-precision mode
             return self._fast_block_clustering(findings_to_blocks)
 
-        # Below threshold: Use high-precision O(N²) pathfinding
         clusters = []
 
-        # Build adjacency list for efficient graph traversal
         graph = self._build_cfg_graph(cfg)
 
-        # Check each pair of findings for path connectivity
         for i, block_a in enumerate(finding_blocks):
-            for block_b in finding_blocks[i+1:]:
-                # Check if there's a path from A to B or B to A
+            for block_b in finding_blocks[i + 1 :]:
                 path_a_to_b = self._find_path_bfs(graph, block_a, block_b)
                 path_b_to_a = self._find_path_bfs(graph, block_b, block_a)
 
-                # Use whichever path exists (or the shorter one if both exist)
                 path = None
                 if path_a_to_b and path_b_to_a:
                     path = path_a_to_b if len(path_a_to_b) <= len(path_b_to_a) else path_b_to_a
@@ -171,7 +156,6 @@ class PathCorrelator:
                     path = path_b_to_a
 
                 if path:
-                    # Found a correlation - collect all findings on this path
                     findings_on_path = []
 
                     for block_id in path:
@@ -179,32 +163,30 @@ class PathCorrelator:
                             findings_on_path.extend(findings_to_blocks[block_id])
 
                     if len(findings_on_path) >= 2:
-                        # Extract path conditions for this specific execution path
                         path_conditions = self._extract_path_conditions(cfg, path)
 
-                        # Build factual description
                         description = f"{len(findings_on_path)} findings on same execution path"
                         if path_conditions:
                             description += f" when: {' AND '.join(path_conditions)}"
 
-                        clusters.append({
-                            "type": "path_cluster",
-                            "confidence": 0.95,  # High confidence - proven path exists
-                            "path_blocks": path,
-                            "conditions": path_conditions,
-                            "findings": findings_on_path,
-                            "finding_count": len(findings_on_path),
-                            "description": description
-                        })
+                        clusters.append(
+                            {
+                                "type": "path_cluster",
+                                "confidence": 0.95,
+                                "path_blocks": path,
+                                "conditions": path_conditions,
+                                "findings": findings_on_path,
+                                "finding_count": len(findings_on_path),
+                                "description": description,
+                            }
+                        )
 
-        # Deduplicate clusters with same findings
         unique_clusters = []
         seen_finding_sets = set()
 
         for cluster in clusters:
             finding_set = frozenset(
-                f"{f['file']}:{f['line']}:{f['tool']}"
-                for f in cluster["findings"]
+                f"{f['file']}:{f['line']}:{f['tool']}" for f in cluster["findings"]
             )
             if finding_set not in seen_finding_sets:
                 seen_finding_sets.add(finding_set)
@@ -230,17 +212,18 @@ class PathCorrelator:
         clusters = []
 
         for block_id, findings in findings_to_blocks.items():
-            # Only create cluster if multiple findings exist in this block
             if len(findings) >= 2:
-                clusters.append({
-                    "type": "block_cluster",  # Distinct type (not "path_cluster")
-                    "confidence": 1.0,        # 100% certain they're in same block
-                    "path_blocks": [block_id],
-                    "conditions": ["(Findings in same code block - Complex function)"],
-                    "findings": findings,
-                    "finding_count": len(findings),
-                    "description": f"{len(findings)} findings in same code block (fast clustering mode)"
-                })
+                clusters.append(
+                    {
+                        "type": "block_cluster",
+                        "confidence": 1.0,
+                        "path_blocks": [block_id],
+                        "conditions": ["(Findings in same code block - Complex function)"],
+                        "findings": findings,
+                        "finding_count": len(findings),
+                        "description": f"{len(findings)} findings in same code block (fast clustering mode)",
+                    }
+                )
 
         return clusters
 
@@ -255,7 +238,6 @@ class PathCorrelator:
         """
         graph = defaultdict(list)
         for edge in cfg.get("edges", []):
-            # Include all edge types except back_edges to avoid infinite loops
             if edge["type"] != "back_edge":
                 graph[edge["source"]].append(edge["target"])
         return dict(graph)
@@ -274,72 +256,61 @@ class PathCorrelator:
         if start == end:
             return [start]
 
-        # BFS to find shortest path
         from collections import deque
+
         queue = deque([(start, [start])])
         visited = {start}
 
         while queue:
             node, path = queue.popleft()
 
-            # Explore neighbors
             for neighbor in graph.get(node, []):
                 if neighbor == end:
-                    # Found path to target
                     return path + [neighbor]
 
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append((neighbor, path + [neighbor]))
 
-        # No path exists
         return None
 
     def _extract_path_conditions(self, cfg: dict, path_blocks: list[int]) -> list[str]:
         """Extract the literal conditions from source that define this execution path.
-        
+
         Returns factual code conditions, not interpretations.
         """
         conditions = []
         blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
         edges_dict = defaultdict(list)
 
-        # Build edge lookup
         for edge in cfg.get("edges", []):
-            edges_dict[edge["source"]].append({
-                "target": edge["target"],
-                "type": edge["type"]
-            })
+            edges_dict[edge["source"]].append({"target": edge["target"], "type": edge["type"]})
 
-        # Walk the path and collect literal conditions
         for i, block_id in enumerate(path_blocks):
             block = blocks_dict.get(block_id)
             if not block:
                 continue
 
-            # If this is a condition block, report the literal condition
-            if block["type"] in ["condition", "loop_condition"]:
-                if block.get("condition"):
-                    # Look at next block to determine branch taken
-                    if i + 1 < len(path_blocks):
-                        next_block = path_blocks[i + 1]
+            if (
+                block["type"] in ["condition", "loop_condition"]
+                and block.get("condition")
+                and i + 1 < len(path_blocks)
+            ):
+                next_block = path_blocks[i + 1]
 
-                        # Find edge type to next block
-                        for edge in edges_dict.get(block_id, []):
-                            if edge["target"] == next_block:
-                                # Report the literal condition from source code
-                                cond = block["condition"]
-                                if len(cond) > 50:
-                                    cond = cond[:47] + "..."
+                for edge in edges_dict.get(block_id, []):
+                    if edge["target"] == next_block:
+                        cond = block["condition"]
+                        if len(cond) > 50:
+                            cond = cond[:47] + "..."
 
-                                # Report factual branch taken
-                                if edge["type"] == "true":
-                                    conditions.append(f"if ({cond})")
-                                elif edge["type"] == "false":
-                                    conditions.append(f"if not ({cond})")
-                                elif block["type"] == "loop_condition":
-                                    conditions.append(f"while ({cond})")
-                                break
+                        if edge["type"] == "true":
+                            conditions.append(f"if ({cond})")
+                        elif edge["type"] == "false":
+                            conditions.append(f"if not ({cond})")
+                        elif block["type"] == "loop_condition":
+                            conditions.append(f"while ({cond})")
+                        break
 
         return conditions
 

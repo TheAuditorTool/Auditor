@@ -1,6 +1,6 @@
 """FastAPI fixture covering route metadata and dependency injection."""
+# ruff: noqa: B008 - FastAPI Depends() pattern is intentional
 
-from typing import List, Optional, Dict
 
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel

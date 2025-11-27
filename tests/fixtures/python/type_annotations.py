@@ -15,17 +15,18 @@ Tests extraction of:
 Validates that complex type annotations are correctly extracted and stored.
 """
 
-from typing import (
-    List, Dict, Set, Tuple, Optional, Union, Any,
-    TypeVar, Generic, Protocol, runtime_checkable,
-    Literal, Final, ClassVar,
-    Type, cast, overload
-)
-
-from collections.abc import Callable, Sequence, Mapping, Iterable
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-
+from typing import (
+    Any,
+    ClassVar,
+    Final,
+    Literal,
+    Protocol,
+    TypeVar,
+    overload,
+    runtime_checkable,
+)
 
 # ==============================================================================
 # TypeVar and Generic Classes
@@ -292,9 +293,8 @@ def complex_tuple_processing(
     """
     result: dict[str, list[int]] = {}
     for key, values in data:
-        if values is not None and len(values) > 0:
-            if isinstance(values[0], int):
-                result[key] = [values[0]]
+        if values is not None and len(values) > 0 and isinstance(values[0], int):
+            result[key] = [values[0]]
     return result
 
 
@@ -488,9 +488,7 @@ def get_item(container: dict[str, int] | list[str], key: str | int) -> int | str
     Get item with overloaded signatures.
     Tests: @overload decorator with multiple type signatures.
     """
-    if isinstance(container, dict) and isinstance(key, str):
-        return container[key]
-    elif isinstance(container, list) and isinstance(key, int):
+    if isinstance(container, dict) and isinstance(key, str) or isinstance(container, list) and isinstance(key, int):
         return container[key]
     raise TypeError("Invalid types")
 

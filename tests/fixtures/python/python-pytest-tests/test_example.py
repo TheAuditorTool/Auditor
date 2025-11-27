@@ -1,8 +1,8 @@
 """Pytest fixture extraction test."""
 
 import sys
+
 import pytest
-from typing import List, Dict
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def test_slow_operation():
 @pytest.mark.skip(reason="Not implemented yet")
 def test_future_feature():
     """Test marked for skipping."""
-    assert False
+    raise AssertionError()
 
 
 @pytest.mark.skipif(sys.version_info < (3, 8), reason="Requires Python 3.8+")
@@ -81,7 +81,7 @@ def test_modern_python():
 @pytest.mark.xfail
 def test_expected_failure():
     """Test expected to fail."""
-    assert False
+    raise AssertionError()
 
 
 @pytest.mark.integration

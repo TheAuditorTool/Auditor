@@ -5,11 +5,13 @@ This file is part of the AFTER state (Cognito).
 Demonstrates import chain: middleware → validators → exceptions
 """
 
-import jwt
-from jose import jwk, jwt as jose_jwt
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
+
+import jwt
 import requests
+from exceptions import ExpiredTokenError, InvalidTokenError
+from jose import jwk
+from jose import jwt as jose_jwt
 
 
 def get_cognito_public_keys():
@@ -78,11 +80,11 @@ def validate_cognito_token(token):
 
         return payload
 
-    except jose_jwt.ExpiredSignatureError:
-        raise ExpiredTokenError("Token has expired")
+    except jose_jwt.ExpiredSignatureError as e:
+        raise ExpiredTokenError("Token has expired") from e
 
     except jose_jwt.JWTError as e:
-        raise InvalidTokenError(f"Invalid token: {str(e)}")
+        raise InvalidTokenError(f"Invalid token: {str(e)}") from e
 
 
 def extract_user_id(token_payload):

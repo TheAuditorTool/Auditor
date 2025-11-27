@@ -6,16 +6,13 @@ Focuses on SQL safety patterns: missing WHERE, unbounded queries, transaction is
 Truth Courier Design: Reports facts about SQL patterns, not recommendations.
 """
 
-
 import re
 import sqlite3
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
 
 
-# ============================================================================
-# REGEXP ADAPTER - Enable regex in SQLite queries
-# ============================================================================
 def _regexp_adapter(expr: str, item: str) -> bool:
     """Adapter to let SQLite use Python's regex engine.
 
@@ -29,16 +26,13 @@ def _regexp_adapter(expr: str, item: str) -> bool:
         return False
 
 
-# ============================================================================
-# RULE METADATA - Phase 3B Addition (2025-10-02)
-# ============================================================================
 METADATA = RuleMetadata(
     name="sql_safety",
     category="sql",
-    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
-    exclude_patterns=['frontend/', 'client/', 'migrations/', 'test/', '__tests__/'],
+    target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
+    exclude_patterns=["frontend/", "client/", "migrations/", "test/", "__tests__/"],
     requires_jsx_pass=False,
-    execution_scope="database"  # Database-wide query, not per-file iteration
+    execution_scope="database",
 )
 
 
@@ -46,36 +40,32 @@ METADATA = RuleMetadata(
 class SQLSafetyPatterns:
     """Finite pattern sets for SQL safety detection - no regex."""
 
-    # DML commands that need WHERE clauses
-    DML_COMMANDS: frozenset = frozenset([
-        'UPDATE', 'DELETE'
-    ])
+    DML_COMMANDS: frozenset = frozenset(["UPDATE", "DELETE"])
 
-    # Aggregate functions (don't need LIMIT)
-    AGGREGATE_FUNCTIONS: frozenset = frozenset([
-        'COUNT(', 'MAX(', 'MIN(', 'SUM(', 'AVG(', 'GROUP BY'
-    ])
+    AGGREGATE_FUNCTIONS: frozenset = frozenset(
+        ["COUNT(", "MAX(", "MIN(", "SUM(", "AVG(", "GROUP BY"]
+    )
 
-    # Transaction-related keywords
-    TRANSACTION_KEYWORDS: frozenset = frozenset([
-        'transaction', 'begin', 'start_transaction', 'beginTransaction',
-        'BEGIN', 'START TRANSACTION', 'db.transaction', 'sequelize.transaction'
-    ])
+    TRANSACTION_KEYWORDS: frozenset = frozenset(
+        [
+            "transaction",
+            "begin",
+            "start_transaction",
+            "beginTransaction",
+            "BEGIN",
+            "START TRANSACTION",
+            "db.transaction",
+            "sequelize.transaction",
+        ]
+    )
 
-    # Rollback indicators
-    ROLLBACK_KEYWORDS: frozenset = frozenset([
-        'rollback', 'ROLLBACK', '.rollback('
-    ])
+    ROLLBACK_KEYWORDS: frozenset = frozenset(["rollback", "ROLLBACK", ".rollback("])
 
-    # Commit indicators
-    COMMIT_KEYWORDS: frozenset = frozenset([
-        'commit', 'COMMIT', '.commit('
-    ])
+    COMMIT_KEYWORDS: frozenset = frozenset(["commit", "COMMIT", ".commit("])
 
-    # Common unindexed field patterns (heuristic-based detection)
-    UNINDEXED_FIELD_PATTERNS: frozenset = frozenset([
-        'email', 'username', 'status', 'created_at', 'updated_at'
-    ])
+    UNINDEXED_FIELD_PATTERNS: frozenset = frozenset(
+        ["email", "username", "status", "created_at", "updated_at"]
+    )
 
 
 def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
@@ -106,13 +96,11 @@ def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding
     patterns = SQLSafetyPatterns()
     conn = sqlite3.connect(context.db_path)
 
-    # Register regex adapter for SQL REGEXP operator
     conn.create_function("REGEXP", 2, _regexp_adapter)
 
     cursor = conn.cursor()
 
     try:
-        # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_update_without_where(cursor))
         findings.extend(_find_delete_without_where(cursor))
         findings.extend(_find_unbounded_queries(cursor, patterns))
@@ -120,7 +108,6 @@ def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding
         findings.extend(_find_large_in_clauses(cursor))
         findings.extend(_find_missing_db_indexes(cursor, patterns))
 
-        # Secondary detection: function_call_args for transactions
         findings.extend(_find_transactions_without_rollback(cursor, patterns))
         findings.extend(_find_nested_transactions(cursor, patterns))
         findings.extend(_find_connection_leaks(cursor))
@@ -139,8 +126,6 @@ def _find_update_without_where(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Push filter logic to SQL - no more Python-side filtering
-    # REMOVED LIMIT - we want ALL violations, not just first 15
     cursor.execute("""
         SELECT file_path, line_number, query_text
         FROM sql_queries
@@ -155,23 +140,23 @@ def _find_update_without_where(cursor) -> list[StandardFinding]:
     seen = set()
 
     for file, line, query in cursor.fetchall():
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
         key = f"{file}:{line}"
         if key in seen:
             continue
         seen.add(key)
 
-        findings.append(StandardFinding(
-            rule_name='sql-safety-update-no-where',
-            message='UPDATE without WHERE clause affects all rows',
-            file_path=file,
-            line=line,
-            severity=Severity.CRITICAL,
-            category='security',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-89'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="sql-safety-update-no-where",
+                message="UPDATE without WHERE clause affects all rows",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="security",
+                snippet=query[:100] + "..." if len(query) > 100 else query,
+                cwe_id="CWE-89",
+            )
+        )
 
     return findings
 
@@ -183,8 +168,6 @@ def _find_delete_without_where(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Push filter logic to SQL - no more Python-side filtering
-    # REMOVED LIMIT - we want ALL violations
     cursor.execute("""
         SELECT file_path, line_number, query_text
         FROM sql_queries
@@ -199,23 +182,23 @@ def _find_delete_without_where(cursor) -> list[StandardFinding]:
     seen = set()
 
     for file, line, query in cursor.fetchall():
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
         key = f"{file}:{line}"
         if key in seen:
             continue
         seen.add(key)
 
-        findings.append(StandardFinding(
-            rule_name='sql-safety-delete-no-where',
-            message='DELETE without WHERE clause removes all rows',
-            file_path=file,
-            line=line,
-            severity=Severity.CRITICAL,
-            category='security',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-89'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="sql-safety-delete-no-where",
+                message="DELETE without WHERE clause removes all rows",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="security",
+                snippet=query[:100] + "..." if len(query) > 100 else query,
+                cwe_id="CWE-89",
+            )
+        )
 
     return findings
 
@@ -227,18 +210,14 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[Standar
     """
     findings = []
 
-    # Build regex pattern for "safe" queries (has LIMIT or aggregates)
-    # Escape special regex chars in aggregate functions
-    safe_tokens = [r'\bLIMIT\b', r'\bTOP\s+\d']
+    safe_tokens = [r"\bLIMIT\b", r"\bTOP\s+\d"]
     for agg in patterns.AGGREGATE_FUNCTIONS:
-        # Escape parenthesis: COUNT( -> COUNT\(
         safe_tokens.append(re.escape(agg))
 
-    safe_pattern = '|'.join(safe_tokens)
+    safe_pattern = "|".join(safe_tokens)
 
-    # Push filter logic to SQL
-    # REMOVED LIMIT - we want ALL violations
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT sq.file_path, sq.line_number, sq.query_text,
                GROUP_CONCAT(sqt.table_name) as tables
         FROM sql_queries sq
@@ -252,17 +231,16 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[Standar
           AND sq.query_text NOT REGEXP ?
         GROUP BY sq.file_path, sq.line_number, sq.query_text
         ORDER BY sq.file_path, sq.line_number
-    """, (safe_pattern,))
+    """,
+        (safe_pattern,),
+    )
 
     seen = set()
 
     for file, line, query, tables in cursor.fetchall():
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
         query_upper = query.upper()
 
-        # Severity scoring stays in Python (complex logic is OK here)
-        if 'JOIN' in query_upper or (tables and ',' in tables):
+        if "JOIN" in query_upper or (tables and "," in tables):
             severity = Severity.HIGH
         else:
             severity = Severity.MEDIUM
@@ -272,16 +250,18 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[Standar
             continue
         seen.add(key)
 
-        findings.append(StandardFinding(
-            rule_name='sql-safety-unbounded-query',
-            message='SELECT without LIMIT - potential memory issue with large datasets',
-            file_path=file,
-            line=line,
-            severity=severity,
-            category='performance',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-770'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="sql-safety-unbounded-query",
+                message="SELECT without LIMIT - potential memory issue with large datasets",
+                file_path=file,
+                line=line,
+                severity=severity,
+                category="performance",
+                snippet=query[:100] + "..." if len(query) > 100 else query,
+                cwe_id="CWE-770",
+            )
+        )
 
     return findings
 
@@ -293,8 +273,6 @@ def _find_select_star(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Use regex to match SELECT * with any amount of whitespace
-    # REMOVED LIMIT - we want ALL violations
     cursor.execute("""
         SELECT sq.file_path, sq.line_number, sq.query_text,
                GROUP_CONCAT(sqt.table_name) as tables
@@ -314,10 +292,7 @@ def _find_select_star(cursor) -> list[StandardFinding]:
     seen = set()
 
     for file, line, query, tables in cursor.fetchall():
-        # Multiple tables = higher severity
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        table_list = tables.split(',') if tables else []
+        table_list = tables.split(",") if tables else []
         severity = Severity.MEDIUM if len(table_list) > 1 else Severity.LOW
 
         key = f"{file}:{line}"
@@ -325,21 +300,25 @@ def _find_select_star(cursor) -> list[StandardFinding]:
             continue
         seen.add(key)
 
-        findings.append(StandardFinding(
-            rule_name='sql-safety-select-star',
-            message='SELECT * query fetches all columns - specify needed columns',
-            file_path=file,
-            line=line,
-            severity=severity,
-            category='performance',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-770'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="sql-safety-select-star",
+                message="SELECT * query fetches all columns - specify needed columns",
+                file_path=file,
+                line=line,
+                severity=severity,
+                category="performance",
+                snippet=query[:100] + "..." if len(query) > 100 else query,
+                cwe_id="CWE-770",
+            )
+        )
 
     return findings
 
 
-def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
+def _find_transactions_without_rollback(
+    cursor, patterns: SQLSafetyPatterns
+) -> list[StandardFinding]:
     """Find transactions that lack rollback in error handlers.
 
     FIXED: Used Anti-Join pattern to eliminate N+1 query explosion.
@@ -347,8 +326,6 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
     """
     findings = []
 
-    # Anti-Join Pattern: Find transactions where NO rollback exists within 50 lines
-    # This is O(1) database query instead of O(N) queries
     cursor.execute("""
         WITH transaction_events AS (
             SELECT file, line, callee_function
@@ -374,32 +351,34 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
 
     candidates = cursor.fetchall()
 
-    # Now check for error handling context (still in Python - small N)
     for file, line, func in candidates:
-        # Check for try/catch/except nearby
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT name
             FROM symbols
             WHERE path = ?
               AND line BETWEEN ? AND ?
               AND name IS NOT NULL
               AND name REGEXP '(?i)(catch|except|finally)'
-        """, (file, line - 5, line + 50))
+        """,
+            (file, line - 5, line + 50),
+        )
 
         has_error_handling = len(cursor.fetchall()) > 0
 
-        # Only flag if there's error handling but no rollback
         if has_error_handling:
-            findings.append(StandardFinding(
-                rule_name='sql-safety-transaction-no-rollback',
-                message='Transaction without rollback in error handling path',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='reliability',
-                snippet=f'{func}(...)',
-                cwe_id='CWE-667'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="sql-safety-transaction-no-rollback",
+                    message="Transaction without rollback in error handling path",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="reliability",
+                    snippet=f"{func}(...)",
+                    cwe_id="CWE-667",
+                )
+            )
 
     return findings
 
@@ -411,7 +390,6 @@ def _find_connection_leaks(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Anti-Join Pattern: Find connections WITHOUT matching close/end/release
     cursor.execute("""
         WITH connection_opens AS (
             SELECT file, line, callee_function
@@ -437,30 +415,34 @@ def _find_connection_leaks(cursor) -> list[StandardFinding]:
 
     candidates = cursor.fetchall()
 
-    # Check for context manager (with/using) - small N
     for file, line, func in candidates:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT name
             FROM symbols
             WHERE path = ?
               AND line BETWEEN ? AND ?
               AND name IS NOT NULL
               AND name REGEXP '(?i)(with |using)'
-        """, (file, line - 2, line + 2))
+        """,
+            (file, line - 2, line + 2),
+        )
 
         has_context = len(cursor.fetchall()) > 0
 
         if not has_context:
-            findings.append(StandardFinding(
-                rule_name='sql-safety-connection-leak',
-                message='Database connection opened but not closed',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='reliability',
-                snippet=f'{func}(...)',
-                cwe_id='CWE-404'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="sql-safety-connection-leak",
+                    message="Database connection opened but not closed",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="reliability",
+                    snippet=f"{func}(...)",
+                    cwe_id="CWE-404",
+                )
+            )
 
     return findings
 
@@ -472,8 +454,6 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> list[Stand
     """
     findings = []
 
-    # Window Function Pattern: Look at NEXT transaction in same file
-    # If current is START and next is START without commit between = nested
     cursor.execute("""
         WITH trans_stream AS (
             SELECT
@@ -502,18 +482,19 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> list[Stand
     """)
 
     for file, line, func, next_func, next_type, next_line in cursor.fetchall():
-        # If the very next transaction event is ALSO a start, we have nesting
-        if next_type == 'START' and next_line and (next_line - line < 100):
-            findings.append(StandardFinding(
-                rule_name='sql-safety-nested-transaction',
-                message='Nested transaction detected - potential deadlock risk',
-                file_path=file,
-                line=next_line,
-                severity=Severity.HIGH,
-                category='reliability',
-                snippet=f'{next_func}(...) nested inside {func}(...)',
-                cwe_id='CWE-667'
-            ))
+        if next_type == "START" and next_line and (next_line - line < 100):
+            findings.append(
+                StandardFinding(
+                    rule_name="sql-safety-nested-transaction",
+                    message="Nested transaction detected - potential deadlock risk",
+                    file_path=file,
+                    line=next_line,
+                    severity=Severity.HIGH,
+                    category="reliability",
+                    snippet=f"{next_func}(...) nested inside {func}(...)",
+                    cwe_id="CWE-667",
+                )
+            )
 
     return findings
 
@@ -525,8 +506,6 @@ def _find_large_in_clauses(cursor) -> list[StandardFinding]:
     """
     findings = []
 
-    # Push IN clause filter to SQL
-    # REMOVED LIMIT - we want ALL violations
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
@@ -540,30 +519,28 @@ def _find_large_in_clauses(cursor) -> list[StandardFinding]:
     """)
 
     for file, line, query, command in cursor.fetchall():
-        # Count items in IN clause by counting commas
         query_upper = query.upper()
-        in_pos = query_upper.find(' IN (')
+        in_pos = query_upper.find(" IN (")
 
         if in_pos == -1:
-            in_pos = query_upper.find(' IN(')
+            in_pos = query_upper.find(" IN(")
 
         if in_pos != -1:
-            # Extract the IN clause content
-            paren_start = in_pos + 4 if ' IN(' in query_upper else in_pos + 5
+            paren_start = in_pos + 4 if " IN(" in query_upper else in_pos + 5
             paren_count = 1
             pos = paren_start + 1
 
             while pos < len(query) and paren_count > 0:
-                if query[pos] == '(':
+                if query[pos] == "(":
                     paren_count += 1
-                elif query[pos] == ')':
+                elif query[pos] == ")":
                     paren_count -= 1
                 pos += 1
 
             if pos > paren_start:
-                in_content = query[paren_start:pos-1]
-                # Count commas to estimate values
-                comma_count = in_content.count(',')
+                in_content = query[paren_start : pos - 1]
+
+                comma_count = in_content.count(",")
 
                 if comma_count > 50:
                     severity = Severity.HIGH
@@ -574,16 +551,18 @@ def _find_large_in_clauses(cursor) -> list[StandardFinding]:
                 else:
                     continue
 
-                findings.append(StandardFinding(
-                    rule_name='sql-safety-large-in-clause',
-                    message=f'{command} query with large IN clause ({comma_count + 1} values)',
-                    file_path=file,
-                    line=line,
-                    severity=severity,
-                    category='performance',
-                    snippet=query[:100] + '...' if len(query) > 100 else query,
-                    cwe_id='CWE-770'
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="sql-safety-large-in-clause",
+                        message=f"{command} query with large IN clause ({comma_count + 1} values)",
+                        file_path=file,
+                        line=line,
+                        severity=severity,
+                        category="performance",
+                        snippet=query[:100] + "..." if len(query) > 100 else query,
+                        cwe_id="CWE-770",
+                    )
+                )
 
     return findings
 
@@ -595,8 +574,6 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[Standa
     """
     findings = []
 
-    # Push WHERE filter to SQL
-    # REMOVED LIMIT - we want ALL violations
     cursor.execute("""
         SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
                GROUP_CONCAT(sqt.table_name) as tables
@@ -615,14 +592,12 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[Standa
 
     seen = set()
 
-    for file, line, query, command, tables in cursor.fetchall():
+    for file, line, query, _command, _tables in cursor.fetchall():
         query_lower = query.lower()
 
-        # Check if WHERE clause uses common unindexed fields
         for field in patterns.UNINDEXED_FIELD_PATTERNS:
-            if f' {field} =' in query_lower or f'.{field} =' in query_lower:
-                # Skip if it's a primary key or has LIMIT
-                if 'limit' in query_lower or ' id ' in query_lower:
+            if f" {field} =" in query_lower or f".{field} =" in query_lower:
+                if "limit" in query_lower or " id " in query_lower:
                     continue
 
                 key = f"{file}:{line}"
@@ -630,16 +605,18 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[Standa
                     continue
                 seen.add(key)
 
-                findings.append(StandardFinding(
-                    rule_name='sql-safety-unindexed-field',
-                    message=f'Query using potentially unindexed field "{field}"',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.LOW,
-                    category='performance',
-                    snippet=query[:100] + '...' if len(query) > 100 else query,
-                    cwe_id='CWE-770'
-                ))
-                break  # One finding per query
+                findings.append(
+                    StandardFinding(
+                        rule_name="sql-safety-unindexed-field",
+                        message=f'Query using potentially unindexed field "{field}"',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.LOW,
+                        category="performance",
+                        snippet=query[:100] + "..." if len(query) > 100 else query,
+                        cwe_id="CWE-770",
+                    )
+                )
+                break
 
     return findings

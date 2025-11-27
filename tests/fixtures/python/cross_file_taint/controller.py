@@ -1,6 +1,7 @@
 """Controller layer - receives user input (TAINT SOURCE)."""
 
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
+
 from .service import SearchService
 
 app = Flask(__name__)

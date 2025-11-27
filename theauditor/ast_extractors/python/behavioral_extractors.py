@@ -39,22 +39,21 @@ Expected extraction from TheAuditor codebase:
 - ~10 dynamic attribute patterns
 Total: ~430 behavioral pattern records
 """
-from theauditor.ast_extractors.python.utils.context import FileContext
-
 
 import ast
 import logging
 import os
 from typing import Any
 
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Helper Functions (Internal - Duplicated for Self-Containment)
-# ============================================================================
+DYNAMIC_METHODS = frozenset({"__getattr__", "__setattr__", "__getattribute__", "__delattr__"})
+
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
@@ -65,14 +64,10 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
-
-# ============================================================================
-# Behavioral Pattern Extractors
-# ============================================================================
 
 def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Detect recursion patterns including direct, mutual, and tail recursion.
@@ -106,57 +101,47 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return recursion_patterns
 
-    # Build map of function definitions and their call sites
-    function_definitions = {}  # function_name → (node, is_async)
-    function_calls = {}  # function_name → [(line, called_function)]
+    function_definitions = {}
+    function_calls = {}
 
-    # First pass: collect all function definitions
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         func_name = node.name
         is_async = isinstance(node, ast.AsyncFunctionDef)
         function_definitions[func_name] = (node, is_async)
 
-    # Second pass: find all function calls within each function
-    for func_name, (func_node, is_async) in function_definitions.items():
+    for func_name, (_func_node, _is_async) in function_definitions.items():
         calls_in_function = []
 
-        # Walk the function body to find calls
         for child in context.find_nodes(ast.Call):
             called_func = get_node_name(child.func)
             if called_func:
-                # Extract simple function name (strip module paths)
-                if '.' in called_func:
-                    called_func = called_func.split('.')[-1]
+                if "." in called_func:
+                    called_func = called_func.split(".")[-1]
                 calls_in_function.append((child.lineno, called_func))
 
         function_calls[func_name] = calls_in_function
 
-    # Third pass: analyze recursion patterns
-    for func_name, (func_node, is_async) in function_definitions.items():
+    for func_name, (_func_node, _is_async) in function_definitions.items():
         calls_in_func = function_calls.get(func_name, [])
 
-        # Check for direct recursion (function calls itself)
-        direct_recursive_calls = [(line, called) for line, called in calls_in_func if called == func_name]
+        direct_recursive_calls = [
+            (line, called) for line, called in calls_in_func if called == func_name
+        ]
 
-        for call_line, called_func in direct_recursive_calls:
-            # Check if this is tail recursion
+        for call_line, _called_func in direct_recursive_calls:
             is_tail = False
 
-            # Find Return nodes in function
             for return_node in context.find_nodes(ast.Return):
                 if return_node.value and isinstance(return_node.value, ast.Call):
-                    # Check if return calls the same function
                     returned_func = get_node_name(return_node.value.func)
                     if returned_func and func_name in returned_func:
                         is_tail = True
                         break
 
-            recursion_type = 'tail' if is_tail else 'direct'
+            recursion_type = "tail" if is_tail else "direct"
 
-            # Try to find base case (if/elif with return or raise)
             base_case_line = None
             for child in context.find_nodes(ast.If):
-                # Check if if body has return (potential base case)
                 for stmt in child.body:
                     if isinstance(stmt, ast.Return):
                         base_case_line = child.lineno
@@ -164,16 +149,17 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
                 if base_case_line:
                     break
 
-            recursion_patterns.append({
-                'line': call_line,
-                'function_name': func_name,
-                'recursion_type': recursion_type,
-                'calls_function': func_name,
-                'base_case_line': base_case_line,
-                'is_async': is_async,
-            })
+            recursion_patterns.append(
+                {
+                    "line": call_line,
+                    "function_name": func_name,
+                    "recursion_type": recursion_type,
+                    "calls_function": func_name,
+                    "base_case_line": base_case_line,
+                    "is_async": is_async,
+                }
+            )
 
-    # Fourth pass: detect mutual recursion (A calls B, B calls A)
     analyzed_pairs = set()
 
     for func_a in function_definitions:
@@ -184,42 +170,45 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
                 continue
 
             if func_a == func_b:
-                continue  # Skip direct recursion (already handled)
+                continue
 
-            # Check if func_b calls func_a back
             calls_from_b = function_calls.get(func_b, [])
             calls_back_to_a = [(line, called) for line, called in calls_from_b if called == func_a]
 
             if calls_back_to_a:
-                # Mutual recursion detected
                 pair = tuple(sorted([func_a, func_b]))
                 if pair not in analyzed_pairs:
                     analyzed_pairs.add(pair)
 
                     is_async_a = function_definitions[func_a][1]
 
-                    recursion_patterns.append({
-                        'line': line_a,
-                        'function_name': func_a,
-                        'recursion_type': 'mutual',
-                        'calls_function': func_b,
-                        'base_case_line': None,  # Mutual recursion base cases harder to detect
-                        'is_async': is_async_a,
-                    })
+                    recursion_patterns.append(
+                        {
+                            "line": line_a,
+                            "function_name": func_a,
+                            "recursion_type": "mutual",
+                            "calls_function": func_b,
+                            "base_case_line": None,
+                            "is_async": is_async_a,
+                        }
+                    )
 
-    # CRITICAL: Deduplicate by (line, function_name, calls_function)
     seen = set()
     deduped = []
     for rp in recursion_patterns:
-        key = (rp['line'], rp['function_name'], rp['calls_function'])
+        key = (rp["line"], rp["function_name"], rp["calls_function"])
         if key not in seen:
             seen.add(key)
             deduped.append(rp)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(recursion_patterns) != len(deduped):
-            print(f"[AST_DEBUG] Recursion patterns deduplication: {len(recursion_patterns)} -> {len(deduped)} ({len(recursion_patterns) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Recursion patterns deduplication: {len(recursion_patterns)} -> {len(deduped)} ({len(recursion_patterns) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -262,9 +251,8 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return yields
 
-    # Build function ranges and loop ranges
-    function_ranges = []  # List of (name, start, end)
-    loop_ranges = []  # List of (start, end)
+    function_ranges = []
+    loop_ranges = []
 
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -279,42 +267,43 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
 
     def is_in_loop(line_no):
         """Check if line is inside a loop."""
-        for start, end in loop_ranges:
-            if start <= line_no <= end:
-                return True
-        return False
+        return any(start <= line_no <= end for start, end in loop_ranges)
 
-    # Extract yield expressions
     for node in context.find_nodes(ast.Yield):
         generator_function = find_containing_function(node.lineno)
         if generator_function == "global":
-            continue  # Yield outside function (syntax error, skip)
+            continue
 
         yield_expr = get_node_name(node.value) if node.value else None
         in_loop = is_in_loop(node.lineno)
 
-        yields.append({
-            'line': node.lineno,
-            'generator_function': generator_function,
-            'yield_type': 'yield',
-            'yield_expr': yield_expr,
-            'condition': None,  # TODO: Detect parent If node (requires parent tracking)
-            'in_loop': in_loop,
-        })
+        yields.append(
+            {
+                "line": node.lineno,
+                "generator_function": generator_function,
+                "yield_type": "yield",
+                "yield_expr": yield_expr,
+                "condition": None,
+                "in_loop": in_loop,
+            }
+        )
 
-    # CRITICAL: Deduplicate by (line, generator_function, yield_type)
     seen = set()
     deduped = []
     for y in yields:
-        key = (y['line'], y['generator_function'], y['yield_type'])
+        key = (y["line"], y["generator_function"], y["yield_type"])
         if key not in seen:
             seen.add(key)
             deduped.append(y)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(yields) != len(deduped):
-            print(f"[AST_DEBUG] Generator yields deduplication: {len(yields)} -> {len(deduped)} ({len(yields) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Generator yields deduplication: {len(yields)} -> {len(deduped)} ({len(yields) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -351,8 +340,7 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return properties
 
-    # Build class ranges
-    class_ranges = {}  # class_name → (start, end)
+    class_ranges = {}
 
     for node in context.find_nodes(ast.ClassDef):
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -365,9 +353,7 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
                 return cname
         return None
 
-    # Extract property decorators
     for node in context.find_nodes(ast.FunctionDef):
-        # Check for @property decorator
         is_property_getter = False
         is_property_setter = False
         is_property_deleter = False
@@ -375,11 +361,11 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
         for decorator in node.decorator_list:
             dec_name = get_node_name(decorator)
             if dec_name:
-                if dec_name == 'property':
+                if dec_name == "property":
                     is_property_getter = True
-                elif '.setter' in dec_name:
+                elif ".setter" in dec_name:
                     is_property_setter = True
-                elif '.deleter' in dec_name:
+                elif ".deleter" in dec_name:
                     is_property_deleter = True
 
         if not (is_property_getter or is_property_setter or is_property_deleter):
@@ -389,33 +375,28 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
         in_class = find_containing_class(node.lineno)
 
         if not in_class:
-            continue  # Property must be in a class
+            continue
 
-        # Analyze getter for computation
         has_computation = False
         if is_property_getter:
-            # Check if getter just returns self._property (simple)
-            # vs has computation (complex)
             for child in context.find_nodes(ast.Return):
                 if child.value:
-                    # Simple return: return self._x
                     if isinstance(child.value, ast.Attribute):
-                        if isinstance(child.value.value, ast.Name) and child.value.value.id == 'self':
-                            # Check if returned attribute is just _property_name
+                        if (
+                            isinstance(child.value.value, ast.Name)
+                            and child.value.value.id == "self"
+                        ):
                             if child.value.attr == f"_{property_name}":
                                 has_computation = False
                             else:
                                 has_computation = True
-                    # Any other return expression = computation
+
                     elif isinstance(child.value, (ast.BinOp, ast.Call, ast.Compare, ast.IfExp)):
                         has_computation = True
 
-        # Analyze setter for validation
         has_validation = False
         if is_property_setter:
-            # Check for validation (if statement with raise)
             for child in context.find_nodes(ast.If):
-                # Check if if body has raise
                 for stmt in child.body:
                     if isinstance(stmt, ast.Raise):
                         has_validation = True
@@ -423,36 +404,40 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
                 if has_validation:
                     break
 
-        # Determine access type
         if is_property_getter:
-            access_type = 'getter'
+            access_type = "getter"
         elif is_property_setter:
-            access_type = 'setter'
+            access_type = "setter"
         else:
-            access_type = 'deleter'
+            access_type = "deleter"
 
-        properties.append({
-            'line': node.lineno,
-            'property_name': property_name,
-            'access_type': access_type,
-            'in_class': in_class,
-            'has_computation': has_computation,
-            'has_validation': has_validation,
-        })
+        properties.append(
+            {
+                "line": node.lineno,
+                "property_name": property_name,
+                "access_type": access_type,
+                "in_class": in_class,
+                "has_computation": has_computation,
+                "has_validation": has_validation,
+            }
+        )
 
-    # CRITICAL: Deduplicate by (line, property_name, access_type)
     seen = set()
     deduped = []
     for prop in properties:
-        key = (prop['line'], prop['property_name'], prop['access_type'])
+        key = (prop["line"], prop["property_name"], prop["access_type"])
         if key not in seen:
             seen.add(key)
             deduped.append(prop)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(properties) != len(deduped):
-            print(f"[AST_DEBUG] Property patterns deduplication: {len(properties)} -> {len(deduped)} ({len(properties) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Property patterns deduplication: {len(properties)} -> {len(deduped)} ({len(properties) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -488,8 +473,7 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return dynamic_attrs
 
-    # Build class ranges
-    class_ranges = {}  # class_name → (start, end)
+    class_ranges = {}
 
     for node in context.find_nodes(ast.ClassDef):
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -502,30 +486,26 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
                 return cname
         return None
 
-    # Target magic methods
-    DYNAMIC_METHODS = {'__getattr__', '__setattr__', '__getattribute__', '__delattr__'}
-
-    # Extract dynamic attribute methods
     for node in context.find_nodes(ast.FunctionDef):
         if node.name not in DYNAMIC_METHODS:
             continue
 
         in_class = find_containing_class(node.lineno)
         if not in_class:
-            continue  # Must be in a class
+            continue
 
-        # Analyze for delegation pattern (accessing self._data or similar)
         has_delegation = False
         for child in context.find_nodes(ast.Attribute):
-            if isinstance(child.value, ast.Name) and child.value.id == 'self':
-                # Check for self._data, self._attrs, etc.
-                if child.attr.startswith('_'):
-                    has_delegation = True
-                    break
+            if (
+                isinstance(child.value, ast.Name)
+                and child.value.id == "self"
+                and child.attr.startswith("_")
+            ):
+                has_delegation = True
+                break
 
-        # Analyze for validation (if/raise in setattr)
         has_validation = False
-        if node.name == '__setattr__':
+        if node.name == "__setattr__":
             for child in context.find_nodes(ast.If):
                 for stmt in child.body:
                     if isinstance(stmt, ast.Raise):
@@ -534,26 +514,31 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
                 if has_validation:
                     break
 
-        dynamic_attrs.append({
-            'line': node.lineno,
-            'method_name': node.name,
-            'in_class': in_class,
-            'has_delegation': has_delegation,
-            'has_validation': has_validation,
-        })
+        dynamic_attrs.append(
+            {
+                "line": node.lineno,
+                "method_name": node.name,
+                "in_class": in_class,
+                "has_delegation": has_delegation,
+                "has_validation": has_validation,
+            }
+        )
 
-    # CRITICAL: Deduplicate by (line, method_name, in_class)
     seen = set()
     deduped = []
     for da in dynamic_attrs:
-        key = (da['line'], da['method_name'], da['in_class'])
+        key = (da["line"], da["method_name"], da["in_class"])
         if key not in seen:
             seen.add(key)
             deduped.append(da)
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
+
         if len(dynamic_attrs) != len(deduped):
-            print(f"[AST_DEBUG] Dynamic attributes deduplication: {len(dynamic_attrs)} -> {len(deduped)} ({len(dynamic_attrs) - len(deduped)} duplicates removed)", file=sys.stderr)
+            print(
+                f"[AST_DEBUG] Dynamic attributes deduplication: {len(dynamic_attrs)} -> {len(deduped)} ({len(dynamic_attrs) - len(deduped)} duplicates removed)",
+                file=sys.stderr,
+            )
 
     return deduped

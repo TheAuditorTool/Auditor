@@ -20,30 +20,26 @@ CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
    WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
 
-
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
 from typing import Any
 
-from theauditor.config_runtime import load_runtime_config
 from theauditor.ast_parser import ASTParser
+from theauditor.config_runtime import load_runtime_config
 
-from .config import (
-    DEFAULT_BATCH_SIZE, JS_BATCH_SIZE,
-    SUPPORTED_AST_EXTENSIONS
-)
-from .core import FileWalker
 from ..cache.ast_cache import ASTCache
+from .config import DEFAULT_BATCH_SIZE, JS_BATCH_SIZE, SUPPORTED_AST_EXTENSIONS
+from .core import FileWalker
 from .database import DatabaseManager
-from .storage import DataStorer
+from .exceptions import DataFidelityError
 from .extractors import ExtractorRegistry
 from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
-from .exceptions import DataFidelityError
+from .storage import DataStorer
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +47,14 @@ logger = logging.getLogger(__name__)
 class IndexerOrchestrator:
     """Orchestrates the indexing process, coordinating all components."""
 
-    def __init__(self, root_path: Path, db_path: str,
-                 batch_size: int = DEFAULT_BATCH_SIZE,
-                 follow_symlinks: bool = False,
-                 exclude_patterns: list[str] | None = None):
+    def __init__(
+        self,
+        root_path: Path,
+        db_path: str,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        follow_symlinks: bool = False,
+        exclude_patterns: list[str] | None = None,
+    ):
         """Initialize the indexer orchestrator.
 
         Args:
@@ -67,40 +67,31 @@ class IndexerOrchestrator:
         self.root_path = root_path
         self.config = load_runtime_config(str(root_path))
 
-        # Initialize components
         self.ast_parser = ASTParser()
-        # ASTCache now expects cache_dir, not root_path
+
         cache_dir = root_path / ".pf" / ".cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         self.ast_cache = ASTCache(cache_dir)
         self.db_manager = DatabaseManager(db_path, batch_size)
-        self.file_walker = FileWalker(
-            root_path, self.config, follow_symlinks, exclude_patterns
-        )
+        self.file_walker = FileWalker(root_path, self.config, follow_symlinks, exclude_patterns)
         self.extractor_registry = ExtractorRegistry(root_path, self.ast_parser)
 
-        # Special extractors that don't follow standard extension mapping
         self.docker_extractor = DockerExtractor(root_path, self.ast_parser)
         self.generic_extractor = GenericExtractor(root_path, self.ast_parser)
         self.github_workflow_extractor = GitHubWorkflowExtractor(root_path, self.ast_parser)
 
-        # Inject db_manager into special extractors (Phase 3C fix)
-        # GenericExtractor uses database-first architecture and needs direct access
         self.docker_extractor.db_manager = self.db_manager
         self.generic_extractor.db_manager = self.db_manager
         self.github_workflow_extractor.db_manager = self.db_manager
 
-        # Inject db_manager into registry extractors that need it
-        # PrismaExtractor and any other database-first extractors
         for ext in self.extractor_registry.extractors.values():
-            if hasattr(ext, 'extract') and not hasattr(ext, 'db_manager'):
-                # Check if extractor uses db_manager by inspecting its code
+            if hasattr(ext, "extract") and not hasattr(ext, "db_manager"):
                 import inspect
+
                 source = inspect.getsource(ext.extract)
-                if 'self.db_manager' in source:
+                if "self.db_manager" in source:
                     ext.db_manager = self.db_manager
 
-        # Stats tracking
         self.counts = {
             "files": 0,
             "refs": 0,
@@ -112,30 +103,24 @@ class IndexerOrchestrator:
             "orm": 0,
             "react_components": 0,
             "react_hooks": 0,
-            # Data flow tracking
             "assignments": 0,
             "function_calls": 0,
             "returns": 0,
             "variable_usage": 0,
-            "object_literals": 0,  # PHASE 3: Object literal properties
-            # Control flow tracking
+            "object_literals": 0,
             "cfg_blocks": 0,
             "cfg_edges": 0,
             "cfg_statements": 0,
-            # Type annotations
             "type_annotations": 0,
             "type_annotations_typescript": 0,
             "type_annotations_python": 0,
             "type_annotations_rust": 0,
-            # Configuration
             "frameworks": 0,
             "package_configs": 0,
             "config_files": 0,
-            # CI/CD
             "github_workflows": 0,
         }
 
-        # Initialize DataStorer for storage operations (after counts)
         self.data_storer = DataStorer(self.db_manager, self.counts)
 
     def _detect_frameworks_inline(self) -> list[dict]:
@@ -159,11 +144,9 @@ class IndexerOrchestrator:
         from theauditor.framework_detector import FrameworkDetector
 
         try:
-            # Run detection directly on project
             detector = FrameworkDetector(self.root_path, exclude_patterns=[])
             frameworks = detector.detect_all()
 
-            # Save to file for backward compatibility with external tools
             try:
                 save_path = self.root_path / ".pf" / "raw" / "frameworks.json"
                 save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,16 +171,15 @@ class IndexerOrchestrator:
         """
         for fw in self.frameworks:
             self.db_manager.add_framework(
-                name=fw.get('framework'),
-                version=fw.get('version'),
-                language=fw.get('language'),
-                path=fw.get('path', '.'),
-                source=fw.get('source'),
-                is_primary=(fw.get('path', '.') == '.')
+                name=fw.get("framework"),
+                version=fw.get("version"),
+                language=fw.get("language"),
+                path=fw.get("path", "."),
+                source=fw.get("source"),
+                is_primary=(fw.get("path", ".") == "."),
             )
-            self.counts['frameworks'] += 1
+            self.counts["frameworks"] += 1
 
-        # Flush frameworks batch to database BEFORE querying for IDs
         self.db_manager.flush_batch()
         self.db_manager.commit()
 
@@ -373,44 +355,42 @@ class IndexerOrchestrator:
         Returns:
             Tuple of (counts, stats) dictionaries
         """
-        # SCHEMA VALIDATION: Ensure generated code is up-to-date before indexing
-        from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
-        from theauditor.utils.exit_codes import ExitCodes
+
         from pathlib import Path
 
-        # Get current schema hash
+        from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
+        from theauditor.utils.exit_codes import ExitCodes
+
         current_hash = SchemaCodeGenerator.get_schema_hash()
 
-        # Check generated cache file for its hash
-        cache_file = Path(__file__).parent / 'schemas' / 'generated_cache.py'
+        cache_file = Path(__file__).parent / "schemas" / "generated_cache.py"
         built_hash = None
 
         if cache_file.exists():
             with open(cache_file) as f:
                 lines = f.readlines()
-                if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
-                    built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
+                if len(lines) >= 2 and "SCHEMA_HASH:" in lines[1]:
+                    built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
-        # Validate hashes match
         if current_hash != built_hash:
-            print("[SCHEMA STALE] Schema files have changed but generated code is out of date!", file=sys.stderr)
+            print(
+                "[SCHEMA STALE] Schema files have changed but generated code is out of date!",
+                file=sys.stderr,
+            )
             print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
 
             try:
-                # Auto-regenerate the schema files
-                output_dir = Path(__file__).parent / 'schemas'
+                output_dir = Path(__file__).parent / "schemas"
                 SchemaCodeGenerator.write_generated_code(output_dir)
                 print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
                 print("[SCHEMA FIX] Please re-run the indexing command", file=sys.stderr)
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
                 print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
-                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
-        # Detect frameworks inline (for safe sink detection)
         self.frameworks = self._detect_frameworks_inline()
 
-        # Walk directory and collect files
         files, stats = self.file_walker.walk()
 
         if not files:
@@ -419,92 +399,81 @@ class IndexerOrchestrator:
 
         print(f"[Indexer] Processing {len(files)} files...")
 
-        # Separate JS/TS files for batch processing
         js_ts_files = []
         js_ts_cache = {}
 
         for file_info in files:
-            if file_info['ext'] in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']:
-                file_path = self.root_path / file_info['path']
+            if file_info["ext"] in [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]:
+                file_path = self.root_path / file_info["path"]
                 js_ts_files.append(file_path)
 
-        # Batch process JS/TS files if there are any
         if js_ts_files:
             print(f"[Indexer] Batch processing {len(js_ts_files)} JavaScript/TypeScript files...")
-            # Process in batches for memory efficiency
+
             for i in range(0, len(js_ts_files), JS_BATCH_SIZE):
-                batch = js_ts_files[i:i+JS_BATCH_SIZE]
+                batch = js_ts_files[i : i + JS_BATCH_SIZE]
                 batch_trees = self.ast_parser.parse_files_batch(
                     batch, root_path=str(self.root_path)
                 )
 
-                # Cache the results
                 for file_path in batch:
-                    file_str = str(file_path).replace("\\", "/")  # Normalize
+                    file_str = str(file_path).replace("\\", "/")
                     if file_str in batch_trees:
                         js_ts_cache[file_str] = batch_trees[file_str]
 
             print(f"[Indexer] Successfully batch processed {len(js_ts_cache)} JS/TS files")
 
-        # Process all files
         for idx, file_info in enumerate(files):
-            # Debug progress
             if os.environ.get("THEAUDITOR_DEBUG") and idx % 50 == 0:
-                print(f"[INDEXER_DEBUG] Processing file {idx+1}/{len(files)}: {file_info['path']}",
-                      file=sys.stderr)
+                print(
+                    f"[INDEXER_DEBUG] Processing file {idx + 1}/{len(files)}: {file_info['path']}",
+                    file=sys.stderr,
+                )
 
-            # Process the file
             self._process_file(file_info, js_ts_cache)
 
-            # Execute batch inserts periodically
             if (idx + 1) % self.db_manager.batch_size == 0 or idx == len(files) - 1:
                 self.db_manager.flush_batch()
 
-        # Final commit
         self.db_manager.commit()
 
-        # Populate refactor_candidates table from existing database data
         from datetime import datetime
+
         conn = self.db_manager.conn
         cursor = conn.cursor()
 
-        # Query files table for high LOC
         cursor.execute("SELECT path, loc FROM files WHERE loc > 500")
         for row in cursor:
             self.db_manager.add_refactor_candidate(
                 file_path=row[0],
-                reason='size',
-                severity='high' if row[1] > 1000 else 'medium',
+                reason="size",
+                severity="high" if row[1] > 1000 else "medium",
                 loc=row[1],
-                detected_at=datetime.now().isoformat()
+                detected_at=datetime.now().isoformat(),
             )
 
-        # Query for high coupling (many imports)
-        cursor.execute("SELECT src, COUNT(*) as import_count FROM refs WHERE kind IN ('import', 'from', 'require') GROUP BY src HAVING import_count > 20")
+        cursor.execute(
+            "SELECT src, COUNT(*) as import_count FROM refs WHERE kind IN ('import', 'from', 'require') GROUP BY src HAVING import_count > 20"
+        )
         for row in cursor:
             self.db_manager.add_refactor_candidate(
                 file_path=row[0],
-                reason='coupling',
-                severity='medium',
+                reason="coupling",
+                severity="medium",
                 num_dependencies=row[1],
-                detected_at=datetime.now().isoformat()
+                detected_at=datetime.now().isoformat(),
             )
 
         self.db_manager.flush_batch()
         self.db_manager.commit()
 
-        # PHASE 6: Resolve cross-file parameter names
-        # After all files indexed, update function_call_args.param_name with actual parameter names
-        # from symbols table (fixes file-scoped limitation in JavaScript extraction)
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+
         if os.environ.get("THEAUDITOR_DEBUG"):
             print("[INDEXER] PHASE 6: Resolving cross-file parameter names...", file=sys.stderr)
         JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
         self.db_manager.commit()
 
-        # PHASE 6.7: Resolve router mount hierarchy (ADDED 2025-11-09)
-        # Populate api_endpoints.full_path by resolving router.use() mount statements
-        # CRITICAL: Flush and commit before resolution (opens new connection)
         self.db_manager.flush_batch()
         self.db_manager.commit()
 
@@ -513,9 +482,6 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
         self.db_manager.commit()
 
-        # PHASE 6.9: Resolve handler file paths (ADDED 2025-11-27)
-        # Populate express_middleware_chains.handler_file by resolving import statements
-        # CRITICAL: This enables flow_resolver to construct correct DFG node IDs
         self.db_manager.flush_batch()
         self.db_manager.commit()
 
@@ -524,28 +490,27 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
         self.db_manager.commit()
 
-        # Report results with database location
-        base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
-                   f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
-                   f"{self.counts['routes']} routes")
+        base_msg = (
+            f"[Indexer] Indexed {self.counts['files']} files, "
+            f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
+            f"{self.counts['routes']} routes"
+        )
 
-        # React/Vue framework components
-        if self.counts.get('react_components', 0) > 0:
+        if self.counts.get("react_components", 0) > 0:
             base_msg += f", {self.counts['react_components']} React components"
-        if self.counts.get('react_hooks', 0) > 0:
+        if self.counts.get("react_hooks", 0) > 0:
             base_msg += f", {self.counts['react_hooks']} React hooks"
-        if self.counts.get('vue_components', 0) > 0:
+        if self.counts.get("vue_components", 0) > 0:
             base_msg += f", {self.counts['vue_components']} Vue components"
-        if self.counts.get('vue_hooks', 0) > 0:
+        if self.counts.get("vue_hooks", 0) > 0:
             base_msg += f", {self.counts['vue_hooks']} Vue hooks"
-        if self.counts.get('vue_directives', 0) > 0:
+        if self.counts.get("vue_directives", 0) > 0:
             base_msg += f", {self.counts['vue_directives']} Vue directives"
 
-        # TypeScript type system
         annotation_summaries = []
-        ts_annotations = self.counts.get('type_annotations_typescript', 0)
-        py_annotations = self.counts.get('type_annotations_python', 0)
-        rs_annotations = self.counts.get('type_annotations_rust', 0)
+        ts_annotations = self.counts.get("type_annotations_typescript", 0)
+        py_annotations = self.counts.get("type_annotations_python", 0)
+        rs_annotations = self.counts.get("type_annotations_rust", 0)
         if ts_annotations:
             annotation_summaries.append(f"{ts_annotations} TypeScript")
         if py_annotations:
@@ -557,124 +522,85 @@ class IndexerOrchestrator:
 
         print(base_msg)
 
-        # Data flow tracking (verbose but critical for taint analysis)
-        if self.counts.get('assignments', 0) > 0 or self.counts.get('function_calls', 0) > 0:
-            flow_msg = f"[Indexer] Data flow: "
+        if self.counts.get("assignments", 0) > 0 or self.counts.get("function_calls", 0) > 0:
+            flow_msg = "[Indexer] Data flow: "
             flow_parts = []
-            if self.counts.get('assignments', 0) > 0:
+            if self.counts.get("assignments", 0) > 0:
                 flow_parts.append(f"{self.counts['assignments']} assignments")
-            if self.counts.get('function_calls', 0) > 0:
+            if self.counts.get("function_calls", 0) > 0:
                 flow_parts.append(f"{self.counts['function_calls']} function calls")
-            if self.counts.get('returns', 0) > 0:
+            if self.counts.get("returns", 0) > 0:
                 flow_parts.append(f"{self.counts['returns']} returns")
-            if self.counts.get('variable_usage', 0) > 0:
+            if self.counts.get("variable_usage", 0) > 0:
                 flow_parts.append(f"{self.counts['variable_usage']} variable usages")
-            if self.counts.get('object_literals', 0) > 0:
+            if self.counts.get("object_literals", 0) > 0:
                 flow_parts.append(f"{self.counts['object_literals']} object literal properties")
             print(flow_msg + ", ".join(flow_parts))
 
-        # Control flow analysis
-        if self.counts.get('cfg_blocks', 0) > 0:
+        if self.counts.get("cfg_blocks", 0) > 0:
             cfg_msg = f"[Indexer] Control flow: {self.counts['cfg_blocks']} blocks, {self.counts['cfg_edges']} edges"
-            if self.counts.get('cfg_statements', 0) > 0:
+            if self.counts.get("cfg_statements", 0) > 0:
                 cfg_msg += f", {self.counts['cfg_statements']} statements"
             print(cfg_msg)
 
-        # Database queries
-        if self.counts.get('orm', 0) > 0 or self.counts.get('sql_queries', 0) > 0:
-            db_msg = f"[Indexer] Database: "
+        if self.counts.get("orm", 0) > 0 or self.counts.get("sql_queries", 0) > 0:
+            db_msg = "[Indexer] Database: "
             db_parts = []
-            if self.counts.get('orm', 0) > 0:
+            if self.counts.get("orm", 0) > 0:
                 db_parts.append(f"{self.counts['orm']} ORM queries")
-            if self.counts.get('sql_queries', 0) > 0:
+            if self.counts.get("sql_queries", 0) > 0:
                 db_parts.append(f"{self.counts['sql_queries']} SQL queries")
             print(db_msg + ", ".join(db_parts))
 
-        # Infrastructure configs
-        if self.counts.get('compose', 0) > 0 or self.counts.get('nginx', 0) > 0 or self.counts.get('docker', 0) > 0:
-            infra_msg = f"[Indexer] Infrastructure: "
+        if (
+            self.counts.get("compose", 0) > 0
+            or self.counts.get("nginx", 0) > 0
+            or self.counts.get("docker", 0) > 0
+        ):
+            infra_msg = "[Indexer] Infrastructure: "
             infra_parts = []
-            if self.counts.get('docker', 0) > 0:
+            if self.counts.get("docker", 0) > 0:
                 infra_parts.append(f"{self.counts['docker']} Dockerfiles")
-            if self.counts.get('compose', 0) > 0:
+            if self.counts.get("compose", 0) > 0:
                 infra_parts.append(f"{self.counts['compose']} compose services")
-            if self.counts.get('nginx', 0) > 0:
+            if self.counts.get("nginx", 0) > 0:
                 infra_parts.append(f"{self.counts['nginx']} nginx blocks")
             print(infra_msg + ", ".join(infra_parts))
 
-        # Project configuration
-        if self.counts.get('frameworks', 0) > 0 or self.counts.get('package_configs', 0) > 0:
-            config_msg = f"[Indexer] Configuration: "
+        if self.counts.get("frameworks", 0) > 0 or self.counts.get("package_configs", 0) > 0:
+            config_msg = "[Indexer] Configuration: "
             config_parts = []
-            if self.counts.get('frameworks', 0) > 0:
+            if self.counts.get("frameworks", 0) > 0:
                 config_parts.append(f"{self.counts['frameworks']} frameworks")
-            if self.counts.get('package_configs', 0) > 0:
+            if self.counts.get("package_configs", 0) > 0:
                 config_parts.append(f"{self.counts['package_configs']} package configs")
-            if self.counts.get('config_files', 0) > 0:
+            if self.counts.get("config_files", 0) > 0:
                 config_parts.append(f"{self.counts['config_files']} config files")
             print(config_msg + ", ".join(config_parts))
 
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
 
-        # Store frameworks in database if available
-        if hasattr(self, 'frameworks') and self.frameworks:
+        if hasattr(self, "frameworks") and self.frameworks:
             self._store_frameworks()
 
-        # ================================================================
-        # SECOND PASS: JSX PRESERVED MODE EXTRACTION (UNCONDITIONAL)
-        # ================================================================
-        #
-        # WHY THIS IS NECESSARY - CRITICAL ARCHITECTURAL DECISION:
-        #
-        # The TypeScript compiler can only operate in ONE JSX mode at a time,
-        # but we need TWO different views of JSX code for complete analysis:
-        #
-        # 1. TRANSFORMED MODE (First Pass):
-        #    - Converts JSX to React.createElement() calls
-        #    - Example: <div>{data}</div> → React.createElement('div', null, data)
-        #    - Purpose: Enables data-flow and taint analysis
-        #    - Why: Taint analysis needs to see data flow through function calls,
-        #            not JSX syntax. This reveals how user input flows through
-        #            component props and into DOM rendering.
-        #    - Stored in: Standard tables (symbols, assignments, function_call_args, etc.)
-        #
-        # 2. PRESERVED MODE (Second Pass):
-        #    - Keeps original JSX syntax intact
-        #    - Example: <div>{data}</div> stays as JSX
-        #    - Purpose: Enables structural and accessibility analysis
-        #    - Why: Rules checking JSX structure (e.g., a11y rules, component
-        #            composition patterns, prop validation) need to see the
-        #            actual JSX syntax, not transformed calls.
-        #    - Stored in: Parallel _jsx tables (symbols_jsx, assignments_jsx, etc.)
-        #
-        # RESULT:
-        # Downstream tools query the appropriate table based on their needs:
-        # - Taint analyzer → queries standard tables (transformed view)
-        # - JSX structural rules → query _jsx tables (preserved view)
-        # - Pattern detector → queries both as needed
-        #
-        # WARNING: DO NOT REMOVE THIS SECOND PASS
-        # Doing so will break all JSX-aware rules and cause false negatives
-        # in taint analysis for React/Vue applications.
-        jsx_extensions = ['.jsx', '.tsx']
-        jsx_files = [f for f in files if f['ext'] in jsx_extensions]
+        jsx_extensions = [".jsx", ".tsx"]
+        jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            print(f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
+            print(
+                f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
+            )
 
-            # Build file paths for batch parsing
-            jsx_file_paths = [self.root_path / f['path'] for f in jsx_files]
+            jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
-            # Batch parse with preserved JSX mode
             jsx_cache = {}
             try:
                 for i in range(0, len(jsx_file_paths), JS_BATCH_SIZE):
-                    batch = jsx_file_paths[i:i+JS_BATCH_SIZE]
+                    batch = jsx_file_paths[i : i + JS_BATCH_SIZE]
                     batch_trees = self.ast_parser.parse_files_batch(
-                        batch, root_path=str(self.root_path), jsx_mode='preserved'
+                        batch, root_path=str(self.root_path), jsx_mode="preserved"
                     )
 
-                    # Cache results with normalized paths
                     for file_path in batch:
                         file_str = str(file_path).replace("\\", "/")
                         if file_str in batch_trees:
@@ -685,46 +611,43 @@ class IndexerOrchestrator:
                 print(f"[Indexer] WARNING: Preserved mode parsing failed: {e}")
                 jsx_cache = {}
 
-            # Process and store to _jsx tables
-            jsx_counts = {'symbols': 0, 'assignments': 0, 'calls': 0, 'returns': 0}
+            jsx_counts = {"symbols": 0, "assignments": 0, "calls": 0, "returns": 0}
 
             for idx, file_info in enumerate(jsx_files):
-                file_path = self.root_path / file_info['path']
+                file_path = self.root_path / file_info["path"]
                 file_str = str(file_path).replace("\\", "/")
 
-                # Get cached tree
                 tree = jsx_cache.get(file_str)
                 if not tree:
                     continue
 
-                # DEBUG: Check if AST is present in tree
-
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     has_ast = False
                     if isinstance(tree, dict):
-                        if 'ast' in tree:
-                            has_ast = tree['ast'] is not None
-                        elif 'tree' in tree and isinstance(tree['tree'], dict):
-                            has_ast = tree['tree'].get('ast') is not None
-                    print(f"[DEBUG] JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
+                        if "ast" in tree:
+                            has_ast = tree["ast"] is not None
+                        elif "tree" in tree and isinstance(tree["tree"], dict):
+                            has_ast = tree["tree"].get("ast") is not None
+                    print(
+                        f"[DEBUG] JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}"
+                    )
 
-                # Read file content (cap at 1MB)
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
                         content = f.read(1024 * 1024)
                 except Exception:
                     continue
 
-                # Get extractor for this file type
-                extractor = self.extractor_registry.get_extractor(file_path, file_info['ext'])
+                extractor = self.extractor_registry.get_extractor(file_path, file_info["ext"])
                 if not extractor:
                     continue
 
-                # Extract data from preserved AST
-                # Check for batch processing failures before extraction
-                if isinstance(tree, dict) and tree.get('success') is False:
-                    print(f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}", file=sys.stderr)
-                    continue  # Skip this file
+                if isinstance(tree, dict) and tree.get("success") is False:
+                    print(
+                        f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}",
+                        file=sys.stderr,
+                    )
+                    continue
 
                 try:
                     extracted = extractor.extract(file_info, content, tree)
@@ -733,39 +656,32 @@ class IndexerOrchestrator:
                         print(f"[DEBUG] JSX extraction failed for {file_path}: {e}")
                     continue
 
-                # Store to _jsx tables (parallel structure to standard tables)
-                file_path_str = file_info['path']
+                file_path_str = file_info["path"]
 
-                # Delegate all storage to DataStorer with jsx_pass=True
                 self.data_storer.store(file_path_str, extracted, jsx_pass=True)
 
-                # Track counts for summary reporting
-                jsx_counts['symbols'] += len(extracted.get('symbols', []))
-                jsx_counts['assignments'] += len(extracted.get('assignments', []))
-                jsx_counts['calls'] += len(extracted.get('function_calls', []))
-                jsx_counts['returns'] += len(extracted.get('returns', []))
+                jsx_counts["symbols"] += len(extracted.get("symbols", []))
+                jsx_counts["assignments"] += len(extracted.get("assignments", []))
+                jsx_counts["calls"] += len(extracted.get("function_calls", []))
+                jsx_counts["returns"] += len(extracted.get("returns", []))
 
-                # CFG is now handled by DataStorer (stores to cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
-
-                # Flush batches periodically for memory efficiency
                 if (idx + 1) % self.db_manager.batch_size == 0:
                     self.db_manager.flush_batch()
 
-            # Final flush and commit for _jsx tables
             self.db_manager.flush_batch()
             self.db_manager.commit()
 
-            # Report second pass statistics
-            print(f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
-                  f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
-                  f"{jsx_counts['returns']} returns stored to _jsx tables")
+            print(
+                f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
+                f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
+                f"{jsx_counts['returns']} returns stored to _jsx tables"
+            )
 
         # ZERO FALLBACK: All tables must be in flush_order (base_database.py)
         # Removed catch-all loop that masked missing flush_order entries (2025-11-27)
         # If you see unflushed data, ADD THE TABLE TO flush_order - don't resurrect this fallback
         self.db_manager.commit()
 
-        # Cleanup extractor resources (LSP sessions, temp directories, etc.)
         self._cleanup_extractors()
 
         return self.counts, stats
@@ -777,19 +693,20 @@ class IndexerOrchestrator:
             file_info: File metadata
             js_ts_cache: Cache of pre-parsed JS/TS ASTs
         """
-        # DEBUG: Trace file processing
+
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
 
-        # Insert file record
         self.db_manager.add_file(
-            file_info['path'], file_info['sha256'], file_info['ext'],
-            file_info['bytes'], file_info['loc']
+            file_info["path"],
+            file_info["sha256"],
+            file_info["ext"],
+            file_info["bytes"],
+            file_info["loc"],
         )
-        self.counts['files'] += 1
+        self.counts["files"] += 1
 
-        # Read file content (cap at 1MB)
-        file_path = self.root_path / file_info['path']
+        file_path = self.root_path / file_info["path"]
         try:
             with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read(1024 * 1024)
@@ -798,39 +715,27 @@ class IndexerOrchestrator:
                 print(f"Debug: Cannot read {file_path}: {e}")
             return
 
-        # Store configuration files for ModuleResolver
-        if file_info['path'].endswith('tsconfig.json'):
-            # Determine context from path
+        if file_info["path"].endswith("tsconfig.json"):
             context_dir = None
-            if 'backend/' in file_info['path']:
-                context_dir = 'backend'
-            elif 'frontend/' in file_info['path']:
-                context_dir = 'frontend'
+            if "backend/" in file_info["path"]:
+                context_dir = "backend"
+            elif "frontend/" in file_info["path"]:
+                context_dir = "frontend"
 
-            self.db_manager.add_config_file(
-                file_info['path'],
-                content,
-                'tsconfig',
-                context_dir
-            )
-            self.counts['config_files'] += 1
+            self.db_manager.add_config_file(file_info["path"], content, "tsconfig", context_dir)
+            self.counts["config_files"] += 1
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Cached tsconfig: {file_info['path']} (context: {context_dir})")
 
-        # Get or parse AST
         tree = self._get_or_parse_ast(file_info, file_path, js_ts_cache)
 
-        # Select appropriate extractor
-        extractor = self._select_extractor(file_info['path'], file_info['ext'])
+        extractor = self._select_extractor(file_info["path"], file_info["ext"])
         if not extractor:
-            return  # No extractor for this file type
-
-        # DEBUG: Track file processing
+            return
 
         if os.getenv("THEAUDITOR_DEBUG"):
             print(f"[DEBUG ORCHESTRATOR] _process_file called for: {file_info['path']}")
 
-        # Extract all information
         try:
             extracted = extractor.extract(file_info, content, tree)
         except Exception as e:
@@ -838,15 +743,17 @@ class IndexerOrchestrator:
                 print(f"Debug: Extraction failed for {file_path}: {e}")
             return
 
-        # Store extracted data in database
-        import sys
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
-            num_assignments = len(extracted.get('assignments', []))
-            print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
-        self._store_extracted_data(file_info['path'], extracted)
+            num_assignments = len(extracted.get("assignments", []))
+            print(
+                f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments",
+                file=sys.stderr,
+            )
+        self._store_extracted_data(file_info["path"], extracted)
 
-    def _get_or_parse_ast(self, file_info: dict[str, Any],
-                          file_path: Path, js_ts_cache: dict[str, Any]) -> dict | None:
+    def _get_or_parse_ast(
+        self, file_info: dict[str, Any], file_path: Path, js_ts_cache: dict[str, Any]
+    ) -> dict | None:
         """Get AST from cache or parse the file.
 
         Args:
@@ -857,25 +764,21 @@ class IndexerOrchestrator:
         Returns:
             Parsed AST tree or None
         """
-        if file_info['ext'] not in SUPPORTED_AST_EXTENSIONS:
+        if file_info["ext"] not in SUPPORTED_AST_EXTENSIONS:
             return None
 
-        # Check JS/TS batch cache
         file_str = str(file_path).replace("\\", "/")
         if file_str in js_ts_cache:
             return js_ts_cache[file_str]
 
-        # Check persistent AST cache
-        cached_tree = self.ast_cache.get(file_info['sha256'])
+        cached_tree = self.ast_cache.get(file_info["sha256"])
         if cached_tree:
             return cached_tree
 
-        # Parse the file
         tree = self.ast_parser.parse_file(file_path, root_path=str(self.root_path))
 
-        # Cache the result if it's JSON-serializable
         if tree and isinstance(tree, dict):
-            self.ast_cache.set(file_info['sha256'], tree)
+            self.ast_cache.set(file_info["sha256"], tree)
 
         return tree
 
@@ -889,7 +792,7 @@ class IndexerOrchestrator:
         Returns:
             Appropriate extractor instance or None
         """
-        # Check special extractors first (by filename pattern)
+
         if self.docker_extractor.should_extract(file_path):
             return self.docker_extractor
         if self.github_workflow_extractor.should_extract(file_path):
@@ -897,7 +800,6 @@ class IndexerOrchestrator:
         if self.generic_extractor.should_extract(file_path):
             return self.generic_extractor
 
-        # Use registry for standard extension-based extraction
         return self.extractor_registry.get_extractor(file_path, file_ext)
 
     def _store_extracted_data(self, file_path: str, extracted: dict[str, Any]):
@@ -913,30 +815,19 @@ class IndexerOrchestrator:
             file_path: Path to the source file
             extracted: Dictionary of extracted data
         """
-        # 1. Store data and get the receipt (counts of items actually stored)
+
         receipt = self.data_storer.store(file_path, extracted, jsx_pass=False)
 
-        # 2. Check for Extraction Manifest (inserted by python_impl.py)
-        manifest = extracted.get('_extraction_manifest')
+        manifest = extracted.get("_extraction_manifest")
 
-        # 3. Run Fidelity Reconciliation (if manifest exists)
-        # We skip this for extractors that don't produce manifests (e.g., python_deps.py)
         if manifest:
             try:
                 reconcile_fidelity(
-                    manifest=manifest,
-                    receipt=receipt,
-                    file_path=file_path,
-                    strict=True  # CRASH ON DATA LOSS - ZERO FALLBACK POLICY
+                    manifest=manifest, receipt=receipt, file_path=file_path, strict=True
                 )
             except DataFidelityError as e:
-                # Log and re-raise to halt the indexer
                 logger.error(f"[FATAL] Fidelity Check Failed for {file_path}: {e}")
                 raise
-
-    # === REMOVED: 1,150 lines of inline storage logic ===
-    # All storage handlers migrated to storage.py (DataStorer class)
-    # See theauditor/indexer/storage.py for implementation
 
     def _cleanup_extractors(self):
         """Call cleanup() on all registered extractors.
@@ -946,14 +837,13 @@ class IndexerOrchestrator:
         - Database connections
         - Temporary directories
         """
-        # Clean up registry extractors
+
         for extractor in self.extractor_registry.extractors.values():
             try:
                 extractor.cleanup()
             except Exception as e:
                 logger.debug(f"Extractor cleanup failed: {e}")
 
-        # Clean up special extractors
         try:
             self.docker_extractor.cleanup()
         except Exception as e:

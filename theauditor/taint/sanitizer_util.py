@@ -7,7 +7,6 @@ consistent sanitizer detection logic across all taint analysis engines.
 NO FALLBACKS. NO EXCEPTIONS. Database-first architecture.
 """
 
-
 import sys
 
 
@@ -30,20 +29,14 @@ class SanitizerRegistry:
         self.registry = registry
         self.debug = debug
 
-        # Initialize storage
         self.safe_sinks: set[str] = set()
         self.validation_sanitizers: list[dict] = []
 
-        # ARCHITECTURAL FIX: Pre-load DB data to eliminate DB-in-loop bottleneck
-        # These caches convert O(paths × hops) SQL queries to O(1) memory lookups
-        self.call_args_cache: dict[tuple, list[str]] = {}  # (file, line) -> [callees]
-        # NOTE: middleware_cache removed - InterceptorStrategy now provides structural graph edges
+        self.call_args_cache: dict[tuple, list[str]] = {}
 
-        # Load data from database
         self._load_safe_sinks()
         self._load_validation_sanitizers()
         self._preload_call_args()
-        # NOTE: _preload_middleware_chains() removed - graph edges handle this structurally
 
     def _load_safe_sinks(self):
         """Load safe sink patterns from framework_safe_sinks table.
@@ -67,11 +60,13 @@ class SanitizerRegistry:
                     self.safe_sinks.add(pattern)
 
             if self.debug:
-                print(f"[SanitizerRegistry] Loaded {len(self.safe_sinks)} safe sink patterns", file=sys.stderr)
+                print(
+                    f"[SanitizerRegistry] Loaded {len(self.safe_sinks)} safe sink patterns",
+                    file=sys.stderr,
+                )
         except Exception as e:
             if self.debug:
                 print(f"[SanitizerRegistry] Failed to load safe sinks: {e}", file=sys.stderr)
-            # NO FALLBACK - if table doesn't exist, database is broken
 
     def _load_validation_sanitizers(self):
         """Load validation framework sanitizers from database.
@@ -80,9 +75,6 @@ class SanitizerRegistry:
         (e.g., Zod schemas, Express validators, Pydantic models).
         """
         try:
-            # Load from validation_framework_usage table
-            # FIX: Include BOTH validators (is_validator=1) AND schemas (is_validator=0)
-            # Previously only checked 3 validators, ignored 1648 schemas
             self.repo_cursor.execute("""
                 SELECT DISTINCT
                     file_path as file,
@@ -96,19 +88,24 @@ class SanitizerRegistry:
 
             for row in self.repo_cursor.fetchall():
                 sanitizer = {
-                    'file': row['file'],
-                    'line': row['line'],
-                    'framework': row['framework'],
-                    'schema': row['schema_name']
+                    "file": row["file"],
+                    "line": row["line"],
+                    "framework": row["framework"],
+                    "schema": row["schema_name"],
                 }
                 self.validation_sanitizers.append(sanitizer)
 
             if self.debug:
-                print(f"[SanitizerRegistry] Loaded {len(self.validation_sanitizers)} validation sanitizers", file=sys.stderr)
+                print(
+                    f"[SanitizerRegistry] Loaded {len(self.validation_sanitizers)} validation sanitizers",
+                    file=sys.stderr,
+                )
         except Exception as e:
             if self.debug:
-                print(f"[SanitizerRegistry] Failed to load validation sanitizers: {e}", file=sys.stderr)
-            # NO FALLBACK - if table doesn't exist, database is broken
+                print(
+                    f"[SanitizerRegistry] Failed to load validation sanitizers: {e}",
+                    file=sys.stderr,
+                )
 
     def _preload_call_args(self):
         """Pre-load function_call_args into memory to eliminate DB queries in hot loop.
@@ -124,21 +121,19 @@ class SanitizerRegistry:
             """)
 
             for row in self.repo_cursor.fetchall():
-                key = (row['file'], row['line'])
+                key = (row["file"], row["line"])
                 if key not in self.call_args_cache:
                     self.call_args_cache[key] = []
-                self.call_args_cache[key].append(row['callee_function'])
+                self.call_args_cache[key].append(row["callee_function"])
 
             if self.debug:
-                print(f"[SanitizerRegistry] Pre-loaded {len(self.call_args_cache)} file:line locations with {sum(len(v) for v in self.call_args_cache.values())} function calls", file=sys.stderr)
+                print(
+                    f"[SanitizerRegistry] Pre-loaded {len(self.call_args_cache)} file:line locations with {sum(len(v) for v in self.call_args_cache.values())} function calls",
+                    file=sys.stderr,
+                )
         except Exception as e:
             if self.debug:
                 print(f"[SanitizerRegistry] Failed to preload call args: {e}", file=sys.stderr)
-            # NO FALLBACK - continue with empty cache
-
-    # NOTE: _preload_middleware_chains() DELETED
-    # InterceptorStrategy now creates graph edges: Route -> Middleware -> Controller
-    # IFDS naturally walks through these edges and detects sanitizers via CHECK 0/1
 
     def _is_sanitizer(self, function_name: str) -> bool:
         """Check if a function name matches any safe sink pattern.
@@ -149,11 +144,10 @@ class SanitizerRegistry:
         Returns:
             True if function matches a safe sink pattern
         """
-        # Check exact match
+
         if function_name in self.safe_sinks:
             return True
 
-        # Check pattern match (safe_sink in function or function in safe_sink)
         for safe_sink in self.safe_sinks:
             if safe_sink in function_name or function_name in safe_sink:
                 return True
@@ -222,24 +216,28 @@ class SanitizerRegistry:
             Format: {'file': str, 'line': int, 'method': str}
         """
         if self.debug:
-            print(f"[SanitizerRegistry] Checking {len(hop_chain)} hops for sanitizers", file=sys.stderr)
+            print(
+                f"[SanitizerRegistry] Checking {len(hop_chain)} hops for sanitizers",
+                file=sys.stderr,
+            )
 
         for i, hop in enumerate(hop_chain):
-            # Handle both hop dict format (IFDS) and node ID string format (FlowResolver)
             if isinstance(hop, dict):
-                # IFDS format: dict with from_file, to_file, line
-                # FIX: IFDS uses 'from'/'to' keys, not 'from_node'/'to_node'
-                hop_file = hop.get('from_file') or hop.get('to_file')
-                hop_line = hop.get('line', 0)
-                node_str = hop.get('from') or hop.get('to') or hop.get('from_node') or hop.get('to_node') or ""
+                hop_file = hop.get("from_file") or hop.get("to_file")
+                hop_line = hop.get("line", 0)
+                node_str = (
+                    hop.get("from")
+                    or hop.get("to")
+                    or hop.get("from_node")
+                    or hop.get("to_node")
+                    or ""
+                )
             else:
-                # FlowResolver format: node ID string (file::function::variable)
                 node_str = hop
-                parts = node_str.split('::')
+                parts = node_str.split("::")
                 hop_file = parts[0] if parts else None
-                hop_line = 0  # FlowResolver doesn't track line in node ID
+                hop_line = 0
 
-                # Extract function name for validation pattern check
                 if len(parts) > 1:
                     func = parts[1]
                     # CHECK 0: Validation middleware patterns in function name
@@ -248,20 +246,19 @@ class SanitizerRegistry:
                     for pattern in validation_patterns:
                         if pattern in func:
                             if self.debug:
-                                print(f"[SanitizerRegistry] Found validation pattern '{pattern}' in function '{func}'", file=sys.stderr)
-                            return {
-                                'file': hop_file,
-                                'line': 0,
-                                'method': func
-                            }
+                                print(
+                                    f"[SanitizerRegistry] Found validation pattern '{pattern}' in function '{func}'",
+                                    file=sys.stderr,
+                                )
+                            return {"file": hop_file, "line": 0, "method": func}
 
             if not hop_file:
                 if self.debug:
-                    print(f"[SanitizerRegistry] Hop {i+1}: No file, skipping", file=sys.stderr)
+                    print(f"[SanitizerRegistry] Hop {i + 1}: No file, skipping", file=sys.stderr)
                 continue
 
             if self.debug:
-                print(f"[SanitizerRegistry] Hop {i+1}: {hop_file}:{hop_line}", file=sys.stderr)
+                print(f"[SanitizerRegistry] Hop {i + 1}: {hop_file}:{hop_line}", file=sys.stderr)
 
             # CHECK 1: Validation patterns in node string (IFDS comprehensive check)
             # Uses same registry-driven patterns as CHECK 0 (no more duplication)
@@ -270,52 +267,46 @@ class SanitizerRegistry:
                 for pattern in validation_patterns:
                     if pattern in node_str:
                         if self.debug:
-                            print(f"[SanitizerRegistry] Found validation pattern '{pattern}' in node", file=sys.stderr)
+                            print(
+                                f"[SanitizerRegistry] Found validation pattern '{pattern}' in node",
+                                file=sys.stderr,
+                            )
+                        return {"file": hop_file, "line": hop_line, "method": pattern}
+
+            if hop_line > 0:
+                for san in self.validation_sanitizers:
+                    if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and abs(
+                        san["line"] - hop_line
+                    ) <= 10:
+                        if self.debug:
+                            print(
+                                f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}",
+                                file=sys.stderr,
+                            )
                         return {
-                            'file': hop_file,
-                            'line': hop_line,
-                            'method': pattern
+                            "file": hop_file,
+                            "line": hop_line,
+                            "method": f"{san['framework']}:{san.get('schema', 'validation')}",
                         }
 
-            # CHECK 2: Validation Framework Sanitizers (Location-Based)
-            if hop_line > 0:  # Only check if we have a line number
-                for san in self.validation_sanitizers:
-                    # Match by file path (handle both absolute and relative)
-                    if (san['file'].endswith(hop_file) or hop_file.endswith(san['file'])):
-                        # Check if line is within reasonable range (±10 lines)
-                        if abs(san['line'] - hop_line) <= 10:
-                            if self.debug:
-                                print(f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}", file=sys.stderr)
-                            return {
-                                'file': hop_file,
-                                'line': hop_line,
-                                'method': f"{san['framework']}:{san.get('schema', 'validation')}"
-                            }
-
-            # CHECK 3: Query function_call_args for safe sink patterns
-            # ARCHITECTURAL FIX: Use pre-loaded cache instead of SQL query
-            if hop_line > 0:  # Only check if we have a line number
+            if hop_line > 0:
                 callees = self.call_args_cache.get((hop_file, hop_line), [])
 
                 if self.debug and callees:
-                    print(f"[SanitizerRegistry] Found {len(callees)} function calls at {hop_file}:{hop_line}", file=sys.stderr)
+                    print(
+                        f"[SanitizerRegistry] Found {len(callees)} function calls at {hop_file}:{hop_line}",
+                        file=sys.stderr,
+                    )
 
                 for callee in callees:
                     if self._is_sanitizer(callee):
                         if self.debug:
-                            print(f"[SanitizerRegistry] Found safe sink '{callee}'", file=sys.stderr)
-                        return {
-                            'file': hop_file,
-                            'line': hop_line,
-                            'method': callee
-                        }
-
-        # NOTE: CHECK 4 (Express middleware validation) DELETED
-        # InterceptorStrategy now creates structural graph edges for middleware chains.
-        # IFDS walks through these edges naturally and detects sanitizers via CHECK 0/1.
-        # No more runtime guessing - the graph provides the truth.
+                            print(
+                                f"[SanitizerRegistry] Found safe sink '{callee}'", file=sys.stderr
+                            )
+                        return {"file": hop_file, "line": hop_line, "method": callee}
 
         if self.debug:
-            print(f"[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
+            print("[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
 
-        return None  # No sanitizer found - path is vulnerable
+        return None

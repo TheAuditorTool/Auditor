@@ -8,9 +8,9 @@ Test fixture demonstrating:
 - @periodic_task decorator (deprecated)
 """
 
+
 from celery import Celery
 from celery.schedules import crontab, schedule
-from datetime import timedelta
 
 app = Celery('realworld')
 
@@ -101,6 +101,7 @@ app.conf.beat_schedule = {
 # Pattern 2: @periodic_task decorator (deprecated but still in use)
 # NOTE: These would normally be in a tasks file, but shown here for extraction testing
 from celery.task import periodic_task
+
 
 @periodic_task(run_every=3600)
 def deprecated_hourly_task():

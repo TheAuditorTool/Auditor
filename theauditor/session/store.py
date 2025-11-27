@@ -7,11 +7,10 @@ This module stores session execution data to:
 Implements dual-write principle: all data written to both storage types for consistency.
 """
 
-
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SessionExecution:
     """Complete session execution record."""
+
     session_id: str
     task_description: str
     workflow_compliant: bool
@@ -33,8 +33,8 @@ class SessionExecution:
     tool_call_count: int
     files_modified: int
     user_message_count: int
-    user_engagement_rate: float  # INVERSE METRIC: lower = better
-    diffs_scored: list[dict[str, Any]]  # List of DiffScore dicts
+    user_engagement_rate: float
+    diffs_scored: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -51,15 +51,13 @@ class SessionExecutionStore:
             db_path: Path to session database (default: .pf/ml/session_history.db)
             json_dir: Directory for JSON files (default: .pf/ml/session_analysis/)
         """
-        # Default to persistent .pf/ml/ directory (never archived)
-        self.db_path = db_path or Path('.pf/ml/session_history.db')
-        self.json_dir = json_dir or Path('.pf/ml/session_analysis')
 
-        # Ensure parent directories exist
+        self.db_path = db_path or Path(".pf/ml/session_history.db")
+        self.json_dir = json_dir or Path(".pf/ml/session_analysis")
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.json_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create table if not exists
         self._create_session_executions_table()
 
     def _create_session_executions_table(self):
@@ -68,7 +66,6 @@ class SessionExecutionStore:
         cursor = conn.cursor()
 
         try:
-            # Create table with UNIQUE constraint on session_id to prevent duplicates
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS session_executions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +87,6 @@ class SessionExecutionStore:
                 )
             """)
 
-            # Create indexes
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_session_executions_session_id
                 ON session_executions(session_id)
@@ -122,10 +118,9 @@ class SessionExecutionStore:
         Args:
             execution: SessionExecution object to store
         """
-        # Write to database
+
         self._write_to_db(execution)
 
-        # Write to JSON (dual-write principle)
         self._write_to_json(execution)
 
         logger.info(f"Stored session execution: {execution.session_id}")
@@ -140,16 +135,14 @@ class SessionExecutionStore:
         cursor = conn.cursor()
 
         try:
-            # Serialize diffs_scored to JSON
             diffs_json = json.dumps(execution.diffs_scored)
 
-            # Get current timestamp for last_modified
             from datetime import datetime
+
             last_modified = datetime.now().isoformat()
 
-            # Use UPSERT (INSERT OR REPLACE) to prevent duplicates
-            # If session_id exists, it updates the row; otherwise inserts new
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO session_executions (
                     session_id, task_description, workflow_compliant,
                     compliance_score, risk_score, task_completed,
@@ -157,23 +150,25 @@ class SessionExecutionStore:
                     tool_call_count, files_modified, user_message_count,
                     user_engagement_rate, diffs_scored, last_modified
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                execution.session_id,
-                execution.task_description,
-                1 if execution.workflow_compliant else 0,
-                execution.compliance_score,
-                execution.risk_score,
-                1 if execution.task_completed else 0,
-                1 if execution.corrections_needed else 0,
-                1 if execution.rollback else 0,
-                execution.timestamp,
-                execution.tool_call_count,
-                execution.files_modified,
-                execution.user_message_count,
-                execution.user_engagement_rate,
-                diffs_json,
-                last_modified
-            ))
+            """,
+                (
+                    execution.session_id,
+                    execution.task_description,
+                    1 if execution.workflow_compliant else 0,
+                    execution.compliance_score,
+                    execution.risk_score,
+                    1 if execution.task_completed else 0,
+                    1 if execution.corrections_needed else 0,
+                    1 if execution.rollback else 0,
+                    execution.timestamp,
+                    execution.tool_call_count,
+                    execution.files_modified,
+                    execution.user_message_count,
+                    execution.user_engagement_rate,
+                    diffs_json,
+                    last_modified,
+                ),
+            )
 
             conn.commit()
             logger.debug(f"Wrote session to database: {execution.session_id}")
@@ -190,11 +185,9 @@ class SessionExecutionStore:
             execution: SessionExecution object
         """
         try:
-            # Create JSON file path
             json_file = self.json_dir / f"session_{execution.session_id}.json"
 
-            # Write JSON
-            with open(json_file, 'w', encoding='utf-8') as f:
+            with open(json_file, "w", encoding="utf-8") as f:
                 json.dump(execution.to_dict(), f, indent=2)
 
             logger.debug(f"Wrote session to JSON: {json_file}")
@@ -214,9 +207,8 @@ class SessionExecutionStore:
         cursor = conn.cursor()
 
         try:
-            # Query sessions where diffs_scored contains the file
-            # Using LIKE for JSON search (simplified - could use json_extract)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT session_id, task_description, workflow_compliant,
                        compliance_score, risk_score, task_completed,
                        corrections_needed, rollback, timestamp,
@@ -225,29 +217,33 @@ class SessionExecutionStore:
                 FROM session_executions
                 WHERE diffs_scored LIKE ?
                 ORDER BY timestamp DESC
-            """, (f'%{file_path}%',))
+            """,
+                (f"%{file_path}%",),
+            )
 
             rows = cursor.fetchall()
 
             executions = []
             for row in rows:
                 diffs_scored = json.loads(row[13]) if row[13] else []
-                executions.append(SessionExecution(
-                    session_id=row[0],
-                    task_description=row[1],
-                    workflow_compliant=bool(row[2]),
-                    compliance_score=row[3],
-                    risk_score=row[4],
-                    task_completed=bool(row[5]),
-                    corrections_needed=bool(row[6]),
-                    rollback=bool(row[7]),
-                    timestamp=row[8],
-                    tool_call_count=row[9],
-                    files_modified=row[10],
-                    user_message_count=row[11],
-                    user_engagement_rate=row[12],
-                    diffs_scored=diffs_scored
-                ))
+                executions.append(
+                    SessionExecution(
+                        session_id=row[0],
+                        task_description=row[1],
+                        workflow_compliant=bool(row[2]),
+                        compliance_score=row[3],
+                        risk_score=row[4],
+                        task_completed=bool(row[5]),
+                        corrections_needed=bool(row[6]),
+                        rollback=bool(row[7]),
+                        timestamp=row[8],
+                        tool_call_count=row[9],
+                        files_modified=row[10],
+                        user_message_count=row[11],
+                        user_engagement_rate=row[12],
+                        diffs_scored=diffs_scored,
+                    )
+                )
 
             return executions
         except sqlite3.Error as e:
@@ -266,7 +262,6 @@ class SessionExecutionStore:
         cursor = conn.cursor()
 
         try:
-            # Get compliant vs non-compliant stats
             cursor.execute("""
                 SELECT
                     workflow_compliant,
@@ -284,19 +279,18 @@ class SessionExecutionStore:
 
             stats = {}
             for row in rows:
-                key = 'compliant' if row[0] else 'non_compliant'
+                key = "compliant" if row[0] else "non_compliant"
                 stats[key] = {
-                    'count': row[1],
-                    'avg_risk_score': row[2],
-                    'avg_compliance_score': row[3],
-                    'avg_user_engagement': row[4],
-                    'correction_rate': row[5],
-                    'rollback_rate': row[6]
+                    "count": row[1],
+                    "avg_risk_score": row[2],
+                    "avg_compliance_score": row[3],
+                    "avg_user_engagement": row[4],
+                    "correction_rate": row[5],
+                    "rollback_rate": row[6],
                 }
 
-            # Get total count
             cursor.execute("SELECT COUNT(*) FROM session_executions")
-            stats['total_sessions'] = cursor.fetchone()[0]
+            stats["total_sessions"] = cursor.fetchone()[0]
 
             return stats
         except sqlite3.Error as e:

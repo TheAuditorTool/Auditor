@@ -59,10 +59,8 @@ class ConsoleLogger:
             print(f"[OK] {name} completed in {elapsed:.1f}s", flush=True)
 
     def on_phase_failed(self, name: str, error: str, exit_code: int) -> None:
-        # Errors print even in quiet mode
         print(f"[FAILED] {name} failed (exit code {exit_code})", file=sys.stderr, flush=True)
         if error:
-            # Clean up error message for display
             display_err = error.strip()[:200]
             if len(error) > 200:
                 display_err += "..."
@@ -70,13 +68,12 @@ class ConsoleLogger:
 
     def on_stage_start(self, stage_name: str, stage_num: int) -> None:
         if not self.quiet:
-            print("\n" + "="*60, flush=True)
+            print("\n" + "=" * 60, flush=True)
             print(f"[STAGE {stage_num}] {stage_name}", flush=True)
-            print("="*60, flush=True)
+            print("=" * 60, flush=True)
 
     def on_log(self, message: str, is_error: bool = False) -> None:
         if not self.quiet or is_error:
-            # Avoid printing raw None
             msg = str(message) if message is not None else ""
             print(msg, file=sys.stderr if is_error else sys.stdout, flush=True)
 
@@ -85,11 +82,11 @@ class ConsoleLogger:
             try:
                 print(f"[START] {track_name}...", flush=True)
             except OSError:
-                pass  # Windows console buffer issue - ignore
+                pass
 
     def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
         if not self.quiet:
             try:
                 print(f"[COMPLETED] {track_name} ({elapsed:.1f}s)", flush=True)
             except OSError:
-                pass  # Windows console buffer issue - ignore
+                pass

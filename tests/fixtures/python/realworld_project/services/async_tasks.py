@@ -1,7 +1,5 @@
 """Async task service demonstrating async/await patterns."""
 import asyncio
-from typing import List
-
 from collections.abc import AsyncIterator
 
 

@@ -16,7 +16,7 @@ Performance:
 - Transitive queries use BFS (max depth: 5)
 """
 
-from theauditor.context.query import CodeQueryEngine, SymbolInfo, CallSite, Dependency
 from theauditor.context.formatters import format_output
+from theauditor.context.query import CallSite, CodeQueryEngine, Dependency, SymbolInfo
 
-__all__ = ['CodeQueryEngine', 'SymbolInfo', 'CallSite', 'Dependency', 'format_output']
+__all__ = ["CodeQueryEngine", "SymbolInfo", "CallSite", "Dependency", "format_output"]

@@ -6,8 +6,16 @@ Covers FlaskForm, Form, validators, and custom validators.
 """
 
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField, TextAreaField, SelectField, IntegerField
-from wtforms.validators import DataRequired, Email, Length, EqualTo, Optional, ValidationError
+from wtforms import (
+    BooleanField,
+    IntegerField,
+    PasswordField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, ValidationError
 
 
 # 1. Basic login form with validators

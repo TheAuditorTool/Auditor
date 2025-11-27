@@ -21,18 +21,15 @@ Author: TheAuditor Team (fixing the blind spots)
 Date: November 2025
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Optional, List, Set
+import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import libcst as cst
 from libcst import matchers as m
-from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -55,7 +52,7 @@ class FixStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nFixes applied:")
+        print("\nFixes applied:")
         print(f"  Helper functions fixed: {self.helper_functions_fixed}")
         print(f"  context.walk_tree() replaced: {self.context_walk_tree_replaced}")
         print(f"  Recursive patterns converted: {self.recursive_patterns_converted}")
@@ -88,7 +85,7 @@ class RecursiveTreeWalkFixer(cst.CSTTransformer):
         self.current_helper_name = None
 
         # Track functions seen for recursion detection
-        self.helper_functions_in_extractor: Set[str] = set()
+        self.helper_functions_in_extractor: set[str] = set()
 
         # Track if we need to add imports
         self.needs_ast_import = False
@@ -133,11 +130,10 @@ class RecursiveTreeWalkFixer(cst.CSTTransformer):
                 self.current_helper_name = None
 
         # Leaving extractor function
-        elif self.function_depth == 1 and self.inside_extractor:
-            if func_name == self.current_extractor_name:
-                self.inside_extractor = False
-                self.current_extractor_name = None
-                self.helper_functions_in_extractor = set()
+        elif self.function_depth == 1 and self.inside_extractor and func_name == self.current_extractor_name:
+            self.inside_extractor = False
+            self.current_extractor_name = None
+            self.helper_functions_in_extractor = set()
 
         self.function_depth -= 1
         return updated_node
@@ -199,9 +195,8 @@ class RecursiveTreeWalkFixer(cst.CSTTransformer):
     def visit_Import(self, node: cst.Import) -> None:
         """Track if we have 'import ast' in the file."""
         for name in node.names:
-            if isinstance(name, cst.ImportAlias):
-                if hasattr(name.name, 'value') and name.name.value == "ast":
-                    self.has_ast_import = True
+            if isinstance(name, cst.ImportAlias) and hasattr(name.name, 'value') and name.name.value == "ast":
+                self.has_ast_import = True
 
     # ------------------------------------------------------------------------
     # Add imports if needed
@@ -223,11 +218,11 @@ class RecursiveTreeWalkFixer(cst.CSTTransformer):
 
         for i, stmt in enumerate(updated_node.body):
             # Skip docstrings at the beginning
-            if i == 0 and isinstance(stmt, cst.SimpleStatementLine):
-                if len(stmt.body) == 1 and isinstance(stmt.body[0], cst.Expr):
-                    if isinstance(stmt.body[0].value, (cst.SimpleString, cst.ConcatenatedString)):
-                        new_body.append(stmt)
-                        continue
+            if (i == 0 and isinstance(stmt, cst.SimpleStatementLine) and
+                len(stmt.body) == 1 and isinstance(stmt.body[0], cst.Expr) and
+                isinstance(stmt.body[0].value, (cst.SimpleString, cst.ConcatenatedString))):
+                new_body.append(stmt)
+                continue
 
             # Add import after existing imports but before other code
             if not import_added:
@@ -295,7 +290,7 @@ def process_file(filepath: Path, stats: FixStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if no extractors or context.walk_tree()

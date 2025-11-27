@@ -7,7 +7,6 @@ NO separate parser class (inline parsing).
 Follows gold standard: Facts only, direct DB writes, no intermediate dicts.
 """
 
-
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +32,7 @@ class DockerExtractor(BaseExtractor):
 
         Note: Dockerfiles don't have extensions, we match by filename.
         """
-        return []  # We handle this specially in should_extract
+        return []
 
     def should_extract(self, file_path: str) -> bool:
         """Check if this extractor should handle the file.
@@ -46,14 +45,17 @@ class DockerExtractor(BaseExtractor):
         """
         file_name_lower = Path(file_path).name.lower()
         dockerfile_patterns = [
-            'dockerfile', 'dockerfile.dev', 'dockerfile.prod',
-            'dockerfile.test', 'dockerfile.staging'
+            "dockerfile",
+            "dockerfile.dev",
+            "dockerfile.prod",
+            "dockerfile.test",
+            "dockerfile.staging",
         ]
-        return (file_name_lower in dockerfile_patterns or
-                file_name_lower.startswith('dockerfile.'))
+        return file_name_lower in dockerfile_patterns or file_name_lower.startswith("dockerfile.")
 
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract facts from Dockerfile directly to database.
 
         Uses external dockerfile-parse library for parsing.
@@ -67,85 +69,71 @@ class DockerExtractor(BaseExtractor):
         Returns:
             Minimal dict for indexer compatibility
         """
-        # Try to import dockerfile-parse library
+
         try:
             from dockerfile_parse import DockerfileParser as DFParser
         except ImportError:
-            # Graceful degradation - can't parse without library
             return {}
 
-        # Extract facts using inline parsing
         try:
             parser = DFParser()
             parser.content = content
 
-            # Extract base image
             base_image = parser.baseimage if parser.baseimage else None
 
-            # Extract environment variables, build args, user, healthcheck, ports
             env_vars = {}
             build_args = {}
             user = None
             has_healthcheck = False
             exposed_ports = []
 
-            # Parse instructions from structure
             for instruction in parser.structure:
-                inst_type = instruction.get('instruction', '').upper()
-                inst_value = instruction.get('value', '')
+                inst_type = instruction.get("instruction", "").upper()
+                inst_value = instruction.get("value", "")
 
-                if inst_type == 'ENV':
-                    # Parse ENV key=value or ENV key value
-                    if '=' in inst_value:
-                        # Format: KEY=value KEY2=value2
+                if inst_type == "ENV":
+                    if "=" in inst_value:
                         parts = inst_value.split()
                         for part in parts:
-                            if '=' in part:
-                                key, value = part.split('=', 1)
+                            if "=" in part:
+                                key, value = part.split("=", 1)
                                 env_vars[key.strip()] = value.strip()
                     else:
-                        # Format: KEY value
                         parts = inst_value.split(None, 1)
                         if len(parts) == 2:
                             env_vars[parts[0].strip()] = parts[1].strip()
 
-                elif inst_type == 'ARG':
-                    # Parse ARG key=value or ARG key
-                    if '=' in inst_value:
-                        key, value = inst_value.split('=', 1)
+                elif inst_type == "ARG":
+                    if "=" in inst_value:
+                        key, value = inst_value.split("=", 1)
                         build_args[key.strip()] = value.strip()
                     else:
                         build_args[inst_value.strip()] = None
 
-                elif inst_type == 'USER':
+                elif inst_type == "USER":
                     user = inst_value.strip()
 
-                elif inst_type == 'HEALTHCHECK':
+                elif inst_type == "HEALTHCHECK":
                     has_healthcheck = True
 
-                elif inst_type == 'EXPOSE':
-                    # Parse exposed ports
+                elif inst_type == "EXPOSE":
                     ports = inst_value.split()
                     exposed_ports.extend(ports)
 
-            # Store user in env_vars with special key (for rule compatibility)
             if user:
-                env_vars['_DOCKER_USER'] = user
+                env_vars["_DOCKER_USER"] = user
 
-            # Direct database write
             self.db_manager.add_docker_image(
-                file_path=str(file_info['path']),
+                file_path=str(file_info["path"]),
                 base_image=base_image,
                 ports=exposed_ports if exposed_ports else [],
                 env_vars=env_vars,
                 build_args=build_args,
                 user=user,
-                has_healthcheck=has_healthcheck
+                has_healthcheck=has_healthcheck,
             )
 
         except Exception:
-            # Graceful failure - don't crash indexer
             pass
 
-        # Return minimal dict for indexer compatibility
         return {}

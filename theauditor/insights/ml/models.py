@@ -9,7 +9,6 @@ Handles:
 - Model persistence (save/load)
 """
 
-
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -18,21 +17,24 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import numpy as np
 
-# Safe import of ML dependencies
+
 ML_AVAILABLE = False
 try:
     import joblib
     import numpy as np
+    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.isotonic import IsotonicRegression
     from sklearn.linear_model import Ridge
-    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
 
     ML_AVAILABLE = True
 except ImportError:
     pass
 
-# Schema contract validation
+
+FNV_PRIME = 0x01000193
+FNV_OFFSET = 0x811C9DC5
+
 _SCHEMA_VALIDATED = False
 
 
@@ -52,31 +54,26 @@ def validate_ml_schema():
     try:
         from theauditor.indexer.schema import get_table_schema
 
-        # Validate refs table columns (used in load_graph_stats, load_semantic_import_features)
         refs_schema = get_table_schema("refs")
         refs_cols = set(refs_schema.column_names())
         assert "src" in refs_cols, "refs table missing 'src' column"
         assert "value" in refs_cols, "refs table missing 'value' column"
         assert "kind" in refs_cols, "refs table missing 'kind' column"
 
-        # Validate symbols table columns (used in load_ast_complexity_metrics)
         symbols_schema = get_table_schema("symbols")
         symbols_cols = set(symbols_schema.column_names())
         assert "path" in symbols_cols, "symbols table missing 'path' column"
         assert "type" in symbols_cols, "symbols table missing 'type' column"
         assert "name" in symbols_cols, "symbols table missing 'name' column"
 
-        # Validate api_endpoints table columns (used in load_graph_stats)
         api_endpoints_schema = get_table_schema("api_endpoints")
         api_cols = set(api_endpoints_schema.column_names())
         assert "file" in api_cols, "api_endpoints table missing 'file' column"
 
-        # Validate sql_objects table columns (used in load_graph_stats)
         sql_objects_schema = get_table_schema("sql_objects")
         sql_cols = set(sql_objects_schema.column_names())
         assert "file" in sql_cols, "sql_objects table missing 'file' column"
 
-        # Validate new enhancement tables
         jwt_patterns_schema = get_table_schema("jwt_patterns")
         jwt_cols = set(jwt_patterns_schema.column_names())
         assert "file_path" in jwt_cols, "jwt_patterns table missing 'file_path' column"
@@ -113,12 +110,10 @@ def validate_ml_schema():
         _SCHEMA_VALIDATED = True
 
     except ImportError:
-        # Schema module not available - skip validation
         pass
     except AssertionError as e:
-        # Schema mismatch - log but don't crash
         print(f"[ML] Schema validation warning: {e}")
-        _SCHEMA_VALIDATED = True  # Mark as validated to avoid repeated warnings
+        _SCHEMA_VALIDATED = True
 
 
 def check_ml_available():
@@ -127,16 +122,13 @@ def check_ml_available():
         print("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
         print("These are now installed by default. Reinstall: pip install -e .")
         return False
-    # Validate schema contract on first ML operation
+
     validate_ml_schema()
     return True
 
 
 def fowler_noll_hash(text: str, dim: int = 2000) -> int:
     """Simple FNV-1a hash for text feature hashing."""
-    FNV_PRIME = 0x01000193
-    FNV_OFFSET = 0x811C9DC5
-
     hash_val = FNV_OFFSET
     for char in text.encode("utf-8"):
         hash_val ^= char
@@ -151,21 +143,18 @@ def extract_text_features(
     """Extract hashed text features from path and RCA messages."""
     features = defaultdict(float)
 
-    # Hash path components
     parts = Path(path).parts
     for part in parts:
         idx = fowler_noll_hash(part, dim)
         features[idx] += 1.0
 
-    # Hash basename
     basename = Path(path).name
     idx = fowler_noll_hash(basename, dim)
     features[idx] += 2.0
 
-    # Hash RCA messages if present
     if rca_messages:
-        for msg in rca_messages[:5]:  # Limit to recent 5
-            tokens = msg.lower().split()[:10]  # First 10 tokens
+        for msg in rca_messages[:5]:
+            tokens = msg.lower().split()[:10]
             for token in tokens:
                 idx = fowler_noll_hash(token, dim)
                 features[idx] += 0.5
@@ -195,7 +184,6 @@ def build_feature_matrix(
     if not ML_AVAILABLE:
         return None, {}
 
-    # Load manifest for file metadata
     manifest_map = {}
     try:
         with open(manifest_path) as f:
@@ -203,43 +191,35 @@ def build_feature_matrix(
         for entry in manifest:
             manifest_map[entry["path"]] = entry
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
-    # Extract historical data components
     journal_stats = historical_data.get("journal_stats", {})
     rca_stats = historical_data.get("rca_stats", {})
     ast_stats = historical_data.get("ast_stats", {})
     git_churn = historical_data.get("git_churn", {})
 
-    # Extract intelligent features if provided
     intelligent_features = intelligent_features or {}
 
-    # Build feature vectors
     features = []
 
     for file_path in file_paths:
         feat = []
 
-        # Basic metadata features
         meta = manifest_map.get(file_path, {})
-        feat.append(meta.get("bytes", 0) / 10000.0)  # Normalized
-        feat.append(meta.get("loc", 0) / 100.0)  # Normalized
+        feat.append(meta.get("bytes", 0) / 10000.0)
+        feat.append(meta.get("loc", 0) / 100.0)
 
-        # Extension as categorical
         ext = meta.get("ext", "")
         feat.append(1.0 if ext in [".ts", ".tsx", ".js", ".jsx"] else 0.0)
         feat.append(1.0 if ext == ".py" else 0.0)
 
-        # Database features (from features.py)
         db_feat = db_features.get(file_path, {})
 
-        # Graph topology
         feat.append(db_feat.get("in_degree", 0) / 10.0)
         feat.append(db_feat.get("out_degree", 0) / 10.0)
         feat.append(1.0 if db_feat.get("has_routes") else 0.0)
         feat.append(1.0 if db_feat.get("has_sql") else 0.0)
 
-        # Historical data
         journal = journal_stats.get(file_path, {})
         feat.append(journal.get("touches", 0) / 10.0)
         feat.append(journal.get("failures", 0) / 5.0)
@@ -252,68 +232,57 @@ def build_feature_matrix(
         feat.append(ast.get("invariant_fails", 0) / 3.0)
         feat.append(ast.get("invariant_passes", 0) / 3.0)
 
-        # Git churn features (Tier 4 - now 4 features instead of 1)
         git = git_churn.get(file_path, {})
-        feat.append(git.get("commits_90d", 0) / 20.0)  # Commits in last 90 days
-        feat.append(git.get("unique_authors", 0) / 5.0)  # Author diversity
-        feat.append(git.get("days_since_modified", 999) / 100.0)  # Recency (lower = more recent)
-        feat.append(git.get("days_active_in_range", 0) / 30.0)  # Activity span
+        feat.append(git.get("commits_90d", 0) / 20.0)
+        feat.append(git.get("unique_authors", 0) / 5.0)
+        feat.append(git.get("days_since_modified", 999) / 100.0)
+        feat.append(git.get("days_active_in_range", 0) / 30.0)
 
-        # Semantic import features
         feat.append(1.0 if db_feat.get("has_http_import") else 0.0)
         feat.append(1.0 if db_feat.get("has_db_import") else 0.0)
         feat.append(1.0 if db_feat.get("has_auth_import") else 0.0)
         feat.append(1.0 if db_feat.get("has_test_import") else 0.0)
 
-        # AST complexity metrics
         feat.append(db_feat.get("function_count", 0) / 20.0)
         feat.append(db_feat.get("class_count", 0) / 10.0)
         feat.append(db_feat.get("call_count", 0) / 50.0)
         feat.append(db_feat.get("try_except_count", 0) / 5.0)
         feat.append(db_feat.get("async_def_count", 0) / 5.0)
 
-        # Security pattern features
         feat.append(db_feat.get("jwt_usage_count", 0) / 5.0)
         feat.append(db_feat.get("sql_query_count", 0) / 10.0)
         feat.append(1.0 if db_feat.get("has_hardcoded_secret") else 0.0)
         feat.append(1.0 if db_feat.get("has_weak_crypto") else 0.0)
 
-        # Vulnerability flow features
         feat.append(db_feat.get("critical_findings", 0) / 3.0)
         feat.append(db_feat.get("high_findings", 0) / 5.0)
         feat.append(db_feat.get("medium_findings", 0) / 10.0)
         feat.append(db_feat.get("unique_cwe_count", 0) / 5.0)
 
-        # Type coverage features
         feat.append(db_feat.get("type_annotation_count", 0) / 50.0)
         feat.append(db_feat.get("any_type_count", 0) / 10.0)
         feat.append(db_feat.get("unknown_type_count", 0) / 10.0)
         feat.append(db_feat.get("generic_type_count", 0) / 10.0)
         feat.append(db_feat.get("type_coverage_ratio", 0.0))
 
-        # CFG complexity features
         feat.append(db_feat.get("cfg_block_count", 0) / 20.0)
         feat.append(db_feat.get("cfg_edge_count", 0) / 30.0)
         feat.append(db_feat.get("cyclomatic_complexity", 0) / 10.0)
 
-        # Tier 5: Agent behavior features (if available)
         feat.append(db_feat.get("agent_blind_edit_count", 0) / 5.0)
         feat.append(db_feat.get("agent_duplicate_impl_rate", 0.0))
         feat.append(db_feat.get("agent_missed_search_count", 0) / 10.0)
         feat.append(db_feat.get("agent_read_efficiency", 0.0) / 5.0)
 
-        # Tier 5: Comment hallucination features (NEW)
-        # Tracks when AI misinterpreted comments - the hallucination feedback loop
-        feat.append(db_feat.get("comment_reference_count", 0) / 10.0)  # How often AI referenced comments
-        feat.append(db_feat.get("comment_hallucination_count", 0) / 5.0)  # Flagged as wrong
-        feat.append(db_feat.get("comment_conflict_rate", 0.0))  # Ratio (already 0-1)
-        feat.append(1.0 if db_feat.get("has_removed_comments") else 0.0)  # Had comments purged
+        feat.append(db_feat.get("comment_reference_count", 0) / 10.0)
+        feat.append(db_feat.get("comment_hallucination_count", 0) / 5.0)
+        feat.append(db_feat.get("comment_conflict_rate", 0.0))
+        feat.append(1.0 if db_feat.get("has_removed_comments") else 0.0)
 
-        # Text features (simplified - just path hash)
         text_feats = extract_text_features(
             file_path,
             rca.get("messages", []),
-            dim=50,  # Small for speed
+            dim=50,
         )
         text_vec = [0.0] * 50
         for idx, val in text_feats.items():
@@ -323,7 +292,6 @@ def build_feature_matrix(
 
         features.append(feat)
 
-    # Feature names for debugging
     feature_names = [
         "bytes_norm",
         "loc_norm",
@@ -372,7 +340,6 @@ def build_feature_matrix(
         "agent_duplicate_impl_rate",
         "agent_missed_search_count",
         "agent_read_efficiency",
-        # Comment hallucination features (Tier 5)
         "comment_reference_count",
         "comment_hallucination_count",
         "comment_conflict_rate",
@@ -393,17 +360,14 @@ def build_labels(
     if not ML_AVAILABLE:
         return None, None, None
 
-    # Root cause labels (binary): file failed in RCA
     root_cause_labels = np.array(
         [1.0 if rca_stats.get(fp, {}).get("fail_count", 0) > 0 else 0.0 for fp in file_paths]
     )
 
-    # Next edit labels (binary): file was edited in journal
     next_edit_labels = np.array(
         [1.0 if journal_stats.get(fp, {}).get("touches", 0) > 0 else 0.0 for fp in file_paths]
     )
 
-    # Risk scores (continuous): failure ratio
     risk_labels = np.array(
         [
             min(
@@ -433,17 +397,14 @@ def train_models(
     if not ML_AVAILABLE:
         return None, None, None, None, None, None
 
-    # Handle empty or all-same labels
     if len(np.unique(root_cause_labels)) < 2:
-        root_cause_labels[0] = 1 - root_cause_labels[0]  # Flip one for training
+        root_cause_labels[0] = 1 - root_cause_labels[0]
     if len(np.unique(next_edit_labels)) < 2:
         next_edit_labels[0] = 1 - next_edit_labels[0]
 
-    # Scale features
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
-    # Train root cause classifier with GradientBoostingClassifier
     root_cause_clf = GradientBoostingClassifier(
         n_estimators=50,
         learning_rate=0.1,
@@ -454,7 +415,6 @@ def train_models(
     )
     root_cause_clf.fit(features_scaled, root_cause_labels, sample_weight=sample_weight)
 
-    # Train next edit classifier with GradientBoostingClassifier
     next_edit_clf = GradientBoostingClassifier(
         n_estimators=50,
         learning_rate=0.1,
@@ -465,11 +425,9 @@ def train_models(
     )
     next_edit_clf.fit(features_scaled, next_edit_labels, sample_weight=sample_weight)
 
-    # Train risk regressor
     risk_reg = Ridge(alpha=1.0, random_state=seed)
     risk_reg.fit(features_scaled, risk_labels, sample_weight=sample_weight)
 
-    # Calibrate probabilities using isotonic regression
     root_cause_calibrator = IsotonicRegression(out_of_bounds="clip")
     root_cause_probs = root_cause_clf.predict_proba(features_scaled)[:, 1]
     root_cause_calibrator.fit(root_cause_probs, root_cause_labels)
@@ -505,7 +463,6 @@ def save_models(
 
     Path(model_dir).mkdir(parents=True, exist_ok=True)
 
-    # Save models and calibrators
     model_data = {
         "root_cause_clf": root_cause_clf,
         "next_edit_clf": next_edit_clf,
@@ -516,15 +473,12 @@ def save_models(
     }
     joblib.dump(model_data, Path(model_dir) / "model.joblib")
 
-    # Save feature map
     with open(Path(model_dir) / "feature_map.json", "w") as f:
         json.dump(feature_name_map, f, indent=2)
 
-    # Save training stats
     with open(Path(model_dir) / "training_stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 
-    # Extract and save feature importance
     feature_importance = {}
     if hasattr(root_cause_clf, "feature_importances_"):
         importance = root_cause_clf.feature_importances_
@@ -532,9 +486,7 @@ def save_models(
         importance_pairs = sorted(
             zip(feature_names, importance, strict=False), key=lambda x: x[1], reverse=True
         )
-        feature_importance["root_cause"] = {
-            name: float(imp) for name, imp in importance_pairs[:20]
-        }
+        feature_importance["root_cause"] = {name: float(imp) for name, imp in importance_pairs[:20]}
 
     if hasattr(next_edit_clf, "feature_importances_"):
         importance = next_edit_clf.feature_importances_
@@ -542,9 +494,7 @@ def save_models(
         importance_pairs = sorted(
             zip(feature_names, importance, strict=False), key=lambda x: x[1], reverse=True
         )
-        feature_importance["next_edit"] = {
-            name: float(imp) for name, imp in importance_pairs[:20]
-        }
+        feature_importance["next_edit"] = {name: float(imp) for name, imp in importance_pairs[:20]}
 
     if feature_importance:
         with open(Path(model_dir) / "feature_importance.json", "w") as f:
@@ -583,7 +533,6 @@ def is_source_file(file_path: str) -> bool:
     """Check if a file is a source code file (not test, config, or docs)."""
     path = Path(file_path)
 
-    # Skip test files
     if any(part in ["test", "tests", "__tests__", "spec"] for part in path.parts):
         return False
     if (
@@ -594,22 +543,39 @@ def is_source_file(file_path: str) -> bool:
     ):
         return False
 
-    # Skip documentation
     if path.suffix.lower() in [".md", ".rst", ".txt", ".yaml", ".yml"]:
         return False
 
-    # Skip configuration files
     config_files = {
-        ".gitignore", "pyproject.toml", "package.json", "requirements.txt",
-        "Dockerfile", ".env", "tsconfig.json", "jest.config.js"
+        ".gitignore",
+        "pyproject.toml",
+        "package.json",
+        "requirements.txt",
+        "Dockerfile",
+        ".env",
+        "tsconfig.json",
+        "jest.config.js",
     }
     if path.name.lower() in config_files:
         return False
 
-    # Accept common source file extensions
     source_exts = {
-        ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".cs",
-        ".cpp", ".cc", ".c", ".h", ".hpp", ".rs", ".rb", ".php"
+        ".py",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".java",
+        ".go",
+        ".cs",
+        ".cpp",
+        ".cc",
+        ".c",
+        ".h",
+        ".hpp",
+        ".rs",
+        ".rb",
+        ".php",
     }
 
     return path.suffix.lower() in source_exts

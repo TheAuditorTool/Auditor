@@ -18,24 +18,19 @@ These tables are populated by multiple extractors:
 - PRISMA_MODELS: Node extractor (Prisma)
 """
 
-from .utils import Column, TableSchema, ForeignKey
-
-
-# ============================================================================
-# ORM PATTERNS - Cross-language ORM analysis
-# ============================================================================
+from .utils import Column, ForeignKey, TableSchema
 
 ORM_RELATIONSHIPS = TableSchema(
     name="orm_relationships",
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("source_model", "TEXT", nullable=False),      # "User"
-        Column("target_model", "TEXT", nullable=False),      # "Account"
-        Column("relationship_type", "TEXT", nullable=False), # "hasMany", "belongsTo", "hasOne"
-        Column("foreign_key", "TEXT", nullable=True),        # "account_id"
-        Column("cascade_delete", "BOOLEAN", default="0"),    # CASCADE delete option
-        Column("as_name", "TEXT", nullable=True),            # Association alias (e.g., "as: 'owner'")
+        Column("source_model", "TEXT", nullable=False),
+        Column("target_model", "TEXT", nullable=False),
+        Column("relationship_type", "TEXT", nullable=False),
+        Column("foreign_key", "TEXT", nullable=True),
+        Column("cascade_delete", "BOOLEAN", default="0"),
+        Column("as_name", "TEXT", nullable=True),
     ],
     primary_key=["file", "line", "source_model", "target_model"],
     indexes=[
@@ -43,7 +38,7 @@ ORM_RELATIONSHIPS = TableSchema(
         ("idx_orm_relationships_source", ["source_model"]),
         ("idx_orm_relationships_target", ["target_model"]),
         ("idx_orm_relationships_type", ["relationship_type"]),
-    ]
+    ],
 )
 
 ORM_QUERIES = TableSchema(
@@ -59,7 +54,7 @@ ORM_QUERIES = TableSchema(
     indexes=[
         ("idx_orm_queries_file", ["file"]),
         ("idx_orm_queries_type", ["query_type"]),
-    ]
+    ],
 )
 
 PRISMA_MODELS = TableSchema(
@@ -75,12 +70,9 @@ PRISMA_MODELS = TableSchema(
     primary_key=["model_name", "field_name"],
     indexes=[
         ("idx_prisma_models_indexed", ["is_indexed"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# API ROUTING PATTERNS - Cross-language API endpoint tracking
-# ============================================================================
 
 API_ENDPOINTS = TableSchema(
     name="api_endpoints",
@@ -90,58 +82,52 @@ API_ENDPOINTS = TableSchema(
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
-        Column("full_path", "TEXT"),  # ADDED 2025-11-09: Resolved API path (e.g., /api/v1/areas/:id)
-        # controls REMOVED - see api_endpoint_controls junction table
+        Column("full_path", "TEXT"),
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
     ],
     indexes=[
         ("idx_api_endpoints_file", ["file"]),
-    ]
+    ],
 )
 
-# Junction table for normalized API endpoint controls/middleware
-# Replaces JSON TEXT column api_endpoints.controls with relational model
-# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+
 API_ENDPOINT_CONTROLS = TableSchema(
     name="api_endpoint_controls",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True, autoincrement=True),
         Column("endpoint_file", "TEXT", nullable=False),
         Column("endpoint_line", "INTEGER", nullable=False),
-        Column("control_name", "TEXT", nullable=False),  # 1 row per middleware/control
+        Column("control_name", "TEXT", nullable=False),
     ],
     indexes=[
-        ("idx_api_endpoint_controls_endpoint", ["endpoint_file", "endpoint_line"]),  # FK composite lookup
-        ("idx_api_endpoint_controls_control", ["control_name"]),  # Fast search by control name
-        ("idx_api_endpoint_controls_file", ["endpoint_file"]),  # File-level aggregation queries
+        ("idx_api_endpoint_controls_endpoint", ["endpoint_file", "endpoint_line"]),
+        ("idx_api_endpoint_controls_control", ["control_name"]),
+        ("idx_api_endpoint_controls_file", ["endpoint_file"]),
     ],
     foreign_keys=[
         ForeignKey(
             local_columns=["endpoint_file", "endpoint_line"],
             foreign_table="api_endpoints",
-            foreign_columns=["file", "line"]
+            foreign_columns=["file", "line"],
         )
-    ]
+    ],
 )
 
-# ============================================================================
-# ROUTER MOUNT HIERARCHY - Express.js router.use() mount tracking
-# ============================================================================
 
 ROUTER_MOUNTS = TableSchema(
     name="router_mounts",
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("mount_path_expr", "TEXT", nullable=False),    # '/areas' or 'API_PREFIX' or `${API_PREFIX}/auth`
-        Column("router_variable", "TEXT", nullable=False),    # 'areaRoutes' or 'protectedRouter'
-        Column("is_literal", "BOOLEAN", default="0"),         # True if static string, False if identifier/template
+        Column("mount_path_expr", "TEXT", nullable=False),
+        Column("router_variable", "TEXT", nullable=False),
+        Column("is_literal", "BOOLEAN", default="0"),
     ],
     indexes=[
         ("idx_router_mounts_file", ["file"]),
         ("idx_router_mounts_router_var", ["router_variable"]),
-    ]
+    ],
 )
 
 # ============================================================================

@@ -13,21 +13,17 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
-from theauditor.ast_extractors.python.utils.context import FileContext
-
 
 import ast
 import logging
 from typing import Any
 
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# ORM Detection Constants
-# ============================================================================
 
 SQLALCHEMY_BASE_IDENTIFIERS = {
     "Base",
@@ -42,10 +38,6 @@ DJANGO_MODEL_BASES = {
 }
 
 
-# ============================================================================
-# Helper Functions (Internal - Duplicated for Self-Containment)
-# ============================================================================
-
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
@@ -55,7 +47,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
@@ -100,9 +92,8 @@ def _extract_backref_name(backref_value: ast.AST) -> str | None:
     if name:
         return name
 
-    if isinstance(backref_value, ast.Call):
-        if backref_value.args:
-            return _get_str_constant(backref_value.args[0]) or get_node_name(backref_value.args[0])
+    if isinstance(backref_value, ast.Call) and backref_value.args:
+        return _get_str_constant(backref_value.args[0]) or get_node_name(backref_value.args[0])
     return get_node_name(backref_value)
 
 
@@ -122,12 +113,9 @@ def _extract_backref_cascade(backref_value: ast.AST) -> bool:
     return False
 
 
-def _infer_relationship_type(
-    attr_name: str,
-    relationship_call: ast.Call
-) -> str:
+def _infer_relationship_type(attr_name: str, relationship_call: ast.Call) -> str:
     """Infer relationship type using heuristics (uselist, secondary, naming)."""
-    # Many-to-many when a secondary table is provided
+
     if _keyword_arg(relationship_call, "secondary"):
         return "manyToMany"
 
@@ -137,7 +125,6 @@ def _infer_relationship_type(
     if uselist is False:
         return "hasOne"
 
-    # Default heuristic based on attribute naming
     if attr_name.endswith("s") or attr_name.endswith("_list"):
         return "hasMany"
 
@@ -152,7 +139,7 @@ def _inverse_relationship_type(rel_type: str) -> str:
         return "hasMany"
     if rel_type == "hasOne":
         return "belongsTo"
-    # many-to-many (or unknown) mirrors itself
+
     return rel_type
 
 
@@ -177,16 +164,14 @@ def _get_type_annotation(node: ast.AST | None) -> str | None:
     return None
 
 
-# ============================================================================
-# ORM Extractors
-# ============================================================================
-
-def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], list[dict], list[dict]]:
+def extract_sqlalchemy_definitions(
+    context: FileContext,
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Extract SQLAlchemy ORM models, fields, and relationships."""
     models: list[dict[str, Any]] = []
     fields: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
-    seen_relationships: set[tuple[int, str, str, str]] = set()  # (line, source, target, rel_type)
+    seen_relationships: set[tuple[int, str, str, str]] = set()
 
     if not isinstance(context.tree, ast.AST):
         return models, fields, relationships
@@ -197,9 +182,7 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
 
         base_names = {get_node_name(base) for base in node.bases}
         if not any(
-            name in SQLALCHEMY_BASE_IDENTIFIERS
-            or name.endswith("Base")
-            or name.endswith("Model")
+            name in SQLALCHEMY_BASE_IDENTIFIERS or name.endswith("Base") or name.endswith("Model")
             for name in base_names
         ):
             continue
@@ -220,12 +203,14 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                     if isinstance(target, ast.Name) and target.id == "__tablename__":
                         table_name = _get_str_constant(stmt.value) or get_node_name(stmt.value)
 
-        models.append({
-            "model_name": node.name,
-            "line": node.lineno,
-            "table_name": table_name,
-            "orm_type": "sqlalchemy",
-        })
+        models.append(
+            {
+                "model_name": node.name,
+                "line": node.lineno,
+                "table_name": table_name,
+                "orm_type": "sqlalchemy",
+            }
+        )
 
         for stmt in node.body:
             value = getattr(stmt, "value", None)
@@ -255,22 +240,26 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                     if isinstance(arg, ast.Call) and get_node_name(arg.func).endswith("ForeignKey"):
                         is_foreign_key = True
                         if arg.args:
-                            foreign_key_target = _get_str_constant(arg.args[0]) or get_node_name(arg.args[0])
+                            foreign_key_target = _get_str_constant(arg.args[0]) or get_node_name(
+                                arg.args[0]
+                            )
 
                 fk_kw = _keyword_arg(value, "ForeignKey")
                 if fk_kw:
                     is_foreign_key = True
                     foreign_key_target = _get_str_constant(fk_kw) or get_node_name(fk_kw)
 
-                fields.append({
-                    "model_name": node.name,
-                    "field_name": attr_name,
-                    "line": line_no,
-                    "field_type": field_type,
-                    "is_primary_key": is_primary_key,
-                    "is_foreign_key": is_foreign_key,
-                    "foreign_key_target": foreign_key_target,
-                })
+                fields.append(
+                    {
+                        "model_name": node.name,
+                        "field_name": attr_name,
+                        "line": line_no,
+                        "field_type": field_type,
+                        "is_primary_key": is_primary_key,
+                        "is_foreign_key": is_foreign_key,
+                        "foreign_key_target": foreign_key_target,
+                    }
+                )
             elif func_name.endswith("relationship"):
                 target_model = None
                 if value.args:
@@ -293,7 +282,9 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                 foreign_keys_kw = _keyword_arg(value, "foreign_keys")
                 if foreign_keys_kw:
                     fk_candidate = None
-                    if isinstance(foreign_keys_kw, (ast.List, ast.Tuple)) and getattr(foreign_keys_kw, "elts", None):
+                    if isinstance(foreign_keys_kw, (ast.List, ast.Tuple)) and getattr(
+                        foreign_keys_kw, "elts", None
+                    ):
                         fk_candidate = foreign_keys_kw.elts[0]
                     else:
                         fk_candidate = foreign_keys_kw
@@ -314,21 +305,21 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                     rel_line: int,
                 ) -> None:
                     target_name = target_model_name or "Unknown"
-                    # Dedup key MUST include relationship_type to prevent data loss
-                    # Example: User.posts (hasMany) and User.favorite (hasOne) both target Post
-                    # Without rel_type in key, second relationship would be skipped
+
                     key = (rel_line, source_model, target_name, rel_type)
                     if key in seen_relationships:
                         return
-                    relationships.append({
-                        "line": rel_line,
-                        "source_model": source_model,
-                        "target_model": target_name,
-                        "relationship_type": rel_type,
-                        "foreign_key": fk_name,
-                        "cascade_delete": cascade_flag,
-                        "as_name": alias,
-                    })
+                    relationships.append(
+                        {
+                            "line": rel_line,
+                            "source_model": source_model,
+                            "target_model": target_name,
+                            "relationship_type": rel_type,
+                            "foreign_key": fk_name,
+                            "cascade_delete": cascade_flag,
+                            "as_name": alias,
+                        }
+                    )
                     seen_relationships.add(key)
 
                 _add_relationship(
@@ -341,27 +332,20 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
                     line_no,
                 )
 
-                # Don't create inverse relationship for back_populates
-                # Each side will define its own forward relationship
-                # This prevents duplicate relationships when both sides have back_populates
-
                 backref_node = _keyword_arg(value, "backref")
-                if backref_node and target_model:
-                    # Skip inverse for self-referential relationships to avoid duplicates
-                    # Self-referential would create (line, Model, Model) twice
-                    if target_model != node.name:
-                        backref_name = _extract_backref_name(backref_node)
-                        inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
-                        inverse_type = _inverse_relationship_type(relationship_type)
-                        _add_relationship(
-                            target_model,
-                            node.name,
-                            inverse_type,
-                            backref_name,
-                            inverse_cascade,
-                            foreign_key,
-                            line_no,
-                        )
+                if backref_node and target_model and target_model != node.name:
+                    backref_name = _extract_backref_name(backref_node)
+                    inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
+                    inverse_type = _inverse_relationship_type(relationship_type)
+                    _add_relationship(
+                        target_model,
+                        node.name,
+                        inverse_type,
+                        backref_name,
+                        inverse_cascade,
+                        foreign_key,
+                        line_no,
+                    )
 
     return models, fields, relationships
 
@@ -383,12 +367,14 @@ def extract_django_definitions(context: FileContext) -> tuple[list[dict], list[d
         if not any(name in DJANGO_MODEL_BASES for name in base_names):
             continue
 
-        models.append({
-            "model_name": node.name,
-            "line": node.lineno,
-            "table_name": None,
-            "orm_type": "django",
-        })
+        models.append(
+            {
+                "model_name": node.name,
+                "line": node.lineno,
+                "table_name": None,
+                "orm_type": "django",
+            }
+        )
 
         for stmt in node.body:
             value = getattr(stmt, "value", None)
@@ -412,55 +398,58 @@ def extract_django_definitions(context: FileContext) -> tuple[list[dict], list[d
                 on_delete = _keyword_arg(value, "on_delete")
                 if on_delete and get_node_name(on_delete).endswith("CASCADE"):
                     cascade = True
-                # Deduplicate relationships to prevent data loss
-                # Include relationship_type to allow multiple relationships to same model
+
                 rel_key = (line_no, node.name, target or "Unknown", "belongsTo")
                 if rel_key not in seen_relationships:
-                    relationships.append({
-                        "line": line_no,
-                        "source_model": node.name,
-                        "target_model": target or "Unknown",
-                        "relationship_type": "belongsTo",
-                        "foreign_key": attr_name,
-                        "cascade_delete": cascade,
-                        "as_name": attr_name,
-                    })
+                    relationships.append(
+                        {
+                            "line": line_no,
+                            "source_model": node.name,
+                            "target_model": target or "Unknown",
+                            "relationship_type": "belongsTo",
+                            "foreign_key": attr_name,
+                            "cascade_delete": cascade,
+                            "as_name": attr_name,
+                        }
+                    )
                     seen_relationships.add(rel_key)
             elif func_name.endswith("ManyToManyField"):
                 target = None
                 if value.args:
                     target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
-                # Deduplicate relationships to prevent data loss
-                # Include relationship_type to allow multiple relationships to same model
+
                 rel_key = (line_no, node.name, target or "Unknown", "manyToMany")
                 if rel_key not in seen_relationships:
-                    relationships.append({
-                        "line": line_no,
-                        "source_model": node.name,
-                        "target_model": target or "Unknown",
-                        "relationship_type": "manyToMany",
-                        "foreign_key": None,
-                        "cascade_delete": False,
-                        "as_name": attr_name,
-                    })
+                    relationships.append(
+                        {
+                            "line": line_no,
+                            "source_model": node.name,
+                            "target_model": target or "Unknown",
+                            "relationship_type": "manyToMany",
+                            "foreign_key": None,
+                            "cascade_delete": False,
+                            "as_name": attr_name,
+                        }
+                    )
                     seen_relationships.add(rel_key)
             elif func_name.endswith("OneToOneField"):
                 target = None
                 if value.args:
                     target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
-                # Deduplicate relationships to prevent data loss
-                # Include relationship_type to allow multiple relationships to same model
+
                 rel_key = (line_no, node.name, target or "Unknown", "hasOne")
                 if rel_key not in seen_relationships:
-                    relationships.append({
-                        "line": line_no,
-                        "source_model": node.name,
-                        "target_model": target or "Unknown",
-                        "relationship_type": "hasOne",
-                        "foreign_key": attr_name,
-                        "cascade_delete": False,
-                        "as_name": attr_name,
-                    })
+                    relationships.append(
+                        {
+                            "line": line_no,
+                            "source_model": node.name,
+                            "target_model": target or "Unknown",
+                            "relationship_type": "hasOne",
+                            "foreign_key": attr_name,
+                            "cascade_delete": False,
+                            "as_name": attr_name,
+                        }
+                    )
                     seen_relationships.add(rel_key)
 
     return models, relationships
@@ -490,11 +479,13 @@ def extract_flask_blueprints(context: FileContext) -> list[dict]:
         blueprint_name = _get_str_constant(name_arg) or var_name
         url_prefix = _get_str_constant(_keyword_arg(node.value, "url_prefix"))
         subdomain = _get_str_constant(_keyword_arg(node.value, "subdomain"))
-        blueprints.append({
-            "line": getattr(node, "lineno", 0),
-            "blueprint_name": blueprint_name,
-            "url_prefix": url_prefix,
-            "subdomain": subdomain,
-        })
+        blueprints.append(
+            {
+                "line": getattr(node, "lineno", 0),
+                "blueprint_name": blueprint_name,
+                "url_prefix": url_prefix,
+                "subdomain": subdomain,
+            }
+        )
 
     return blueprints

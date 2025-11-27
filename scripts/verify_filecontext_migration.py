@@ -15,13 +15,10 @@ Date: November 2025
 """
 
 import ast
-import re
 import sys
-from pathlib import Path
-from typing import Dict, List, Set, Tuple
-from dataclasses import dataclass, field
 from collections import defaultdict
-
+from dataclasses import dataclass, field
+from pathlib import Path
 
 # ============================================================================
 # Risk Report Data Classes
@@ -34,11 +31,11 @@ class ExtractorInfo:
     function_name: str
     line_number: int
     uses_parser_self: bool = False
-    parser_self_usages: List[str] = field(default_factory=list)
+    parser_self_usages: list[str] = field(default_factory=list)
     has_complex_walk: bool = False
-    complex_walk_patterns: List[str] = field(default_factory=list)
+    complex_walk_patterns: list[str] = field(default_factory=list)
     has_context_variable: bool = False
-    context_variable_lines: List[int] = field(default_factory=list)
+    context_variable_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -53,11 +50,11 @@ class CallerInfo:
 @dataclass
 class VerificationReport:
     """Complete verification report."""
-    extractors: List[ExtractorInfo] = field(default_factory=list)
-    callers: List[CallerInfo] = field(default_factory=list)
-    parser_self_files: Set[str] = field(default_factory=set)
-    complex_walk_files: Set[str] = field(default_factory=set)
-    context_collision_files: Set[str] = field(default_factory=set)
+    extractors: list[ExtractorInfo] = field(default_factory=list)
+    callers: list[CallerInfo] = field(default_factory=list)
+    parser_self_files: set[str] = field(default_factory=set)
+    complex_walk_files: set[str] = field(default_factory=set)
+    context_collision_files: set[str] = field(default_factory=set)
 
     # Statistics
     total_extractors: int = 0
@@ -94,7 +91,7 @@ class VerificationReport:
                     if ext.uses_parser_self:
                         print(f"\n  File: {ext.file_path}")
                         print(f"  Function: {ext.function_name} (line {ext.line_number})")
-                        print(f"  Usages:")
+                        print("  Usages:")
                         for usage in ext.parser_self_usages[:5]:  # Show first 5
                             print(f"    - {usage}")
                         if len(ext.parser_self_usages) > 5:
@@ -222,13 +219,13 @@ class ExtractorAnalyzer(ast.NodeVisitor):
 
                 # Pattern 3: Nested ast.walk
                 for child in ast.walk(node):
-                    if child != node and isinstance(child, ast.For):
-                        if (isinstance(child.iter, ast.Call) and
-                            isinstance(child.iter.func, ast.Attribute) and
-                            child.iter.func.attr == "walk"):
-                            pattern = f"Line {self.current_line}: Nested ast.walk loops"
-                            self.complex_walks.append(pattern)
-                            break
+                    if (child != node and isinstance(child, ast.For) and
+                        isinstance(child.iter, ast.Call) and
+                        isinstance(child.iter.func, ast.Attribute) and
+                        child.iter.func.attr == "walk"):
+                        pattern = f"Line {self.current_line}: Nested ast.walk loops"
+                        self.complex_walks.append(pattern)
+                        break
 
         self.generic_visit(node)
 
@@ -244,7 +241,7 @@ class ExtractorAnalyzer(ast.NodeVisitor):
 class CallerFinder(ast.NodeVisitor):
     """Find locations where extractors are called."""
 
-    def __init__(self, extractor_names: Set[str]):
+    def __init__(self, extractor_names: set[str]):
         self.extractor_names = extractor_names
         self.calls = []
 
@@ -295,7 +292,7 @@ def analyze_extractor_file(file_path: Path, report: VerificationReport) -> None:
     """Analyze a single Python file for extractors."""
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             source_code = f.read()
 
         # Parse the AST
@@ -356,7 +353,7 @@ def analyze_extractor_file(file_path: Path, report: VerificationReport) -> None:
         print(f"  Error analyzing {file_path}: {e}")
 
 
-def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
+def find_extractor_callers(root_dir: Path, extractor_names: set[str],
                            report: VerificationReport) -> None:
     """Find all locations where extractors are called."""
 
@@ -385,7 +382,7 @@ def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
             processed_files.add(str(py_file))
 
             try:
-                with open(py_file, 'r', encoding='utf-8') as f:
+                with open(py_file, encoding='utf-8') as f:
                     source_code = f.read()
 
                 # Quick check if any extractor names are mentioned
@@ -413,7 +410,7 @@ def find_extractor_callers(root_dir: Path, extractor_names: Set[str],
                 except SyntaxError:
                     pass
 
-            except Exception as e:
+            except Exception:
                 pass  # Silent fail for files we can't read
 
 

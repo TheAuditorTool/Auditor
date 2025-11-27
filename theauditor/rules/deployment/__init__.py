@@ -11,7 +11,7 @@ from .docker_analyze import find_docker_issues
 from .nginx_analyze import find_nginx_issues
 
 __all__ = [
-    "find_compose_issues",   # Docker Compose security (11 rules)
-    "find_docker_issues",    # Dockerfile security (5 checks)
-    "find_nginx_issues",     # Nginx configuration security
+    "find_compose_issues",
+    "find_docker_issues",
+    "find_nginx_issues",
 ]

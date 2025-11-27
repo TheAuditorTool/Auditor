@@ -1,8 +1,6 @@
 """Registry of framework detection patterns and test framework configurations."""
 
-# Framework detection registry - defines where to find each framework
 FRAMEWORK_REGISTRY = {
-    # Python frameworks
     "django": {
         "language": "python",
         "detection_sources": {
@@ -141,8 +139,6 @@ FRAMEWORK_REGISTRY = {
         },
         "import_patterns": ["from sanic", "import sanic"],
     },
-
-    # JavaScript/TypeScript frameworks
     "express": {
         "language": "javascript",
         "detection_sources": {
@@ -238,9 +234,6 @@ FRAMEWORK_REGISTRY = {
         "import_patterns": ["vite"],
         "config_files": ["vite.config.js", "vite.config.ts"],
     },
-
-    # Validation/Schema libraries (JavaScript/TypeScript)
-    # These are sanitizers that reduce false positives in taint analysis
     "zod": {
         "language": "javascript",
         "detection_sources": {
@@ -260,7 +253,7 @@ FRAMEWORK_REGISTRY = {
                 ["devDependencies"],
             ],
         },
-        "package_pattern": "joi",  # Matches both 'joi' and '@hapi/joi'
+        "package_pattern": "joi",
         "import_patterns": ["require('joi')", "from 'joi'", "import Joi", "import * as Joi"],
         "category": "validation",
     },
@@ -308,8 +301,6 @@ FRAMEWORK_REGISTRY = {
         "import_patterns": ["from 'express-validator'", "require('express-validator')"],
         "category": "validation",
     },
-
-    # PHP frameworks
     "laravel": {
         "language": "php",
         "detection_sources": {
@@ -364,8 +355,6 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "codeigniter4/framework",
         "file_markers": ["spark"],
     },
-
-    # Go frameworks
     "gin": {
         "language": "go",
         "detection_sources": {
@@ -414,8 +403,6 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "github.com/gorilla/mux",
         "import_patterns": ["github.com/gorilla/mux"],
     },
-
-    # Java frameworks
     "spring": {
         "language": "java",
         "detection_sources": {
@@ -465,8 +452,6 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "com.typesafe.play",
         "content_patterns": ["com.typesafe.play"],
     },
-
-    # Rust frameworks
     "actix-web": {
         "language": "rust",
         "detection_sources": {
@@ -588,8 +573,6 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "serde",
         "import_patterns": ["use serde", "serde::", "#[derive(Serialize", "#[derive(Deserialize"],
     },
-
-    # Ruby frameworks
     "rails": {
         "language": "ruby",
         "detection_sources": {
@@ -626,7 +609,6 @@ FRAMEWORK_REGISTRY = {
 }
 
 
-# Test framework detection registry
 TEST_FRAMEWORK_REGISTRY = {
     "pytest": {
         "language": "python",
@@ -693,7 +675,12 @@ TEST_FRAMEWORK_REGISTRY = {
                 ["devDependencies"],
             ],
         },
-        "config_files": ["vitest.config.js", "vitest.config.ts", "vite.config.js", "vite.config.ts"],
+        "config_files": [
+            "vitest.config.js",
+            "vitest.config.ts",
+            "vite.config.js",
+            "vite.config.ts",
+        ],
         "script_patterns": ["vitest"],
     },
     "mocha": {

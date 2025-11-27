@@ -4,19 +4,19 @@ This module defines the universal interface that ALL rules must follow.
 Created as part of the Great Refactor to eliminate signature chaos.
 """
 
-
-from dataclasses import dataclass, field
-from typing import Any, Literal
-from collections.abc import Callable
-from pathlib import Path
-from enum import Enum
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
 
 class Severity(Enum):
     """Standardized severity levels."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -26,63 +26,53 @@ class Severity(Enum):
 
 class Confidence(Enum):
     """Confidence in finding accuracy."""
+
     HIGH = "high"
-    MEDIUM = "medium" 
+    MEDIUM = "medium"
     LOW = "low"
 
 
 @dataclass
 class StandardRuleContext:
     """Universal immutable context for all standardized rules.
-    
+
     Design Principles:
     1. Contains everything a rule might need
     2. Immutable during execution
     3. Extensible via 'extra' without breaking changes
     4. Helpers for common operations
-    
+
     Migration Note:
     Old rules received various parameters (tree, file_path, **kwargs).
     This unified context replaces ALL of those parameters.
     """
 
-    # Required fields (must be provided)
     file_path: Path
     content: str
-    language: str  # 'python', 'javascript', 'typescript', etc.
+    language: str
     project_path: Path
 
-    # Optional AST data
     ast_wrapper: dict[str, Any] | None = None
-    # Expected structure:
-    # {
-    #   "type": "python_ast" | "tree_sitter" | "semantic_ast",
-    #   "tree": <actual AST object>,
-    #   "parser_version": "1.0.0"
-    # }
 
-    # Analysis tools (lazy-loaded)
     db_path: str | None = None
     taint_checker: Callable | None = None
     module_resolver: Any | None = None
 
-    # File metadata
     file_hash: str | None = None
     file_size: int | None = None
     line_count: int | None = None
 
-    # Extensibility
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get_ast(self, expected_type: str = None) -> Any | None:
         """Safely extract AST with optional type checking.
-        
+
         Args:
             expected_type: If provided, only return AST if type matches
-            
+
         Returns:
             The AST tree object or None if not available/wrong type
-            
+
         Example:
             tree = context.get_ast("python_ast")
             if tree:
@@ -93,7 +83,6 @@ class StandardRuleContext:
 
         ast_type = self.ast_wrapper.get("type")
 
-        # Type checking if requested
         if expected_type and ast_type != expected_type:
             logger.debug(f"AST type mismatch: wanted {expected_type}, got {ast_type}")
             return None
@@ -106,11 +95,11 @@ class StandardRuleContext:
 
     def get_snippet(self, line_num: int, context_lines: int = 2) -> str:
         """Extract code snippet around a line number.
-        
+
         Args:
             line_num: 1-based line number
             context_lines: Lines before/after to include
-            
+
         Returns:
             Code snippet with line numbers
         """
@@ -124,7 +113,7 @@ class StandardRuleContext:
         snippet_lines = []
         for i in range(start, end + 1):
             prefix = ">> " if i == line_num else "   "
-            snippet_lines.append(f"{i:4d}{prefix}{lines[i-1]}")
+            snippet_lines.append(f"{i:4d}{prefix}{lines[i - 1]}")
 
         return "\n".join(snippet_lines)
 
@@ -132,24 +121,21 @@ class StandardRuleContext:
 @dataclass
 class StandardFinding:
     """Standardized output from all rules.
-    
+
     This replaces the various dict formats that rules previously returned.
     """
 
-    # Required fields
     rule_name: str
     message: str
     file_path: str
     line: int
 
-    # Optional with defaults
     column: int = 0
     severity: Severity | str = Severity.MEDIUM
     category: str = "security"
     confidence: Confidence | str = Confidence.HIGH
     snippet: str = ""
 
-    # Additional context
     references: list[str] | None = None
     cwe_id: str | None = None
     additional_info: dict[str, Any] | None = None
@@ -164,49 +150,51 @@ class StandardFinding:
         - cwe_id → cwe
         """
         result = {
-            "rule": self.rule_name,  # Schema expects 'rule'
+            "rule": self.rule_name,
             "message": self.message,
-            "file": self.file_path,  # Schema expects 'file'
+            "file": self.file_path,
             "line": self.line,
             "column": self.column,
-            "severity": self.severity.value if isinstance(self.severity, Severity) else self.severity,
+            "severity": self.severity.value
+            if isinstance(self.severity, Severity)
+            else self.severity,
             "category": self.category,
-            "confidence": self.confidence.value if isinstance(self.confidence, Confidence) else self.confidence,
-            "code_snippet": self.snippet,  # Schema expects 'code_snippet'
+            "confidence": self.confidence.value
+            if isinstance(self.confidence, Confidence)
+            else self.confidence,
+            "code_snippet": self.snippet,
         }
 
-        # Only include optional fields if set
         if self.references:
             result["references"] = self.references
         if self.cwe_id:
-            result["cwe"] = self.cwe_id  # Schema expects 'cwe'
+            result["cwe"] = self.cwe_id
         if self.additional_info:
-            # Map additional_info → details_json for database schema
             import json
+
             result["details_json"] = json.dumps(self.additional_info)
 
         return result
 
 
-# Type alias for rule functions
 RuleFunction = Callable[[StandardRuleContext], list[StandardFinding]]
 
 
 def validate_rule_signature(func: Callable) -> bool:
     """Check if a function follows the standard rule signature.
-    
+
     Args:
         func: Function to validate
-        
+
     Returns:
         True if signature matches standard, False otherwise
     """
     import inspect
+
     sig = inspect.signature(func)
     params = list(sig.parameters.keys())
 
-    # Must have exactly one parameter named 'context'
-    return len(params) == 1 and params[0] == 'context'
+    return len(params) == 1 and params[0] == "context"
 
 
 @dataclass
@@ -224,23 +212,21 @@ class RuleMetadata:
             requires_jsx_pass=False
         )
     """
-    # Required fields
-    name: str  # Rule identifier (snake_case)
-    category: str  # sql, xss, auth, secrets, etc.
 
-    # File targeting (orchestrator uses these for filtering)
-    target_extensions: list[str] | None = None  # ['.py', '.js'] - ONLY these files
-    exclude_patterns: list[str] | None = None  # ['migrations/', 'test/'] - SKIP these
-    target_file_patterns: list[str] | None = None  # ['backend/', 'server/'] - INCLUDE these
+    name: str
+    category: str
 
-    execution_scope: Literal['database', 'file'] | None = None  # Orchestrator scope hint ('database' runs once, 'file' per file)
+    target_extensions: list[str] | None = None
+    exclude_patterns: list[str] | None = None
+    target_file_patterns: list[str] | None = None
 
-    # JSX-specific settings
-    requires_jsx_pass: bool = False  # True = query *_jsx tables instead of standard tables
-    jsx_pass_mode: str = 'preserved'  # 'preserved' or 'transformed' (only if requires_jsx_pass=True)
+    execution_scope: Literal["database", "file"] | None = None
+
+    requires_jsx_pass: bool = False
+    jsx_pass_mode: str = "preserved"
 
 
-def convert_old_context(old_context, project_path: Path = None) -> "StandardRuleContext":
+def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
     """Convert old RuleContext to StandardRuleContext.
 
     Helper for dual-mode orchestrator during migration.
@@ -252,6 +238,6 @@ def convert_old_context(old_context, project_path: Path = None) -> "StandardRule
         content=old_context.content or "",
         language=old_context.language or "unknown",
         project_path=Path(old_context.project_path) if old_context.project_path else Path("."),
-        ast_wrapper=old_context.ast_tree if hasattr(old_context, 'ast_tree') else None,
-        db_path=old_context.db_path if hasattr(old_context, 'db_path') else None,
+        ast_wrapper=old_context.ast_tree if hasattr(old_context, "ast_tree") else None,
+        db_path=old_context.db_path if hasattr(old_context, "db_path") else None,
     )

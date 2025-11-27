@@ -28,18 +28,17 @@ Usage:
     python ast_modernizer_v2.py --target-dir ./theauditor/ast_extractors/python/
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Union, Sequence, Optional
+import shutil
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
-
 
 # ============================================================================
 # Statistics Tracking
@@ -69,7 +68,7 @@ class ModernizationStats:
         print("="*60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
-        print(f"\nTransformations applied:")
+        print("\nTransformations applied:")
         print(f"  ast.Str -> ast.Constant: {self.ast_str_fixed}")
         print(f"  ast.Num -> ast.Constant: {self.ast_num_fixed}")
         print(f"  ast.Bytes -> ast.Constant: {self.ast_bytes_fixed}")
@@ -133,7 +132,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     # ------------------------------------------------------------------------
 
     def _create_safe_check(self, node_arg: cst.BaseExpression,
-                           value_type: Union[cst.Name, cst.Tuple]) -> cst.BooleanOperation:
+                           value_type: cst.Name | cst.Tuple) -> cst.BooleanOperation:
         """
         Creates a safe, parenthesized boolean check:
         (isinstance(node, ast.Constant) and isinstance(node.value, <value_type>))
@@ -470,7 +469,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
         self,
         original_node: cst.Call,
         updated_node: cst.Call
-    ) -> Union[cst.Call, cst.BooleanOperation]:
+    ) -> cst.Call | cst.BooleanOperation:
         """Simplify tuples like (ast.Str, ast.Num, ast.Constant) → just ast.Constant
         Also handles pure deprecated tuples like (ast.Str, ast.Num) → ast.Constant"""
 
@@ -587,11 +586,11 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
 
         for i, statement in enumerate(updated_node.body):
             # Skip docstrings at the beginning
-            if i == 0 and isinstance(statement, cst.SimpleStatementLine):
-                if len(statement.body) == 1 and isinstance(statement.body[0], cst.Expr):
-                    if isinstance(statement.body[0].value, (cst.SimpleString, cst.ConcatenatedString)):
-                        new_body.append(statement)
-                        continue
+            if (i == 0 and isinstance(statement, cst.SimpleStatementLine) and
+                len(statement.body) == 1 and isinstance(statement.body[0], cst.Expr) and
+                isinstance(statement.body[0].value, (cst.SimpleString, cst.ConcatenatedString))):
+                new_body.append(statement)
+                continue
 
             # Add import after existing imports but before other code
             if not import_added:
@@ -626,9 +625,8 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     def visit_Import(self, node: cst.Import) -> None:
         """Track if we have 'import ast' in the file."""
         for name in node.names:
-            if isinstance(name, cst.ImportAlias):
-                if hasattr(name.name, 'value') and name.name.value == "ast":
-                    self.has_ast_import = True
+            if isinstance(name, cst.ImportAlias) and hasattr(name.name, 'value') and name.name.value == "ast":
+                self.has_ast_import = True
 
     # ------------------------------------------------------------------------
     # Transform: Clean up imports
@@ -638,7 +636,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
         self,
         original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom
-    ) -> Union[cst.ImportFrom, cst.RemovalSentinel]:
+    ) -> cst.ImportFrom | cst.RemovalSentinel:
         """Remove imports of deprecated AST node types."""
 
         # Only process ast imports
@@ -717,11 +715,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
                     attr=m.Name("walk")
                 )
             )
-        ):
-            contains_ast_walk = True
-
-        # Check for list(ast.walk(...))
-        elif m.matches(
+        ) or m.matches(
             node.value,
             m.Call(
                 func=m.Name("list"),
@@ -736,11 +730,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
                     )
                 ]
             )
-        ):
-            contains_ast_walk = True
-
-        # Check for tuple(ast.walk(...))
-        elif m.matches(
+        ) or m.matches(
             node.value,
             m.Call(
                 func=m.Name("tuple"),
@@ -816,24 +806,18 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     ) -> cst.For:
         """Exit ast.walk() context when leaving the loop."""
         # Check both direct and indirect patterns
-        is_ast_walk_loop = False
-
-        # Direct pattern
-        if m.matches(
-            original_node.iter,
-            m.Call(
-                func=m.Attribute(
-                    value=m.Name("ast"),
-                    attr=m.Name("walk")
+        is_ast_walk_loop = (
+            m.matches(
+                original_node.iter,
+                m.Call(
+                    func=m.Attribute(
+                        value=m.Name("ast"),
+                        attr=m.Name("walk")
+                    )
                 )
             )
-        ):
-            is_ast_walk_loop = True
-
-        # Indirect pattern
-        elif isinstance(original_node.iter, cst.Name):
-            if original_node.iter.value in self.ast_walk_result_vars:
-                is_ast_walk_loop = True
+            or (isinstance(original_node.iter, cst.Name) and original_node.iter.value in self.ast_walk_result_vars)
+        )
 
         if is_ast_walk_loop:
             self.inside_ast_context = False
@@ -845,7 +829,7 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
     # Helper methods
     # ------------------------------------------------------------------------
 
-    def _get_base_name(self, attr: cst.Attribute) -> Optional[str]:
+    def _get_base_name(self, attr: cst.Attribute) -> str | None:
         """Get the base name from a potentially chained attribute."""
         current = attr
         while isinstance(current, cst.Attribute):
@@ -880,7 +864,7 @@ def process_file(filepath: Path, stats: ModernizationStats,
 
     try:
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             source_code = f.read()
 
         # Skip if doesn't use AST

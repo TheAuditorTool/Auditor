@@ -1,11 +1,11 @@
 """Synthetic Python fixtures to exercise extraction parity features."""
+# ruff: noqa: B008 - FastAPI Depends() pattern is intentional
 
-from flask import Blueprint
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, validator, root_validator
+from flask import Blueprint
+from pydantic import BaseModel, root_validator, validator
 from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import declarative_base, relationship, backref
-
+from sqlalchemy.orm import backref, declarative_base, relationship
 
 # SQLAlchemy setup
 Base = declarative_base()
@@ -63,13 +63,13 @@ class Account(BaseModel):
     password_confirm: str
 
     @validator("email")
-    def email_must_have_at(cls, value: str) -> str:
+    def email_must_have_at(self, value: str) -> str:
         if "@" not in value:
             raise ValueError("invalid email")
         return value
 
     @root_validator
-    def passwords_match(cls, values):
+    def passwords_match(self, values):
         if values.get("password") != values.get("password_confirm"):
             raise ValueError("password mismatch")
         return values
