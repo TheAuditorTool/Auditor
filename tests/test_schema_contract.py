@@ -92,9 +92,9 @@ class TestSchemaContract:
 
     def test_total_tables_count(self):
         """Verify total table count matches assertion in schema.py."""
-        # Updated 2025-11-26: 136 + 8 Node junction tables = 144
-        assert len(TABLES) == 144, (
-            f"Expected 144 total tables, got {len(TABLES)}. "
+        # Updated 2025-11-27: 146 + 8 Node junction tables = 154
+        assert len(TABLES) == 154, (
+            f"Expected 154 total tables, got {len(TABLES)}. "
             "Update this test if intentionally adding/removing tables."
         )
 
