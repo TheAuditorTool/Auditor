@@ -42,21 +42,17 @@ Expected extraction from TheAuditor codebase:
 - ~100 string formatting patterns
 Total: ~1,100 fundamental pattern records
 """
-from theauditor.ast_extractors.python.utils.context import FileContext
-
 
 import ast
 import logging
 from typing import Any
 
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 from ..base import get_node_name
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# Helper Functions (Internal)
-# ============================================================================
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
@@ -67,7 +63,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
@@ -92,14 +88,19 @@ def _get_node_text(node: ast.AST) -> str:
             left = _get_node_text(node.left)
             right = _get_node_text(node.right)
             op_map = {
-                ast.Add: '+', ast.Sub: '-', ast.Mult: '*', ast.Div: '/',
-                ast.FloorDiv: '//', ast.Mod: '%', ast.Pow: '**',
+                ast.Add: "+",
+                ast.Sub: "-",
+                ast.Mult: "*",
+                ast.Div: "/",
+                ast.FloorDiv: "//",
+                ast.Mod: "%",
+                ast.Pow: "**",
             }
-            op_symbol = op_map.get(type(node.op), '?')
+            op_symbol = op_map.get(type(node.op), "?")
             return f"{left} {op_symbol} {right}"
         else:
             return f"<{type(node).__name__}>"
-    except:
+    except Exception:
         return "<unknown>"
 
 
@@ -113,18 +114,19 @@ def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     Returns:
         Function name or 'global'
     """
-    if not hasattr(node, 'lineno'):
-        return 'global'
+    if not hasattr(node, "lineno"):
+        return "global"
 
     line_no = node.lineno
     for fname, start, end in function_ranges:
         if start <= line_no <= end:
             return fname
-    return 'global'
+    return "global"
 
 
-def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: list,
-                             all_nodes: list[ast.AST]) -> list[str]:
+def _detect_closure_captures(
+    lambda_node: ast.Lambda, function_ranges: list, all_nodes: list[ast.AST]
+) -> list[str]:
     """Detect variables captured from outer scope in lambda.
 
     Args:
@@ -135,7 +137,7 @@ def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: list,
     Returns:
         List of variable names captured from outer scope
     """
-    # Get lambda parameters (these are NOT captures)
+
     lambda_params = set()
     if lambda_node.args:
         for arg in lambda_node.args.args:
@@ -145,23 +147,30 @@ def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: list,
         if lambda_node.args.kwarg:
             lambda_params.add(lambda_node.args.kwarg.arg)
 
-    # Get all names referenced in lambda body
     referenced_names = set()
     for node in ast.walk(lambda_node.body):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             referenced_names.add(node.id)
 
-    # Captured variables = referenced - parameters - builtins
-    builtins = {'True', 'False', 'None', 'len', 'range', 'str', 'int', 'float',
-                'list', 'dict', 'set', 'tuple', 'bool'}
+    builtins = {
+        "True",
+        "False",
+        "None",
+        "len",
+        "range",
+        "str",
+        "int",
+        "float",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "bool",
+    }
 
     captured = referenced_names - lambda_params - builtins
-    return sorted(list(captured))
+    return sorted(captured)
 
-
-# ============================================================================
-# Comprehension Extractors
-# ============================================================================
 
 def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
     """Extract all comprehension types from Python code.
@@ -202,7 +211,6 @@ def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
     if not isinstance(context.tree, ast.AST):
         return comprehensions
 
-    # Build function ranges for context
     function_ranges = context.function_ranges
 
     def calculate_nesting_level(comp_node):
@@ -212,95 +220,80 @@ def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
             if child == comp_node:
                 continue
             if isinstance(child, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
-                level = 2  # Nested comprehension found
+                level = 2
                 break
         return level
 
-    # Walk AST to find comprehensions
     for node in context.walk_tree():
         comp_data = None
 
         if isinstance(node, ast.ListComp):
-            # [x for x in items]
             comp_data = {
-                'line': node.lineno,
-                'comp_type': 'list',
-                'result_expr': _get_node_text(node.elt),
-                'nesting_level': calculate_nesting_level(node),
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "comp_type": "list",
+                "result_expr": _get_node_text(node.elt),
+                "nesting_level": calculate_nesting_level(node),
+                "in_function": _find_containing_function(node, function_ranges),
             }
 
         elif isinstance(node, ast.DictComp):
-            # {k: v for k, v in items}
             key_text = _get_node_text(node.key)
             value_text = _get_node_text(node.value)
             comp_data = {
-                'line': node.lineno,
-                'comp_type': 'dict',
-                'result_expr': f"{key_text}: {value_text}",
-                'nesting_level': calculate_nesting_level(node),
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "comp_type": "dict",
+                "result_expr": f"{key_text}: {value_text}",
+                "nesting_level": calculate_nesting_level(node),
+                "in_function": _find_containing_function(node, function_ranges),
             }
 
         elif isinstance(node, ast.SetComp):
-            # {x for x in items}
             comp_data = {
-                'line': node.lineno,
-                'comp_type': 'set',
-                'result_expr': _get_node_text(node.elt),
-                'nesting_level': calculate_nesting_level(node),
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "comp_type": "set",
+                "result_expr": _get_node_text(node.elt),
+                "nesting_level": calculate_nesting_level(node),
+                "in_function": _find_containing_function(node, function_ranges),
             }
 
         elif isinstance(node, ast.GeneratorExp):
-            # (x for x in items)
             comp_data = {
-                'line': node.lineno,
-                'comp_type': 'generator',
-                'result_expr': _get_node_text(node.elt),
-                'nesting_level': calculate_nesting_level(node),
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "comp_type": "generator",
+                "result_expr": _get_node_text(node.elt),
+                "nesting_level": calculate_nesting_level(node),
+                "in_function": _find_containing_function(node, function_ranges),
             }
 
-        # Extract iteration details if we found a comprehension
-        if comp_data and hasattr(node, 'generators') and node.generators:
-            # Get first generator (primary iteration)
+        if comp_data and hasattr(node, "generators") and node.generators:
             gen = node.generators[0]
 
-            # Extract iteration variable
             if isinstance(gen.target, ast.Name):
-                comp_data['iteration_var'] = gen.target.id
+                comp_data["iteration_var"] = gen.target.id
             elif isinstance(gen.target, ast.Tuple):
-                # Multiple variables: for x, y in items
                 var_names = []
                 for elt in gen.target.elts:
                     if isinstance(elt, ast.Name):
                         var_names.append(elt.id)
-                comp_data['iteration_var'] = ', '.join(var_names)
+                comp_data["iteration_var"] = ", ".join(var_names)
             else:
-                comp_data['iteration_var'] = _get_node_text(gen.target)
+                comp_data["iteration_var"] = _get_node_text(gen.target)
 
-            # Extract iteration source
-            comp_data['iteration_source'] = _get_node_text(gen.iter)
+            comp_data["iteration_source"] = _get_node_text(gen.iter)
 
-            # Extract filter condition if present
             if gen.ifs:
-                comp_data['has_filter'] = True
-                # Combine multiple filters with 'and'
+                comp_data["has_filter"] = True
+
                 filter_parts = [_get_node_text(if_clause) for if_clause in gen.ifs]
-                comp_data['filter_expr'] = ' and '.join(filter_parts)
+                comp_data["filter_expr"] = " and ".join(filter_parts)
             else:
-                comp_data['has_filter'] = False
-                comp_data['filter_expr'] = None
+                comp_data["has_filter"] = False
+                comp_data["filter_expr"] = None
 
             comprehensions.append(comp_data)
 
     return comprehensions
 
-
-# ============================================================================
-# Lambda Function Extractors
-# ============================================================================
 
 def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
     """Extract lambda function definitions with closure detection.
@@ -338,12 +331,10 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
     all_nodes = list(ast.walk(context.tree))
 
-    # Find all lambda nodes
     for node in all_nodes:
         if not isinstance(node, ast.Lambda):
             continue
 
-        # Extract parameters
         parameters = []
         if node.args:
             for arg in node.args.args:
@@ -353,56 +344,47 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
             if node.args.kwarg:
                 parameters.append(f"**{node.args.kwarg.arg}")
 
-        # Detect closure captures
         captured_vars = _detect_closure_captures(node, function_ranges, all_nodes)
 
-        # Determine usage context
-        usage_context = 'assignment'  # Default
+        usage_context = "assignment"
 
-        # Walk up the tree to find parent context
         for parent in all_nodes:
-            for child_field, child_value in ast.iter_fields(parent):
-                # Check if our lambda is a child of this node
+            for _child_field, child_value in ast.iter_fields(parent):
                 if isinstance(child_value, list):
                     if node in child_value:
                         if isinstance(parent, ast.Call):
                             func_name = get_node_name(parent.func)
-                            if func_name == 'map':
-                                usage_context = 'map'
-                            elif func_name == 'filter':
-                                usage_context = 'filter'
-                            elif func_name == 'sorted' or func_name == 'sort':
-                                # Check if it's the key argument
+                            if func_name == "map":
+                                usage_context = "map"
+                            elif func_name == "filter":
+                                usage_context = "filter"
+                            elif func_name == "sorted" or func_name == "sort":
                                 for keyword in parent.keywords:
-                                    if keyword.arg == 'key' and keyword.value == node:
-                                        usage_context = 'sorted_key'
+                                    if keyword.arg == "key" and keyword.value == node:
+                                        usage_context = "sorted_key"
                             else:
-                                usage_context = 'argument'
+                                usage_context = "argument"
                         break
                 elif child_value == node:
                     if isinstance(parent, ast.Call):
-                        usage_context = 'argument'
+                        usage_context = "argument"
                     break
 
         lambda_data = {
-            'line': node.lineno,
-            'parameters': parameters,
-            'parameter_count': len(parameters),
-            'body': _get_node_text(node.body),
-            'captures_closure': len(captured_vars) > 0,
-            'captured_vars': captured_vars,
-            'used_in': usage_context,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "parameters": parameters,
+            "parameter_count": len(parameters),
+            "body": _get_node_text(node.body),
+            "captures_closure": len(captured_vars) > 0,
+            "captured_vars": captured_vars,
+            "used_in": usage_context,
+            "in_function": _find_containing_function(node, function_ranges),
         }
 
         lambda_functions.append(lambda_data)
 
     return lambda_functions
 
-
-# ============================================================================
-# Slice Operation Extractors
-# ============================================================================
 
 def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract slice operations (start:stop:step patterns).
@@ -437,25 +419,20 @@ def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes(ast.Subscript):
-        # Check if it's a slice (not just subscript like list[0])
         if isinstance(node.slice, ast.Slice):
             slice_data = {
-                'line': node.lineno,
-                'target': _get_node_text(node.value),
-                'has_start': node.slice.lower is not None,
-                'has_stop': node.slice.upper is not None,
-                'has_step': node.slice.step is not None,
-                'is_assignment': isinstance(node.ctx, ast.Store),
-                'in_function': _find_containing_function(node, function_ranges),
+                "line": node.lineno,
+                "target": _get_node_text(node.value),
+                "has_start": node.slice.lower is not None,
+                "has_stop": node.slice.upper is not None,
+                "has_step": node.slice.step is not None,
+                "is_assignment": isinstance(node.ctx, ast.Store),
+                "in_function": _find_containing_function(node, function_ranges),
             }
             slices.append(slice_data)
 
     return slices
 
-
-# ============================================================================
-# Tuple Operation Extractors
-# ============================================================================
 
 def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract tuple pack/unpack operations.
@@ -488,29 +465,23 @@ def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
     for node in context.find_nodes(ast.Tuple):
         element_count = len(node.elts)
 
-        # Determine operation type based on context
         if isinstance(node.ctx, ast.Store):
-            operation = 'unpack'  # Target of assignment
+            operation = "unpack"
         elif isinstance(node.ctx, ast.Load):
-            # Could be literal or pack - check parent
-            operation = 'literal'  # Default to literal
+            operation = "literal"
         else:
-            operation = 'pack'
+            operation = "pack"
 
         tuple_data = {
-            'line': node.lineno,
-            'operation': operation,
-            'element_count': element_count,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "operation": operation,
+            "element_count": element_count,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         tuple_ops.append(tuple_data)
 
     return tuple_ops
 
-
-# ============================================================================
-# Unpacking Pattern Extractors
-# ============================================================================
 
 def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract extended unpacking patterns (a, *rest, b = ...).
@@ -547,7 +518,7 @@ def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
             for elt in node.elts:
                 if isinstance(elt, ast.Starred):
                     return True
-                # Recursively check nested
+
                 if has_starred(elt):
                     return True
         return False
@@ -561,37 +532,30 @@ def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
         return False
 
     for node in context.find_nodes(ast.Assign):
-        # Check targets for unpacking patterns
         for target in node.targets:
             if isinstance(target, (ast.Tuple, ast.List)):
-                # Count target variables
                 target_count = len(target.elts)
 
-                # Determine unpacking type
                 if is_nested(target):
-                    unpack_type = 'nested'
+                    unpack_type = "nested"
                 elif has_starred(target):
-                    unpack_type = 'extended'
+                    unpack_type = "extended"
                 elif isinstance(target, ast.List):
-                    unpack_type = 'list'
+                    unpack_type = "list"
                 else:
-                    unpack_type = 'tuple'
+                    unpack_type = "tuple"
 
                 unpacking_data = {
-                    'line': node.lineno,
-                    'unpack_type': unpack_type,
-                    'target_count': target_count,
-                    'has_rest': has_starred(target),
-                    'in_function': _find_containing_function(node, function_ranges),
+                    "line": node.lineno,
+                    "unpack_type": unpack_type,
+                    "target_count": target_count,
+                    "has_rest": has_starred(target),
+                    "in_function": _find_containing_function(node, function_ranges),
                 }
                 unpacking.append(unpacking_data)
 
     return unpacking
 
-
-# ============================================================================
-# None Pattern Extractors
-# ============================================================================
 
 def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract None handling patterns (is None vs == None).
@@ -628,19 +592,15 @@ def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
             comparator = node.comparators[i]
             if isinstance(comparator, ast.Constant) and comparator.value is None:
                 none_data = {
-                    'line': node.lineno,
-                    'pattern': 'is_none_check',
-                    'uses_is': isinstance(op, (ast.Is, ast.IsNot)),
-                    'in_function': _find_containing_function(node, function_ranges),
+                    "line": node.lineno,
+                    "pattern": "is_none_check",
+                    "uses_is": isinstance(op, (ast.Is, ast.IsNot)),
+                    "in_function": _find_containing_function(node, function_ranges),
                 }
                 none_patterns.append(none_data)
 
     return none_patterns
 
-
-# ============================================================================
-# Truthiness Pattern Extractors
-# ============================================================================
 
 def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract truthiness patterns (implicit bool conversion).
@@ -671,23 +631,19 @@ def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes((ast.If, ast.While)):
-        # Check if condition is not already a comparison
-        if not isinstance(node.test, (ast.Compare, ast.UnaryOp)):
-            if not isinstance(node.test, ast.BoolOp):  # Skip 'and'/'or' here
-                truthiness_data = {
-                    'line': node.lineno,
-                    'pattern': 'implicit_bool',
-                    'expression': _get_node_text(node.test),
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                truthiness.append(truthiness_data)
+        if not isinstance(node.test, (ast.Compare, ast.UnaryOp)) and not isinstance(
+            node.test, ast.BoolOp
+        ):
+            truthiness_data = {
+                "line": node.lineno,
+                "pattern": "implicit_bool",
+                "expression": _get_node_text(node.test),
+                "in_function": _find_containing_function(node, function_ranges),
+            }
+            truthiness.append(truthiness_data)
 
     return truthiness
 
-
-# ============================================================================
-# String Formatting Extractors
-# ============================================================================
 
 def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
     """Extract string formatting patterns (f-strings, %, format()).
@@ -720,22 +676,19 @@ def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
     function_ranges = context.function_ranges
 
     for node in context.find_nodes(ast.JoinedStr):
-        # Count FormattedValue nodes (interpolations)
         var_count = sum(1 for part in node.values if isinstance(part, ast.FormattedValue))
 
-        # Check if any have complex expressions (not just variable names)
         has_expressions = False
         for part in node.values:
-            if isinstance(part, ast.FormattedValue):
-                if not isinstance(part.value, ast.Name):
-                    has_expressions = True
+            if isinstance(part, ast.FormattedValue) and not isinstance(part.value, ast.Name):
+                has_expressions = True
 
         formatting_data = {
-            'line': node.lineno,
-            'format_type': 'f_string',
-            'has_expressions': has_expressions,
-            'var_count': var_count,
-            'in_function': _find_containing_function(node, function_ranges),
+            "line": node.lineno,
+            "format_type": "f_string",
+            "has_expressions": has_expressions,
+            "var_count": var_count,
+            "in_function": _find_containing_function(node, function_ranges),
         }
         formatting.append(formatting_data)
 

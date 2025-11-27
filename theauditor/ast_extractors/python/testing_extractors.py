@@ -45,29 +45,34 @@ def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)
 
-            # Check if it's a pytest.fixture decorator
             if "fixture" in decorator_name:
-                # Extract scope if present
-                scope = "function"  # default
+                scope = "function"
                 if isinstance(dec, ast.Call):
                     for keyword in dec.keywords:
-                        if keyword.arg == "scope":
-                            if isinstance(keyword.value, ast.Constant):
-                                scope = keyword.value.value
-                            elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
-                                scope = keyword.value.value
+                        if keyword.arg == "scope" and (
+                            isinstance(keyword.value, ast.Constant)
+                            or isinstance(keyword.value, ast.Constant)
+                            and isinstance(keyword.value.value, str)
+                        ):
+                            scope = keyword.value.value
 
-                fixtures.append({
-                    "line": node.lineno,
-                    "fixture_name": node.name,
-                    "scope": scope,
-                    "is_autouse": any(
-                        kw.arg == "autouse" and
-                        (isinstance(kw.value, ast.Constant) and kw.value.value is True or
-                         isinstance(kw.value, ast.Constant) and kw.value.value is True)
-                        for kw in (dec.keywords if isinstance(dec, ast.Call) else [])
-                    ),
-                })
+                fixtures.append(
+                    {
+                        "line": node.lineno,
+                        "fixture_name": node.name,
+                        "scope": scope,
+                        "is_autouse": any(
+                            kw.arg == "autouse"
+                            and (
+                                isinstance(kw.value, ast.Constant)
+                                and kw.value.value is True
+                                or isinstance(kw.value, ast.Constant)
+                                and kw.value.value is True
+                            )
+                            for kw in (dec.keywords if isinstance(dec, ast.Call) else [])
+                        ),
+                    }
+                )
 
     return fixtures
 
@@ -90,22 +95,24 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)
 
-            # Check if it's a pytest.mark.parametrize decorator
             if "parametrize" in decorator_name:
-                # Extract parameter names
                 param_names = []
                 if isinstance(dec, ast.Call) and dec.args:
                     first_arg = dec.args[0]
-                    if isinstance(first_arg, ast.Constant):
-                        param_names = [first_arg.value]
-                    elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        or isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                    ):
                         param_names = [first_arg.value]
 
-                parametrizes.append({
-                    "line": node.lineno,
-                    "test_name": node.name,
-                    "param_names": param_names,
-                })
+                parametrizes.append(
+                    {
+                        "line": node.lineno,
+                        "test_name": node.name,
+                        "param_names": param_names,
+                    }
+                )
 
     return parametrizes
 
@@ -128,16 +135,16 @@ def extract_pytest_markers(context: FileContext) -> list[dict[str, Any]]:
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)
 
-            # Check if it's a pytest.mark.* decorator (but not parametrize/fixture)
             if "pytest.mark." in decorator_name and "parametrize" not in decorator_name:
-                # Extract marker name
                 marker_name = decorator_name.replace("pytest.mark.", "")
 
-                markers.append({
-                    "line": node.lineno,
-                    "test_name": node.name,
-                    "marker_name": marker_name,
-                })
+                markers.append(
+                    {
+                        "line": node.lineno,
+                        "test_name": node.name,
+                        "marker_name": marker_name,
+                    }
+                )
 
     return markers
 
@@ -156,42 +163,43 @@ def extract_mock_patterns(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return mocks
 
-    # Detect @mock.patch, @patch decorators on functions
     for node in context.find_nodes(ast.FunctionDef):
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)
 
             if "patch" in decorator_name or "mock" in decorator_name.lower():
-                # Extract what's being mocked
                 mock_target = None
                 if isinstance(dec, ast.Call) and dec.args:
                     first_arg = dec.args[0]
-                    if isinstance(first_arg, ast.Constant):
-                        mock_target = first_arg.value
-                    elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        or isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                    ):
                         mock_target = first_arg.value
 
-                mocks.append({
-                    "line": node.lineno,
-                    "test_name": node.name,
-                    "mock_type": "decorator",
-                    "mock_target": mock_target,
-                })
+                mocks.append(
+                    {
+                        "line": node.lineno,
+                        "test_name": node.name,
+                        "mock_type": "decorator",
+                        "mock_target": mock_target,
+                    }
+                )
 
-    # Detect Mock() and MagicMock() instantiations
     for node in context.find_nodes(ast.Call):
         func_name = get_node_name(node.func)
         if "Mock" in func_name or "mock" in func_name:
-            mocks.append({
-                "line": node.lineno,
-                "mock_type": "instantiation",
-                "mock_class": func_name,
-            })
+            mocks.append(
+                {
+                    "line": node.lineno,
+                    "mock_type": "instantiation",
+                    "mock_class": func_name,
+                }
+            )
 
     return mocks
 
-
-# Phase 3.2: Testing Ecosystem Additions
 
 def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
     """Extract unittest.TestCase classes and test methods.
@@ -213,13 +221,11 @@ def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
         return test_cases
 
     for node in context.find_nodes(ast.ClassDef):
-        # Check if inherits from TestCase
         base_names = [get_node_name(base) for base in node.bases]
-        is_test_case = any('TestCase' in base for base in base_names)
+        is_test_case = any("TestCase" in base for base in base_names)
         if not is_test_case:
             continue
 
-        # Scan class methods
         test_methods = []
         has_setup = False
         has_teardown = False
@@ -229,26 +235,28 @@ def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
         for item in node.body:
             if isinstance(item, ast.FunctionDef):
                 method_name = item.name
-                if method_name.startswith('test_'):
+                if method_name.startswith("test_"):
                     test_methods.append(method_name)
-                elif method_name == 'setUp':
+                elif method_name == "setUp":
                     has_setup = True
-                elif method_name == 'tearDown':
+                elif method_name == "tearDown":
                     has_teardown = True
-                elif method_name == 'setUpClass':
+                elif method_name == "setUpClass":
                     has_setupclass = True
-                elif method_name == 'tearDownClass':
+                elif method_name == "tearDownClass":
                     has_teardownclass = True
 
-        test_cases.append({
-            "line": node.lineno,
-            "test_class_name": node.name,
-            "test_method_count": len(test_methods),
-            "has_setup": has_setup,
-            "has_teardown": has_teardown,
-            "has_setupclass": has_setupclass,
-            "has_teardownclass": has_teardownclass,
-        })
+        test_cases.append(
+            {
+                "line": node.lineno,
+                "test_class_name": node.name,
+                "test_method_count": len(test_methods),
+                "has_setup": has_setup,
+                "has_teardown": has_teardown,
+                "has_setupclass": has_setupclass,
+                "has_teardownclass": has_teardownclass,
+            }
+        )
 
     return test_cases
 
@@ -271,7 +279,6 @@ def extract_assertion_patterns(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return assertions
 
-    # Build a map of line ranges to function names
     function_ranges = {}
     for node in context.find_nodes(ast.FunctionDef):
         if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
@@ -281,28 +288,32 @@ def extract_assertion_patterns(context: FileContext) -> list[dict[str, Any]]:
         for fname, (start, end) in function_ranges.items():
             if start <= line_no <= end:
                 return fname
-        return '<module>'
+        return "<module>"
 
-    # Direct assert statements
     for node in context.find_nodes(ast.Assert):
-        assertions.append({
-            "line": node.lineno,
-            "function_name": get_containing_function(node.lineno),
-            "assertion_type": "assert",
-            "test_expr": get_node_name(node.test) if hasattr(node.test, '__class__') else 'unknown',
-        })
-
-    # Unittest assertion methods (self.assertEqual, etc.)
-    for node in context.find_nodes(ast.Call):
-        func_name = get_node_name(node.func)
-        if func_name and (func_name.startswith('self.assert') or func_name.startswith('self.fail')):
-            assertion_method = func_name.replace('self.', '')
-            assertions.append({
+        assertions.append(
+            {
                 "line": node.lineno,
                 "function_name": get_containing_function(node.lineno),
-                "assertion_type": "unittest",
-                "assertion_method": assertion_method,
-            })
+                "assertion_type": "assert",
+                "test_expr": get_node_name(node.test)
+                if hasattr(node.test, "__class__")
+                else "unknown",
+            }
+        )
+
+    for node in context.find_nodes(ast.Call):
+        func_name = get_node_name(node.func)
+        if func_name and (func_name.startswith("self.assert") or func_name.startswith("self.fail")):
+            assertion_method = func_name.replace("self.", "")
+            assertions.append(
+                {
+                    "line": node.lineno,
+                    "function_name": get_containing_function(node.lineno),
+                    "assertion_type": "unittest",
+                    "assertion_method": assertion_method,
+                }
+            )
 
     return assertions
 
@@ -328,28 +339,28 @@ def extract_pytest_plugin_hooks(context: FileContext) -> list[dict[str, Any]]:
         return hooks
 
     pytest_hooks = [
-        'pytest_configure',
-        'pytest_collection_modifyitems',
-        'pytest_addoption',
-        'pytest_runtest_setup',
-        'pytest_runtest_call',
-        'pytest_runtest_teardown',
-        'pytest_sessionstart',
-        'pytest_sessionfinish',
-        'pytest_collection_finish',
+        "pytest_configure",
+        "pytest_collection_modifyitems",
+        "pytest_addoption",
+        "pytest_runtest_setup",
+        "pytest_runtest_call",
+        "pytest_runtest_teardown",
+        "pytest_sessionstart",
+        "pytest_sessionfinish",
+        "pytest_collection_finish",
     ]
 
     for node in context.find_nodes(ast.FunctionDef):
-        # Check if it's a pytest hook
         if node.name in pytest_hooks:
-            # Count number of parameters
             param_count = len(node.args.args)
 
-            hooks.append({
-                "line": node.lineno,
-                "hook_name": node.name,
-                "param_count": param_count,
-            })
+            hooks.append(
+                {
+                    "line": node.lineno,
+                    "hook_name": node.name,
+                    "param_count": param_count,
+                }
+            )
 
     return hooks
 
@@ -374,12 +385,10 @@ def extract_hypothesis_strategies(context: FileContext) -> list[dict[str, Any]]:
         return strategies
 
     for node in context.find_nodes(ast.FunctionDef):
-        # Check for @given decorator
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)
 
-            if 'given' in decorator_name:
-                # Extract strategy types from arguments
+            if "given" in decorator_name:
                 strategy_types = []
                 if isinstance(dec, ast.Call):
                     for arg in dec.args:
@@ -391,11 +400,13 @@ def extract_hypothesis_strategies(context: FileContext) -> list[dict[str, Any]]:
                         if strategy_name:
                             strategy_types.append(strategy_name)
 
-                strategies.append({
-                    "line": node.lineno,
-                    "test_name": node.name,
-                    "strategy_count": len(strategy_types),
-                    "strategies": ','.join(strategy_types) if strategy_types else None,
-                })
+                strategies.append(
+                    {
+                        "line": node.lineno,
+                        "test_name": node.name,
+                        "strategy_count": len(strategy_types),
+                        "strategies": ",".join(strategy_types) if strategy_types else None,
+                    }
+                )
 
     return strategies

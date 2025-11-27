@@ -7,6 +7,7 @@ Replaces all variations of extractor calls with context parameter.
 import re
 from pathlib import Path
 
+
 def fix_python_dispatcher():
     """Fix the remaining extractor calls in python.py"""
 
@@ -19,7 +20,6 @@ def fix_python_dispatcher():
     print(f"Fixing dispatcher calls in {python_file}...")
 
     content = python_file.read_text(encoding="utf-8")
-    original = content
 
     # Patterns to replace
     patterns = [

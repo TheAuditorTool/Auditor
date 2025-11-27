@@ -7,13 +7,12 @@ rule orchestrator. This wrapper now delegates to that rule and preserves the
 legacy TerraformFinding format plus database dual-writes.
 """
 
-
 import json
 import sqlite3
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, Severity
+from theauditor.rules.base import Severity, StandardRuleContext
 from theauditor.rules.terraform.terraform_analyze import find_terraform_issues
 
 from ..utils.logger import setup_logger
@@ -47,12 +46,12 @@ class TerraformAnalyzer:
 
         self.severity_filter = severity_filter
         self.severity_order = {
-            'critical': 0,
-            'high': 1,
-            'medium': 2,
-            'low': 3,
-            'info': 4,
-            'all': 999,
+            "critical": 0,
+            "high": 1,
+            "medium": 2,
+            "low": 3,
+            "info": 4,
+            "all": 999,
         }
 
     def analyze(self) -> list[TerraformFinding]:
@@ -81,23 +80,23 @@ class TerraformAnalyzer:
         )
 
     def _convert_findings(self, standard_findings) -> list[TerraformFinding]:
-        terraform_findings: list["TerraformFinding"] = []
+        terraform_findings: list[TerraformFinding] = []
 
         for finding in standard_findings:
-            additional = getattr(finding, 'additional_info', None) or {}
-            resource_id = additional.get('resource_id') or additional.get('variable_name')
-            remediation = additional.get('remediation', '') if additional else ''
+            additional = getattr(finding, "additional_info", None) or {}
+            resource_id = additional.get("resource_id") or additional.get("variable_name")
+            remediation = additional.get("remediation", "") if additional else ""
 
             terraform_findings.append(
                 TerraformFinding(
                     finding_id=self._build_finding_id(finding),
                     file_path=finding.file_path,
                     resource_id=resource_id,
-                    category=getattr(finding, 'category', 'security'),
-                    severity=self._normalize_severity(getattr(finding, 'severity', 'info')),
+                    category=getattr(finding, "category", "security"),
+                    severity=self._normalize_severity(getattr(finding, "severity", "info")),
                     title=finding.message,
                     description=finding.message,
-                    line=getattr(finding, 'line', 0) or 0,
+                    line=getattr(finding, "line", 0) or 0,
                     remediation=remediation,
                 )
             )
@@ -105,9 +104,9 @@ class TerraformAnalyzer:
         return terraform_findings
 
     def _build_finding_id(self, finding) -> str:
-        file_part = getattr(finding, 'file_path', 'unknown')
-        line_part = getattr(finding, 'line', 0) or 0
-        rule_name = getattr(finding, 'rule_name', 'terraform')
+        file_part = getattr(finding, "file_path", "unknown")
+        line_part = getattr(finding, "line", 0) or 0
+        rule_name = getattr(finding, "rule_name", "terraform")
         return f"{rule_name}:{file_part}:{line_part}"
 
     def _normalize_severity(self, severity_value) -> str:
@@ -115,27 +114,23 @@ class TerraformAnalyzer:
             return severity_value.value
         return str(severity_value).lower()
 
-    def _filter_by_severity(self, findings: list["TerraformFinding"]) -> list[TerraformFinding]:
-        if self.severity_filter == 'all':
+    def _filter_by_severity(self, findings: list[TerraformFinding]) -> list[TerraformFinding]:
+        if self.severity_filter == "all":
             return findings
 
         min_severity = self.severity_order.get(self.severity_filter, 999)
-        return [
-            f for f in findings
-            if self.severity_order.get(f.severity, 999) <= min_severity
-        ]
+        return [f for f in findings if self.severity_order.get(f.severity, 999) <= min_severity]
 
-    def _write_findings(self, findings: list["TerraformFinding"]):
+    def _write_findings(self, findings: list[TerraformFinding]):
         """Write findings to both terraform_findings and consolidated tables."""
         if not findings:
             return
 
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Clear existing terraform findings
         cursor.execute("DELETE FROM terraform_findings")
         cursor.execute("DELETE FROM findings_consolidated WHERE tool = 'terraform'")
 
@@ -177,13 +172,13 @@ class TerraformAnalyzer:
                     finding.line or 0,
                     None,
                     finding.finding_id,
-                    'terraform',
+                    "terraform",
                     finding.title,
                     finding.severity,
                     finding.category,
                     1.0,
-                    finding.resource_id or '',
-                    '',
+                    finding.resource_id or "",
+                    "",
                     timestamp,
                     # Typed columns instead of JSON blob
                     finding.finding_id,

@@ -16,11 +16,11 @@ NO FALLBACKS. Database-first. If tables don't exist, we skip gracefully
 """
 
 import sqlite3
+from collections import defaultdict
 from dataclasses import asdict
 from typing import Any
-from collections import defaultdict
 
-from theauditor.graph.types import DFGNode, DFGEdge, create_bidirectional_edges
+from theauditor.graph.types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
 class InterceptorStrategy:
@@ -62,16 +62,10 @@ class InterceptorStrategy:
             "django_middleware_edges_created": 0,
         }
 
-        # --- PART 1: EXPRESS MIDDLEWARE CHAINS ---
-        # Creates edges: Route Entry -> Middleware 1 -> Middleware 2 -> Controller
         self._build_express_middleware_edges(cursor, nodes, edges, stats)
 
-        # --- PART 2: PYTHON DECORATORS ---
-        # Creates edges: Decorator -> Function (data flows through decorator first)
         self._build_python_decorator_edges(cursor, nodes, edges, stats)
 
-        # --- PART 3: DJANGO GLOBAL MIDDLEWARE ---
-        # Creates edges: Global Middleware -> All Django Views
         self._build_django_middleware_edges(cursor, nodes, edges, stats)
 
         conn.close()
@@ -101,14 +95,13 @@ class InterceptorStrategy:
 
         Node IDs follow dfg_builder pattern: file::scope::variable
         """
-        # Check if table exists
+
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='express_middleware_chains'"
         )
         if not cursor.fetchone():
             return
 
-        # Fetch all middleware chains sorted by route and execution order
         cursor.execute("""
             SELECT
                 file,
@@ -121,10 +114,8 @@ class InterceptorStrategy:
             ORDER BY route_path, route_method, execution_order
         """)
 
-        # Group by unique route signature (method + path)
         routes: dict[str, list[sqlite3.Row]] = defaultdict(list)
         for row in cursor.fetchall():
-            # Key: "POST /api/login"
             key = f"{row['route_method']} {row['route_path']}"
             routes[key].append(row)
 
@@ -134,13 +125,9 @@ class InterceptorStrategy:
 
             stats["express_chains_processed"] += 1
 
-            # Use first middleware's file as anchor for route entry node
             first_item = chain[0]
-            route_file = first_item['file']
+            route_file = first_item["file"]
 
-            # Create Virtual Route Entry Node
-            # Pattern: file::route:METHOD_path::request
-            # This marks where user data enters the backend
             route_scope = f"route:{route_key.replace(' ', '_').replace('/', '_')}"
             entry_node_id = f"{route_file}::{route_scope}::request"
 
@@ -156,87 +143,60 @@ class InterceptorStrategy:
 
             prev_node_id = entry_node_id
 
-            # Stitch the middleware chain
             for item in chain:
-                # Clean handler expression to get function name
-                # e.g., "validate(userSchema)" -> "validate"
-                # e.g., "userController.create" -> "create"
-                raw_expr = item['handler_expr'] or "unknown"
-                clean_func = raw_expr.split('(')[0].strip()
-                if '.' in clean_func:
-                    clean_func = clean_func.split('.')[-1]
+                raw_expr = item["handler_expr"] or "unknown"
+                clean_func = raw_expr.split("(")[0].strip()
+                if "." in clean_func:
+                    clean_func = clean_func.split(".")[-1]
 
-                # === FIX 1: SCOPE RESOLUTION ===
-                # For controllers, look up the full ClassName.methodName AND controller file
-                # This ensures node IDs match DFGBuilder's naming convention
-                # (e.g., "AccountingController.exportData" instead of just "exportData")
                 controller_file = None
-                if item['handler_type'] == 'controller':
+                if item["handler_type"] == "controller":
                     full_func_name, controller_file = self._resolve_controller_info(
                         cursor, clean_func
                     )
                 else:
                     full_func_name = clean_func
 
-                # Node ID: file::functionName::input
-                # Uses resolved name for controllers, short name for middleware
                 current_node_id = f"{item['file']}::{full_func_name}::input"
 
                 if current_node_id not in nodes:
                     nodes[current_node_id] = DFGNode(
                         id=current_node_id,
-                        file=item['file'],
+                        file=item["file"],
                         variable_name="input",
                         scope=full_func_name,
                         type="interceptor",
                         metadata={
                             "raw_expr": raw_expr,
-                            "handler_type": item['handler_type'],
-                            "execution_order": item['execution_order'],
+                            "handler_type": item["handler_type"],
+                            "execution_order": item["execution_order"],
                         },
                     )
 
-                # Create bidirectional edge: Previous -> Current
                 new_edges = create_bidirectional_edges(
                     source=prev_node_id,
                     target=current_node_id,
                     edge_type="interceptor_flow",
-                    file=item['file'],
-                    line=0,  # Middleware chains don't always have precise lines
+                    file=item["file"],
+                    line=0,
                     expression=f"Chain: {route_key}",
                     function="middleware_chain",
-                    metadata={"order": item['execution_order']},
+                    metadata={"order": item["execution_order"]},
                 )
                 edges.extend(new_edges)
                 stats["express_edges_created"] += len(new_edges)
 
-                # === FIX 2: CONTROLLER BRIDGE (Access Path Expansion) ===
-                # Connect virtual 'input' to actual request variables AND their properties.
-                # This bridges the "Access Path Discontinuity":
-                #   - Middleware validates the WHOLE request object
-                #   - IFDS tracks specific properties like req.query, req.body
-                #   - We must connect: input -> req, input -> req.body, input -> req.query
-                #
-                # CRITICAL: DFGBuilder creates nodes in the CONTROLLER file, not routes file
-                if item['handler_type'] == 'controller' and controller_file:
-                    # Standard variable names for request objects
-                    request_aliases = ['req', 'request', 'ctx', 'context']
+                if item["handler_type"] == "controller" and controller_file:
+                    request_aliases = ["req", "request", "ctx", "context"]
 
-                    # Common properties that carry user input
-                    # Empty string = base variable (req), others = access paths (req.body)
-                    properties = ['', '.body', '.query', '.params', '.headers']
+                    properties = ["", ".body", ".query", ".params", ".headers"]
 
                     for alias in request_aliases:
                         for prop in properties:
-                            # Build full access path: req, req.body, req.query, etc.
                             full_alias = f"{alias}{prop}"
 
-                            # Target: controller_file::ClassName.method::req.body
                             alias_node_id = f"{controller_file}::{full_func_name}::{full_alias}"
 
-                            # Create bridge edge: routes/input -> controller/req.body
-                            # Logic: Middleware chain processes the WHOLE request,
-                            # so data flows from 'input' to ALL request properties
                             bridge_edges = create_bidirectional_edges(
                                 source=current_node_id,
                                 target=alias_node_id,
@@ -248,14 +208,13 @@ class InterceptorStrategy:
                                 metadata={
                                     "alias": full_alias,
                                     "handler_type": "controller",
-                                    "routes_file": item['file'],
+                                    "routes_file": item["file"],
                                     "controller_file": controller_file,
                                 },
                             )
                             edges.extend(bridge_edges)
                             stats["controller_bridges_created"] += len(bridge_edges)
 
-                # Update previous pointer for next iteration
                 prev_node_id = current_node_id
 
     def _build_python_decorator_edges(
@@ -277,14 +236,13 @@ class InterceptorStrategy:
         - Then flows to create_user
         - If validate_json is a sanitizer, path is marked safe
         """
-        # Check if table exists
+
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='python_decorators'"
         )
         if not cursor.fetchone():
             return
 
-        # Fetch all decorators with their target functions
         cursor.execute("""
             SELECT
                 file,
@@ -298,15 +256,13 @@ class InterceptorStrategy:
         """)
 
         for row in cursor.fetchall():
-            file = row['file']
-            dec_name = row['decorator_name']
-            func_name = row['target_name']
-            line = row['line']
+            file = row["file"]
+            dec_name = row["decorator_name"]
+            func_name = row["target_name"]
+            line = row["line"]
 
             stats["python_decorators_processed"] += 1
 
-            # Decorator Node: file::decorator_name::wrapper
-            # The "wrapper" variable represents the decorated function wrapper
             dec_node_id = f"{file}::{dec_name}::wrapper"
 
             if dec_node_id not in nodes:
@@ -319,8 +275,6 @@ class InterceptorStrategy:
                     metadata={"decorator_name": dec_name},
                 )
 
-            # Target Function Node: file::function_name::args
-            # The "args" variable represents function arguments (entry point)
             func_node_id = f"{file}::{func_name}::args"
 
             if func_node_id not in nodes:
@@ -333,7 +287,6 @@ class InterceptorStrategy:
                     metadata={"decorated_by": dec_name},
                 )
 
-            # Create bidirectional edge: Decorator -> Function
             new_edges = create_bidirectional_edges(
                 source=dec_node_id,
                 target=func_node_id,
@@ -366,7 +319,7 @@ class InterceptorStrategy:
         - Then flows to view
         - If middleware is a sanitizer (auth check), path is marked safe
         """
-        # Check if both tables exist
+
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='python_django_middleware'"
         )
@@ -380,7 +333,6 @@ class InterceptorStrategy:
         if not (has_middleware and has_views):
             return
 
-        # 1. Get active middleware (ones that process requests)
         cursor.execute("""
             SELECT file, middleware_class_name
             FROM python_django_middleware
@@ -391,7 +343,6 @@ class InterceptorStrategy:
         if not middlewares:
             return
 
-        # 2. Get all Django views
         cursor.execute("""
             SELECT file, view_name
             FROM python_django_views
@@ -401,12 +352,9 @@ class InterceptorStrategy:
         if not views:
             return
 
-        # 3. Wire Middleware -> Views
-        # Django middleware chain runs before EVERY view
-        # Create edge from each active middleware to each view
         for mw in middlewares:
-            mw_file = mw['file']
-            mw_class = mw['middleware_class_name']
+            mw_file = mw["file"]
+            mw_class = mw["middleware_class_name"]
             mw_node_id = f"{mw_file}::{mw_class}::request"
 
             if mw_node_id not in nodes:
@@ -420,8 +368,8 @@ class InterceptorStrategy:
                 )
 
             for view in views:
-                view_file = view['file']
-                view_name = view['view_name']
+                view_file = view["file"]
+                view_name = view["view_name"]
                 view_node_id = f"{view_file}::{view_name}::request"
 
                 if view_node_id not in nodes:
@@ -434,7 +382,6 @@ class InterceptorStrategy:
                         metadata={"view_name": view_name},
                     )
 
-                # Create bidirectional edge: Middleware -> View
                 new_edges = create_bidirectional_edges(
                     source=mw_node_id,
                     target=view_node_id,
@@ -470,9 +417,8 @@ class InterceptorStrategy:
             Falls back to (method_name, None) if not found
         """
         try:
-            # Search symbols for ClassName.methodName pattern
-            # Prioritize Controller classes
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT name, path FROM symbols
                 WHERE type = 'function'
                   AND name LIKE ?
@@ -480,12 +426,13 @@ class InterceptorStrategy:
                     CASE WHEN name LIKE '%Controller.%' THEN 0 ELSE 1 END,
                     LENGTH(name)
                 LIMIT 1
-            """, (f'%.{method_name}',))
+            """,
+                (f"%.{method_name}",),
+            )
 
             row = cursor.fetchone()
             if row:
-                return (row['name'], row['path'])
+                return (row["name"], row["path"])
             return (method_name, None)
         except Exception:
-            # Fallback safely if query fails
             return (method_name, None)

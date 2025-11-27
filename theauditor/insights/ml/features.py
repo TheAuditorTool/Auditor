@@ -10,10 +10,90 @@ Extracts 50+ semantic features from repo_index.db tables:
 - AST complexity (functions, classes, calls)
 """
 
-
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
+
+
+HTTP_LIBS = frozenset(
+    {
+        "requests",
+        "aiohttp",
+        "httpx",
+        "urllib",
+        "axios",
+        "fetch",
+        "superagent",
+        "express",
+        "fastapi",
+        "flask",
+        "django.http",
+        "tornado",
+        "starlette",
+    }
+)
+
+DB_LIBS = frozenset(
+    {
+        "sqlalchemy",
+        "psycopg2",
+        "psycopg",
+        "pymongo",
+        "redis",
+        "django.db",
+        "peewee",
+        "tortoise",
+        "databases",
+        "asyncpg",
+        "sqlite3",
+        "mysql",
+        "mongoose",
+        "sequelize",
+        "typeorm",
+        "prisma",
+        "knex",
+        "pg",
+    }
+)
+
+AUTH_LIBS = frozenset(
+    {
+        "jwt",
+        "pyjwt",
+        "passlib",
+        "oauth",
+        "oauth2",
+        "authlib",
+        "django.contrib.auth",
+        "flask_login",
+        "flask_jwt",
+        "bcrypt",
+        "cryptography",
+        "passport",
+        "jsonwebtoken",
+        "express-jwt",
+        "firebase-auth",
+        "auth0",
+    }
+)
+
+TEST_LIBS = frozenset(
+    {
+        "pytest",
+        "unittest",
+        "mock",
+        "faker",
+        "factory_boy",
+        "hypothesis",
+        "jest",
+        "mocha",
+        "chai",
+        "sinon",
+        "enzyme",
+        "vitest",
+        "testing-library",
+    }
+)
 
 
 def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
@@ -39,7 +119,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query jwt_patterns table
         cursor.execute(
             f"""
             SELECT file_path, COUNT(*) as count
@@ -53,7 +132,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for file_path, count in cursor.fetchall():
             stats[file_path]["jwt_usage_count"] = count
 
-        # Query for hardcoded secrets
         cursor.execute(
             f"""
             SELECT DISTINCT file_path
@@ -67,7 +145,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_hardcoded_secret"] = True
 
-        # Query for weak crypto algorithms
         cursor.execute(
             f"""
             SELECT DISTINCT file_path
@@ -81,7 +158,6 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_weak_crypto"] = True
 
-        # Query sql_queries table
         cursor.execute(
             f"""
             SELECT file_path, COUNT(*) as count
@@ -98,7 +174,7 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -126,7 +202,6 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query findings_consolidated (dual-write pattern table)
         cursor.execute(
             f"""
             SELECT file, severity, COUNT(*) as count
@@ -146,7 +221,6 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
             elif severity == "medium":
                 stats[file_path]["medium_findings"] = count
 
-        # Count unique CWEs per file
         cursor.execute(
             f"""
             SELECT file, COUNT(DISTINCT cwe) as unique_cwes
@@ -163,7 +237,7 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -193,7 +267,6 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query type_annotations table (13 field semantic analysis!)
         cursor.execute(
             f"""
             SELECT file,
@@ -214,13 +287,12 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
             stats[file_path]["unknown_type_count"] = unknown_count
             stats[file_path]["generic_type_count"] = generic_count
 
-            # Calculate type coverage (1.0 - ratio of any/unknown types)
             typed = total - any_count - unknown_count
             stats[file_path]["type_coverage_ratio"] = typed / total if total > 0 else 0.0
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -247,7 +319,6 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
         cursor = conn.cursor()
         placeholders = ",".join("?" * len(file_paths))
 
-        # Query cfg_blocks table
         cursor.execute(
             f"""
             SELECT file, COUNT(*) as block_count
@@ -261,7 +332,6 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
         for file_path, block_count in cursor.fetchall():
             stats[file_path]["cfg_block_count"] = block_count
 
-        # Query cfg_edges for complexity
         cursor.execute(
             f"""
             SELECT file, COUNT(*) as edge_count
@@ -274,13 +344,13 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
 
         for file_path, edge_count in cursor.fetchall():
             stats[file_path]["cfg_edge_count"] = edge_count
-            # Cyclomatic complexity = edges - blocks + 2
+
             blocks = stats[file_path]["cfg_block_count"]
             stats[file_path]["cyclomatic_complexity"] = edge_count - blocks + 2
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -303,10 +373,8 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Get refs (imports/exports)
         placeholders = ",".join("?" * len(file_paths))
 
-        # In-degree: files that import this file
         cursor.execute(
             f"""
             SELECT value, COUNT(*) as count
@@ -320,7 +388,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for file_path, count in cursor.fetchall():
             stats[file_path]["in_degree"] = count
 
-        # Out-degree: files this file imports
         cursor.execute(
             f"""
             SELECT src, COUNT(*) as count
@@ -334,7 +401,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for file_path, count in cursor.fetchall():
             stats[file_path]["out_degree"] = count
 
-        # Check for routes (now stored in api_endpoints table after refactor)
         cursor.execute(
             f"""
             SELECT DISTINCT file
@@ -347,7 +413,6 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         for (file_path,) in cursor.fetchall():
             stats[file_path]["has_routes"] = True
 
-        # Check for SQL objects
         cursor.execute(
             f"""
             SELECT DISTINCT file
@@ -362,7 +427,7 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
 
         conn.close()
     except (ImportError, ValueError, AttributeError):
-        pass  # ML unavailable - gracefully skip
+        pass
 
     return dict(stats)
 
@@ -375,87 +440,6 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
     """
     if not Path(db_path).exists() or not file_paths:
         return {}
-
-    # Common library patterns for different purposes (frozensets for O(1) lookup)
-    HTTP_LIBS = frozenset(
-        {
-            "requests",
-            "aiohttp",
-            "httpx",
-            "urllib",
-            "axios",
-            "fetch",
-            "superagent",
-            "express",
-            "fastapi",
-            "flask",
-            "django.http",
-            "tornado",
-            "starlette",
-        }
-    )
-
-    DB_LIBS = frozenset(
-        {
-            "sqlalchemy",
-            "psycopg2",
-            "psycopg",
-            "pymongo",
-            "redis",
-            "django.db",
-            "peewee",
-            "tortoise",
-            "databases",
-            "asyncpg",
-            "sqlite3",
-            "mysql",
-            "mongoose",
-            "sequelize",
-            "typeorm",
-            "prisma",
-            "knex",
-            "pg",
-        }
-    )
-
-    AUTH_LIBS = frozenset(
-        {
-            "jwt",
-            "pyjwt",
-            "passlib",
-            "oauth",
-            "oauth2",
-            "authlib",
-            "django.contrib.auth",
-            "flask_login",
-            "flask_jwt",
-            "bcrypt",
-            "cryptography",
-            "passport",
-            "jsonwebtoken",
-            "express-jwt",
-            "firebase-auth",
-            "auth0",
-        }
-    )
-
-    TEST_LIBS = frozenset(
-        {
-            "pytest",
-            "unittest",
-            "mock",
-            "faker",
-            "factory_boy",
-            "hypothesis",
-            "jest",
-            "mocha",
-            "chai",
-            "sinon",
-            "enzyme",
-            "vitest",
-            "testing-library",
-        }
-    )
 
     stats = defaultdict(
         lambda: {
@@ -472,7 +456,6 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
         placeholders = ",".join("?" * len(file_paths))
 
-        # Get all imports for the specified files
         cursor.execute(
             f"""
             SELECT src, value
@@ -484,15 +467,13 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
         )
 
         for file_path, import_value in cursor.fetchall():
-            # Normalize import value (strip quotes, extract package name)
             import_name = import_value.lower().strip("\"'")
-            # Handle scoped packages like @angular/core
+
             if "/" in import_name:
                 import_name = import_name.split("/")[0].lstrip("@")
-            # Handle sub-modules like django.contrib.auth
+
             base_import = import_name.split(".")[0]
 
-            # Check against our semantic categories
             if any(lib in import_name or base_import == lib for lib in HTTP_LIBS):
                 stats[file_path]["has_http_import"] = True
 
@@ -507,7 +488,7 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
@@ -538,7 +519,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 
         placeholders = ",".join("?" * len(file_paths))
 
-        # Count different symbol types per file
         cursor.execute(
             f"""
             SELECT path, type, COUNT(*) as count
@@ -557,8 +537,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
             elif symbol_type == "call":
                 stats[file_path]["call_count"] = count
 
-        # Count async functions (those with 'async' in the name)
-        # This is a heuristic since we don't have a dedicated async flag
         cursor.execute(
             f"""
             SELECT path, COUNT(*) as count
@@ -574,8 +552,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
         for file_path, count in cursor.fetchall():
             stats[file_path]["async_def_count"] = count
 
-        # Count try/except patterns - look for exception handling calls
-        # Common patterns: catch, except, rescue, error
         cursor.execute(
             f"""
             SELECT path, COUNT(*) as count
@@ -593,15 +569,13 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 
         conn.close()
     except Exception:
-        pass  # Gracefully skip on error
+        pass
 
     return dict(stats)
 
 
 def load_comment_hallucination_features(
-    session_dir: Path,
-    graveyard_path: Path,
-    file_paths: list[str]
+    session_dir: Path, graveyard_path: Path, file_paths: list[str]
 ) -> dict[str, dict]:
     """
     Extract comment hallucination features from Claude Code session logs.
@@ -638,28 +612,24 @@ def load_comment_hallucination_features(
     if not file_paths:
         return dict(stats)
 
-    # Load graveyard to know which files had comments removed
     graveyard_files = set()
     if graveyard_path and Path(graveyard_path).exists():
         try:
-            with open(graveyard_path, encoding='utf-8') as f:
+            with open(graveyard_path, encoding="utf-8") as f:
                 graveyard = json.load(f)
             for entry in graveyard:
-                file_path = entry.get('file', '')
+                file_path = entry.get("file", "")
                 if file_path:
-                    # Normalize path
-                    normalized = file_path.replace('\\', '/')
+                    normalized = file_path.replace("\\", "/")
                     graveyard_files.add(normalized)
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Mark files that had comments removed
     for file_path in file_paths:
-        normalized = file_path.replace('\\', '/')
+        normalized = file_path.replace("\\", "/")
         if normalized in graveyard_files:
             stats[file_path]["has_removed_comments"] = True
 
-    # Parse sessions and analyze findings
     if not session_dir or not Path(session_dir).exists():
         return dict(stats)
 
@@ -668,50 +638,38 @@ def load_comment_hallucination_features(
         from theauditor.session.parser import SessionParser
 
         parser = SessionParser()
-        analyzer = SessionAnalyzer(db_path=None)  # No DB needed for hallucination detection
+        analyzer = SessionAnalyzer(db_path=None)
 
-        # Parse all sessions
         sessions = parser.parse_all_sessions(Path(session_dir))
 
-        # Get project root for path normalization
         project_root = Path.cwd()
 
-        # Aggregate findings by file
         for session in sessions:
-            _, findings = analyzer.analyze_session(
-                session,
-                comment_graveyard_path=graveyard_path
-            )
+            _, findings = analyzer.analyze_session(session, comment_graveyard_path=graveyard_path)
 
             for finding in findings:
-                if finding.category != 'comment_hallucination':
+                if finding.category != "comment_hallucination":
                     continue
 
-                # Get files mentioned in this finding
-                mentioned_files = finding.evidence.get('mentioned_files', [])
-                files_with_removed = finding.evidence.get('files_with_removed_comments', [])
+                mentioned_files = finding.evidence.get("mentioned_files", [])
 
                 for file in mentioned_files:
-                    # Normalize path
                     try:
                         file_path_obj = Path(file)
                         if file_path_obj.is_absolute():
                             file_path_obj = file_path_obj.relative_to(project_root)
-                        normalized_file = str(file_path_obj).replace('\\', '/')
+                        normalized_file = str(file_path_obj).replace("\\", "/")
                     except (ValueError, Exception):
-                        normalized_file = file.replace('\\', '/')
+                        normalized_file = file.replace("\\", "/")
 
-                    # Only track files in target list
                     if normalized_file not in file_paths:
                         continue
 
                     stats[normalized_file]["comment_reference_count"] += 1
 
-                    # Check if this was flagged as a potential hallucination
-                    if finding.severity == 'warning':
+                    if finding.severity == "warning":
                         stats[normalized_file]["comment_hallucination_count"] += 1
 
-        # Calculate conflict rates
         for file_path in file_paths:
             ref_count = stats[file_path]["comment_reference_count"]
             hall_count = stats[file_path]["comment_hallucination_count"]
@@ -720,10 +678,8 @@ def load_comment_hallucination_features(
 
         analyzer.close()
     except ImportError:
-        # Session module not available - gracefully skip
         pass
     except Exception:
-        # Gracefully skip on error
         pass
 
     return dict(stats)
@@ -772,17 +728,13 @@ def load_agent_behavior_features(
         parser = SessionParser()
         analyzer = SessionAnalyzer(db_path=db_path if Path(db_path).exists() else None)
 
-        # Parse all sessions
         sessions = parser.parse_all_sessions(Path(session_dir))
 
-        # Track reads and edits per file for efficiency calculation
         file_reads = defaultdict(int)
         file_edits = defaultdict(int)
 
-        # Get project root for path normalization
         project_root = Path.cwd()
 
-        # Aggregate findings by file
         for session in sessions:
             _, findings = analyzer.analyze_session(session)
 
@@ -791,21 +743,16 @@ def load_agent_behavior_features(
                 if not file:
                     continue
 
-                # Convert to Path object
                 file_path_obj = Path(file)
 
-                # If absolute, make it relative to project root
                 try:
                     if file_path_obj.is_absolute():
                         file_path_obj = file_path_obj.relative_to(project_root)
                 except ValueError:
-                    # Path is not under project_root, skip it
                     continue
 
-                # Normalize to forward slashes for comparison
                 normalized_file = str(file_path_obj).replace("\\", "/")
 
-                # Only track files in target list
                 if normalized_file not in file_paths:
                     continue
 
@@ -814,7 +761,6 @@ def load_agent_behavior_features(
                     file_edits[normalized_file] += 1
 
                 elif finding.category == "duplicate_implementation":
-                    # Rate increments by 0.1 per duplicate
                     stats[normalized_file]["agent_duplicate_impl_rate"] += 0.1
 
                 elif finding.category == "missed_existing_code":
@@ -824,7 +770,6 @@ def load_agent_behavior_features(
                     read_count = finding.evidence.get("read_count", 0)
                     file_reads[normalized_file] += read_count
 
-        # Calculate read efficiency (reads per edit)
         for file_path in file_paths:
             reads = file_reads.get(file_path, 0)
             edits = file_edits.get(file_path, 0)
@@ -835,10 +780,8 @@ def load_agent_behavior_features(
 
         analyzer.close()
     except ImportError:
-        # Session module not available - gracefully skip
         pass
     except Exception:
-        # Gracefully skip on error
         pass
 
     return dict(stats)
@@ -876,9 +819,8 @@ def load_session_execution_features(
         }
     )
 
-    # Default to persistent session database in .pf/ml/ (never archived)
     if db_path is None:
-        db_path = str(Path('.pf/ml/session_history.db'))
+        db_path = str(Path(".pf/ml/session_history.db"))
 
     if not file_paths:
         return dict(stats)
@@ -890,7 +832,6 @@ def load_session_execution_features(
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Check if session_executions table exists
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
         )
@@ -898,14 +839,11 @@ def load_session_execution_features(
             conn.close()
             return dict(stats)
 
-        # Get project root for path normalization
         project_root = Path.cwd()
 
         for file_path in file_paths:
-            # Normalize path for querying
             normalized_path = str(Path(file_path).as_posix())
 
-            # Query session_executions for this file (check diffs_scored JSON)
             cursor.execute(
                 """
                 SELECT workflow_compliant, compliance_score, risk_score,
@@ -919,15 +857,12 @@ def load_session_execution_features(
             rows = cursor.fetchall()
 
             if not rows:
-                # No session data for this file - return zeros
                 continue
 
-            # Calculate features from rows
             compliance_scores = [row[1] for row in rows]
             risk_scores = [row[2] for row in rows]
             engagement_rates = [row[3] for row in rows]
 
-            # Extract blind edit rate from diffs_scored JSON
             blind_edits = 0
             total_edits = 0
 
@@ -939,12 +874,10 @@ def load_session_execution_features(
                 try:
                     diffs = json.loads(diffs_json)
                     for diff in diffs:
-                        # Match file path (handle different path formats)
                         diff_file = diff.get("file", "")
                         if not diff_file:
                             continue
 
-                        # Normalize diff file path
                         try:
                             diff_path_obj = Path(diff_file)
                             if diff_path_obj.is_absolute():
@@ -960,7 +893,6 @@ def load_session_execution_features(
                 except json.JSONDecodeError:
                     continue
 
-            # Aggregate features
             stats[file_path]["session_workflow_compliance"] = (
                 sum(compliance_scores) / len(compliance_scores) if compliance_scores else 0.0
             )
@@ -976,10 +908,8 @@ def load_session_execution_features(
 
         conn.close()
     except sqlite3.Error:
-        # Table doesn't exist or query failed - gracefully skip
         pass
     except Exception:
-        # Gracefully skip on error
         pass
 
     return dict(stats)
@@ -989,7 +919,7 @@ def load_all_db_features(
     db_path: str,
     file_paths: list[str],
     session_dir: Path | None = None,
-    graveyard_path: Path | None = None
+    graveyard_path: Path | None = None,
 ) -> dict[str, dict]:
     """
     Convenience function to load all database features at once.
@@ -1004,7 +934,6 @@ def load_all_db_features(
     """
     combined_features = defaultdict(dict)
 
-    # Load all feature categories (Tiers 1-4)
     security = load_security_pattern_features(db_path, file_paths)
     vulnerabilities = load_vulnerability_flow_features(db_path, file_paths)
     types = load_type_coverage_features(db_path, file_paths)
@@ -1013,28 +942,20 @@ def load_all_db_features(
     semantic = load_semantic_import_features(db_path, file_paths)
     complexity = load_ast_complexity_metrics(db_path, file_paths)
 
-    # Load Tier 5: Agent behavior
-    # NEW: Load from session_executions table (3-layer system)
-    # NOTE: Pass None for db_path to use default .pf/ml/session_history.db
     session_execution_features = load_session_execution_features(None, file_paths)
 
-    # OLD: Load legacy features from session logs (if session_dir provided)
     agent_behavior = {}
     if session_dir:
         agent_behavior = load_agent_behavior_features(session_dir, db_path, file_paths)
 
-    # Tier 5: Comment hallucination detection (NEW)
-    # Detects when AI misinterpreted comments - the hallucination feedback loop
     comment_hallucination = {}
     if session_dir:
-        # Default graveyard path if not provided
         if graveyard_path is None:
-            graveyard_path = Path('comment_graveyard.json')
+            graveyard_path = Path("comment_graveyard.json")
         comment_hallucination = load_comment_hallucination_features(
             session_dir, graveyard_path, file_paths
         )
 
-    # Merge all features per file
     for file_path in file_paths:
         combined_features[file_path].update(security.get(file_path, {}))
         combined_features[file_path].update(vulnerabilities.get(file_path, {}))
@@ -1044,14 +965,11 @@ def load_all_db_features(
         combined_features[file_path].update(semantic.get(file_path, {}))
         combined_features[file_path].update(complexity.get(file_path, {}))
 
-        # Tier 5: Session execution features (NEW 3-layer system)
         combined_features[file_path].update(session_execution_features.get(file_path, {}))
 
-        # Tier 5: Legacy agent behavior (OLD ephemeral analysis)
         if agent_behavior:
             combined_features[file_path].update(agent_behavior.get(file_path, {}))
 
-        # Tier 5: Comment hallucination features (NEW)
         if comment_hallucination:
             combined_features[file_path].update(comment_hallucination.get(file_path, {}))
 

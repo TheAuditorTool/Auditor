@@ -8,9 +8,8 @@ This fixture demonstrates:
 - Multi-source assignments in query building
 """
 
-import sqlite3
 import os
-from typing import Optional, Dict, List
+import sqlite3
 
 
 def get_database_connection():

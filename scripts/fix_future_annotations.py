@@ -2,7 +2,7 @@
 """Add 'from __future__ import annotations' to all files with type hints."""
 
 from pathlib import Path
-import re
+
 
 def has_type_hints(content):
     """Check if file likely has type hints."""
@@ -26,16 +26,15 @@ def add_future_annotations(content):
         stripped = line.strip()
 
         # Check for docstring start
-        if i == 0 or (insert_idx == 0 and not stripped):
-            if stripped.startswith('"""') or stripped.startswith("'''"):
-                docstring_quotes = stripped[:3]
-                if stripped.count(docstring_quotes) >= 2:
-                    # Single-line docstring
-                    insert_idx = i + 1
-                    break
-                else:
-                    in_docstring = True
-                    continue
+        if (i == 0 or (insert_idx == 0 and not stripped)) and (stripped.startswith('"""') or stripped.startswith("'''")):
+            docstring_quotes = stripped[:3]
+            if stripped.count(docstring_quotes) >= 2:
+                # Single-line docstring
+                insert_idx = i + 1
+                break
+            else:
+                in_docstring = True
+                continue
 
         # Check for docstring end
         if in_docstring and docstring_quotes in stripped:
@@ -70,7 +69,7 @@ def main():
     count = 0
     for pyfile in Path('theauditor').rglob('*.py'):
         try:
-            with open(pyfile, 'r', encoding='utf-8') as f:
+            with open(pyfile, encoding='utf-8') as f:
                 content = f.read()
 
             if has_type_hints(content) and not has_future_annotations(content):

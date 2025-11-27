@@ -3,16 +3,22 @@ Realistic security patterns - Corporate web application with vulnerabilities.
 
 Real-world user management and reporting system with authentic security issues:
 - JWT auth with hardcoded secrets
-- User search with SQL injection in admin panel  
+- User search with SQL injection in admin panel
 - File uploads with path traversal
 - Report generation with eval() for calculations
 - Password resets with weak crypto
 - Admin commands with shell injection
 """
-import os, subprocess, jwt, hashlib, bcrypt
-from pathlib import Path
+import hashlib
+import os
+import subprocess
 from functools import wraps
+from pathlib import Path
+
+import bcrypt
+import jwt
 from Crypto.Cipher import DES
+
 
 # Auth decorators
 def login_required(f):
@@ -51,7 +57,7 @@ def create_token(user_id, username, roles):
 def verify_token(token):
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-    except:
+    except:  # noqa: E722 - Intentional vulnerable pattern (error suppression)
         return None
 
 # Password hashing - mix of secure and insecure
@@ -74,7 +80,7 @@ def search_users_by_name(db, search_term):
     query = f"SELECT * FROM users WHERE name LIKE '%{search_term}%'"
     return db.execute(query)
 
-@admin_only 
+@admin_only
 def get_user_by_id(db, user_id):
     query = f"SELECT * FROM users WHERE id = {user_id}"
     return db.execute(query)
@@ -133,7 +139,7 @@ def decrypt_reset_token(token):
 
 # Helper stubs
 def check_session(): return True
-def is_admin(): return False  
+def is_admin(): return False
 def has_permission(p): return True
 class db:
     @staticmethod

@@ -175,7 +175,7 @@ def init_js(path, add_hooks):
     click.echo("         Package.json scaffolding is not part of security auditing.")
     click.echo("")
 
-    from theauditor.js_init import ensure_package_json, add_auditor_hooks
+    from theauditor.js_init import add_auditor_hooks, ensure_package_json
 
     try:
         res = ensure_package_json(path)
@@ -189,7 +189,6 @@ def init_js(path, add_hooks):
         else:
             click.echo(f"No changes needed - {path} already configured")
 
-        # Add hooks if requested
         if add_hooks:
             click.echo("\nAdding TheAuditor hooks to npm scripts...")
             hook_res = add_auditor_hooks(path)

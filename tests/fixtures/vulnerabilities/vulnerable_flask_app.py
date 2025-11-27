@@ -9,10 +9,10 @@ This fixture is used to test:
 """
 
 import sqlite3
-from flask import Flask, request, render_template_string
-import yaml  # PyYAML - has CVE-2020-14343 in version 5.1
-from PIL import Image  # Pillow - has CVE-2020-35653 in version 6.0.0
 
+import yaml  # PyYAML - has CVE-2020-14343 in version 5.1
+from flask import Flask, render_template_string, request
+from PIL import Image  # Pillow - has CVE-2020-35653 in version 6.0.0
 
 app = Flask(__name__)
 

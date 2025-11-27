@@ -5,8 +5,7 @@ Test fixture for extract_marshmallow_schemas() and extract_marshmallow_fields().
 Covers all field types, validators, nested schemas, and validation patterns.
 """
 
-from marshmallow import Schema, fields, validates, validates_schema, ValidationError
-import marshmallow as ma
+from marshmallow import Schema, ValidationError, fields, validates, validates_schema
 
 
 # 1. Basic schema with various field types

@@ -100,7 +100,7 @@ def sum_squares(n):
 # 11. Nested generator expression
 def flatten_matrix(matrix):
     """Generator expression with nested iteration."""
-    return list(item for row in matrix for item in row)
+    return [item for row in matrix for item in row]
 
 
 # 12. Generator with exception handling

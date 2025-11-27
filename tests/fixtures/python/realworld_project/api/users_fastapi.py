@@ -1,5 +1,5 @@
 """FastAPI router showcasing dependency injection and response models."""
-
+# ruff: noqa: B008 - FastAPI Depends() pattern is intentional
 
 from fastapi import APIRouter, Depends
 

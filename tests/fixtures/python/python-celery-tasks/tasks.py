@@ -1,8 +1,9 @@
 """Celery task extraction test fixture."""
 
-from celery import Celery, Task
+from datetime import datetime, timedelta
+
+from celery import Celery
 from celery.schedules import crontab
-from datetime import timedelta, datetime
 
 app = Celery('tasks', broker='redis://localhost:6379/0')
 
@@ -21,7 +22,7 @@ def send_email(self, to, subject, body):
         print(f"Sending email to {to}")
         return {'status': 'sent', 'to': to}
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 @app.task(rate_limit='10/m')

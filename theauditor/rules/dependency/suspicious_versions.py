@@ -13,19 +13,19 @@ Database Tables Used:
 - package_configs: Dependency version specifications
 """
 
-
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import SUSPICIOUS_VERSIONS
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import SUSPICIOUS_VERSIONS
 
 METADATA = RuleMetadata(
     name="suspicious_versions",
     category="dependency",
-    target_extensions=['.json', '.txt', '.toml'],
-    exclude_patterns=['node_modules/', '.venv/', 'test/', '__tests__/'],
+    target_extensions=[".json", ".txt", ".toml"],
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__tests__/"],
     requires_jsx_pass=False,
 )
 
@@ -48,15 +48,13 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies'])
+        query = build_query("package_configs", ["file_path", "dependencies", "dev_dependencies"])
         cursor.execute(query)
 
         for file_path, deps, dev_deps in cursor.fetchall():
-            # Check production dependencies
             if deps:
                 findings.extend(_check_versions(file_path, deps, is_dev=False))
 
-            # Check dev dependencies
             if dev_deps:
                 findings.extend(_check_versions(file_path, dev_deps, is_dev=True))
 
@@ -90,21 +88,21 @@ def _check_versions(file_path: str, deps_json: str, is_dev: bool) -> list[Standa
         if not version:
             continue
 
-        # Normalize version string
         version_clean = str(version).strip()
 
-        # Check against suspicious versions
         if version_clean in SUSPICIOUS_VERSIONS:
             severity = Severity.MEDIUM if not is_dev else Severity.LOW
 
-            findings.append(StandardFinding(
-                rule_name='suspicious-version',
-                message=f"Suspicious version '{version_clean}' for package '{package}'",
-                file_path=file_path,
-                line=1,
-                severity=severity,
-                category='dependency',
-                snippet=f"{package}: {version_clean}",
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="suspicious-version",
+                    message=f"Suspicious version '{version_clean}' for package '{package}'",
+                    file_path=file_path,
+                    line=1,
+                    severity=severity,
+                    category="dependency",
+                    snippet=f"{package}: {version_clean}",
+                )
+            )
 
     return findings

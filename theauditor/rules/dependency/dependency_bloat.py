@@ -13,19 +13,19 @@ Database Tables Used:
 - package_configs: Dependency declarations
 """
 
-
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import DependencyThresholds
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import DependencyThresholds
 
 METADATA = RuleMetadata(
     name="dependency_bloat",
     category="dependency",
-    target_extensions=['.json', '.txt', '.toml'],
-    exclude_patterns=['node_modules/', '.venv/', 'test/'],
+    target_extensions=[".json", ".txt", ".toml"],
+    exclude_patterns=["node_modules/", ".venv/", "test/"],
     requires_jsx_pass=False,
 )
 
@@ -48,11 +48,10 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies'])
+        query = build_query("package_configs", ["file_path", "dependencies", "dev_dependencies"])
         cursor.execute(query)
 
         for file_path, deps, dev_deps in cursor.fetchall():
-            # Count production dependencies
             prod_count = 0
             if deps:
                 try:
@@ -62,7 +61,6 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 except json.JSONDecodeError:
                     pass
 
-            # Count dev dependencies
             dev_count = 0
             if dev_deps:
                 try:
@@ -72,39 +70,43 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                 except json.JSONDecodeError:
                     pass
 
-            # Check production dependencies
             if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:
-                findings.append(StandardFinding(
-                    rule_name='dependency-bloat-production',
-                    message=f"Excessive production dependencies: {prod_count} (threshold: {DependencyThresholds.MAX_DIRECT_DEPS})",
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category='dependency',
-                    snippet=f"{prod_count} production dependencies declared",
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dependency-bloat-production",
+                        message=f"Excessive production dependencies: {prod_count} (threshold: {DependencyThresholds.MAX_DIRECT_DEPS})",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.MEDIUM,
+                        category="dependency",
+                        snippet=f"{prod_count} production dependencies declared",
+                    )
+                )
             elif prod_count > DependencyThresholds.WARN_PRODUCTION_DEPS:
-                findings.append(StandardFinding(
-                    rule_name='dependency-bloat-warn',
-                    message=f"High production dependency count: {prod_count} (warning threshold: {DependencyThresholds.WARN_PRODUCTION_DEPS})",
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.LOW,
-                    category='dependency',
-                    snippet=f"{prod_count} production dependencies",
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dependency-bloat-warn",
+                        message=f"High production dependency count: {prod_count} (warning threshold: {DependencyThresholds.WARN_PRODUCTION_DEPS})",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.LOW,
+                        category="dependency",
+                        snippet=f"{prod_count} production dependencies",
+                    )
+                )
 
-            # Check dev dependencies
             if dev_count > DependencyThresholds.MAX_DEV_DEPS:
-                findings.append(StandardFinding(
-                    rule_name='dependency-bloat-dev',
-                    message=f"Excessive dev dependencies: {dev_count} (threshold: {DependencyThresholds.MAX_DEV_DEPS})",
-                    file_path=file_path,
-                    line=1,
-                    severity=Severity.LOW,
-                    category='dependency',
-                    snippet=f"{dev_count} dev dependencies declared",
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="dependency-bloat-dev",
+                        message=f"Excessive dev dependencies: {dev_count} (threshold: {DependencyThresholds.MAX_DEV_DEPS})",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.LOW,
+                        category="dependency",
+                        snippet=f"{dev_count} dev dependencies declared",
+                    )
+                )
 
     finally:
         conn.close()

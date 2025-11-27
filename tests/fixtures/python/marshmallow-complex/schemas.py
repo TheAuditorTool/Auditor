@@ -1,22 +1,28 @@
 """Complex Marshmallow schemas with advanced validation and nested relationships."""
 
-from marshmallow import (
-    Schema, fields, validates, validates_schema, pre_load, post_load,
-    pre_dump, post_dump, ValidationError, missing
-)
-from marshmallow.validate import (
-    Length, Range, Email, Regexp, OneOf, ContainsOnly,
-    NoneOf, Equal, Predicate, And, URL
-)
-from marshmallow.decorators import validates_field
-from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
-from marshmallow_enum import EnumField
-from marshmallow.fields import Nested, Method, Function
-from typing import Dict, Any, List, Optional
+import enum
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal
-import enum
+
+from marshmallow import (
+    Schema,
+    ValidationError,
+    fields,
+    post_dump,
+    post_load,
+    pre_load,
+    validates,
+    validates_schema,
+)
+from marshmallow.validate import (
+    Email,
+    Length,
+    OneOf,
+    Range,
+    Regexp,
+)
+from marshmallow_enum import EnumField
 
 
 # Custom validators
@@ -164,7 +170,7 @@ class PhoneSchema(Schema):
 
         # Check for valid country codes
         if clean.startswith('+'):
-            if not clean[1:3] in ['1', '44', '33', '49', '81', '86', '91']:
+            if clean[1:3] not in ['1', '44', '33', '49', '81', '86', '91']:
                 raise ValidationError('Unsupported country code')
 
         return value
@@ -295,9 +301,8 @@ class UserSchema(BaseSchema):
     @validates_schema(skip_on_field_errors=True)
     def validate_user_hierarchy(self, data, **kwargs):
         """Validate manager-subordinate relationships."""
-        if 'manager_id' in data and 'id' in data:
-            if data['manager_id'] == data['id']:
-                raise ValidationError('User cannot be their own manager', field_name='manager_id')
+        if 'manager_id' in data and 'id' in data and data['manager_id'] == data['id']:
+            raise ValidationError('User cannot be their own manager', field_name='manager_id')
 
     @pre_load
     def normalize_email(self, data, **kwargs):
@@ -534,14 +539,6 @@ class OrderSchema(BaseSchema):
         """Validate status transitions."""
         # This would check current status vs new status
         # Only certain transitions are allowed
-        valid_transitions = {
-            'pending': ['processing', 'cancelled'],
-            'processing': ['shipped', 'cancelled'],
-            'shipped': ['delivered', 'cancelled'],
-            'delivered': ['refunded'],
-            'cancelled': [],
-            'refunded': []
-        }
         # Implementation would check current vs new status
 
     @post_dump

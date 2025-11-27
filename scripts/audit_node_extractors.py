@@ -11,7 +11,6 @@ Usage:
     python scripts/audit_node_extractors.py > node_extractor_truth.txt
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -548,8 +547,8 @@ def audit():
 
     # Import the required modules
     try:
-        from theauditor.js_semantic_parser import JSSemanticParser
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+        from theauditor.js_semantic_parser import JSSemanticParser
     except ImportError as e:
         print(f"[ERROR] Failed to import required modules: {e}")
         print("Make sure you're running from the project root.")
@@ -643,9 +642,7 @@ def audit():
 
     for key in sorted(result.keys()):
         value = result[key]
-        if isinstance(value, list) and len(value) > 0:
-            keys_with_data.append(key)
-        elif isinstance(value, dict) and len(value) > 0:
+        if isinstance(value, list) and len(value) > 0 or isinstance(value, dict) and len(value) > 0:
             keys_with_data.append(key)
         else:
             keys_without_data.append(key)
@@ -678,11 +675,11 @@ def audit():
                 if discriminator_keys:
                     print("  VALUE SAMPLES (discriminators):")
                     for dk in discriminator_keys:
-                        values = sorted(list(set(
+                        values = sorted({
                             str(item.get(dk, ''))
                             for item in value
                             if item.get(dk)
-                        )))[:8]
+                        })[:8]
                         if values:
                             print(f"    {dk}: {values}")
 
@@ -738,7 +735,7 @@ def audit():
                 )]
                 if json_fields:
                     print(f"  [WARNING] Contains JSON fields: {json_fields}")
-                    print(f"            These should be in junction tables!")
+                    print("            These should be in junction tables!")
 
     # Cleanup
     try:

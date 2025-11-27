@@ -14,11 +14,6 @@ Design Philosophy:
 
 from .utils import Column, ForeignKey, TableSchema
 
-
-# ============================================================================
-# PLANNING TABLES
-# ============================================================================
-
 PLANS = TableSchema(
     name="plans",
     columns=[
@@ -32,7 +27,7 @@ PLANS = TableSchema(
     indexes=[
         ("idx_plans_status", ["status"]),
         ("idx_plans_created", ["created_at"]),
-    ]
+    ],
 )
 
 PLAN_PHASES = TableSchema(
@@ -43,7 +38,7 @@ PLAN_PHASES = TableSchema(
         Column("phase_number", "INTEGER", nullable=False),
         Column("title", "TEXT", nullable=False),
         Column("description", "TEXT"),
-        Column("success_criteria", "TEXT"),  # What completion looks like (criteria)
+        Column("success_criteria", "TEXT"),
         Column("status", "TEXT", nullable=False, default="'pending'"),
         Column("created_at", "TEXT", nullable=False),
     ],
@@ -51,16 +46,10 @@ PLAN_PHASES = TableSchema(
         ("idx_plan_phases_plan", ["plan_id"]),
         ("idx_plan_phases_status", ["status"]),
     ],
-    unique_constraints=[
-        ["plan_id", "phase_number"]
-    ],
+    unique_constraints=[["plan_id", "phase_number"]],
     foreign_keys=[
-        ForeignKey(
-            local_columns=["plan_id"],
-            foreign_table="plans",
-            foreign_columns=["id"]
-        ),
-    ]
+        ForeignKey(local_columns=["plan_id"], foreign_table="plans", foreign_columns=["id"]),
+    ],
 )
 
 PLAN_TASKS = TableSchema(
@@ -68,12 +57,12 @@ PLAN_TASKS = TableSchema(
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("plan_id", "INTEGER", nullable=False),
-        Column("phase_id", "INTEGER"),  # NEW: link to phase (nullable for backward compat)
+        Column("phase_id", "INTEGER"),
         Column("task_number", "INTEGER", nullable=False),
         Column("title", "TEXT", nullable=False),
         Column("description", "TEXT"),
         Column("status", "TEXT", nullable=False),
-        Column("audit_status", "TEXT", default="'pending'"),  # NEW: pending, pass, fail
+        Column("audit_status", "TEXT", default="'pending'"),
         Column("assigned_to", "TEXT"),
         Column("spec_id", "INTEGER"),
         Column("created_at", "TEXT", nullable=False),
@@ -81,31 +70,17 @@ PLAN_TASKS = TableSchema(
     ],
     indexes=[
         ("idx_plan_tasks_plan", ["plan_id"]),
-        ("idx_plan_tasks_phase", ["phase_id"]),  # NEW: index on phase
+        ("idx_plan_tasks_phase", ["phase_id"]),
         ("idx_plan_tasks_status", ["status"]),
-        ("idx_plan_tasks_audit", ["audit_status"]),  # NEW: index on audit status
+        ("idx_plan_tasks_audit", ["audit_status"]),
         ("idx_plan_tasks_spec", ["spec_id"]),
     ],
-    unique_constraints=[
-        ["plan_id", "task_number"]
-    ],
+    unique_constraints=[["plan_id", "task_number"]],
     foreign_keys=[
-        ForeignKey(
-            local_columns=["plan_id"],
-            foreign_table="plans",
-            foreign_columns=["id"]
-        ),
-        ForeignKey(
-            local_columns=["phase_id"],  # NEW: foreign key to phases
-            foreign_table="plan_phases",
-            foreign_columns=["id"]
-        ),
-        ForeignKey(
-            local_columns=["spec_id"],
-            foreign_table="plan_specs",
-            foreign_columns=["id"]
-        ),
-    ]
+        ForeignKey(local_columns=["plan_id"], foreign_table="plans", foreign_columns=["id"]),
+        ForeignKey(local_columns=["phase_id"], foreign_table="plan_phases", foreign_columns=["id"]),
+        ForeignKey(local_columns=["spec_id"], foreign_table="plan_specs", foreign_columns=["id"]),
+    ],
 )
 
 PLAN_JOBS = TableSchema(
@@ -115,24 +90,18 @@ PLAN_JOBS = TableSchema(
         Column("task_id", "INTEGER", nullable=False),
         Column("job_number", "INTEGER", nullable=False),
         Column("description", "TEXT", nullable=False),
-        Column("completed", "INTEGER", nullable=False, default="0"),  # SQLite BOOLEAN
-        Column("is_audit_job", "INTEGER", nullable=False, default="0"),  # Flag for audit jobs
+        Column("completed", "INTEGER", nullable=False, default="0"),
+        Column("is_audit_job", "INTEGER", nullable=False, default="0"),
         Column("created_at", "TEXT", nullable=False),
     ],
     indexes=[
         ("idx_plan_jobs_task", ["task_id"]),
         ("idx_plan_jobs_completed", ["completed"]),
     ],
-    unique_constraints=[
-        ["task_id", "job_number"]
-    ],
+    unique_constraints=[["task_id", "job_number"]],
     foreign_keys=[
-        ForeignKey(
-            local_columns=["task_id"],
-            foreign_table="plan_tasks",
-            foreign_columns=["id"]
-        ),
-    ]
+        ForeignKey(local_columns=["task_id"], foreign_table="plan_tasks", foreign_columns=["id"]),
+    ],
 )
 
 PLAN_SPECS = TableSchema(
@@ -149,12 +118,8 @@ PLAN_SPECS = TableSchema(
         ("idx_plan_specs_type", ["spec_type"]),
     ],
     foreign_keys=[
-        ForeignKey(
-            local_columns=["plan_id"],
-            foreign_table="plans",
-            foreign_columns=["id"]
-        ),
-    ]
+        ForeignKey(local_columns=["plan_id"], foreign_table="plans", foreign_columns=["id"]),
+    ],
 )
 
 CODE_SNAPSHOTS = TableSchema(
@@ -166,8 +131,8 @@ CODE_SNAPSHOTS = TableSchema(
         Column("sequence", "INTEGER"),
         Column("checkpoint_name", "TEXT", nullable=False),
         Column("timestamp", "TEXT", nullable=False),
-        Column("git_ref", "TEXT"),  # DEPRECATED: User's git SHA (kept for migration)
-        Column("shadow_sha", "TEXT"),  # NEW: SHA in .pf/snapshots.git (pygit2)
+        Column("git_ref", "TEXT"),
+        Column("shadow_sha", "TEXT"),
         Column("files_json", "TEXT", default="'[]'"),
     ],
     indexes=[
@@ -177,17 +142,9 @@ CODE_SNAPSHOTS = TableSchema(
         ("idx_code_snapshots_timestamp", ["timestamp"]),
     ],
     foreign_keys=[
-        ForeignKey(
-            local_columns=["plan_id"],
-            foreign_table="plans",
-            foreign_columns=["id"]
-        ),
-        ForeignKey(
-            local_columns=["task_id"],
-            foreign_table="plan_tasks",
-            foreign_columns=["id"]
-        ),
-    ]
+        ForeignKey(local_columns=["plan_id"], foreign_table="plans", foreign_columns=["id"]),
+        ForeignKey(local_columns=["task_id"], foreign_table="plan_tasks", foreign_columns=["id"]),
+    ],
 )
 
 CODE_DIFFS = TableSchema(
@@ -206,11 +163,9 @@ CODE_DIFFS = TableSchema(
     ],
     foreign_keys=[
         ForeignKey(
-            local_columns=["snapshot_id"],
-            foreign_table="code_snapshots",
-            foreign_columns=["id"]
+            local_columns=["snapshot_id"], foreign_table="code_snapshots", foreign_columns=["id"]
         ),
-    ]
+    ],
 )
 
 REFACTOR_CANDIDATES = TableSchema(
@@ -218,8 +173,8 @@ REFACTOR_CANDIDATES = TableSchema(
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("file_path", "TEXT", nullable=False),
-        Column("reason", "TEXT", nullable=False),  # complexity, duplication, size, coupling
-        Column("severity", "TEXT", nullable=False),  # low, medium, high, critical
+        Column("reason", "TEXT", nullable=False),
+        Column("severity", "TEXT", nullable=False),
         Column("loc", "INTEGER"),
         Column("cyclomatic_complexity", "INTEGER"),
         Column("duplication_percent", "REAL"),
@@ -233,9 +188,7 @@ REFACTOR_CANDIDATES = TableSchema(
         ("idx_refactor_candidates_severity", ["severity"]),
         ("idx_refactor_candidates_detected", ["detected_at"]),
     ],
-    unique_constraints=[
-        ["file_path", "reason"]  # One entry per file per reason
-    ]
+    unique_constraints=[["file_path", "reason"]],
 )
 
 REFACTOR_HISTORY = TableSchema(
@@ -244,10 +197,10 @@ REFACTOR_HISTORY = TableSchema(
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("timestamp", "TEXT", nullable=False),
         Column("target_file", "TEXT", nullable=False),
-        Column("refactor_type", "TEXT", nullable=False),  # split, rename, consolidate
+        Column("refactor_type", "TEXT", nullable=False),
         Column("migrations_found", "INTEGER"),
         Column("migrations_complete", "INTEGER"),
-        Column("schema_consistent", "INTEGER"),  # SQLite uses INTEGER for BOOLEAN
+        Column("schema_consistent", "INTEGER"),
         Column("validation_status", "TEXT"),
         Column("details_json", "TEXT", default="'{}'"),
     ],
@@ -255,18 +208,15 @@ REFACTOR_HISTORY = TableSchema(
         ("idx_refactor_history_file", ["target_file"]),
         ("idx_refactor_history_type", ["refactor_type"]),
         ("idx_refactor_history_timestamp", ["timestamp"]),
-    ]
+    ],
 )
 
-# ============================================================================
-# PLANNING TABLES REGISTRY
-# ============================================================================
 
 PLANNING_TABLES: dict[str, TableSchema] = {
     "plans": PLANS,
-    "plan_phases": PLAN_PHASES,  # NEW: Phase → Task → Job hierarchy
+    "plan_phases": PLAN_PHASES,
     "plan_tasks": PLAN_TASKS,
-    "plan_jobs": PLAN_JOBS,  # NEW: Checkbox items within tasks
+    "plan_jobs": PLAN_JOBS,
     "plan_specs": PLAN_SPECS,
     "code_snapshots": CODE_SNAPSHOTS,
     "code_diffs": CODE_DIFFS,

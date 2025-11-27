@@ -13,22 +13,22 @@ Purpose: Lock in the JSON blob -> junction table migration
 """
 
 import pytest
+
+from theauditor.indexer.database.node_database import NodeDatabaseMixin
 from theauditor.indexer.schemas.node_schema import (
-    NODE_TABLES,
-    VUE_COMPONENTS,
-    VUE_COMPONENT_PROPS,
-    VUE_COMPONENT_EMITS,
-    VUE_COMPONENT_SETUP_RETURNS,
-    ANGULAR_COMPONENTS,
     ANGULAR_COMPONENT_STYLES,
-    ANGULAR_MODULES,
+    ANGULAR_COMPONENTS,
     ANGULAR_MODULE_DECLARATIONS,
+    ANGULAR_MODULE_EXPORTS,
     ANGULAR_MODULE_IMPORTS,
     ANGULAR_MODULE_PROVIDERS,
-    ANGULAR_MODULE_EXPORTS,
+    ANGULAR_MODULES,
+    NODE_TABLES,
+    VUE_COMPONENT_EMITS,
+    VUE_COMPONENT_PROPS,
+    VUE_COMPONENT_SETUP_RETURNS,
+    VUE_COMPONENTS,
 )
-from theauditor.indexer.database.node_database import NodeDatabaseMixin
-
 
 # Junction tables added in node-schema-normalization
 NODE_JUNCTION_TABLES = {
@@ -86,9 +86,9 @@ class TestNodeTableRegistry:
     """Tests to verify Node tables are properly registered."""
 
     def test_node_tables_count(self):
-        """Verify expected number of Node tables (29 original + 8 junction = 37)."""
-        assert len(NODE_TABLES) == 37, (
-            f"Expected 37 Node tables, got {len(NODE_TABLES)}. "
+        """Verify expected number of Node tables (39 original + 8 junction = 47)."""
+        assert len(NODE_TABLES) == 47, (
+            f"Expected 47 Node tables, got {len(NODE_TABLES)}. "
             f"Tables: {sorted(NODE_TABLES.keys())}"
         )
 
@@ -155,7 +155,7 @@ class TestNoJsonBlobColumns:
                 violations.append(f"{table_name}: {forbidden_found}")
 
         assert not violations, (
-            f"JSON blob columns found in Node tables (should use junction tables):\n"
+            "JSON blob columns found in Node tables (should use junction tables):\n"
             + "\n".join(violations)
         )
 
@@ -263,7 +263,7 @@ class TestJunctionTableStructures:
                 violations.append(f"{table_name}: first column is '{columns[0] if columns else 'EMPTY'}', expected 'file'")
 
         assert not violations, (
-            f"Junction tables missing 'file' as first column:\n"
+            "Junction tables missing 'file' as first column:\n"
             + "\n".join(violations)
         )
 
@@ -364,8 +364,8 @@ class TestSchemaContractIntegrity:
         """Verify global TABLES count was updated for new junction tables."""
         from theauditor.indexer.schema import TABLES
 
-        assert len(TABLES) == 144, (
-            f"Expected 144 total tables (136 + 8 junction), got {len(TABLES)}. "
+        assert len(TABLES) == 154, (
+            f"Expected 154 total tables (146 + 8 junction), got {len(TABLES)}. "
             "Update schema.py assertion if intentionally changing table count."
         )
 
@@ -379,7 +379,7 @@ class TestSchemaContractIntegrity:
                 violations.append(f"{table_name}: no indexes defined")
 
         assert not violations, (
-            f"Junction tables missing indexes:\n"
+            "Junction tables missing indexes:\n"
             + "\n".join(violations)
         )
 
@@ -395,6 +395,6 @@ class TestSchemaContractIntegrity:
                 violations.append(f"{table_name}: no index on 'file' column")
 
         assert not violations, (
-            f"Junction tables missing file index:\n"
+            "Junction tables missing file index:\n"
             + "\n".join(violations)
         )

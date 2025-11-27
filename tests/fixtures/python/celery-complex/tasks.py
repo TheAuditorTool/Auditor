@@ -1,22 +1,22 @@
 """Complex Celery tasks with chains, groups, chords, and advanced patterns."""
 
-from celery import Celery, Task, group, chain, chord, signature
-from celery.utils.log import get_task_logger
-from celery.exceptions import Retry, MaxRetriesExceededError
-from celery.result import AsyncResult, GroupResult
-from celery.signals import (
-    task_prerun, task_postrun, task_failure, task_success,
-    task_retry, task_revoked, before_task_publish
-)
-from kombu import Queue, Exchange
-from datetime import datetime, timedelta
-import time
-import random
-import requests
-from typing import List, Dict, Any, Optional
-import redis
 import json
+import random
+import time
+from datetime import datetime, timedelta
 from functools import wraps
+from typing import Any
+
+import redis
+from celery import Celery, Task, chain, chord, group
+from celery.exceptions import Retry
+from celery.signals import (
+    task_failure,
+    task_prerun,
+    task_success,
+)
+from celery.utils.log import get_task_logger
+from kombu import Exchange, Queue
 
 logger = get_task_logger(__name__)
 
@@ -164,7 +164,7 @@ def critical_task(self, data: dict[str, Any]) -> dict[str, Any]:
 
     except Exception as exc:
         logger.error(f"Critical task failed: {exc}")
-        raise self.retry(exc=exc, countdown=2**self.request.retries)
+        raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
 
 
 # Data pipeline tasks
@@ -471,7 +471,7 @@ def complex_workflow(self, order_id: str) -> dict:
         logger.error(f"Complex workflow failed for order {order_id}: {exc}")
         # Compensating transaction
         rollback_order.delay(order_id)
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=60) from exc
 
 
 # Helper tasks for complex workflow

@@ -34,10 +34,6 @@ class PlanningDatabaseMixin:
     - add_plan_job() - Add checkbox item to task with audit flag
     """
 
-    # ========================================================
-    # REFACTOR CANDIDATE METHODS
-    # ========================================================
-
     def add_refactor_candidate(
         self,
         file_path: str,
@@ -48,7 +44,7 @@ class PlanningDatabaseMixin:
         cyclomatic_complexity: int | None = None,
         duplication_percent: float | None = None,
         num_dependencies: int | None = None,
-        metadata_json: str = '{}'
+        metadata_json: str = "{}",
     ):
         """Add a refactor candidate record to the batch.
 
@@ -63,21 +59,19 @@ class PlanningDatabaseMixin:
             num_dependencies: Number of dependencies/imports (optional)
             metadata_json: Additional metadata as JSON string
         """
-        self.generic_batches['refactor_candidates'].append((
-            file_path,
-            reason,
-            severity,
-            loc,
-            cyclomatic_complexity,
-            duplication_percent,
-            num_dependencies,
-            detected_at,
-            metadata_json
-        ))
-
-    # ========================================================
-    # REFACTOR HISTORY METHODS
-    # ========================================================
+        self.generic_batches["refactor_candidates"].append(
+            (
+                file_path,
+                reason,
+                severity,
+                loc,
+                cyclomatic_complexity,
+                duplication_percent,
+                num_dependencies,
+                detected_at,
+                metadata_json,
+            )
+        )
 
     def add_refactor_history(
         self,
@@ -88,7 +82,7 @@ class PlanningDatabaseMixin:
         migrations_complete: int | None = None,
         schema_consistent: int | None = None,
         validation_status: str | None = None,
-        details_json: str = '{}'
+        details_json: str = "{}",
     ):
         """Add a refactor history record to the batch.
 
@@ -102,20 +96,18 @@ class PlanningDatabaseMixin:
             validation_status: Validation result (success, failed, partial)
             details_json: Additional details as JSON string
         """
-        self.generic_batches['refactor_history'].append((
-            timestamp,
-            target_file,
-            refactor_type,
-            migrations_found,
-            migrations_complete,
-            schema_consistent,
-            validation_status,
-            details_json
-        ))
-
-    # ========================================================
-    # PLANNING BATCH METHODS
-    # ========================================================
+        self.generic_batches["refactor_history"].append(
+            (
+                timestamp,
+                target_file,
+                refactor_type,
+                migrations_found,
+                migrations_complete,
+                schema_consistent,
+                validation_status,
+                details_json,
+            )
+        )
 
     def add_plan_phase(
         self,
@@ -124,8 +116,8 @@ class PlanningDatabaseMixin:
         title: str,
         description: str | None = None,
         success_criteria: str | None = None,
-        status: str = 'pending',
-        created_at: str = ''
+        status: str = "pending",
+        created_at: str = "",
     ):
         """Add a phase to a plan (hierarchical planning structure).
 
@@ -138,15 +130,9 @@ class PlanningDatabaseMixin:
             status: Phase status (pending, in_progress, completed)
             created_at: ISO timestamp
         """
-        self.generic_batches['plan_phases'].append((
-            plan_id,
-            phase_number,
-            title,
-            description,
-            success_criteria,
-            status,
-            created_at
-        ))
+        self.generic_batches["plan_phases"].append(
+            (plan_id, phase_number, title, description, success_criteria, status, created_at)
+        )
 
     def add_plan_job(
         self,
@@ -155,7 +141,7 @@ class PlanningDatabaseMixin:
         description: str,
         completed: int = 0,
         is_audit_job: int = 0,
-        created_at: str = ''
+        created_at: str = "",
     ):
         """Add a job (checkbox item) to a task (hierarchical task breakdown).
 
@@ -167,11 +153,6 @@ class PlanningDatabaseMixin:
             is_audit_job: Boolean as INTEGER (0 = regular job, 1 = audit job)
             created_at: ISO timestamp
         """
-        self.generic_batches['plan_jobs'].append((
-            task_id,
-            job_number,
-            description,
-            completed,
-            is_audit_job,
-            created_at
-        ))
+        self.generic_batches["plan_jobs"].append(
+            (task_id, job_number, description, completed, is_audit_job, created_at)
+        )

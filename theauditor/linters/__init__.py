@@ -14,15 +14,13 @@ Config files (kept for setup):
 - pyproject.toml - Copied to .auditor_venv/.theauditor_tools/ during setup
 """
 
-
-# Import from the new single-file module in this directory
 from .linters import LinterOrchestrator
 
 __all__ = [
     "LinterOrchestrator",
 ]
 
-# Backward compatibility warning for old imports
+
 def __getattr__(name):
     """Provide helpful error messages for deprecated imports."""
     deprecated_names = {

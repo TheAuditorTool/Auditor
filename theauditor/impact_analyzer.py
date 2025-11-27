@@ -6,20 +6,20 @@ This shim maintains backward compatibility for existing imports.
 
 from theauditor.insights.impact_analyzer import (
     analyze_impact,
-    find_upstream_dependencies,
-    find_downstream_dependencies,
     calculate_transitive_impact,
-    trace_frontend_to_backend,
-    format_impact_report,
     classify_risk,
+    find_downstream_dependencies,
+    find_upstream_dependencies,
+    format_impact_report,
+    trace_frontend_to_backend,
 )
 
 __all__ = [
-    'analyze_impact',
-    'find_upstream_dependencies',
-    'find_downstream_dependencies',
-    'calculate_transitive_impact',
-    'trace_frontend_to_backend',
-    'format_impact_report',
-    'classify_risk',
+    "analyze_impact",
+    "find_upstream_dependencies",
+    "find_downstream_dependencies",
+    "calculate_transitive_impact",
+    "trace_frontend_to_backend",
+    "format_impact_report",
+    "classify_risk",
 ]

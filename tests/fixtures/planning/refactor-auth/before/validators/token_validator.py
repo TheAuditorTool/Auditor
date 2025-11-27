@@ -5,9 +5,10 @@ This file is part of the BEFORE state (Auth0).
 Demonstrates import chain: middleware → validators → exceptions
 """
 
-import jwt
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
+
+import jwt
+from exceptions import ExpiredTokenError, InvalidTokenError
 
 
 def validate_auth0_token(token):
@@ -45,11 +46,11 @@ def validate_auth0_token(token):
 
         return payload
 
-    except jwt.ExpiredSignatureError:
-        raise ExpiredTokenError("Token has expired")
+    except jwt.ExpiredSignatureError as e:
+        raise ExpiredTokenError("Token has expired") from e
 
     except jwt.InvalidTokenError as e:
-        raise InvalidTokenError(f"Invalid token: {str(e)}")
+        raise InvalidTokenError(f"Invalid token: {str(e)}") from e
 
 
 def extract_user_id(token_payload):

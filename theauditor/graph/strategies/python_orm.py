@@ -324,6 +324,9 @@ class PythonOrmContext:
 # PythonOrmStrategy
 # =============================================================================
 
+from ..types import DFGEdge, DFGNode, create_bidirectional_edges
+from .base import GraphStrategy
+
 
 class PythonOrmStrategy(GraphStrategy):
     """Strategy for building Python ORM relationship edges.
@@ -355,7 +358,6 @@ class PythonOrmStrategy(GraphStrategy):
 
         stats = {"orm_expansions": 0, "edges_created": 0}
 
-        # 1. Initialize the Context from DB
         try:
             orm_context = PythonOrmContext.from_database(cursor)
             if not orm_context.enabled:
@@ -366,18 +368,10 @@ class PythonOrmStrategy(GraphStrategy):
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 
-        # [FIX 2024-11] INVERTED CONTROL: Query only assignments likely to be ORM models
-        # Previous: Fetch ALL assignments (50,000+), check each with get_model_for_variable()
-        # Now: Pre-fetch model names, query only matching assignments
-
-        # 2a. Get known model names from ORM context
         known_models = (
-            orm_context.get_all_model_names()
-            if hasattr(orm_context, "get_all_model_names")
-            else []
+            orm_context.get_all_model_names() if hasattr(orm_context, "get_all_model_names") else []
         )
         if not known_models:
-            # Fallback: Try to get models from the context's internal state
             known_models = list(getattr(orm_context, "models", {}).keys())
 
         if not known_models:
@@ -387,17 +381,14 @@ class PythonOrmStrategy(GraphStrategy):
 
         print(f"[PythonOrmStrategy] Found {len(known_models)} ORM models: {known_models[:5]}...")
 
-        # 2b. Build patterns for SQL query (lowercase model names as common variable patterns)
-        # e.g., Model "User" -> variables like "user", "users", "current_user"
         model_patterns = set()
         for model in known_models:
             model_lower = model.lower()
             model_patterns.add(model_lower)
-            model_patterns.add(f"{model_lower}s")  # plural
+            model_patterns.add(f"{model_lower}s")
             model_patterns.add(f"current_{model_lower}")
             model_patterns.add(f"new_{model_lower}")
 
-        # 2c. Query only assignments matching model patterns (MUCH smaller result set)
         placeholders = ",".join("?" * len(model_patterns))
         cursor.execute(
             f"""
@@ -409,7 +400,9 @@ class PythonOrmStrategy(GraphStrategy):
         )
 
         potential_models = cursor.fetchall()
-        print(f"[PythonOrmStrategy] Found {len(potential_models)} potential ORM variable assignments")
+        print(
+            f"[PythonOrmStrategy] Found {len(potential_models)} potential ORM variable assignments"
+        )
 
         with click.progressbar(
             potential_models, label="Building Python ORM edges", show_pos=True
@@ -419,13 +412,11 @@ class PythonOrmStrategy(GraphStrategy):
                 var_name = row["target_var"]
                 func = row["in_function"] or "global"
 
-                # 3. Ask orm_utils: "Is this variable an ORM Model?"
                 model_name = orm_context.get_model_for_variable(file, [func], var_name)
 
                 if not model_name:
                     continue
 
-                # 4. Expand Relationships (user -> user.posts)
                 rels = orm_context.get_relationships(model_name)
                 fk_fields = orm_context.get_fk_fields(model_name)
 
@@ -436,13 +427,11 @@ class PythonOrmStrategy(GraphStrategy):
 
                 source_id = f"{file}::{func}::{var_name}"
 
-                # Create expansion edges for relationships
                 for rel in rels:
                     alias = rel["alias"]
                     target_var = f"{var_name}.{alias}"
                     target_id = f"{file}::{func}::{target_var}"
 
-                    # Ensure target node exists
                     if target_id not in nodes:
                         nodes[target_id] = DFGNode(
                             id=target_id,
@@ -453,7 +442,6 @@ class PythonOrmStrategy(GraphStrategy):
                             metadata={"model": model_name, "relation": alias},
                         )
 
-                    # Link them
                     new_edges = create_bidirectional_edges(
                         source=source_id,
                         target=target_id,

@@ -20,8 +20,8 @@ not here - that's why we have 7 original handlers for 8 Python tables.
 Handler Count: 29 (7 original + 20 consolidated + 2 decomposed)
 """
 
-
 import json
+
 from .base import BaseStorage
 
 
@@ -32,56 +32,35 @@ class PythonStorage(BaseStorage):
         super().__init__(db_manager, counts)
 
         self.handlers = {
-            # ===== ORIGINAL 7 HANDLERS =====
-            # ORM - consumers: overfetch.py, discovery.py, schema_cache_adapter.py
-            'python_orm_models': self._store_python_orm_models,
-            'python_orm_fields': self._store_python_orm_fields,
-
-            # Routes - consumers: boundary_analyzer.py, deadcode_graph.py, query.py
-            'python_routes': self._store_python_routes,
-
-            # Validators - consumers: discovery.py (via SchemaMemoryCache)
-            'python_validators': self._store_python_validators,
-
-            # Decorators - consumers: interceptors.py, deadcode_graph.py, query.py
-            'python_decorators': self._store_python_decorators,
-
-            # Django - consumers: interceptors.py
-            'python_django_views': self._store_python_django_views,
-            'python_django_middleware': self._store_python_django_middleware,
-
-            # ===== CONSOLIDATED TABLES - 20 HANDLERS =====
-            # Group 1: Control & Data Flow
-            'python_loops': self._store_python_loops,
-            'python_branches': self._store_python_branches,
-            'python_functions_advanced': self._store_python_functions_advanced,
-            'python_io_operations': self._store_python_io_operations,
-            'python_state_mutations': self._store_python_state_mutations,
-
-            # Group 2: Object-Oriented & Types
-            'python_class_features': self._store_python_class_features,
-            'python_protocols': self._store_python_protocols,
-            'python_descriptors': self._store_python_descriptors,
-            'python_type_definitions': self._store_python_type_definitions,
-            'python_literals': self._store_python_literals,
-
-            # Group 3: Security & Testing
-            'python_security_findings': self._store_python_security_findings,
-            'python_test_cases': self._store_python_test_cases,
-            'python_test_fixtures': self._store_python_test_fixtures,
-            'python_framework_config': self._store_python_framework_config,
-            'python_validation_schemas': self._store_python_validation_schemas,
-
-            # Group 4: Low-Level & Misc
-            'python_operators': self._store_python_operators,
-            'python_collections': self._store_python_collections,
-            'python_stdlib_usage': self._store_python_stdlib_usage,
-            'python_imports_advanced': self._store_python_imports_advanced,
-            'python_expressions': self._store_python_expressions,
-
-            # Group 5: Expression Decomposition (Phase 2 Fidelity Control)
-            'python_comprehensions': self._store_python_comprehensions,
-            'python_control_statements': self._store_python_control_statements,
+            "python_orm_models": self._store_python_orm_models,
+            "python_orm_fields": self._store_python_orm_fields,
+            "python_routes": self._store_python_routes,
+            "python_validators": self._store_python_validators,
+            "python_decorators": self._store_python_decorators,
+            "python_django_views": self._store_python_django_views,
+            "python_django_middleware": self._store_python_django_middleware,
+            "python_loops": self._store_python_loops,
+            "python_branches": self._store_python_branches,
+            "python_functions_advanced": self._store_python_functions_advanced,
+            "python_io_operations": self._store_python_io_operations,
+            "python_state_mutations": self._store_python_state_mutations,
+            "python_class_features": self._store_python_class_features,
+            "python_protocols": self._store_python_protocols,
+            "python_descriptors": self._store_python_descriptors,
+            "python_type_definitions": self._store_python_type_definitions,
+            "python_literals": self._store_python_literals,
+            "python_security_findings": self._store_python_security_findings,
+            "python_test_cases": self._store_python_test_cases,
+            "python_test_fixtures": self._store_python_test_fixtures,
+            "python_framework_config": self._store_python_framework_config,
+            "python_validation_schemas": self._store_python_validation_schemas,
+            "python_operators": self._store_python_operators,
+            "python_collections": self._store_python_collections,
+            "python_stdlib_usage": self._store_python_stdlib_usage,
+            "python_imports_advanced": self._store_python_imports_advanced,
+            "python_expressions": self._store_python_expressions,
+            "python_comprehensions": self._store_python_comprehensions,
+            "python_control_statements": self._store_python_control_statements,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: list, jsx_pass: bool):
@@ -89,120 +68,118 @@ class PythonStorage(BaseStorage):
         for model in python_orm_models:
             self.db_manager.add_python_orm_model(
                 file_path,
-                model.get('line', 0),
-                model.get('model_name', ''),
-                model.get('table_name'),
-                model.get('orm_type', 'sqlalchemy')
+                model.get("line", 0),
+                model.get("model_name", ""),
+                model.get("table_name"),
+                model.get("orm_type", "sqlalchemy"),
             )
-            if 'python_orm_models' not in self.counts:
-                self.counts['python_orm_models'] = 0
-            self.counts['python_orm_models'] += 1
+            if "python_orm_models" not in self.counts:
+                self.counts["python_orm_models"] = 0
+            self.counts["python_orm_models"] += 1
 
     def _store_python_orm_fields(self, file_path: str, python_orm_fields: list, jsx_pass: bool):
         """Store Python ORM fields."""
         for field in python_orm_fields:
             self.db_manager.add_python_orm_field(
                 file_path,
-                field.get('line', 0),
-                field.get('model_name', ''),
-                field.get('field_name', ''),
-                field.get('field_type'),
-                field.get('is_primary_key', False),
-                field.get('is_foreign_key', False),
-                field.get('foreign_key_target')
+                field.get("line", 0),
+                field.get("model_name", ""),
+                field.get("field_name", ""),
+                field.get("field_type"),
+                field.get("is_primary_key", False),
+                field.get("is_foreign_key", False),
+                field.get("foreign_key_target"),
             )
-            if 'python_orm_fields' not in self.counts:
-                self.counts['python_orm_fields'] = 0
-            self.counts['python_orm_fields'] += 1
+            if "python_orm_fields" not in self.counts:
+                self.counts["python_orm_fields"] = 0
+            self.counts["python_orm_fields"] += 1
 
     def _store_python_routes(self, file_path: str, python_routes: list, jsx_pass: bool):
         """Store Python routes."""
         for route in python_routes:
             self.db_manager.add_python_route(
                 file_path,
-                route.get('line'),
-                route.get('framework', ''),
-                route.get('method', ''),
-                route.get('pattern', ''),
-                route.get('handler_function', ''),
-                route.get('has_auth', False),
-                route.get('dependencies'),
-                route.get('blueprint')
+                route.get("line"),
+                route.get("framework", ""),
+                route.get("method", ""),
+                route.get("pattern", ""),
+                route.get("handler_function", ""),
+                route.get("has_auth", False),
+                route.get("dependencies"),
+                route.get("blueprint"),
             )
-            if 'python_routes' not in self.counts:
-                self.counts['python_routes'] = 0
-            self.counts['python_routes'] += 1
+            if "python_routes" not in self.counts:
+                self.counts["python_routes"] = 0
+            self.counts["python_routes"] += 1
 
     def _store_python_validators(self, file_path: str, python_validators: list, jsx_pass: bool):
         """Store Python validators."""
         for validator in python_validators:
             self.db_manager.add_python_validator(
                 file_path,
-                validator.get('line', 0),
-                validator.get('model_name', ''),
-                validator.get('field_name'),
-                validator.get('validator_method', ''),
-                validator.get('validator_type', '')
+                validator.get("line", 0),
+                validator.get("model_name", ""),
+                validator.get("field_name"),
+                validator.get("validator_method", ""),
+                validator.get("validator_type", ""),
             )
-            if 'python_validators' not in self.counts:
-                self.counts['python_validators'] = 0
-            self.counts['python_validators'] += 1
+            if "python_validators" not in self.counts:
+                self.counts["python_validators"] = 0
+            self.counts["python_validators"] += 1
 
     def _store_python_decorators(self, file_path: str, python_decorators: list, jsx_pass: bool):
         """Store Python decorators."""
         for decorator in python_decorators:
             self.db_manager.add_python_decorator(
                 file_path,
-                decorator.get('line', 0),
-                decorator.get('decorator_name', ''),
-                decorator.get('decorator_type', ''),
-                decorator.get('target_type', ''),
-                decorator.get('target_name', ''),
-                decorator.get('is_async', False)
+                decorator.get("line", 0),
+                decorator.get("decorator_name", ""),
+                decorator.get("decorator_type", ""),
+                decorator.get("target_type", ""),
+                decorator.get("target_name", ""),
+                decorator.get("is_async", False),
             )
-            if 'python_decorators' not in self.counts:
-                self.counts['python_decorators'] = 0
-            self.counts['python_decorators'] += 1
+            if "python_decorators" not in self.counts:
+                self.counts["python_decorators"] = 0
+            self.counts["python_decorators"] += 1
 
     def _store_python_django_views(self, file_path: str, python_django_views: list, jsx_pass: bool):
         """Store Python Django views."""
         for django_view in python_django_views:
             self.db_manager.add_python_django_view(
                 file_path,
-                django_view.get('line', 0),
-                django_view.get('view_class_name', ''),
-                django_view.get('view_type', ''),
-                django_view.get('base_view_class'),
-                django_view.get('model_name'),
-                django_view.get('template_name'),
-                django_view.get('has_permission_check', False),
-                django_view.get('http_method_names'),
-                django_view.get('has_get_queryset_override', False)
+                django_view.get("line", 0),
+                django_view.get("view_class_name", ""),
+                django_view.get("view_type", ""),
+                django_view.get("base_view_class"),
+                django_view.get("model_name"),
+                django_view.get("template_name"),
+                django_view.get("has_permission_check", False),
+                django_view.get("http_method_names"),
+                django_view.get("has_get_queryset_override", False),
             )
-            if 'python_django_views' not in self.counts:
-                self.counts['python_django_views'] = 0
-            self.counts['python_django_views'] += 1
+            if "python_django_views" not in self.counts:
+                self.counts["python_django_views"] = 0
+            self.counts["python_django_views"] += 1
 
-    def _store_python_django_middleware(self, file_path: str, python_django_middleware: list, jsx_pass: bool):
+    def _store_python_django_middleware(
+        self, file_path: str, python_django_middleware: list, jsx_pass: bool
+    ):
         """Store Python Django middleware."""
         for django_middleware in python_django_middleware:
             self.db_manager.add_python_django_middleware(
                 file_path,
-                django_middleware.get('line', 0),
-                django_middleware.get('middleware_class_name', ''),
-                django_middleware.get('has_process_request', False),
-                django_middleware.get('has_process_response', False),
-                django_middleware.get('has_process_exception', False),
-                django_middleware.get('has_process_view', False),
-                django_middleware.get('has_process_template_response', False)
+                django_middleware.get("line", 0),
+                django_middleware.get("middleware_class_name", ""),
+                django_middleware.get("has_process_request", False),
+                django_middleware.get("has_process_response", False),
+                django_middleware.get("has_process_exception", False),
+                django_middleware.get("has_process_view", False),
+                django_middleware.get("has_process_template_response", False),
             )
-            if 'python_django_middleware' not in self.counts:
-                self.counts['python_django_middleware'] = 0
-            self.counts['python_django_middleware'] += 1
-
-    # =========================================================================
-    # CONSOLIDATED TABLES - Group 1: Control & Data Flow (5 handlers)
-    # =========================================================================
+            if "python_django_middleware" not in self.counts:
+                self.counts["python_django_middleware"] = 0
+            self.counts["python_django_middleware"] += 1
 
     def _store_python_loops(self, file_path: str, python_loops: list, jsx_pass: bool):
         """Store Python loops (for/while/async_for/complexity_analysis).
@@ -212,20 +189,20 @@ class PythonStorage(BaseStorage):
         for loop in python_loops:
             self.db_manager.add_python_loop(
                 file_path,
-                loop.get('line', 0),
-                loop.get('loop_kind', ''),         # Discriminator
-                loop.get('loop_type'),             # Preserved subtype
-                loop.get('has_else', False),
-                loop.get('nesting_level', 0),
-                loop.get('target_count'),
-                loop.get('in_function'),
-                loop.get('is_infinite', False),
-                loop.get('estimated_complexity'),
-                loop.get('has_growing_operation', False)
+                loop.get("line", 0),
+                loop.get("loop_kind", ""),
+                loop.get("loop_type"),
+                loop.get("has_else", False),
+                loop.get("nesting_level", 0),
+                loop.get("target_count"),
+                loop.get("in_function"),
+                loop.get("is_infinite", False),
+                loop.get("estimated_complexity"),
+                loop.get("has_growing_operation", False),
             )
-            if 'python_loops' not in self.counts:
-                self.counts['python_loops'] = 0
-            self.counts['python_loops'] += 1
+            if "python_loops" not in self.counts:
+                self.counts["python_loops"] = 0
+            self.counts["python_loops"] += 1
 
     def _store_python_branches(self, file_path: str, python_branches: list, jsx_pass: bool):
         """Store Python branches (if/match/raise/except/finally).
@@ -233,114 +210,102 @@ class PythonStorage(BaseStorage):
         Uses two-discriminator pattern: branch_kind (table) + branch_type (extractor subtype).
         """
         for branch in python_branches:
-            # JSON serialize list columns
-            pattern_types = branch.get('pattern_types')
+            pattern_types = branch.get("pattern_types")
             if isinstance(pattern_types, list):
                 pattern_types = json.dumps(pattern_types)
-            exception_types = branch.get('exception_types')
+            exception_types = branch.get("exception_types")
             if isinstance(exception_types, list):
                 exception_types = json.dumps(exception_types)
-            cleanup_calls = branch.get('cleanup_calls')
+            cleanup_calls = branch.get("cleanup_calls")
             if isinstance(cleanup_calls, list):
                 cleanup_calls = json.dumps(cleanup_calls)
 
             self.db_manager.add_python_branch(
                 file_path,
-                branch.get('line', 0),
-                branch.get('branch_kind', ''),     # Discriminator
-                branch.get('branch_type'),         # Preserved subtype
-                # if_statements
-                branch.get('has_else', False),
-                branch.get('has_elif', False),
-                branch.get('chain_length'),
-                branch.get('has_complex_condition', False),
-                branch.get('nesting_level', 0),
-                # match_statements
-                branch.get('case_count', 0),
-                branch.get('has_guards', False),
-                branch.get('has_wildcard', False),
+                branch.get("line", 0),
+                branch.get("branch_kind", ""),
+                branch.get("branch_type"),
+                branch.get("has_else", False),
+                branch.get("has_elif", False),
+                branch.get("chain_length"),
+                branch.get("has_complex_condition", False),
+                branch.get("nesting_level", 0),
+                branch.get("case_count", 0),
+                branch.get("has_guards", False),
+                branch.get("has_wildcard", False),
                 pattern_types,
-                # exception_catches
                 exception_types,
-                branch.get('handling_strategy'),
-                branch.get('variable_name'),
-                # exception_raises
-                branch.get('exception_type'),
-                branch.get('is_re_raise', False),
-                branch.get('from_exception'),
-                branch.get('message'),
-                branch.get('condition'),
-                # finally_blocks
-                branch.get('has_cleanup', False),
+                branch.get("handling_strategy"),
+                branch.get("variable_name"),
+                branch.get("exception_type"),
+                branch.get("is_re_raise", False),
+                branch.get("from_exception"),
+                branch.get("message"),
+                branch.get("condition"),
+                branch.get("has_cleanup", False),
                 cleanup_calls,
-                # common
-                branch.get('in_function')
+                branch.get("in_function"),
             )
-            if 'python_branches' not in self.counts:
-                self.counts['python_branches'] = 0
-            self.counts['python_branches'] += 1
+            if "python_branches" not in self.counts:
+                self.counts["python_branches"] = 0
+            self.counts["python_branches"] += 1
 
-    def _store_python_functions_advanced(self, file_path: str, python_functions_advanced: list, jsx_pass: bool):
+    def _store_python_functions_advanced(
+        self, file_path: str, python_functions_advanced: list, jsx_pass: bool
+    ):
         """Store advanced Python function patterns (generator/async/lambda/context_manager/recursive/memoized).
 
         Uses two-discriminator pattern: function_kind (table) + function_type (extractor subtype).
         """
         for func in python_functions_advanced:
-            # JSON serialize list columns
-            parameters = func.get('parameters')
+            parameters = func.get("parameters")
             if isinstance(parameters, list):
                 parameters = json.dumps(parameters)
-            captured_vars = func.get('captured_vars')
+            captured_vars = func.get("captured_vars")
             if isinstance(captured_vars, list):
                 captured_vars = json.dumps(captured_vars)
 
             self.db_manager.add_python_function_advanced(
                 file_path,
-                func.get('line', 0),
-                func.get('function_kind', ''),     # Discriminator
-                func.get('function_type'),         # Preserved subtype
-                func.get('name'),
-                func.get('function_name'),
-                # generators
-                func.get('yield_count', 0),
-                func.get('has_send', False),
-                func.get('has_yield_from', False),
-                func.get('is_infinite', False),
-                # async_functions
-                func.get('await_count', 0),
-                func.get('has_async_for', False),
-                func.get('has_async_with', False),
-                # lambda_functions
-                func.get('parameter_count'),
+                func.get("line", 0),
+                func.get("function_kind", ""),
+                func.get("function_type"),
+                func.get("name"),
+                func.get("function_name"),
+                func.get("yield_count", 0),
+                func.get("has_send", False),
+                func.get("has_yield_from", False),
+                func.get("is_infinite", False),
+                func.get("await_count", 0),
+                func.get("has_async_for", False),
+                func.get("has_async_with", False),
+                func.get("parameter_count"),
                 parameters,
-                func.get('body'),
-                func.get('captures_closure', False),
+                func.get("body"),
+                func.get("captures_closure", False),
                 captured_vars,
-                func.get('used_in'),
-                # context_managers
-                func.get('as_name'),
-                func.get('context_expr'),
-                func.get('is_async', False),
-                # async_generators
-                func.get('iter_expr'),
-                func.get('target_var'),
-                # recursion_patterns
-                func.get('base_case_line'),
-                func.get('calls_function'),
-                func.get('recursion_type'),
-                # memoization_patterns
-                func.get('cache_size'),
-                func.get('memoization_type'),
-                func.get('is_recursive', False),
-                func.get('has_memoization', False),
-                # common
-                func.get('in_function')
+                func.get("used_in"),
+                func.get("as_name"),
+                func.get("context_expr"),
+                func.get("is_async", False),
+                func.get("iter_expr"),
+                func.get("target_var"),
+                func.get("base_case_line"),
+                func.get("calls_function"),
+                func.get("recursion_type"),
+                func.get("cache_size"),
+                func.get("memoization_type"),
+                func.get("is_recursive", False),
+                func.get("has_memoization", False),
+                func.get("in_function"),
             )
-            if 'python_functions_advanced' not in self.counts:
-                self.counts['python_functions_advanced'] = 0
-            self.counts['python_functions_advanced'] += 1
+            if "python_functions_advanced" not in self.counts:
+                self.counts["python_functions_advanced"] = 0
+            self.counts["python_functions_advanced"] += 1
 
-    def _store_python_io_operations(self, file_path: str, python_io_operations: list, jsx_pass: bool):
+    def _store_python_io_operations(
+        self, file_path: str, python_io_operations: list, jsx_pass: bool
+    ):
         """Store Python I/O operations (file/network/database/process/param_flow/closure/nonlocal/conditional).
 
         Uses two-discriminator pattern: io_kind (table) + io_type (extractor subtype).
@@ -348,26 +313,26 @@ class PythonStorage(BaseStorage):
         for io_op in python_io_operations:
             self.db_manager.add_python_io_operation(
                 file_path,
-                io_op.get('line', 0),
-                io_op.get('io_kind', ''),          # Discriminator
-                io_op.get('io_type'),              # Preserved subtype
-                io_op.get('operation'),
-                io_op.get('target'),
-                io_op.get('is_static', False),
-                # parameter_return_flow
-                io_op.get('flow_type'),
-                io_op.get('function_name'),
-                io_op.get('parameter_name'),
-                io_op.get('return_expr'),
-                io_op.get('is_async', False),
-                # common
-                io_op.get('in_function')
+                io_op.get("line", 0),
+                io_op.get("io_kind", ""),
+                io_op.get("io_type"),
+                io_op.get("operation"),
+                io_op.get("target"),
+                io_op.get("is_static", False),
+                io_op.get("flow_type"),
+                io_op.get("function_name"),
+                io_op.get("parameter_name"),
+                io_op.get("return_expr"),
+                io_op.get("is_async", False),
+                io_op.get("in_function"),
             )
-            if 'python_io_operations' not in self.counts:
-                self.counts['python_io_operations'] = 0
-            self.counts['python_io_operations'] += 1
+            if "python_io_operations" not in self.counts:
+                self.counts["python_io_operations"] = 0
+            self.counts["python_io_operations"] += 1
 
-    def _store_python_state_mutations(self, file_path: str, python_state_mutations: list, jsx_pass: bool):
+    def _store_python_state_mutations(
+        self, file_path: str, python_state_mutations: list, jsx_pass: bool
+    ):
         """Store Python state mutations (instance/class/global/argument/augmented).
 
         Uses two-discriminator pattern: mutation_kind (table) + mutation_type (extractor subtype).
@@ -375,30 +340,25 @@ class PythonStorage(BaseStorage):
         for mutation in python_state_mutations:
             self.db_manager.add_python_state_mutation(
                 file_path,
-                mutation.get('line', 0),
-                mutation.get('mutation_kind', ''),  # Discriminator
-                mutation.get('mutation_type'),      # Preserved subtype
-                mutation.get('target'),
-                # augmented_assignments
-                mutation.get('operator'),
-                mutation.get('target_type'),
-                # instance_mutations
-                mutation.get('operation'),
-                mutation.get('is_init', False),
-                mutation.get('is_dunder_method', False),
-                mutation.get('is_property_setter', False),
-                # common
-                mutation.get('in_function')
+                mutation.get("line", 0),
+                mutation.get("mutation_kind", ""),
+                mutation.get("mutation_type"),
+                mutation.get("target"),
+                mutation.get("operator"),
+                mutation.get("target_type"),
+                mutation.get("operation"),
+                mutation.get("is_init", False),
+                mutation.get("is_dunder_method", False),
+                mutation.get("is_property_setter", False),
+                mutation.get("in_function"),
             )
-            if 'python_state_mutations' not in self.counts:
-                self.counts['python_state_mutations'] = 0
-            self.counts['python_state_mutations'] += 1
+            if "python_state_mutations" not in self.counts:
+                self.counts["python_state_mutations"] = 0
+            self.counts["python_state_mutations"] += 1
 
-    # =========================================================================
-    # CONSOLIDATED TABLES - Group 2: Object-Oriented & Types (5 handlers + 2 junctions)
-    # =========================================================================
-
-    def _store_python_class_features(self, file_path: str, python_class_features: list, jsx_pass: bool):
+    def _store_python_class_features(
+        self, file_path: str, python_class_features: list, jsx_pass: bool
+    ):
         """Store Python class features (metaclass/slots/abstract/dataclass/enum/etc).
 
         Two-discriminator pattern: feature_kind (table discriminator) + feature_type (extractor subtype preserved)
@@ -406,41 +366,33 @@ class PythonStorage(BaseStorage):
         for feature in python_class_features:
             self.db_manager.add_python_class_feature(
                 file_path,
-                feature.get('line', 0),
-                feature.get('feature_kind', ''),  # Discriminator set by python_impl.py
-                feature.get('feature_type'),       # Preserved subtype from extractor
-                feature.get('class_name'),
-                feature.get('name'),
-                feature.get('in_class'),
-                # Metaclass columns
-                feature.get('metaclass_name'),
-                feature.get('is_definition', False),
-                # Dataclass columns
-                feature.get('field_count'),
-                feature.get('frozen', False),
-                # Enum columns
-                feature.get('enum_name'),
-                feature.get('enum_type'),
-                feature.get('member_count'),
-                # Slots columns
-                feature.get('slot_count'),
-                # Abstract columns
-                feature.get('abstract_method_count'),
-                # Method type columns
-                feature.get('method_name'),
-                feature.get('method_type'),
-                feature.get('category'),
-                # Visibility columns
-                feature.get('visibility'),
-                feature.get('is_name_mangled', False),
-                # Class decorator columns
-                feature.get('decorator'),
-                feature.get('decorator_type'),
-                feature.get('has_arguments', False)
+                feature.get("line", 0),
+                feature.get("feature_kind", ""),
+                feature.get("feature_type"),
+                feature.get("class_name"),
+                feature.get("name"),
+                feature.get("in_class"),
+                feature.get("metaclass_name"),
+                feature.get("is_definition", False),
+                feature.get("field_count"),
+                feature.get("frozen", False),
+                feature.get("enum_name"),
+                feature.get("enum_type"),
+                feature.get("member_count"),
+                feature.get("slot_count"),
+                feature.get("abstract_method_count"),
+                feature.get("method_name"),
+                feature.get("method_type"),
+                feature.get("category"),
+                feature.get("visibility"),
+                feature.get("is_name_mangled", False),
+                feature.get("decorator"),
+                feature.get("decorator_type"),
+                feature.get("has_arguments", False),
             )
-            if 'python_class_features' not in self.counts:
-                self.counts['python_class_features'] = 0
-            self.counts['python_class_features'] += 1
+            if "python_class_features" not in self.counts:
+                self.counts["python_class_features"] = 0
+            self.counts["python_class_features"] += 1
 
     def _store_python_protocols(self, file_path: str, python_protocols: list, jsx_pass: bool):
         """Store Python protocol implementations with junction table for methods.
@@ -450,51 +402,43 @@ class PythonStorage(BaseStorage):
         2. Insert each method into python_protocol_methods with protocol_id FK
         """
         for protocol in python_protocols:
-            # Insert parent and get ID for junction FK
             protocol_id = self.db_manager.add_python_protocol(
                 file_path,
-                protocol.get('line', 0),
-                protocol.get('protocol_kind', ''),  # Discriminator set by python_impl.py
-                protocol.get('protocol_type'),       # Preserved subtype from extractor
-                protocol.get('class_name'),
-                protocol.get('in_function'),
-                # Iterator protocol columns
-                protocol.get('has_iter', False),
-                protocol.get('has_next', False),
-                protocol.get('is_generator', False),
-                protocol.get('raises_stopiteration', False),
-                # Container protocol columns
-                protocol.get('has_contains', False),
-                protocol.get('has_getitem', False),
-                protocol.get('has_setitem', False),
-                protocol.get('has_delitem', False),
-                protocol.get('has_len', False),
-                protocol.get('is_mapping', False),
-                protocol.get('is_sequence', False),
-                # Callable protocol columns
-                protocol.get('has_args', False),
-                protocol.get('has_kwargs', False),
-                protocol.get('param_count'),
-                # Pickle protocol columns
-                protocol.get('has_getstate', False),
-                protocol.get('has_setstate', False),
-                protocol.get('has_reduce', False),
-                protocol.get('has_reduce_ex', False),
-                # Context manager columns
-                protocol.get('context_expr'),
-                protocol.get('resource_type'),
-                protocol.get('variable_name'),
-                protocol.get('is_async', False),
-                # Copy protocol columns
-                protocol.get('has_copy', False),
-                protocol.get('has_deepcopy', False)
+                protocol.get("line", 0),
+                protocol.get("protocol_kind", ""),
+                protocol.get("protocol_type"),
+                protocol.get("class_name"),
+                protocol.get("in_function"),
+                protocol.get("has_iter", False),
+                protocol.get("has_next", False),
+                protocol.get("is_generator", False),
+                protocol.get("raises_stopiteration", False),
+                protocol.get("has_contains", False),
+                protocol.get("has_getitem", False),
+                protocol.get("has_setitem", False),
+                protocol.get("has_delitem", False),
+                protocol.get("has_len", False),
+                protocol.get("is_mapping", False),
+                protocol.get("is_sequence", False),
+                protocol.get("has_args", False),
+                protocol.get("has_kwargs", False),
+                protocol.get("param_count"),
+                protocol.get("has_getstate", False),
+                protocol.get("has_setstate", False),
+                protocol.get("has_reduce", False),
+                protocol.get("has_reduce_ex", False),
+                protocol.get("context_expr"),
+                protocol.get("resource_type"),
+                protocol.get("variable_name"),
+                protocol.get("is_async", False),
+                protocol.get("has_copy", False),
+                protocol.get("has_deepcopy", False),
             )
 
-            # Insert methods into junction table
-            implemented_methods = protocol.get('implemented_methods') or []
+            implemented_methods = protocol.get("implemented_methods") or []
             if isinstance(implemented_methods, str):
-                # Handle JSON string from extractor
                 import json
+
                 try:
                     implemented_methods = json.loads(implemented_methods)
                 except (json.JSONDecodeError, TypeError):
@@ -504,13 +448,13 @@ class PythonStorage(BaseStorage):
                 self.db_manager.add_python_protocol_method(
                     file_path, protocol_id, method_name, order
                 )
-                if 'python_protocol_methods' not in self.counts:
-                    self.counts['python_protocol_methods'] = 0
-                self.counts['python_protocol_methods'] += 1
+                if "python_protocol_methods" not in self.counts:
+                    self.counts["python_protocol_methods"] = 0
+                self.counts["python_protocol_methods"] += 1
 
-            if 'python_protocols' not in self.counts:
-                self.counts['python_protocols'] = 0
-            self.counts['python_protocols'] += 1
+            if "python_protocols" not in self.counts:
+                self.counts["python_protocols"] = 0
+            self.counts["python_protocols"] += 1
 
     def _store_python_descriptors(self, file_path: str, python_descriptors: list, jsx_pass: bool):
         """Store Python descriptors (property/cached_property/dynamic_attr/etc).
@@ -520,31 +464,30 @@ class PythonStorage(BaseStorage):
         for desc in python_descriptors:
             self.db_manager.add_python_descriptor(
                 file_path,
-                desc.get('line', 0),
-                desc.get('descriptor_kind', ''),  # Discriminator set by python_impl.py
-                desc.get('descriptor_type'),       # Preserved subtype from extractor
-                desc.get('name'),
-                desc.get('class_name'),
-                desc.get('in_class'),
-                # Renamed from has_getter/setter/deleter
-                desc.get('has_get', False) or desc.get('has_getter', False),
-                desc.get('has_set', False) or desc.get('has_setter', False),
-                desc.get('has_delete', False) or desc.get('has_deleter', False),
-                desc.get('is_data_descriptor', False),
-                # Property pattern columns
-                desc.get('property_name'),
-                desc.get('access_type'),
-                desc.get('has_computation', False),
-                desc.get('has_validation', False),
-                # Cached property columns
-                desc.get('method_name'),
-                desc.get('is_functools', False)
+                desc.get("line", 0),
+                desc.get("descriptor_kind", ""),
+                desc.get("descriptor_type"),
+                desc.get("name"),
+                desc.get("class_name"),
+                desc.get("in_class"),
+                desc.get("has_get", False) or desc.get("has_getter", False),
+                desc.get("has_set", False) or desc.get("has_setter", False),
+                desc.get("has_delete", False) or desc.get("has_deleter", False),
+                desc.get("is_data_descriptor", False),
+                desc.get("property_name"),
+                desc.get("access_type"),
+                desc.get("has_computation", False),
+                desc.get("has_validation", False),
+                desc.get("method_name"),
+                desc.get("is_functools", False),
             )
-            if 'python_descriptors' not in self.counts:
-                self.counts['python_descriptors'] = 0
-            self.counts['python_descriptors'] += 1
+            if "python_descriptors" not in self.counts:
+                self.counts["python_descriptors"] = 0
+            self.counts["python_descriptors"] += 1
 
-    def _store_python_type_definitions(self, file_path: str, python_type_definitions: list, jsx_pass: bool):
+    def _store_python_type_definitions(
+        self, file_path: str, python_type_definitions: list, jsx_pass: bool
+    ):
         """Store Python type definitions with junction table for TypedDict fields.
 
         CRITICAL: Uses parent ID return pattern for junction table FK.
@@ -552,10 +495,10 @@ class PythonStorage(BaseStorage):
         2. If type_kind='typed_dict', insert fields into python_typeddict_fields
         """
         for typedef in python_type_definitions:
-            # Expand type_params from list to individual columns
-            type_params = typedef.get('type_params') or []
+            type_params = typedef.get("type_params") or []
             if isinstance(type_params, str):
                 import json
+
                 try:
                     type_params = json.loads(type_params)
                 except (json.JSONDecodeError, TypeError):
@@ -568,56 +511,58 @@ class PythonStorage(BaseStorage):
             type_param_4 = type_params[3] if len(type_params) > 3 else None
             type_param_5 = type_params[4] if len(type_params) > 4 else None
 
-            # Convert methods to comma-separated string if it's a list
-            methods = typedef.get('methods')
+            methods = typedef.get("methods")
             if isinstance(methods, list):
-                methods = ','.join(str(m) for m in methods)
+                methods = ",".join(str(m) for m in methods)
 
-            # Insert parent and get ID for junction FK
             typedef_id = self.db_manager.add_python_type_definition(
                 file_path,
-                typedef.get('line', 0),
-                typedef.get('type_kind', ''),
-                typedef.get('name') or typedef.get('typeddict_name'),
+                typedef.get("line", 0),
+                typedef.get("type_kind", ""),
+                typedef.get("name") or typedef.get("typeddict_name"),
                 type_param_count,
-                type_param_1, type_param_2, type_param_3, type_param_4, type_param_5,
-                typedef.get('is_runtime_checkable', False),
-                methods  # Comma-separated string
+                type_param_1,
+                type_param_2,
+                type_param_3,
+                type_param_4,
+                type_param_5,
+                typedef.get("is_runtime_checkable", False),
+                methods,
             )
 
-            # Insert fields into junction table (only for typed_dict)
-            if typedef.get('type_kind') == 'typed_dict':
-                fields = typedef.get('fields') or []
+            if typedef.get("type_kind") == "typed_dict":
+                fields = typedef.get("fields") or []
                 if isinstance(fields, str):
                     import json
+
                     try:
                         fields = json.loads(fields)
                     except (json.JSONDecodeError, TypeError):
                         fields = []
 
-                # Extractor returns fields as list of dicts: [{field_name, field_type, is_required}, ...]
                 if isinstance(fields, list):
                     for order, field_info in enumerate(fields):
                         if isinstance(field_info, dict):
-                            field_name = field_info.get('field_name') or field_info.get('name')
-                            field_type = field_info.get('field_type') or field_info.get('type')
-                            required = field_info.get('is_required', True) or field_info.get('required', True)
+                            field_name = field_info.get("field_name") or field_info.get("name")
+                            field_type = field_info.get("field_type") or field_info.get("type")
+                            required = field_info.get("is_required", True) or field_info.get(
+                                "required", True
+                            )
                         else:
-                            continue  # Skip non-dict entries
+                            continue
 
-                        if field_name:  # Only insert if we have a field name
+                        if field_name:
                             self.db_manager.add_python_typeddict_field(
                                 file_path, typedef_id, field_name, field_type, required, order
                             )
-                            if 'python_typeddict_fields' not in self.counts:
-                                self.counts['python_typeddict_fields'] = 0
-                            self.counts['python_typeddict_fields'] += 1
+                            if "python_typeddict_fields" not in self.counts:
+                                self.counts["python_typeddict_fields"] = 0
+                            self.counts["python_typeddict_fields"] += 1
                 elif isinstance(fields, dict):
-                    # Fallback for dict format: {field_name: field_type, ...}
                     for order, (field_name, field_info) in enumerate(fields.items()):
                         if isinstance(field_info, dict):
-                            field_type = field_info.get('type')
-                            required = field_info.get('required', True)
+                            field_type = field_info.get("type")
+                            required = field_info.get("required", True)
                         else:
                             field_type = field_info
                             required = True
@@ -625,13 +570,13 @@ class PythonStorage(BaseStorage):
                         self.db_manager.add_python_typeddict_field(
                             file_path, typedef_id, field_name, field_type, required, order
                         )
-                        if 'python_typeddict_fields' not in self.counts:
-                            self.counts['python_typeddict_fields'] = 0
-                        self.counts['python_typeddict_fields'] += 1
+                        if "python_typeddict_fields" not in self.counts:
+                            self.counts["python_typeddict_fields"] = 0
+                        self.counts["python_typeddict_fields"] += 1
 
-            if 'python_type_definitions' not in self.counts:
-                self.counts['python_type_definitions'] = 0
-            self.counts['python_type_definitions'] += 1
+            if "python_type_definitions" not in self.counts:
+                self.counts["python_type_definitions"] = 0
+            self.counts["python_type_definitions"] += 1
 
     def _store_python_literals(self, file_path: str, python_literals: list, jsx_pass: bool):
         """Store Python Literal/Overload types.
@@ -639,16 +584,15 @@ class PythonStorage(BaseStorage):
         Two-discriminator pattern: literal_kind (table discriminator) + literal_type (extractor subtype preserved)
         """
         for lit in python_literals:
-            # Expand literal_values from list to individual columns
-            literal_values = lit.get('literal_values') or lit.get('values') or []
+            literal_values = lit.get("literal_values") or lit.get("values") or []
             if isinstance(literal_values, str):
                 import json
+
                 try:
                     literal_values = json.loads(literal_values)
                 except (json.JSONDecodeError, TypeError):
                     literal_values = []
 
-            # Convert values to strings for storage
             def to_str(v):
                 return str(v) if v is not None else None
 
@@ -658,31 +602,32 @@ class PythonStorage(BaseStorage):
             literal_value_4 = to_str(literal_values[3]) if len(literal_values) > 3 else None
             literal_value_5 = to_str(literal_values[4]) if len(literal_values) > 4 else None
 
-            # Convert variants to comma-separated string if it's a list
-            variants = lit.get('variants')
+            variants = lit.get("variants")
             if isinstance(variants, list):
-                variants = ','.join(str(v) for v in variants)
+                variants = ",".join(str(v) for v in variants)
 
             self.db_manager.add_python_literal(
                 file_path,
-                lit.get('line', 0),
-                lit.get('literal_kind', ''),  # Discriminator set by python_impl.py
-                lit.get('literal_type'),       # Preserved subtype from extractor
-                lit.get('name'),
-                literal_value_1, literal_value_2, literal_value_3, literal_value_4, literal_value_5,
-                lit.get('function_name'),
-                lit.get('overload_count'),
-                variants
+                lit.get("line", 0),
+                lit.get("literal_kind", ""),
+                lit.get("literal_type"),
+                lit.get("name"),
+                literal_value_1,
+                literal_value_2,
+                literal_value_3,
+                literal_value_4,
+                literal_value_5,
+                lit.get("function_name"),
+                lit.get("overload_count"),
+                variants,
             )
-            if 'python_literals' not in self.counts:
-                self.counts['python_literals'] = 0
-            self.counts['python_literals'] += 1
+            if "python_literals" not in self.counts:
+                self.counts["python_literals"] = 0
+            self.counts["python_literals"] += 1
 
-    # =========================================================================
-    # CONSOLIDATED TABLES - Group 3: Security & Testing (5 handlers)
-    # =========================================================================
-
-    def _store_python_security_findings(self, file_path: str, python_security_findings: list, jsx_pass: bool):
+    def _store_python_security_findings(
+        self, file_path: str, python_security_findings: list, jsx_pass: bool
+    ):
         """Store Python security findings (sql_injection/command_injection/etc).
 
         Two-discriminator pattern:
@@ -690,25 +635,24 @@ class PythonStorage(BaseStorage):
         - finding_type: Extractor's subtype (preserved from extractor)
         """
         for finding in python_security_findings:
-            # Set discriminator from finding_kind or fall back to finding_type
-            finding_kind = finding.get('finding_kind') or finding.get('finding_type', 'unknown')
+            finding_kind = finding.get("finding_kind") or finding.get("finding_type", "unknown")
             self.db_manager.add_python_security_finding(
                 file_path,
-                finding.get('line', 0),
+                finding.get("line", 0),
                 finding_kind,
-                finding.get('finding_type'),  # Preserve original as finding_type
-                finding.get('function_name'),
-                finding.get('decorator_name'),
-                finding.get('permissions'),
-                finding.get('is_vulnerable', False),
-                finding.get('shell_true', False),
-                finding.get('is_constant_input', False),
-                finding.get('is_critical', False),
-                finding.get('has_concatenation', False)
+                finding.get("finding_type"),
+                finding.get("function_name"),
+                finding.get("decorator_name"),
+                finding.get("permissions"),
+                finding.get("is_vulnerable", False),
+                finding.get("shell_true", False),
+                finding.get("is_constant_input", False),
+                finding.get("is_critical", False),
+                finding.get("has_concatenation", False),
             )
-            if 'python_security_findings' not in self.counts:
-                self.counts['python_security_findings'] = 0
-            self.counts['python_security_findings'] += 1
+            if "python_security_findings" not in self.counts:
+                self.counts["python_security_findings"] = 0
+            self.counts["python_security_findings"] += 1
 
     def _store_python_test_cases(self, file_path: str, python_test_cases: list, jsx_pass: bool):
         """Store Python test cases (unittest/pytest/assertion).
@@ -718,24 +662,25 @@ class PythonStorage(BaseStorage):
         - test_type: Extractor's subtype (preserved from extractor)
         """
         for test in python_test_cases:
-            # Set discriminator from test_kind or fall back to test_type
-            test_kind = test.get('test_kind') or test.get('test_type', 'unknown')
+            test_kind = test.get("test_kind") or test.get("test_type", "unknown")
             self.db_manager.add_python_test_case(
                 file_path,
-                test.get('line', 0),
+                test.get("line", 0),
                 test_kind,
-                test.get('test_type'),  # Preserve original as test_type
-                test.get('name'),
-                test.get('function_name'),
-                test.get('class_name'),
-                test.get('assertion_type'),
-                test.get('test_expr')
+                test.get("test_type"),
+                test.get("name"),
+                test.get("function_name"),
+                test.get("class_name"),
+                test.get("assertion_type"),
+                test.get("test_expr"),
             )
-            if 'python_test_cases' not in self.counts:
-                self.counts['python_test_cases'] = 0
-            self.counts['python_test_cases'] += 1
+            if "python_test_cases" not in self.counts:
+                self.counts["python_test_cases"] = 0
+            self.counts["python_test_cases"] += 1
 
-    def _store_python_test_fixtures(self, file_path: str, python_test_fixtures: list, jsx_pass: bool):
+    def _store_python_test_fixtures(
+        self, file_path: str, python_test_fixtures: list, jsx_pass: bool
+    ):
         """Store Python test fixtures (fixture/parametrize/marker/mock/etc).
 
         Two-discriminator pattern:
@@ -745,41 +690,41 @@ class PythonStorage(BaseStorage):
         Junction table: python_fixture_params for params array
         """
         for fixture in python_test_fixtures:
-            # Set discriminator from fixture_kind or fall back to fixture_type
-            fixture_kind = fixture.get('fixture_kind') or fixture.get('fixture_type', 'unknown')
-            # Insert parent - returns row ID for junction FK
+            fixture_kind = fixture.get("fixture_kind") or fixture.get("fixture_type", "unknown")
+
             fixture_id = self.db_manager.add_python_test_fixture(
                 file_path,
-                fixture.get('line', 0),
+                fixture.get("line", 0),
                 fixture_kind,
-                fixture.get('fixture_type'),  # Preserve original as fixture_type
-                fixture.get('name'),
-                fixture.get('scope'),
-                fixture.get('autouse', False),
-                fixture.get('in_function')
+                fixture.get("fixture_type"),
+                fixture.get("name"),
+                fixture.get("scope"),
+                fixture.get("autouse", False),
+                fixture.get("in_function"),
             )
-            if 'python_test_fixtures' not in self.counts:
-                self.counts['python_test_fixtures'] = 0
-            self.counts['python_test_fixtures'] += 1
+            if "python_test_fixtures" not in self.counts:
+                self.counts["python_test_fixtures"] = 0
+            self.counts["python_test_fixtures"] += 1
 
-            # Populate junction table for params
-            params = fixture.get('params')
+            params = fixture.get("params")
             if params and isinstance(params, list):
                 for idx, param in enumerate(params):
                     if isinstance(param, dict):
-                        param_name = param.get('name')
-                        param_value = param.get('value')
+                        param_name = param.get("name")
+                        param_value = param.get("value")
                     else:
                         param_name = str(param) if param else None
                         param_value = None
                     self.db_manager.add_python_fixture_param(
                         file_path, fixture_id, param_name, param_value, idx
                     )
-                    if 'python_fixture_params' not in self.counts:
-                        self.counts['python_fixture_params'] = 0
-                    self.counts['python_fixture_params'] += 1
+                    if "python_fixture_params" not in self.counts:
+                        self.counts["python_fixture_params"] = 0
+                    self.counts["python_fixture_params"] += 1
 
-    def _store_python_framework_config(self, file_path: str, python_framework_config: list, jsx_pass: bool):
+    def _store_python_framework_config(
+        self, file_path: str, python_framework_config: list, jsx_pass: bool
+    ):
         """Store Python framework configurations (flask/celery/django).
 
         Two-discriminator pattern:
@@ -789,35 +734,32 @@ class PythonStorage(BaseStorage):
         Junction table: python_framework_methods for methods array
         """
         for config in python_framework_config:
-            # Set discriminator from config_kind or fall back to config_type
-            config_kind = config.get('config_kind') or config.get('config_type', 'unknown')
-            # Insert parent - returns row ID for junction FK
+            config_kind = config.get("config_kind") or config.get("config_type", "unknown")
+
             config_id = self.db_manager.add_python_framework_config(
                 file_path,
-                config.get('line', 0),
+                config.get("line", 0),
                 config_kind,
-                config.get('config_type'),  # Preserve original as config_type
-                config.get('framework', ''),
-                config.get('name'),
-                config.get('endpoint'),
-                config.get('cache_type'),
-                config.get('timeout'),
-                config.get('has_process_request', False),
-                config.get('has_process_response', False),
-                config.get('has_process_exception', False),
-                config.get('has_process_view', False),
-                config.get('has_process_template_response', False)
+                config.get("config_type"),
+                config.get("framework", ""),
+                config.get("name"),
+                config.get("endpoint"),
+                config.get("cache_type"),
+                config.get("timeout"),
+                config.get("has_process_request", False),
+                config.get("has_process_response", False),
+                config.get("has_process_exception", False),
+                config.get("has_process_view", False),
+                config.get("has_process_template_response", False),
             )
-            if 'python_framework_config' not in self.counts:
-                self.counts['python_framework_config'] = 0
-            self.counts['python_framework_config'] += 1
+            if "python_framework_config" not in self.counts:
+                self.counts["python_framework_config"] = 0
+            self.counts["python_framework_config"] += 1
 
-            # Populate junction table for methods
-            methods = config.get('methods')
+            methods = config.get("methods")
             if methods:
-                # Handle both string (comma-separated) and list formats
                 if isinstance(methods, str):
-                    method_list = [m.strip() for m in methods.split(',') if m.strip()]
+                    method_list = [m.strip() for m in methods.split(",") if m.strip()]
                 elif isinstance(methods, list):
                     method_list = methods
                 else:
@@ -826,11 +768,13 @@ class PythonStorage(BaseStorage):
                     self.db_manager.add_python_framework_method(
                         file_path, config_id, method_name, idx
                     )
-                    if 'python_framework_methods' not in self.counts:
-                        self.counts['python_framework_methods'] = 0
-                    self.counts['python_framework_methods'] += 1
+                    if "python_framework_methods" not in self.counts:
+                        self.counts["python_framework_methods"] = 0
+                    self.counts["python_framework_methods"] += 1
 
-    def _store_python_validation_schemas(self, file_path: str, python_validation_schemas: list, jsx_pass: bool):
+    def _store_python_validation_schemas(
+        self, file_path: str, python_validation_schemas: list, jsx_pass: bool
+    ):
         """Store Python validation schemas (marshmallow/drf/wtforms).
 
         Two-discriminator pattern:
@@ -840,30 +784,28 @@ class PythonStorage(BaseStorage):
         Junction table: python_schema_validators for validators array
         """
         for schema in python_validation_schemas:
-            # Set discriminator from schema_kind or fall back to schema_type
-            schema_kind = schema.get('schema_kind') or schema.get('schema_type', 'unknown')
-            # Insert parent - returns row ID for junction FK
+            schema_kind = schema.get("schema_kind") or schema.get("schema_type", "unknown")
+
             schema_id = self.db_manager.add_python_validation_schema(
                 file_path,
-                schema.get('line', 0),
+                schema.get("line", 0),
                 schema_kind,
-                schema.get('schema_type'),  # Preserve original as schema_type
-                schema.get('framework', ''),
-                schema.get('name'),
-                schema.get('field_type'),
-                schema.get('required', False)
+                schema.get("schema_type"),
+                schema.get("framework", ""),
+                schema.get("name"),
+                schema.get("field_type"),
+                schema.get("required", False),
             )
-            if 'python_validation_schemas' not in self.counts:
-                self.counts['python_validation_schemas'] = 0
-            self.counts['python_validation_schemas'] += 1
+            if "python_validation_schemas" not in self.counts:
+                self.counts["python_validation_schemas"] = 0
+            self.counts["python_validation_schemas"] += 1
 
-            # Populate junction table for validators
-            validators = schema.get('validators')
+            validators = schema.get("validators")
             if validators and isinstance(validators, list):
                 for idx, validator in enumerate(validators):
                     if isinstance(validator, dict):
-                        validator_name = validator.get('name', str(validator))
-                        validator_type = validator.get('type')
+                        validator_name = validator.get("name", str(validator))
+                        validator_type = validator.get("type")
                     else:
                         validator_name = str(validator) if validator else None
                         validator_type = None
@@ -871,13 +813,9 @@ class PythonStorage(BaseStorage):
                         self.db_manager.add_python_schema_validator(
                             file_path, schema_id, validator_name, validator_type, idx
                         )
-                        if 'python_schema_validators' not in self.counts:
-                            self.counts['python_schema_validators'] = 0
-                        self.counts['python_schema_validators'] += 1
-
-    # =========================================================================
-    # CONSOLIDATED TABLES - Group 4: Low-Level & Misc (5 handlers)
-    # =========================================================================
+                        if "python_schema_validators" not in self.counts:
+                            self.counts["python_schema_validators"] = 0
+                        self.counts["python_schema_validators"] += 1
 
     def _store_python_operators(self, file_path: str, python_operators: list, jsx_pass: bool):
         """Store Python operators (binary/unary/membership/chained/ternary/walrus/matmul).
@@ -887,25 +825,24 @@ class PythonStorage(BaseStorage):
         - operator_type: Extractor's subtype (preserved from extractor)
         """
         for op in python_operators:
-            # Set discriminator from operator_kind or fall back to operator_type
-            operator_kind = op.get('operator_kind') or op.get('operator_type', 'unknown')
+            operator_kind = op.get("operator_kind") or op.get("operator_type", "unknown")
             self.db_manager.add_python_operator(
                 file_path,
-                op.get('line', 0),
+                op.get("line", 0),
                 operator_kind,
-                op.get('operator_type'),  # Preserve original as operator_type
-                op.get('operator'),
-                op.get('in_function'),
-                op.get('container_type'),
-                op.get('chain_length'),
-                op.get('operators'),
-                op.get('has_complex_condition', False),
-                op.get('variable'),
-                op.get('used_in')
+                op.get("operator_type"),
+                op.get("operator"),
+                op.get("in_function"),
+                op.get("container_type"),
+                op.get("chain_length"),
+                op.get("operators"),
+                op.get("has_complex_condition", False),
+                op.get("variable"),
+                op.get("used_in"),
             )
-            if 'python_operators' not in self.counts:
-                self.counts['python_operators'] = 0
-            self.counts['python_operators'] += 1
+            if "python_operators" not in self.counts:
+                self.counts["python_operators"] = 0
+            self.counts["python_operators"] += 1
 
     def _store_python_collections(self, file_path: str, python_collections: list, jsx_pass: bool):
         """Store Python collection operations (dict/list/set/string/builtin).
@@ -915,24 +852,23 @@ class PythonStorage(BaseStorage):
         - collection_type: Extractor's subtype (preserved from extractor)
         """
         for coll in python_collections:
-            # Set discriminator from collection_kind or fall back to collection_type
-            collection_kind = coll.get('collection_kind') or coll.get('collection_type', 'unknown')
+            collection_kind = coll.get("collection_kind") or coll.get("collection_type", "unknown")
             self.db_manager.add_python_collection(
                 file_path,
-                coll.get('line', 0),
+                coll.get("line", 0),
                 collection_kind,
-                coll.get('collection_type'),  # Preserve original as collection_type
-                coll.get('operation'),
-                coll.get('method'),
-                coll.get('in_function'),
-                coll.get('has_default', False),
-                coll.get('mutates_in_place', False),
-                coll.get('builtin'),
-                coll.get('has_key', False)
+                coll.get("collection_type"),
+                coll.get("operation"),
+                coll.get("method"),
+                coll.get("in_function"),
+                coll.get("has_default", False),
+                coll.get("mutates_in_place", False),
+                coll.get("builtin"),
+                coll.get("has_key", False),
             )
-            if 'python_collections' not in self.counts:
-                self.counts['python_collections'] = 0
-            self.counts['python_collections'] += 1
+            if "python_collections" not in self.counts:
+                self.counts["python_collections"] = 0
+            self.counts["python_collections"] += 1
 
     def _store_python_stdlib_usage(self, file_path: str, python_stdlib_usage: list, jsx_pass: bool):
         """Store Python stdlib usage (re/json/datetime/pathlib/logging/threading/etc).
@@ -942,30 +878,31 @@ class PythonStorage(BaseStorage):
         - usage_type: Extractor's subtype (preserved from extractor)
         """
         for usage in python_stdlib_usage:
-            # Set discriminator from stdlib_kind or fall back to module
-            stdlib_kind = usage.get('stdlib_kind') or usage.get('module', 'unknown')
+            stdlib_kind = usage.get("stdlib_kind") or usage.get("module", "unknown")
             self.db_manager.add_python_stdlib_usage(
                 file_path,
-                usage.get('line', 0),
+                usage.get("line", 0),
                 stdlib_kind,
-                usage.get('module'),
-                usage.get('usage_type'),  # Preserve original as usage_type
-                usage.get('function_name'),
-                usage.get('pattern'),
-                usage.get('in_function'),
-                usage.get('operation'),
-                usage.get('has_flags', False),
-                usage.get('direction'),
-                usage.get('path_type'),
-                usage.get('log_level'),
-                usage.get('threading_type'),
-                usage.get('is_decorator', False)
+                usage.get("module"),
+                usage.get("usage_type"),
+                usage.get("function_name"),
+                usage.get("pattern"),
+                usage.get("in_function"),
+                usage.get("operation"),
+                usage.get("has_flags", False),
+                usage.get("direction"),
+                usage.get("path_type"),
+                usage.get("log_level"),
+                usage.get("threading_type"),
+                usage.get("is_decorator", False),
             )
-            if 'python_stdlib_usage' not in self.counts:
-                self.counts['python_stdlib_usage'] = 0
-            self.counts['python_stdlib_usage'] += 1
+            if "python_stdlib_usage" not in self.counts:
+                self.counts["python_stdlib_usage"] = 0
+            self.counts["python_stdlib_usage"] += 1
 
-    def _store_python_imports_advanced(self, file_path: str, python_imports_advanced: list, jsx_pass: bool):
+    def _store_python_imports_advanced(
+        self, file_path: str, python_imports_advanced: list, jsx_pass: bool
+    ):
         """Store advanced Python import patterns (static/dynamic/namespace/module_attr/export).
 
         Two-discriminator pattern:
@@ -973,29 +910,28 @@ class PythonStorage(BaseStorage):
         - import_type: Extractor's subtype (preserved from extractor)
         """
         for imp in python_imports_advanced:
-            # Set discriminator from import_kind or fall back to import_type
-            import_kind = imp.get('import_kind') or imp.get('import_type', 'unknown')
+            import_kind = imp.get("import_kind") or imp.get("import_type", "unknown")
             self.db_manager.add_python_import_advanced(
                 file_path,
-                imp.get('line', 0),
+                imp.get("line", 0),
                 import_kind,
-                imp.get('import_type'),  # Preserve original as import_type
-                imp.get('module'),
-                imp.get('name'),
-                imp.get('alias'),
-                imp.get('is_relative', False),
-                imp.get('in_function'),
-                imp.get('has_alias', False),
-                imp.get('imported_names'),
-                imp.get('is_wildcard', False),
-                imp.get('relative_level'),
-                imp.get('attribute'),
-                imp.get('default', False) or imp.get('is_default', False),  # is_default (renamed from default)
-                imp.get('export_type') or imp.get('type')  # export_type or fall back to 'type' from extractor
+                imp.get("import_type"),
+                imp.get("module"),
+                imp.get("name"),
+                imp.get("alias"),
+                imp.get("is_relative", False),
+                imp.get("in_function"),
+                imp.get("has_alias", False),
+                imp.get("imported_names"),
+                imp.get("is_wildcard", False),
+                imp.get("relative_level"),
+                imp.get("attribute"),
+                imp.get("default", False) or imp.get("is_default", False),
+                imp.get("export_type") or imp.get("type"),
             )
-            if 'python_imports_advanced' not in self.counts:
-                self.counts['python_imports_advanced'] = 0
-            self.counts['python_imports_advanced'] += 1
+            if "python_imports_advanced" not in self.counts:
+                self.counts["python_imports_advanced"] = 0
+            self.counts["python_imports_advanced"] += 1
 
     def _store_python_expressions(self, file_path: str, python_expressions: list, jsx_pass: bool):
         """Store Python expression patterns (slice/tuple/unpack/none/truthiness/format/etc).
@@ -1005,50 +941,46 @@ class PythonStorage(BaseStorage):
         - expression_type: Extractor's subtype (preserved from extractor)
         """
         for expr in python_expressions:
-            # Set discriminator from expression_kind or fall back to expression_type
-            expression_kind = expr.get('expression_kind') or expr.get('expression_type', 'unknown')
+            expression_kind = expr.get("expression_kind") or expr.get("expression_type", "unknown")
             self.db_manager.add_python_expression(
                 file_path,
-                expr.get('line', 0),
+                expr.get("line", 0),
                 expression_kind,
-                expr.get('expression_type'),  # Preserve original as expression_type
-                expr.get('in_function'),
-                expr.get('target'),
-                expr.get('has_start', False),
-                expr.get('has_stop', False),
-                expr.get('has_step', False),
-                expr.get('is_assignment', False),
-                expr.get('element_count'),
-                expr.get('operation'),
-                expr.get('has_rest', False),
-                expr.get('target_count'),
-                expr.get('unpack_type'),
-                expr.get('pattern'),
-                expr.get('uses_is', False),
-                expr.get('format_type'),
-                expr.get('has_expressions', False),
-                expr.get('var_count'),
-                expr.get('context'),
-                expr.get('has_globals', False),
-                expr.get('has_locals', False),
-                expr.get('generator_function'),
-                expr.get('yield_expr'),
-                expr.get('yield_type'),
-                expr.get('in_loop', False),
-                expr.get('condition'),
-                expr.get('awaited_expr'),
-                expr.get('containing_function')
+                expr.get("expression_type"),
+                expr.get("in_function"),
+                expr.get("target"),
+                expr.get("has_start", False),
+                expr.get("has_stop", False),
+                expr.get("has_step", False),
+                expr.get("is_assignment", False),
+                expr.get("element_count"),
+                expr.get("operation"),
+                expr.get("has_rest", False),
+                expr.get("target_count"),
+                expr.get("unpack_type"),
+                expr.get("pattern"),
+                expr.get("uses_is", False),
+                expr.get("format_type"),
+                expr.get("has_expressions", False),
+                expr.get("var_count"),
+                expr.get("context"),
+                expr.get("has_globals", False),
+                expr.get("has_locals", False),
+                expr.get("generator_function"),
+                expr.get("yield_expr"),
+                expr.get("yield_type"),
+                expr.get("in_loop", False),
+                expr.get("condition"),
+                expr.get("awaited_expr"),
+                expr.get("containing_function"),
             )
-            if 'python_expressions' not in self.counts:
-                self.counts['python_expressions'] = 0
-            self.counts['python_expressions'] += 1
+            if "python_expressions" not in self.counts:
+                self.counts["python_expressions"] = 0
+            self.counts["python_expressions"] += 1
 
-    # =========================================================================
-    # CONSOLIDATED TABLES - Group 5: Expression Decomposition (2 handlers)
-    # Phase 2 Fidelity Control - split from python_expressions
-    # =========================================================================
-
-    def _store_python_comprehensions(self, file_path: str, python_comprehensions: list, jsx_pass: bool):
+    def _store_python_comprehensions(
+        self, file_path: str, python_comprehensions: list, jsx_pass: bool
+    ):
         """Store Python comprehensions (list/dict/set/generator).
 
         Split from python_expressions to reduce NULL sparsity.
@@ -1057,22 +989,24 @@ class PythonStorage(BaseStorage):
         for comp in python_comprehensions:
             self.db_manager.add_python_comprehension(
                 file_path,
-                comp.get('line', 0),
-                comp.get('comp_kind', ''),
-                comp.get('comp_type'),
-                comp.get('iteration_var'),
-                comp.get('iteration_source'),
-                comp.get('result_expr'),
-                comp.get('filter_expr'),
-                comp.get('has_filter', False),
-                comp.get('nesting_level', 0),
-                comp.get('in_function')
+                comp.get("line", 0),
+                comp.get("comp_kind", ""),
+                comp.get("comp_type"),
+                comp.get("iteration_var"),
+                comp.get("iteration_source"),
+                comp.get("result_expr"),
+                comp.get("filter_expr"),
+                comp.get("has_filter", False),
+                comp.get("nesting_level", 0),
+                comp.get("in_function"),
             )
-            if 'python_comprehensions' not in self.counts:
-                self.counts['python_comprehensions'] = 0
-            self.counts['python_comprehensions'] += 1
+            if "python_comprehensions" not in self.counts:
+                self.counts["python_comprehensions"] = 0
+            self.counts["python_comprehensions"] += 1
 
-    def _store_python_control_statements(self, file_path: str, python_control_statements: list, jsx_pass: bool):
+    def _store_python_control_statements(
+        self, file_path: str, python_control_statements: list, jsx_pass: bool
+    ):
         """Store Python control statements (break/continue/pass/assert/del/with).
 
         Split from python_expressions to reduce NULL sparsity.
@@ -1081,19 +1015,19 @@ class PythonStorage(BaseStorage):
         for stmt in python_control_statements:
             self.db_manager.add_python_control_statement(
                 file_path,
-                stmt.get('line', 0),
-                stmt.get('statement_kind', ''),
-                stmt.get('statement_type'),
-                stmt.get('loop_type'),
-                stmt.get('condition_type'),
-                stmt.get('has_message', False),
-                stmt.get('target_count'),
-                stmt.get('target_type'),
-                stmt.get('context_count'),
-                stmt.get('has_alias', False),
-                stmt.get('is_async', False),
-                stmt.get('in_function')
+                stmt.get("line", 0),
+                stmt.get("statement_kind", ""),
+                stmt.get("statement_type"),
+                stmt.get("loop_type"),
+                stmt.get("condition_type"),
+                stmt.get("has_message", False),
+                stmt.get("target_count"),
+                stmt.get("target_type"),
+                stmt.get("context_count"),
+                stmt.get("has_alias", False),
+                stmt.get("is_async", False),
+                stmt.get("in_function"),
             )
-            if 'python_control_statements' not in self.counts:
-                self.counts['python_control_statements'] = 0
-            self.counts['python_control_statements'] += 1
+            if "python_control_statements" not in self.counts:
+                self.counts["python_control_statements"] = 0
+            self.counts["python_control_statements"] += 1

@@ -1,6 +1,7 @@
 """Database layer - contains SQL injection sinks (TAINT SINKS)."""
 
 import sqlite3
+
 import psycopg2
 
 

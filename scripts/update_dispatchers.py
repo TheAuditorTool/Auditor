@@ -18,6 +18,7 @@ import re
 import shutil
 from pathlib import Path
 
+
 def update_dispatchers():
     # Configuration
     python_extractor_path = Path("theauditor/indexer/extractors/python.py")
@@ -60,7 +61,6 @@ def update_dispatchers():
 
         # B. Mass Replace Calls (The tedious part)
         # Pattern matches: extract_anything(tree, self) or extract_anything(tree, parser_self)
-        original_content = content
 
         # Multiple patterns to catch variations
         patterns = [
@@ -92,10 +92,7 @@ def update_dispatchers():
 
                 # Find the indentation of the next line
                 next_line_match = re.search(r'\n(\s+)', content[def_end:])
-                if next_line_match:
-                    indent = next_line_match.group(1)
-                else:
-                    indent = "        "  # Default 8 spaces
+                indent = next_line_match.group(1) if next_line_match else "        "  # Default 8 spaces
 
                 # Build the context initialization block
                 context_init = f'''

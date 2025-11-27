@@ -11,14 +11,14 @@ This represents a real-world test suite for an e-commerce platform with:
 """
 
 import unittest
-from unittest.mock import Mock, patch, MagicMock, call
-from hypothesis import given, strategies as st, assume, settings
-from hypothesis.strategies import composite
-import pytest
+from datetime import datetime
 from decimal import Decimal
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from unittest.mock import Mock, call
 
+import pytest
+from hypothesis import assume, given
+from hypothesis import strategies as st
+from hypothesis.strategies import composite
 
 # ============================================================================
 # DOMAIN MODELS (for testing context)

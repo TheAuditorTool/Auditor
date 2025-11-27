@@ -5,7 +5,6 @@ Terraform extraction now relies entirely on the tree-sitter-powered
 legacy imports fail with a clear error instead of ``ModuleNotFoundError``.
 """
 
-
 from pathlib import Path
 from typing import Any
 

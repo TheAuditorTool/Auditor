@@ -1,6 +1,6 @@
 """Repository stub used by UserService."""
 
-from typing import Any, Dict
+from typing import Any
 
 
 class UserRepository:

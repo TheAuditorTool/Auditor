@@ -14,7 +14,6 @@ schema columns were invented without verifying actual extractor outputs.
 """
 
 import logging
-from typing import Dict
 
 from .exceptions import DataFidelityError
 
@@ -22,11 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 def reconcile_fidelity(
-    manifest: Dict[str, int],
-    receipt: Dict[str, int],
-    file_path: str,
-    strict: bool = True
-) -> Dict[str, any]:
+    manifest: dict[str, int], receipt: dict[str, int], file_path: str, strict: bool = True
+) -> dict[str, any]:
     """Compare extraction manifest (what was found) vs storage receipt (what was saved).
 
     This is the core enforcement mechanism for data fidelity. It detects:
@@ -48,9 +44,9 @@ def reconcile_fidelity(
     Raises:
         DataFidelityError: If strict=True and data loss is detected.
     """
-    # Collect all table names from both sources, ignoring metadata keys
-    tables = {k for k in manifest.keys() if not k.startswith('_')}
-    tables.update({k for k in receipt.keys() if not k.startswith('_')})
+
+    tables = {k for k in manifest if not k.startswith("_")}
+    tables.update({k for k in receipt if not k.startswith("_")})
 
     errors = []
     warnings = []
@@ -60,29 +56,18 @@ def reconcile_fidelity(
         stored = receipt.get(table, 0)
 
         if extracted > 0 and stored == 0:
-            # CRITICAL: Data was extracted but nothing was stored.
-            # This usually means:
-            # - Missing storage handler
-            # - Silent crash in storage handler
-            # - Wrong key name in handler dispatch
             errors.append(f"{table}: extracted {extracted} -> stored 0 (100% LOSS)")
 
         elif extracted != stored:
-            # WARNING: Partial mismatch
-            # This could be:
-            # - Duplicate filtering (acceptable)
-            # - Partial insertion failure (concerning)
             delta = extracted - stored
             warnings.append(f"{table}: extracted {extracted} -> stored {stored} (delta: {delta})")
 
-    # Build result
     result = {
-        'status': 'FAILED' if errors else ('WARNING' if warnings else 'OK'),
-        'errors': errors,
-        'warnings': warnings
+        "status": "FAILED" if errors else ("WARNING" if warnings else "OK"),
+        "errors": errors,
+        "warnings": warnings,
     }
 
-    # Handle failures
     if errors:
         error_msg = (
             f"Fidelity Check FAILED for {file_path}. ZERO FALLBACK VIOLATION.\n"
@@ -95,14 +80,11 @@ def reconcile_fidelity(
             logger.error(error_msg)
             raise DataFidelityError(error_msg, details=result)
         else:
-            # Log as error even when not crashing (non-strict mode)
             logger.error(f"[NON-STRICT] {error_msg}")
 
     elif warnings:
-        # Log warnings but don't fail
         logger.warning(
-            f"Fidelity Warnings for {file_path}:\n"
-            + "\n".join(f"  - {w}" for w in warnings)
+            f"Fidelity Warnings for {file_path}:\n" + "\n".join(f"  - {w}" for w in warnings)
         )
 
     return result

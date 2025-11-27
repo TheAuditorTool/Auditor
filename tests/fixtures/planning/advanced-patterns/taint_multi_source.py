@@ -3,7 +3,6 @@ Assignments with multiple source variables (taint tracking).
 Tests: assignments JOIN assignment_sources
 """
 
-import os
 
 
 def calculate_total_price(base_price, tax_rate, discount_code):

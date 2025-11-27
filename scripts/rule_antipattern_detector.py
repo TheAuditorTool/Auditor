@@ -12,9 +12,8 @@ Usage:
 
 import ast
 import sys
-from pathlib import Path
 from dataclasses import dataclass
-from typing import List
+from pathlib import Path
 
 
 @dataclass
@@ -32,7 +31,7 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
     def __init__(self, filepath: str):
         self.filepath = filepath
-        self.issues: List[AntiPattern] = []
+        self.issues: list[AntiPattern] = []
         self.in_loop = False
         self.loop_iterates_fetchall = False
 
@@ -44,30 +43,28 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
         self.in_loop = True
 
         # Check if iterating over cursor.fetchall()
-        if isinstance(node.iter, ast.Call):
-            if isinstance(node.iter.func, ast.Attribute):
-                if node.iter.func.attr == 'fetchall':
-                    self.loop_iterates_fetchall = True
+        if (isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Attribute) and
+            node.iter.func.attr == 'fetchall'):
+            self.loop_iterates_fetchall = True
 
-                    # Check for N+1 pattern: cursor.execute inside loop
-                    for stmt in ast.walk(node):
-                        if isinstance(stmt, ast.Call):
-                            if isinstance(stmt.func, ast.Attribute):
-                                if stmt.func.attr == 'execute':
-                                    self.issues.append(AntiPattern(
-                                        file=self.filepath,
-                                        line=node.lineno,
-                                        pattern_type='N+1-query',
-                                        message='Query execution inside fetchall() loop - N+1 anti-pattern',
-                                        severity='critical'
-                                    ))
-                                    break
+            # Check for N+1 pattern: cursor.execute inside loop
+            for stmt in ast.walk(node):
+                if (isinstance(stmt, ast.Call) and isinstance(stmt.func, ast.Attribute) and
+                    stmt.func.attr == 'execute'):
+                    self.issues.append(AntiPattern(
+                        file=self.filepath,
+                        line=node.lineno,
+                        pattern_type='N+1-query',
+                        message='Query execution inside fetchall() loop - N+1 anti-pattern',
+                        severity='critical'
+                    ))
+                    break
 
-                    # Check for checked_count pattern
-                    self._check_artificial_limit(node)
+            # Check for checked_count pattern
+            self._check_artificial_limit(node)
 
-                    # Check for Python filtering that should be in SQL
-                    self._check_python_filtering(node)
+            # Check for Python filtering that should be in SQL
+            self._check_python_filtering(node)
 
         self.generic_visit(node)
 
@@ -81,20 +78,18 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
         for stmt in ast.walk(loop_node):
             # Look for counter += 1 or counter = counter + 1
-            if isinstance(stmt, ast.AugAssign):
-                if isinstance(stmt.target, ast.Name):
-                    if 'count' in stmt.target.id.lower():
-                        has_increment = True
+            if (isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name) and
+                'count' in stmt.target.id.lower()):
+                has_increment = True
 
             # Look for if count > N: break
-            if isinstance(stmt, ast.If):
-                if isinstance(stmt.test, ast.Compare):
-                    for op in stmt.test.ops:
-                        if isinstance(op, ast.Gt):
-                            # Check if body contains break
-                            for body_stmt in stmt.body:
-                                if isinstance(body_stmt, ast.Break):
-                                    has_break = True
+            if isinstance(stmt, ast.If) and isinstance(stmt.test, ast.Compare):
+                for op in stmt.test.ops:
+                    if isinstance(op, ast.Gt):
+                        # Check if body contains break
+                        for body_stmt in stmt.body:
+                            if isinstance(body_stmt, ast.Break):
+                                has_break = True
 
         if has_increment and has_break:
             self.issues.append(AntiPattern(
@@ -128,25 +123,23 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call):
         """Detect cursor.execute with LIMIT."""
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr == 'execute':
-                # Check if query string contains LIMIT
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant):
-                        if isinstance(arg.value, str):
-                            if 'LIMIT' in arg.value.upper():
-                                self.issues.append(AntiPattern(
-                                    file=self.filepath,
-                                    line=node.lineno,
-                                    pattern_type='limit-in-query',
-                                    message='SQL query contains LIMIT - may hide bugs',
-                                    severity='high'
-                                ))
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'execute':
+            # Check if query string contains LIMIT
+            for arg in node.args:
+                if (isinstance(arg, ast.Constant) and isinstance(arg.value, str) and
+                    'LIMIT' in arg.value.upper()):
+                    self.issues.append(AntiPattern(
+                        file=self.filepath,
+                        line=node.lineno,
+                        pattern_type='limit-in-query',
+                        message='SQL query contains LIMIT - may hide bugs',
+                        severity='high'
+                    ))
 
         self.generic_visit(node)
 
 
-def analyze_rule_file(filepath: Path) -> List[AntiPattern]:
+def analyze_rule_file(filepath: Path) -> list[AntiPattern]:
     """Analyze a single rule file for anti-patterns."""
     try:
         content = filepath.read_text(encoding='utf-8')

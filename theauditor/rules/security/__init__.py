@@ -17,5 +17,5 @@ __all__ = [
     "find_pii_issues",
     "find_rate_limit_issues",
     "find_sourcemap_issues",
-    "find_websocket_issues"
+    "find_websocket_issues",
 ]

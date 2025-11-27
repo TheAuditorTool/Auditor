@@ -13,8 +13,8 @@ NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
 
 from pathlib import Path
 
-from theauditor.refactor.profiles import RefactorProfile, RefactorRuleEngine, ProfileEvaluation
 from theauditor.context.query import CodeQueryEngine
+from theauditor.refactor.profiles import ProfileEvaluation, RefactorProfile, RefactorRuleEngine
 
 
 def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileEvaluation:
@@ -52,11 +52,9 @@ def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileE
         else:
             print(f"Found {evaluation.total_violations()} violations")
     """
-    # Parse YAML directly from string (no temp file needed)
-    # This validates YAML structure and rule format
+
     profile = RefactorProfile.load_from_string(spec_yaml)
 
-    # Run verification using existing engine
     with RefactorRuleEngine(db_path, repo_root) as engine:
         evaluation = engine.evaluate(profile)
 
@@ -99,28 +97,34 @@ def find_analogous_patterns(root: Path, pattern_spec: dict) -> list[dict]:
     pattern_type = pattern_spec.get("type")
 
     if pattern_type == "api_route":
-        # Find similar API routes
-        handlers = engine.get_api_handlers("")  # All routes
+        handlers = engine.get_api_handlers("")
         method = pattern_spec.get("method")
         if method:
-            handlers = [h for h in handlers if h.get('method') == method]
+            handlers = [h for h in handlers if h.get("method") == method]
         return handlers
 
     elif pattern_type == "function":
-        # Find similar functions by name pattern
         name_pattern = pattern_spec.get("name", "*")
         symbols = engine.find_symbol(name_pattern)
-        # Filter to functions only and convert to dict
+
         functions = [s for s in symbols if s.type == "function"]
         return [{"name": f.name, "file": f.file, "line": f.line, "type": f.type} for f in functions]
 
     elif pattern_type == "component":
-        # Find similar React/Vue components
         name_pattern = pattern_spec.get("name", "*")
         symbols = engine.find_symbol(name_pattern)
-        # Filter to components
-        components = [s for s in symbols if s.framework_type in ("component", "react_component", "vue_component")]
-        return [{"name": c.name, "file": c.file, "line": c.line, "framework_type": c.framework_type} for c in components]
+
+        components = [
+            s
+            for s in symbols
+            if s.framework_type in ("component", "react_component", "vue_component")
+        ]
+        return [
+            {"name": c.name, "file": c.file, "line": c.line, "framework_type": c.framework_type}
+            for c in components
+        ]
 
     else:
-        raise ValueError(f"Unknown pattern type: {pattern_type}. Supported: api_route, function, component")
+        raise ValueError(
+            f"Unknown pattern type: {pattern_type}. Supported: api_route, function, component"
+        )

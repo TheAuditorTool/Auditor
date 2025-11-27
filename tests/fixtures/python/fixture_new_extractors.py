@@ -7,13 +7,13 @@
 for i in range(10):
     pass
 
-for key, value in enumerate(["a", "b", "c"]):
+for _key, value in enumerate(["a", "b", "c"]):
     pass
 
-for x, y in zip([1, 2], [3, 4]):  # noqa: B905 - test fixture
+for x, _y in zip([1, 2], [3, 4]):  # noqa: B905 - test fixture
     pass
 
-for key, value in {"a": 1, "b": 2}.items():
+for _key, value in {"a": 1, "b": 2}.items():
     pass
 
 # While loops
@@ -26,16 +26,14 @@ while count < 10:
 
 # Async for
 async def async_iterate():
-    async for item in async_generator():
+    async for _item in async_generator():
         pass
 
 # If statements
 if x > 0:
     pass
 
-if x > 0:
-    pass
-elif x < 0:
+if x > 0 or x < 0:
     pass
 else:
     pass
@@ -67,11 +65,6 @@ del mylist[0]
 del obj.attr
 
 # Imports
-import os
-import sys as system
-from pathlib import Path
-from typing import List, Dict
-from ..parent import something
 
 # With statements
 with open("file.txt") as f:
@@ -121,6 +114,7 @@ class MyCallable:
 
 # Comparison protocol
 from functools import total_ordering
+
 
 @total_ordering
 class MyComparable:

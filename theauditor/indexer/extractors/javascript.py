@@ -19,7 +19,6 @@ See indexer/__init__.py:948-962 for object literal storage example:
 This separation ensures single source of truth for file paths.
 """
 
-
 import os
 import re
 from datetime import datetime
@@ -34,10 +33,11 @@ class JavaScriptExtractor(BaseExtractor):
 
     def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
-        return ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']
+        return [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue"]
 
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract all JavaScript/TypeScript information.
 
         Args:
@@ -49,371 +49,344 @@ class JavaScriptExtractor(BaseExtractor):
             Dictionary containing all extracted data for database
         """
         result = {
-            'imports': [],
-            'resolved_imports': {},  # CRITICAL: Module resolution for taint tracking
-            'routes': [],
-            'symbols': [],
-            'assignments': [],
-            'function_calls': [],
-            'returns': [],
-            'variable_usage': [],
-            'cfg': [],
-            'frontend_api_calls': [],  # CRITICAL: Cross-boundary taint tracking
-            # Security patterns
-            'sql_queries': [],  # CRITICAL: SQL injection detection
-            'jwt_patterns': [],  # CRITICAL: JWT secret detection
-            'type_annotations': [],  # TypeScript types
-            # React/Vue framework-specific
-            'react_components': [],
-            'react_hooks': [],
-            'react_component_hooks': [],
-            'react_hook_dependencies': [],
-            'vue_components': [],
-            'vue_hooks': [],
-            'vue_directives': [],
-            'vue_provide_inject': [],
-            # Other extractions
-            'orm_queries': [],
-            'api_endpoints': [],
-            'object_literals': [],  # PHASE 3: Object literal parsing for dynamic dispatch
-            'class_properties': [],  # Class property declarations (TypeScript/JavaScript ES2022+)
-            'env_var_usage': [],  # Environment variable usage (process.env.X)
-            'orm_relationships': [],  # ORM relationship declarations (hasMany, belongsTo, etc.)
-            'cdk_constructs': [],  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
-            'cdk_construct_properties': [],  # CDK construct properties junction array
-            # Sequelize ORM
-            'sequelize_models': [],
-            'sequelize_associations': [],
-            # BullMQ Job Queues
-            'bullmq_queues': [],
-            'bullmq_workers': [],
-            # Angular Framework
-            'angular_components': [],
-            'angular_services': [],
-            'angular_modules': [],
-            'angular_guards': [],
-            'di_injections': [],
-            # Angular junction arrays (normalize-node-extractor-output)
-            'angular_component_styles': [],
-            'angular_module_declarations': [],
-            'angular_module_imports': [],
-            'angular_module_providers': [],
-            'angular_module_exports': [],
-            # Vue junction arrays (normalize-node-extractor-output)
-            'vue_component_props': [],
-            'vue_component_emits': [],
-            'vue_component_setup_returns': [],
-            # Express framework
-            'express_middleware_chains': [],  # PHASE 5: Middleware execution chains
-            # Core language junction arrays (normalize-all-node-extractors)
-            'func_params': [],
-            'func_decorators': [],
-            'func_decorator_args': [],
-            'func_param_decorators': [],
-            'class_decorators': [],
-            'class_decorator_args': [],
-            # Data flow junction arrays (normalize-all-node-extractors)
-            'assignment_source_vars': [],
-            'return_source_vars': [],
-            # Module framework junction arrays (normalize-all-node-extractors)
-            'import_specifiers': [],
-            'import_style_names': [],
-            # Sequelize junction arrays (normalize-all-node-extractors)
-            'sequelize_model_fields': []
+            "imports": [],
+            "resolved_imports": {},
+            "routes": [],
+            "symbols": [],
+            "assignments": [],
+            "function_calls": [],
+            "returns": [],
+            "variable_usage": [],
+            "cfg": [],
+            "frontend_api_calls": [],
+            "sql_queries": [],
+            "jwt_patterns": [],
+            "type_annotations": [],
+            "react_components": [],
+            "react_hooks": [],
+            "react_component_hooks": [],
+            "react_hook_dependencies": [],
+            "vue_components": [],
+            "vue_hooks": [],
+            "vue_directives": [],
+            "vue_provide_inject": [],
+            "orm_queries": [],
+            "api_endpoints": [],
+            "object_literals": [],
+            "class_properties": [],
+            "env_var_usage": [],
+            "orm_relationships": [],
+            "cdk_constructs": [],
+            "cdk_construct_properties": [],
+            "sequelize_models": [],
+            "sequelize_associations": [],
+            "bullmq_queues": [],
+            "bullmq_workers": [],
+            "angular_components": [],
+            "angular_services": [],
+            "angular_modules": [],
+            "angular_guards": [],
+            "di_injections": [],
+            "angular_component_styles": [],
+            "angular_module_declarations": [],
+            "angular_module_imports": [],
+            "angular_module_providers": [],
+            "angular_module_exports": [],
+            "vue_component_props": [],
+            "vue_component_emits": [],
+            "vue_component_setup_returns": [],
+            "express_middleware_chains": [],
+            "func_params": [],
+            "func_decorators": [],
+            "func_decorator_args": [],
+            "func_param_decorators": [],
+            "class_decorators": [],
+            "class_decorator_args": [],
+            "assignment_source_vars": [],
+            "return_source_vars": [],
+            "import_specifiers": [],
+            "import_style_names": [],
+            "sequelize_model_fields": [],
         }
 
-        # No AST = no extraction
         if not tree or not self.ast_parser:
             return result
 
-        # === PHASE 5: CHECK FOR PRE-EXTRACTED DATA ===
-        # If batch processing provided extracted_data, use it directly
-        # CRITICAL FIX: Check TOP-LEVEL tree dict first (batch results),
-        # then fallback to nested tree (individual file parsing)
         if isinstance(tree, dict):
-            # Try top-level first (batch results have extracted_data at same level as "tree")
             extracted_data = tree.get("extracted_data")
 
-            # If not found at top level, try nested tree (individual parsing)
             if not extracted_data:
                 actual_tree = tree.get("tree") if tree.get("type") == "semantic_ast" else tree
                 if isinstance(actual_tree, dict):
                     extracted_data = actual_tree.get("extracted_data")
 
             if extracted_data and isinstance(extracted_data, dict):
-                # DEBUG: Log Phase 5 data usage
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] {file_info['path']}: Using Phase 5 extracted_data")
                     print(f"[DEBUG]   Functions: {len(extracted_data.get('functions', []))}")
                     print(f"[DEBUG]   Classes: {len(extracted_data.get('classes', []))}")
                     print(f"[DEBUG]   Calls: {len(extracted_data.get('calls', []))}")
 
-                # Map keys that match between JS and orchestrator
-                for key in ['assignments', 'returns', 'object_literals', 'variable_usage', 'cfg', 'class_properties', 'env_var_usage', 'orm_relationships']:
+                for key in [
+                    "assignments",
+                    "returns",
+                    "object_literals",
+                    "variable_usage",
+                    "cfg",
+                    "class_properties",
+                    "env_var_usage",
+                    "orm_relationships",
+                ]:
                     if key in extracted_data:
                         result[key] = extracted_data[key]
-                        if os.environ.get("THEAUDITOR_DEBUG") and key in ('class_properties', 'env_var_usage', 'orm_relationships'):
-                            print(f"[DEBUG EXTRACTOR] Mapped {len(extracted_data[key])} {key} for {file_info['path']}")
+                        if os.environ.get("THEAUDITOR_DEBUG") and key in (
+                            "class_properties",
+                            "env_var_usage",
+                            "orm_relationships",
+                        ):
+                            print(
+                                f"[DEBUG EXTRACTOR] Mapped {len(extracted_data[key])} {key} for {file_info['path']}"
+                            )
 
-                # Fix key mismatch: JS sends 'function_call_args', orchestrator expects 'function_calls'
-                if 'function_call_args' in extracted_data:
-                    result['function_calls'] = extracted_data['function_call_args']
+                if "function_call_args" in extracted_data:
+                    result["function_calls"] = extracted_data["function_call_args"]
 
-                # Map all new Phase 5 keys
                 key_mappings = {
-                    'import_styles': 'import_styles',
-                    'resolved_imports': 'resolved_imports',
-                    'react_components': 'react_components',
-                    'react_hooks': 'react_hooks',
-                    'react_component_hooks': 'react_component_hooks',
-                    'react_hook_dependencies': 'react_hook_dependencies',
-                    'vue_components': 'vue_components',
-                    'vue_hooks': 'vue_hooks',
-                    'vue_directives': 'vue_directives',
-                    'vue_provide_inject': 'vue_provide_inject',
-                    # Vue junction arrays (normalize-node-extractor-output)
-                    'vue_component_props': 'vue_component_props',
-                    'vue_component_emits': 'vue_component_emits',
-                    'vue_component_setup_returns': 'vue_component_setup_returns',
-                    'orm_queries': 'orm_queries',
-                    'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
-                    'express_middleware_chains': 'express_middleware_chains',  # PHASE 5: Middleware execution chains
-                    'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
-                    'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
-                    'cdk_construct_properties': 'cdk_construct_properties',  # CDK construct properties junction
-                    # Angular junction arrays (normalize-node-extractor-output)
-                    'angular_component_styles': 'angular_component_styles',
-                    'angular_module_declarations': 'angular_module_declarations',
-                    'angular_module_imports': 'angular_module_imports',
-                    'angular_module_providers': 'angular_module_providers',
-                    'angular_module_exports': 'angular_module_exports',
-                    # Core language junction arrays (normalize-all-node-extractors)
-                    'func_params': 'func_params',
-                    'func_decorators': 'func_decorators',
-                    'func_decorator_args': 'func_decorator_args',
-                    'func_param_decorators': 'func_param_decorators',
-                    'class_decorators': 'class_decorators',
-                    'class_decorator_args': 'class_decorator_args',
-                    # Data flow junction arrays (normalize-all-node-extractors)
-                    'assignment_source_vars': 'assignment_source_vars',
-                    'return_source_vars': 'return_source_vars',
-                    # Module framework junction arrays (normalize-all-node-extractors)
-                    'import_specifiers': 'import_specifiers',
-                    'import_style_names': 'import_style_names',
-                    # Sequelize junction arrays (normalize-all-node-extractors)
-                    'sequelize_model_fields': 'sequelize_model_fields',
+                    "import_styles": "import_styles",
+                    "resolved_imports": "resolved_imports",
+                    "react_components": "react_components",
+                    "react_hooks": "react_hooks",
+                    "react_component_hooks": "react_component_hooks",
+                    "react_hook_dependencies": "react_hook_dependencies",
+                    "vue_components": "vue_components",
+                    "vue_hooks": "vue_hooks",
+                    "vue_directives": "vue_directives",
+                    "vue_provide_inject": "vue_provide_inject",
+                    "vue_component_props": "vue_component_props",
+                    "vue_component_emits": "vue_component_emits",
+                    "vue_component_setup_returns": "vue_component_setup_returns",
+                    "orm_queries": "orm_queries",
+                    "api_endpoints": "routes",
+                    "express_middleware_chains": "express_middleware_chains",
+                    "validation_framework_usage": "validation_framework_usage",
+                    "cdk_constructs": "cdk_constructs",
+                    "cdk_construct_properties": "cdk_construct_properties",
+                    "angular_component_styles": "angular_component_styles",
+                    "angular_module_declarations": "angular_module_declarations",
+                    "angular_module_imports": "angular_module_imports",
+                    "angular_module_providers": "angular_module_providers",
+                    "angular_module_exports": "angular_module_exports",
+                    "func_params": "func_params",
+                    "func_decorators": "func_decorators",
+                    "func_decorator_args": "func_decorator_args",
+                    "func_param_decorators": "func_param_decorators",
+                    "class_decorators": "class_decorators",
+                    "class_decorator_args": "class_decorator_args",
+                    "assignment_source_vars": "assignment_source_vars",
+                    "return_source_vars": "return_source_vars",
+                    "import_specifiers": "import_specifiers",
+                    "import_style_names": "import_style_names",
+                    "sequelize_model_fields": "sequelize_model_fields",
                 }
 
                 for js_key, python_key in key_mappings.items():
                     if js_key in extracted_data:
                         result[python_key] = extracted_data[js_key]
 
-                # Parse SQL queries extracted by JavaScript
-                # JavaScript extracts raw query text, Python parses with shared helper
-                if 'sql_queries' in extracted_data:
+                if "sql_queries" in extracted_data:
                     parsed_queries = []
-                    for query in extracted_data['sql_queries']:
-                        # Use shared SQL parsing helper
-                        parsed = parse_sql_query(query['query_text'])
+                    for query in extracted_data["sql_queries"]:
+                        parsed = parse_sql_query(query["query_text"])
                         if not parsed:
-                            continue  # Unparseable or UNKNOWN command
+                            continue
 
                         command, tables = parsed
 
-                        # Determine extraction source
-                        extraction_source = self._determine_sql_source(file_info['path'], 'query')
+                        extraction_source = self._determine_sql_source(file_info["path"], "query")
 
-                        parsed_queries.append({
-                            'line': query['line'],
-                            'query_text': query['query_text'],
-                            'command': command,
-                            'tables': tables,
-                            'extraction_source': extraction_source
-                        })
+                        parsed_queries.append(
+                            {
+                                "line": query["line"],
+                                "query_text": query["query_text"],
+                                "command": command,
+                                "tables": tables,
+                                "extraction_source": extraction_source,
+                            }
+                        )
 
-                    result['sql_queries'] = parsed_queries
+                    result["sql_queries"] = parsed_queries
 
-                # CRITICAL FIX: Use pre-extracted functions/calls for symbols table
-                # Phase 5 sets ast: null, so extract_functions/extract_calls/extract_classes
-                # will fail. Must use JavaScript-extracted data.
-                if 'functions' in extracted_data:
-                    for func in extracted_data['functions']:
-                        # Handle type annotations (create type_annotations record)
-                        if func.get('type_annotation') or func.get('return_type'):
-                            result['type_annotations'].append({
-                                'line': func.get('line', 0),
-                                'column': func.get('col', func.get('column', 0)),
-                                'symbol_name': func.get('name', ''),
-                                'symbol_kind': 'function',
-                                'language': 'typescript',
-                                'type_annotation': func.get('type_annotation'),
-                                'is_any': func.get('is_any', False),
-                                'is_unknown': func.get('is_unknown', False),
-                                'is_generic': func.get('is_generic', False),
-                                'has_type_params': func.get('has_type_params', False),
-                                'type_params': func.get('type_params'),
-                                'return_type': func.get('return_type'),
-                                'extends_type': func.get('extends_type')
-                            })
+                if "functions" in extracted_data:
+                    for func in extracted_data["functions"]:
+                        if func.get("type_annotation") or func.get("return_type"):
+                            result["type_annotations"].append(
+                                {
+                                    "line": func.get("line", 0),
+                                    "column": func.get("col", func.get("column", 0)),
+                                    "symbol_name": func.get("name", ""),
+                                    "symbol_kind": "function",
+                                    "language": "typescript",
+                                    "type_annotation": func.get("type_annotation"),
+                                    "is_any": func.get("is_any", False),
+                                    "is_unknown": func.get("is_unknown", False),
+                                    "is_generic": func.get("is_generic", False),
+                                    "has_type_params": func.get("has_type_params", False),
+                                    "type_params": func.get("type_params"),
+                                    "return_type": func.get("return_type"),
+                                    "extends_type": func.get("extends_type"),
+                                }
+                            )
 
-                        # Add to symbols table
                         symbol_entry = {
-                            'name': func.get('name', ''),
-                            'type': 'function',
-                            'line': func.get('line', 0),
-                            'col': func.get('col', func.get('column', 0)),
-                            'column': func.get('column', func.get('col', 0)),
+                            "name": func.get("name", ""),
+                            "type": "function",
+                            "line": func.get("line", 0),
+                            "col": func.get("col", func.get("column", 0)),
+                            "column": func.get("column", func.get("col", 0)),
                         }
-                        # Preserve type metadata and parameters in symbols
-                        for key in ('type_annotation', 'return_type', 'type_params', 'has_type_params',
-                                    'is_any', 'is_unknown', 'is_generic', 'extends_type', 'parameters'):
+
+                        for key in (
+                            "type_annotation",
+                            "return_type",
+                            "type_params",
+                            "has_type_params",
+                            "is_any",
+                            "is_unknown",
+                            "is_generic",
+                            "extends_type",
+                            "parameters",
+                        ):
                             if key in func:
                                 symbol_entry[key] = func[key]
-                        result['symbols'].append(symbol_entry)
+                        result["symbols"].append(symbol_entry)
 
-                # Use pre-extracted calls for symbols table
-                if 'calls' in extracted_data:
-                    for call in extracted_data['calls']:
-                        result['symbols'].append({
-                            'name': call.get('name', ''),
-                            'type': call.get('type', 'call'),
-                            'line': call.get('line', 0),
-                            'col': call.get('col', call.get('column', 0))
-                        })
+                if "calls" in extracted_data:
+                    for call in extracted_data["calls"]:
+                        result["symbols"].append(
+                            {
+                                "name": call.get("name", ""),
+                                "type": call.get("type", "call"),
+                                "line": call.get("line", 0),
+                                "col": call.get("col", call.get("column", 0)),
+                            }
+                        )
 
-                # Use pre-extracted classes for symbols table
-                if 'classes' in extracted_data:
-                    for cls in extracted_data['classes']:
-                        # Handle type annotations (create type_annotations record)
-                        # OPTION 3 (2025-11-09): Store class type info in type_annotations table
-                        # Same pattern as functions (lines 184-200) for consistency
-                        if cls.get('type_annotation') or cls.get('extends_type') or cls.get('type_params'):
-                            result['type_annotations'].append({
-                                'line': cls.get('line', 0),
-                                'column': cls.get('col', cls.get('column', 0)),
-                                'symbol_name': cls.get('name', ''),
-                                'symbol_kind': 'class',
-                                'language': 'typescript',
-                                'type_annotation': cls.get('type_annotation'),
-                                'is_any': cls.get('is_any', False),
-                                'is_unknown': cls.get('is_unknown', False),
-                                'is_generic': cls.get('is_generic', False),
-                                'has_type_params': cls.get('has_type_params', False),
-                                'type_params': cls.get('type_params'),
-                                'return_type': None,  # Classes don't have return types
-                                'extends_type': cls.get('extends_type')
-                            })
+                if "classes" in extracted_data:
+                    for cls in extracted_data["classes"]:
+                        if (
+                            cls.get("type_annotation")
+                            or cls.get("extends_type")
+                            or cls.get("type_params")
+                        ):
+                            result["type_annotations"].append(
+                                {
+                                    "line": cls.get("line", 0),
+                                    "column": cls.get("col", cls.get("column", 0)),
+                                    "symbol_name": cls.get("name", ""),
+                                    "symbol_kind": "class",
+                                    "language": "typescript",
+                                    "type_annotation": cls.get("type_annotation"),
+                                    "is_any": cls.get("is_any", False),
+                                    "is_unknown": cls.get("is_unknown", False),
+                                    "is_generic": cls.get("is_generic", False),
+                                    "has_type_params": cls.get("has_type_params", False),
+                                    "type_params": cls.get("type_params"),
+                                    "return_type": None,
+                                    "extends_type": cls.get("extends_type"),
+                                }
+                            )
 
-                        # Add to symbols table (basic identity only)
                         symbol_entry = {
-                            'name': cls.get('name', ''),
-                            'type': 'class',
-                            'line': cls.get('line', 0),
-                            'col': cls.get('col', cls.get('column', 0)),
-                            'column': cls.get('column', cls.get('col', 0)),
+                            "name": cls.get("name", ""),
+                            "type": "class",
+                            "line": cls.get("line", 0),
+                            "col": cls.get("col", cls.get("column", 0)),
+                            "column": cls.get("column", cls.get("col", 0)),
                         }
-                        # NOTE: Type metadata now stored in type_annotations table
-                        # Removed from symbols to maintain separation of concerns
-                        result['symbols'].append(symbol_entry)
 
-                # Extract Sequelize ORM data
-                sequelize_models = extracted_data.get('sequelize_models', [])
+                        result["symbols"].append(symbol_entry)
+
+                sequelize_models = extracted_data.get("sequelize_models", [])
                 if sequelize_models:
-                    result['sequelize_models'].extend(sequelize_models)
+                    result["sequelize_models"].extend(sequelize_models)
 
-                sequelize_associations = extracted_data.get('sequelize_associations', [])
+                sequelize_associations = extracted_data.get("sequelize_associations", [])
                 if sequelize_associations:
-                    result['sequelize_associations'].extend(sequelize_associations)
+                    result["sequelize_associations"].extend(sequelize_associations)
 
-                # Extract BullMQ Job Queue data
-                bullmq_queues = extracted_data.get('bullmq_queues', [])
+                bullmq_queues = extracted_data.get("bullmq_queues", [])
                 if bullmq_queues:
-                    result['bullmq_queues'].extend(bullmq_queues)
+                    result["bullmq_queues"].extend(bullmq_queues)
 
-                bullmq_workers = extracted_data.get('bullmq_workers', [])
+                bullmq_workers = extracted_data.get("bullmq_workers", [])
                 if bullmq_workers:
-                    result['bullmq_workers'].extend(bullmq_workers)
+                    result["bullmq_workers"].extend(bullmq_workers)
 
-                # Extract Angular Framework data
-                angular_components = extracted_data.get('angular_components', [])
+                angular_components = extracted_data.get("angular_components", [])
                 if angular_components:
-                    result['angular_components'].extend(angular_components)
+                    result["angular_components"].extend(angular_components)
 
-                angular_services = extracted_data.get('angular_services', [])
+                angular_services = extracted_data.get("angular_services", [])
                 if angular_services:
-                    result['angular_services'].extend(angular_services)
+                    result["angular_services"].extend(angular_services)
 
-                angular_modules = extracted_data.get('angular_modules', [])
+                angular_modules = extracted_data.get("angular_modules", [])
                 if angular_modules:
-                    result['angular_modules'].extend(angular_modules)
+                    result["angular_modules"].extend(angular_modules)
 
-                angular_guards = extracted_data.get('angular_guards', [])
+                angular_guards = extracted_data.get("angular_guards", [])
                 if angular_guards:
-                    result['angular_guards'].extend(angular_guards)
+                    result["angular_guards"].extend(angular_guards)
 
-                di_injections = extracted_data.get('di_injections', [])
+                di_injections = extracted_data.get("di_injections", [])
                 if di_injections:
-                    result['di_injections'].extend(di_injections)
+                    result["di_injections"].extend(di_injections)
 
-                # Extract Frontend API calls (cross-boundary flow support)
-                frontend_api_calls = extracted_data.get('frontend_api_calls', [])
+                frontend_api_calls = extracted_data.get("frontend_api_calls", [])
                 if frontend_api_calls:
-                    result['frontend_api_calls'] = frontend_api_calls
+                    result["frontend_api_calls"] = frontend_api_calls
 
-                # Phase 5 data loaded - Python extractors wrapped in conditional below
-
-        # === CORE EXTRACTION via AST parser ===
-        # These only run if Phase 5 data was NOT used (backward compatibility for individual file parsing)
-
-        # Extract imports - check both direct tree and nested tree structure
-        # CRITICAL: Handle different AST formats
-        # - Semantic AST: tree = {'type': 'semantic_ast', 'tree': {'imports': [...], ...}, ...}
-        # - Tree-sitter: tree = {'type': 'tree_sitter', 'tree': <TreeSitterObject>, ...}
-        # We need to extract from tree['tree'] for semantic_ast
         tree_type = tree.get("type") if isinstance(tree, dict) else None
 
         if tree_type == "semantic_ast":
-            # Semantic AST: imports live directly on the semantic payload
             actual_tree = tree.get("tree")
             if not isinstance(actual_tree, dict):
                 actual_tree = tree
             imports_data = actual_tree.get("imports", [])
         elif tree_type == "tree_sitter":
-            # Tree-sitter: DEPRECATED for JS/TS (never used in practice)
-            # This path should never execute - semantic_ast is mandatory for JS/TS
             actual_tree = tree
             if self.ast_parser:
-                # Call treesitter implementation directly
                 from theauditor.ast_extractors import treesitter_impl
-                imports_data = treesitter_impl.extract_treesitter_imports(tree, self.ast_parser, 'javascript')
+
+                imports_data = treesitter_impl.extract_treesitter_imports(
+                    tree, self.ast_parser, "javascript"
+                )
             else:
                 imports_data = []
         else:
-            # Fallback: assume imports might be at top level
             actual_tree = tree
             imports_data = tree.get("imports", []) if isinstance(tree, dict) else []
 
-        # Normalize import metadata for downstream analysis (styles, refs)
         normalized_imports = []
         for imp in imports_data:
             if not isinstance(imp, dict):
                 normalized_imports.append(imp)
                 continue
 
-            specifiers = imp.get('specifiers') or []
-            namespace = imp.get('namespace')
-            default = imp.get('default')
-            names = imp.get('names')
+            specifiers = imp.get("specifiers") or []
+            namespace = imp.get("namespace")
+            default = imp.get("default")
+            names = imp.get("names")
 
             extracted_names = []
             for spec in specifiers:
                 if isinstance(spec, dict):
-                    if spec.get('isNamespace') and not namespace:
-                        namespace = spec.get('name')
-                    if spec.get('isDefault') and not default:
-                        default = spec.get('name')
-                    if spec.get('isNamed') and spec.get('name'):
-                        extracted_names.append(spec.get('name'))
+                    if spec.get("isNamespace") and not namespace:
+                        namespace = spec.get("name")
+                    if spec.get("isDefault") and not default:
+                        default = spec.get("name")
+                    if spec.get("isNamed") and spec.get("name"):
+                        extracted_names.append(spec.get("name"))
                 elif isinstance(spec, str):
                     extracted_names.append(spec)
 
@@ -425,39 +398,41 @@ class JavaScriptExtractor(BaseExtractor):
             if names is None:
                 names = []
 
-            imp['namespace'] = namespace
-            imp['default'] = default
-            imp['names'] = names
+            imp["namespace"] = namespace
+            imp["default"] = default
+            imp["names"] = names
 
-            if not imp.get('target') and imp.get('module'):
-                imp['target'] = imp.get('module')
+            if not imp.get("target") and imp.get("module"):
+                imp["target"] = imp.get("module")
 
-            if not imp.get('text'):
-                module_ref = imp.get('target') or imp.get('module') or ''
+            if not imp.get("text"):
+                module_ref = imp.get("target") or imp.get("module") or ""
                 parts = []
                 if default:
                     parts.append(default)
                 if namespace:
                     parts.append(f"* as {namespace}")
                 if names:
-                    parts.append('{ ' + ', '.join(names) + ' }')
+                    parts.append("{ " + ", ".join(names) + " }")
 
                 if parts:
-                    imp['text'] = f"import {', '.join(parts)} from '{module_ref}'"
+                    imp["text"] = f"import {', '.join(parts)} from '{module_ref}'"
                 else:
-                    imp['text'] = f"import '{module_ref}'"
+                    imp["text"] = f"import '{module_ref}'"
 
             normalized_imports.append(imp)
 
         imports_data = normalized_imports
 
-        # DEBUG: Log import extraction
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] JS extractor for {file_info['path']}: tree_type = {tree_type}")
-            print(f"[DEBUG] JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}")
-            print(f"[DEBUG] JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}")
+            print(
+                f"[DEBUG] JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}"
+            )
+            print(
+                f"[DEBUG] JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}"
+            )
             if isinstance(actual_tree, dict):
-                # Show all top-level keys and sample values
                 print(f"[DEBUG] JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
                 for key in list(actual_tree.keys())[:10]:
                     val = actual_tree[key]
@@ -472,402 +447,312 @@ class JavaScriptExtractor(BaseExtractor):
             print(f"[DEBUG] JS extractor: imports_data = {imports_data}")
 
         if imports_data:
-            # Convert to expected format for database
             for imp in imports_data:
-                module = imp.get('target', imp.get('module'))
+                module = imp.get("target", imp.get("module"))
                 if module:
-                    # Use the kind (import/require) as the type
-                    kind = imp.get('source', imp.get('kind', 'import'))
-                    line = imp.get('line', 0)
-                    result['imports'].append((kind, module, line))
+                    kind = imp.get("source", imp.get("kind", "import"))
+                    line = imp.get("line", 0)
+                    result["imports"].append((kind, module, line))
 
             if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']")
+                print(
+                    f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']"
+                )
 
-            # NEW: Extract import styles for bundle analysis
-            result['import_styles'] = self._analyze_import_styles(imports_data, file_info['path'])
+            result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
 
-        # ============================================================================
-        # PHASE 5 ARCHITECTURE: ZERO PYTHON AST EXTRACTION FOR JAVASCRIPT/TYPESCRIPT
-        # ============================================================================
-        # ALL JavaScript/TypeScript extraction happens in JavaScript (.js files) using
-        # TypeScript Compiler API. Python NEVER touches JavaScript ASTs.
-        #
-        # extracted_data is loaded at lines 78-189 and contains:
-        #   - functions, classes, calls (from extractFunctions/Classes/Calls in JS)
-        #   - assignments, returns, object_literals (from respective JS extractors)
-        #   - cfg (from extractCFG in cfg_extractor.js)
-        #
-        # The block below (lines 313-400 in original) was DELETED because:
-        #   1. It re-extracted data already in extracted_data (duplication)
-        #   2. It used Python AST traversal on JavaScript (architectural violation)
-        #   3. The conditional "if not used_phase5_symbols" should NEVER execute
-        #   4. If it executes, it means batch processing FAILED (bug, not feature)
-        #
-        # Framework analysis below (lines 518+) uses PRE-EXTRACTED data from
-        # extracted_data (loaded at lines 78-189), not AST traversal.
-        # ============================================================================
+        functions = [s for s in result["symbols"] if s.get("type") == "function"]
+        classes = [s for s in result["symbols"] if s.get("type") == "class"]
 
-        # For framework analysis below, we need function list
-        # Reconstruct from result['symbols'] which was populated from extracted_data
-        functions = [s for s in result['symbols'] if s.get('type') == 'function']
-        classes = [s for s in result['symbols'] if s.get('type') == 'class']
-
-        # ============================================================================
-        # DATABASE CONTRACT: Symbols Table Schema
-        # ============================================================================
-        # The symbols table MUST maintain 4 types:
-        #   - function: Function/method declarations
-        #   - class: Class declarations
-        #   - call: Function/method calls (e.g., res.send(), db.query())
-        #   - property: Property accesses (e.g., req.body, req.query)
-        #
-        # CRITICAL: Taint analyzer depends on call/property symbols.
         # Query: SELECT * FROM symbols WHERE type='call' OR type='property'
-        #
-        # DO NOT remove call/property extraction without:
-        #   1. Creating alternative tables (calls, properties)
-        #   2. Updating ALL taint analyzer queries
-        #   3. Updating memory cache pre-computation
-        #   4. Testing on 3+ real-world projects
-        #
-        # Removing call/property symbols = taint analysis returns 0 results.
-        # This is a DATABASE CONTRACT, not a design opinion.
-        # ============================================================================
 
-        # ============================================================================
-        # CRITICAL VIOLATION DELETED (Lines 361-446 in original)
-        # ============================================================================
-        # These lines were re-extracting data using Python AST methods:
-        #   - calls: self.ast_parser.extract_calls() (CONDITIONAL but wrong)
-        #   - assignments: self.ast_parser.extract_assignments() (UNCONDITIONAL overwrite)
-        #   - object_literals: self.ast_parser.extract_object_literals() (UNCONDITIONAL overwrite)
-        #   - function_calls: self.ast_parser.extract_function_calls_with_args() (UNCONDITIONAL overwrite)
-        #   - returns: self.ast_parser.extract_returns() (UNCONDITIONAL overwrite)
-        #   - cfg: self.ast_parser.extract_cfg() (UNCONDITIONAL overwrite)
-        #
-        # ALL of these were already loaded from extracted_data at lines 78-189:
-        #   - Line 104: assignments, returns, object_literals, variable_usage
-        #   - Line 109: function_call_args → function_calls
-        #   - Line 164-171: calls (loaded into symbols from extracted_data['calls'])
-        #   - CFG: Loaded by typescript_impl.py from extracted_data['cfg']
-        #
-        # IMPACT OF DELETION:
-        #   ✅ Assignments: NO LONGER OVERWRITES JavaScript extraction
-        #   ✅ Object literals: NO LONGER OVERWRITES TypeScript Compiler API extraction
-        #   ✅ Function calls: NO LONGER OVERWRITES semantic extraction
-        #   ✅ Returns: NO LONGER OVERWRITES JSX-aware extraction
-        #   ✅ CFG: NO LONGER OVERWRITES cfg_extractor.js
-        #   ✅ Calls: NO LONGER OVERWRITES extracted_data['calls']
-        #
-        # These Python AST extractions were ACTIVE DATA CORRUPTION.
-        # They executed AFTER Phase 5 data loading and OVERWROTE superior JavaScript extraction
-        # with inferior Python AST traversal.
-        #
-        # If you're seeing missing data:
-        #   1. Check batch processing populated extracted_data (bug in .js files)
-        #   2. Check key mapping (bug in lines 104-124)
-        #   3. FIX THE ROOT CAUSE - DO NOT add fallbacks
-        #
-        # ZERO FALLBACK POLICY is non-negotiable (CLAUDE.md line 14).
-        # ============================================================================
-
-        # Extract routes from AST function calls (Express/Fastify patterns)
-        # This provides complete metadata: line, auth middleware, handler names
-        result['routes'] = self._extract_routes_from_ast(
-            result.get('function_calls', []),
-            file_info.get('path', '')
+        result["routes"] = self._extract_routes_from_ast(
+            result.get("function_calls", []), file_info.get("path", "")
         )
 
-        # Extract router mount points from router.use() calls
-        # ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
-        result['router_mounts'] = self._extract_router_mounts(
-            result.get('function_calls', []),
-            file_info.get('path', '')
+        result["router_mounts"] = self._extract_router_mounts(
+            result.get("function_calls", []), file_info.get("path", "")
         )
 
-        # === FRAMEWORK-SPECIFIC ANALYSIS ===
-        # Analyze the extracted data to identify React/Vue patterns
-
-        # Detect React components from functions that:
-        # 1. Have uppercase names (convention)
-        # 2. Return JSX
-        # 3. Use hooks
         component_functions = []
         for func in functions:
-            name = func.get('name', '')
+            name = func.get("name", "")
             if name and name[0:1].isupper():
-                # Check if this function returns JSX
-                func_returns = [r for r in result.get('returns', [])
-                              if r.get('function_name') == name]
-                has_jsx = any(r.get('has_jsx') or r.get('returns_component') for r in func_returns)
+                func_returns = [
+                    r for r in result.get("returns", []) if r.get("function_name") == name
+                ]
+                has_jsx = any(r.get("has_jsx") or r.get("returns_component") for r in func_returns)
 
-                # Check for hook usage - use function_calls, not removed 'calls' variable
                 hook_calls = []
-                for fc in result.get('function_calls', []):
-                    call_name = fc.get('callee_function', '')
-                    if call_name.startswith('use') and fc.get('line', 0) >= func.get('line', 0):
-                        # This is a potential hook in this component
-                        # More precise would be to check if line is within function bounds
+                for fc in result.get("function_calls", []):
+                    call_name = fc.get("callee_function", "")
+                    if call_name.startswith("use") and fc.get("line", 0) >= func.get("line", 0):
                         hook_calls.append(call_name)
 
-                result['react_components'].append({
-                    'name': name,
-                    'type': 'function',
-                    'start_line': func.get('line', 0),
-                    'end_line': func.get('end_line', func.get('line', 0)),
-                    'has_jsx': has_jsx,
-                    'hooks_used': list(set(hook_calls[:10])),  # Limit to 10 unique hooks
-                    'props_type': None
-                })
+                result["react_components"].append(
+                    {
+                        "name": name,
+                        "type": "function",
+                        "start_line": func.get("line", 0),
+                        "end_line": func.get("end_line", func.get("line", 0)),
+                        "has_jsx": has_jsx,
+                        "hooks_used": list(set(hook_calls[:10])),
+                        "props_type": None,
+                    }
+                )
                 component_functions.append(name)
 
-        # Detect React class components
         for cls in classes:
-            name = cls.get('name', '')
-            # Check if it extends React.Component or Component
-            # This is simplified - would need to check inheritance properly
+            name = cls.get("name", "")
+
             if name and name[0:1].isupper():
-                result['react_components'].append({
-                    'name': name,
-                    'type': 'class',
-                    'start_line': cls.get('line', 0),
-                    'end_line': cls.get('line', 0),
-                    'has_jsx': True,  # Assume class components have JSX
-                    'hooks_used': [],  # Class components don't use hooks
-                    'props_type': None
-                })
+                result["react_components"].append(
+                    {
+                        "name": name,
+                        "type": "class",
+                        "start_line": cls.get("line", 0),
+                        "end_line": cls.get("line", 0),
+                        "has_jsx": True,
+                        "hooks_used": [],
+                        "props_type": None,
+                    }
+                )
                 component_functions.append(name)
 
-        # Extract React hooks usage with DETAILED analysis
-        for fc in result.get('function_calls', []):
-            call_name = fc.get('callee_function', '')
-            if call_name.startswith('use'):
-                line = fc.get('line', 0)
-                component_name = fc.get('caller_function', 'global')
+        for fc in result.get("function_calls", []):
+            call_name = fc.get("callee_function", "")
+            if call_name.startswith("use"):
+                line = fc.get("line", 0)
+                component_name = fc.get("caller_function", "global")
 
-                # Find the actual component if caller is nested function
-                for comp in result['react_components']:
-                    if comp['start_line'] <= line <= comp.get('end_line', comp['start_line'] + 100):
-                        component_name = comp['name']
+                for comp in result["react_components"]:
+                    if comp["start_line"] <= line <= comp.get("end_line", comp["start_line"] + 100):
+                        component_name = comp["name"]
                         break
 
-                # Analyze hook type and extract details
-                hook_type = 'custom'
+                hook_type = "custom"
                 dependency_array = None
                 dependency_vars = []
                 callback_body = None
                 has_cleanup = False
                 cleanup_type = None
 
-                if call_name in ['useState', 'useEffect', 'useCallback', 'useMemo',
-                                'useRef', 'useContext', 'useReducer', 'useLayoutEffect']:
-                    hook_type = 'builtin'
+                if call_name in [
+                    "useState",
+                    "useEffect",
+                    "useCallback",
+                    "useMemo",
+                    "useRef",
+                    "useContext",
+                    "useReducer",
+                    "useLayoutEffect",
+                ]:
+                    hook_type = "builtin"
 
-                    # For hooks with dependencies, check second argument
-                    if call_name in ['useEffect', 'useCallback', 'useMemo', 'useLayoutEffect']:
-                        # Look for the same call in function_calls to get arguments
-                        matching_calls = [c for c in result.get('function_calls', [])
-                                        if c.get('line') == line and
-                                        c.get('callee_function') == call_name]
+                    if call_name in ["useEffect", "useCallback", "useMemo", "useLayoutEffect"]:
+                        matching_calls = [
+                            c
+                            for c in result.get("function_calls", [])
+                            if c.get("line") == line and c.get("callee_function") == call_name
+                        ]
 
                         if matching_calls:
-                            # Get dependency array from second argument (index 1)
-                            deps_arg = [c for c in matching_calls if c.get('argument_index') == 1]
+                            deps_arg = [c for c in matching_calls if c.get("argument_index") == 1]
                             if deps_arg:
-                                dep_expr = deps_arg[0].get('argument_expr', '')
-                                if dep_expr.startswith('[') and dep_expr.endswith(']'):
+                                dep_expr = deps_arg[0].get("argument_expr", "")
+                                if dep_expr.startswith("[") and dep_expr.endswith("]"):
                                     dependency_array = dep_expr
-                                    # Extract variables from dependency array
+
                                     dep_content = dep_expr[1:-1].strip()
                                     if dep_content:
-                                        dependency_vars = [v.strip() for v in dep_content.split(',')]
+                                        dependency_vars = [
+                                            v.strip() for v in dep_content.split(",")
+                                        ]
 
-                            # Get callback body from first argument (index 0)
-                            callback_arg = [c for c in matching_calls if c.get('argument_index') == 0]
+                            callback_arg = [
+                                c for c in matching_calls if c.get("argument_index") == 0
+                            ]
                             if callback_arg:
-                                callback_body = callback_arg[0].get('argument_expr', '')[:500]
+                                callback_body = callback_arg[0].get("argument_expr", "")[:500]
 
-                                # Check for cleanup in useEffect
-                                if call_name in ['useEffect', 'useLayoutEffect'] and 'return' in callback_body:
+                                if (
+                                    call_name in ["useEffect", "useLayoutEffect"]
+                                    and "return" in callback_body
+                                ):
                                     has_cleanup = True
-                                    if 'clearTimeout' in callback_body or 'clearInterval' in callback_body:
-                                        cleanup_type = 'timer_cleanup'
-                                    elif 'removeEventListener' in callback_body:
-                                        cleanup_type = 'event_cleanup'
-                                    elif 'unsubscribe' in callback_body or 'disconnect' in callback_body:
-                                        cleanup_type = 'subscription_cleanup'
+                                    if (
+                                        "clearTimeout" in callback_body
+                                        or "clearInterval" in callback_body
+                                    ):
+                                        cleanup_type = "timer_cleanup"
+                                    elif "removeEventListener" in callback_body:
+                                        cleanup_type = "event_cleanup"
+                                    elif (
+                                        "unsubscribe" in callback_body
+                                        or "disconnect" in callback_body
+                                    ):
+                                        cleanup_type = "subscription_cleanup"
                                     else:
-                                        cleanup_type = 'cleanup_function'
+                                        cleanup_type = "cleanup_function"
 
-                result['react_hooks'].append({
-                    'line': line,
-                    'component_name': component_name,
-                    'hook_name': call_name,
-                    'hook_type': hook_type,
-                    'dependency_array': dependency_array,
-                    'dependency_vars': dependency_vars,
-                    'callback_body': callback_body,
-                    'has_cleanup': has_cleanup,
-                    'cleanup_type': cleanup_type
-                })
+                result["react_hooks"].append(
+                    {
+                        "line": line,
+                        "component_name": component_name,
+                        "hook_name": call_name,
+                        "hook_type": hook_type,
+                        "dependency_array": dependency_array,
+                        "dependency_vars": dependency_vars,
+                        "callback_body": callback_body,
+                        "has_cleanup": has_cleanup,
+                        "cleanup_type": cleanup_type,
+                    }
+                )
 
-        # Detect ORM queries with DETAILED analysis
         orm_methods = {
-            # Sequelize
-            'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy',
-            'findOrCreate', 'findAndCountAll', 'bulkCreate', 'upsert',
-            # Prisma
-            'findMany', 'findUnique', 'findFirst', 'delete',
-            'createMany', 'updateMany', 'deleteMany', # TypeORM
-            'find', 'save', 'remove', 'insert', 'createQueryBuilder', 'getRepository', 'getManager'
+            "findAll",
+            "findOne",
+            "findByPk",
+            "create",
+            "update",
+            "destroy",
+            "findOrCreate",
+            "findAndCountAll",
+            "bulkCreate",
+            "upsert",
+            "findMany",
+            "findUnique",
+            "findFirst",
+            "delete",
+            "createMany",
+            "updateMany",
+            "deleteMany",
+            "find",
+            "save",
+            "remove",
+            "insert",
+            "createQueryBuilder",
+            "getRepository",
+            "getManager",
         }
 
-        for fc in result.get('function_calls', []):
-            method = fc.get('callee_function', '').split('.')[-1]
+        for fc in result.get("function_calls", []):
+            method = fc.get("callee_function", "").split(".")[-1]
             if method in orm_methods:
-                line = fc.get('line', 0)
+                line = fc.get("line", 0)
 
-                # Analyze arguments for includes/relations, limit, transaction
                 includes = None
                 has_limit = False
                 has_transaction = False
 
-                # Get all arguments for this call
-                matching_args = [c for c in result.get('function_calls', [])
-                               if c.get('line') == line and
-                               c.get('callee_function') == fc.get('callee_function')]
+                matching_args = [
+                    c
+                    for c in result.get("function_calls", [])
+                    if c.get("line") == line
+                    and c.get("callee_function") == fc.get("callee_function")
+                ]
 
-                # Check first argument (usually options object)
                 if matching_args:
-                    first_arg = [c for c in matching_args if c.get('argument_index') == 0]
+                    first_arg = [c for c in matching_args if c.get("argument_index") == 0]
                     if first_arg:
-                        arg_expr = first_arg[0].get('argument_expr', '')
+                        arg_expr = first_arg[0].get("argument_expr", "")
 
-                        # Check for includes/relations
-                        if 'include:' in arg_expr or 'include :' in arg_expr:
-                            # Extract include value
-                            includes = 'has_includes'
-                        elif 'relations:' in arg_expr or 'relations :' in arg_expr:
-                            includes = 'has_relations'
+                        if "include:" in arg_expr or "include :" in arg_expr:
+                            includes = "has_includes"
+                        elif "relations:" in arg_expr or "relations :" in arg_expr:
+                            includes = "has_relations"
 
-                        # Check for limit/take
-                        if any(term in arg_expr for term in ['limit:', 'limit :', 'take:', 'take :', 'skip:', 'offset:']):
+                        if any(
+                            term in arg_expr
+                            for term in ["limit:", "limit :", "take:", "take :", "skip:", "offset:"]
+                        ):
                             has_limit = True
 
-                        # Check for transaction
-                        if 'transaction:' in arg_expr or 'transaction :' in arg_expr:
+                        if "transaction:" in arg_expr or "transaction :" in arg_expr:
                             has_transaction = True
 
-                # Check if in transaction block (simplified check)
-                caller_func = fc.get('caller_function', '')
-                if 'transaction' in caller_func.lower() or 'withTransaction' in caller_func:
+                caller_func = fc.get("caller_function", "")
+                if "transaction" in caller_func.lower() or "withTransaction" in caller_func:
                     has_transaction = True
 
-                result['orm_queries'].append({
-                    'line': line,
-                    'query_type': fc.get('callee_function', method),
-                    'includes': includes,
-                    'has_limit': has_limit,
-                    'has_transaction': has_transaction
-                })
+                result["orm_queries"].append(
+                    {
+                        "line": line,
+                        "query_type": fc.get("callee_function", method),
+                        "includes": includes,
+                        "has_limit": has_limit,
+                        "has_transaction": has_transaction,
+                    }
+                )
 
-        # API endpoints are now handled directly in routes extraction above
-        # (lines 175-191) using the new dictionary format with all 8 fields
-
-        # === CRITICAL SECURITY PATTERN DETECTION ===
-
-        # Extract SQL queries from database execution calls using already-extracted function_calls
-        # This uses the AST data we already have instead of regex
-        # CRITICAL: Only run if Phase 5 didn't provide sql_queries
-        if not result.get('sql_queries'):
-            result['sql_queries'] = self._extract_sql_from_function_calls(
-                result.get('function_calls', []),
-                file_info.get('path', '')
+        if not result.get("sql_queries"):
+            result["sql_queries"] = self._extract_sql_from_function_calls(
+                result.get("function_calls", []), file_info.get("path", "")
             )
 
-        # =================================================================
-        # JWT EXTRACTION - AST ONLY, NO REGEX
-        # =================================================================
-        # Edge cases that regex might catch but AST won't: ~0.0001%
-        # We accept this loss. If you encounter one, document it and move on.
-        # DO NOT ADD REGEX FALLBACKS. EVER.
-        result['jwt_patterns'] = self._extract_jwt_from_function_calls(
-            result.get('function_calls', []),
-            file_info.get('path', '')
+        result["jwt_patterns"] = self._extract_jwt_from_function_calls(
+            result.get("function_calls", []), file_info.get("path", "")
         )
 
-        # NOTE: Type annotations are now created directly from functions (line 203-219)
-        # Not from symbols, because symbols table doesn't have full type metadata
+        if not result.get("variable_usage"):
+            for assign in result.get("assignments", []):
+                result["variable_usage"].append(
+                    {
+                        "line": assign.get("line", 0),
+                        "variable_name": assign.get("target_var", ""),
+                        "usage_type": "write",
+                        "in_component": assign.get("in_function", "global"),
+                        "in_hook": "",
+                        "scope_level": 0 if assign.get("in_function") == "global" else 1,
+                    }
+                )
 
-        # Build variable usage from assignments and symbols
-        # This is CRITICAL for dead code detection and taint analysis
-        # PHASE 5: Skip if already provided by extracted_data
-        if not result.get('variable_usage'):
-            for assign in result.get('assignments', []):
-                result['variable_usage'].append({
-                    'line': assign.get('line', 0),
-                    'variable_name': assign.get('target_var', ''),
-                    'usage_type': 'write',
-                    'in_component': assign.get('in_function', 'global'),
-                    'in_hook': '',
-                    'scope_level': 0 if assign.get('in_function') == 'global' else 1
-                })
-                # Also track reads from source variables
-                for var in assign.get('source_vars', []):
-                    result['variable_usage'].append({
-                        'line': assign.get('line', 0),
-                        'variable_name': var,
-                        'usage_type': 'read',
-                        'in_component': assign.get('in_function', 'global'),
-                        'in_hook': '',
-                        'scope_level': 0 if assign.get('in_function') == 'global' else 1
-                    })
+                for var in assign.get("source_vars", []):
+                    result["variable_usage"].append(
+                        {
+                            "line": assign.get("line", 0),
+                            "variable_name": var,
+                            "usage_type": "read",
+                            "in_component": assign.get("in_function", "global"),
+                            "in_hook": "",
+                            "scope_level": 0 if assign.get("in_function") == "global" else 1,
+                        }
+                    )
 
-            # Track function calls as variable usage (function names are "read")
-            for call in result.get('function_calls', []):
-                if call.get('callee_function'):
-                    result['variable_usage'].append({
-                        'line': call.get('line', 0),
-                        'variable_name': call.get('callee_function'),
-                        'usage_type': 'call',
-                        'in_component': call.get('caller_function', 'global'),
-                        'in_hook': '',
-                        'scope_level': 0 if call.get('caller_function') == 'global' else 1
-                    })
+            for call in result.get("function_calls", []):
+                if call.get("callee_function"):
+                    result["variable_usage"].append(
+                        {
+                            "line": call.get("line", 0),
+                            "variable_name": call.get("callee_function"),
+                            "usage_type": "call",
+                            "in_component": call.get("caller_function", "global"),
+                            "in_hook": "",
+                            "scope_level": 0 if call.get("caller_function") == "global" else 1,
+                        }
+                    )
 
-        # Module resolution for imports (CRITICAL for taint tracking across modules)
-        # This maps import names to their actual module paths
-        for import_entry in result.get('imports', []):
-            # Imports are stored as 3-tuples (kind, module, line) but older code
-            # – and some fallback paths – may produce dicts. Handle both safely.
+        for import_entry in result.get("imports", []):
             imp_path = None
 
             if isinstance(import_entry, (tuple, list)):
                 if len(import_entry) >= 2:
                     imp_path = import_entry[1]
             elif isinstance(import_entry, dict):
-                imp_path = import_entry.get('module') or import_entry.get('value')
+                imp_path = import_entry.get("module") or import_entry.get("value")
 
             if not imp_path:
                 continue
 
-            # Simplistic module name extraction (preserve previous behavior)
-            module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
+            module_name = imp_path.split("/")[-1].replace(".js", "").replace(".ts", "")
             if module_name:
-                result['resolved_imports'][module_name] = imp_path
+                result["resolved_imports"][module_name] = imp_path
 
-        # ==========================================================================
-        # DATA FIDELITY: GENERATE EXTRACTION MANIFEST
-        # ==========================================================================
-        # Count what the extractor produced. Storage will compare against this
-        # to detect silent data loss. See: theauditor/indexer/fidelity.py
         manifest = {}
         total_items = 0
 
         for key, value in result.items():
-            # Skip metadata keys or non-list items
-            if key.startswith('_') or not isinstance(value, list):
+            if key.startswith("_") or not isinstance(value, list):
                 continue
 
             count = len(value)
@@ -875,13 +760,12 @@ class JavaScriptExtractor(BaseExtractor):
                 manifest[key] = count
                 total_items += count
 
-        # Add metadata for debugging
-        manifest['_total'] = total_items
-        manifest['_timestamp'] = datetime.utcnow().isoformat()
-        # ARCHITECTURE NOTE: javascript.py uses file_info dict, not context object
-        manifest['_file'] = file_info.get('path', 'unknown')
+        manifest["_total"] = total_items
+        manifest["_timestamp"] = datetime.utcnow().isoformat()
 
-        result['_extraction_manifest'] = manifest
+        manifest["_file"] = file_info.get("path", "unknown")
+
+        result["_extraction_manifest"] = manifest
 
         return result
 
@@ -906,47 +790,43 @@ class JavaScriptExtractor(BaseExtractor):
         import_styles = []
 
         for imp in imports:
-            target = imp.get('target', '')
+            target = imp.get("target", "")
             if not target:
                 continue
 
-            line = imp.get('line', 0)
+            line = imp.get("line", 0)
 
-            # Determine import style from import structure
             import_style = None
             imported_names = None
             alias_name = None
-            full_statement = imp.get('text', '')
+            full_statement = imp.get("text", "")
 
-            # Check for namespace import: import * as X
-            if imp.get('namespace'):
-                import_style = 'namespace'
-                alias_name = imp.get('namespace')
+            if imp.get("namespace"):
+                import_style = "namespace"
+                alias_name = imp.get("namespace")
 
-            # Check for named imports: import { a, b }
-            elif imp.get('names'):
-                import_style = 'named'
-                imported_names = imp.get('names', [])
+            elif imp.get("names"):
+                import_style = "named"
+                imported_names = imp.get("names", [])
 
-            # Check for default import: import X
-            elif imp.get('default'):
-                import_style = 'default'
-                alias_name = imp.get('default')
+            elif imp.get("default"):
+                import_style = "default"
+                alias_name = imp.get("default")
 
-            # Side-effect only: import 'package'
-            elif not imp.get('namespace') and not imp.get('names') and not imp.get('default'):
-                import_style = 'side-effect'
+            elif not imp.get("namespace") and not imp.get("names") and not imp.get("default"):
+                import_style = "side-effect"
 
-            # Only add if we could classify the import
             if import_style:
-                import_styles.append({
-                    'line': line,
-                    'package': target,
-                    'import_style': import_style,
-                    'imported_names': imported_names,
-                    'alias_name': alias_name,
-                    'full_statement': full_statement[:200] if full_statement else None
-                })
+                import_styles.append(
+                    {
+                        "line": line,
+                        "package": target,
+                        "import_style": import_style,
+                        "imported_names": imported_names,
+                        "alias_name": alias_name,
+                        "full_statement": full_statement[:200] if full_statement else None,
+                    }
+                )
 
         return import_styles
 
@@ -967,28 +847,41 @@ class JavaScriptExtractor(BaseExtractor):
         """
         file_path_lower = file_path.lower()
 
-        # Migration files (highest priority check)
-        if 'migration' in file_path_lower or 'migrate' in file_path_lower:
-            return 'migration_file'
+        if "migration" in file_path_lower or "migrate" in file_path_lower:
+            return "migration_file"
 
-        # Database schema files
-        if file_path.endswith('.sql') or 'schema' in file_path_lower:
-            return 'migration_file'  # DDL schemas treated as migrations
+        if file_path.endswith(".sql") or "schema" in file_path_lower:
+            return "migration_file"
 
-        # ORM methods (Sequelize, Prisma, TypeORM)
-        orm_methods = frozenset([
-            'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy',  # Sequelize
-            'findMany', 'findUnique', 'findFirst', 'upsert', 'createMany',    # Prisma
-            'find', 'save', 'remove', 'createQueryBuilder', 'getRepository'   # TypeORM
-        ])
+        orm_methods = frozenset(
+            [
+                "findAll",
+                "findOne",
+                "findByPk",
+                "create",
+                "update",
+                "destroy",
+                "findMany",
+                "findUnique",
+                "findFirst",
+                "upsert",
+                "createMany",
+                "find",
+                "save",
+                "remove",
+                "createQueryBuilder",
+                "getRepository",
+            ]
+        )
 
         if method_name in orm_methods:
-            return 'orm_query'
+            return "orm_query"
 
-        # Default: direct database execution in code (highest risk)
-        return 'code_execute'
+        return "code_execute"
 
-    def _extract_sql_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
+    def _extract_sql_from_function_calls(
+        self, function_calls: list[dict], file_path: str
+    ) -> list[dict]:
         """Extract SQL queries from database execution method calls.
 
         Uses already-extracted function_calls data to find SQL execution calls
@@ -1006,67 +899,77 @@ class JavaScriptExtractor(BaseExtractor):
         """
         queries = []
 
-        # SQL execution method names
-        sql_methods = frozenset([
-            'execute', 'query', 'raw', 'exec', 'run',
-            'executeSql', 'executeQuery', 'execSQL', 'select',
-            'insert', 'update', 'delete', 'query_raw'
-        ])
+        sql_methods = frozenset(
+            [
+                "execute",
+                "query",
+                "raw",
+                "exec",
+                "run",
+                "executeSql",
+                "executeQuery",
+                "execSQL",
+                "select",
+                "insert",
+                "update",
+                "delete",
+                "query_raw",
+            ]
+        )
 
         for call in function_calls:
-            callee = call.get('callee_function', '')
+            callee = call.get("callee_function", "")
 
-            # Check if method name matches SQL execution pattern
-            method_name = callee.split('.')[-1] if '.' in callee else callee
+            method_name = callee.split(".")[-1] if "." in callee else callee
 
             if method_name not in sql_methods:
                 continue
 
-            # Only check first argument (SQL query string)
-            if call.get('argument_index') != 0:
+            if call.get("argument_index") != 0:
                 continue
 
-            # Get the argument expression
-            arg_expr = call.get('argument_expr', '')
+            arg_expr = call.get("argument_expr", "")
             if not arg_expr:
                 continue
 
-            # Check if it looks like SQL (contains SQL keywords)
-            if not any(keyword in arg_expr.upper() for keyword in
-                      ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER']):
+            if not any(
+                keyword in arg_expr.upper()
+                for keyword in ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"]
+            ):
                 continue
 
-            # Remove quotes if it's a string literal
             query_text = arg_expr.strip()
-            if (query_text.startswith('"') and query_text.endswith('"')) or \
-               (query_text.startswith("'") and query_text.endswith("'")):
+            if (query_text.startswith('"') and query_text.endswith('"')) or (
+                query_text.startswith("'") and query_text.endswith("'")
+            ):
                 query_text = query_text[1:-1]
 
-            # Skip template literals and variables (can't analyze statically)
-            if '${' in query_text or query_text.startswith('`'):
+            if "${" in query_text or query_text.startswith("`"):
                 continue
 
-            # Parse SQL using shared helper
             parsed = parse_sql_query(query_text)
             if not parsed:
-                continue  # Unparseable or UNKNOWN command
+                continue
 
             command, tables = parsed
 
-            # Determine extraction source for intelligent filtering
             extraction_source = self._determine_sql_source(file_path, method_name)
 
-            queries.append({
-                'line': call.get('line', 0),
-                'query_text': query_text[:1000],
-                'command': command,
-                'tables': tables,
-                'extraction_source': extraction_source
-            })
+            queries.append(
+                {
+                    "line": call.get("line", 0),
+                    "query_text": query_text[:1000],
+                    "command": command,
+                    "tables": tables,
+                    "extraction_source": extraction_source,
+                }
+            )
 
         return queries
 
-    def _extract_jwt_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
+    def _extract_jwt_from_function_calls(
+        self, function_calls: list[dict], file_path: str
+    ) -> list[dict]:
         """Extract JWT patterns from function calls using AST data.
 
         NO REGEX. This uses function_calls data from the AST parser.
@@ -1093,129 +996,156 @@ class JavaScriptExtractor(BaseExtractor):
         """
         patterns = []
 
-        # JWT method names (frozenset for O(1) lookup)
-        jwt_sign_methods = frozenset([
-            'jwt.sign', 'jsonwebtoken.sign', 'jose.sign',
-            'JWT.sign', 'jwt.encode', 'jose.JWT.sign'
-        ])
+        jwt_sign_methods = frozenset(
+            [
+                "jwt.sign",
+                "jsonwebtoken.sign",
+                "jose.sign",
+                "JWT.sign",
+                "jwt.encode",
+                "jose.JWT.sign",
+            ]
+        )
 
-        jwt_verify_methods = frozenset([
-            'jwt.verify', 'jsonwebtoken.verify', 'jose.verify',
-            'JWT.verify', 'jwt.decode', 'jose.JWT.verify'
-        ])
+        jwt_verify_methods = frozenset(
+            [
+                "jwt.verify",
+                "jsonwebtoken.verify",
+                "jose.verify",
+                "JWT.verify",
+                "jwt.decode",
+                "jose.JWT.verify",
+            ]
+        )
 
-        jwt_decode_methods = frozenset([
-            'jwt.decode', 'JWT.decode'
-        ])
+        jwt_decode_methods = frozenset(["jwt.decode", "JWT.decode"])
 
-        # Group calls by line (one JWT call may have multiple argument entries)
         calls_by_line = {}
 
         for call in function_calls:
-            callee = call.get('callee_function', '')
-            line = call.get('line', 0)
+            callee = call.get("callee_function", "")
+            line = call.get("line", 0)
 
-            # Determine pattern type
             pattern_type = None
             if any(method in callee for method in jwt_sign_methods):
-                pattern_type = 'jwt_sign'
+                pattern_type = "jwt_sign"
             elif any(method in callee for method in jwt_verify_methods):
-                pattern_type = 'jwt_verify'
+                pattern_type = "jwt_verify"
             elif any(method in callee for method in jwt_decode_methods):
-                pattern_type = 'jwt_decode'
+                pattern_type = "jwt_decode"
 
             if not pattern_type:
                 continue
 
-            # Initialize line entry
             if line not in calls_by_line:
-                calls_by_line[line] = {
-                    'type': pattern_type,
-                    'callee': callee,
-                    'args': {}
-                }
+                calls_by_line[line] = {"type": pattern_type, "callee": callee, "args": {}}
 
-            # Store argument by index
-            arg_index = call.get('argument_index')
-            arg_expr = call.get('argument_expr', '')
+            arg_index = call.get("argument_index")
+            arg_expr = call.get("argument_expr", "")
             if arg_index is not None:
-                calls_by_line[line]['args'][arg_index] = arg_expr
+                calls_by_line[line]["args"][arg_index] = arg_expr
 
-        # Process each JWT call
         for line, call_data in calls_by_line.items():
-            pattern_type = call_data['type']
-            callee = call_data['callee']
-            args = call_data['args']
+            pattern_type = call_data["type"]
+            callee = call_data["callee"]
+            args = call_data["args"]
 
-            if pattern_type == 'jwt_sign':
-                # jwt.sign(payload, secret, options)
-                # arg[0]=payload, arg[1]=secret, arg[2]=options
-                secret_text = args.get(1, '')
-                options_text = args.get(2, '{}')
-                payload_text = args.get(0, '')
+            if pattern_type == "jwt_sign":
+                secret_text = args.get(1, "")
+                options_text = args.get(2, "{}")
+                payload_text = args.get(0, "")
 
-                # Categorize secret source (text analysis on argument_expr)
-                secret_type = 'unknown'
-                if 'process.env' in secret_text or 'os.environ' in secret_text or 'os.getenv' in secret_text:
-                    secret_type = 'environment'
-                elif 'config.' in secret_text or 'secrets.' in secret_text or 'settings.' in secret_text:
-                    secret_type = 'config'
+                secret_type = "unknown"
+                if (
+                    "process.env" in secret_text
+                    or "os.environ" in secret_text
+                    or "os.getenv" in secret_text
+                ):
+                    secret_type = "environment"
+                elif (
+                    "config." in secret_text
+                    or "secrets." in secret_text
+                    or "settings." in secret_text
+                ):
+                    secret_type = "config"
                 elif secret_text.startswith('"') or secret_text.startswith("'"):
-                    secret_type = 'hardcoded'
+                    secret_type = "hardcoded"
                 else:
-                    secret_type = 'variable'
+                    secret_type = "variable"
 
-                # Extract algorithm from options
-                algorithm = 'HS256'  # Default per JWT spec
-                if 'algorithm' in options_text:
-                    for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256', 'none']:
+                algorithm = "HS256"
+                if "algorithm" in options_text:
+                    for algo in [
+                        "HS256",
+                        "HS384",
+                        "HS512",
+                        "RS256",
+                        "RS384",
+                        "RS512",
+                        "ES256",
+                        "PS256",
+                        "none",
+                    ]:
                         if algo in options_text:
                             algorithm = algo
                             break
 
                 full_match = f"{callee}({payload_text[:50]}, {secret_text[:50]}, ...)"
 
-                patterns.append({
-                    'line': line,
-                    'type': pattern_type,
-                    'full_match': full_match[:500],
-                    'secret_type': secret_type,
-                    'algorithm': algorithm
-                })
+                patterns.append(
+                    {
+                        "line": line,
+                        "type": pattern_type,
+                        "full_match": full_match[:500],
+                        "secret_type": secret_type,
+                        "algorithm": algorithm,
+                    }
+                )
 
-            elif pattern_type == 'jwt_verify':
-                # jwt.verify(token, secret, options)
-                options_text = args.get(2, '{}')
+            elif pattern_type == "jwt_verify":
+                options_text = args.get(2, "{}")
 
-                # Extract algorithm
-                algorithm = 'HS256'
-                if 'algorithm' in options_text:
-                    for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256', 'none']:
+                algorithm = "HS256"
+                if "algorithm" in options_text:
+                    for algo in [
+                        "HS256",
+                        "HS384",
+                        "HS512",
+                        "RS256",
+                        "RS384",
+                        "RS512",
+                        "ES256",
+                        "PS256",
+                        "none",
+                    ]:
                         if algo in options_text:
                             algorithm = algo
                             break
 
                 full_match = f"{callee}(...)"
 
-                patterns.append({
-                    'line': line,
-                    'type': pattern_type,
-                    'full_match': full_match[:500],
-                    'secret_type': None,  # Not applicable for verify
-                    'algorithm': algorithm
-                })
+                patterns.append(
+                    {
+                        "line": line,
+                        "type": pattern_type,
+                        "full_match": full_match[:500],
+                        "secret_type": None,
+                        "algorithm": algorithm,
+                    }
+                )
 
-            elif pattern_type == 'jwt_decode':
-                # jwt.decode(token) - vulnerable, no verification
+            elif pattern_type == "jwt_decode":
                 full_match = f"{callee}(...)"
 
-                patterns.append({
-                    'line': line,
-                    'type': pattern_type,
-                    'full_match': full_match[:200],
-                    'secret_type': None,
-                    'algorithm': None
-                })
+                patterns.append(
+                    {
+                        "line": line,
+                        "type": pattern_type,
+                        "full_match": full_match[:200],
+                        "secret_type": None,
+                        "algorithm": None,
+                    }
+                )
 
         return patterns
 
@@ -1238,90 +1168,86 @@ class JavaScriptExtractor(BaseExtractor):
         """
         routes = []
 
-        # Route definition method names for Express/Fastify
-        route_methods = frozenset([
-            'get', 'post', 'put', 'patch', 'delete', 'options', 'head',
-            'all', 'use', 'route'
-        ])
+        route_methods = frozenset(
+            ["get", "post", "put", "patch", "delete", "options", "head", "all", "use", "route"]
+        )
 
-        # Framework prefixes for route definitions
-        route_prefixes = frozenset([
-            'app', 'router', 'Router', 'express', 'fastify', 'server'
-        ])
+        route_prefixes = frozenset(["app", "router", "Router", "express", "fastify", "server"])
 
-        # Authentication middleware patterns
-        auth_patterns = frozenset([
-            'auth', 'authenticate', 'requireauth', 'isauth', 'verifyauth',
-            'checkauth', 'ensureauth', 'passport', 'jwt', 'bearer', 'oauth',
-            'protected', 'secure', 'guard', 'authorize'
-        ])
+        auth_patterns = frozenset(
+            [
+                "auth",
+                "authenticate",
+                "requireauth",
+                "isauth",
+                "verifyauth",
+                "checkauth",
+                "ensureauth",
+                "passport",
+                "jwt",
+                "bearer",
+                "oauth",
+                "protected",
+                "secure",
+                "guard",
+                "authorize",
+            ]
+        )
 
-        # Track routes by line to collect all arguments (middleware, handler, etc.)
         routes_by_line = {}
 
         for call in function_calls:
-            callee = call.get('callee_function', '')
+            callee = call.get("callee_function", "")
 
-            # Parse callee: "app.get" → prefix="app", method="get"
-            if '.' not in callee:
+            if "." not in callee:
                 continue
 
-            parts = callee.split('.')
+            parts = callee.split(".")
             if len(parts) < 2:
                 continue
 
             prefix = parts[0]
             method_name = parts[-1]
 
-            # Check if this is a route definition
             if prefix not in route_prefixes or method_name not in route_methods:
                 continue
 
-            line = call.get('line', 0)
+            line = call.get("line", 0)
 
-            # Initialize route entry if not exists
             if line not in routes_by_line:
                 routes_by_line[line] = {
-                    'file': file_path,
-                    'line': line,
-                    'method': method_name.upper() if method_name != 'all' else 'ANY',
-                    'pattern': None,
-                    'path': file_path,
-                    'has_auth': False,
-                    'handler_function': None,
-                    'controls': []
+                    "file": file_path,
+                    "line": line,
+                    "method": method_name.upper() if method_name != "all" else "ANY",
+                    "pattern": None,
+                    "path": file_path,
+                    "has_auth": False,
+                    "handler_function": None,
+                    "controls": [],
                 }
 
             route_entry = routes_by_line[line]
 
-            # Extract route pattern from first argument (index 0)
-            if call.get('argument_index') == 0:
-                arg_expr = call.get('argument_expr', '')
-                # Route pattern is usually a string literal
+            if call.get("argument_index") == 0:
+                arg_expr = call.get("argument_expr", "")
+
                 if arg_expr.startswith('"') or arg_expr.startswith("'"):
-                    route_entry['pattern'] = arg_expr.strip('"\'')
-                elif arg_expr.startswith('`'):
-                    # Template literal - extract static part
-                    route_entry['pattern'] = arg_expr.strip('`')
+                    route_entry["pattern"] = arg_expr.strip("\"'")
+                elif arg_expr.startswith("`"):
+                    route_entry["pattern"] = arg_expr.strip("`")
 
-            # Detect middleware and handler from subsequent arguments
-            elif call.get('argument_index', -1) >= 1:
-                arg_expr = call.get('argument_expr', '')
+            elif call.get("argument_index", -1) >= 1:
+                arg_expr = call.get("argument_expr", "")
 
-                # Check for authentication middleware
                 arg_lower = arg_expr.lower()
                 if any(auth_pattern in arg_lower for auth_pattern in auth_patterns):
-                    route_entry['has_auth'] = True
-                    route_entry['controls'].append(arg_expr[:100])  # Limit length
+                    route_entry["has_auth"] = True
+                    route_entry["controls"].append(arg_expr[:100])
 
-                # Last argument is typically the handler function
-                # Store it, but it may get overwritten by later arguments
-                route_entry['handler_function'] = arg_expr[:100]  # Limit length
+                route_entry["handler_function"] = arg_expr[:100]
 
-        # Convert routes_by_line to list
         for route in routes_by_line.values():
-            # Skip routes without a pattern (malformed or incomplete)
-            if route['pattern']:
+            if route["pattern"]:
                 routes.append(route)
 
         return routes
@@ -1345,61 +1271,52 @@ class JavaScriptExtractor(BaseExtractor):
         """
         mounts = []
 
-        # Track mounts by line to collect both arguments
         mounts_by_line = {}
 
         for call in function_calls:
-            callee = call.get('callee_function', '')
+            callee = call.get("callee_function", "")
 
-            # Match router.use() or Router().use() patterns
-            if not callee.endswith('.use'):
+            if not callee.endswith(".use"):
                 continue
 
-            line = call.get('line', 0)
+            line = call.get("line", 0)
 
-            # Initialize mount entry if not exists
             if line not in mounts_by_line:
                 mounts_by_line[line] = {
-                    'file': file_path,
-                    'line': line,
-                    'mount_path_expr': None,
-                    'router_variable': None,
-                    'is_literal': False,
+                    "file": file_path,
+                    "line": line,
+                    "mount_path_expr": None,
+                    "router_variable": None,
+                    "is_literal": False,
                 }
 
             mount_entry = mounts_by_line[line]
 
-            # Extract mount path from first argument (index 0)
-            if call.get('argument_index') == 0:
-                arg_expr = call.get('argument_expr', '')
+            if call.get("argument_index") == 0:
+                arg_expr = call.get("argument_expr", "")
 
                 if not arg_expr:
                     continue
 
-                # Determine if literal or identifier
-                # Static string: '/areas' or "/areas"
                 if arg_expr.startswith('"') or arg_expr.startswith("'"):
-                    mount_entry['mount_path_expr'] = arg_expr.strip('"\'')
-                    mount_entry['is_literal'] = True
-                # Template literal: `${API_PREFIX}/auth` or `/api/v1`
-                elif arg_expr.startswith('`'):
-                    mount_entry['mount_path_expr'] = arg_expr  # Keep template as-is
-                    mount_entry['is_literal'] = False  # Will need resolution
-                # Identifier: API_PREFIX
+                    mount_entry["mount_path_expr"] = arg_expr.strip("\"'")
+                    mount_entry["is_literal"] = True
+
+                elif arg_expr.startswith("`"):
+                    mount_entry["mount_path_expr"] = arg_expr
+                    mount_entry["is_literal"] = False
+
                 else:
-                    mount_entry['mount_path_expr'] = arg_expr
-                    mount_entry['is_literal'] = False  # Will need resolution
+                    mount_entry["mount_path_expr"] = arg_expr
+                    mount_entry["is_literal"] = False
 
-            # Extract router variable from second argument (index 1)
-            elif call.get('argument_index') == 1:
-                arg_expr = call.get('argument_expr', '')
+            elif call.get("argument_index") == 1:
+                arg_expr = call.get("argument_expr", "")
                 if arg_expr:
-                    mount_entry['router_variable'] = arg_expr
+                    mount_entry["router_variable"] = arg_expr
 
-        # Convert mounts_by_line to list
         for mount in mounts_by_line.values():
-            # Only include mounts with both path and router variable
-            if mount['mount_path_expr'] and mount['router_variable']:
+            if mount["mount_path_expr"] and mount["router_variable"]:
                 mounts.append(mount)
 
         return mounts
@@ -1429,7 +1346,6 @@ class JavaScriptExtractor(BaseExtractor):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # PHASE 1: Load all mount statements
         cursor.execute("""
             SELECT file, line, mount_path_expr, router_variable, is_literal
             FROM router_mounts
@@ -1444,7 +1360,6 @@ class JavaScriptExtractor(BaseExtractor):
             conn.close()
             return
 
-        # PHASE 2: Build constant lookup (API_PREFIX → '/api/v1')
         cursor.execute("""
             SELECT file, target_var, source_expr
             FROM assignments
@@ -1453,16 +1368,14 @@ class JavaScriptExtractor(BaseExtractor):
 
         constants = {}
         for file, var_name, value in cursor.fetchall():
-            # Store with file scope
             key = f"{file}::{var_name}"
-            # Clean value: '/api/v1' or "/api/v1" → /api/v1
-            cleaned_value = value.strip().strip('"\'')
+
+            cleaned_value = value.strip().strip("\"'")
             constants[key] = cleaned_value
 
         if debug:
             print(f"[MOUNT RESOLUTION] Loaded {len(constants)} constant definitions")
 
-        # PHASE 3: Build import lookup (areaRoutes → 'backend/src/routes/area.routes.ts')
         cursor.execute("""
             SELECT file, package, alias_name
             FROM import_styles
@@ -1474,95 +1387,77 @@ class JavaScriptExtractor(BaseExtractor):
             if not alias_name:
                 continue
 
-            # Resolve relative import path to absolute
-            # file: 'backend/src/routes/index.ts'
-            # package: './area.routes'
-            # → 'backend/src/routes/area.routes.ts'
+            if package.startswith("."):
+                file_dir = "/".join(file.split("/")[:-1])
 
-            if package.startswith('.'):
-                # Get directory of importing file
-                file_dir = '/'.join(file.split('/')[:-1])
-                # Resolve relative path
-                if package == '.':
+                if package == ".":
                     resolved = file_dir
-                elif package.startswith('./'):
+                elif package.startswith("./"):
                     resolved = f"{file_dir}/{package[2:]}"
-                elif package.startswith('../'):
-                    # Go up one level
-                    parent_dir = '/'.join(file_dir.split('/')[:-1])
+                elif package.startswith("../"):
+                    parent_dir = "/".join(file_dir.split("/")[:-1])
                     resolved = f"{parent_dir}/{package[3:]}"
                 else:
                     resolved = package
 
-                # Add .ts extension if not present
-                if not resolved.endswith(('.ts', '.js', '.tsx', '.jsx')):
+                if not resolved.endswith((".ts", ".js", ".tsx", ".jsx")):
                     resolved = f"{resolved}.ts"
 
-                # Store: file::alias_name → resolved_path
                 key = f"{file}::{alias_name}"
                 imports[key] = resolved
 
         if debug:
             print(f"[MOUNT RESOLUTION] Loaded {len(imports)} import mappings")
 
-        # PHASE 4: Resolve mount paths and build file → mount mapping
-        mount_map = {}  # file_path → mount_path
+        mount_map = {}
 
-        # First pass: resolve direct mounts (no nested hierarchy)
         for file, line, mount_expr, router_var, is_literal in raw_mounts:
             resolved_mount = None
 
-            # Resolve mount path expression
             if is_literal:
-                # Already a string literal: '/areas'
                 resolved_mount = mount_expr
             else:
-                # Need to resolve: API_PREFIX or `${API_PREFIX}/auth`
-                if mount_expr.startswith('`'):
-                    # Template literal: `${API_PREFIX}/auth`
-                    # Extract variable names
-                    var_pattern = r'\$\{([^}]+)\}'
+                if mount_expr.startswith("`"):
+                    var_pattern = r"\$\{([^}]+)\}"
                     matches = re.findall(var_pattern, mount_expr)
 
-                    resolved_template = mount_expr.strip('`')
+                    resolved_template = mount_expr.strip("`")
                     for var_name in matches:
-                        # Look up constant value
                         const_key = f"{file}::{var_name}"
                         if const_key in constants:
                             var_value = constants[const_key]
-                            resolved_template = resolved_template.replace(f'${{{var_name}}}', var_value)
+                            resolved_template = resolved_template.replace(
+                                f"${{{var_name}}}", var_value
+                            )
                         else:
-                            # Constant not found - hard fail (set NULL)
                             resolved_template = None
                             break
 
                     resolved_mount = resolved_template
                 else:
-                    # Identifier: API_PREFIX
                     const_key = f"{file}::{mount_expr}"
                     resolved_mount = constants.get(const_key)
 
             if not resolved_mount:
-                # Failed to resolve mount path - skip (hard fail, no fallback)
                 if debug:
-                    print(f"[MOUNT RESOLUTION] Failed to resolve mount: {file}:{line} - {mount_expr}")
+                    print(
+                        f"[MOUNT RESOLUTION] Failed to resolve mount: {file}:{line} - {mount_expr}"
+                    )
                 continue
 
-            # Resolve router variable to file path
             import_key = f"{file}::{router_var}"
             router_file = imports.get(import_key)
 
-            # If not found in imports, check if it's a local router (defined in same file)
             if not router_file:
-                # Check if this router variable has mounts in the same file
-                # (e.g., protectedRouter is local to index.ts)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT COUNT(*)
                     FROM router_mounts
                     WHERE file = ? AND router_variable = ?
-                """, (file, router_var))
+                """,
+                    (file, router_var),
+                )
                 if cursor.fetchone()[0] > 0:
-                    # Local router - use same file
                     router_file = file
                     if debug:
                         print(f"[MOUNT RESOLUTION] {router_var} is local to {file}")
@@ -1572,31 +1467,31 @@ class JavaScriptExtractor(BaseExtractor):
                 if debug:
                     print(f"[MOUNT RESOLUTION] {router_file} → {resolved_mount}")
 
-        # PHASE 5: Update api_endpoints.full_path
         updated_count = 0
         for file_path, mount_path in mount_map.items():
-            # Get all routes from this file
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT rowid, pattern
                 FROM api_endpoints
                 WHERE file = ?
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             for rowid, pattern in cursor.fetchall():
-                # Combine mount + pattern
-                # mount='/api/v1/areas', pattern='/' → '/api/v1/areas/'
-                # mount='/api/v1/areas', pattern='/:id' → '/api/v1/areas/:id'
-                if pattern and pattern.startswith('/'):
+                if pattern and pattern.startswith("/"):
                     full_path = mount_path + pattern
                 else:
-                    full_path = mount_path + '/' + (pattern or '')
+                    full_path = mount_path + "/" + (pattern or "")
 
-                # Update the row
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE api_endpoints
                     SET full_path = ?
                     WHERE rowid = ?
-                """, (full_path, rowid))
+                """,
+                    (full_path, rowid),
+                )
                 updated_count += 1
 
         conn.commit()
@@ -1636,7 +1531,6 @@ class JavaScriptExtractor(BaseExtractor):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # PHASE 1: Load middleware chains needing resolution
         cursor.execute("""
             SELECT rowid, file, handler_function
             FROM express_middleware_chains
@@ -1653,11 +1547,6 @@ class JavaScriptExtractor(BaseExtractor):
             conn.close()
             return
 
-        # PHASE 2: Build import lookup from import_styles and import_specifiers
-        # Key: (file, specifier_name_lowercase) -> module_path
-        import_lookup = {}
-
-        # Load import_specifiers (maps imported names to import lines)
         cursor.execute("""
             SELECT file, import_line, specifier_name
             FROM import_specifiers
@@ -1667,7 +1556,6 @@ class JavaScriptExtractor(BaseExtractor):
             key = (file, specifier_name.lower())
             specifier_to_line[key] = import_line
 
-        # Load import_styles (maps import lines to module paths)
         cursor.execute("""
             SELECT file, line, package
             FROM import_styles
@@ -1696,35 +1584,28 @@ class JavaScriptExtractor(BaseExtractor):
         if debug:
             print(f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
 
-        # PHASE 3: Build path alias resolution (handle @controllers/, @middleware/, etc.)
-        # Look for tsconfig.json paths or common patterns
         path_aliases = {}
 
-        # Find a sample path with 'src' to infer base path
         cursor.execute("""
             SELECT DISTINCT path FROM symbols WHERE path LIKE '%/src/%' LIMIT 1
         """)
         sample_path = cursor.fetchone()
         if sample_path:
-            # Infer base path from sample file
-            # backend/src/controllers/auth.controller.ts -> backend/src
-            parts = sample_path[0].split('/')
-            if 'src' in parts:
-                src_idx = parts.index('src')
-                base_path = '/'.join(parts[:src_idx + 1])
+            parts = sample_path[0].split("/")
+            if "src" in parts:
+                src_idx = parts.index("src")
+                base_path = "/".join(parts[: src_idx + 1])
 
-                # Common alias patterns
-                path_aliases['@controllers'] = f"{base_path}/controllers"
-                path_aliases['@middleware'] = f"{base_path}/middleware"
-                path_aliases['@services'] = f"{base_path}/services"
-                path_aliases['@validations'] = f"{base_path}/validations"
-                path_aliases['@utils'] = f"{base_path}/utils"
-                path_aliases['@config'] = f"{base_path}/config"
+                path_aliases["@controllers"] = f"{base_path}/controllers"
+                path_aliases["@middleware"] = f"{base_path}/middleware"
+                path_aliases["@services"] = f"{base_path}/services"
+                path_aliases["@validations"] = f"{base_path}/validations"
+                path_aliases["@utils"] = f"{base_path}/utils"
+                path_aliases["@config"] = f"{base_path}/config"
 
         if debug:
             print(f"[HANDLER FILE RESOLUTION] Path aliases: {path_aliases}")
 
-        # PHASE 4: Resolve each handler
         updates = []
         resolved_count = 0
         unresolved_count = 0
@@ -1838,29 +1719,24 @@ class JavaScriptExtractor(BaseExtractor):
                     unresolved_count += 1
                     continue
 
-            # Get module path
             module_path = line_to_module.get((route_file, import_line))
             if not module_path:
                 unresolved_count += 1
                 continue
 
-            # Resolve module path to actual file path
             resolved_path = None
 
-            # Handle @alias paths
             for alias, target in path_aliases.items():
                 if module_path.startswith(alias):
                     resolved_path = module_path.replace(alias, target)
                     break
 
-            # Handle relative paths
-            if not resolved_path and module_path.startswith('.'):
-                # Get directory of route file
-                route_dir = '/'.join(route_file.split('/')[:-1])
-                if module_path.startswith('./'):
+            if not resolved_path and module_path.startswith("."):
+                route_dir = "/".join(route_file.split("/")[:-1])
+                if module_path.startswith("./"):
                     resolved_path = f"{route_dir}/{module_path[2:]}"
-                elif module_path.startswith('../'):
-                    parent_dir = '/'.join(route_dir.split('/')[:-1])
+                elif module_path.startswith("../"):
+                    parent_dir = "/".join(route_dir.split("/")[:-1])
                     resolved_path = f"{parent_dir}/{module_path[3:]}"
                 else:
                     resolved_path = module_path
@@ -1868,27 +1744,30 @@ class JavaScriptExtractor(BaseExtractor):
             if not resolved_path:
                 resolved_path = module_path
 
-            # Add .ts extension if not present
-            if resolved_path and not resolved_path.endswith(('.ts', '.js', '.tsx', '.jsx')):
+            if resolved_path and not resolved_path.endswith((".ts", ".js", ".tsx", ".jsx")):
                 resolved_path = f"{resolved_path}.ts"
 
-            # Verify the file exists in symbols
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT 1 FROM symbols WHERE path = ? LIMIT 1
-            """, (resolved_path,))
+            """,
+                (resolved_path,),
+            )
             if cursor.fetchone():
                 updates.append((resolved_path, rowid))
                 resolved_count += 1
             else:
                 unresolved_count += 1
 
-        # PHASE 5: Batch update
         if updates:
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 UPDATE express_middleware_chains
                 SET handler_file = ?
                 WHERE rowid = ?
-            """, updates)
+            """,
+                updates,
+            )
             conn.commit()
 
         conn.close()
@@ -1933,15 +1812,14 @@ class JavaScriptExtractor(BaseExtractor):
         import sqlite3
 
         logger = None
-        if 'logger' in globals():
-            logger = globals()['logger']
+        if "logger" in globals():
+            logger = globals()["logger"]
 
         debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Get all function calls with generic param names (arg0, arg1, ...)
         cursor.execute("""
             SELECT rowid, callee_function, argument_index, param_name
             FROM function_call_args
@@ -1952,7 +1830,9 @@ class JavaScriptExtractor(BaseExtractor):
         total_calls = len(calls_to_fix)
 
         if logger:
-            logger.info(f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names")
+            logger.info(
+                f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names"
+            )
         elif debug:
             print(f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names")
 
@@ -1960,10 +1840,6 @@ class JavaScriptExtractor(BaseExtractor):
             conn.close()
             return
 
-        # Build lookup of function names → parameters
-        # Query once to avoid repeated database hits
-        # KEY INSIGHT: Use BASE NAME as lookup key (createAccount not AccountService.createAccount)
-        # because function calls use instance names (accountService.createAccount)
         cursor.execute("""
             SELECT name, parameters
             FROM symbols
@@ -1974,12 +1850,10 @@ class JavaScriptExtractor(BaseExtractor):
         for name, params_json in cursor.fetchall():
             try:
                 params = json.loads(params_json)
-                # Extract base name from qualified name
-                # Examples: AccountService.createAccount → createAccount
-                #           validate → validate
-                parts = name.split('.')
+
+                parts = name.split(".")
                 base_name = parts[-1] if parts else name
-                # Store by base name (may overwrite if multiple functions with same name exist)
+
                 param_lookup[base_name] = params
             except (json.JSONDecodeError, TypeError):
                 continue
@@ -1987,31 +1861,22 @@ class JavaScriptExtractor(BaseExtractor):
         if debug:
             print(f"[PARAM RESOLUTION] Built lookup with {len(param_lookup)} functions")
 
-        # Resolve parameter names
         updates = []
         resolved_count = 0
         unresolved_count = 0
 
         for rowid, callee_function, arg_index, current_param_name in calls_to_fix:
-            # Extract base function name from qualified call
-            # Examples:
-            #   accountService.createAccount → createAccount
-            #   this.helper.validate → validate
-            #   Promise.resolve → resolve
-            parts = callee_function.split('.')
+            parts = callee_function.split(".")
             base_name = parts[-1] if parts else callee_function
 
-            # Look up parameters for this function
             if base_name in param_lookup:
                 params = param_lookup[base_name]
 
-                # Check if argument_index is within bounds
                 if arg_index is not None and arg_index < len(params):
                     param_value = params[arg_index]
-                    # CRITICAL FIX: params array may contain {name: "param"} dicts (architectural contract)
-                    # Extract .name field if it's a dict, otherwise use as-is (for legacy string params)
+
                     if isinstance(param_value, dict):
-                        actual_param_name = param_value.get('name', f'arg{arg_index}')
+                        actual_param_name = param_value.get("name", f"arg{arg_index}")
                     else:
                         actual_param_name = param_value
 
@@ -2019,26 +1884,34 @@ class JavaScriptExtractor(BaseExtractor):
                     resolved_count += 1
 
                     if debug and resolved_count <= 5:
-                        print(f"[PARAM RESOLUTION] {callee_function}[{arg_index}]: {current_param_name} → {actual_param_name}")
+                        print(
+                            f"[PARAM RESOLUTION] {callee_function}[{arg_index}]: {current_param_name} → {actual_param_name}"
+                        )
                 else:
                     unresolved_count += 1
             else:
                 unresolved_count += 1
 
-        # Batch update
         if updates:
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 UPDATE function_call_args
                 SET param_name = ?
                 WHERE rowid = ?
-            """, updates)
+            """,
+                updates,
+            )
             conn.commit()
 
             if logger:
                 logger.info(f"[PARAM RESOLUTION] Resolved {resolved_count} parameter names")
-                logger.info(f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)")
+                logger.info(
+                    f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
+                )
             elif debug:
                 print(f"[PARAM RESOLUTION] Resolved {resolved_count} parameter names")
-                print(f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)")
+                print(
+                    f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
+                )
 
         conn.close()

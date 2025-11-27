@@ -1,4 +1,5 @@
 """NodeIndex: O(1) node lookup by type for AST trees."""
+
 import ast
 from collections import defaultdict
 
@@ -16,15 +17,15 @@ class NodeIndex:
             tree: AST tree to index
         """
         self._index: dict[type[ast.AST], list[ast.AST]] = defaultdict(list)
-        self._line_index: dict[type[ast.AST], dict[int, list[ast.AST]]] = defaultdict(lambda: defaultdict(list))
+        self._line_index: dict[type[ast.AST], dict[int, list[ast.AST]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
 
-        # Single walk to build index
         for node in ast.walk(tree):
             node_type = type(node)
             self._index[node_type].append(node)
 
-            # Also index by line number for range queries
-            if hasattr(node, 'lineno'):
+            if hasattr(node, "lineno"):
                 self._line_index[node_type][node.lineno].append(node)
 
     def find_nodes(self, node_type: type[ast.AST] | tuple[type[ast.AST], ...]) -> list[ast.AST]:
@@ -37,14 +38,15 @@ class NodeIndex:
             List of matching nodes
         """
         if isinstance(node_type, tuple):
-            # Handle multiple types
             result = []
             for nt in node_type:
                 result.extend(self._index.get(nt, []))
             return result
         return self._index.get(node_type, []).copy()
 
-    def find_nodes_in_range(self, node_type: type[ast.AST], start_line: int, end_line: int) -> list[ast.AST]:
+    def find_nodes_in_range(
+        self, node_type: type[ast.AST], start_line: int, end_line: int
+    ) -> list[ast.AST]:
         """Get nodes of type within line range.
 
         Args:
@@ -67,7 +69,4 @@ class NodeIndex:
         Returns:
             Dictionary mapping node type names to counts
         """
-        return {
-            node_type.__name__: len(nodes)
-            for node_type, nodes in self._index.items()
-        }
+        return {node_type.__name__: len(nodes) for node_type, nodes in self._index.items()}

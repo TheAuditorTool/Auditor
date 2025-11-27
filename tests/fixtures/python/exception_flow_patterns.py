@@ -42,7 +42,7 @@ def validate_name(name):
 def process_data(data):
     """Test exception chaining."""
     try:
-        result = transform(data)
+        transform(data)
     except KeyError as e:
         raise ValueError("Invalid data format") from e  # Expected: from_exception='e'
 
@@ -115,7 +115,7 @@ def bare_except():
     """Test bare except clause."""
     try:
         risky()
-    except:  # Expected: exception_types='Exception' (catches all)
+    except:  # noqa: E722 - Expected: exception_types='Exception' (catches all)
         pass
 
 
@@ -162,9 +162,9 @@ def finally_no_cleanup():
 def finally_with_assignment():
     """Test finally with assignment (still cleanup)."""
     try:
-        result = compute()
+        compute()
     finally:
-        status = cleanup_resources()  # Expected: cleanup_calls='cleanup_resources', has_cleanup=True
+        cleanup_resources()  # Expected: cleanup_calls='cleanup_resources', has_cleanup=True
 
 
 # ============================================================================

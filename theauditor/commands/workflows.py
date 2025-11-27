@@ -7,11 +7,12 @@ vulnerabilities, and reporting on workflow misconfigurations.
 import json
 import sqlite3
 from pathlib import Path
+
 import click
 
-from ..utils.logger import setup_logger
-from ..utils.error_handler import handle_exceptions
 from .. import __version__
+from ..utils.error_handler import handle_exceptions
+from ..utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -66,11 +67,17 @@ def workflows():
 @workflows.command("analyze")
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--workset", is_flag=True, help="Analyze workset files only")
-@click.option("--severity", type=click.Choice(['critical', 'high', 'medium', 'low', 'all']),
-              default="all", help="Minimum severity to report")
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "all"]),
+    default="all",
+    help="Minimum severity to report",
+)
 @click.option("--output", default="./.pf/raw/github_workflows.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Database path")
-@click.option("--chunk-size", default=60000, type=int, help="Max chunk size for AI consumption (bytes)")
+@click.option(
+    "--chunk-size", default=60000, type=int, help="Max chunk size for AI consumption (bytes)"
+)
 @handle_exceptions
 def analyze(root, workset, severity, output, db, chunk_size):
     """Analyze GitHub Actions workflows for security issues.
@@ -101,18 +108,15 @@ def analyze(root, workset, severity, output, db, chunk_size):
       .pf/readthis/github_workflows_*.json  # Chunked for LLM (<65KB each)
     """
     try:
-        # Verify database exists
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
             click.echo("Run 'aud full' first to extract GitHub Actions workflows.", err=True)
             raise click.Abort()
 
-        # Connect to database
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
 
-        # Load workset if requested
         file_filter = None
         if workset:
             workset_path = Path(".pf/workset.json")
@@ -126,64 +130,55 @@ def analyze(root, workset, severity, output, db, chunk_size):
                 file_filter = workset_files
                 click.echo(f"Analyzing {len(workset_files)} workset workflows...")
 
-        # Extract workflow data
         click.echo("Extracting GitHub Actions workflows from database...")
         workflow_data = _extract_workflow_data(cursor, file_filter)
 
-        # Extract findings if available
         findings = _extract_findings(cursor, severity)
 
-        # Combine data
         analysis = {
             "metadata": {
                 "tool": "TheAuditor",
                 "version": __version__,
                 "analysis_type": "github_actions_workflows",
                 "severity_filter": severity,
-                "workset_only": workset
+                "workset_only": workset,
             },
             "summary": {
                 "total_workflows": len(workflow_data),
                 "total_jobs": sum(len(w.get("jobs", [])) for w in workflow_data),
                 "total_steps": sum(
-                    len(j.get("steps", []))
-                    for w in workflow_data
-                    for j in w.get("jobs", [])
+                    len(j.get("steps", [])) for w in workflow_data for j in w.get("jobs", [])
                 ),
                 "total_findings": len(findings),
-                "severity_counts": _count_by_severity(findings)
+                "severity_counts": _count_by_severity(findings),
             },
             "workflows": workflow_data,
-            "findings": findings
+            "findings": findings,
         }
 
-        # Write output
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(analysis, f, indent=2)
 
         click.echo(f"[OK] Workflows analysis saved to {output_path}")
 
-        # Display summary
-        click.echo(f"\nGitHub Actions Workflow Analysis:")
+        click.echo("\nGitHub Actions Workflow Analysis:")
         click.echo(f"  Workflows: {analysis['summary']['total_workflows']}")
         click.echo(f"  Jobs: {analysis['summary']['total_jobs']}")
         click.echo(f"  Steps: {analysis['summary']['total_steps']}")
 
         if findings:
             click.echo(f"\n  Security Findings: {len(findings)}")
-            for sev, count in analysis['summary']['severity_counts'].items():
+            for sev, count in analysis["summary"]["severity_counts"].items():
                 if count > 0:
                     click.echo(f"    {sev.title()}: {count}")
 
-        click.echo(f"\nOutput:")
+        click.echo("\nOutput:")
         click.echo(f"  Full report: {output_path}")
 
-        # Highlight critical workflows
         critical_workflows = [
-            w for w in workflow_data
-            if 'pull_request_target' in w.get('on_triggers', [])
+            w for w in workflow_data if "pull_request_target" in w.get("on_triggers", [])
         ]
         if critical_workflows:
             click.echo(f"\nCritical Workflows Detected: {len(critical_workflows)}")
@@ -195,11 +190,11 @@ def analyze(root, workset, severity, output, db, chunk_size):
 
     except sqlite3.Error as e:
         click.echo(f"Database error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze workflows: {e}", exc_info=True)
         click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 def _extract_workflow_data(cursor, file_filter=None):
@@ -212,14 +207,17 @@ def _extract_workflow_data(cursor, file_filter=None):
     Returns:
         List of workflow dicts with jobs, steps, references
     """
-    # Get workflows
+
     if file_filter:
-        placeholders = ','.join('?' * len(file_filter))
-        cursor.execute(f"""
+        placeholders = ",".join("?" * len(file_filter))
+        cursor.execute(
+            f"""
             SELECT workflow_path, workflow_name, on_triggers, permissions, concurrency, env
             FROM github_workflows
             WHERE workflow_path IN ({placeholders})
-        """, tuple(file_filter))
+        """,
+            tuple(file_filter),
+        )
     else:
         cursor.execute("""
             SELECT workflow_path, workflow_name, on_triggers, permissions, concurrency, env
@@ -237,20 +235,33 @@ def _extract_workflow_data(cursor, file_filter=None):
             "permissions": json.loads(permissions) if permissions else None,
             "concurrency": json.loads(concurrency) if concurrency else None,
             "env": json.loads(env) if env else None,
-            "jobs": []
+            "jobs": [],
         }
 
-        # Get jobs for this workflow
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT job_id, job_key, job_name, runs_on, strategy, permissions, env,
                    if_condition, timeout_minutes, uses_reusable_workflow, reusable_workflow_path
             FROM github_jobs
             WHERE workflow_path = ?
-        """, (workflow_path,))
+        """,
+            (workflow_path,),
+        )
 
         for job_row in cursor.fetchall():
-            job_id, job_key, job_name, runs_on, strategy, job_perms, job_env, \
-                if_cond, timeout, uses_reusable, reusable_path = job_row
+            (
+                job_id,
+                job_key,
+                job_name,
+                runs_on,
+                strategy,
+                job_perms,
+                job_env,
+                if_cond,
+                timeout,
+                uses_reusable,
+                reusable_path,
+            ) = job_row
 
             job = {
                 "job_id": job_id,
@@ -265,28 +276,44 @@ def _extract_workflow_data(cursor, file_filter=None):
                 "uses_reusable_workflow": bool(uses_reusable),
                 "reusable_workflow_path": reusable_path,
                 "dependencies": [],
-                "steps": []
+                "steps": [],
             }
 
-            # Get job dependencies
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT needs_job_id FROM github_job_dependencies WHERE job_id = ?
-            """, (job_id,))
+            """,
+                (job_id,),
+            )
             job["dependencies"] = [row[0] for row in cursor.fetchall()]
 
-            # Get steps for this job
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT step_id, sequence_order, step_name, uses_action, uses_version,
                        run_script, shell, env, with_args, if_condition, timeout_minutes,
                        continue_on_error
                 FROM github_steps
                 WHERE job_id = ?
                 ORDER BY sequence_order
-            """, (job_id,))
+            """,
+                (job_id,),
+            )
 
             for step_row in cursor.fetchall():
-                step_id, seq, step_name, uses_action, uses_version, run_script, \
-                    shell, step_env, with_args, step_if, step_timeout, continue_err = step_row
+                (
+                    step_id,
+                    seq,
+                    step_name,
+                    uses_action,
+                    uses_version,
+                    run_script,
+                    shell,
+                    step_env,
+                    with_args,
+                    step_if,
+                    step_timeout,
+                    continue_err,
+                ) = step_row
 
                 step = {
                     "step_id": step_id,
@@ -301,23 +328,23 @@ def _extract_workflow_data(cursor, file_filter=None):
                     "if_condition": step_if,
                     "timeout_minutes": step_timeout,
                     "continue_on_error": bool(continue_err),
-                    "references": []
+                    "references": [],
                 }
 
-                # Get references for this step
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT reference_location, reference_type, reference_path
                     FROM github_step_references
                     WHERE step_id = ?
-                """, (step_id,))
+                """,
+                    (step_id,),
+                )
 
                 for ref_row in cursor.fetchall():
                     ref_location, ref_type, ref_path = ref_row
-                    step["references"].append({
-                        "location": ref_location,
-                        "type": ref_type,
-                        "path": ref_path
-                    })
+                    step["references"].append(
+                        {"location": ref_location, "type": ref_type, "path": ref_path}
+                    )
 
                 job["steps"].append(step)
 
@@ -338,13 +365,13 @@ def _extract_findings(cursor, severity_filter):
     Returns:
         List of finding dicts
     """
-    # Map severity filter to SQL condition
+
     severity_map = {
-        'critical': "severity = 'critical'",
-        'high': "severity IN ('critical', 'high')",
-        'medium': "severity IN ('critical', 'high', 'medium')",
-        'low': "severity IN ('critical', 'high', 'medium', 'low')",
-        'all': "1=1"
+        "critical": "severity = 'critical'",
+        "high": "severity IN ('critical', 'high')",
+        "medium": "severity IN ('critical', 'high', 'medium')",
+        "low": "severity IN ('critical', 'high', 'medium', 'low')",
+        "all": "1=1",
     }
 
     severity_condition = severity_map.get(severity_filter, "1=1")
@@ -417,59 +444,53 @@ def _create_chunks(workflows, findings, chunk_size):
     current_chunk = {
         "metadata": {
             "chunk_number": 1,
-            "total_chunks": None,  # Will be set after splitting
-            "content_type": "github_actions_workflows"
+            "total_chunks": None,
+            "content_type": "github_actions_workflows",
         },
         "workflows": [],
-        "findings": []
+        "findings": [],
     }
     current_size = len(json.dumps(current_chunk))
 
-    # Add workflows to chunks
     for workflow in workflows:
         workflow_json = json.dumps(workflow)
         workflow_size = len(workflow_json)
 
-        # If adding this workflow exceeds chunk size, start new chunk
         if current_size + workflow_size > chunk_size and current_chunk["workflows"]:
             chunks.append(current_chunk)
             current_chunk = {
                 "metadata": {
                     "chunk_number": len(chunks) + 1,
                     "total_chunks": None,
-                    "content_type": "github_actions_workflows"
+                    "content_type": "github_actions_workflows",
                 },
                 "workflows": [],
-                "findings": []
+                "findings": [],
             }
             current_size = len(json.dumps(current_chunk))
 
         current_chunk["workflows"].append(workflow)
         current_size += workflow_size
 
-    # Add findings to last chunk (they're usually small)
     if findings:
         findings_size = len(json.dumps(findings))
         if current_size + findings_size > chunk_size and current_chunk["workflows"]:
-            # Findings overflow, create dedicated chunk
             chunks.append(current_chunk)
             current_chunk = {
                 "metadata": {
                     "chunk_number": len(chunks) + 1,
                     "total_chunks": None,
-                    "content_type": "github_actions_findings"
+                    "content_type": "github_actions_findings",
                 },
                 "workflows": [],
-                "findings": findings
+                "findings": findings,
             }
         else:
             current_chunk["findings"] = findings
 
-    # Add final chunk
     if current_chunk["workflows"] or current_chunk["findings"]:
         chunks.append(current_chunk)
 
-    # Update total_chunks metadata
     total = len(chunks)
     for chunk in chunks:
         chunk["metadata"]["total_chunks"] = total

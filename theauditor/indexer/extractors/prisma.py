@@ -6,7 +6,6 @@ Inlines parsing logic (no separate parser class).
 Populates prisma_models table for use by rules/orm/prisma_analyze.py.
 """
 
-
 import re
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,7 @@ class PrismaExtractor(BaseExtractor):
 
         Prisma schemas don't have a specific extension, match by filename.
         """
-        return []  # We handle this specially in should_extract
+        return []
 
     def should_extract(self, file_path: str) -> bool:
         """Check if this extractor should handle the file.
@@ -38,10 +37,11 @@ class PrismaExtractor(BaseExtractor):
             True if this is a schema.prisma file
         """
         file_name_lower = Path(file_path).name.lower()
-        return file_name_lower == 'schema.prisma'
+        return file_name_lower == "schema.prisma"
 
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract Prisma models directly to database.
 
         Parses schema.prisma content inline (regex-based).
@@ -56,26 +56,22 @@ class PrismaExtractor(BaseExtractor):
             Minimal dict for indexer compatibility
         """
         try:
-            # Parse schema content inline
             models = self._parse_schema(content)
 
-            # Write each model field to database
             for model in models:
-                for field in model['fields']:
+                for field in model["fields"]:
                     self.db_manager.add_prisma_model(
-                        model_name=model['name'],
-                        field_name=field['name'],
-                        field_type=field['type'],
-                        is_indexed=field['is_indexed'],
-                        is_unique=field['is_unique'],
-                        is_relation=field['is_relation']
+                        model_name=model["name"],
+                        field_name=field["name"],
+                        field_type=field["type"],
+                        is_indexed=field["is_indexed"],
+                        is_unique=field["is_unique"],
+                        is_relation=field["is_relation"],
                     )
 
         except Exception:
-            # Graceful failure - don't crash indexer
             pass
 
-        # Return minimal dict for indexer compatibility
         return {}
 
     def _parse_schema(self, content: str) -> list[dict[str, Any]]:
@@ -92,20 +88,13 @@ class PrismaExtractor(BaseExtractor):
         """
         models = []
 
-        # Parse models using regex
-        model_pattern = re.compile(
-            r'model\s+(\w+)\s*\{([^}]*)\}',
-            re.DOTALL
-        )
+        model_pattern = re.compile(r"model\s+(\w+)\s*\{([^}]*)\}", re.DOTALL)
 
         for match in model_pattern.finditer(content):
             model_name = match.group(1)
             model_content = match.group(2)
 
-            model = {
-                'name': model_name,
-                'fields': self._parse_fields(model_content)
-            }
+            model = {"name": model_name, "fields": self._parse_fields(model_content)}
 
             models.append(model)
 
@@ -121,84 +110,84 @@ class PrismaExtractor(BaseExtractor):
             List of field dictionaries
         """
         fields = []
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         for line in lines:
             line = line.strip()
 
-            # Skip empty lines and comments
-            if not line or line.startswith('//'):
+            if not line or line.startswith("//"):
                 continue
 
-            # Skip block attributes (@@)
-            if line.startswith('@@'):
+            if line.startswith("@@"):
                 continue
 
-            # Parse field: fieldName Type @attributes
-            field_match = re.match(r'^(\w+)\s+(\w+(?:\[\])?(?:\?)?)', line)
+            field_match = re.match(r"^(\w+)\s+(\w+(?:\[\])?(?:\?)?)", line)
             if field_match:
                 field_name = field_match.group(1)
                 field_type = field_match.group(2)
 
                 field = {
-                    'name': field_name,
-                    'type': field_type,
-                    'is_indexed': False,
-                    'is_unique': False,
-                    'is_relation': False
+                    "name": field_name,
+                    "type": field_type,
+                    "is_indexed": False,
+                    "is_unique": False,
+                    "is_relation": False,
                 }
 
-                # Check for attributes
-                if '@id' in line:
-                    field['is_indexed'] = True
-                    field['is_unique'] = True
+                if "@id" in line:
+                    field["is_indexed"] = True
+                    field["is_unique"] = True
 
-                if '@unique' in line:
-                    field['is_unique'] = True
-                    field['is_indexed'] = True  # Unique implies indexed
+                if "@unique" in line:
+                    field["is_unique"] = True
+                    field["is_indexed"] = True
 
-                if '@index' in line:
-                    field['is_indexed'] = True
+                if "@index" in line:
+                    field["is_indexed"] = True
 
-                if '@relation' in line:
-                    field['is_relation'] = True
+                if "@relation" in line:
+                    field["is_relation"] = True
 
-                # Check if it's a relation type (starts with capital letter, not a primitive)
-                primitives = {'String', 'Int', 'BigInt', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal'}
-                base_type = field_type.replace('[]', '').replace('?', '')
+                primitives = {
+                    "String",
+                    "Int",
+                    "BigInt",
+                    "Float",
+                    "Boolean",
+                    "DateTime",
+                    "Json",
+                    "Bytes",
+                    "Decimal",
+                }
+                base_type = field_type.replace("[]", "").replace("?", "")
                 if base_type and base_type[0].isupper() and base_type not in primitives:
-                    field['is_relation'] = True
+                    field["is_relation"] = True
 
                 fields.append(field)
 
-        # Check for composite indexes
         for line in lines:
             line = line.strip()
-            if line.startswith('@@index'):
-                # Extract field names from composite index
-                # @@index([field1, field2])
-                index_match = re.search(r'@@index\s*\(\s*\[([^\]]+)\]', line)
+            if line.startswith("@@index"):
+                index_match = re.search(r"@@index\s*\(\s*\[([^\]]+)\]", line)
                 if index_match:
-                    indexed_fields = index_match.group(1).split(',')
+                    indexed_fields = index_match.group(1).split(",")
                     for indexed_field in indexed_fields:
                         indexed_field = indexed_field.strip().strip('"').strip("'")
-                        # Mark these fields as indexed
-                        for field in fields:
-                            if field['name'] == indexed_field:
-                                field['is_indexed'] = True
 
-            elif line.startswith('@@unique'):
-                # Extract field names from composite unique
-                # @@unique([field1, field2])
-                unique_match = re.search(r'@@unique\s*\(\s*\[([^\]]+)\]', line)
+                        for field in fields:
+                            if field["name"] == indexed_field:
+                                field["is_indexed"] = True
+
+            elif line.startswith("@@unique"):
+                unique_match = re.search(r"@@unique\s*\(\s*\[([^\]]+)\]", line)
                 if unique_match:
-                    unique_fields = unique_match.group(1).split(',')
+                    unique_fields = unique_match.group(1).split(",")
                     for unique_field in unique_fields:
                         unique_field = unique_field.strip().strip('"').strip("'")
-                        # Mark these fields as unique and indexed
+
                         for field in fields:
-                            if field['name'] == unique_field:
-                                field['is_unique'] = True
-                                field['is_indexed'] = True
+                            if field["name"] == unique_field:
+                                field["is_unique"] = True
+                                field["is_indexed"] = True
 
         return fields

@@ -8,9 +8,9 @@ This fixture demonstrates:
 - Methods as potential taint sinks
 """
 
+
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.ext.hybrid import hybrid_property
-from datetime import datetime
 
 db = SQLAlchemy()
 

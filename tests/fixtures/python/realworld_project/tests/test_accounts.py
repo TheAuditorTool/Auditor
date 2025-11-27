@@ -83,7 +83,7 @@ def test_known_failure():
 
     Should be extracted as pytest marker 'xfail' with args.
     """
-    assert False
+    raise AssertionError()
 
 
 # Multiple markers on same test

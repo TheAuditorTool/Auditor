@@ -13,19 +13,19 @@ Database Tables Used:
 - package_configs: Dependency version specifications
 """
 
-
-import sqlite3
 import json
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-from .config import RANGE_PREFIXES
+import sqlite3
 
+from theauditor.indexer.schema import build_query
+from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+
+from .config import RANGE_PREFIXES
 
 METADATA = RuleMetadata(
     name="version_pinning",
     category="dependency",
-    target_extensions=['.json', '.txt', '.toml'],
-    exclude_patterns=['node_modules/', '.venv/', 'test/'],
+    target_extensions=[".json", ".txt", ".toml"],
+    exclude_patterns=["node_modules/", ".venv/", "test/"],
     requires_jsx_pass=False,
 )
 
@@ -48,10 +48,10 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        query = build_query('package_configs', ['file_path', 'package_name', 'dependencies'])
+        query = build_query("package_configs", ["file_path", "package_name", "dependencies"])
         cursor.execute(query)
 
-        for file_path, package_name, deps in cursor.fetchall():
+        for file_path, _package_name, deps in cursor.fetchall():
             if not deps:
                 continue
 
@@ -66,19 +66,20 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
                     version_str = str(version).strip()
 
-                    # Check for range prefixes
                     for prefix in RANGE_PREFIXES:
                         if version_str.startswith(prefix):
-                            findings.append(StandardFinding(
-                                rule_name='version_pinning',
-                                message=f"Production dependency '{pkg}' uses unpinned version '{version_str}'",
-                                file_path=file_path,
-                                line=1,
-                                severity=Severity.MEDIUM,
-                                category='dependency',
-                                snippet=f"{pkg}: {version_str} (prefix: {prefix})",
-                            ))
-                            break  # Only report once per package
+                            findings.append(
+                                StandardFinding(
+                                    rule_name="version_pinning",
+                                    message=f"Production dependency '{pkg}' uses unpinned version '{version_str}'",
+                                    file_path=file_path,
+                                    line=1,
+                                    severity=Severity.MEDIUM,
+                                    category="dependency",
+                                    snippet=f"{pkg}: {version_str} (prefix: {prefix})",
+                                )
+                            )
+                            break
 
             except json.JSONDecodeError:
                 continue

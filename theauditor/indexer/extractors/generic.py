@@ -20,49 +20,45 @@ Replaces:
 - Old generic.py with HAS_CUSTOM_PARSERS flag (eliminated)
 """
 
-
 import json
-import yaml
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from . import BaseExtractor
 
-
-# =============================================================================
-# CONFIGURATION PATTERNS (Frozensets for O(1) Lookup)
-# =============================================================================
-
-# Docker Compose file patterns (imported from config.py for consistency)
-COMPOSE_FILE_PATTERNS: frozenset = frozenset([
-    'docker-compose.yml',
-    'docker-compose.yaml',
-    'docker-compose.override.yml',
-    'docker-compose.override.yaml',
-    'docker-compose.prod.yml',
-    'docker-compose.prod.yaml',
-    'docker-compose.dev.yml',
-    'docker-compose.dev.yaml',
-    'docker-compose.test.yml',
-    'docker-compose.test.yaml',
-])
-
-# Nginx configuration file patterns
-NGINX_FILE_PATTERNS: frozenset = frozenset([
-    'nginx.conf',
-    'default.conf',
-    'site.conf',
-])
-
-# Package manifest patterns
-PACKAGE_FILE_PATTERNS: frozenset = frozenset([
-    'package.json',
-])
+COMPOSE_FILE_PATTERNS: frozenset = frozenset(
+    [
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.override.yml",
+        "docker-compose.override.yaml",
+        "docker-compose.prod.yml",
+        "docker-compose.prod.yaml",
+        "docker-compose.dev.yml",
+        "docker-compose.dev.yaml",
+        "docker-compose.test.yml",
+        "docker-compose.test.yaml",
+    ]
+)
 
 
-# =============================================================================
-# GENERIC EXTRACTOR (Database-First)
-# =============================================================================
+NGINX_FILE_PATTERNS: frozenset = frozenset(
+    [
+        "nginx.conf",
+        "default.conf",
+        "site.conf",
+    ]
+)
+
+
+PACKAGE_FILE_PATTERNS: frozenset = frozenset(
+    [
+        "package.json",
+    ]
+)
+
 
 class GenericExtractor(BaseExtractor):
     """Extract config files directly to database (Gold Standard v1.2).
@@ -88,14 +84,16 @@ class GenericExtractor(BaseExtractor):
         """
         file_name = Path(file_path).name.lower()
 
-        # O(1) frozenset lookups
-        return (file_name in COMPOSE_FILE_PATTERNS or
-                file_name in NGINX_FILE_PATTERNS or
-                file_name in PACKAGE_FILE_PATTERNS or
-                file_name.endswith('.conf'))
+        return (
+            file_name in COMPOSE_FILE_PATTERNS
+            or file_name in NGINX_FILE_PATTERNS
+            or file_name in PACKAGE_FILE_PATTERNS
+            or file_name.endswith(".conf")
+        )
 
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract config file data directly to database.
 
         ARCHITECTURE CHANGE (v1.2 Nuclear Option):
@@ -113,31 +111,19 @@ class GenericExtractor(BaseExtractor):
         Returns:
             Minimal dict for indexer (empty lists, no config_data nesting)
         """
-        file_path_str = str(file_info['path'])
+        file_path_str = str(file_info["path"])
         file_name = Path(file_path_str).name.lower()
 
-        # Direct database extraction (no intermediate dict)
         if file_name in COMPOSE_FILE_PATTERNS:
             self._extract_compose_direct(file_path_str, content)
 
-        elif file_name in NGINX_FILE_PATTERNS or file_name.endswith('.conf'):
+        elif file_name in NGINX_FILE_PATTERNS or file_name.endswith(".conf"):
             self._extract_nginx_direct(file_path_str, content)
 
         elif file_name in PACKAGE_FILE_PATTERNS:
             self._extract_package_direct(file_path_str, content)
 
-        # Return minimal dict for indexer compatibility
-        # (No 'config_data' key - that pattern is dead)
-        return {
-            'imports': [],
-            'routes': [],
-            'sql_queries': [],
-            'symbols': []
-        }
-
-    # =========================================================================
-    # DOCKER COMPOSE EXTRACTION (Database-Direct)
-    # =========================================================================
+        return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
 
     def _extract_compose_direct(self, file_path: str, content: str) -> None:
         """Extract Docker Compose services directly to database.
@@ -151,49 +137,43 @@ class GenericExtractor(BaseExtractor):
         """
         try:
             compose_data = yaml.safe_load(content)
-            if not compose_data or 'services' not in compose_data:
+            if not compose_data or "services" not in compose_data:
                 return
 
-            services = compose_data.get('services', {})
+            services = compose_data.get("services", {})
 
             for service_name, service_config in services.items():
                 if not isinstance(service_config, dict):
                     continue
 
-                # Extract 8 existing fields
                 image = self._extract_image(service_config)
                 ports = self._extract_ports(service_config)
                 volumes = self._extract_volumes(service_config)
                 environment = self._extract_environment(service_config)
-                is_privileged = service_config.get('privileged', False)
-                network_mode = service_config.get('network_mode', 'bridge')
+                is_privileged = service_config.get("privileged", False)
+                network_mode = service_config.get("network_mode", "bridge")
 
-                # Extract 9 new security fields (Phase 3C)
-                user = service_config.get('user')  # Can be string (name) or int (uid) or "uid:gid"
-                cap_add = service_config.get('cap_add', [])  # List of capabilities to add
-                cap_drop = service_config.get('cap_drop', [])  # List of capabilities to drop
-                security_opt = service_config.get('security_opt', [])  # Security options
-                restart = service_config.get('restart')  # Restart policy
-                command = service_config.get('command')  # Override CMD
-                entrypoint = service_config.get('entrypoint')  # Override ENTRYPOINT
-                depends_on = service_config.get('depends_on')  # Service dependencies
-                healthcheck = service_config.get('healthcheck')  # Health check config
+                user = service_config.get("user")
+                cap_add = service_config.get("cap_add", [])
+                cap_drop = service_config.get("cap_drop", [])
+                security_opt = service_config.get("security_opt", [])
+                restart = service_config.get("restart")
+                command = service_config.get("command")
+                entrypoint = service_config.get("entrypoint")
+                depends_on = service_config.get("depends_on")
+                healthcheck = service_config.get("healthcheck")
 
-                # Normalize command/entrypoint to list (Docker Compose accepts string or list)
                 if isinstance(command, str):
                     command = [command]
                 if isinstance(entrypoint, str):
                     entrypoint = [entrypoint]
 
-                # Normalize depends_on to list (can be list or dict with conditions)
                 if isinstance(depends_on, dict):
-                    depends_on = list(depends_on.keys())  # Extract service names only
+                    depends_on = list(depends_on.keys())
 
-                # Convert user to string if numeric
                 if isinstance(user, int):
                     user = str(user)
 
-                # Direct database write (17-field schema)
                 self.db_manager.add_compose_service(
                     file_path=file_path,
                     service_name=service_name,
@@ -203,7 +183,6 @@ class GenericExtractor(BaseExtractor):
                     environment=environment,
                     is_privileged=is_privileged,
                     network_mode=network_mode,
-                    # 9 new fields
                     user=user,
                     cap_add=cap_add if cap_add else None,
                     cap_drop=cap_drop if cap_drop else None,
@@ -212,11 +191,10 @@ class GenericExtractor(BaseExtractor):
                     command=command,
                     entrypoint=entrypoint,
                     depends_on=depends_on,
-                    healthcheck=healthcheck
+                    healthcheck=healthcheck,
                 )
 
         except (yaml.YAMLError, ValueError, TypeError):
-            # Graceful failure - log but don't crash indexer
             pass
 
     def _extract_image(self, config: dict[str, Any]) -> str | None:
@@ -228,17 +206,16 @@ class GenericExtractor(BaseExtractor):
         Returns:
             Image name or None
         """
-        image = config.get('image')
+        image = config.get("image")
         if isinstance(image, str):
             return image
 
-        # Handle build-only services (no image key)
-        if 'build' in config:
-            build_config = config['build']
+        if "build" in config:
+            build_config = config["build"]
             if isinstance(build_config, str):
                 return f"build:{build_config}"
             elif isinstance(build_config, dict):
-                context = build_config.get('context', '.')
+                context = build_config.get("context", ".")
                 return f"build:{context}"
 
         return None
@@ -254,19 +231,17 @@ class GenericExtractor(BaseExtractor):
         Returns:
             List of port mapping strings
         """
-        ports_raw = config.get('ports', [])
+        ports_raw = config.get("ports", [])
         if not isinstance(ports_raw, list):
             return []
 
         ports = []
         for port_def in ports_raw:
             if isinstance(port_def, str):
-                # Short syntax: "8080:80"
                 ports.append(port_def)
             elif isinstance(port_def, dict):
-                # Long syntax: {target: 80, published: 8080}
-                target = port_def.get('target', '')
-                published = port_def.get('published', '')
+                target = port_def.get("target", "")
+                published = port_def.get("published", "")
                 if target and published:
                     ports.append(f"{published}:{target}")
                 elif target:
@@ -285,20 +260,19 @@ class GenericExtractor(BaseExtractor):
         Returns:
             List of volume mount strings
         """
-        volumes_raw = config.get('volumes', [])
+        volumes_raw = config.get("volumes", [])
         if not isinstance(volumes_raw, list):
             return []
 
         volumes = []
         for vol_def in volumes_raw:
             if isinstance(vol_def, str):
-                # Short syntax: "/host:/container:ro"
                 volumes.append(vol_def)
             elif isinstance(vol_def, dict):
                 # Long syntax: {type: bind, source: /host, target: /container}
-                vol_type = vol_def.get('type', 'volume')
-                source = vol_def.get('source', '')
-                target = vol_def.get('target', '')
+                vol_type = vol_def.get("type", "volume")
+                source = vol_def.get("source", "")
+                target = vol_def.get("target", "")
                 if source and target:
                     volumes.append(f"{source}:{target}")
                 elif target:
@@ -317,26 +291,20 @@ class GenericExtractor(BaseExtractor):
         Returns:
             Dictionary of environment variables
         """
-        env_raw = config.get('environment', {})
+        env_raw = config.get("environment", {})
 
-        # Handle dict format: {KEY: value}
         if isinstance(env_raw, dict):
             return {k: str(v) for k, v in env_raw.items()}
 
-        # Handle list format: ["KEY=value", "KEY2=value2"]
         if isinstance(env_raw, list):
             env_dict = {}
             for item in env_raw:
-                if isinstance(item, str) and '=' in item:
-                    key, _, value = item.partition('=')
+                if isinstance(item, str) and "=" in item:
+                    key, _, value = item.partition("=")
                     env_dict[key] = value
             return env_dict
 
         return {}
-
-    # =========================================================================
-    # NGINX EXTRACTION (Minimal Implementation)
-    # =========================================================================
 
     def _extract_nginx_direct(self, file_path: str, content: str) -> None:
         """Extract Nginx config directly to database.
@@ -355,19 +323,14 @@ class GenericExtractor(BaseExtractor):
             file_path: Path to nginx.conf
             content: Config content as string
         """
-        # Store minimal record - file detected
-        # Rules can query nginx_configs to find nginx files, then analyze directly
+
         self.db_manager.add_nginx_config(
             file_path=file_path,
-            block_type='detected',
-            block_context='minimal',
-            directives={'status': 'parsed_minimally', 'reason': 'regex_cancer_eliminated'},
-            level=0
+            block_type="detected",
+            block_context="minimal",
+            directives={"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
+            level=0,
         )
-
-    # =========================================================================
-    # PACKAGE MANIFEST EXTRACTION (Database-Direct)
-    # =========================================================================
 
     def _extract_package_direct(self, file_path: str, content: str) -> None:
         """Extract package.json to package_configs table.
@@ -379,20 +342,18 @@ class GenericExtractor(BaseExtractor):
         try:
             pkg_data = json.loads(content)
 
-            # Direct database write
             self.db_manager.add_package_config(
                 file_path=file_path,
-                package_name=pkg_data.get('name', 'unknown'),
-                version=pkg_data.get('version', 'unknown'),
-                dependencies=pkg_data.get('dependencies'),
-                dev_dependencies=pkg_data.get('devDependencies'),
-                peer_dependencies=pkg_data.get('peerDependencies'),
-                scripts=pkg_data.get('scripts'),
-                engines=pkg_data.get('engines'),
-                workspaces=pkg_data.get('workspaces'),
-                is_private=pkg_data.get('private', False)
+                package_name=pkg_data.get("name", "unknown"),
+                version=pkg_data.get("version", "unknown"),
+                dependencies=pkg_data.get("dependencies"),
+                dev_dependencies=pkg_data.get("devDependencies"),
+                peer_dependencies=pkg_data.get("peerDependencies"),
+                scripts=pkg_data.get("scripts"),
+                engines=pkg_data.get("engines"),
+                workspaces=pkg_data.get("workspaces"),
+                is_private=pkg_data.get("private", False),
             )
 
         except json.JSONDecodeError:
-            # Graceful failure
             pass
