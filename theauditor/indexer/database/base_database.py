@@ -469,6 +469,7 @@ class BaseDatabaseManager:
                 # Framework detection tables
                 ('frameworks', 'INSERT OR IGNORE'),  # Avoid duplicates from multiple scans
                 ('framework_safe_sinks', 'INSERT OR IGNORE'),
+                ('framework_taint_patterns', 'INSERT OR IGNORE'),  # Database-driven taint sources/sinks
             ]
 
             # Flush JWT patterns first (special dict-based batch)
@@ -645,20 +646,20 @@ class BaseDatabaseManager:
         self.jwt_patterns_batch.clear()
 
     def write_findings_batch(self, findings: list[dict], tool_name: str) -> None:
-        """Write findings to database using batch insert for dual-write pattern.
+        """Write findings to database using batch insert with typed columns.
 
-        This method implements the dual-write architecture where findings are written
-        to BOTH the database (for FCE performance) AND JSON files (for AI consumption).
+        Implements the Sparse Wide Table pattern: tool-specific metadata is stored
+        in dedicated typed columns (cfg_*, graph_*, mypy_*, tf_*) instead of JSON.
 
         Args:
             findings: List of finding dicts from any tool (patterns, taint, lint, etc.)
             tool_name: Name of the tool that generated findings (e.g., 'patterns', 'taint')
 
         Notes:
-            - Normalizes findings to standard format (handles different field names)
-            - Uses batch inserts for performance (batch_size from config)
-            - Automatically commits after all batches complete
-            - Optional fields (column, cwe, confidence) are gracefully handled
+            - Maps tool-specific data to typed columns based on tool_name
+            - NO JSON serialization - all data in typed columns
+            - Taint data goes to taint_flows table, not here (just a marker row)
+            - 79% of rows will have NULL for tool-specific columns (free in SQLite)
         """
         if not findings:
             return
@@ -667,27 +668,16 @@ class BaseDatabaseManager:
 
         cursor = self.conn.cursor()
 
-        # Normalize findings to standard format
+        # Normalize findings to standard format with typed columns
         normalized = []
         for f in findings:
-            # Extract structured data from additional_info or details_json
-            details = f.get('additional_info', f.get('details_json', {}))
-
-            # JSON serialize if it's a dict, otherwise use empty object
-            if isinstance(details, dict):
-                details_str = json.dumps(details)
-            elif isinstance(details, str):
-                # Already JSON string, validate it
-                try:
-                    json.loads(details)
-                    details_str = details
-                except (json.JSONDecodeError, TypeError):
-                    details_str = '{}'
-            else:
-                details_str = '{}'
+            # Extract structured data from additional_info
+            # ZERO FALLBACK: additional_info MUST be a dict, not a string
+            details = f.get('additional_info', {})
+            if not isinstance(details, dict):
+                details = {}
 
             # Handle different finding formats from various tools
-            # Try multiple field names for compatibility
             rule_value = f.get('rule')
             if not rule_value:
                 rule_value = f.get('pattern', f.get('pattern_name', f.get('code', 'unknown-rule')))
@@ -700,20 +690,116 @@ class BaseDatabaseManager:
             if not isinstance(file_path, str):
                 file_path = str(file_path or '')
 
+            # Initialize all 23 tool-specific columns to None
+            # CFG columns (9)
+            cfg_function = None
+            cfg_complexity = None
+            cfg_block_count = None
+            cfg_edge_count = None
+            cfg_has_loops = None
+            cfg_has_recursion = None
+            cfg_start_line = None
+            cfg_end_line = None
+            cfg_threshold = None
+            # Graph columns (7)
+            graph_id = None
+            graph_in_degree = None
+            graph_out_degree = None
+            graph_total_connections = None
+            graph_centrality = None
+            graph_score = None
+            graph_cycle_nodes = None
+            # Mypy columns (3)
+            mypy_error_code = None
+            mypy_severity_int = None
+            mypy_column = None
+            # Terraform columns (4)
+            tf_finding_id = None
+            tf_resource_id = None
+            tf_remediation = None
+            tf_graph_context = None
+
+            # Map tool-specific data to typed columns
+            # Use finding's tool field if present (linters batch multiple tools together)
+            actual_tool = f.get('tool', tool_name)
+            if actual_tool == 'cfg-analysis':
+                cfg_function = details.get('function')
+                cfg_complexity = details.get('complexity')
+                cfg_block_count = details.get('block_count')
+                cfg_edge_count = details.get('edge_count')
+                cfg_has_loops = 1 if details.get('has_loops') else (0 if 'has_loops' in details else None)
+                cfg_has_recursion = 1 if details.get('has_recursion') else (0 if 'has_recursion' in details else None)
+                cfg_start_line = details.get('start_line')
+                cfg_end_line = details.get('end_line')
+                cfg_threshold = details.get('threshold')
+
+            elif actual_tool == 'graph-analysis':
+                graph_id = details.get('id') or details.get('file')
+                graph_in_degree = details.get('in_degree')
+                graph_out_degree = details.get('out_degree')
+                graph_total_connections = details.get('total_connections')
+                graph_centrality = details.get('centrality')
+                graph_score = details.get('score')
+                cycle_nodes = details.get('cycle_nodes', [])
+                if cycle_nodes and isinstance(cycle_nodes, list):
+                    graph_cycle_nodes = ','.join(str(n) for n in cycle_nodes)
+
+            elif actual_tool == 'mypy':
+                # Field names match linters.py output: mypy_code, mypy_severity
+                mypy_error_code = details.get('mypy_code')
+                mypy_severity_int = details.get('mypy_severity')
+                mypy_column = f.get('column')  # From top-level, not details
+
+            elif actual_tool == 'terraform':
+                tf_finding_id = details.get('finding_id')
+                tf_resource_id = details.get('resource_id')
+                tf_remediation = details.get('remediation')
+                tf_graph_context = details.get('graph_context_json')
+
+            # Taint: No mapping - complex data lives in taint_flows table
+            # The findings_consolidated row is just a marker/summary
+
             normalized.append((
+                # Core columns (13)
                 file_path,
                 int(f.get('line', 0)),
-                f.get('column'),  # Optional
+                f.get('column'),
                 rule_value,
                 f.get('tool', tool_name),
                 f.get('message', ''),
-                f.get('severity', 'medium'),  # Default to medium if not specified
-                f.get('category'),  # Optional
-                f.get('confidence'),  # Optional
-                f.get('code_snippet'),  # Optional
-                f.get('cwe'),  # Optional
+                f.get('severity', 'medium'),
+                f.get('category'),
+                f.get('confidence'),
+                f.get('code_snippet'),
+                f.get('cwe'),
                 f.get('timestamp', datetime.now(UTC).isoformat()),
-                details_str  # Structured data
+                # CFG columns (9)
+                cfg_function,
+                cfg_complexity,
+                cfg_block_count,
+                cfg_edge_count,
+                cfg_has_loops,
+                cfg_has_recursion,
+                cfg_start_line,
+                cfg_end_line,
+                cfg_threshold,
+                # Graph columns (7)
+                graph_id,
+                graph_in_degree,
+                graph_out_degree,
+                graph_total_connections,
+                graph_centrality,
+                graph_score,
+                graph_cycle_nodes,
+                # Mypy columns (3)
+                mypy_error_code,
+                mypy_severity_int,
+                mypy_column,
+                # Terraform columns (4)
+                tf_finding_id,
+                tf_resource_id,
+                tf_remediation,
+                tf_graph_context,
             ))
 
         # Batch insert using configured batch size for performance
@@ -722,8 +808,18 @@ class BaseDatabaseManager:
             cursor.executemany(
                 """INSERT INTO findings_consolidated
                    (file, line, column, rule, tool, message, severity, category,
-                    confidence, code_snippet, cwe, timestamp, details_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    confidence, code_snippet, cwe, timestamp,
+                    cfg_function, cfg_complexity, cfg_block_count, cfg_edge_count,
+                    cfg_has_loops, cfg_has_recursion, cfg_start_line, cfg_end_line, cfg_threshold,
+                    graph_id, graph_in_degree, graph_out_degree, graph_total_connections,
+                    graph_centrality, graph_score, graph_cycle_nodes,
+                    mypy_error_code, mypy_severity_int, mypy_column,
+                    tf_finding_id, tf_resource_id, tf_remediation, tf_graph_context)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                           ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                           ?, ?, ?, ?, ?, ?, ?,
+                           ?, ?, ?,
+                           ?, ?, ?, ?)""",
                 batch
             )
 

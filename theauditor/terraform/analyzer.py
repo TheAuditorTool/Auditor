@@ -163,19 +163,14 @@ class TerraformAnalyzer:
                 ),
             )
 
-            details_json = json.dumps({
-                'finding_id': finding.finding_id,
-                'resource_id': finding.resource_id,
-                'remediation': finding.remediation,
-                'graph_context_json': finding.graph_context_json,
-            })
-
+            # Write to findings_consolidated with typed tf_* columns (no JSON)
             cursor.execute(
                 """
                 INSERT INTO findings_consolidated
                 (file, line, column, rule, tool, message, severity, category,
-                 confidence, code_snippet, cwe, timestamp, details_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 confidence, code_snippet, cwe, timestamp,
+                 tf_finding_id, tf_resource_id, tf_remediation, tf_graph_context)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     finding.file_path,
@@ -190,7 +185,11 @@ class TerraformAnalyzer:
                     finding.resource_id or '',
                     '',
                     timestamp,
-                    details_json,
+                    # Typed columns instead of JSON blob
+                    finding.finding_id,
+                    finding.resource_id,
+                    finding.remediation,
+                    finding.graph_context_json,
                 ),
             )
 
