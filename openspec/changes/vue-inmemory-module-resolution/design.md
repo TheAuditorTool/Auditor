@@ -232,7 +232,7 @@ finally {
 
 ### 3.1 Problem Analysis
 
-**Current Implementation** (`javascript.py:800-803`):
+**Current Implementation** (`javascript.py:855-858`):
 
 ```python
 for import_entry in result.get('imports', []):
@@ -275,7 +275,7 @@ Per TypeScript documentation, resolution order is:
 
 ### 3.3 Implementation Strategy
 
-**Location**: `javascript.py` after line 803
+**Location**: `javascript.py` after line 858
 
 ```python
 class ModuleResolver:
@@ -472,7 +472,7 @@ class ModuleResolver:
 Replace current basename logic in `javascript.py`:
 
 ```python
-# BEFORE (lines 800-803):
+# BEFORE (lines 855-858):
 module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
 if module_name:
     result['resolved_imports'][module_name] = imp_path

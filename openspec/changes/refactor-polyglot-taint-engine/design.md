@@ -415,7 +415,7 @@ theauditor/taint/flow_resolver.py:334-369 - res.json(), res.send() patterns (exi
 
 ```sql
 -- Sources of truth for patterns
-framework_safe_sinks       -- Safe sink patterns by framework
+framework_safe_sinks       -- Safe sink patterns by framework (column: sink_pattern, NOT pattern)
 validation_framework_usage -- Validation sanitizers (Zod, Joi, Pydantic)
 api_endpoints              -- Entry points by framework
 
@@ -423,9 +423,15 @@ api_endpoints              -- Entry points by framework
 sequelize_models           -- Node.js Sequelize models
 sequelize_associations     -- Sequelize relationships
 sequelize_model_fields     -- Sequelize field definitions
-python_orm_models          -- SQLAlchemy/Django models
-python_orm_relationships   -- Python ORM relationships
+python_orm_models          -- SQLAlchemy/Django models (columns: file, line, model_name, table_name, orm_type)
+orm_relationships          -- ORM relationships (NOT python_orm_relationships!)
+                           -- columns: file, line, source_model, target_model, relationship_type, foreign_key, cascade_delete, as_name
 ```
+
+**IMPORTANT (2025-11-27 Schema Verification):**
+- Table `python_orm_relationships` does NOT exist - the actual table is `orm_relationships`
+- Column `base_class` does NOT exist in `python_orm_models` - it's `orm_type`
+- Column `pattern` does NOT exist in `framework_safe_sinks` - it's `sink_pattern`
 
 ### C. File Dependency Graph
 

@@ -1,7 +1,7 @@
 # Verification Report: Prime Directive Compliance
 
 **Verifier**: Opus (AI Lead Coder)
-**Verification Date**: 2025-11-24
+**Verification Date**: 2025-11-27 (Re-verified after codebase refactors)
 **Protocol**: teamsop.md v4.20 Prime Directive
 **Status**: VERIFIED - Ready for implementation after approval
 
@@ -14,19 +14,34 @@ Following teamsop.md Prime Directive: "Question Everything, Assume Nothing, Veri
 ### Hypothesis 1: details_json is a separate table
 
 **Initial Belief**: The user mentioned "findings_consolidated and details_json tables"
-**Verification Method**: Query sqlite_master for table names
+**Verification Method**: Read core_schema.py directly
 **Result**: INCORRECT
 
-```sql
-SELECT sql FROM sqlite_master WHERE type='table' AND name='details_json';
--- Result: TABLE NOT FOUND
+**Evidence** (core_schema.py:488-514):
+```python
+FINDINGS_CONSOLIDATED = TableSchema(
+    name="findings_consolidated",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("column", "INTEGER"),
+        Column("rule", "TEXT", nullable=False),
+        Column("tool", "TEXT", nullable=False),
+        Column("message", "TEXT"),
+        Column("severity", "TEXT", nullable=False),
+        Column("category", "TEXT"),
+        Column("confidence", "REAL"),
+        Column("code_snippet", "TEXT"),
+        Column("cwe", "TEXT"),
+        Column("timestamp", "TEXT", nullable=False),
+        Column("details_json", "TEXT", default="'{}'"),  # <-- COLUMN, not table
+    ],
+    indexes=[...]
+)
 ```
 
-**Evidence**: `details_json` is a TEXT column on `findings_consolidated`, not a table.
-**Location**: `core_schema.py:506`
-```python
-Column("details_json", "TEXT", default="'{}'"),
-```
+**Conclusion**: `details_json` is a TEXT column on `findings_consolidated`, not a table.
 
 ---
 
@@ -34,17 +49,9 @@ Column("details_json", "TEXT", default="'{}'"),
 
 **Initial Belief**: JSON blob overhead affects most queries
 **Verification Method**: Count non-empty details_json by tool
-**Result**: INCORRECT - Only 21% of rows have data (verified 2025-11-24)
+**Result**: INCORRECT - Only 21% of rows have data
 
-```sql
-SELECT tool,
-       COUNT(*) as total,
-       SUM(CASE WHEN details_json != '{}' THEN 1 ELSE 0 END) as with_details
-FROM findings_consolidated
-GROUP BY tool;
-```
-
-**Evidence**:
+**Evidence** (verified via database query 2025-11-24):
 | Tool | With Details | Total | Percentage |
 |------|--------------|-------|------------|
 | ruff | 0 | 11,604 | 0.0% |
@@ -57,21 +64,17 @@ GROUP BY tool;
 | terraform | 7 | 7 | 100.0% |
 | taint | 1 | 1 | 100.0% |
 
-**Conclusion**: 79% of rows (17,379/21,900) have empty `details_json = '{}'` (verified 2025-11-24)
+**Conclusion**: 79% of rows (17,379/21,900) have empty `details_json = '{}'`
 
 ---
 
 ### Hypothesis 3: churn-analysis and coverage-analysis tools exist
 
-**Initial Belief**: FCE functions query these tools (fce.py:145-181, 184-220)
+**Initial Belief**: FCE functions query these tools
 **Verification Method**: Query database for all tool names
 **Result**: INCORRECT - These tools DO NOT EXIST
 
-```sql
-SELECT DISTINCT tool FROM findings_consolidated;
-```
-
-**Evidence**:
+**Evidence** (distinct tools in database):
 ```
 cdk
 cfg-analysis
@@ -87,8 +90,8 @@ terraform
 **NO `churn-analysis` or `coverage-analysis` tools exist.**
 
 **Implication**:
-- `load_churn_data_from_db()` at fce.py:145-181 is DEAD CODE (always returns {})
-- `load_coverage_data_from_db()` at fce.py:184-220 is DEAD CODE (always returns {})
+- `load_churn_data_from_db()` at fce.py:127-156 queries non-existent tool (DEAD CODE)
+- `load_coverage_data_from_db()` at fce.py:159-188 queries non-existent tool (DEAD CODE)
 - Churn data is stored in `graph-analysis` tool as `churn` key
 
 ---
@@ -101,69 +104,22 @@ terraform
 
 **Evidence**:
 ```
-=== Per-Tool Key Analysis ===
-
-cfg-analysis (66 rows):
-  block_count: INT
-  complexity: INT
-  edge_count: INT
-  end_line: INT
-  file: TEXT
-  function: TEXT
-  has_loops: BOOL
-  max_nesting: INT
-  start_line: INT
-
-graph-analysis (50 rows):
-  centrality: REAL
-  churn: INT
-  id: TEXT
-  in_degree: INT
-  loc: INT
-  out_degree: INT
-  score: REAL
-
-mypy (4397 rows):
-  hint: TEXT
-  mypy_code: TEXT
-  mypy_severity: TEXT
-
-terraform (7 rows):
-  finding_id: TEXT
-  graph_context_json: NULL
-  remediation: TEXT
-  resource_id: TEXT
-
-taint (1 rows):
-  condition_summary: TEXT
-  conditions: LIST        <-- COMPLEX
-  flow_sensitive: BOOL
-  path: LIST              <-- COMPLEX
-  path_complexity: INT
-  path_length: INT
-  related_source_count: INT
-  related_sources: LIST   <-- COMPLEX
-  sanitized_vars: LIST    <-- COMPLEX
-  sink: DICT              <-- COMPLEX
-  source: DICT            <-- COMPLEX
-  tainted_vars: LIST      <-- COMPLEX
-  unique_source_count: INT
-  vulnerability_type: TEXT
+cfg-analysis (66 rows): 9 SCALAR keys
+graph-analysis (50 rows): 7 SCALAR keys
+mypy (4397 rows): 3 SCALAR keys
+terraform (7 rows): 4 SCALAR keys (1 always NULL)
+taint (1 row): 7 LIST/DICT keys (COMPLEX)
 ```
 
 **Conclusion**: 23 scalar keys can flatten. 7 complex keys exist ONLY in taint (1 row).
 
 ---
 
-### Hypothesis 4: Taint data must stay in details_json
+### Hypothesis 5: Taint data must stay in details_json
 
 **Initial Belief**: Taint complex data requires JSON storage
 **Verification Method**: Check if taint_flows table exists
 **Result**: INCORRECT - taint_flows table already exists
-
-```sql
-SELECT name, sql FROM sqlite_master WHERE name='taint_flows';
-```
 
 **Evidence**:
 ```sql
@@ -189,39 +145,39 @@ CREATE TABLE taint_flows (
 
 ---
 
-### Hypothesis 5: Many consumers depend on details_json
+### Hypothesis 6: Many consumers depend on details_json
 
 **Initial Belief**: Breaking change will affect many files
-**Verification Method**: Grep for all details_json usages
-**Result**: PARTIALLY CORRECT - 16 files reference, but only 8 json.loads calls
+**Verification Method**: Grep for all json.loads calls on details_json
+**Result**: 10 json.loads calls in 4 files
 
-**Evidence**:
-```
-Files referencing details_json: 16
-Total references: 100
+**Evidence** (verified 2025-11-27):
 
-ACTUAL json.loads() calls on details_json:
-  fce.py:63      - load_graph_data_from_db()
-  fce.py:81      - load_graph_data_from_db()
-  fce.py:130     - load_cfg_data_from_db()
-  fce.py:171     - load_churn_data_from_db()
-  fce.py:210     - load_coverage_data_from_db()
-  fce.py:268     - load_taint_data_from_db()
-  context/query.py:1231 - get_findings()
-  aws_cdk/analyzer.py:145 - read-back
-```
+**READERS (json.loads on details_json):**
+| File | Line | Function | Has try/except? |
+|------|------|----------|-----------------|
+| fce.py | 61 | load_graph_data_from_db() | NO |
+| fce.py | 75 | load_graph_data_from_db() | NO |
+| fce.py | 117 | load_cfg_data_from_db() | NO |
+| fce.py | 151 | load_churn_data_from_db() | NO |
+| fce.py | 183 | load_coverage_data_from_db() | NO |
+| fce.py | 234 | load_taint_data_from_db() | NO |
+| fce.py | 372 | load_graphql_findings_from_db() | NO |
+| context/query.py | 1182 | get_findings() | YES |
+| aws_cdk/analyzer.py | 141 | from_standard_findings() | YES |
+| commands/workflows.py | 378 | get_workflow_findings() | YES |
 
-**Breaking rate**: 8 lines / 160,000 LOC = 0.005%
+**Breaking rate**: 10 calls / 160,000 LOC = 0.006%
 
 ---
 
-### Hypothesis 6: Main findings flow uses details_json
+### Hypothesis 7: Main findings flow uses details_json
 
 **Initial Belief**: Core FCE functionality depends on JSON parsing
-**Verification Method**: Read load_findings_from_db() function
+**Verification Method**: Read scan_all_findings() function
 **Result**: INCORRECT - Main loader does NOT select details_json
 
-**Evidence** (fce.py:483-486):
+**Evidence** (fce.py:433-436):
 ```python
 cursor.execute("""
     SELECT file, line, column, rule, tool, message, severity,
@@ -233,134 +189,114 @@ cursor.execute("""
 
 ---
 
-### Hypothesis 7: SQLite NULLs have storage overhead
+### Hypothesis 8: SQLite NULLs have storage overhead
 
 **Initial Belief**: Adding 23 nullable columns will bloat storage
 **Verification Method**: Research SQLite record format
 **Result**: INCORRECT - NULLs stored in header, zero payload bytes
 
-**Evidence**: SQLite documentation confirms NULL values are stored in the record header with a type code of 0, consuming zero bytes in the actual payload. For a table with 77% empty rows, this means:
-- Current: 16,879 rows have `details_json = '{}'` (2 bytes per row = 33KB)
-- After: 16,879 rows have 23 NULL columns (0 bytes payload, ~2 bytes header overhead)
+**Evidence**: SQLite documentation confirms NULL values are stored in the record header with a type code of 0, consuming zero bytes in the actual payload.
 
 **Conclusion**: Storage impact is negligible or slightly better.
 
 ---
 
-### Hypothesis 8: Partial indexes work in our schema system
-
-**Initial Belief**: May need custom implementation
-**Verification Method**: Check existing schema for partial index pattern
-**Result**: CORRECT - Pattern exists but needs enhancement
-
-**Evidence**: Current index definition (core_schema.py:508-515):
-```python
-indexes=[
-    ("idx_findings_file_line", ["file", "line"]),
-    ...
-]
-```
-
-**Finding**: Current schema does NOT support WHERE clause in indexes. Need to add support:
-```python
-# Current format: (name, columns)
-# Needed format: (name, columns, where_clause)
-```
-
-**Action Required**: Enhance TableSchema to support partial index WHERE clauses.
-
----
-
 ## 2. Discrepancies Found
 
-### Discrepancy 1: Archived proposals exist
+### Discrepancy 1: ZERO FALLBACK violations location
+
+**Expected**: Violations in fce.py (original spec claimed try/except blocks)
+**Actual**: fce.py has NO try/except around json.loads - code is already clean
+
+**Actual ZERO FALLBACK violations are in:**
+1. `context/query.py:1181-1185`:
+```python
+if row['details_json']:
+    import json
+    try:
+        finding['details'] = json.loads(row['details_json'])
+    except (json.JSONDecodeError, TypeError):
+        # Malformed JSON - skip details field
+        pass
+```
+
+2. `aws_cdk/analyzer.py:140-143`:
+```python
+if details_json and isinstance(details_json, str):
+    try:
+        additional = json.loads(details_json)
+    except json.JSONDecodeError:
+        additional = {}
+```
+
+3. `commands/workflows.py:378`:
+```python
+"details": json.loads(details) if details else {}
+```
+
+**Resolution**: These 3 violations will be fixed by this refactor (no json.loads needed).
+
+---
+
+### Discrepancy 2: Archived proposals exist
 
 **Expected**: This is new work
-**Actual**: Two archived proposals exist:
-- `archive/fce-json-normalization/proposal.md` - PROPOSAL status (never implemented)
-- `archive/fce-column-flattening/proposal.md` - PROPOSAL status (never implemented)
+**Actual**: Two archived proposals exist (never implemented)
 
-**Resolution**: This proposal supersedes both. They were archived without implementation.
+**Resolution**: This proposal supersedes both.
 
 ---
 
-### Discrepancy 2: ZERO FALLBACK violations in FCE
+## 3. Writer Paths Verified (2025-11-27)
 
-**Expected**: FCE follows ZERO FALLBACK policy
-**Actual**: Multiple try/except blocks around json.loads()
+### Writer 1: base_database.py:647-728 (write_findings_batch)
 
-**Evidence** (fce.py):
+**Location**: `theauditor/indexer/database/base_database.py`
+**Method**: `write_findings_batch()` (NOT `write_findings()`)
+
+**Current** (lines 670-728):
 ```python
-# Line 61-67
-try:
-    if details_json:
-        details = json.loads(details_json)
+def write_findings_batch(self, findings: list[dict], tool_name: str) -> None:
+    ...
+    for f in findings:
+        # Extract structured data from additional_info or details_json
+        details = f.get('additional_info', f.get('details_json', {}))
+
+        # JSON serialize if it's a dict, otherwise use empty object
+        if isinstance(details, dict):
+            details_str = json.dumps(details)
+        elif isinstance(details, str):
+            # Already JSON string, validate it
+            try:
+                json.loads(details)
+                details_str = details
+            except (json.JSONDecodeError, TypeError):
+                details_str = '{}'
+        else:
+            details_str = '{}'
         ...
-except (json.JSONDecodeError, TypeError):
-    pass  # <-- VIOLATION: Silent failure
+        normalized.append((
+            ...
+            details_str  # Structured data
+        ))
+
+    # Batch insert
+    for i in range(0, len(normalized), self.batch_size):
+        batch = normalized[i:i+self.batch_size]
+        cursor.executemany(
+            """INSERT INTO findings_consolidated
+               (file, line, column, rule, tool, message, severity, category,
+                confidence, code_snippet, cwe, timestamp, details_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            batch
+        )
 ```
-
-**Resolution**: This refactor eliminates json.loads(), automatically fixing ZERO FALLBACK violations.
-
----
-
-### Discrepancy 3: Table existence check in FCE
-
-**Expected**: No fallback behavior
-**Actual**: fce.py:465-476 checks if table exists and returns empty
-
-**Evidence**:
-```python
-cursor.execute("""
-    SELECT name FROM sqlite_master
-    WHERE type='table' AND name='findings_consolidated'
-""")
-if not cursor.fetchone():
-    print("[FCE] Warning: findings_consolidated table not found")
-    return []  # <-- VIOLATION: Returns empty instead of crashing
-```
-
-**Resolution**: Remove this check. Let query fail if table missing (ZERO FALLBACK).
-
----
-
-## 3. Writer Paths Verified
-
-### Writer 1: rules/base.py:183-186
-
-**Current**:
-```python
-if self.additional_info:
-    import json
-    result["details_json"] = json.dumps(self.additional_info)
-```
-
-**Verification**: This is the entry point for rule findings. `additional_info` dict is tool-specific.
-
-**Change Required**: Map `additional_info` keys to specific columns based on tool type.
-
----
-
-### Writer 2: base_database.py:688-693
-
-**Current**:
-```python
-cursor.executemany(
-    """INSERT INTO findings_consolidated
-       (file, line, column, rule, tool, message, severity, category,
-        confidence, code_snippet, cwe, timestamp, details_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    batch
-)
-```
-
-**Verification**: Generic writer used by linters and rules orchestrator.
 
 **Change Required**: Expand INSERT to include 23 new columns, with tool-specific mapping logic.
 
 ---
 
-### Writer 3: terraform/analyzer.py:167-196
+### Writer 2: terraform/analyzer.py:166-193
 
 **Current**:
 ```python
@@ -370,99 +306,102 @@ details_json = json.dumps({
     'remediation': finding.remediation,
     'graph_context_json': finding.graph_context_json,
 })
-```
 
-**Verification**: Direct INSERT with json.dumps()
+cursor.execute(
+    """
+    INSERT INTO findings_consolidated
+    (file, line, column, rule, tool, message, severity, category,
+     confidence, code_snippet, cwe, timestamp, details_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+    (..., details_json)
+)
+```
 
 **Change Required**: Write to `tf_finding_id`, `tf_resource_id`, `tf_remediation`, `tf_graph_context` columns.
 
 ---
 
-### Writer 4: commands/taint.py:477-500
+### Writer 3: commands/taint.py:476-516
 
 **Current**:
 ```python
 findings_dicts.append({
+    'file': sink.get('file', ''),
+    'line': int(sink.get('line', 0)),
     ...
     'additional_info': taint_path  # Complete nested structure
 })
+
+db_manager.write_findings_batch(findings_dicts, tool_name='taint')
 ```
 
-**Verification**: Stores complete taint path with LIST/DICT values.
-
-**Change Required**: Write to `misc_json` column (exception for complex data). FCE should read from `taint_flows` instead.
+**Change Required**: Taint has complex LIST/DICT data. Write to `misc_json`. FCE should read from `taint_flows` table directly.
 
 ---
 
-### Writer 5: vulnerability_scanner.py:650-667
+## 4. Reader Paths Verified (2025-11-27)
 
-**Current**: Standard INSERT with details_json
-
-**Verification**: Writes CVE/GHSA metadata.
-
-**Change Required**: Map vulnerability fields to appropriate columns or `misc_json`.
-
----
-
-### Writer 6: aws_cdk/analyzer.py:235-252
-
-**Current**: Standard INSERT with NULL details_json
-
-**Verification**: CDK findings don't use details_json (0% usage verified).
-
-**Change Required**: Minimal - just update INSERT statement to match new schema.
-
----
-
-## 4. Reader Paths Verified
-
-### Reader 1-6: fce.py (6 json.loads calls)
+### Readers 1-7: fce.py (7 json.loads calls)
 
 | Line | Function | What it reads |
 |------|----------|---------------|
-| 63 | `load_graph_data_from_db()` | hotspot metrics |
-| 81 | `load_graph_data_from_db()` | cycle nodes |
-| 130 | `load_cfg_data_from_db()` | complexity metrics |
-| 171 | `load_churn_data_from_db()` | churn count |
-| 210 | `load_coverage_data_from_db()` | coverage data |
-| 268 | `load_taint_data_from_db()` | taint paths |
+| 61 | `load_graph_data_from_db()` | hotspot metrics |
+| 75 | `load_graph_data_from_db()` | cycle nodes |
+| 117 | `load_cfg_data_from_db()` | complexity metrics |
+| 151 | `load_churn_data_from_db()` | churn count (DEAD CODE) |
+| 183 | `load_coverage_data_from_db()` | coverage data (DEAD CODE) |
+| 234 | `load_taint_data_from_db()` | taint paths |
+| 372 | `load_graphql_findings_from_db()` | GraphQL details |
 
-**Verification**: Each reads specific tool data from details_json
+**fce.py has NO try/except blocks** - these are clean reads.
 
 **Change Required**: SELECT columns directly, remove json.loads()
 
 ---
 
-### Reader 7: context/query.py:1231
+### Reader 8: context/query.py:1182
 
-**Current**:
+**Current** (lines 1178-1185):
 ```python
+# Parse details_json if present
 if row['details_json']:
     import json
     try:
         finding['details'] = json.loads(row['details_json'])
     except (json.JSONDecodeError, TypeError):
+        # Malformed JSON - skip details field
         pass
 ```
-
-**Verification**: Parses details_json for `aud explain` output
 
 **Change Required**: Build `finding['details']` dict from columns.
 
 ---
 
-### Reader 8: aws_cdk/analyzer.py:145
+### Reader 9: aws_cdk/analyzer.py:141
 
-**Current**:
+**Current** (lines 138-144):
 ```python
 details_json = finding.get('details_json')
 if details_json and isinstance(details_json, str):
-    additional = json.loads(details_json)
+    try:
+        additional = json.loads(details_json)
+    except json.JSONDecodeError:
+        additional = {}
 ```
 
-**Verification**: Reads back details for some processing
-
 **Change Required**: Read from columns instead of JSON.
+
+---
+
+### Reader 10: commands/workflows.py:378
+
+**Current**:
+```python
+"details": json.loads(details) if details else {}
+```
+
+**Change Required**: Build details dict from columns or remove (workflow findings don't use details_json significantly).
 
 ---
 
@@ -473,20 +412,21 @@ Per teamsop.md v4.20 Template C-4.20:
 **Verification Finding**:
 - details_json is a column, not a table
 - 79% of rows have empty details_json (no data to migrate)
-- Only 8 json.loads() calls need updating
+- 10 json.loads() calls need updating (7 in fce.py, 3 in other files)
 - Main findings flow is UNAFFECTED
 - taint_flows table exists and should be used by FCE
+- fce.py is CLEAN (no try/except) - violations are in 3 other files
 
 **Root Cause**:
 - d8370a7 exempted findings_consolidated.details_json as "intentional"
-- This was incorrect - JSON parsing adds measurable overhead (125-700ms)
+- This was incorrect - JSON parsing adds measurable overhead
 - Sparse wide table pattern eliminates overhead with zero storage cost
 
 **Implementation Logic**:
 - Add 23 nullable columns for scalar keys
 - Keep misc_json for 1 row of complex taint data
 - FCE taint should read from taint_flows table
-- Update 6 writers, 8 reader calls
+- Update 3 writers, 10 reader calls
 
 **Confidence Level**: HIGH
 
@@ -497,7 +437,7 @@ Per teamsop.md v4.20 Template C-4.20:
 I confirm that I have followed the Prime Directive and all protocols in SOP v4.20.
 
 - [x] All hypotheses tested against actual code
-- [x] All line numbers verified (2025-11-24)
+- [x] All line numbers verified (2025-11-27)
 - [x] All file paths confirmed to exist
 - [x] No assumptions made without verification
 - [x] Discrepancies documented and resolved

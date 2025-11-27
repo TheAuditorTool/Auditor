@@ -44,7 +44,7 @@ safeUnlink(fileInfo.cleanup);  // LINE 542-544
 JavaScript/TypeScript import resolution extracts only the basename:
 
 ```python
-# CURRENT FLOW (javascript.py:800-803):
+# CURRENT FLOW (javascript.py:855-858):
 module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
 if module_name:
     result['resolved_imports'][module_name] = imp_path
@@ -101,7 +101,7 @@ customHost.readFile = (fileName) => {
 ### Task 4: Node Module Resolution
 
 **Files Modified**:
-- `theauditor/indexer/extractors/javascript.py` (lines 784-804)
+- `theauditor/indexer/extractors/javascript.py` (lines 840-860)
 
 **Change**: Implement proper TypeScript-style module resolution algorithm
 

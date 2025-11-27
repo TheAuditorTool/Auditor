@@ -17,7 +17,7 @@
   - **Confirmed**: YES - Disk I/O exists exactly as described
 
 - [x] 0.2 Verify import resolution uses basename only
-  - **Location**: `theauditor/indexer/extractors/javascript.py:800-803`
+  - **Location**: `theauditor/indexer/extractors/javascript.py:855-858`
   - **Evidence**: `module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')`
   - **Confirmed**: YES - Basename extraction only
 
@@ -45,7 +45,7 @@
   - **What to understand**: How Vue SFC is parsed, compiled, and temp file created
   - **Key variables**: `tempFilePath`, `compiledScript.content`, `scopeId`
 
-- [ ] 3.1.2 Read `prepareVueSfcFile()` function (CommonJS: lines 646-700)
+- [ ] 3.1.2 Read `prepareVueSfcFile()` function (CommonJS: lines 700-760)
   - **What to understand**: CommonJS variant of same function
   - **Note**: Both variants must be modified identically
 
@@ -53,10 +53,10 @@
   - **What to understand**: How `vueMeta` is used to set `fileEntry.absolute`
   - **Key variables**: `fileEntry.absolute`, `fileEntry.cleanup`
 
-- [ ] 3.1.4 Read Vue file processing loop (CommonJS: lines 797-807)
+- [ ] 3.1.4 Read Vue file processing loop (CommonJS: lines 850-870)
   - **What to understand**: CommonJS variant of same loop
 
-- [ ] 3.1.5 Read cleanup code (ES Module: lines 541-544, CommonJS: lines 1066-1070)
+- [ ] 3.1.5 Read cleanup code (ES Module: lines 590-600, CommonJS: lines 1120-1130)
   - **What to understand**: How temp files are cleaned up
   - **Key function**: `safeUnlink(fileInfo.cleanup)`
 
@@ -194,7 +194,7 @@
 
 ### 4.1 Read and Understand Current Implementation
 
-- [ ] 4.1.1 Read current import resolution (lines 784-804)
+- [ ] 4.1.1 Read current import resolution (lines 840-860)
   - **What to understand**: How imports are extracted and stored
   - **Key variables**: `import_entry`, `imp_path`, `resolved_imports`
 
@@ -282,7 +282,7 @@
 
 ### 4.7 Integrate with Existing Code
 
-- [ ] 4.7.1 Replace basename logic (lines 800-803)
+- [ ] 4.7.1 Replace basename logic (lines 855-858)
   - **Before**:
     ```python
     module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
