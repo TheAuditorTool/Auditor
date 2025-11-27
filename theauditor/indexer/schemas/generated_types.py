@@ -383,7 +383,29 @@ class FindingsConsolidatedRow(TypedDict):
     code_snippet: str | None
     cwe: str | None
     timestamp: str
-    details_json: str | None
+    cfg_function: str | None
+    cfg_complexity: int | None
+    cfg_block_count: int | None
+    cfg_edge_count: int | None
+    cfg_has_loops: int | None
+    cfg_has_recursion: int | None
+    cfg_start_line: int | None
+    cfg_end_line: int | None
+    cfg_threshold: int | None
+    graph_id: str | None
+    graph_in_degree: int | None
+    graph_out_degree: int | None
+    graph_total_connections: int | None
+    graph_centrality: float | None
+    graph_score: float | None
+    graph_cycle_nodes: str | None
+    mypy_error_code: str | None
+    mypy_severity_int: int | None
+    mypy_column: int | None
+    tf_finding_id: str | None
+    tf_resource_id: str | None
+    tf_remediation: str | None
+    tf_graph_context: str | None
 
 class FrameworkSafeSinksRow(TypedDict):
     """Row type for framework_safe_sinks table."""
@@ -392,6 +414,14 @@ class FrameworkSafeSinksRow(TypedDict):
     sink_type: str
     is_safe: bool | None
     reason: str | None
+
+class FrameworkTaintPatternsRow(TypedDict):
+    """Row type for framework_taint_patterns table."""
+    id: int
+    framework_id: int
+    pattern: str
+    pattern_type: str
+    category: str | None
 
 class FrameworksRow(TypedDict):
     """Row type for frameworks table."""
@@ -606,7 +636,9 @@ class GraphqlFindingsCacheRow(TypedDict):
     resolver_symbol_id: int | None
     rule: str
     severity: str
-    details_json: str
+    description: str | None
+    message: str | None
+    confidence: str | None
     provenance: str
 
 class GraphqlResolverMappingsRow(TypedDict):

@@ -160,6 +160,163 @@ class TaintRegistry:
             'total_sanitizers': total_sanitizers
         }
 
+    # =========================================================================
+    # DATABASE LOADING - Polyglot pattern loading (Phase 2 refactor 2025-11-27)
+    # =========================================================================
+
+    def load_from_database(self, cursor: sqlite3.Cursor) -> None:
+        """Load patterns from database tables.
+
+        Queries framework_taint_patterns for sources/sinks, framework_safe_sinks
+        and validation_framework_usage for sanitizers.
+
+        Args:
+            cursor: Database cursor for repo_index.db
+
+        Note: ZERO FALLBACK - if tables are empty, returns empty. No hardcoded defaults.
+        """
+        self._load_taint_patterns(cursor)
+        self._load_safe_sinks(cursor)
+        self._load_validation_sanitizers(cursor)
+
+    def _load_taint_patterns(self, cursor: sqlite3.Cursor) -> None:
+        """Load source/sink patterns from framework_taint_patterns table.
+
+        Schema:
+            framework_taint_patterns(id, framework_id, pattern, pattern_type, category)
+            frameworks(id, name, version, language, path, source, package_manager, is_primary)
+
+        This is the Database-First architecture fix: patterns are seeded during
+        indexing and loaded here at analysis time.
+        """
+        query = """
+            SELECT f.language, ftp.pattern, ftp.pattern_type, ftp.category
+            FROM framework_taint_patterns ftp
+            JOIN frameworks f ON ftp.framework_id = f.id
+        """
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            lang = row[0] or 'global'
+            pattern = row[1]
+            pattern_type = row[2]
+            category = row[3] or 'unknown'
+
+            if not pattern:
+                continue
+
+            if pattern_type == 'source':
+                self.register_source(pattern, category, lang)
+            elif pattern_type == 'sink':
+                self.register_sink(pattern, category, lang)
+
+    def _load_safe_sinks(self, cursor: sqlite3.Cursor) -> None:
+        """Load safe sink patterns from framework_safe_sinks table.
+
+        Schema:
+            frameworks(id, name, version, language, path, source, package_manager, is_primary)
+            framework_safe_sinks(framework_id, sink_pattern, sink_type, is_safe, reason)
+
+        Note: Must JOIN with frameworks to get language column.
+        """
+        query = """
+            SELECT f.language, fss.sink_pattern, fss.sink_type
+            FROM framework_safe_sinks fss
+            JOIN frameworks f ON fss.framework_id = f.id
+            WHERE fss.is_safe = 1
+        """
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            lang = row[0] or 'global'
+            pattern = row[1]
+            if pattern:
+                self.register_sanitizer(pattern, lang)
+
+    def _load_validation_sanitizers(self, cursor: sqlite3.Cursor) -> None:
+        """Load validation patterns from validation_framework_usage table.
+
+        Schema:
+            validation_framework_usage(
+                file_path, line, framework, method, variable_name,
+                is_validator, argument_expr
+            )
+
+        Registers validation methods as sanitizers (e.g., zod.parse, joi.validate).
+        """
+        query = """
+            SELECT DISTINCT framework, method, variable_name
+            FROM validation_framework_usage
+            WHERE is_validator = 1
+        """
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            framework = row[0]
+            method = row[1]
+            var_name = row[2]
+
+            # Register the method itself as sanitizer
+            if method:
+                self.register_sanitizer(method, 'javascript')
+
+            # Register qualified patterns (e.g., 'schema.parse', 'userSchema.validate')
+            if var_name and method:
+                self.register_sanitizer(f"{var_name}.{method}", 'javascript')
+
+            # Register framework-qualified patterns (e.g., 'zod.parse')
+            if framework and method:
+                self.register_sanitizer(f"{framework}.{method}", 'javascript')
+
+    # =========================================================================
+    # PATTERN ACCESSORS - Flattened pattern lists for taint analysis
+    # =========================================================================
+
+    def get_source_patterns(self, language: str) -> list[str]:
+        """Get flattened list of source patterns for a language.
+
+        Args:
+            language: Language identifier ('python', 'javascript', 'rust')
+
+        Returns:
+            List of source patterns (e.g., ['req.body', 'req.params', 'req.query'])
+        """
+        patterns = []
+        lang_sources = self.sources.get(language, {})
+        for category_patterns in lang_sources.values():
+            patterns.extend(category_patterns)
+        return patterns
+
+    def get_sink_patterns(self, language: str) -> list[str]:
+        """Get flattened list of sink patterns for a language.
+
+        Args:
+            language: Language identifier ('python', 'javascript', 'rust')
+
+        Returns:
+            List of sink patterns (e.g., ['execute', 'eval', 'system'])
+        """
+        patterns = []
+        lang_sinks = self.sinks.get(language, {})
+        for category_patterns in lang_sinks.values():
+            patterns.extend(category_patterns)
+        return patterns
+
+    def get_sanitizer_patterns(self, language: str) -> list[str]:
+        """Get sanitizer patterns for a language (includes global sanitizers).
+
+        Args:
+            language: Language identifier ('python', 'javascript', 'rust')
+
+        Returns:
+            List of sanitizer patterns for the language + global sanitizers
+        """
+        patterns = []
+        # Add global sanitizers first
+        if 'global' in self.sanitizers:
+            patterns.extend(self.sanitizers['global'])
+        # Add language-specific sanitizers
+        if language in self.sanitizers:
+            patterns.extend(self.sanitizers[language])
+        return patterns
+
 
 # ============================================================================
 # UTILITY FUNCTIONS (Moved from propagation.py during cleanup)
@@ -352,7 +509,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         # Use FlowResolver for complete flow resolution
         from .flow_resolver import FlowResolver
 
-        resolver = FlowResolver(db_path, graph_db_path)
+        resolver = FlowResolver(db_path, graph_db_path, registry=registry)
         total_flows = resolver.resolve_all_flows()
         resolver.close()
 
@@ -403,7 +560,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
 
         from .flow_resolver import FlowResolver
 
-        resolver = FlowResolver(db_path, graph_db_path)
+        resolver = FlowResolver(db_path, graph_db_path, registry=registry)
         total_flows = resolver.resolve_all_flows()
         resolver.close()
 
@@ -603,6 +760,14 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         sys.stderr.flush()
 
         from .ifds_analyzer import IFDSTaintAnalyzer
+        from .type_resolver import TypeResolver
+
+        # Create TypeResolver for ORM aliasing and controller detection
+        graph_conn = sqlite3.connect(graph_db_path)
+        graph_conn.row_factory = sqlite3.Row
+        repo_conn = sqlite3.connect(db_path)
+        repo_conn.row_factory = sqlite3.Row
+        type_resolver = TypeResolver(graph_conn.cursor(), repo_conn.cursor())
 
         print(f"[TAINT] Analyzing {len(sinks)} sinks against {len(sources)} sources (demand-driven)", file=sys.stderr)
         sys.stderr.flush()
@@ -611,7 +776,8 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             repo_db_path=db_path,
             graph_db_path=graph_db_path,
             cache=cache,
-            registry=registry
+            registry=registry,
+            type_resolver=type_resolver
         )
         ifds_analyzer.debug = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
 
@@ -632,6 +798,9 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             all_sanitized_paths.extend(sanitized)
 
         ifds_analyzer.close()
+        # Clean up TypeResolver connections
+        graph_conn.close()
+        repo_conn.close()
         print(f"[TAINT] IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths", file=sys.stderr)
 
         # Step 5: Deduplicate vulnerable paths (keep legacy behavior)

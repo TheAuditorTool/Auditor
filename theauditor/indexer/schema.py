@@ -77,15 +77,16 @@ TABLES: dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 154 tables (after 2025-11-26 normalize-all-node-extractors)
-#   - 24 core + 7 security + 5 frameworks + 35 python + 46 node + 18 infrastructure + 9 planning + 8 graphql
+# Total: 155 tables (after 2025-11-28 framework_taint_patterns for polyglot taint)
+#   - 24 core + 7 security + 6 frameworks + 35 python + 46 node + 18 infrastructure + 9 planning + 8 graphql
 #   - Python: 8 original + 20 consolidated + 2 decomposed + 5 junction
 #   - Node: 28 original + 18 junction tables (normalize-all-node-extractors: func_params, func_decorators,
 #           func_decorator_args, func_param_decorators, class_decorators, class_decorator_args,
 #           assignment_source_vars, return_source_vars, import_specifiers, sequelize_model_fields)
+#   - Frameworks: +1 framework_taint_patterns (database-driven taint sources/sinks)
 
 # Verify table count at module load time
-assert len(TABLES) == 154, f"Schema contract violation: Expected 154 tables, got {len(TABLES)}"
+assert len(TABLES) == 155, f"Schema contract violation: Expected 155 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

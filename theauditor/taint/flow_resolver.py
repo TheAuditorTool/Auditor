@@ -32,15 +32,17 @@ class FlowResolver:
     codebases into structured knowledge that AI can query without reading source code.
     """
 
-    def __init__(self, repo_db: str, graph_db: str):
+    def __init__(self, repo_db: str, graph_db: str, registry=None):
         """Initialize the flow resolver with database connections.
 
         Args:
             repo_db: Path to repo_index.db containing extracted facts
             graph_db: Path to graphs.db containing unified data flow graph
+            registry: Optional TaintRegistry for polyglot pattern loading
         """
         self.repo_db = repo_db
         self.graph_db = graph_db
+        self.registry = registry
         self.repo_conn = sqlite3.connect(repo_db)
         self.repo_conn.row_factory = sqlite3.Row
         self.repo_cursor = self.repo_conn.cursor()
@@ -50,8 +52,8 @@ class FlowResolver:
         self.max_flows = 100_000  # REDUCED: Safety limit (prevents CPU kill on large graphs)
         self.max_flows_per_entry = 1_000  # NEW: Per-entry limit to prevent single entry explosion
 
-        # Initialize shared sanitizer registry
-        self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=None)
+        # Initialize shared sanitizer registry (pass our registry for pattern lookups)
+        self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=registry)
 
         # TURBO MODE: In-memory graph cache for O(1) traversal
         # Eliminates millions of SQLite round-trips during graph walking
@@ -133,11 +135,61 @@ class FlowResolver:
         logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved")
         return self.flows_resolved
 
+    def _get_language_for_file(self, file_path: str) -> str:
+        """Detect language from file extension.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Language identifier ('python', 'javascript', 'rust', 'unknown')
+        """
+        if not file_path:
+            return 'unknown'
+
+        lower = file_path.lower()
+        if lower.endswith('.py'):
+            return 'python'
+        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
+            return 'javascript'
+        elif lower.endswith('.rs'):
+            return 'rust'
+        return 'unknown'
+
+    def _get_request_fields(self, file_path: str) -> list[str]:
+        """Get request field patterns for a file's language.
+
+        ZERO FALLBACK: Registry is MANDATORY.
+
+        Args:
+            file_path: Path to file for language detection
+
+        Returns:
+            List of request field patterns (e.g., ['req.body', 'req.params'] for JS)
+
+        Raises:
+            ValueError: If registry is not provided (ZERO FALLBACK POLICY)
+        """
+        # ZERO FALLBACK POLICY - Registry is MANDATORY
+        if not self.registry:
+            raise ValueError(
+                "TaintRegistry is MANDATORY for FlowResolver._get_request_fields(). "
+                "NO FALLBACKS. Initialize FlowResolver with registry parameter."
+            )
+
+        lang = self._get_language_for_file(file_path)
+        patterns = self.registry.get_source_patterns(lang)
+
+        # Filter to only request-related patterns
+        request_patterns = [p for p in patterns if any(kw in p.lower() for kw in ['req', 'request', 'body', 'params', 'query', 'form', 'args', 'json'])]
+
+        return request_patterns
+
     def _get_entry_nodes(self) -> list[str]:
         """Get all entry points from the unified graph.
 
         Entry points include:
-            - Express middleware chain roots (req.body, req.params, req.query)
+            - HTTP request sources (req.body, req.params, req.query) - DIRECT GRAPH QUERY
             - API endpoints (cross_boundary edge targets)
             - Environment variable accesses
             - Main/index file exports
@@ -148,30 +200,31 @@ class FlowResolver:
         cursor = self.graph_conn.cursor()
         entry_nodes = []
 
-        # Express middleware chains - the REAL entry points for backend taint analysis
-        # These are where user input enters the backend (req.body, req.params, req.query)
-        repo_cursor = self.repo_conn.cursor()
-        repo_cursor.execute("""
-            SELECT DISTINCT file, handler_function
-            FROM express_middleware_chains
-            WHERE handler_type IN ('middleware', 'controller')
-              AND execution_order = 0
-        """)
+        # FIX: Query graphs.db DIRECTLY for request source nodes
+        # Old code tried to construct node IDs from express_middleware_chains.handler_function
+        # but that column stores wrapper format (handler(controllerName.method)) which doesn't
+        # match actual node IDs in graphs.db (ControllerClass.method::req.body)
+        #
+        # New approach: Query for all nodes matching request source patterns directly
+        # Collect patterns from ALL languages since we're querying the full graph
+        request_patterns = []
+        if self.registry:
+            for lang in ['javascript', 'python', 'rust']:
+                patterns = self.registry.get_source_patterns(lang)
+                for p in patterns:
+                    if p not in request_patterns:
+                        request_patterns.append(p)
 
-        for file, handler_func in repo_cursor.fetchall():
-            # Create entry nodes for common request fields
-            for req_field in ['req.body', 'req.params', 'req.query', 'req']:
-                node_id = f"{file}::{handler_func}::{req_field}"
+        for pattern in request_patterns:
+            # Find all nodes in graphs.db that end with this pattern
+            cursor.execute("""
+                SELECT id FROM nodes
+                WHERE graph_type = 'data_flow'
+                  AND (id LIKE ? OR id LIKE ?)
+            """, (f'%::{pattern}', f'%::{pattern}.%'))
 
-                # Verify this node exists in the graph
-                cursor.execute("""
-                    SELECT 1 FROM nodes
-                    WHERE graph_type = 'data_flow'
-                      AND id = ?
-                    LIMIT 1
-                """, (node_id,))
-
-                if cursor.fetchone():
+            for (node_id,) in cursor.fetchall():
+                if node_id not in entry_nodes:
                     entry_nodes.append(node_id)
 
         # API endpoints - these are TARGETS of cross_boundary edges
@@ -546,6 +599,13 @@ class FlowResolver:
             status: Flow classification (VULNERABLE, SANITIZED, or TRUNCATED)
             sanitizer_meta: Sanitizer metadata dict if flow is SANITIZED, None otherwise
         """
+        # ------------------------------------------------------------------
+        # STEP 0: FILTER GARBAGE (Self-referential flows are not real flows)
+        # Skip recording if source == sink with no actual path traversal
+        # ------------------------------------------------------------------
+        if source == sink or len(path) < 2:
+            return  # Not a real flow - source and sink are the same node
+
         # ------------------------------------------------------------------
         # STEP 1: EXTRACT IDENTITY (THE FINGERPRINT)
         # We parse the strings to get the clean file/variable names.

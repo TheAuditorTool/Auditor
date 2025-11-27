@@ -182,7 +182,9 @@ class IndexerOrchestrator:
     def _store_frameworks(self):
         """Store loaded frameworks in database.
 
-        Stores framework information and registers safe sinks for Express.
+        Stores framework information, safe sinks, and taint patterns.
+        Taint patterns (sources/sinks) are seeded here during indexing so
+        the TaintRegistry can load them at analysis time (Database-First architecture).
         """
         for fw in self.frameworks:
             self.db_manager.add_framework(
@@ -199,26 +201,171 @@ class IndexerOrchestrator:
         self.db_manager.flush_batch()
         self.db_manager.commit()
 
-        # Add safe sinks for Express (res.json, res.jsonp are auto-encoded)
-        if any(fw.get('framework') == 'express' for fw in self.frameworks):
-            conn = self.db_manager.conn
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM frameworks WHERE name = ? AND language = ?",
-                ('express', 'javascript')
+        # Seed taint patterns and safe sinks per framework
+        self._seed_express_patterns()
+        self._seed_flask_patterns()
+        self._seed_django_patterns()
+
+    def _seed_express_patterns(self):
+        """Seed Express.js taint patterns (sources, sinks, safe sinks)."""
+        if not any(fw.get('framework') == 'express' for fw in self.frameworks):
+            return
+
+        conn = self.db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM frameworks WHERE name = ? AND language = ?",
+            ('express', 'javascript')
+        )
+        result = cursor.fetchone()
+        if not result:
+            return
+
+        express_id = result[0]
+
+        # Safe sinks (auto-sanitized responses)
+        safe_sinks = [
+            ('res.json', 'response', True, 'JSON encoded response - auto-sanitized'),
+            ('res.jsonp', 'response', True, 'JSONP callback - auto-sanitized'),
+            ('res.status().json', 'response', True, 'JSON with status - auto-sanitized')
+        ]
+        for pattern, sink_type, is_safe, reason in safe_sinks:
+            self.db_manager.add_framework_safe_sink(
+                express_id, pattern, sink_type, is_safe, reason
             )
-            result = cursor.fetchone()
-            if result:
-                express_id = result[0]
-                safe_sinks = [
-                    ('res.json', 'response', True, 'JSON encoded response - auto-sanitized'),
-                    ('res.jsonp', 'response', True, 'JSONP callback - auto-sanitized'),
-                    ('res.status().json', 'response', True, 'JSON with status - auto-sanitized')
-                ]
-                for pattern, sink_type, is_safe, reason in safe_sinks:
-                    self.db_manager.add_framework_safe_sink(
-                        express_id, pattern, sink_type, is_safe, reason
-                    )
+
+        # Taint SOURCES - user input entry points
+        express_sources = [
+            ('req.body', 'http_request'),
+            ('req.params', 'http_request'),
+            ('req.query', 'http_request'),
+            ('req.headers', 'http_request'),
+            ('req.cookies', 'http_request'),
+            ('req.files', 'http_request'),
+            ('req.file', 'http_request'),
+        ]
+        for pattern, category in express_sources:
+            self.db_manager.add_framework_taint_pattern(
+                express_id, pattern, 'source', category
+            )
+
+        # Taint SINKS - dangerous operations
+        express_sinks = [
+            ('eval', 'code_execution'),
+            ('Function', 'code_execution'),
+            ('child_process.exec', 'command_injection'),
+            ('child_process.execSync', 'command_injection'),
+            ('child_process.spawn', 'command_injection'),
+            ('res.send', 'xss'),
+            ('res.write', 'xss'),
+            ('res.render', 'xss'),
+            ('res.redirect', 'open_redirect'),
+            ('query', 'sql_injection'),
+            ('execute', 'sql_injection'),
+            ('raw', 'sql_injection'),
+        ]
+        for pattern, category in express_sinks:
+            self.db_manager.add_framework_taint_pattern(
+                express_id, pattern, 'sink', category
+            )
+
+    def _seed_flask_patterns(self):
+        """Seed Flask taint patterns (sources, sinks)."""
+        if not any(fw.get('framework') == 'flask' for fw in self.frameworks):
+            return
+
+        conn = self.db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM frameworks WHERE name = ? AND language = ?",
+            ('flask', 'python')
+        )
+        result = cursor.fetchone()
+        if not result:
+            return
+
+        flask_id = result[0]
+
+        # Taint SOURCES - user input entry points
+        flask_sources = [
+            ('request.args', 'http_request'),
+            ('request.form', 'http_request'),
+            ('request.json', 'http_request'),
+            ('request.data', 'http_request'),
+            ('request.values', 'http_request'),
+            ('request.files', 'http_request'),
+            ('request.cookies', 'http_request'),
+            ('request.headers', 'http_request'),
+        ]
+        for pattern, category in flask_sources:
+            self.db_manager.add_framework_taint_pattern(
+                flask_id, pattern, 'source', category
+            )
+
+        # Taint SINKS - dangerous operations
+        flask_sinks = [
+            ('eval', 'code_execution'),
+            ('exec', 'code_execution'),
+            ('os.system', 'command_injection'),
+            ('subprocess.call', 'command_injection'),
+            ('subprocess.run', 'command_injection'),
+            ('subprocess.Popen', 'command_injection'),
+            ('render_template_string', 'ssti'),
+            ('cursor.execute', 'sql_injection'),
+            ('db.execute', 'sql_injection'),
+            ('open', 'path_traversal'),
+        ]
+        for pattern, category in flask_sinks:
+            self.db_manager.add_framework_taint_pattern(
+                flask_id, pattern, 'sink', category
+            )
+
+    def _seed_django_patterns(self):
+        """Seed Django taint patterns (sources, sinks)."""
+        if not any(fw.get('framework') == 'django' for fw in self.frameworks):
+            return
+
+        conn = self.db_manager.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM frameworks WHERE name = ? AND language = ?",
+            ('django', 'python')
+        )
+        result = cursor.fetchone()
+        if not result:
+            return
+
+        django_id = result[0]
+
+        # Taint SOURCES - user input entry points
+        django_sources = [
+            ('request.GET', 'http_request'),
+            ('request.POST', 'http_request'),
+            ('request.body', 'http_request'),
+            ('request.FILES', 'http_request'),
+            ('request.COOKIES', 'http_request'),
+            ('request.META', 'http_request'),
+        ]
+        for pattern, category in django_sources:
+            self.db_manager.add_framework_taint_pattern(
+                django_id, pattern, 'source', category
+            )
+
+        # Taint SINKS - dangerous operations
+        django_sinks = [
+            ('eval', 'code_execution'),
+            ('exec', 'code_execution'),
+            ('os.system', 'command_injection'),
+            ('cursor.execute', 'sql_injection'),
+            ('raw', 'sql_injection'),
+            ('extra', 'sql_injection'),
+            ('HttpResponse', 'xss'),
+            ('mark_safe', 'xss'),
+        ]
+        for pattern, category in django_sinks:
+            self.db_manager.add_framework_taint_pattern(
+                django_id, pattern, 'sink', category
+            )
 
     def index(self) -> tuple[dict[str, int], dict[str, Any]]:
         """Run the complete indexing process.
