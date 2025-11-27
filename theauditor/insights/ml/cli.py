@@ -27,11 +27,13 @@ def learn(
     feedback_path: str = None,
     train_on: str = "full",
     session_dir: str = None,
+    graveyard_path: str = None,
 ) -> dict[str, Any]:
     """Train ML models from artifacts.
 
     Args:
         session_dir: Optional path to Claude Code session logs (enables Tier 5 agent behavior features)
+        graveyard_path: Optional path to comment_graveyard.json (enables comment hallucination detection)
     """
     if not models.check_ml_available():
         return {"success": False, "error": "ML not available"}
@@ -67,9 +69,14 @@ def learn(
         )
 
     # TIER 2-5: Load database features from repo_index.db
-    # Tier 5 (agent behavior) is enabled if session_dir is provided
+    # Tier 5 (agent behavior + comment hallucination) is enabled if session_dir is provided
     session_path = Path(session_dir) if session_dir else None
-    db_features = features.load_all_db_features(db_path, file_paths, session_dir=session_path)
+    graveyard_file = Path(graveyard_path) if graveyard_path else None
+    db_features = features.load_all_db_features(
+        db_path, file_paths,
+        session_dir=session_path,
+        graveyard_path=graveyard_file
+    )
 
     # TIER 3: Load intelligent features (NEW - THE MISSING 90%)
     # Currently not used in feature matrix but available for future enhancement

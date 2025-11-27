@@ -302,6 +302,13 @@ def build_feature_matrix(
         feat.append(db_feat.get("agent_missed_search_count", 0) / 10.0)
         feat.append(db_feat.get("agent_read_efficiency", 0.0) / 5.0)
 
+        # Tier 5: Comment hallucination features (NEW)
+        # Tracks when AI misinterpreted comments - the hallucination feedback loop
+        feat.append(db_feat.get("comment_reference_count", 0) / 10.0)  # How often AI referenced comments
+        feat.append(db_feat.get("comment_hallucination_count", 0) / 5.0)  # Flagged as wrong
+        feat.append(db_feat.get("comment_conflict_rate", 0.0))  # Ratio (already 0-1)
+        feat.append(1.0 if db_feat.get("has_removed_comments") else 0.0)  # Had comments purged
+
         # Text features (simplified - just path hash)
         text_feats = extract_text_features(
             file_path,
@@ -365,6 +372,11 @@ def build_feature_matrix(
         "agent_duplicate_impl_rate",
         "agent_missed_search_count",
         "agent_read_efficiency",
+        # Comment hallucination features (Tier 5)
+        "comment_reference_count",
+        "comment_hallucination_count",
+        "comment_conflict_rate",
+        "has_removed_comments",
     ] + [f"text_{i}" for i in range(50)]
 
     feature_name_map = {name: i for i, name in enumerate(feature_names)}

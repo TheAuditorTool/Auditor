@@ -42,6 +42,7 @@ from .features import (
     load_graph_stats,
     load_semantic_import_features,
     load_ast_complexity_metrics,
+    load_comment_hallucination_features,
 )
 
 __all__ = [
@@ -67,4 +68,5 @@ __all__ = [
     "load_graph_stats",
     "load_semantic_import_features",
     "load_ast_complexity_metrics",
+    "load_comment_hallucination_features",
 ]
