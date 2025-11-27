@@ -98,43 +98,58 @@ customHost.readFile = (fileName) => {
 
 **Decision Required**: Option A (simpler, single file) vs Option B (full program context)
 
-### Task 4: Node Module Resolution
+### Task 4: Node Module Resolution (Post-Indexing)
 
 **Files Modified**:
-- `theauditor/indexer/extractors/javascript.py` (lines 740-760)
+- `theauditor/indexer/extractors/javascript_resolvers.py` (new static method)
 
-**Change**: Implement proper TypeScript-style module resolution algorithm
+**Architecture**: Post-indexing resolver (like `resolve_handler_file_paths`)
+
+**Change**: Add `resolve_import_paths()` method that queries indexed `files` table
 
 ```python
-# AFTER (full resolution):
-def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
+# AFTER (database-first resolution):
+@staticmethod
+def resolve_import_paths(db_path: str):
     """
-    Resolve import path following TypeScript module resolution.
+    Resolve import paths using indexed file data.
+
+    NO FILESYSTEM I/O. Uses database to check if paths exist.
+    Runs AFTER all files indexed (post-indexing phase).
 
     Resolution order (per TypeScript spec):
     1. Relative imports (./foo, ../bar)
     2. Path mappings from tsconfig.json (@/components, ~/utils)
-    3. node_modules lookup (walk up directory tree)
-    4. Index file resolution (./utils -> ./utils/index.ts)
+    3. Index file resolution (./utils -> ./utils/index.ts)
+
+    Note: node_modules resolution skipped (external packages not indexed)
     """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-    # 1. Relative imports
-    if import_path.startswith('.'):
-        return _resolve_relative(import_path, from_file)
+    # Build set of indexed paths (FAST - one query, O(1) lookups)
+    cursor.execute("SELECT path FROM files WHERE ext IN ('.ts', '.tsx', '.js', '.jsx', '.vue')")
+    indexed_paths = {row[0] for row in cursor.fetchall()}
 
-    # 2. Path mappings (requires tsconfig.json parsing)
-    if _is_path_mapped(import_path, project_root):
-        return _resolve_path_mapping(import_path, project_root)
+    # Get imports to resolve
+    cursor.execute("""
+        SELECT rowid, file, package FROM import_styles
+        WHERE package LIKE '.%' OR package LIKE '@%'
+    """)
 
-    # 3. node_modules
-    return _resolve_node_modules(import_path, from_file)
+    for rowid, from_file, import_path in cursor.fetchall():
+        resolved = _resolve_against_index(import_path, from_file, indexed_paths)
+        if resolved:
+            # Store resolved path (schema change: add resolved_path column)
+            cursor.execute(
+                "UPDATE import_styles SET resolved_path = ? WHERE rowid = ?",
+                (resolved, rowid)
+            )
 ```
 
-**Sub-functions required**:
-1. `_resolve_relative()` - Handle `./foo`, `../bar`, extensions, index files
-2. `_resolve_path_mapping()` - Parse tsconfig.json paths field
-3. `_resolve_node_modules()` - Walk up tree, check package.json exports
-4. `_resolve_extensions()` - Try `.ts`, `.tsx`, `.js`, `.jsx`, `/index.ts`
+**Key difference from original proposal**:
+- **OLD**: Filesystem checks with `os.path.isfile()` during extraction
+- **NEW**: Database queries against `files` table post-indexing
 
 ---
 
@@ -146,7 +161,12 @@ def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
 | File | Lines | Change Type |
 |------|-------|-------------|
 | `theauditor/ast_extractors/javascript/batch_templates.js` | 119-175, 703-760 | Vue in-memory |
-| `theauditor/indexer/extractors/javascript.py` | 740-760 | Module resolution |
+| `theauditor/indexer/extractors/javascript_resolvers.py` | new method | Module resolution (post-indexing) |
+
+**Schema Change**:
+| Table | Column | Type | Purpose |
+|-------|--------|------|---------|
+| `import_styles` | `resolved_path` | TEXT | Stores resolved file path |
 
 **Read-Only** (for understanding):
 | File | Purpose |
@@ -157,11 +177,11 @@ def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
 
 ### Breaking Changes
 
-**NONE** - All changes are internal optimizations:
+**MINIMAL** - One additive schema change:
 - Vue extraction output format unchanged
-- Import resolution format unchanged (refs table)
-- Database schema unchanged
+- **NEW**: `import_styles.resolved_path` column added (additive, non-breaking)
 - CLI interface unchanged
+- Existing queries continue to work (new column is optional)
 
 ### Performance Targets
 
@@ -296,6 +316,7 @@ def resolve_import(import_path: str, from_file: str, project_root: str) -> str:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 3.0 | **ARCHITECTURE REWRITE**: Module resolution now post-indexing DB queries (not filesystem) |
 | 2025-11-28 | 2.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 2.0 | Complete rewrite with verified paths/line numbers |
 | Original | 1.0 | Initial proposal (OBSOLETE - wrong paths) |

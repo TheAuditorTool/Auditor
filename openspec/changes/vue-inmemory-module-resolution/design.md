@@ -228,7 +228,7 @@ finally {
 
 ---
 
-## 3. Module Resolution Design
+## 3. Module Resolution Design (Post-Indexing, Database-First)
 
 ### 3.1 Problem Analysis
 
@@ -249,256 +249,231 @@ for import_entry in result.get('imports', []):
 |--------|---------------|-----------|
 | `./utils/validation` | `validation` | `src/utils/validation.ts` |
 | `@/components/Button` | `Button` | `src/components/Button.tsx` |
-| `lodash/fp` | `fp` | `node_modules/lodash/fp/index.js` |
 | `../config` | `config` | `src/config.ts` |
 
-### 3.2 TypeScript Module Resolution Algorithm
+**Note**: `node_modules` packages (lodash, etc.) are NOT indexed, so we skip resolving them.
 
-Per TypeScript documentation, resolution order is:
+### 3.2 Architecture Decision: Post-Indexing Resolution
 
-1. **Relative imports** (`./`, `../`):
-   - Start from importing file's directory
-   - Try extensions: `.ts`, `.tsx`, `.d.ts`, `.js`, `.jsx`
-   - Try index files: `index.ts`, `index.tsx`, `index.js`
+**Why NOT extraction-time?**
+- During extraction, database isn't fully populated
+- Would require filesystem checks (`os.path.isfile()`) - SLOW and REDUNDANT
+- We already have `files` table with 868+ indexed paths
 
-2. **Path mappings** (from tsconfig.json):
-   - Check `compilerOptions.paths` field
-   - Map aliases like `@/*` to `src/*`
-
-3. **node_modules**:
-   - Walk up directory tree
-   - Check `node_modules/{package}/package.json`
-   - Use `main`, `module`, or `exports` field
-
-4. **Ambient modules**:
-   - Check `@types/{package}` (for type definitions)
+**Why post-indexing?**
+- All files already indexed in `files` table
+- O(1) set membership lookups vs O(N) disk I/O
+- Consistent with existing pattern (`resolve_handler_file_paths`, `resolve_cross_file_parameters`)
 
 ### 3.3 Implementation Strategy
 
-**Location**: `javascript.py` after line 749
+**Location**: `javascript_resolvers.py` (new static method in `JavaScriptResolversMixin`)
 
 ```python
-class ModuleResolver:
+@staticmethod
+def resolve_import_paths(db_path: str):
     """
-    TypeScript-style module resolution.
+    Resolve import paths using indexed file data.
 
-    Resolves import paths to actual file paths following Node.js/TypeScript algorithm.
+    NO FILESYSTEM I/O. Uses database to check if paths exist.
+    Runs AFTER all files indexed (post-indexing phase).
+
+    Architecture:
+    1. Load all indexed JS/TS paths into a set (one query)
+    2. Load path mappings from config_files table (tsconfig.json)
+    3. For each relative/aliased import, resolve against indexed set
+    4. Store resolved paths in import_styles.resolved_path
     """
+    debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
-    def __init__(self, project_root: str):
-        self.project_root = project_root
-        self.tsconfig_cache: dict[str, dict] = {}
-        self.resolution_cache: dict[tuple[str, str], str | None] = {}
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-    def resolve(self, import_path: str, from_file: str) -> str | None:
-        """
-        Resolve import path to actual file path.
+    # Step 1: Build set of indexed paths (FAST - one query, O(1) lookups)
+    cursor.execute("""
+        SELECT path FROM files
+        WHERE ext IN ('.ts', '.tsx', '.js', '.jsx', '.vue', '.mjs', '.cjs')
+    """)
+    indexed_paths = {row[0] for row in cursor.fetchall()}
 
-        Args:
-            import_path: The import specifier (e.g., './utils', '@/components/Button')
-            from_file: The file containing the import
+    if debug:
+        print(f"[IMPORT RESOLUTION] Loaded {len(indexed_paths)} indexed JS/TS paths")
 
-        Returns:
-            Resolved file path or None if unresolvable
-        """
-        cache_key = (import_path, from_file)
-        if cache_key in self.resolution_cache:
-            return self.resolution_cache[cache_key]
+    # Step 2: Load path mappings from tsconfig.json (if indexed)
+    path_aliases = _load_path_aliases(cursor)
 
-        result = self._resolve_uncached(import_path, from_file)
-        self.resolution_cache[cache_key] = result
-        return result
+    # Step 3: Get imports to resolve (relative and aliased only)
+    cursor.execute("""
+        SELECT rowid, file, package FROM import_styles
+        WHERE package LIKE './%'
+           OR package LIKE '../%'
+           OR package LIKE '@/%'
+           OR package LIKE '~/%'
+    """)
+    imports_to_resolve = cursor.fetchall()
 
-    def _resolve_uncached(self, import_path: str, from_file: str) -> str | None:
-        # 1. Relative imports
-        if import_path.startswith('.'):
-            return self._resolve_relative(import_path, from_file)
+    if debug:
+        print(f"[IMPORT RESOLUTION] Found {len(imports_to_resolve)} imports to resolve")
 
-        # 2. Path mappings
-        tsconfig = self._get_tsconfig(from_file)
-        if tsconfig and 'paths' in tsconfig.get('compilerOptions', {}):
-            resolved = self._resolve_path_mapping(import_path, tsconfig, from_file)
-            if resolved:
-                return resolved
-
-        # 3. node_modules
-        return self._resolve_node_modules(import_path, from_file)
-
-    def _resolve_relative(self, import_path: str, from_file: str) -> str | None:
-        """Resolve relative import (./foo, ../bar)."""
-        from_dir = os.path.dirname(from_file)
-        target = os.path.normpath(os.path.join(from_dir, import_path))
-
-        # Try with extensions
-        for ext in ['.ts', '.tsx', '.js', '.jsx', '.d.ts', '']:
-            candidate = target + ext
-            if os.path.isfile(candidate):
-                return os.path.relpath(candidate, self.project_root)
-
-        # Try index files
-        for index in ['index.ts', 'index.tsx', 'index.js', 'index.jsx']:
-            candidate = os.path.join(target, index)
-            if os.path.isfile(candidate):
-                return os.path.relpath(candidate, self.project_root)
-
-        return None
-
-    def _resolve_path_mapping(self, import_path: str, tsconfig: dict, from_file: str) -> str | None:
-        """Resolve path mapping from tsconfig.json."""
-        paths = tsconfig.get('compilerOptions', {}).get('paths', {})
-        base_url = tsconfig.get('compilerOptions', {}).get('baseUrl', '.')
-        tsconfig_dir = os.path.dirname(self._find_tsconfig_path(from_file) or self.project_root)
-        base = os.path.join(tsconfig_dir, base_url)
-
-        for pattern, targets in paths.items():
-            if pattern.endswith('/*'):
-                prefix = pattern[:-2]
-                if import_path.startswith(prefix):
-                    suffix = import_path[len(prefix):]
-                    for target in targets:
-                        if target.endswith('/*'):
-                            resolved_target = target[:-2] + suffix
-                            full_path = os.path.join(base, resolved_target)
-                            result = self._try_extensions(full_path)
-                            if result:
-                                return os.path.relpath(result, self.project_root)
-            elif pattern == import_path:
-                for target in targets:
-                    full_path = os.path.join(base, target)
-                    result = self._try_extensions(full_path)
-                    if result:
-                        return os.path.relpath(result, self.project_root)
-
-        return None
-
-    def _resolve_node_modules(self, import_path: str, from_file: str) -> str | None:
-        """Resolve from node_modules walking up directory tree."""
-        current_dir = os.path.dirname(from_file)
-
-        while True:
-            node_modules = os.path.join(current_dir, 'node_modules')
-            if os.path.isdir(node_modules):
-                # Split package name (handle scoped packages)
-                parts = import_path.split('/')
-                if import_path.startswith('@') and len(parts) >= 2:
-                    package_name = '/'.join(parts[:2])
-                    subpath = '/'.join(parts[2:]) if len(parts) > 2 else ''
-                else:
-                    package_name = parts[0]
-                    subpath = '/'.join(parts[1:]) if len(parts) > 1 else ''
-
-                package_dir = os.path.join(node_modules, package_name)
-                if os.path.isdir(package_dir):
-                    resolved = self._resolve_package(package_dir, subpath)
-                    if resolved:
-                        return resolved
-
-            # Walk up
-            parent = os.path.dirname(current_dir)
-            if parent == current_dir:
-                break
-            current_dir = parent
-
-        return None
-
-    def _resolve_package(self, package_dir: str, subpath: str) -> str | None:
-        """Resolve within a package directory."""
-        if subpath:
-            # Direct subpath
-            target = os.path.join(package_dir, subpath)
-            return self._try_extensions(target)
-
-        # Check package.json
-        pkg_json = os.path.join(package_dir, 'package.json')
-        if os.path.isfile(pkg_json):
-            try:
-                with open(pkg_json, 'r', encoding='utf-8') as f:
-                    pkg = json.load(f)
-                    # Try exports, module, main in order
-                    entry = pkg.get('exports', {}).get('.') or pkg.get('module') or pkg.get('main', 'index.js')
-                    if isinstance(entry, dict):
-                        entry = entry.get('import') or entry.get('default') or entry.get('require')
-                    if entry:
-                        return os.path.join(package_dir, entry)
-            except (json.JSONDecodeError, IOError):
-                pass
-
-        # Fallback to index.js
-        return self._try_extensions(os.path.join(package_dir, 'index'))
-
-    def _try_extensions(self, path: str) -> str | None:
-        """Try path with various extensions."""
-        for ext in ['', '.ts', '.tsx', '.js', '.jsx', '.d.ts']:
-            candidate = path + ext
-            if os.path.isfile(candidate):
-                return candidate
-        for index in ['index.ts', 'index.tsx', 'index.js']:
-            candidate = os.path.join(path, index)
-            if os.path.isfile(candidate):
-                return candidate
-        return None
-
-    def _get_tsconfig(self, from_file: str) -> dict | None:
-        """Find and parse nearest tsconfig.json."""
-        config_path = self._find_tsconfig_path(from_file)
-        if not config_path:
-            return None
-
-        if config_path not in self.tsconfig_cache:
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    self.tsconfig_cache[config_path] = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                self.tsconfig_cache[config_path] = None
-
-        return self.tsconfig_cache[config_path]
-
-    def _find_tsconfig_path(self, from_file: str) -> str | None:
-        """Find nearest tsconfig.json walking up from file."""
-        current = os.path.dirname(from_file)
-        while True:
-            candidate = os.path.join(current, 'tsconfig.json')
-            if os.path.isfile(candidate):
-                return candidate
-            parent = os.path.dirname(current)
-            if parent == current or not current.startswith(self.project_root):
-                break
-            current = parent
-        return None
-```
-
-### 3.4 Integration Point
-
-Replace current basename logic in `javascript.py`:
-
-```python
-# BEFORE (lines 747-749):
-module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
-if module_name:
-    result['resolved_imports'][module_name] = imp_path
-
-# AFTER:
-resolver = ModuleResolver(project_root)
-for import_entry in result.get('imports', []):
-    # ... extract imp_path ...
-    if imp_path:
-        resolved = resolver.resolve(imp_path, file_info.get('path', ''))
+    # Step 4: Resolve each import
+    resolved_count = 0
+    for rowid, from_file, import_path in imports_to_resolve:
+        resolved = _resolve_import(import_path, from_file, indexed_paths, path_aliases)
         if resolved:
-            result['resolved_imports'][imp_path] = resolved
+            cursor.execute(
+                "UPDATE import_styles SET resolved_path = ? WHERE rowid = ?",
+                (resolved, rowid)
+            )
+            resolved_count += 1
+
+    conn.commit()
+    conn.close()
+
+    if debug:
+        print(f"[IMPORT RESOLUTION] Resolved {resolved_count}/{len(imports_to_resolve)} imports")
+
+
+def _load_path_aliases(cursor) -> dict[str, str]:
+    """Load path aliases from indexed tsconfig.json files."""
+    aliases = {}
+
+    # Try to find tsconfig.json in config_files
+    cursor.execute("""
+        SELECT path FROM files WHERE path LIKE '%tsconfig.json'
+    """)
+    tsconfig_paths = [row[0] for row in cursor.fetchall()]
+
+    # For each tsconfig, extract paths from config_files if available
+    # (This is a simplified version - full impl would parse JSON)
+    # For now, use common conventions:
+    cursor.execute("""
+        SELECT DISTINCT path FROM files WHERE path LIKE '%/src/%'
+    """)
+    if cursor.fetchone():
+        # Project uses src/ directory - set up common aliases
+        cursor.execute("SELECT path FROM files LIMIT 1")
+        sample = cursor.fetchone()
+        if sample:
+            parts = sample[0].split('/')
+            if 'src' in parts:
+                src_idx = parts.index('src')
+                base = '/'.join(parts[:src_idx + 1])
+                aliases['@/'] = base + '/'
+                aliases['~/'] = base + '/'
+
+    return aliases
+
+
+def _resolve_import(
+    import_path: str,
+    from_file: str,
+    indexed_paths: set[str],
+    path_aliases: dict[str, str]
+) -> str | None:
+    """
+    Resolve a single import path against indexed files.
+
+    Resolution order:
+    1. Path alias expansion (@/, ~/)
+    2. Relative path resolution (./foo, ../bar)
+    3. Extension/index file variants
+    """
+    resolved_base = None
+
+    # 1. Expand path aliases
+    for alias, target in path_aliases.items():
+        if import_path.startswith(alias):
+            resolved_base = target + import_path[len(alias):]
+            break
+
+    # 2. Resolve relative paths
+    if not resolved_base and import_path.startswith('.'):
+        from_dir = '/'.join(from_file.split('/')[:-1])
+        if import_path.startswith('./'):
+            resolved_base = from_dir + '/' + import_path[2:]
+        elif import_path.startswith('../'):
+            parent_dir = '/'.join(from_dir.split('/')[:-1])
+            resolved_base = parent_dir + '/' + import_path[3:]
         else:
-            # Fallback to basename for unresolvable imports
-            module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
-            result['resolved_imports'][module_name] = imp_path
+            resolved_base = from_dir + '/' + import_path[1:]
+
+    if not resolved_base:
+        return None
+
+    # Normalize path (handle multiple ../ etc)
+    resolved_base = _normalize_path(resolved_base)
+
+    # 3. Try extension/index variants against indexed paths
+    extensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '']
+    index_files = ['index.ts', 'index.tsx', 'index.js', 'index.jsx']
+
+    # Try direct match with extensions
+    for ext in extensions:
+        candidate = resolved_base + ext
+        if candidate in indexed_paths:
+            return candidate
+
+    # Try index file variants
+    for index in index_files:
+        candidate = resolved_base + '/' + index
+        if candidate in indexed_paths:
+            return candidate
+
+    return None
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize path by resolving . and .. segments."""
+    parts = path.split('/')
+    result = []
+    for part in parts:
+        if part == '..':
+            if result:
+                result.pop()
+        elif part and part != '.':
+            result.append(part)
+    return '/'.join(result)
 ```
 
-### 3.5 Performance Considerations
+### 3.4 Schema Change
 
-| Concern | Mitigation |
-|---------|------------|
-| Disk I/O for file existence checks | Cache results in `resolution_cache` |
-| tsconfig.json parsing | Cache in `tsconfig_cache` |
-| node_modules traversal | Walk up only until project root |
-| Large projects | Resolution is per-import, not per-file |
+Add `resolved_path` column to `import_styles` table definition:
+
+```python
+# In database.py schema definition:
+CREATE TABLE import_styles (
+    ...existing columns...,
+    resolved_path TEXT
+)
+```
+
+No migration needed - database is regenerated on each `aud full`.
+
+### 3.5 Integration Point
+
+The resolver is called from the indexer's post-processing phase:
+
+```python
+# In indexer/__init__.py or orchestrator, after all files indexed:
+from theauditor.indexer.extractors.javascript_resolvers import JavaScriptResolversMixin
+
+# Run all JavaScript post-indexing resolvers
+JavaScriptResolversMixin.resolve_import_paths(db_path)
+JavaScriptResolversMixin.resolve_handler_file_paths(db_path)
+JavaScriptResolversMixin.resolve_cross_file_parameters(db_path)
+JavaScriptResolversMixin.resolve_router_mount_hierarchy(db_path)
+```
+
+### 3.6 Performance Comparison
+
+| Approach | File Checks | DB Queries | Performance |
+|----------|-------------|------------|-------------|
+| **OLD (extraction-time)** | O(N × M) disk I/O per import | None | Slow |
+| **NEW (post-indexing)** | Zero | 2 queries + O(1) set lookups | Fast |
+
+Where N = imports to resolve, M = extension variants to try.
+
+**Benchmark estimate**: 1000 imports × 6 extensions = 6000 `os.path.isfile()` calls → 0 calls
 
 ---
 
@@ -515,10 +490,13 @@ for import_entry in result.get('imports', []):
 ### 4.2 Module Resolution
 
 1. **Q**: How to handle `exports` field complexity in package.json?
-   **A**: Support basic cases (string, object with import/default). Complex conditional exports TBD.
+   **A**: N/A - node_modules packages are not indexed, so we don't resolve them.
 
 2. **Q**: Should resolution results be persisted to database?
-   **A**: Currently stored in `resolved_imports` dict per file. Database schema unchanged.
+   **A**: **YES** - stored in `import_styles.resolved_path` column (new schema).
+
+3. **Q**: What about tsconfig.json path mappings?
+   **A**: First version uses convention-based aliases (`@/` → `src/`). Full tsconfig parsing is a future enhancement.
 
 ---
 
@@ -527,9 +505,9 @@ for import_entry in result.get('imports', []):
 If issues discovered after deployment:
 
 1. **Vue In-Memory**: Revert to disk-based temp files (functional, just slower)
-2. **Module Resolution**: Revert to basename extraction (functional, just less accurate)
+2. **Module Resolution**: Skip calling `resolve_import_paths()` (column stays NULL, just less accurate)
 
-Both are backwards-compatible. No data migration required.
+Both are backwards-compatible. Schema change is additive (new column can be ignored).
 
 ---
 
@@ -537,5 +515,6 @@ Both are backwards-compatible. No data migration required.
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 2.0 | **ARCHITECTURE REWRITE**: Section 3 rewritten for post-indexing DB-first resolution |
 | 2025-11-28 | 1.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 1.0 | Initial design document |

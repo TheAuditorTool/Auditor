@@ -187,150 +187,101 @@
 
 ---
 
-## Task 4: Node Module Resolution
+## Task 4: Node Module Resolution (Post-Indexing, Database-First)
 
-**Estimated Time**: 8-16 hours
-**Files Modified**: `theauditor/indexer/extractors/javascript.py`
+**Estimated Time**: 4-8 hours (reduced - simpler architecture)
+**Files Modified**: `theauditor/indexer/extractors/javascript_resolvers.py`
 
-### 4.1 Read and Understand Current Implementation
+**Architecture**: Post-indexing resolver using database queries (NO filesystem I/O)
 
-- [ ] 4.1.1 Read current import resolution (lines 740-760)
-  - **What to understand**: How imports are extracted and stored
-  - **Key variables**: `import_entry`, `imp_path`, `resolved_imports`
+### 4.1 Read and Understand Current Architecture
 
-- [ ] 4.1.2 Read TypeScript module resolution docs
-  - **URL**: https://www.typescriptlang.org/docs/handbook/module-resolution.html
-  - **What to understand**: Node resolution algorithm, path mappings
+- [ ] 4.1.1 Read existing resolvers in `javascript_resolvers.py`
+  - **What to understand**: Pattern used by `resolve_handler_file_paths`, `resolve_cross_file_parameters`
+  - **Key pattern**: Load data from DB, process, update DB
 
-- [ ] 4.1.3 Read Node.js module resolution docs
-  - **URL**: https://nodejs.org/api/modules.html#all-together
-  - **What to understand**: node_modules lookup, package.json exports
+- [ ] 4.1.2 Read `import_styles` table schema
+  - **Command**: `aud blueprint --structure` or check database.py
+  - **What to understand**: Current columns, what needs to be added
 
-### 4.2 Implement ModuleResolver Class
+- [ ] 4.1.3 Read `files` table structure
+  - **What to understand**: How indexed file paths are stored
+  - **Key column**: `path` - the resolved file path
 
-- [ ] 4.2.1 Create `ModuleResolver` class in `javascript.py`
-  - **Location**: Add before `JavaScriptExtractor` class
-  - **Reference**: See `design.md` section 3.3
+### 4.2 Schema Change
 
-- [ ] 4.2.2 Implement `__init__()` method
-  - **Parameters**: `project_root: str`
-  - **Initialize**: `tsconfig_cache`, `resolution_cache`
+- [ ] 4.2.1 Add `resolved_path` column to `import_styles` table definition
+  - **Location**: `theauditor/indexer/database.py` (schema definition)
+  - **Type**: TEXT, nullable (NULL = unresolved)
+  - **Note**: No migration - DB regenerated on each `aud full`
 
-- [ ] 4.2.3 Implement `resolve()` method (public entry point)
-  - **Parameters**: `import_path: str`, `from_file: str`
-  - **Returns**: `str | None` (resolved path or None)
-  - **Logic**: Check cache, delegate to `_resolve_uncached()`
+### 4.3 Implement resolve_import_paths() Method
 
-### 4.3 Implement Relative Import Resolution
+- [ ] 4.3.1 Add `resolve_import_paths()` static method to `JavaScriptResolversMixin`
+  - **Location**: `javascript_resolvers.py` after `resolve_cross_file_parameters`
+  - **Signature**: `@staticmethod def resolve_import_paths(db_path: str):`
 
-- [ ] 4.3.1 Implement `_resolve_relative()` method
-  - **Input**: `./utils/validation`, `src/components/Button.tsx`
-  - **Output**: `src/utils/validation.ts`
+- [ ] 4.3.2 Implement Step 1: Load indexed paths
+  - **Query**: `SELECT path FROM files WHERE ext IN ('.ts', '.tsx', '.js', '.jsx', '.vue')`
+  - **Store**: `indexed_paths = {row[0] for row in cursor.fetchall()}`
 
-- [ ] 4.3.2 Handle extension resolution
-  - **Extensions to try**: `.ts`, `.tsx`, `.js`, `.jsx`, `.d.ts`
-  - **Order matters**: TypeScript prefers `.ts` over `.js`
+- [ ] 4.3.3 Implement Step 2: Load path aliases
+  - **Logic**: Detect `src/` directory pattern, set up `@/` and `~/` aliases
+  - **Future**: Parse actual tsconfig.json paths field
 
-- [ ] 4.3.3 Handle index file resolution
-  - **Index files**: `index.ts`, `index.tsx`, `index.js`, `index.jsx`
-  - **Example**: `./utils` -> `./utils/index.ts`
+- [ ] 4.3.4 Implement Step 3: Query imports to resolve
+  - **Query**: `SELECT rowid, file, package FROM import_styles WHERE package LIKE './%' OR ...`
+  - **Filter**: Only relative (`./`, `../`) and aliased (`@/`, `~/`) imports
 
-### 4.4 Implement Path Mapping Resolution
+- [ ] 4.3.5 Implement Step 4: Resolution loop
+  - **For each import**: Call `_resolve_import()`, update DB if resolved
 
-- [ ] 4.4.1 Implement `_get_tsconfig()` method
-  - **Logic**: Walk up directory tree from file, find nearest `tsconfig.json`
-  - **Cache**: Store parsed config in `tsconfig_cache`
+### 4.4 Implement Helper Functions
 
-- [ ] 4.4.2 Implement `_find_tsconfig_path()` method
-  - **Logic**: Walk up until project root, check for `tsconfig.json`
+- [ ] 4.4.1 Implement `_load_path_aliases()` function
+  - **Input**: cursor
+  - **Output**: `dict[str, str]` mapping aliases to base paths
+  - **Logic**: Detect src/ directory, set up common aliases
 
-- [ ] 4.4.3 Implement `_resolve_path_mapping()` method
-  - **Input**: `@/components/Button`, parsed tsconfig
-  - **Output**: `src/components/Button.tsx`
+- [ ] 4.4.2 Implement `_resolve_import()` function
+  - **Input**: `import_path`, `from_file`, `indexed_paths`, `path_aliases`
+  - **Output**: `str | None` (resolved path or None)
+  - **Steps**:
+    1. Expand path aliases
+    2. Resolve relative paths
+    3. Try extension/index variants
+    4. Check against `indexed_paths` set
 
-- [ ] 4.4.4 Handle wildcard patterns
-  - **Pattern**: `@/*` maps to `src/*`
-  - **Example**: `@/utils/foo` -> `src/utils/foo.ts`
+- [ ] 4.4.3 Implement `_normalize_path()` function
+  - **Input**: path string with potential `..` segments
+  - **Output**: normalized path
+  - **Logic**: Handle `..` by popping parent directories
 
-- [ ] 4.4.5 Handle exact patterns
-  - **Pattern**: `@types` maps to `src/types/index.ts`
-  - **Example**: `@types` -> `src/types/index.ts`
+### 4.5 Integrate with Indexer Pipeline
 
-### 4.5 Implement node_modules Resolution
+- [ ] 4.5.1 Find post-indexing hook location
+  - **Search**: Where `resolve_handler_file_paths` is called
+  - **File**: Likely `indexer/__init__.py` or orchestrator
 
-- [ ] 4.5.1 Implement `_resolve_node_modules()` method
-  - **Logic**: Walk up directory tree, check each `node_modules/`
+- [ ] 4.5.2 Add call to `resolve_import_paths()`
+  - **Location**: After all files indexed, with other resolvers
+  - **Order**: Before other resolvers that might depend on it
 
-- [ ] 4.5.2 Handle scoped packages
-  - **Pattern**: `@vue/reactivity` -> `node_modules/@vue/reactivity/`
-  - **Split**: First two segments for scoped packages
+### 4.6 Testing
 
-- [ ] 4.5.3 Implement `_resolve_package()` method
-  - **Logic**: Check `package.json` for entry point
-
-- [ ] 4.5.4 Handle `exports` field in package.json
-  - **Priority**: `exports` > `module` > `main`
-  - **Handle**: String and object formats
-
-- [ ] 4.5.5 Handle package subpaths
-  - **Example**: `lodash/fp` -> `node_modules/lodash/fp/index.js`
-
-### 4.6 Implement Helper Methods
-
-- [ ] 4.6.1 Implement `_try_extensions()` method
-  - **Logic**: Try path with various extensions, return first match
-
-### 4.7 Integrate with Existing Code
-
-- [ ] 4.7.1 Replace basename logic (lines 747-749)
-  - **Before**:
-    ```python
-    module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
-    if module_name:
-        result['resolved_imports'][module_name] = imp_path
-    ```
-  - **After**:
-    ```python
-    resolver = ModuleResolver(project_root)
-    resolved = resolver.resolve(imp_path, file_info.get('path', ''))
-    if resolved:
-        result['resolved_imports'][imp_path] = resolved
-    else:
-        # Fallback to basename for unresolvable imports
-        module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
-        result['resolved_imports'][module_name] = imp_path
-    ```
-
-- [ ] 4.7.2 Pass `project_root` to extractor
-  - **Check**: `file_info` dict contains project root
-  - **Alternative**: Use `self.project_root` if stored in extractor
-
-### 4.8 Testing Module Resolution
-
-- [ ] 4.8.1 Create resolution test fixtures
-  - **Location**: `tests/fixtures/js/module-resolution/`
-  - **Files needed**:
-    - `tsconfig.json` with path mappings
-    - `src/utils/validation.ts`
-    - `src/components/Button.tsx`
-    - `package.json` in fake node_modules
-
-- [ ] 4.8.2 Create unit tests for ModuleResolver
+- [ ] 4.6.1 Create unit test for `_resolve_import()`
   - **Test cases**:
-    - Relative: `./utils/validation` from `src/components/Button.tsx`
-    - Parent: `../config` from `src/utils/foo.ts`
-    - Path mapping: `@/utils` with tsconfig paths
-    - node_modules: `lodash`
-    - Scoped: `@vue/reactivity`
-    - Index: `./utils` -> `./utils/index.ts`
+    - `./utils` from `src/components/Button.tsx` → `src/components/utils.ts`
+    - `../config` from `src/utils/foo.ts` → `src/config.ts`
+    - `@/utils` with alias → `src/utils.ts`
+    - Index resolution: `./utils` → `src/components/utils/index.ts`
 
-- [ ] 4.8.3 Create integration test
-  - **Purpose**: Verify resolution rate improves
-  - **Method**: Count resolved vs total imports before/after
+- [ ] 4.6.2 Create integration test
+  - **Method**: Index a test project, verify `resolved_path` populated
+  - **Metric**: Count non-NULL `resolved_path` vs total relative imports
 
-- [ ] 4.8.4 Create taint analysis test
-  - **Purpose**: Verify cross-file taint flows work
-  - **Method**: Create multi-file vulnerability, verify detection
+- [ ] 4.6.3 Verify no filesystem I/O
+  - **Method**: Mock `os.path.isfile()` to raise, ensure no calls
 
 ---
 
@@ -392,6 +343,7 @@
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 3.0 | **ARCHITECTURE REWRITE**: Task 4 now post-indexing DB-first (not filesystem) |
 | 2025-11-28 | 2.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 2.0 | Complete rewrite with verified paths and atomic tasks |
 | Original | 1.0 | Initial tasks (OBSOLETE - wrong paths) |

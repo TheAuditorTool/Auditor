@@ -33,49 +33,50 @@ The system SHALL compile Vue Single File Components (SFC) in-memory without writ
 
 ---
 
-### Requirement: TypeScript Module Resolution
+### Requirement: TypeScript Module Resolution (Post-Indexing, Database-First)
 
-The system SHALL resolve JavaScript/TypeScript import paths using the TypeScript module resolution algorithm.
+The system SHALL resolve JavaScript/TypeScript import paths using database queries against indexed files (NO filesystem I/O).
+
+#### Scenario: Post-indexing execution
+
+- **WHEN** all files have been indexed
+- **THEN** `resolve_import_paths()` runs as a post-indexing step
+- **AND** queries the `files` table for indexed paths
+- **AND** performs ZERO filesystem existence checks
 
 #### Scenario: Relative import resolution
 
 - **WHEN** an import path starts with `./` or `../`
 - **THEN** the system resolves relative to the importing file's directory
-- **AND** tries extensions in order: `.ts`, `.tsx`, `.js`, `.jsx`, `.d.ts`
+- **AND** tries extensions in order: `.ts`, `.tsx`, `.js`, `.jsx`, `.vue`
 - **AND** tries index files: `index.ts`, `index.tsx`, `index.js`, `index.jsx`
-- **AND** returns the resolved file path relative to project root
+- **AND** checks candidates against the indexed `files` table (O(1) set lookup)
 
 #### Scenario: Path mapping resolution
 
-- **WHEN** an import path matches a pattern in `tsconfig.json` paths field
-- **THEN** the system applies the path mapping transformation
-- **AND** resolves the mapped path to an actual file
-- **AND** supports wildcard patterns like `@/*` mapping to `src/*`
+- **WHEN** an import path starts with `@/` or `~/`
+- **THEN** the system expands the alias using detected conventions
+- **AND** resolves the mapped path against indexed files
+- **AND** stores result in `import_styles.resolved_path` column
 
-#### Scenario: node_modules resolution
+#### Scenario: Database storage
 
-- **WHEN** an import path is a bare module specifier (not relative)
-- **THEN** the system walks up the directory tree checking `node_modules/`
-- **AND** handles scoped packages (e.g., `@vue/reactivity`)
-- **AND** reads `package.json` to find entry point (`exports`, `module`, `main`)
+- **WHEN** an import is successfully resolved
+- **THEN** the resolved path is stored in `import_styles.resolved_path`
+- **AND** unresolved imports have NULL in this column
+- **AND** the schema change is additive (non-breaking)
 
-#### Scenario: Resolution caching
+#### Scenario: node_modules skipped
 
-- **WHEN** the same import path is resolved multiple times
-- **THEN** the resolution result is cached
-- **AND** subsequent lookups return cached result without disk I/O
-
-#### Scenario: Fallback for unresolvable imports
-
-- **WHEN** an import path cannot be resolved by the algorithm
-- **THEN** the system falls back to basename extraction
-- **AND** logs a debug message for troubleshooting
-- **AND** does not throw an error or stop extraction
+- **WHEN** an import path is a bare module specifier (e.g., `lodash`)
+- **THEN** the system does NOT attempt resolution
+- **AND** leaves `resolved_path` as NULL
+- **BECAUSE** node_modules packages are not indexed
 
 #### Scenario: Resolution rate improvement
 
 - **WHEN** a typical JavaScript/TypeScript project is analyzed
-- **THEN** at least 80% of imports are resolved to actual file paths
+- **THEN** at least 80% of relative/aliased imports are resolved
 - **AND** this represents a 40-50% improvement over basename-only resolution
 
 ---
@@ -87,13 +88,13 @@ The system SHALL resolve JavaScript/TypeScript import paths using the TypeScript
 | File | Change Type |
 |------|-------------|
 | `theauditor/ast_extractors/javascript/batch_templates.js` | Modified (Vue in-memory) |
-| `theauditor/indexer/extractors/javascript.py` | Modified (module resolution) |
+| `theauditor/indexer/extractors/javascript_resolvers.py` | Modified (module resolution) |
 
 ### Database Impact
 
-- **Schema**: No changes
-- **Data format**: No changes
-- **Migration**: Not required
+- **Schema**: `import_styles.resolved_path TEXT` column added to schema definition
+- **Data format**: No changes to existing columns
+- **Migration**: None required - database is regenerated on each `aud full`
 
 ### API Impact
 
@@ -103,7 +104,7 @@ The system SHALL resolve JavaScript/TypeScript import paths using the TypeScript
 
 ### Dependencies
 
-- TypeScript CompilerHost API (existing)
-- `@vue/compiler-sfc` (existing)
-- `tsconfig.json` parsing (new, read-only)
-- `package.json` parsing (new, read-only)
+- TypeScript CompilerHost API (existing, for Vue in-memory)
+- `@vue/compiler-sfc` (existing, for Vue in-memory)
+- `files` table in repo_index.db (existing, for module resolution)
+- `import_styles` table in repo_index.db (existing, for module resolution)
