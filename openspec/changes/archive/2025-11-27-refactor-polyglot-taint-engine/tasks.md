@@ -274,9 +274,11 @@
 - [x] 2.1.6 Implement `get_sanitizer_patterns(language: str)` method (2025-11-27)
   - Returns global + language-specific sanitizers
 
-- [ ] 2.1.7 Seed default patterns for Python/Node/Rust
-  - **DEFERRED**: Patterns populated by rules orchestrator during discovery
-  - Can be added in Phase 3 if needed for testing
+- [x] 2.1.7 Seed default patterns for Python/Node/Rust (2025-11-28)
+  - **IMPLEMENTED in Phase 3.5** via database seeding
+  - Added `framework_taint_patterns` table to frameworks_schema.py
+  - Seeding in orchestrator.py: `_seed_express_patterns()`, `_seed_flask_patterns()`, `_seed_django_patterns()`
+  - TaintRegistry.load_from_database() updated to call `_load_taint_patterns()`
 
 ### 2.2 Type Resolver (The "Identity Card")
 
@@ -417,6 +419,83 @@
   - Taint sources: 811, Taint paths (IFDS): 0
   - No crashes from missing registry/type_resolver (call sites updated correctly)
 
+## Phase 3.5: Database-Driven Taint Patterns - COMPLETED 2025-11-28
+
+**Root Cause:** TaintRegistry.load_from_database() only loaded SANITIZERS, not sources/sinks.
+Sources/sinks were expected to come from "rules orchestrator" - WRONG architecture.
+Result: 0 flows detected despite 818 sources and 535 sinks in database.
+
+### 3.5.1 Schema
+
+- [x] Add `framework_taint_patterns` table to `frameworks_schema.py` (2025-11-28)
+  - Columns: id, framework_id (FK), pattern, pattern_type ('source'/'sink'), category
+  - Indexes: idx_taint_patterns_fw, idx_taint_patterns_type, idx_taint_patterns_pattern
+  - Table count: 154 → 155
+
+- [x] Update schema.py assertion (2025-11-28)
+  - Changed from `assert len(TABLES) == 154` to `assert len(TABLES) == 155`
+
+- [x] Add to flush_order in base_database.py (2025-11-28)
+  - Added `('framework_taint_patterns', 'INSERT OR IGNORE')` after framework_safe_sinks
+
+- [x] Add `add_framework_taint_pattern()` to node_database.py (2025-11-28)
+  - Method signature: `add_framework_taint_pattern(framework_id, pattern, pattern_type, category)`
+
+### 3.5.2 Seeding Logic
+
+- [x] Refactor `_store_frameworks()` in orchestrator.py (2025-11-28)
+  - Now calls: `_seed_express_patterns()`, `_seed_flask_patterns()`, `_seed_django_patterns()`
+
+- [x] Implement `_seed_express_patterns()` (2025-11-28)
+  - Sources: req.body, req.params, req.query, req.headers, req.cookies, req.files, req.file
+  - Sinks: eval, Function, child_process.*, res.send, res.write, res.render, query, execute, raw
+
+- [x] Implement `_seed_flask_patterns()` (2025-11-28)
+  - Sources: request.args, request.form, request.json, request.data, request.values, etc.
+  - Sinks: eval, exec, os.system, subprocess.*, render_template_string, cursor.execute, etc.
+
+- [x] Implement `_seed_django_patterns()` (2025-11-28)
+  - Sources: request.GET, request.POST, request.body, request.FILES, etc.
+  - Sinks: eval, exec, cursor.execute, raw, HttpResponse, mark_safe
+
+### 3.5.3 Registry Loading
+
+- [x] Add `_load_taint_patterns()` to TaintRegistry (2025-11-28)
+  - Queries framework_taint_patterns JOIN frameworks for language
+  - Calls register_source() for pattern_type='source'
+  - Calls register_sink() for pattern_type='sink'
+
+- [x] Update `load_from_database()` to call `_load_taint_patterns()` (2025-11-28)
+  - Now loads: taint patterns, safe sinks, validation sanitizers
+
+### 3.5.4 Verification
+
+- [x] Run `aud full --offline` on Plant project (2025-11-28)
+  - Taint patterns seeded: 19 (7 sources, 12 sinks) for Express
+  - Registry populated correctly from database
+  - FlowResolver: 3 → 328 flows (109x improvement after 3.6 fix)
+
+## Phase 3.6: FlowResolver Entry Node Fix - COMPLETED 2025-11-28
+
+**Root Cause:** `_get_entry_nodes()` constructed node IDs from `express_middleware_chains.handler_function`
+which uses wrapper format (`handler(controller.method)`) that doesn't match actual graph node IDs
+(`Controller.method::req.body`). Result: 0 entry nodes found = 0 flows traced.
+
+- [x] Fix `_get_entry_nodes()` in flow_resolver.py (2025-11-28)
+  - OLD: Constructed node IDs from express_middleware_chains, verified existence
+  - NEW: Query graphs.db directly for nodes matching source patterns (e.g., `%::req.body`)
+  - Collects patterns from ALL languages in registry
+
+- [x] Fix `_record_flow()` garbage filter (2025-11-28)
+  - Added: `if source == sink or len(path) < 2: return`
+  - Filters out self-referential 0-hop "flows"
+  - Before: 24 garbage flows, After: 0 garbage flows
+
+- [x] Final verification on Plant project (2025-11-28)
+  - Before fix: 3 flows (none from HTTP sources)
+  - After fix: 305 flows (303 actual source→sink, multi-hop)
+  - HTTP sources detected: req.body (135), req.query (117), req.params (63)
+
 ## Phase 4: Validation & Testing - COMPLETED 2025-11-27
 
 - [x] 4.1 Run `aud full --offline` and compare to baseline (2025-11-27)
@@ -447,8 +526,10 @@
   - `pytest tests/test_polyglot_taint.py -v`
   - Result: **10 passed, 0 failed**
 
-- [ ] 4.5 Manual verification on PlantFlow codebase
-  - **DEFERRED**: Requires external test repo with Sequelize ORM data
+- [x] 4.5 Manual verification on Plant codebase (2025-11-28)
+  - Verified on C:\Users\santa\Desktop\Plant (Express/TypeScript/Zod)
+  - Results: 305 flows detected, 303 actual source→sink paths
+  - HTTP sources: req.body (135), req.query (117), req.params (63)
 
 ## Phase 5: Documentation & Cleanup
 
