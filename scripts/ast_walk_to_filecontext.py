@@ -179,7 +179,7 @@ class FileContextTransformer(m.MatcherDecoratableTransformer):
             # Use the module's code generation
             code = cst.Module(body=[node]).code
             return 'tree.get("tree")' in code or "tree.get('tree')" in code
-        except:
+        except Exception:
             # If that fails, assume it might contain the pattern
             return True
 

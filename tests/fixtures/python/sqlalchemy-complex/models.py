@@ -72,7 +72,7 @@ class SoftDeleteMixin:
 
     @declared_attr
     def is_deleted(cls):
-        return column_property(cls.deleted_at != None)
+        return column_property(cls.deleted_at != None)  # noqa: E711 - SQLAlchemy IS NOT NULL
 
     def soft_delete(self):
         self.deleted_at = datetime.utcnow()
@@ -175,7 +175,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     @full_name.expression
     def full_name(cls):
         return case(
-            [(and_(cls.first_name != None, cls.last_name != None),
+            [(and_(cls.first_name != None, cls.last_name != None),  # noqa: E711 - SQLAlchemy IS NOT NULL
               func.concat(cls.first_name, ' ', cls.last_name))],
             else_=cls.username
         )
@@ -282,7 +282,7 @@ class Product(Base, TimestampMixin):
     @profit_margin.expression
     def profit_margin(cls):
         return case(
-            [(and_(cls.cost != None, cls.price != None, cls.price > 0),
+            [(and_(cls.cost != None, cls.price != None, cls.price > 0),  # noqa: E711 - SQLAlchemy IS NOT NULL
               ((cls.price - cls.cost) / cls.price) * 100)],
             else_=0
         )

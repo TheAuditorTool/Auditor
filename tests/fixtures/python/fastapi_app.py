@@ -1,4 +1,5 @@
 """FastAPI fixture covering route metadata and dependency injection."""
+# ruff: noqa: B008 - FastAPI Depends() pattern is intentional
 
 from typing import Dict, List, Optional
 
