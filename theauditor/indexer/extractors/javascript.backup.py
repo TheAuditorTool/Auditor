@@ -20,15 +20,15 @@ This separation ensures single source of truth for file paths.
 """
 
 import os
+import re
 from datetime import datetime
 from typing import Any
 
 from . import BaseExtractor
 from .sql import parse_sql_query
-from .javascript_resolvers import JavaScriptResolversMixin
 
 
-class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
+class JavaScriptExtractor(BaseExtractor):
     """Extractor for JavaScript and TypeScript files."""
 
     def supported_extensions(self) -> list[str]:
@@ -1320,3 +1320,598 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 mounts.append(mount)
 
         return mounts
+
+    @staticmethod
+    def resolve_router_mount_hierarchy(db_path: str):
+        """Resolve router mount hierarchy to populate api_endpoints.full_path.
+
+        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+
+        Algorithm:
+        1. Load router_mounts table (router.use() statements from AST)
+        2. Resolve mount path expressions (API_PREFIX → '/api/v1')
+        3. Resolve router variables to file paths (areaRoutes → './area.routes' → 'backend/src/routes/area.routes.ts')
+        4. Build 2-level mount hierarchy
+        5. Update api_endpoints.full_path = mount_path + pattern
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        import os
+        import re
+        import sqlite3
+
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT file, line, mount_path_expr, router_variable, is_literal
+            FROM router_mounts
+            ORDER BY file, line
+        """)
+        raw_mounts = cursor.fetchall()
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(raw_mounts)} mount statements")
+
+        if not raw_mounts:
+            conn.close()
+            return
+
+        cursor.execute("""
+            SELECT file, target_var, source_expr
+            FROM assignments
+            WHERE target_var LIKE '%PREFIX%' OR target_var LIKE '%prefix%'
+        """)
+
+        constants = {}
+        for file, var_name, value in cursor.fetchall():
+            key = f"{file}::{var_name}"
+
+            cleaned_value = value.strip().strip("\"'")
+            constants[key] = cleaned_value
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(constants)} constant definitions")
+
+        cursor.execute("""
+            SELECT file, package, alias_name
+            FROM import_styles
+            WHERE alias_name IS NOT NULL
+        """)
+
+        imports = {}
+        for file, package, alias_name in cursor.fetchall():
+            if not alias_name:
+                continue
+
+            if package.startswith("."):
+                file_dir = "/".join(file.split("/")[:-1])
+
+                if package == ".":
+                    resolved = file_dir
+                elif package.startswith("./"):
+                    resolved = f"{file_dir}/{package[2:]}"
+                elif package.startswith("../"):
+                    parent_dir = "/".join(file_dir.split("/")[:-1])
+                    resolved = f"{parent_dir}/{package[3:]}"
+                else:
+                    resolved = package
+
+                if not resolved.endswith((".ts", ".js", ".tsx", ".jsx")):
+                    resolved = f"{resolved}.ts"
+
+                key = f"{file}::{alias_name}"
+                imports[key] = resolved
+
+        if debug:
+            print(f"[MOUNT RESOLUTION] Loaded {len(imports)} import mappings")
+
+        mount_map = {}
+
+        for file, line, mount_expr, router_var, is_literal in raw_mounts:
+            resolved_mount = None
+
+            if is_literal:
+                resolved_mount = mount_expr
+            else:
+                if mount_expr.startswith("`"):
+                    var_pattern = r"\$\{([^}]+)\}"
+                    matches = re.findall(var_pattern, mount_expr)
+
+                    resolved_template = mount_expr.strip("`")
+                    for var_name in matches:
+                        const_key = f"{file}::{var_name}"
+                        if const_key in constants:
+                            var_value = constants[const_key]
+                            resolved_template = resolved_template.replace(
+                                f"${{{var_name}}}", var_value
+                            )
+                        else:
+                            resolved_template = None
+                            break
+
+                    resolved_mount = resolved_template
+                else:
+                    const_key = f"{file}::{mount_expr}"
+                    resolved_mount = constants.get(const_key)
+
+            if not resolved_mount:
+                if debug:
+                    print(
+                        f"[MOUNT RESOLUTION] Failed to resolve mount: {file}:{line} - {mount_expr}"
+                    )
+                continue
+
+            import_key = f"{file}::{router_var}"
+            router_file = imports.get(import_key)
+
+            if not router_file:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM router_mounts
+                    WHERE file = ? AND router_variable = ?
+                """,
+                    (file, router_var),
+                )
+                if cursor.fetchone()[0] > 0:
+                    router_file = file
+                    if debug:
+                        print(f"[MOUNT RESOLUTION] {router_var} is local to {file}")
+
+            if router_file:
+                mount_map[router_file] = resolved_mount
+                if debug:
+                    print(f"[MOUNT RESOLUTION] {router_file} → {resolved_mount}")
+
+        updated_count = 0
+        for file_path, mount_path in mount_map.items():
+            cursor.execute(
+                """
+                SELECT rowid, pattern
+                FROM api_endpoints
+                WHERE file = ?
+            """,
+                (file_path,),
+            )
+
+            for rowid, pattern in cursor.fetchall():
+                if pattern and pattern.startswith("/"):
+                    full_path = mount_path + pattern
+                else:
+                    full_path = mount_path + "/" + (pattern or "")
+
+                cursor.execute(
+                    """
+                    UPDATE api_endpoints
+                    SET full_path = ?
+                    WHERE rowid = ?
+                """,
+                    (full_path, rowid),
+                )
+                updated_count += 1
+
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def resolve_handler_file_paths(db_path: str):
+        """Resolve handler_file for express_middleware_chains from import statements.
+
+        ADDED 2025-11-27: Phase 6.9 - Cross-file handler file resolution
+
+        Problem:
+            express_middleware_chains stores route definitions in route files,
+            but handlers are defined in controller files. Flow resolver needs
+            handler_file to construct correct DFG node IDs.
+
+            Example:
+                Route file: backend/src/routes/auth.routes.ts
+                Handler expr: authController.adminLogin
+                Handler file: backend/src/controllers/auth.controller.ts
+
+        Algorithm:
+            1. Load middleware chains where handler_file IS NULL
+            2. Parse handler_function to get variable name (AuthController -> authController)
+            3. Look up import that provides that variable
+            4. Resolve module path to actual file path (handle @alias paths)
+            5. Update handler_file column
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        import os
+        import sqlite3
+
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT rowid, file, handler_function
+            FROM express_middleware_chains
+            WHERE handler_file IS NULL
+              AND handler_function IS NOT NULL
+              AND handler_function != ''
+        """)
+        chains_to_resolve = cursor.fetchall()
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Found {len(chains_to_resolve)} chains to resolve")
+
+        if not chains_to_resolve:
+            conn.close()
+            return
+
+        cursor.execute("""
+            SELECT file, import_line, specifier_name
+            FROM import_specifiers
+        """)
+        specifier_to_line = {}
+        for file, import_line, specifier_name in cursor.fetchall():
+            key = (file, specifier_name.lower())
+            specifier_to_line[key] = import_line
+
+        cursor.execute("""
+            SELECT file, line, package
+            FROM import_styles
+        """)
+        line_to_module = {}
+        for file, line, package in cursor.fetchall():
+            key = (file, line)
+            line_to_module[key] = package
+
+        # Load assignments (maps variable names to their source expressions)
+        # This handles patterns like: const controller = new ExportController()
+        cursor.execute("""
+            SELECT file, target_var, source_expr
+            FROM assignments
+            WHERE source_expr LIKE 'new %'
+        """)
+        var_to_class = {}
+        for file, target_var, source_expr in cursor.fetchall():
+            # Extract class name from "new ClassName()" or "new ClassName"
+            class_match = re.match(r'new\s+([A-Za-z0-9_]+)', source_expr)
+            if class_match:
+                class_name = class_match.group(1)
+                key = (file, target_var.lower())
+                var_to_class[key] = class_name
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
+
+        path_aliases = {}
+
+        cursor.execute("""
+            SELECT DISTINCT path FROM symbols WHERE path LIKE '%/src/%' LIMIT 1
+        """)
+        sample_path = cursor.fetchone()
+        if sample_path:
+            parts = sample_path[0].split("/")
+            if "src" in parts:
+                src_idx = parts.index("src")
+                base_path = "/".join(parts[: src_idx + 1])
+
+                path_aliases["@controllers"] = f"{base_path}/controllers"
+                path_aliases["@middleware"] = f"{base_path}/middleware"
+                path_aliases["@services"] = f"{base_path}/services"
+                path_aliases["@validations"] = f"{base_path}/validations"
+                path_aliases["@utils"] = f"{base_path}/utils"
+                path_aliases["@config"] = f"{base_path}/config"
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Path aliases: {path_aliases}")
+
+        updates = []
+        resolved_count = 0
+        unresolved_count = 0
+
+        for rowid, route_file, handler_function in chains_to_resolve:
+            # Determine what to resolve based on pattern type
+            #
+            # Patterns:
+            #   handler(controller.list) -> resolve 'controller.list' (inner is Class.method)
+            #   requireAuth()            -> resolve 'requireAuth' (empty call)
+            #   validateParams(schema)   -> resolve 'validateParams' (arg is schema, not controller)
+            #   controller.list          -> resolve 'controller.list' (direct Class.method)
+            #   requireAuth              -> resolve 'requireAuth' (direct function ref)
+
+            target_handler = handler_function
+
+            # Strip .bind() pattern FIRST (before wrapper detection)
+            # FIX 2025-11-27: controller.method.bind(controller) -> controller.method
+            # This is a JavaScript pattern to preserve 'this' context in callbacks
+            # Must happen BEFORE '(' check because .bind() contains parentheses
+            bind_match = re.match(r'^(.+)\.bind\s*\(', target_handler)
+            if bind_match:
+                target_handler = bind_match.group(1)
+
+            if '(' in target_handler:
+                # Extract: functionName(args) -> functionName AND args
+                func_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', target_handler)
+                arg_match = re.search(r'\(\s*([a-zA-Z0-9_$.]+)', target_handler)
+
+                func_name = func_match.group(1) if func_match else None
+                inner_arg = arg_match.group(1) if arg_match else None
+
+                # Type-safety wrappers that wrap controllers - extract inner
+                # handler(), fileHandler(), asyncHandler(), safeHandler(), catchErrors()
+                type_wrappers = {'handler', 'fileHandler', 'asyncHandler', 'safeHandler', 'catchErrors'}
+
+                if func_name in type_wrappers and inner_arg and '.' in inner_arg:
+                    # This is a type-safety wrapper around controller: handler(controller.method)
+                    target_handler = inner_arg
+                elif func_name:
+                    # Middleware function call: requireAuth(), validateParams(schema)
+                    # Resolve the function itself, not the argument
+                    target_handler = func_name
+                else:
+                    # Cannot parse - skip
+                    unresolved_count += 1
+                    continue
+
+            # Strip TypeScript non-null assertion operator if present
+            # FIX 2025-11-27 Option B: userId! -> userId for cleaner resolution
+            if target_handler.endswith('!'):
+                target_handler = target_handler[:-1]
+
+            # Determine lookup name based on pattern
+            import_line = None
+
+            if '.' not in target_handler:
+                # Simple function import: requireAuth, validateParams, etc.
+                # Try to resolve directly as imported function
+                lookup_name = target_handler
+                key = (route_file, lookup_name.lower())
+                import_line = specifier_to_line.get(key)
+
+                if not import_line:
+                    # Try exact case match
+                    for (f, spec), line in specifier_to_line.items():
+                        if f == route_file and spec.lower() == lookup_name.lower():
+                            import_line = line
+                            break
+
+                if not import_line:
+                    # Not an imported function - skip (local variable or unknown)
+                    unresolved_count += 1
+                    continue
+            else:
+                # Class.method pattern: controller.list, AuthController.login
+                parts = target_handler.split('.')
+                class_name = parts[0]
+
+                # Convert PascalCase to camelCase for import lookup
+                # AuthController -> authController
+                var_name = class_name[0].lower() + class_name[1:] if class_name else class_name
+
+                # Look up import
+                key = (route_file, var_name.lower())
+                import_line = specifier_to_line.get(key)
+
+                if not import_line:
+                    # Try exact case match
+                    for (f, spec), line in specifier_to_line.items():
+                        if f == route_file and spec.lower() == var_name.lower():
+                            import_line = line
+                            break
+
+                if not import_line:
+                    # Check if var_name is a class instantiation (e.g., const controller = new ExportController())
+                    instantiation_key = (route_file, var_name.lower())
+                    actual_class = var_to_class.get(instantiation_key)
+                    if actual_class:
+                        # Look up the actual class name in import_specifiers
+                        class_key = (route_file, actual_class.lower())
+                        import_line = specifier_to_line.get(class_key)
+                        if not import_line:
+                            # Try exact case match for class
+                            for (f, spec), line in specifier_to_line.items():
+                                if f == route_file and spec.lower() == actual_class.lower():
+                                    import_line = line
+                                    break
+
+                if not import_line:
+                    unresolved_count += 1
+                    continue
+
+            module_path = line_to_module.get((route_file, import_line))
+            if not module_path:
+                unresolved_count += 1
+                continue
+
+            resolved_path = None
+
+            for alias, target in path_aliases.items():
+                if module_path.startswith(alias):
+                    resolved_path = module_path.replace(alias, target)
+                    break
+
+            if not resolved_path and module_path.startswith("."):
+                route_dir = "/".join(route_file.split("/")[:-1])
+                if module_path.startswith("./"):
+                    resolved_path = f"{route_dir}/{module_path[2:]}"
+                elif module_path.startswith("../"):
+                    parent_dir = "/".join(route_dir.split("/")[:-1])
+                    resolved_path = f"{parent_dir}/{module_path[3:]}"
+                else:
+                    resolved_path = module_path
+
+            if not resolved_path:
+                resolved_path = module_path
+
+            if resolved_path and not resolved_path.endswith((".ts", ".js", ".tsx", ".jsx")):
+                resolved_path = f"{resolved_path}.ts"
+
+            cursor.execute(
+                """
+                SELECT 1 FROM symbols WHERE path = ? LIMIT 1
+            """,
+                (resolved_path,),
+            )
+            if cursor.fetchone():
+                updates.append((resolved_path, rowid))
+                resolved_count += 1
+            else:
+                unresolved_count += 1
+
+        if updates:
+            cursor.executemany(
+                """
+                UPDATE express_middleware_chains
+                SET handler_file = ?
+                WHERE rowid = ?
+            """,
+                updates,
+            )
+            conn.commit()
+
+        conn.close()
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Resolved {resolved_count} handler files")
+            print(f"[HANDLER FILE RESOLUTION] Unresolved: {unresolved_count}")
+
+    @staticmethod
+    def resolve_cross_file_parameters(db_path: str):
+        """Resolve parameter names for cross-file function calls.
+
+        ARCHITECTURE: Post-indexing resolution (runs AFTER all files indexed).
+
+        Problem:
+            JavaScript extraction uses file-scoped functionParams map.
+            When controller.ts calls accountService.createAccount(), the map doesn't have
+            createAccount's parameters (defined in service.ts).
+            Result: Falls back to generic names (arg0, arg1).
+
+        Solution:
+            After all files indexed, query symbols table for actual parameter names
+            and update function_call_args.param_name.
+
+        Evidence (before fix):
+            SELECT param_name, COUNT(*) FROM function_call_args GROUP BY param_name:
+                arg0: 10,064 (99.9%)
+                arg1:  2,552
+                data:      1 (0.1%)
+
+        Expected (after fix):
+            data:  1,500+
+            req:     800+
+            res:     600+
+            arg0:      0 (only for truly unresolved calls)
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        import json
+        import os
+        import sqlite3
+
+        logger = None
+        if "logger" in globals():
+            logger = globals()["logger"]
+
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT rowid, callee_function, argument_index, param_name
+            FROM function_call_args
+            WHERE param_name LIKE 'arg%'
+        """)
+
+        calls_to_fix = cursor.fetchall()
+        total_calls = len(calls_to_fix)
+
+        if logger:
+            logger.info(
+                f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names"
+            )
+        elif debug:
+            print(f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names")
+
+        if total_calls == 0:
+            conn.close()
+            return
+
+        cursor.execute("""
+            SELECT name, parameters
+            FROM symbols
+            WHERE type = 'function' AND parameters IS NOT NULL
+        """)
+
+        param_lookup = {}
+        for name, params_json in cursor.fetchall():
+            try:
+                params = json.loads(params_json)
+
+                parts = name.split(".")
+                base_name = parts[-1] if parts else name
+
+                param_lookup[base_name] = params
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        if debug:
+            print(f"[PARAM RESOLUTION] Built lookup with {len(param_lookup)} functions")
+
+        updates = []
+        resolved_count = 0
+        unresolved_count = 0
+
+        for rowid, callee_function, arg_index, current_param_name in calls_to_fix:
+            parts = callee_function.split(".")
+            base_name = parts[-1] if parts else callee_function
+
+            if base_name in param_lookup:
+                params = param_lookup[base_name]
+
+                if arg_index is not None and arg_index < len(params):
+                    param_value = params[arg_index]
+
+                    if isinstance(param_value, dict):
+                        actual_param_name = param_value.get("name", f"arg{arg_index}")
+                    else:
+                        actual_param_name = param_value
+
+                    updates.append((actual_param_name, rowid))
+                    resolved_count += 1
+
+                    if debug and resolved_count <= 5:
+                        print(
+                            f"[PARAM RESOLUTION] {callee_function}[{arg_index}]: {current_param_name} → {actual_param_name}"
+                        )
+                else:
+                    unresolved_count += 1
+            else:
+                unresolved_count += 1
+
+        if updates:
+            cursor.executemany(
+                """
+                UPDATE function_call_args
+                SET param_name = ?
+                WHERE rowid = ?
+            """,
+                updates,
+            )
+            conn.commit()
+
+            if logger:
+                logger.info(f"[PARAM RESOLUTION] Resolved {resolved_count} parameter names")
+                logger.info(
+                    f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
+                )
+            elif debug:
+                print(f"[PARAM RESOLUTION] Resolved {resolved_count} parameter names")
+                print(
+                    f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
+                )
+
+        conn.close()
