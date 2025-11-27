@@ -82,6 +82,14 @@ class ApiEndpointsRow(TypedDict):
     has_auth: bool | None
     handler_function: str | None
 
+class AssignmentSourceVarsRow(TypedDict):
+    """Row type for assignment_source_vars table."""
+    file: str
+    line: int
+    target_var: str
+    source_var: str
+    var_index: int
+
 class AssignmentSourcesRow(TypedDict):
     """Row type for assignment_sources table."""
     id: int
@@ -219,6 +227,24 @@ class CfgEdgesJsxRow(TypedDict):
     edge_type: str
     jsx_mode: str | None
     extraction_pass: int | None
+
+class ClassDecoratorArgsRow(TypedDict):
+    """Row type for class_decorator_args table."""
+    file: str
+    class_line: int
+    class_name: str
+    decorator_index: int
+    arg_index: int
+    arg_value: str
+
+class ClassDecoratorsRow(TypedDict):
+    """Row type for class_decorators table."""
+    file: str
+    class_line: int
+    class_name: str
+    decorator_index: int
+    decorator_name: str
+    decorator_line: int
 
 class ClassPropertiesRow(TypedDict):
     """Row type for class_properties table."""
@@ -386,6 +412,42 @@ class FrontendApiCallsRow(TypedDict):
     url_literal: str
     body_variable: str | None
     function_name: str | None
+
+class FuncDecoratorArgsRow(TypedDict):
+    """Row type for func_decorator_args table."""
+    file: str
+    function_line: int
+    function_name: str
+    decorator_index: int
+    arg_index: int
+    arg_value: str
+
+class FuncDecoratorsRow(TypedDict):
+    """Row type for func_decorators table."""
+    file: str
+    function_line: int
+    function_name: str
+    decorator_index: int
+    decorator_name: str
+    decorator_line: int
+
+class FuncParamDecoratorsRow(TypedDict):
+    """Row type for func_param_decorators table."""
+    file: str
+    function_line: int
+    function_name: str
+    param_index: int
+    decorator_name: str
+    decorator_args: str | None
+
+class FuncParamsRow(TypedDict):
+    """Row type for func_params table."""
+    file: str
+    function_line: int
+    function_name: str
+    param_index: int
+    param_name: str
+    param_type: str | None
 
 class FunctionCallArgsRow(TypedDict):
     """Row type for function_call_args table."""
@@ -582,6 +644,16 @@ class GraphqlTypesRow(TypedDict):
     implements: str | None
     description: str | None
     line: int | None
+
+class ImportSpecifiersRow(TypedDict):
+    """Row type for import_specifiers table."""
+    file: str
+    import_line: int
+    specifier_name: str
+    original_name: str | None
+    is_default: int | None
+    is_namespace: int | None
+    is_named: int | None
 
 class ImportStyleNamesRow(TypedDict):
     """Row type for import_style_names table."""
@@ -1384,6 +1456,14 @@ class ResolvedFlowAuditRow(TypedDict):
     sanitizer_method: str | None
     engine: str
 
+class ReturnSourceVarsRow(TypedDict):
+    """Row type for return_source_vars table."""
+    file: str
+    line: int
+    function_name: str
+    source_var: str
+    var_index: int
+
 class RouterMountsRow(TypedDict):
     """Row type for router_mounts table."""
     file: str
@@ -1401,6 +1481,17 @@ class SequelizeAssociationsRow(TypedDict):
     target_model: str
     foreign_key: str | None
     through_table: str | None
+
+class SequelizeModelFieldsRow(TypedDict):
+    """Row type for sequelize_model_fields table."""
+    file: str
+    model_name: str
+    field_name: str
+    data_type: str
+    is_primary_key: int | None
+    is_nullable: int | None
+    is_unique: int | None
+    default_value: str | None
 
 class SequelizeModelsRow(TypedDict):
     """Row type for sequelize_models table."""

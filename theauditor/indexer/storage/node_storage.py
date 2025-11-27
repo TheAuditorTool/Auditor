@@ -2,13 +2,16 @@
 
 This module contains handlers for JavaScript/TypeScript frameworks:
 - React: hooks (components in core)
-- Vue: components, hooks, directives, provide/inject
-- Angular: components, services, modules, guards, DI
-- ORM: sequelize models/associations
+- Vue: components, hooks, directives, provide/inject, junction tables
+- Angular: components, services, modules, guards, DI, junction tables
+- ORM: sequelize models/associations/fields
 - Queue: bullmq queues/workers
 - Build: import styles, lock analysis
+- Core language: func_params, decorators, param decorators
+- Data flow: assignment/return source vars
+- Module: import specifiers
 
-Handler Count: 16
+Handler Count: 35
 """
 
 
@@ -23,6 +26,9 @@ class NodeStorage(BaseStorage):
 
         self.handlers = {
             'react_hooks': self._store_react_hooks,
+            # React junction arrays (normalize-all-node-extractors)
+            'react_component_hooks': self._store_react_component_hooks,
+            'react_hook_dependencies': self._store_react_hook_dependencies,
             'vue_components': self._store_vue_components,
             'vue_hooks': self._store_vue_hooks,
             'vue_directives': self._store_vue_directives,
@@ -48,7 +54,22 @@ class NodeStorage(BaseStorage):
             'angular_module_exports': self._store_angular_module_exports,
             'lock_analysis': self._store_lock_analysis,
             'import_styles': self._store_import_styles,
-            'frontend_api_calls': self._store_frontend_api_calls
+            'frontend_api_calls': self._store_frontend_api_calls,
+            # Core language junction arrays (normalize-all-node-extractors)
+            'func_params': self._store_func_params,
+            'func_decorators': self._store_func_decorators,
+            'func_decorator_args': self._store_func_decorator_args,
+            'func_param_decorators': self._store_func_param_decorators,
+            'class_decorators': self._store_class_decorators,
+            'class_decorator_args': self._store_class_decorator_args,
+            # Data flow junction arrays (normalize-all-node-extractors)
+            'assignment_source_vars': self._store_assignment_source_vars,
+            'return_source_vars': self._store_return_source_vars,
+            # Module framework junction arrays (normalize-all-node-extractors)
+            'import_specifiers': self._store_import_specifiers,
+            'import_style_names': self._store_import_style_names,
+            # Sequelize junction arrays (normalize-all-node-extractors)
+            'sequelize_model_fields': self._store_sequelize_model_fields
         }
 
     def _store_react_hooks(self, file_path: str, react_hooks: list, jsx_pass: bool):
@@ -66,6 +87,35 @@ class NodeStorage(BaseStorage):
                 hook.get('cleanup_type')
             )
             self.counts['react_hooks'] += 1
+
+    def _store_react_component_hooks(self, file_path: str, hooks: list, jsx_pass: bool):
+        """Store React component hooks from flat junction array.
+
+        Junction table: react_component_hooks(component_file, component_name, hook_name)
+        Replaces nested hooks_used array in react_components.
+        """
+        for hook in hooks:
+            self.db_manager.add_react_component_hook_flat(
+                hook.get('component_file', file_path),
+                hook.get('component_name', ''),
+                hook.get('hook_name', '')
+            )
+            self.counts['react_component_hooks'] = self.counts.get('react_component_hooks', 0) + 1
+
+    def _store_react_hook_dependencies(self, file_path: str, deps: list, jsx_pass: bool):
+        """Store React hook dependencies from flat junction array.
+
+        Junction table: react_hook_dependencies(hook_file, hook_line, hook_component, dependency_name)
+        Replaces nested dependency_vars array in react_hooks.
+        """
+        for dep in deps:
+            self.db_manager.add_react_hook_dependency_flat(
+                dep.get('hook_file', file_path),
+                dep.get('hook_line', 0),
+                dep.get('hook_component', ''),
+                dep.get('dependency_name', '')
+            )
+            self.counts['react_hook_dependencies'] = self.counts.get('react_hook_dependencies', 0) + 1
 
     def _store_vue_components(self, file_path: str, vue_components: list, jsx_pass: bool):
         """Store Vue component PARENT RECORDS ONLY.
@@ -405,3 +455,160 @@ class NodeStorage(BaseStorage):
                 exp.get('exported_name', '')
             )
             self.counts['angular_module_exports'] = self.counts.get('angular_module_exports', 0) + 1
+
+    # =========================================================================
+    # Core Language Junction Array Handlers (normalize-all-node-extractors)
+    # =========================================================================
+
+    def _store_func_params(self, file_path: str, func_params: list, jsx_pass: bool):
+        """Store function parameters from flat junction array."""
+        for param in func_params:
+            self.db_manager.add_func_param(
+                file_path,
+                param.get('function_line', 0),
+                param.get('function_name', ''),
+                param.get('param_index', 0),
+                param.get('param_name', ''),
+                param.get('param_type')
+            )
+            self.counts['func_params'] = self.counts.get('func_params', 0) + 1
+
+    def _store_func_decorators(self, file_path: str, func_decorators: list, jsx_pass: bool):
+        """Store function decorators from flat junction array."""
+        for dec in func_decorators:
+            self.db_manager.add_func_decorator(
+                file_path,
+                dec.get('function_line', 0),
+                dec.get('function_name', ''),
+                dec.get('decorator_index', 0),
+                dec.get('decorator_name', ''),
+                dec.get('decorator_line')
+            )
+            self.counts['func_decorators'] = self.counts.get('func_decorators', 0) + 1
+
+    def _store_func_decorator_args(self, file_path: str, func_decorator_args: list, jsx_pass: bool):
+        """Store function decorator arguments from flat junction array."""
+        for arg in func_decorator_args:
+            self.db_manager.add_func_decorator_arg(
+                file_path,
+                arg.get('function_line', 0),
+                arg.get('function_name', ''),
+                arg.get('decorator_index', 0),
+                arg.get('arg_index', 0),
+                arg.get('arg_value')
+            )
+            self.counts['func_decorator_args'] = self.counts.get('func_decorator_args', 0) + 1
+
+    def _store_func_param_decorators(self, file_path: str, func_param_decorators: list, jsx_pass: bool):
+        """Store function parameter decorators from flat junction array (NestJS @Body, @Param)."""
+        for dec in func_param_decorators:
+            self.db_manager.add_func_param_decorator(
+                file_path,
+                dec.get('function_line', 0),
+                dec.get('function_name', ''),
+                dec.get('param_index', 0),
+                dec.get('decorator_name', ''),
+                dec.get('decorator_args')
+            )
+            self.counts['func_param_decorators'] = self.counts.get('func_param_decorators', 0) + 1
+
+    def _store_class_decorators(self, file_path: str, class_decorators: list, jsx_pass: bool):
+        """Store class decorators from flat junction array."""
+        for dec in class_decorators:
+            self.db_manager.add_class_decorator(
+                file_path,
+                dec.get('class_line', 0),
+                dec.get('class_name', ''),
+                dec.get('decorator_index', 0),
+                dec.get('decorator_name', ''),
+                dec.get('decorator_line')
+            )
+            self.counts['class_decorators'] = self.counts.get('class_decorators', 0) + 1
+
+    def _store_class_decorator_args(self, file_path: str, class_decorator_args: list, jsx_pass: bool):
+        """Store class decorator arguments from flat junction array."""
+        for arg in class_decorator_args:
+            self.db_manager.add_class_decorator_arg(
+                file_path,
+                arg.get('class_line', 0),
+                arg.get('class_name', ''),
+                arg.get('decorator_index', 0),
+                arg.get('arg_index', 0),
+                arg.get('arg_value')
+            )
+            self.counts['class_decorator_args'] = self.counts.get('class_decorator_args', 0) + 1
+
+    # =========================================================================
+    # Data Flow Junction Array Handlers (normalize-all-node-extractors)
+    # =========================================================================
+
+    def _store_assignment_source_vars(self, file_path: str, assignment_source_vars: list, jsx_pass: bool):
+        """Store assignment source variables from flat junction array."""
+        for var in assignment_source_vars:
+            self.db_manager.add_assignment_source_var(
+                file_path,
+                var.get('line', 0),
+                var.get('target_var', ''),
+                var.get('source_var', ''),
+                var.get('var_index', 0)
+            )
+            self.counts['assignment_source_vars'] = self.counts.get('assignment_source_vars', 0) + 1
+
+    def _store_return_source_vars(self, file_path: str, return_source_vars: list, jsx_pass: bool):
+        """Store return source variables from flat junction array."""
+        for var in return_source_vars:
+            self.db_manager.add_return_source_var(
+                file_path,
+                var.get('line', 0),
+                var.get('function_name', ''),
+                var.get('source_var', ''),
+                var.get('var_index', 0)
+            )
+            self.counts['return_source_vars'] = self.counts.get('return_source_vars', 0) + 1
+
+    # =========================================================================
+    # Module Framework Junction Array Handlers (normalize-all-node-extractors)
+    # =========================================================================
+
+    def _store_import_specifiers(self, file_path: str, import_specifiers: list, jsx_pass: bool):
+        """Store import specifiers from flat junction array."""
+        for spec in import_specifiers:
+            self.db_manager.add_import_specifier(
+                file_path,
+                spec.get('import_line', 0),
+                spec.get('specifier_name', ''),
+                spec.get('original_name'),
+                spec.get('is_default', False),
+                spec.get('is_namespace', False),
+                spec.get('is_named', True)
+            )
+            self.counts['import_specifiers'] = self.counts.get('import_specifiers', 0) + 1
+
+    def _store_import_style_names(self, file_path: str, import_style_names: list, jsx_pass: bool):
+        """Store import style names from flat junction array."""
+        for name in import_style_names:
+            self.db_manager.add_import_style_name(
+                file_path,
+                name.get('import_line', 0),
+                name.get('imported_name', '')
+            )
+            self.counts['import_style_names'] = self.counts.get('import_style_names', 0) + 1
+
+    # =========================================================================
+    # Sequelize Junction Array Handlers (normalize-all-node-extractors)
+    # =========================================================================
+
+    def _store_sequelize_model_fields(self, file_path: str, sequelize_model_fields: list, jsx_pass: bool):
+        """Store Sequelize model fields from flat junction array."""
+        for field in sequelize_model_fields:
+            self.db_manager.add_sequelize_model_field(
+                file_path,
+                field.get('model_name', ''),
+                field.get('field_name', ''),
+                field.get('data_type', ''),
+                field.get('is_primary_key', False),
+                field.get('is_nullable', True),
+                field.get('is_unique', False),
+                field.get('default_value')
+            )
+            self.counts['sequelize_model_fields'] = self.counts.get('sequelize_model_fields', 0) + 1

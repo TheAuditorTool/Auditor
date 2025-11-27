@@ -2,51 +2,29 @@
  * Framework & Type System Extractors
  *
  * Framework-specific pattern extraction (React, Vue, Angular) and TypeScript
- * type system features. These extractors understand framework idioms and type definitions.
+ * type system features.
  *
- * STABILITY: MODERATE - Changes when frameworks update or new patterns emerge.
- * Less churn than security patterns, more than core language features.
- *
- * DEPENDENCIES: core_ast_extractors.js (uses functions, classes, symbols, returns)
- * USED BY: Indexer for framework pattern detection
- *
- * Architecture:
- * - Extracted from: js_helper_templates.py (refactored 2025-01-24)
- * - Pattern: Process data from core extractors to identify framework patterns
- * - Assembly: Concatenated after core_ast_extractors.js and security_extractors.js
- *
- * Functions (current):
- * 1. extractReactComponents() - React component detection (class & functional)
- * 2. extractReactHooks() - React Hooks usage patterns
- * 3. extractVueComponents() - Vue component metadata from SFC descriptors
- * 4. extractVueHooks() - Vue lifecycle/reactivity hook usage
- * 5. extractVueProvideInject() - Vue DI relationships
- * 6. extractVueDirectives() - Vue template directives
- *
- * FUTURE ADDITIONS (planned):
- * - extractReactProps() - React prop types and validation
- * - extractTypeScriptTypes() - TypeScript type definitions
- * - extractAngularComponents() - Angular component detection
- * - extractContextProviders() - React Context providers/consumers
- * - extractSuspenseBoundaries() - React Suspense boundaries
- * - extractErrorBoundaries() - React Error boundaries
- *
- * Current size: 140 lines (2025-01-24)
- * Growth policy: If React extractors exceed 500 lines, split into react_extractors.js
- * If multiple frameworks supported, split by framework (vue_extractors.js, angular_extractors.js)
+ * Functions:
+ * 1. extractReactComponents() - Returns { react_components, react_component_hooks }
+ * 2. extractReactHooks() - Returns { react_hooks, react_hook_dependencies }
+ * 3. extractVueComponents() - Returns { vue_components, vue_component_props, vue_component_emits, vue_component_setup_returns }
+ * 4. extractVueHooks() - Returns array of vue_hooks
+ * 5. extractVueProvideInject() - Returns array
+ * 6. extractVueDirectives() - Returns array of vue_directives
+ * 7. extractApolloResolvers() - Returns { graphql_resolvers, graphql_resolver_params }
+ * 8. extractNestJSResolvers() - Returns { graphql_resolvers, graphql_resolver_params }
+ * 9. extractTypeGraphQLResolvers() - Returns { graphql_resolvers, graphql_resolver_params }
  */
 
+/**
+ * Extract React components with flat hooks junction array.
+ *
+ * @returns {Object} - { react_components, react_component_hooks }
+ */
 function extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports) {
-    const components = [];
+    const react_components = [];
+    const react_component_hooks = [];
 
-    // FIX: Only analyze frontend files for React components
-    // Backend controllers may have uppercase method names but are NOT React components
-    // This fixes 1,183 false positives (83.4% false positive rate)
-    //
-    // NOTE: Relies on framework detection (framework_detector.py) which maps directories
-    // to frameworks in the `frameworks` table. Path-based filtering aligns with that mapping.
-
-    // Explicit backend path exclusions (aligns with framework_detector.py backend detection)
     const isBackendPath = filePath && (
         filePath.includes('backend/') ||
         filePath.includes('backend\\') ||
@@ -67,10 +45,9 @@ function extractReactComponents(functions, classes, returns, functionCallArgs, f
     );
 
     if (isBackendPath) {
-        return components;
+        return { react_components, react_component_hooks };
     }
 
-    // Frontend path indicators (aligns with framework_detector.py frontend detection)
     const isFrontendPath = filePath && (
         filePath.includes('frontend/') ||
         filePath.includes('frontend\\') ||
@@ -86,80 +63,73 @@ function extractReactComponents(functions, classes, returns, functionCallArgs, f
         filePath.endsWith('.jsx')
     );
 
-    // Only process if confirmed frontend file
     if (!isFrontendPath) {
-        return components;
+        return { react_components, react_component_hooks };
     }
 
-    // Detect function components
     for (const func of functions) {
         const name = func.name || '';
-
-        // Must be uppercase (React convention)
         if (!name || name[0] !== name[0].toUpperCase()) continue;
 
-        // Check if returns JSX
         const funcReturns = returns.filter(r => r.function_name === name);
         const hasJsx = funcReturns.some(r => r.has_jsx || r.returns_component);
 
-        // Find hooks used in this component
-        const hooksUsed = [];
+        const seenHooks = new Set();
         for (const call of functionCallArgs) {
             if (call.caller_function === name && call.callee_function && call.callee_function.startsWith('use')) {
-                hooksUsed.push(call.callee_function);
+                const hookName = call.callee_function;
+                if (!seenHooks.has(hookName)) {
+                    seenHooks.add(hookName);
+                    // Schema: component_file, component_name, hook_name
+                    react_component_hooks.push({
+                        component_file: filePath,
+                        component_name: name,
+                        hook_name: hookName
+                    });
+                }
             }
         }
 
-        components.push({
+        react_components.push({
             name: name,
             type: 'function',
             start_line: func.line,
             end_line: func.end_line || func.line,
             has_jsx: hasJsx,
-            hooks_used: [...new Set(hooksUsed)].slice(0, 10),
-            props_type: null  // Could extract from type_annotation
+            props_type: null
         });
     }
 
-    // Detect class components
-    // Only include classes that extend React.Component (correct behavior)
-    // Baseline incorrectly included ALL uppercase names (interfaces, types, regular classes)
-    // Phase 5 fixes this contamination
     for (const cls of classes) {
         const name = cls.name || '';
         if (!name || name[0] !== name[0].toUpperCase()) continue;
 
-        // CORRECT: Only classes extending React.Component are React components
         const extendsReact = cls.extends_type &&
             (cls.extends_type.includes('Component') || cls.extends_type.includes('React'));
 
         if (extendsReact) {
-            components.push({
+            react_components.push({
                 name: name,
                 type: 'class',
                 start_line: cls.line,
-                end_line: cls.line,  // Class end line not tracked
+                end_line: cls.line,
                 has_jsx: true,
-                hooks_used: [],
                 props_type: null
             });
         }
     }
 
-    return components;
+    return { react_components, react_component_hooks };
 }
 
 /**
- * Extract React hooks usage for dependency analysis.
- * Detects: useState, useEffect, useCallback, useMemo, custom hooks.
- * Implements Python's javascript.py:515-587 hooks extraction.
+ * Extract React hooks with flat dependency junction array.
  *
- * @param {Array} functionCallArgs - From extractFunctionCallArgs()
- * @param {Map} scopeMap - Line → function mapping
- * @returns {Array} - Hook usage records
+ * @returns {Object} - { react_hooks, react_hook_dependencies }
  */
-function extractReactHooks(functionCallArgs, scopeMap) {
-    const hooks = [];
+function extractReactHooks(functionCallArgs, scopeMap, filePath) {
+    const react_hooks = [];
+    const react_hook_dependencies = [];
 
     const REACT_HOOKS = new Set([
         'useState', 'useEffect', 'useCallback', 'useMemo', 'useRef',
@@ -167,71 +137,120 @@ function extractReactHooks(functionCallArgs, scopeMap) {
         'useDebugValue', 'useDeferredValue', 'useTransition', 'useId'
     ]);
 
+    const HOOKS_WITH_DEPS = new Set([
+        'useEffect', 'useCallback', 'useMemo', 'useLayoutEffect', 'useImperativeHandle'
+    ]);
+
     for (const call of functionCallArgs) {
         const hookName = call.callee_function;
         if (!hookName || !hookName.startsWith('use')) continue;
-
-        // FIX: Filter out dotted method calls (userService.createUser, users.map)
-        // Real hooks are standalone identifiers: useState, useEffect, useCustomHook
-        // NOT: service.useMethod, obj.property.useFunc
-        // This fixes 42 false positive React hook records
         if (hookName.includes('.')) continue;
 
-        // Check if it's a known React hook or custom hook (starts with 'use')
         const isReactHook = REACT_HOOKS.has(hookName);
         const isCustomHook = !isReactHook && hookName.startsWith('use') && hookName.length > 3;
 
         if (isReactHook || isCustomHook) {
-            hooks.push({
-                line: call.line,
+            const hookLine = call.line;
+            const componentName = call.caller_function;
+
+            react_hooks.push({
+                line: hookLine,
                 hook_name: hookName,
-                component_name: call.caller_function,
+                component_name: componentName,
                 is_custom: isCustomHook,
-                argument_expr: call.argument_expr || '',
-                argument_index: call.argument_index
+                argument_count: call.argument_index !== undefined ? call.argument_index + 1 : 0
             });
+
+            if (HOOKS_WITH_DEPS.has(hookName) && call.argument_expr) {
+                const deps = parseDependencyArray(call.argument_expr);
+                for (const dep of deps) {
+                    // Schema: hook_file, hook_line, hook_component, dependency_name
+                    react_hook_dependencies.push({
+                        hook_file: filePath,
+                        hook_line: hookLine,
+                        hook_component: componentName,
+                        dependency_name: dep
+                    });
+                }
+            }
         }
     }
 
-    return hooks;
+    return { react_hooks, react_hook_dependencies };
 }
 
+function parseDependencyArray(expr) {
+    if (!expr || typeof expr !== 'string') return [];
+    const trimmed = expr.trim();
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        const inner = trimmed.slice(1, -1).trim();
+        if (!inner) return [];
+
+        const deps = [];
+        let depth = 0;
+        let current = '';
+
+        for (const char of inner) {
+            if (char === '[' || char === '(' || char === '{') {
+                depth++;
+                current += char;
+            } else if (char === ']' || char === ')' || char === '}') {
+                depth--;
+                current += char;
+            } else if (char === ',' && depth === 0) {
+                const dep = current.trim();
+                if (dep && isValidDependencyName(dep)) {
+                    deps.push(extractBaseName(dep));
+                }
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+
+        const lastDep = current.trim();
+        if (lastDep && isValidDependencyName(lastDep)) {
+            deps.push(extractBaseName(lastDep));
+        }
+
+        return deps;
+    }
+
+    return [];
+}
+
+function isValidDependencyName(name) {
+    if (!name) return false;
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*(\??\.[\w$]+)*$/.test(name);
+}
+
+function extractBaseName(expr) {
+    if (expr.includes('(')) {
+        return expr.split('(')[0].trim();
+    }
+    return expr;
+}
+
+// Vue constants
 const VUE_LIFECYCLE_HOOKS = new Set([
-    'onMounted',
-    'onBeforeMount',
-    'onBeforeUpdate',
-    'onUpdated',
-    'onBeforeUnmount',
-    'onUnmounted',
-    'onActivated',
-    'onDeactivated',
-    'onErrorCaptured',
-    'onRenderTracked',
-    'onRenderTriggered',
-    'onServerPrefetch'
+    'onMounted', 'onBeforeMount', 'onBeforeUpdate', 'onUpdated',
+    'onBeforeUnmount', 'onUnmounted', 'onActivated', 'onDeactivated',
+    'onErrorCaptured', 'onRenderTracked', 'onRenderTriggered', 'onServerPrefetch'
 ]);
 
 const VUE_REACTIVITY_APIS = new Set([
-    'watch',
-    'watchEffect',
-    'watchPostEffect',
-    'watchSyncEffect',
-    'ref',
-    'reactive',
-    'computed'
+    'watch', 'watchEffect', 'watchPostEffect', 'watchSyncEffect',
+    'ref', 'reactive', 'computed'
 ]);
 
 function truncateVueString(value, maxLength = 1000) {
-    if (!value || typeof value !== 'string') {
-        return value || null;
-    }
-    return value.length > maxLength ? value.slice(0, maxLength) + '…' : value;
+    if (!value || typeof value !== 'string') return value || null;
+    return value.length > maxLength ? value.slice(0, maxLength) + '...' : value;
 }
 
 function getVueBaseName(name) {
-    if (!name || typeof name !== 'string') {
-        return '';
-    }
+    if (!name || typeof name !== 'string') return '';
     const parts = name.split('.');
     return parts[parts.length - 1] || '';
 }
@@ -240,9 +259,7 @@ function inferVueComponentName(vueMeta, filePath) {
     if (vueMeta && vueMeta.descriptor && vueMeta.descriptor.filename) {
         filePath = vueMeta.descriptor.filename;
     }
-    if (!filePath) {
-        return 'AnonymousVueComponent';
-    }
+    if (!filePath) return 'AnonymousVueComponent';
     const segments = filePath.split(/[/\\]/);
     const candidate = segments.pop() || 'Component';
     const base = candidate.replace(/\.vue$/i, '') || 'Component';
@@ -251,25 +268,19 @@ function inferVueComponentName(vueMeta, filePath) {
 
 function groupFunctionCallArgs(functionCallArgs) {
     const grouped = new Map();
-    if (!Array.isArray(functionCallArgs)) {
-        return grouped;
-    }
+    if (!Array.isArray(functionCallArgs)) return grouped;
     for (const call of functionCallArgs) {
         const callee = call.callee_function || '';
         if (!callee) continue;
         const key = `${call.line || 0}:${callee}`;
-        if (!grouped.has(key)) {
-            grouped.set(key, []);
-        }
+        if (!grouped.has(key)) grouped.set(key, []);
         grouped.get(key).push(call);
     }
     return grouped;
 }
 
 function findFirstVueMacroCall(functionCallArgs, macroName) {
-    if (!Array.isArray(functionCallArgs)) {
-        return null;
-    }
+    if (!Array.isArray(functionCallArgs)) return null;
     for (const call of functionCallArgs) {
         const baseName = getVueBaseName(call.callee_function || '');
         if (baseName === macroName && (call.argument_index === 0 || call.argument_index === null)) {
@@ -281,23 +292,11 @@ function findFirstVueMacroCall(functionCallArgs, macroName) {
     return null;
 }
 
-/**
- * Parse Vue defineProps() argument into flat prop records.
- * Handles: { foo: String }, { foo: { type: String, required: true } }, ['foo', 'bar']
- *
- * @param {string|null} propsString - Raw defineProps() argument expression
- * @param {string} componentName - Parent component name for junction FK
- * @returns {Array} - Flat array of { component_name, prop_name, prop_type, is_required, default_value }
- */
 function parseVuePropsDefinition(propsString, componentName) {
-    if (!propsString || typeof propsString !== 'string') {
-        return [];
-    }
-
+    if (!propsString || typeof propsString !== 'string') return [];
     const props = [];
     const trimmed = propsString.trim();
 
-    // Handle array syntax: ['foo', 'bar']
     if (trimmed.startsWith('[')) {
         const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
         if (arrayMatch && arrayMatch[1]) {
@@ -317,40 +316,24 @@ function parseVuePropsDefinition(propsString, componentName) {
         return props;
     }
 
-    // Handle object syntax: { foo: String } or { foo: { type: String, required: true } }
     if (trimmed.startsWith('{')) {
-        // Extract top-level key-value pairs using regex
-        // Pattern: propName: Type or propName: { ... }
         const propPattern = /(\w+)\s*:\s*({[^{}]*(?:{[^{}]*}[^{}]*)*}|[^,}]+)/g;
         let match;
-
         while ((match = propPattern.exec(trimmed)) !== null) {
             const propName = match[1];
             const propValue = match[2].trim();
-
             let propType = null;
             let isRequired = 0;
             let defaultValue = null;
 
-            // Check if value is an object config: { type: String, required: true }
             if (propValue.startsWith('{')) {
-                // Extract type
                 const typeMatch = propValue.match(/type\s*:\s*(\w+)/);
-                if (typeMatch) {
-                    propType = typeMatch[1];
-                }
-                // Extract required
+                if (typeMatch) propType = typeMatch[1];
                 const reqMatch = propValue.match(/required\s*:\s*(true|false)/);
-                if (reqMatch && reqMatch[1] === 'true') {
-                    isRequired = 1;
-                }
-                // Extract default
+                if (reqMatch && reqMatch[1] === 'true') isRequired = 1;
                 const defMatch = propValue.match(/default\s*:\s*([^,}]+)/);
-                if (defMatch) {
-                    defaultValue = defMatch[1].trim();
-                }
+                if (defMatch) defaultValue = defMatch[1].trim();
             } else {
-                // Shorthand syntax: foo: String
                 propType = propValue;
             }
 
@@ -363,27 +346,14 @@ function parseVuePropsDefinition(propsString, componentName) {
             });
         }
     }
-
     return props;
 }
 
-/**
- * Parse Vue defineEmits() argument into flat emit records.
- * Handles: ['update', 'delete'] or { update: null, submit: (payload: string) => void }
- *
- * @param {string|null} emitsString - Raw defineEmits() argument expression
- * @param {string} componentName - Parent component name for junction FK
- * @returns {Array} - Flat array of { component_name, emit_name, payload_type }
- */
 function parseVueEmitsDefinition(emitsString, componentName) {
-    if (!emitsString || typeof emitsString !== 'string') {
-        return [];
-    }
-
+    if (!emitsString || typeof emitsString !== 'string') return [];
     const emits = [];
     const trimmed = emitsString.trim();
 
-    // Handle array syntax: ['update', 'delete']
     if (trimmed.startsWith('[')) {
         const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
         if (arrayMatch && arrayMatch[1]) {
@@ -401,24 +371,15 @@ function parseVueEmitsDefinition(emitsString, componentName) {
         return emits;
     }
 
-    // Handle object syntax: { update: null, submit: (payload: string) => void }
     if (trimmed.startsWith('{')) {
-        // Extract emit names (keys) - simpler pattern for emit objects
         const emitPattern = /(\w+)\s*:/g;
         let match;
-
         while ((match = emitPattern.exec(trimmed)) !== null) {
             const emitName = match[1];
-            // Try to extract payload type from function signature
             const afterColon = trimmed.slice(match.index + match[0].length);
             let payloadType = null;
-
-            // Check for function signature: (payload: Type) => void
             const funcMatch = afterColon.match(/^\s*\(\s*(\w+)\s*:\s*(\w+)/);
-            if (funcMatch) {
-                payloadType = funcMatch[2];
-            }
-
+            if (funcMatch) payloadType = funcMatch[2];
             emits.push({
                 component_name: componentName,
                 emit_name: emitName,
@@ -426,60 +387,37 @@ function parseVueEmitsDefinition(emitsString, componentName) {
             });
         }
     }
-
     return emits;
 }
 
-/**
- * Parse Vue setup() return expression into flat return records.
- * Handles: { count, increment, user } or { count: countRef, ... }
- *
- * @param {string|null} returnExpr - Raw setup return expression
- * @param {string} componentName - Parent component name for junction FK
- * @returns {Array} - Flat array of { component_name, return_name, return_type }
- */
 function parseSetupReturn(returnExpr, componentName) {
-    if (!returnExpr || typeof returnExpr !== 'string') {
-        return [];
-    }
-
+    if (!returnExpr || typeof returnExpr !== 'string') return [];
     const returns = [];
     const trimmed = returnExpr.trim();
 
-    // Handle object syntax: { count, increment } or { count: countRef }
     if (trimmed.startsWith('{')) {
-        // Remove outer braces and split by comma
         const inner = trimmed.slice(1, -1).trim();
         if (!inner) return returns;
-
-        // Split carefully (handle nested objects)
         const parts = inner.split(',');
         for (const part of parts) {
             const cleaned = part.trim();
             if (!cleaned) continue;
-
-            // Check for key: value or shorthand
             const colonIndex = cleaned.indexOf(':');
             let returnName;
-
             if (colonIndex > 0) {
-                // key: value syntax
                 returnName = cleaned.slice(0, colonIndex).trim();
             } else {
-                // Shorthand: just identifier
                 returnName = cleaned.split(/[^a-zA-Z0-9_$]/)[0];
             }
-
             if (returnName && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(returnName)) {
                 returns.push({
                     component_name: componentName,
                     return_name: returnName,
-                    return_type: null  // Type inference not available from raw expression
+                    return_type: null
                 });
             }
         }
     }
-
     return returns;
 }
 
@@ -500,7 +438,6 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
     const startLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.start.line : 1;
     const endLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.end.line : startLine;
 
-    // Get raw macro expressions
     const propsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineProps');
     const emitsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineEmits');
 
@@ -525,24 +462,20 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
         }
     }
 
-    // Parse raw expressions into flat junction arrays
     const parsedProps = parseVuePropsDefinition(propsDefinition, componentName);
     const parsedEmits = parseVueEmitsDefinition(emitsDefinition, componentName);
     const parsedReturns = parseSetupReturn(setupReturnExpr, componentName);
 
     return {
-        vue_components: [
-            {
-                name: componentName,
-                type: componentType,
-                start_line: startLine,
-                end_line: endLine,
-                has_template: Boolean(vueMeta.descriptor.template),
-                has_style: Boolean(vueMeta.hasStyle),
-                composition_api_used: usesCompositionApi
-                // REMOVED: props_definition, emits_definition, setup_return (now in junction arrays)
-            }
-        ],
+        vue_components: [{
+            name: componentName,
+            type: componentType,
+            start_line: startLine,
+            end_line: endLine,
+            has_template: Boolean(vueMeta.descriptor.template),
+            has_style: Boolean(vueMeta.hasStyle),
+            composition_api_used: usesCompositionApi
+        }],
         vue_component_props: parsedProps,
         vue_component_emits: parsedEmits,
         vue_component_setup_returns: parsedReturns,
@@ -550,20 +483,25 @@ function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
     };
 }
 
+/**
+ * Extract Vue hooks. Schema has `dependencies` as TEXT column.
+ */
 function extractVueHooks(functionCallArgs, componentName) {
-    if (!componentName) {
-        return [];
-    }
-    const grouped = groupFunctionCallArgs(functionCallArgs);
     const hooks = [];
 
+    if (!componentName) {
+        return hooks;
+    }
+
+    const grouped = groupFunctionCallArgs(functionCallArgs);
+
     grouped.forEach(args => {
-        if (!Array.isArray(args) || args.length === 0) {
-            return;
-        }
+        if (!Array.isArray(args) || args.length === 0) return;
+
         const callee = args[0].callee_function || '';
         const baseName = getVueBaseName(callee);
         if (!baseName) return;
+
         const line = args[0].line || 0;
 
         if (VUE_LIFECYCLE_HOOKS.has(baseName) || VUE_REACTIVITY_APIS.has(baseName)) {
@@ -573,13 +511,14 @@ function extractVueHooks(functionCallArgs, componentName) {
                 ? args.find(arg => arg.argument_index === 1)
                 : args.find(arg => arg.argument_index === 0);
 
+            // Schema: file, line, component_name, hook_name, hook_type, dependencies (TEXT), return_value, is_async
             hooks.push({
                 line,
                 component_name: componentName,
                 hook_name: baseName,
                 hook_type: hookType,
                 dependencies: dependencyArg && dependencyArg.argument_expr
-                    ? [truncateVueString(dependencyArg.argument_expr)]
+                    ? truncateVueString(dependencyArg.argument_expr)
                     : null,
                 return_value: handlerArg && handlerArg.argument_expr
                     ? truncateVueString(handlerArg.argument_expr)
@@ -593,21 +532,16 @@ function extractVueHooks(functionCallArgs, componentName) {
 }
 
 function extractVueProvideInject(functionCallArgs, componentName) {
-    if (!componentName) {
-        return [];
-    }
+    if (!componentName) return [];
     const grouped = groupFunctionCallArgs(functionCallArgs);
     const records = [];
 
     grouped.forEach(args => {
-        if (!Array.isArray(args) || args.length === 0) {
-            return;
-        }
+        if (!Array.isArray(args) || args.length === 0) return;
         const callee = args[0].callee_function || '';
         const baseName = getVueBaseName(callee);
-        if (baseName !== 'provide' && baseName !== 'inject') {
-            return;
-        }
+        if (baseName !== 'provide' && baseName !== 'inject') return;
+
         const keyArg = args.find(arg => arg.argument_index === 0);
         const valueArg = args.find(arg => arg.argument_index === 1);
         const keyName = keyArg && keyArg.argument_expr ? truncateVueString(keyArg.argument_expr) : null;
@@ -626,8 +560,12 @@ function extractVueProvideInject(functionCallArgs, componentName) {
     return records;
 }
 
+/**
+ * Extract Vue directives. Schema has `modifiers` as TEXT column.
+ */
 function extractVueDirectives(templateAst, componentName, nodeTypes) {
     const directives = [];
+
     if (!templateAst || !nodeTypes) {
         return directives;
     }
@@ -640,24 +578,24 @@ function extractVueDirectives(templateAst, componentName, nodeTypes) {
     const FOR = nodeTypes.FOR ?? 11;
 
     function visit(node) {
-        if (!node || typeof node !== 'object') {
-            return;
-        }
+        if (!node || typeof node !== 'object') return;
 
         if (node.type === ELEMENT) {
             if (Array.isArray(node.props)) {
                 for (const prop of node.props) {
                     if (prop && prop.type === DIRECTIVE) {
+                        // Schema: file, line, directive_name, expression, in_component, has_key, modifiers (TEXT)
+                        const modifiersText = Array.isArray(prop.modifiers)
+                            ? prop.modifiers.map(mod => mod.content || mod).join(',')
+                            : null;
+
                         directives.push({
-                            line: prop.loc ? prop.loc.start.line : (node.loc ? node.loc.start.line : null),
+                            line: prop.loc ? prop.loc.start.line : (node.loc ? node.loc.start.line : 0),
                             directive_name: `v-${prop.name}`,
                             expression: prop.exp && prop.exp.content ? truncateVueString(prop.exp.content) : null,
                             in_component: componentName,
-                            has_key: prop.name === 'for' ? true : false,
-                            modifiers: Array.isArray(prop.modifiers) ? prop.modifiers.map(mod => mod.content || mod) : [],
-                            argument: prop.arg && prop.arg.content ? prop.arg.content : null,
-                            element_type: node.tag || null,
-                            is_dynamic: prop.name === 'bind' || prop.name === 'on' || Boolean(prop.exp && prop.exp.content && prop.exp.content.trim().length > 0)
+                            has_key: prop.name === 'for',
+                            modifiers: modifiersText
                         });
                     }
                 }
@@ -689,41 +627,30 @@ function extractVueDirectives(templateAst, componentName, nodeTypes) {
 /**
  * GraphQL Resolver Extractors
  *
- * Extract GraphQL resolver patterns from JavaScript/TypeScript:
- * - Apollo Server (resolvers object pattern)
- * - NestJS (@Resolver, @Query, @Mutation decorators)
- * - TypeGraphQL (@Resolver, @Query decorators)
- *
- * Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
+ * Accept flat junction arrays as parameters instead of relying on nested properties.
  */
 
-function extractApolloResolvers(functions, classes, symbolTable) {
-    const resolvers = [];
+function extractApolloResolvers(functions, func_params, symbolTable) {
+    const graphql_resolvers = [];
+    const graphql_resolver_params = [];
 
-    // Apollo pattern 1: Object literal resolvers
-    // const resolvers = {
-    //   Query: {
-    //     user: (parent, args, context) => { ... }
-    //   }
-    // }
-    for (const [symbolName, symbolData] of Object.entries(symbolTable)) {
+    for (const [symbolName, symbolData] of Object.entries(symbolTable || {})) {
         if (symbolName.toLowerCase().includes('resolver') && symbolData.type === 'variable') {
             const objData = symbolData.value;
             if (objData && typeof objData === 'object') {
-                // Iterate over type names (Query, Mutation, etc.)
                 for (const typeName in objData) {
                     const fields = objData[typeName];
                     if (typeof fields === 'object') {
                         for (const fieldName in fields) {
                             const fieldFunc = fields[fieldName];
                             if (typeof fieldFunc === 'function' || fieldFunc === 'function') {
-                                resolvers.push({
+                                const resolverName = `${typeName}.${fieldName}`;
+                                graphql_resolvers.push({
                                     line: symbolData.line || 0,
-                                    resolver_name: `${typeName}.${fieldName}`,
+                                    resolver_name: resolverName,
                                     field_name: fieldName,
                                     type_name: typeName,
-                                    binding_style: 'apollo-object',
-                                    params: []  // Parameters extracted from function signature
+                                    binding_style: 'apollo-object'
                                 });
                             }
                         }
@@ -733,164 +660,212 @@ function extractApolloResolvers(functions, classes, symbolTable) {
         }
     }
 
-    // Apollo pattern 2: Exported resolver functions
-    // export const userResolver = (parent, args, context) => { ... }
     for (const func of functions) {
         if (func.name && func.name.toLowerCase().includes('resolver')) {
-            // Try to infer field name from function name
             const fieldName = func.name.replace(/Resolver$/i, '').replace(/^resolve/i, '');
+            const resolverName = func.name;
 
-            // Extract parameters (skip parent, args, context/info)
-            // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
-            const params = (func.params || [])
-                .filter(p => !['parent', 'args', 'context', 'info', '_'].includes(p.name))
-                .map(p => ({ name: p.name }));
+            const funcParams = func_params.filter(p =>
+                p.function_name === func.name &&
+                !['parent', 'args', 'context', 'info', '_'].includes(p.param_name)
+            );
 
-            resolvers.push({
+            for (const param of funcParams) {
+                graphql_resolver_params.push({
+                    resolver_name: resolverName,
+                    param_index: param.param_index,
+                    param_name: param.param_name
+                });
+            }
+
+            graphql_resolvers.push({
                 line: func.line,
-                resolver_name: func.name,
+                resolver_name: resolverName,
                 field_name: fieldName,
-                type_name: 'Unknown',  // Type inferred during graphql build
-                binding_style: 'apollo-function',
-                params: params
+                type_name: 'Unknown',
+                binding_style: 'apollo-function'
             });
         }
     }
 
-    return resolvers;
+    return { graphql_resolvers, graphql_resolver_params };
 }
 
-function extractNestJSResolvers(functions, classes) {
-    const resolvers = [];
+function extractNestJSResolvers(functions, classes, func_decorators, func_decorator_args, class_decorators, class_decorator_args, func_params, func_param_decorators) {
+    const graphql_resolvers = [];
+    const graphql_resolver_params = [];
 
-    // NestJS pattern: @Resolver() class with @Query()/@Mutation() methods
     for (const cls of classes) {
-        if (!cls.decorators) continue;
-
-        // Check for @Resolver() decorator
-        const hasResolverDecorator = cls.decorators.some(d =>
-            d.name === 'Resolver' || d.expression && d.expression.includes('Resolver')
+        const clsDecorators = class_decorators.filter(d =>
+            d.class_name === cls.name && d.class_line === cls.line
         );
 
-        if (!hasResolverDecorator) continue;
+        const resolverDecorator = clsDecorators.find(d => d.decorator_name === 'Resolver');
+        if (!resolverDecorator) continue;
 
-        // Extract type name from @Resolver('TypeName') argument
         let typeName = 'Unknown';
-        const resolverDecorator = cls.decorators.find(d => d.name === 'Resolver');
-        if (resolverDecorator && resolverDecorator.arguments && resolverDecorator.arguments.length > 0) {
-            typeName = resolverDecorator.arguments[0].replace(/['"]/g, '');
+        const resolverArgs = class_decorator_args.filter(a =>
+            a.class_name === cls.name &&
+            a.class_line === cls.line &&
+            a.decorator_index === resolverDecorator.decorator_index
+        );
+        if (resolverArgs.length > 0) {
+            typeName = resolverArgs[0].arg_value.replace(/['"]/g, '');
         }
 
-        // Extract methods with @Query() or @Mutation() decorators
-        for (const method of cls.methods || []) {
-            if (!method.decorators) continue;
+        const classMethods = functions.filter(f =>
+            f.name && f.name.startsWith(cls.name + '.')
+        );
 
-            for (const decorator of method.decorators) {
-                const decoratorName = decorator.name || (decorator.expression || '').split('(')[0];
+        for (const method of classMethods) {
+            const methodDecorators = func_decorators.filter(d =>
+                d.function_name === method.name && d.function_line === method.line
+            );
+
+            for (const decorator of methodDecorators) {
+                const decoratorName = decorator.decorator_name;
 
                 if (['Query', 'Mutation', 'Subscription', 'ResolveField'].includes(decoratorName)) {
-                    // Extract field name from decorator argument or use method name
-                    let fieldName = method.name;
-                    if (decorator.arguments && decorator.arguments.length > 0) {
-                        fieldName = decorator.arguments[0].replace(/['"]/g, '');
+                    let fieldName = method.name.split('.').pop();
+                    const decArgs = func_decorator_args.filter(a =>
+                        a.function_name === method.name &&
+                        a.function_line === method.line &&
+                        a.decorator_index === decorator.decorator_index
+                    );
+                    if (decArgs.length > 0) {
+                        fieldName = decArgs[0].arg_value.replace(/['"]/g, '');
                     }
 
-                    // Determine type name based on decorator
                     let resolverTypeName = typeName;
                     if (decoratorName === 'Query') resolverTypeName = 'Query';
                     else if (decoratorName === 'Mutation') resolverTypeName = 'Mutation';
                     else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
 
-                    // Extract parameters (skip decorated params like @Args(), @Context())
-                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
-                    const params = (method.params || [])
-                        .filter(p => !p.decorators || p.decorators.length === 0)
-                        .map(p => ({ name: p.name }));
+                    const resolverName = method.name;
 
-                    resolvers.push({
+                    const methodParams = func_params.filter(p =>
+                        p.function_name === method.name && p.function_line === method.line
+                    );
+                    const paramDecorators = func_param_decorators.filter(pd =>
+                        pd.function_name === method.name && pd.function_line === method.line
+                    );
+                    const decoratedParamIndices = new Set(paramDecorators.map(pd => pd.param_index));
+
+                    for (const param of methodParams) {
+                        if (!decoratedParamIndices.has(param.param_index)) {
+                            graphql_resolver_params.push({
+                                resolver_name: resolverName,
+                                param_index: param.param_index,
+                                param_name: param.param_name
+                            });
+                        }
+                    }
+
+                    graphql_resolvers.push({
                         line: method.line,
-                        resolver_name: `${cls.name}.${method.name}`,
+                        resolver_name: resolverName,
                         field_name: fieldName,
                         type_name: resolverTypeName,
-                        binding_style: 'nestjs-decorator',
-                        params: params
+                        binding_style: 'nestjs-decorator'
                     });
                 }
             }
         }
     }
 
-    return resolvers;
+    return { graphql_resolvers, graphql_resolver_params };
 }
 
-function extractTypeGraphQLResolvers(functions, classes) {
-    const resolvers = [];
+function extractTypeGraphQLResolvers(functions, classes, func_decorators, func_decorator_args, class_decorators, class_decorator_args, func_params, func_param_decorators) {
+    const graphql_resolvers = [];
+    const graphql_resolver_params = [];
 
-    // TypeGraphQL pattern: @Resolver() class with @Query()/@Mutation() methods
     for (const cls of classes) {
-        if (!cls.decorators) continue;
-
-        // Check for @Resolver() decorator
-        const hasResolverDecorator = cls.decorators.some(d =>
-            d.name === 'Resolver' || d.expression && d.expression.includes('Resolver')
+        const clsDecorators = class_decorators.filter(d =>
+            d.class_name === cls.name && d.class_line === cls.line
         );
 
-        if (!hasResolverDecorator) continue;
+        const resolverDecorator = clsDecorators.find(d => d.decorator_name === 'Resolver');
+        if (!resolverDecorator) continue;
 
-        // Extract type name from @Resolver(of => TypeName) argument
         let typeName = 'Unknown';
-        const resolverDecorator = cls.decorators.find(d => d.name === 'Resolver');
-        if (resolverDecorator && resolverDecorator.arguments && resolverDecorator.arguments.length > 0) {
-            const arg = resolverDecorator.arguments[0];
-            // Parse arrow function: of => TypeName
+        const resolverArgs = class_decorator_args.filter(a =>
+            a.class_name === cls.name &&
+            a.class_line === cls.line &&
+            a.decorator_index === resolverDecorator.decorator_index
+        );
+        if (resolverArgs.length > 0) {
+            const arg = resolverArgs[0].arg_value;
             if (arg.includes('=>')) {
                 typeName = arg.split('=>')[1].trim();
             }
         }
 
-        // Extract methods with @Query(), @Mutation(), @FieldResolver() decorators
-        for (const method of cls.methods || []) {
-            if (!method.decorators) continue;
+        const classMethods = functions.filter(f =>
+            f.name && f.name.startsWith(cls.name + '.')
+        );
 
-            for (const decorator of method.decorators) {
-                const decoratorName = decorator.name || (decorator.expression || '').split('(')[0];
+        for (const method of classMethods) {
+            const methodDecorators = func_decorators.filter(d =>
+                d.function_name === method.name && d.function_line === method.line
+            );
+
+            for (const decorator of methodDecorators) {
+                const decoratorName = decorator.decorator_name;
 
                 if (['Query', 'Mutation', 'Subscription', 'FieldResolver'].includes(decoratorName)) {
-                    // Extract field name from decorator argument or use method name
-                    let fieldName = method.name;
-                    if (decorator.arguments && decorator.arguments.length > 0) {
-                        // TypeGraphQL uses returns => Type syntax
-                        const arg = decorator.arguments[0];
+                    let fieldName = method.name.split('.').pop();
+                    const decArgs = func_decorator_args.filter(a =>
+                        a.function_name === method.name &&
+                        a.function_line === method.line &&
+                        a.decorator_index === decorator.decorator_index
+                    );
+                    if (decArgs.length > 0) {
+                        const arg = decArgs[0].arg_value;
                         if (typeof arg === 'string' && !arg.includes('=>')) {
                             fieldName = arg.replace(/['"]/g, '');
                         }
                     }
 
-                    // Determine type name based on decorator
                     let resolverTypeName = typeName;
                     if (decoratorName === 'Query') resolverTypeName = 'Query';
                     else if (decoratorName === 'Mutation') resolverTypeName = 'Mutation';
                     else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
 
-                    // Extract parameters decorated with @Arg()
-                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
-                    const params = (method.params || [])
-                        .filter(p => p.decorators && p.decorators.some(d => d.name === 'Arg'))
-                        .map(p => ({ name: p.name }));
+                    const resolverName = method.name;
 
-                    resolvers.push({
+                    const methodParamDecorators = func_param_decorators.filter(pd =>
+                        pd.function_name === method.name &&
+                        pd.function_line === method.line &&
+                        pd.decorator_name === 'Arg'
+                    );
+                    const argParamIndices = new Set(methodParamDecorators.map(pd => pd.param_index));
+
+                    const methodParams = func_params.filter(p =>
+                        p.function_name === method.name &&
+                        p.function_line === method.line &&
+                        argParamIndices.has(p.param_index)
+                    );
+
+                    for (const param of methodParams) {
+                        graphql_resolver_params.push({
+                            resolver_name: resolverName,
+                            param_index: param.param_index,
+                            param_name: param.param_name
+                        });
+                    }
+
+                    graphql_resolvers.push({
                         line: method.line,
-                        resolver_name: `${cls.name}.${method.name}`,
+                        resolver_name: resolverName,
                         field_name: fieldName,
                         type_name: resolverTypeName,
-                        binding_style: 'typegraphql-decorator',
-                        params: params
+                        binding_style: 'typegraphql-decorator'
                     });
                 }
             }
         }
     }
 
-    return resolvers;
+    return { graphql_resolvers, graphql_resolver_params };
 }
-

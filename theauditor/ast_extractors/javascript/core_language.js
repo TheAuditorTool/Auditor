@@ -22,6 +22,12 @@
  * 4. extractClassProperties() - Class field declarations
  * 5. buildScopeMap() - Line-to-function mapping for scope context
  * 6. countNodes() - AST complexity metrics (utility)
+ *
+ * NORMALIZATION (2025-11-26):
+ * - Functions return flat junction arrays instead of nested structures
+ * - func_params, func_decorators, func_decorator_args, func_param_decorators
+ * - class_decorators, class_decorator_args
+ * - ZERO FALLBACK: Nested arrays REMOVED from parent objects
  */
 
 /**
@@ -50,16 +56,11 @@ function serializeNodeForCFG(node, sourceFile, ts, depth = 0, maxDepth = 100) {
     const serialized = { kind };
 
     // Position information (REQUIRED for CFG)
-    try {
-        const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        serialized.line = pos.line + 1;
-        const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
-        serialized.endLine = end.line + 1;
-    } catch (e) {
-        // Fallback for synthetic nodes
-        serialized.line = 1;
-        serialized.endLine = 1;
-    }
+    // Note: Synthetic nodes may not have position info - use defaults
+    const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    serialized.line = pos.line + 1;
+    const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+    serialized.endLine = end.line + 1;
 
     // Name extraction (for functions, variables, etc.)
     if (node.name) {
@@ -102,13 +103,25 @@ function serializeNodeForCFG(node, sourceFile, ts, depth = 0, maxDepth = 100) {
  * Extract function metadata directly from TypeScript AST with type annotations.
  * This replaces Python's extract_typescript_functions_for_symbols().
  *
+ * NORMALIZED OUTPUT (2025-11-26):
+ * Returns object with:
+ * - functions: Array of function metadata (WITHOUT nested parameters/decorators)
+ * - func_params: Flat array of {function_name, function_line, param_index, param_name, param_type}
+ * - func_decorators: Flat array of {function_name, function_line, decorator_index, decorator_name, decorator_line}
+ * - func_decorator_args: Flat array of {function_name, function_line, decorator_index, arg_index, arg_value}
+ * - func_param_decorators: Flat array of {function_name, function_line, param_index, decorator_name, decorator_args}
+ *
  * @param {Object} sourceFile - TypeScript source file node
  * @param {Object} checker - TypeScript type checker
  * @param {Object} ts - TypeScript compiler API
- * @returns {Array} - List of function metadata objects
+ * @returns {Object} - { functions, func_params, func_decorators, func_decorator_args, func_param_decorators }
  */
 function extractFunctions(sourceFile, checker, ts) {
     const functions = [];
+    const func_params = [];
+    const func_decorators = [];
+    const func_decorator_args = [];
+    const func_param_decorators = [];
     const class_stack = [];
 
     function traverse(node) {
@@ -127,8 +140,9 @@ function extractFunctions(sourceFile, checker, ts) {
         let is_function_like = false;
         let func_name = '';
         const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const func_line = line + 1;
         const func_entry = {
-            line: line + 1,
+            line: func_line,
             col: character,
             column: character,
             kind: kind
@@ -173,102 +187,159 @@ function extractFunctions(sourceFile, checker, ts) {
             func_entry.name = func_name;
             func_entry.type = 'function';
 
-            // CRITICAL: Extract parameter names for inter-procedural taint tracking
-            // This enables real parameter names (data, _createdBy) instead of generic (arg0, arg1)
-            // Multi-hop taint analysis requires matching actual parameter names to arguments
-            func_entry.parameters = [];
+            // Extract parameters to FLAT func_params array
             if (node.parameters && Array.isArray(node.parameters)) {
-                node.parameters.forEach(param => {
+                node.parameters.forEach((param, paramIndex) => {
                     let paramName = '';
-                    let paramDecorators = [];
+                    let paramType = null;
 
-                    // Extract parameter decorators (e.g., @Inject, @Param)
+                    // Extract parameter type annotation
+                    if (param.type) {
+                        paramType = param.type.getText(sourceFile);
+                    }
+
+                    // Extract parameter decorators to FLAT func_param_decorators array
                     if (param.decorators && param.decorators.length > 0) {
-                        paramDecorators = param.decorators.map(decorator => {
-                            const decoratorEntry = {};
+                        param.decorators.forEach(decorator => {
+                            let decoratorName = '';
+                            let decoratorArgs = null;
+
                             if (decorator.expression) {
                                 if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
-                                    decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                                    decoratorName = decorator.expression.text || decorator.expression.escapedText || '';
                                 } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
                                     const callExpr = decorator.expression;
                                     if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
-                                        decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                                        decoratorName = callExpr.expression.text || callExpr.expression.escapedText || '';
                                     }
                                     if (callExpr.arguments && callExpr.arguments.length > 0) {
-                                        decoratorEntry.arguments = callExpr.arguments.map(arg => {
+                                        decoratorArgs = callExpr.arguments.map(arg => {
                                             if (arg.kind === ts.SyntaxKind.StringLiteral) {
                                                 return arg.text;
                                             }
                                             return arg.getText ? arg.getText(sourceFile) : '[complex]';
-                                        });
+                                        }).join(', ');
                                     }
                                 }
                             }
-                            return decoratorEntry;
+
+                            if (decoratorName) {
+                                func_param_decorators.push({
+                                    function_name: func_name,
+                                    function_line: func_line,
+                                    param_index: paramIndex,
+                                    decorator_name: decoratorName,
+                                    decorator_args: decoratorArgs
+                                });
+                            }
                         });
                     }
 
+                    // Extract parameter name (handle destructuring)
                     if (param.name) {
                         const nameKind = ts.SyntaxKind[param.name.kind];
                         if (nameKind === 'Identifier') {
                             paramName = param.name.text || param.name.escapedText || '';
                         } else if (nameKind === 'ObjectBindingPattern') {
-                            // Destructured parameter: ({ id, name }) -> extract as 'destructured'
-                            paramName = 'destructured';
+                            // Destructured parameter: ({ id, name }) -> extract individual bindings
+                            param.name.elements.forEach((element, bindingIndex) => {
+                                if (element.name && element.name.text) {
+                                    func_params.push({
+                                        function_name: func_name,
+                                        function_line: func_line,
+                                        param_index: paramIndex,
+                                        param_name: element.name.text,
+                                        param_type: paramType
+                                    });
+                                }
+                            });
+                            return; // Skip the main push since we handled destructuring
                         } else if (nameKind === 'ArrayBindingPattern') {
-                            // Array destructuring: ([first, second]) -> extract as 'destructured'
-                            paramName = 'destructured';
+                            // Array destructuring: ([first, second]) -> extract individual bindings
+                            param.name.elements.forEach((element, bindingIndex) => {
+                                if (element.name && element.name.text) {
+                                    func_params.push({
+                                        function_name: func_name,
+                                        function_line: func_line,
+                                        param_index: paramIndex,
+                                        param_name: element.name.text,
+                                        param_type: paramType
+                                    });
+                                }
+                            });
+                            return; // Skip the main push since we handled destructuring
                         }
                     }
+
                     if (paramName) {
-                        // ARCHITECTURAL CONTRACT: Python expects { name: "paramName" } dict
-                        // See typescript_impl.py:295-314 for the consuming code
-                        // Python will extract param.get("name") string and store in func_params
-                        func_entry.parameters.push({ name: paramName });
+                        func_params.push({
+                            function_name: func_name,
+                            function_line: func_line,
+                            param_index: paramIndex,
+                            param_name: paramName,
+                            param_type: paramType
+                        });
                     }
                 });
             }
 
-            // Extract method/function decorators (e.g., @Get, @Post, @Query, @Mutation)
+            // Extract method/function decorators to FLAT func_decorators and func_decorator_args arrays
             if (node.decorators && node.decorators.length > 0) {
-                func_entry.decorators = node.decorators.map(decorator => {
-                    const decoratorEntry = {};
+                node.decorators.forEach((decorator, decoratorIndex) => {
+                    let decoratorName = '';
+                    let decoratorLine = func_line;
+
+                    // Get decorator line
+                    const decPos = sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile));
+                    decoratorLine = decPos.line + 1;
+
                     if (decorator.expression) {
                         if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
-                            decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                            decoratorName = decorator.expression.text || decorator.expression.escapedText || '';
                         } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
                             const callExpr = decorator.expression;
                             if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
-                                decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                                decoratorName = callExpr.expression.text || callExpr.expression.escapedText || '';
                             }
+
+                            // Extract decorator arguments to flat array
                             if (callExpr.arguments && callExpr.arguments.length > 0) {
-                                decoratorEntry.arguments = callExpr.arguments.map(arg => {
+                                callExpr.arguments.forEach((arg, argIndex) => {
+                                    let argValue = '';
                                     if (arg.kind === ts.SyntaxKind.StringLiteral) {
-                                        return arg.text;
+                                        argValue = arg.text;
                                     } else if (arg.kind === ts.SyntaxKind.ObjectLiteralExpression) {
-                                        // Simplified object literal extraction
-                                        const obj = {};
-                                        arg.properties.forEach(prop => {
-                                            if (prop.kind === ts.SyntaxKind.PropertyAssignment && prop.name) {
-                                                const key = prop.name.text || prop.name.escapedText;
-                                                if (key && prop.initializer && prop.initializer.kind === ts.SyntaxKind.StringLiteral) {
-                                                    obj[key] = prop.initializer.text;
-                                                }
-                                            }
-                                        });
-                                        return obj;
+                                        argValue = arg.getText(sourceFile);
+                                    } else {
+                                        argValue = arg.getText ? arg.getText(sourceFile) : '[complex]';
                                     }
-                                    return arg.getText ? arg.getText(sourceFile) : '[complex]';
+
+                                    func_decorator_args.push({
+                                        function_name: func_name,
+                                        function_line: func_line,
+                                        decorator_index: decoratorIndex,
+                                        arg_index: argIndex,
+                                        arg_value: argValue
+                                    });
                                 });
                             }
                         }
                     }
-                    return decoratorEntry;
+
+                    if (decoratorName) {
+                        func_decorators.push({
+                            function_name: func_name,
+                            function_line: func_line,
+                            decorator_index: decoratorIndex,
+                            decorator_name: decoratorName,
+                            decorator_line: decoratorLine
+                        });
+                    }
                 });
             }
 
-            // CRITICAL: Extract type metadata using TypeScript checker
-            try {
+            // Extract type metadata using TypeScript checker
+            if (checker) {
                 const symbol = checker.getSymbolAtLocation(node.name || node);
                 if (symbol) {
                     const type = checker.getTypeOfSymbolAtLocation(symbol, node);
@@ -299,9 +370,10 @@ function extractFunctions(sourceFile, checker, ts) {
                         }
                     }
                 }
-            } catch (typeError) {
-                // Type extraction failed - continue without type info
             }
+
+            // NOTE: parameters and decorators are NO LONGER stored on func_entry
+            // They are extracted to flat junction arrays above (ZERO FALLBACK)
 
             functions.push(func_entry);
         }
@@ -313,28 +385,36 @@ function extractFunctions(sourceFile, checker, ts) {
 
     // DEBUG: Log extraction results if env var set
     if (process.env.THEAUDITOR_DEBUG) {
-        console.error(`[DEBUG JS] extractFunctions: Extracted ${functions.length} functions from ${sourceFile.fileName}`);
-        if (functions.length > 0 && functions.length <= 5) {
-            functions.forEach(f => {
-                const params = f.parameters ? f.parameters.join(', ') : 'NONE';
-                console.error(`[DEBUG JS]   - ${f.name}(${params}) at line ${f.line}`);
-            });
-        }
+        console.error(`[DEBUG JS] extractFunctions: Extracted ${functions.length} functions, ${func_params.length} params, ${func_decorators.length} decorators`);
     }
 
-    return functions;
+    return {
+        functions: functions,
+        func_params: func_params,
+        func_decorators: func_decorators,
+        func_decorator_args: func_decorator_args,
+        func_param_decorators: func_param_decorators
+    };
 }
 
 /**
  * Extract class declarations for symbols table.
  *
+ * NORMALIZED OUTPUT (2025-11-26):
+ * Returns object with:
+ * - classes: Array of class metadata (WITHOUT nested decorators)
+ * - class_decorators: Flat array of {class_name, class_line, decorator_index, decorator_name, decorator_line}
+ * - class_decorator_args: Flat array of {class_name, class_line, decorator_index, arg_index, arg_value}
+ *
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} checker - TypeScript type checker
  * @param {Object} ts - TypeScript compiler API
- * @returns {Array} - List of class declarations
+ * @returns {Object} - { classes, class_decorators, class_decorator_args }
  */
 function extractClasses(sourceFile, checker, ts) {
     const classes = [];
+    const class_decorators = [];
+    const class_decorator_args = [];
 
     function traverse(node) {
         if (!node) return;
@@ -342,10 +422,11 @@ function extractClasses(sourceFile, checker, ts) {
 
         if (kind === 'ClassDeclaration') {
             const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+            const class_line = line + 1;
             const className = node.name ? (node.name.text || node.name.escapedText || 'UnknownClass') : 'UnknownClass';
 
             const classEntry = {
-                line: line + 1,
+                line: class_line,
                 col: character,
                 column: character,
                 name: className,
@@ -353,107 +434,110 @@ function extractClasses(sourceFile, checker, ts) {
                 kind: kind
             };
 
-            // Extract decorators (for Angular, NestJS, TypeGraphQL, etc.)
+            // Extract decorators to FLAT class_decorators and class_decorator_args arrays
             if (node.decorators && node.decorators.length > 0) {
-                classEntry.decorators = node.decorators.map(decorator => {
-                    const decoratorEntry = {};
+                node.decorators.forEach((decorator, decoratorIndex) => {
+                    let decoratorName = '';
+                    let decoratorLine = class_line;
 
-                    // Get decorator name
+                    // Get decorator line
+                    const decPos = sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile));
+                    decoratorLine = decPos.line + 1;
+
                     if (decorator.expression) {
                         if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
-                            // Simple decorator: @Component
-                            decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                            decoratorName = decorator.expression.text || decorator.expression.escapedText || '';
                         } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
-                            // Decorator with arguments: @Component({...})
                             const callExpr = decorator.expression;
                             if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
-                                decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                                decoratorName = callExpr.expression.text || callExpr.expression.escapedText || '';
                             }
 
-                            // Extract arguments
+                            // Extract decorator arguments to flat array
                             if (callExpr.arguments && callExpr.arguments.length > 0) {
-                                decoratorEntry.arguments = callExpr.arguments.map(arg => {
-                                    // Try to get literal value
+                                callExpr.arguments.forEach((arg, argIndex) => {
+                                    let argValue = '';
                                     if (arg.kind === ts.SyntaxKind.StringLiteral) {
-                                        return arg.text;
+                                        argValue = arg.text;
                                     } else if (arg.kind === ts.SyntaxKind.NumericLiteral) {
-                                        return arg.text;
+                                        argValue = arg.text;
                                     } else if (arg.kind === ts.SyntaxKind.TrueKeyword) {
-                                        return true;
+                                        argValue = 'true';
                                     } else if (arg.kind === ts.SyntaxKind.FalseKeyword) {
-                                        return false;
+                                        argValue = 'false';
                                     } else if (arg.kind === ts.SyntaxKind.ObjectLiteralExpression) {
-                                        // For object literals, extract properties if possible
-                                        const obj = {};
-                                        arg.properties.forEach(prop => {
-                                            if (prop.kind === ts.SyntaxKind.PropertyAssignment) {
-                                                const key = prop.name ? (prop.name.text || prop.name.escapedText) : null;
-                                                if (key && prop.initializer) {
-                                                    if (prop.initializer.kind === ts.SyntaxKind.StringLiteral) {
-                                                        obj[key] = prop.initializer.text;
-                                                    } else if (prop.initializer.kind === ts.SyntaxKind.ArrayLiteralExpression) {
-                                                        obj[key] = '[array]'; // Simplified for now
-                                                    }
-                                                }
-                                            }
-                                        });
-                                        return obj;
+                                        argValue = arg.getText(sourceFile);
                                     } else {
-                                        // Return text representation for complex arguments
-                                        return arg.getText ? arg.getText(sourceFile) : '[complex]';
+                                        argValue = arg.getText ? arg.getText(sourceFile) : '[complex]';
                                     }
+
+                                    class_decorator_args.push({
+                                        class_name: className,
+                                        class_line: class_line,
+                                        decorator_index: decoratorIndex,
+                                        arg_index: argIndex,
+                                        arg_value: argValue
+                                    });
                                 });
                             }
                         }
                     }
 
-                    return decoratorEntry;
+                    if (decoratorName) {
+                        class_decorators.push({
+                            class_name: className,
+                            class_line: class_line,
+                            decorator_index: decoratorIndex,
+                            decorator_name: decoratorName,
+                            decorator_line: decoratorLine
+                        });
+                    }
                 });
             }
 
             // Extract type metadata using TypeScript checker
-            try {
-                if (node.name) {
-                    const symbol = checker.getSymbolAtLocation(node.name);
-                    if (symbol) {
-                        const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                        if (type) {
-                            classEntry.type_annotation = checker.typeToString(type);
-                        }
+            if (checker && node.name) {
+                const symbol = checker.getSymbolAtLocation(node.name);
+                if (symbol) {
+                    const type = checker.getTypeOfSymbolAtLocation(symbol, node);
+                    if (type) {
+                        classEntry.type_annotation = checker.typeToString(type);
                     }
                 }
-
-                // Extract extends clause
-                if (node.heritageClauses) {
-                    for (const clause of node.heritageClauses) {
-                        if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types && clause.types.length > 0) {
-                            const extendsType = clause.types[0];
-                            classEntry.extends_type = extendsType.expression ? (extendsType.expression.text || extendsType.expression.escapedText) : null;
-                        }
-                    }
-                }
-
-                // Extract type parameters
-                if (node.typeParameters && node.typeParameters.length > 0) {
-                    classEntry.has_type_params = true;
-                    classEntry.type_params = node.typeParameters.map(tp => {
-                        const paramName = tp.name ? (tp.name.text || tp.name.escapedText) : 'T';
-                        if (tp.constraint) {
-                            const constraintText = tp.constraint.getText ? tp.constraint.getText(sourceFile) : '';
-                            return `${paramName} extends ${constraintText}`;
-                        }
-                        return paramName;
-                    }).join(', ');
-                }
-            } catch (e) {
-                // Type extraction failed - metadata will be incomplete
             }
+
+            // Extract extends clause
+            if (node.heritageClauses) {
+                for (const clause of node.heritageClauses) {
+                    if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types && clause.types.length > 0) {
+                        const extendsType = clause.types[0];
+                        classEntry.extends_type = extendsType.expression ? (extendsType.expression.text || extendsType.expression.escapedText) : null;
+                    }
+                }
+            }
+
+            // Extract type parameters
+            if (node.typeParameters && node.typeParameters.length > 0) {
+                classEntry.has_type_params = true;
+                classEntry.type_params = node.typeParameters.map(tp => {
+                    const paramName = tp.name ? (tp.name.text || tp.name.escapedText) : 'T';
+                    if (tp.constraint) {
+                        const constraintText = tp.constraint.getText ? tp.constraint.getText(sourceFile) : '';
+                        return `${paramName} extends ${constraintText}`;
+                    }
+                    return paramName;
+                }).join(', ');
+            }
+
+            // NOTE: decorators are NO LONGER stored on classEntry
+            // They are extracted to flat junction arrays above (ZERO FALLBACK)
 
             classes.push(classEntry);
         }
         // ClassExpression: const MyClass = class { ... } or const MyClass = class MyClass { ... }
         else if (kind === 'ClassExpression') {
             const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+            const class_line = line + 1;
 
             // Try to get name from class itself
             let className = node.name ? (node.name.text || node.name.escapedText) : null;
@@ -475,7 +559,7 @@ function extractClasses(sourceFile, checker, ts) {
             }
 
             const classEntry = {
-                line: line + 1,
+                line: class_line,
                 col: character,
                 column: character,
                 name: className,
@@ -484,41 +568,37 @@ function extractClasses(sourceFile, checker, ts) {
             };
 
             // Extract same type metadata as ClassDeclaration
-            try {
-                if (node.name) {
-                    const symbol = checker.getSymbolAtLocation(node.name);
-                    if (symbol) {
-                        const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                        if (type) {
-                            classEntry.type_annotation = checker.typeToString(type);
-                        }
+            if (checker && node.name) {
+                const symbol = checker.getSymbolAtLocation(node.name);
+                if (symbol) {
+                    const type = checker.getTypeOfSymbolAtLocation(symbol, node);
+                    if (type) {
+                        classEntry.type_annotation = checker.typeToString(type);
                     }
                 }
+            }
 
-                // Extract extends clause
-                if (node.heritageClauses) {
-                    for (const clause of node.heritageClauses) {
-                        if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types && clause.types.length > 0) {
-                            const extendsType = clause.types[0];
-                            classEntry.extends_type = extendsType.expression ? (extendsType.expression.text || extendsType.expression.escapedText) : null;
-                        }
+            // Extract extends clause
+            if (node.heritageClauses) {
+                for (const clause of node.heritageClauses) {
+                    if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types && clause.types.length > 0) {
+                        const extendsType = clause.types[0];
+                        classEntry.extends_type = extendsType.expression ? (extendsType.expression.text || extendsType.expression.escapedText) : null;
                     }
                 }
+            }
 
-                // Extract type parameters
-                if (node.typeParameters && node.typeParameters.length > 0) {
-                    classEntry.has_type_params = true;
-                    classEntry.type_params = node.typeParameters.map(tp => {
-                        const paramName = tp.name ? (tp.name.text || tp.name.escapedText) : 'T';
-                        if (tp.constraint) {
-                            const constraintText = tp.constraint.getText ? tp.constraint.getText(sourceFile) : '';
-                            return `${paramName} extends ${constraintText}`;
-                        }
-                        return paramName;
-                    }).join(', ');
-                }
-            } catch (e) {
-                // Type extraction failed - metadata will be incomplete
+            // Extract type parameters
+            if (node.typeParameters && node.typeParameters.length > 0) {
+                classEntry.has_type_params = true;
+                classEntry.type_params = node.typeParameters.map(tp => {
+                    const paramName = tp.name ? (tp.name.text || tp.name.escapedText) : 'T';
+                    if (tp.constraint) {
+                        const constraintText = tp.constraint.getText ? tp.constraint.getText(sourceFile) : '';
+                        return `${paramName} extends ${constraintText}`;
+                    }
+                    return paramName;
+                }).join(', ');
             }
 
             classes.push(classEntry);
@@ -544,7 +624,12 @@ function extractClasses(sourceFile, checker, ts) {
     }
 
     traverse(sourceFile);
-    return classes;
+
+    return {
+        classes: classes,
+        class_decorators: class_decorators,
+        class_decorator_args: class_decorator_args
+    };
 }
 
 /**
@@ -553,11 +638,11 @@ function extractClasses(sourceFile, checker, ts) {
  * Critical for ORM model understanding and sensitive field tracking.
  *
  * Examples:
- *   - declare username: string;              → has_declare=true, property_type="string"
- *   - private password_hash: string;         → access_modifier="private"
- *   - email: string | null;                  → property_type="string | null"
- *   - readonly id: number = 1;               → is_readonly=true, initializer="1"
- *   - account?: Account;                     → is_optional=true, property_type="Account"
+ *   - declare username: string;              -> has_declare=true, property_type="string"
+ *   - private password_hash: string;         -> access_modifier="private"
+ *   - email: string | null;                  -> property_type="string | null"
+ *   - readonly id: number = 1;               -> is_readonly=true, initializer="1"
+ *   - account?: Account;                     -> is_optional=true, property_type="Account"
  *
  * @param {Object} sourceFile - TypeScript source file node
  * @param {Object} ts - TypeScript compiler API
@@ -778,7 +863,7 @@ function buildScopeMap(sourceFile, ts) {
 
     collectFunctions(sourceFile);
 
-    // Build line→function map (deeper functions override)
+    // Build line->function map (deeper functions override)
     const scopeMap = new Map();
 
     // Sort by start line, then reverse to process deeper functions last

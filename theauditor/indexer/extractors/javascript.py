@@ -65,6 +65,8 @@ class JavaScriptExtractor(BaseExtractor):
             # React/Vue framework-specific
             'react_components': [],
             'react_hooks': [],
+            'react_component_hooks': [],
+            'react_hook_dependencies': [],
             'vue_components': [],
             'vue_hooks': [],
             'vue_directives': [],
@@ -77,6 +79,7 @@ class JavaScriptExtractor(BaseExtractor):
             'env_var_usage': [],  # Environment variable usage (process.env.X)
             'orm_relationships': [],  # ORM relationship declarations (hasMany, belongsTo, etc.)
             'cdk_constructs': [],  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
+            'cdk_construct_properties': [],  # CDK construct properties junction array
             # Sequelize ORM
             'sequelize_models': [],
             'sequelize_associations': [],
@@ -100,7 +103,22 @@ class JavaScriptExtractor(BaseExtractor):
             'vue_component_emits': [],
             'vue_component_setup_returns': [],
             # Express framework
-            'express_middleware_chains': []  # PHASE 5: Middleware execution chains
+            'express_middleware_chains': [],  # PHASE 5: Middleware execution chains
+            # Core language junction arrays (normalize-all-node-extractors)
+            'func_params': [],
+            'func_decorators': [],
+            'func_decorator_args': [],
+            'func_param_decorators': [],
+            'class_decorators': [],
+            'class_decorator_args': [],
+            # Data flow junction arrays (normalize-all-node-extractors)
+            'assignment_source_vars': [],
+            'return_source_vars': [],
+            # Module framework junction arrays (normalize-all-node-extractors)
+            'import_specifiers': [],
+            'import_style_names': [],
+            # Sequelize junction arrays (normalize-all-node-extractors)
+            'sequelize_model_fields': []
         }
 
         # No AST = no extraction
@@ -146,6 +164,8 @@ class JavaScriptExtractor(BaseExtractor):
                     'resolved_imports': 'resolved_imports',
                     'react_components': 'react_components',
                     'react_hooks': 'react_hooks',
+                    'react_component_hooks': 'react_component_hooks',
+                    'react_hook_dependencies': 'react_hook_dependencies',
                     'vue_components': 'vue_components',
                     'vue_hooks': 'vue_hooks',
                     'vue_directives': 'vue_directives',
@@ -159,12 +179,28 @@ class JavaScriptExtractor(BaseExtractor):
                     'express_middleware_chains': 'express_middleware_chains',  # PHASE 5: Middleware execution chains
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
                     'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
+                    'cdk_construct_properties': 'cdk_construct_properties',  # CDK construct properties junction
                     # Angular junction arrays (normalize-node-extractor-output)
                     'angular_component_styles': 'angular_component_styles',
                     'angular_module_declarations': 'angular_module_declarations',
                     'angular_module_imports': 'angular_module_imports',
                     'angular_module_providers': 'angular_module_providers',
                     'angular_module_exports': 'angular_module_exports',
+                    # Core language junction arrays (normalize-all-node-extractors)
+                    'func_params': 'func_params',
+                    'func_decorators': 'func_decorators',
+                    'func_decorator_args': 'func_decorator_args',
+                    'func_param_decorators': 'func_param_decorators',
+                    'class_decorators': 'class_decorators',
+                    'class_decorator_args': 'class_decorator_args',
+                    # Data flow junction arrays (normalize-all-node-extractors)
+                    'assignment_source_vars': 'assignment_source_vars',
+                    'return_source_vars': 'return_source_vars',
+                    # Module framework junction arrays (normalize-all-node-extractors)
+                    'import_specifiers': 'import_specifiers',
+                    'import_style_names': 'import_style_names',
+                    # Sequelize junction arrays (normalize-all-node-extractors)
+                    'sequelize_model_fields': 'sequelize_model_fields',
                 }
 
                 for js_key, python_key in key_mappings.items():
@@ -1565,8 +1601,204 @@ class JavaScriptExtractor(BaseExtractor):
         conn.commit()
         conn.close()
 
+    @staticmethod
+    def resolve_handler_file_paths(db_path: str):
+        """Resolve handler_file for express_middleware_chains from import statements.
+
+        ADDED 2025-11-27: Phase 6.9 - Cross-file handler file resolution
+
+        Problem:
+            express_middleware_chains stores route definitions in route files,
+            but handlers are defined in controller files. Flow resolver needs
+            handler_file to construct correct DFG node IDs.
+
+            Example:
+                Route file: backend/src/routes/auth.routes.ts
+                Handler expr: authController.adminLogin
+                Handler file: backend/src/controllers/auth.controller.ts
+
+        Algorithm:
+            1. Load middleware chains where handler_file IS NULL
+            2. Parse handler_function to get variable name (AuthController -> authController)
+            3. Look up import that provides that variable
+            4. Resolve module path to actual file path (handle @alias paths)
+            5. Update handler_file column
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        import os
+        import sqlite3
+
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # PHASE 1: Load middleware chains needing resolution
+        cursor.execute("""
+            SELECT rowid, file, handler_function
+            FROM express_middleware_chains
+            WHERE handler_file IS NULL
+              AND handler_function IS NOT NULL
+              AND handler_function != ''
+        """)
+        chains_to_resolve = cursor.fetchall()
+
         if debug:
-            print(f"[MOUNT RESOLUTION] Updated {updated_count} endpoint paths from {len(mount_map)} mount mappings")
+            print(f"[HANDLER FILE RESOLUTION] Found {len(chains_to_resolve)} chains to resolve")
+
+        if not chains_to_resolve:
+            conn.close()
+            return
+
+        # PHASE 2: Build import lookup from import_styles and import_specifiers
+        # Key: (file, specifier_name_lowercase) -> module_path
+        import_lookup = {}
+
+        # Load import_specifiers (maps imported names to import lines)
+        cursor.execute("""
+            SELECT file, import_line, specifier_name
+            FROM import_specifiers
+        """)
+        specifier_to_line = {}
+        for file, import_line, specifier_name in cursor.fetchall():
+            key = (file, specifier_name.lower())
+            specifier_to_line[key] = import_line
+
+        # Load import_styles (maps import lines to module paths)
+        cursor.execute("""
+            SELECT file, line, package
+            FROM import_styles
+        """)
+        line_to_module = {}
+        for file, line, package in cursor.fetchall():
+            key = (file, line)
+            line_to_module[key] = package
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules")
+
+        # PHASE 3: Build path alias resolution (handle @controllers/, @middleware/, etc.)
+        # Look for tsconfig.json paths or common patterns
+        path_aliases = {}
+
+        # Find a sample path with 'src' to infer base path
+        cursor.execute("""
+            SELECT DISTINCT path FROM symbols WHERE path LIKE '%/src/%' LIMIT 1
+        """)
+        sample_path = cursor.fetchone()
+        if sample_path:
+            # Infer base path from sample file
+            # backend/src/controllers/auth.controller.ts -> backend/src
+            parts = sample_path[0].split('/')
+            if 'src' in parts:
+                src_idx = parts.index('src')
+                base_path = '/'.join(parts[:src_idx + 1])
+
+                # Common alias patterns
+                path_aliases['@controllers'] = f"{base_path}/controllers"
+                path_aliases['@middleware'] = f"{base_path}/middleware"
+                path_aliases['@services'] = f"{base_path}/services"
+                path_aliases['@validations'] = f"{base_path}/validations"
+                path_aliases['@utils'] = f"{base_path}/utils"
+                path_aliases['@config'] = f"{base_path}/config"
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Path aliases: {path_aliases}")
+
+        # PHASE 4: Resolve each handler
+        updates = []
+        resolved_count = 0
+        unresolved_count = 0
+
+        for rowid, route_file, handler_function in chains_to_resolve:
+            # Skip non-class handlers (like 'authenticate', 'validate(...)')
+            if '.' not in handler_function or '(' in handler_function:
+                unresolved_count += 1
+                continue
+
+            # Parse handler_function: AuthController.adminLogin -> authController
+            parts = handler_function.split('.')
+            class_name = parts[0]
+
+            # Convert PascalCase to camelCase for import lookup
+            # AuthController -> authController
+            var_name = class_name[0].lower() + class_name[1:] if class_name else class_name
+
+            # Look up import
+            key = (route_file, var_name.lower())
+            import_line = specifier_to_line.get(key)
+
+            if not import_line:
+                # Try exact case match
+                for (f, spec), line in specifier_to_line.items():
+                    if f == route_file and spec.lower() == var_name.lower():
+                        import_line = line
+                        break
+
+            if not import_line:
+                unresolved_count += 1
+                continue
+
+            # Get module path
+            module_path = line_to_module.get((route_file, import_line))
+            if not module_path:
+                unresolved_count += 1
+                continue
+
+            # Resolve module path to actual file path
+            resolved_path = None
+
+            # Handle @alias paths
+            for alias, target in path_aliases.items():
+                if module_path.startswith(alias):
+                    resolved_path = module_path.replace(alias, target)
+                    break
+
+            # Handle relative paths
+            if not resolved_path and module_path.startswith('.'):
+                # Get directory of route file
+                route_dir = '/'.join(route_file.split('/')[:-1])
+                if module_path.startswith('./'):
+                    resolved_path = f"{route_dir}/{module_path[2:]}"
+                elif module_path.startswith('../'):
+                    parent_dir = '/'.join(route_dir.split('/')[:-1])
+                    resolved_path = f"{parent_dir}/{module_path[3:]}"
+                else:
+                    resolved_path = module_path
+
+            if not resolved_path:
+                resolved_path = module_path
+
+            # Add .ts extension if not present
+            if resolved_path and not resolved_path.endswith(('.ts', '.js', '.tsx', '.jsx')):
+                resolved_path = f"{resolved_path}.ts"
+
+            # Verify the file exists in symbols
+            cursor.execute("""
+                SELECT 1 FROM symbols WHERE path = ? LIMIT 1
+            """, (resolved_path,))
+            if cursor.fetchone():
+                updates.append((resolved_path, rowid))
+                resolved_count += 1
+            else:
+                unresolved_count += 1
+
+        # PHASE 5: Batch update
+        if updates:
+            cursor.executemany("""
+                UPDATE express_middleware_chains
+                SET handler_file = ?
+                WHERE rowid = ?
+            """, updates)
+            conn.commit()
+
+        conn.close()
+
+        if debug:
+            print(f"[HANDLER FILE RESOLUTION] Resolved {resolved_count} handler files")
+            print(f"[HANDLER FILE RESOLUTION] Unresolved: {unresolved_count}")
 
     @staticmethod
     def resolve_cross_file_parameters(db_path: str):

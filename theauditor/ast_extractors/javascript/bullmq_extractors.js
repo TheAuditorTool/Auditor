@@ -35,7 +35,7 @@ function extractBullMQJobs(functions, classes, functionCallArgs, imports) {
     const workers = [];
 
     // Check if BullMQ is imported
-    const hasBullMQ = imports && imports.some(imp => imp.source === 'bullmq');
+    const hasBullMQ = imports && imports.some(imp => imp.module === 'bullmq');
     if (!hasBullMQ) {
         return { bullmq_queues: queues, bullmq_workers: workers };
     }

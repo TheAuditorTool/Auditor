@@ -389,60 +389,97 @@ async function main() {
                         });
                     });
 
-                    const imports = extractImports(sourceFile, ts);
-
-                    // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (UNIFIED SINGLE-PASS)
-                    // Extract ALL data types directly in JavaScript using TypeScript checker
-                    // INCLUDES CFG EXTRACTION (fixes jsx='preserved' bug)
-                    // No more two-pass system - everything extracted in one call
-
-                    console.error(`[DEBUG JS BATCH] Single-pass extraction for ${fileInfo.original}, jsxMode=${jsxMode}`);
-
-                    // Step 1: Build scope map (line → function name mapping)
+                        // Step 1: Build scope map (line → function name mapping)
                     const scopeMap = buildScopeMap(sourceFile, ts);
+                    const filePath = fileInfo.original;
 
-                    // Step 2: Extract functions and build parameter map
-                    const functions = extractFunctions(sourceFile, checker, ts);
+                    // Step 2: Extract imports (returns object with junction array)
+                    const importData = extractImports(sourceFile, ts, filePath);
+                    const imports = importData.imports;
+                    const import_specifiers = importData.import_specifiers;
+
+                    console.error(`[DEBUG JS BATCH] Single-pass extraction for ${filePath}, jsxMode=${jsxMode}`);
+
+                    // Step 3: Extract functions (returns object with junction arrays)
+                    const funcData = extractFunctions(sourceFile, checker, ts);
+                    const functions = funcData.functions;
+                    const func_params = funcData.func_params;
+                    const func_decorators = funcData.func_decorators;
+                    const func_decorator_args = funcData.func_decorator_args;
+                    const func_param_decorators = funcData.func_param_decorators;
+
+                    // Build parameter map from func_params junction array
                     const functionParams = new Map();
-                    functions.forEach(f => {
-                        if (f.name && f.parameters) {
-                            functionParams.set(f.name, f.parameters);
+                    func_params.forEach(p => {
+                        if (!functionParams.has(p.function_name)) {
+                            functionParams.set(p.function_name, []);
                         }
+                        functionParams.get(p.function_name).push(p.param_name);
                     });
 
-                    // Step 3: Extract all other data types
+                    // Step 4: Extract classes (returns object with junction arrays)
+                    const classData = extractClasses(sourceFile, checker, ts);
+                    const classes = classData.classes;
+                    const class_decorators = classData.class_decorators;
+                    const class_decorator_args = classData.class_decorator_args;
+
+                    // Step 5: Extract all other data types
                     const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                    const classes = extractClasses(sourceFile, checker, ts);
                     const classProperties = extractClassProperties(sourceFile, ts);
-                    console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${fileInfo.original}`);
+                    console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`);
                     const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
                     const ormRelationships = extractORMRelationships(sourceFile, ts);
-                    const assignments = extractAssignments(sourceFile, ts, scopeMap);
+
+                    // Extract assignments (returns object with junction array)
+                    const assignmentData = extractAssignments(sourceFile, ts, scopeMap, filePath);
+                    const assignments = assignmentData.assignments;
+                    const assignment_source_vars = assignmentData.assignment_source_vars;
+
                     const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-                    const returns = extractReturns(sourceFile, ts, scopeMap);
+
+                    // Extract returns (returns object with junction array)
+                    const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
+                    const returns = returnData.returns;
+                    const return_source_vars = returnData.return_source_vars;
+
                     const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                    const variableUsage = extractVariableUsage(assignments, functionCallArgs);
-                    const importStyles = extractImportStyles(imports);
-                    const refs = extractRefs(imports);
-                    const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
-                    const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
+                    const variableUsage = extractVariableUsage(assignments, functionCallArgs, assignment_source_vars);
+
+                    // Extract import styles (returns object with junction array)
+                    const importStyleData = extractImportStyles(imports, import_specifiers, filePath);
+                    const importStyles = importStyleData.import_styles;
+                    const import_style_names = importStyleData.import_style_names;
+
+                    const refs = extractRefs(imports, import_specifiers);
+
+                    // Extract React components (returns object with junction arrays)
+                    const reactComponentData = extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports);
+                    const reactComponents = reactComponentData.react_components;
+                    const react_component_hooks = reactComponentData.react_component_hooks;
+
+                    // Extract React hooks (returns object with junction array)
+                    const reactHookData = extractReactHooks(functionCallArgs, scopeMap, filePath);
+                    const reactHooks = reactHookData.react_hooks;
+                    const react_hook_dependencies = reactHookData.react_hook_dependencies;
+
                     const ormQueries = extractORMQueries(functionCallArgs);
                     const apiEndpointData = extractAPIEndpoints(functionCallArgs);
-                    const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
-                    const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
-                    // OPTION C (2025-11-09): Split validation extraction into two concerns
+                    const apiEndpoints = apiEndpointData.endpoints || [];
+                    const middlewareChains = apiEndpointData.middlewareChains || [];
                     const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                     const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
-                    const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
+                    const validationUsage = [...validationCalls, ...schemaDefs];
                     const sqlQueries = extractSQLQueries(functionCallArgs);
-                    const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
-                    const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                    const cdkData = extractCDKConstructs(functionCallArgs, imports);
+
+                    // Extract Sequelize models (returns object with junction array)
+                    const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports, filePath);
                     // DEBUG (2025-11-09): Log sequelize extraction results
                     if (process.env.THEAUDITOR_DEBUG === '1' && fileInfo.original.includes('model')) {
                         console.error(`[BATCH] ${fileInfo.original}: sequelizeData =`, JSON.stringify(sequelizeData));
                     }
                     const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
-                    const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                    const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs, func_decorators, class_decorators, class_decorator_args);
                     const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                     let vueComponents = [];
@@ -479,7 +516,7 @@ async function main() {
                     // Storage layer (Python) routes based on jsx_pass flag
                     console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
                     const cfg = extractCFG(sourceFile, ts);
-                    console.error(`[DEBUG JS BATCH] Extracted ${cfg.length} CFGs from ${fileInfo.original}`);
+                    console.error(`[DEBUG JS BATCH] Extracted CFG for ${fileInfo.original}`);
 
                     // Count nodes for complexity metrics
                     const nodeCount = countNodes(sourceFile, ts);
@@ -488,65 +525,87 @@ async function main() {
                         success: true,
                         fileName: fileInfo.absolute,
                         languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                        ast: null,  // ALWAYS null - no serialization, prevents 512MB crash
+                        ast: null,
                         diagnostics: diagnostics,
                         imports: imports,
                         nodeCount: nodeCount,
                         hasTypes: true,
                         jsxMode: jsxMode,
                         extracted_data: {
-                            // PHASE 5: All data types extracted in JavaScript (including CFG)
+                            // Core language
                             functions: functions,
+                            func_params: func_params,
+                            func_decorators: func_decorators,
+                            func_decorator_args: func_decorator_args,
+                            func_param_decorators: func_param_decorators,
                             classes: classes,
+                            class_decorators: class_decorators,
+                            class_decorator_args: class_decorator_args,
                             class_properties: classProperties,
+                            // Module system
+                            imports: imports,
+                            import_specifiers: import_specifiers,
+                            import_styles: importStyles,
+                            import_style_names: import_style_names,
+                            resolved_imports: refs,
+                            // Data flow
+                            assignments: assignments,
+                            assignment_source_vars: assignment_source_vars,
+                            returns: returns,
+                            return_source_vars: return_source_vars,
+                            // Other extractors
                             env_var_usage: envVarUsage,
                             orm_relationships: ormRelationships,
                             calls: calls,
-                            imports: imports,
-                            assignments: assignments,
                             function_call_args: functionCallArgs,
-                            returns: returns,
                             object_literals: objectLiterals,
                             variable_usage: variableUsage,
-                            import_styles: importStyles,
-                            resolved_imports: refs,
+                            // React
                             react_components: reactComponents,
+                            react_component_hooks: react_component_hooks,
                             react_hooks: reactHooks,
+                            react_hook_dependencies: react_hook_dependencies,
+                            // API & ORM
                             orm_queries: ormQueries,
-                            routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
-                            express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
+                            routes: apiEndpoints,
+                            express_middleware_chains: middlewareChains,
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
-                            cdk_constructs: cdkConstructs,
+                            cdk_constructs: cdkData.cdk_constructs || [],
+                            cdk_construct_properties: cdkData.cdk_construct_properties || [],
+                            // Sequelize
                             sequelize_models: sequelizeData.sequelize_models || [],
                             sequelize_associations: sequelizeData.sequelize_associations || [],
+                            sequelize_model_fields: sequelizeData.sequelize_model_fields || [],
+                            // BullMQ
                             bullmq_queues: bullmqData.bullmq_queues || [],
                             bullmq_workers: bullmqData.bullmq_workers || [],
+                            // Angular
                             angular_components: angularData.components || [],
                             angular_services: angularData.services || [],
                             angular_modules: angularData.modules || [],
                             angular_guards: angularData.guards || [],
                             di_injections: angularData.di_injections || [],
-                            // Angular junction arrays (normalize-node-extractor-output)
                             angular_component_styles: angularData.angular_component_styles || [],
                             angular_module_declarations: angularData.angular_module_declarations || [],
                             angular_module_imports: angularData.angular_module_imports || [],
                             angular_module_providers: angularData.angular_module_providers || [],
                             angular_module_exports: angularData.angular_module_exports || [],
-                            frontend_api_calls: frontendApiCalls,
+                            // Vue
                             vue_components: vueComponents,
-                            // Vue junction arrays (normalize-node-extractor-output)
                             vue_component_props: vueComponentProps,
                             vue_component_emits: vueComponentEmits,
                             vue_component_setup_returns: vueComponentSetupReturns,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
                             vue_provide_inject: vueProvideInject,
-                            scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
-                            cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
+                            // Frontend & CFG
+                            frontend_api_calls: frontendApiCalls,
+                            scope_map: Object.fromEntries(scopeMap),
+                            cfg: cfg
                         }
                     };
-                    console.error(`[DEBUG JS BATCH] Single-pass complete for ${fileInfo.original}, cfg_count=${cfg.length}`)
+                    console.error(`[DEBUG JS BATCH] Single-pass complete for ${filePath}`)
 
                 } catch (error) {
                     results[fileInfo.original] = {
@@ -941,54 +1000,91 @@ try {
                     });
                 });
 
-                const imports = extractImports(sourceFile, ts);
-
-                // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (UNIFIED SINGLE-PASS)
-                // Extract ALL data types directly in JavaScript using TypeScript checker
-                // INCLUDES CFG EXTRACTION (fixes jsx='preserved' bug)
-                // No more two-pass system - everything extracted in one call
-
                 // Step 1: Build scope map (line → function name mapping)
                 const scopeMap = buildScopeMap(sourceFile, ts);
+                const filePath = fileInfo.original;
 
-                // Step 2: Extract functions and build parameter map
-                const functions = extractFunctions(sourceFile, checker, ts);
+                // Step 2: Extract imports (returns object with junction array)
+                const importData = extractImports(sourceFile, ts, filePath);
+                const imports = importData.imports;
+                const import_specifiers = importData.import_specifiers;
+
+                // Step 3: Extract functions (returns object with junction arrays)
+                const funcData = extractFunctions(sourceFile, checker, ts);
+                const functions = funcData.functions;
+                const func_params = funcData.func_params;
+                const func_decorators = funcData.func_decorators;
+                const func_decorator_args = funcData.func_decorator_args;
+                const func_param_decorators = funcData.func_param_decorators;
+
+                // Build parameter map from func_params junction array
                 const functionParams = new Map();
-                functions.forEach(f => {
-                    if (f.name && f.parameters) {
-                        functionParams.set(f.name, f.parameters);
+                func_params.forEach(p => {
+                    if (!functionParams.has(p.function_name)) {
+                        functionParams.set(p.function_name, []);
                     }
+                    functionParams.get(p.function_name).push(p.param_name);
                 });
 
-                // Step 3: Extract all other data types
+                // Step 4: Extract classes (returns object with junction arrays)
+                const classData = extractClasses(sourceFile, checker, ts);
+                const classes = classData.classes;
+                const class_decorators = classData.class_decorators;
+                const class_decorator_args = classData.class_decorator_args;
+
+                // Step 5: Extract all other data types
                 const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                const classes = extractClasses(sourceFile, checker, ts);
                 const classProperties = extractClassProperties(sourceFile, ts);
-                console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${fileInfo.original}`);
+                console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`);
                 const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
                 const ormRelationships = extractORMRelationships(sourceFile, ts);
-                const assignments = extractAssignments(sourceFile, ts, scopeMap);
+
+                // Extract assignments (returns object with junction array)
+                const assignmentData = extractAssignments(sourceFile, ts, scopeMap, filePath);
+                const assignments = assignmentData.assignments;
+                const assignment_source_vars = assignmentData.assignment_source_vars;
+
                 const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-                const returns = extractReturns(sourceFile, ts, scopeMap);
+
+                // Extract returns (returns object with junction array)
+                const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
+                const returns = returnData.returns;
+                const return_source_vars = returnData.return_source_vars;
+
                 const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                const variableUsage = extractVariableUsage(assignments, functionCallArgs);
-                const importStyles = extractImportStyles(imports);
-                const refs = extractRefs(imports);
-                const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
-                const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
+                const variableUsage = extractVariableUsage(assignments, functionCallArgs, assignment_source_vars);
+
+                // Extract import styles (returns object with junction array)
+                const importStyleData = extractImportStyles(imports, import_specifiers, filePath);
+                const importStyles = importStyleData.import_styles;
+                const import_style_names = importStyleData.import_style_names;
+
+                const refs = extractRefs(imports, import_specifiers);
+
+                // Extract React components (returns object with junction arrays)
+                const reactComponentData = extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports);
+                const reactComponents = reactComponentData.react_components;
+                const react_component_hooks = reactComponentData.react_component_hooks;
+
+                // Extract React hooks (returns object with junction array)
+                const reactHookData = extractReactHooks(functionCallArgs, scopeMap, filePath);
+                const reactHooks = reactHookData.react_hooks;
+                const react_hook_dependencies = reactHookData.react_hook_dependencies;
+
                 const ormQueries = extractORMQueries(functionCallArgs);
                 const apiEndpointData = extractAPIEndpoints(functionCallArgs);
-                const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
-                const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
-                // OPTION C (2025-11-09): Split validation extraction into two concerns
+                const apiEndpoints = apiEndpointData.endpoints || [];
+                const middlewareChains = apiEndpointData.middlewareChains || [];
                 const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                 const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
-                const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
+                const validationUsage = [...validationCalls, ...schemaDefs];
                 const sqlQueries = extractSQLQueries(functionCallArgs);
-                const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
-                const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
-                const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
-                const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                const cdkData = extractCDKConstructs(functionCallArgs, imports);
+
+                // Extract Sequelize models (returns object with junction array)
+                const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports, filePath);
+                const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs, func_decorators, class_decorators, class_decorator_args);
                 const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                 let vueComponents = [];
@@ -1032,62 +1128,84 @@ try {
                     success: true,
                     fileName: fileInfo.absolute,
                     languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                    ast: null,  // ALWAYS null - no serialization, prevents 512MB crash
+                    ast: null,
                     diagnostics: diagnostics,
                     imports: imports,
                     nodeCount: nodeCount,
                     hasTypes: true,
                     jsxMode: jsxMode,
                     extracted_data: {
-                        // PHASE 5: All data types extracted in JavaScript (including CFG)
+                        // Core language
                         functions: functions,
+                        func_params: func_params,
+                        func_decorators: func_decorators,
+                        func_decorator_args: func_decorator_args,
+                        func_param_decorators: func_param_decorators,
                         classes: classes,
+                        class_decorators: class_decorators,
+                        class_decorator_args: class_decorator_args,
                         class_properties: classProperties,
+                        // Module system
+                        imports: imports,
+                        import_specifiers: import_specifiers,
+                        import_styles: importStyles,
+                        import_style_names: import_style_names,
+                        resolved_imports: refs,
+                        // Data flow
+                        assignments: assignments,
+                        assignment_source_vars: assignment_source_vars,
+                        returns: returns,
+                        return_source_vars: return_source_vars,
+                        // Other extractors
                         env_var_usage: envVarUsage,
                         orm_relationships: ormRelationships,
                         calls: calls,
-                        imports: imports,
-                        assignments: assignments,
                         function_call_args: functionCallArgs,
-                        returns: returns,
                         object_literals: objectLiterals,
                         variable_usage: variableUsage,
-                        import_styles: importStyles,
-                        resolved_imports: refs,
+                        // React
                         react_components: reactComponents,
+                        react_component_hooks: react_component_hooks,
                         react_hooks: reactHooks,
+                        react_hook_dependencies: react_hook_dependencies,
+                        // API & ORM
                         orm_queries: ormQueries,
-                        routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
-                        express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
+                        routes: apiEndpoints,
+                        express_middleware_chains: middlewareChains,
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
-                        cdk_constructs: cdkConstructs,
-                        sequelize_models: sequelizeModels.sequelize_models || [],
-                        sequelize_associations: sequelizeModels.sequelize_associations || [],
-                        bullmq_queues: bullmqJobs.bullmq_queues || [],
-                        bullmq_workers: bullmqJobs.bullmq_workers || [],
+                        cdk_constructs: cdkData.cdk_constructs || [],
+                        cdk_construct_properties: cdkData.cdk_construct_properties || [],
+                        // Sequelize
+                        sequelize_models: sequelizeData.sequelize_models || [],
+                        sequelize_associations: sequelizeData.sequelize_associations || [],
+                        sequelize_model_fields: sequelizeData.sequelize_model_fields || [],
+                        // BullMQ
+                        bullmq_queues: bullmqData.bullmq_queues || [],
+                        bullmq_workers: bullmqData.bullmq_workers || [],
+                        // Angular
                         angular_components: angularData.components || [],
                         angular_services: angularData.services || [],
                         angular_modules: angularData.modules || [],
                         angular_guards: angularData.guards || [],
                         di_injections: angularData.di_injections || [],
-                        // Angular junction arrays (normalize-node-extractor-output)
                         angular_component_styles: angularData.angular_component_styles || [],
                         angular_module_declarations: angularData.angular_module_declarations || [],
                         angular_module_imports: angularData.angular_module_imports || [],
                         angular_module_providers: angularData.angular_module_providers || [],
                         angular_module_exports: angularData.angular_module_exports || [],
-                        frontend_api_calls: frontendApiCalls,
+                        // Vue
                         vue_components: vueComponents,
-                        // Vue junction arrays (normalize-node-extractor-output)
                         vue_component_props: vueComponentProps,
                         vue_component_emits: vueComponentEmits,
                         vue_component_setup_returns: vueComponentSetupReturns,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,
                         vue_provide_inject: vueProvideInject,
-                        scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
-                        cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
+                        // Frontend & CFG
+                        frontend_api_calls: frontendApiCalls,
+                        scope_map: Object.fromEntries(scopeMap),
+                        cfg: cfg
                     }
                 }
 

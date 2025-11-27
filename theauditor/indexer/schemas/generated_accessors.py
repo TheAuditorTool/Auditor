@@ -285,6 +285,24 @@ class ApiEndpointsTable:
         return [dict(zip(['file', 'line', 'method', 'pattern', 'path', 'full_path', 'has_auth', 'handler_function'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class AssignmentSourceVarsTable:
+    """Accessor class for assignment_source_vars table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from assignment_source_vars."""
+        query = build_query('assignment_source_vars', ['file', 'line', 'target_var', 'source_var', 'var_index'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'target_var', 'source_var', 'var_index'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_source_var(cursor: sqlite3.Cursor, source_var: str) -> list[dict[str, Any]]:
+        """Get rows by source_var."""
+        query = build_query('assignment_source_vars', ['file', 'line', 'target_var', 'source_var', 'var_index'], where="source_var = ?")
+        cursor.execute(query, (source_var,))
+        return [dict(zip(['file', 'line', 'target_var', 'source_var', 'var_index'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class AssignmentSourcesTable:
     """Accessor class for assignment_sources table."""
 
@@ -709,6 +727,35 @@ class CfgEdgesJsxTable:
         return [dict(zip(['id', 'file', 'function_name', 'source_block_id', 'target_block_id', 'edge_type', 'jsx_mode', 'extraction_pass'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class ClassDecoratorArgsTable:
+    """Accessor class for class_decorator_args table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from class_decorator_args."""
+        query = build_query('class_decorator_args', ['file', 'class_line', 'class_name', 'decorator_index', 'arg_index', 'arg_value'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'class_line', 'class_name', 'decorator_index', 'arg_index', 'arg_value'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class ClassDecoratorsTable:
+    """Accessor class for class_decorators table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from class_decorators."""
+        query = build_query('class_decorators', ['file', 'class_line', 'class_name', 'decorator_index', 'decorator_name', 'decorator_line'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'class_line', 'class_name', 'decorator_index', 'decorator_name', 'decorator_line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_decorator_name(cursor: sqlite3.Cursor, decorator_name: str) -> list[dict[str, Any]]:
+        """Get rows by decorator_name."""
+        query = build_query('class_decorators', ['file', 'class_line', 'class_name', 'decorator_index', 'decorator_name', 'decorator_line'], where="decorator_name = ?")
+        cursor.execute(query, (decorator_name,))
+        return [dict(zip(['file', 'class_line', 'class_name', 'decorator_index', 'decorator_name', 'decorator_line'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class ClassPropertiesTable:
     """Accessor class for class_properties table."""
 
@@ -1089,6 +1136,71 @@ class FrontendApiCallsTable:
         query = build_query('frontend_api_calls', ['file', 'line', 'method', 'url_literal', 'body_variable', 'function_name'], where="method = ?")
         cursor.execute(query, (method,))
         return [dict(zip(['file', 'line', 'method', 'url_literal', 'body_variable', 'function_name'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class FuncDecoratorArgsTable:
+    """Accessor class for func_decorator_args table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from func_decorator_args."""
+        query = build_query('func_decorator_args', ['file', 'function_line', 'function_name', 'decorator_index', 'arg_index', 'arg_value'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'function_line', 'function_name', 'decorator_index', 'arg_index', 'arg_value'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class FuncDecoratorsTable:
+    """Accessor class for func_decorators table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from func_decorators."""
+        query = build_query('func_decorators', ['file', 'function_line', 'function_name', 'decorator_index', 'decorator_name', 'decorator_line'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'function_line', 'function_name', 'decorator_index', 'decorator_name', 'decorator_line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_decorator_name(cursor: sqlite3.Cursor, decorator_name: str) -> list[dict[str, Any]]:
+        """Get rows by decorator_name."""
+        query = build_query('func_decorators', ['file', 'function_line', 'function_name', 'decorator_index', 'decorator_name', 'decorator_line'], where="decorator_name = ?")
+        cursor.execute(query, (decorator_name,))
+        return [dict(zip(['file', 'function_line', 'function_name', 'decorator_index', 'decorator_name', 'decorator_line'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class FuncParamDecoratorsTable:
+    """Accessor class for func_param_decorators table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from func_param_decorators."""
+        query = build_query('func_param_decorators', ['file', 'function_line', 'function_name', 'param_index', 'decorator_name', 'decorator_args'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'function_line', 'function_name', 'param_index', 'decorator_name', 'decorator_args'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_decorator_name(cursor: sqlite3.Cursor, decorator_name: str) -> list[dict[str, Any]]:
+        """Get rows by decorator_name."""
+        query = build_query('func_param_decorators', ['file', 'function_line', 'function_name', 'param_index', 'decorator_name', 'decorator_args'], where="decorator_name = ?")
+        cursor.execute(query, (decorator_name,))
+        return [dict(zip(['file', 'function_line', 'function_name', 'param_index', 'decorator_name', 'decorator_args'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class FuncParamsTable:
+    """Accessor class for func_params table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from func_params."""
+        query = build_query('func_params', ['file', 'function_line', 'function_name', 'param_index', 'param_name', 'param_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'function_line', 'function_name', 'param_index', 'param_name', 'param_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_param_name(cursor: sqlite3.Cursor, param_name: str) -> list[dict[str, Any]]:
+        """Get rows by param_name."""
+        query = build_query('func_params', ['file', 'function_line', 'function_name', 'param_index', 'param_name', 'param_type'], where="param_name = ?")
+        cursor.execute(query, (param_name,))
+        return [dict(zip(['file', 'function_line', 'function_name', 'param_index', 'param_name', 'param_type'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FunctionCallArgsTable:
@@ -1708,6 +1820,24 @@ class GraphqlTypesTable:
         query = build_query('graphql_types', ['type_id', 'schema_path', 'type_name', 'kind', 'implements', 'description', 'line'], where="kind = ?")
         cursor.execute(query, (kind,))
         return [dict(zip(['type_id', 'schema_path', 'type_name', 'kind', 'implements', 'description', 'line'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class ImportSpecifiersTable:
+    """Accessor class for import_specifiers table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from import_specifiers."""
+        query = build_query('import_specifiers', ['file', 'import_line', 'specifier_name', 'original_name', 'is_default', 'is_namespace', 'is_named'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'import_line', 'specifier_name', 'original_name', 'is_default', 'is_namespace', 'is_named'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_specifier_name(cursor: sqlite3.Cursor, specifier_name: str) -> list[dict[str, Any]]:
+        """Get rows by specifier_name."""
+        query = build_query('import_specifiers', ['file', 'import_line', 'specifier_name', 'original_name', 'is_default', 'is_namespace', 'is_named'], where="specifier_name = ?")
+        cursor.execute(query, (specifier_name,))
+        return [dict(zip(['file', 'import_line', 'specifier_name', 'original_name', 'is_default', 'is_namespace', 'is_named'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class ImportStyleNamesTable:
@@ -3419,6 +3549,24 @@ class ResolvedFlowAuditTable:
         return [dict(zip(['id', 'source_file', 'source_line', 'source_pattern', 'sink_file', 'sink_line', 'sink_pattern', 'vulnerability_type', 'path_length', 'hops', 'path_json', 'flow_sensitive', 'status', 'sanitizer_file', 'sanitizer_line', 'sanitizer_method', 'engine'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class ReturnSourceVarsTable:
+    """Accessor class for return_source_vars table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from return_source_vars."""
+        query = build_query('return_source_vars', ['file', 'line', 'function_name', 'source_var', 'var_index'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'function_name', 'source_var', 'var_index'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_source_var(cursor: sqlite3.Cursor, source_var: str) -> list[dict[str, Any]]:
+        """Get rows by source_var."""
+        query = build_query('return_source_vars', ['file', 'line', 'function_name', 'source_var', 'var_index'], where="source_var = ?")
+        cursor.execute(query, (source_var,))
+        return [dict(zip(['file', 'line', 'function_name', 'source_var', 'var_index'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class RouterMountsTable:
     """Accessor class for router_mounts table."""
 
@@ -3481,6 +3629,24 @@ class SequelizeAssociationsTable:
         query = build_query('sequelize_associations', ['file', 'line', 'model_name', 'association_type', 'target_model', 'foreign_key', 'through_table'], where="association_type = ?")
         cursor.execute(query, (association_type,))
         return [dict(zip(['file', 'line', 'model_name', 'association_type', 'target_model', 'foreign_key', 'through_table'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class SequelizeModelFieldsTable:
+    """Accessor class for sequelize_model_fields table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from sequelize_model_fields."""
+        query = build_query('sequelize_model_fields', ['file', 'model_name', 'field_name', 'data_type', 'is_primary_key', 'is_nullable', 'is_unique', 'default_value'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'model_name', 'field_name', 'data_type', 'is_primary_key', 'is_nullable', 'is_unique', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_data_type(cursor: sqlite3.Cursor, data_type: str) -> list[dict[str, Any]]:
+        """Get rows by data_type."""
+        query = build_query('sequelize_model_fields', ['file', 'model_name', 'field_name', 'data_type', 'is_primary_key', 'is_nullable', 'is_unique', 'default_value'], where="data_type = ?")
+        cursor.execute(query, (data_type,))
+        return [dict(zip(['file', 'model_name', 'field_name', 'data_type', 'is_primary_key', 'is_nullable', 'is_unique', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class SequelizeModelsTable:

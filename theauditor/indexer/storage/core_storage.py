@@ -40,6 +40,7 @@ class CoreStorage(BaseStorage):
             'sql_objects': self._store_sql_objects,
             'sql_queries': self._store_sql_queries,
             'cdk_constructs': self._store_cdk_constructs,
+            'cdk_construct_properties': self._store_cdk_construct_properties,  # Flat array from JS
             'symbols': self._store_symbols,
             'type_annotations': self._store_type_annotations,
             'orm_queries': self._store_orm_queries,
@@ -159,6 +160,8 @@ class CoreStorage(BaseStorage):
     def _store_cdk_constructs(self, file_path: str, cdk_constructs: list, jsx_pass: bool):
         """Store CDK constructs (AWS Infrastructure-as-Code)."""
         for construct in cdk_constructs:
+            if not isinstance(construct, dict):
+                continue
             line = construct.get('line', 0)
             cdk_class = construct.get('cdk_class', '')
             construct_name = construct.get('construct_name')
@@ -188,6 +191,32 @@ class CoreStorage(BaseStorage):
             if 'cdk_constructs' not in self.counts:
                 self.counts['cdk_constructs'] = 0
             self.counts['cdk_constructs'] += 1
+
+    def _store_cdk_construct_properties(self, file_path: str, properties: list, jsx_pass: bool):
+        """Store CDK construct properties from flat junction array (JS format).
+
+        JS sends: {construct_line, construct_class, property_name, value_expr, property_line}
+        Schema expects: construct_id FK which we reconstruct from file_path + line + class.
+
+        NOTE: construct_name not available in flat format, defaults to 'unnamed'.
+        This matches behavior when Python extracts nested properties.
+        """
+        for prop in properties:
+            if not isinstance(prop, dict):
+                continue
+
+            # Reconstruct construct_id to match parent record format
+            construct_line = prop.get('construct_line', 0)
+            construct_class = prop.get('construct_class', '')
+            construct_id = f"{file_path}::L{construct_line}::{construct_class}::unnamed"
+
+            self.db_manager.add_cdk_construct_property(
+                construct_id=construct_id,
+                property_name=prop.get('property_name', ''),
+                property_value_expr=prop.get('value_expr', ''),
+                line=prop.get('property_line', construct_line)
+            )
+            self.counts['cdk_construct_properties'] = self.counts.get('cdk_construct_properties', 0) + 1
 
     def _store_symbols(self, file_path: str, symbols: list, jsx_pass: bool):
         """Store symbols."""
@@ -308,7 +337,7 @@ class CoreStorage(BaseStorage):
                 # JSX preserved mode - store to _jsx tables
                 self.db_manager.add_assignment_jsx(
                     file_path, assignment['line'], assignment['target_var'],
-                    assignment['source_expr'], assignment['source_vars'],
+                    assignment['source_expr'], assignment.get('source_vars', []),
                     assignment['in_function'], assignment.get('property_path'),
                     jsx_mode='preserved', extraction_pass=2
                 )
@@ -316,7 +345,7 @@ class CoreStorage(BaseStorage):
                 # Transform mode - store to main tables
                 self.db_manager.add_assignment(
                     file_path, assignment['line'], assignment['target_var'],
-                    assignment['source_expr'], assignment['source_vars'],
+                    assignment['source_expr'], assignment.get('source_vars', []),
                     assignment['in_function'], assignment.get('property_path')
                 )
                 self.counts['assignments'] += 1
@@ -349,7 +378,7 @@ class CoreStorage(BaseStorage):
                 self.db_manager.add_function_call_arg_jsx(
                     file_path, call['line'], call['caller_function'],
                     call['callee_function'], call['argument_index'],
-                    call['argument_expr'], call['param_name'],
+                    call['argument_expr'], call.get('param_name', ''),
                     jsx_mode='preserved', extraction_pass=2
                 )
             else:
@@ -402,7 +431,7 @@ class CoreStorage(BaseStorage):
                 # JSX preserved mode - store to _jsx tables
                 self.db_manager.add_function_return_jsx(
                     file_path, ret['line'], ret['function_name'],
-                    ret['return_expr'], ret['return_vars'],
+                    ret['return_expr'], ret.get('return_vars', []),
                     ret.get('has_jsx', False), ret.get('returns_component', False),
                     ret.get('cleanup_operations'),
                     jsx_mode='preserved', extraction_pass=2
@@ -411,14 +440,14 @@ class CoreStorage(BaseStorage):
                 # Transform mode - store to main tables
                 self.db_manager.add_function_return(
                     file_path, ret['line'], ret['function_name'],
-                    ret['return_expr'], ret['return_vars']
+                    ret['return_expr'], ret.get('return_vars', [])
                 )
                 self.counts['returns'] += 1
 
     def _store_cfg(self, file_path: str, cfg: list, jsx_pass: bool):
         """Store control flow graph data to main or _jsx tables."""
         for function_cfg in cfg:
-            if not function_cfg:
+            if not function_cfg or not isinstance(function_cfg, dict):
                 continue
 
             block_id_map = {}

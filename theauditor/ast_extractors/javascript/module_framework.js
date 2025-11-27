@@ -31,10 +31,12 @@
  *
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} ts - TypeScript compiler API
- * @returns {Array} - List of import statements
+ * @param {string} filePath - Relative file path for database records
+ * @returns {Object} - { imports, import_specifiers }
  */
-function extractImports(sourceFile, ts) {
+function extractImports(sourceFile, ts, filePath) {
     const imports = [];
+    const import_specifiers = [];
 
     function visit(node) {
         // ES6 Import declarations: import { foo } from 'bar'
@@ -42,15 +44,20 @@ function extractImports(sourceFile, ts) {
             const moduleSpecifier = node.moduleSpecifier;
             if (moduleSpecifier && moduleSpecifier.text) {
                 const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart ? node.getStart(sourceFile) : node.pos);
+                const importLine = line + 1;
 
-                // Extract import specifiers (what's being imported)
-                const specifiers = [];
                 if (node.importClause) {
                     // Default import: import Foo from 'bar'
                     if (node.importClause.name) {
-                        specifiers.push({
-                            name: node.importClause.name.text || node.importClause.name.escapedText,
-                            isDefault: true
+                        const specName = node.importClause.name.text || node.importClause.name.escapedText;
+                        import_specifiers.push({
+                            file: filePath,
+                            import_line: importLine,
+                            specifier_name: specName,
+                            original_name: specName,
+                            is_default: 1,
+                            is_namespace: 0,
+                            is_named: 0
                         });
                     }
 
@@ -60,17 +67,35 @@ function extractImports(sourceFile, ts) {
 
                         // Namespace import: import * as foo from 'bar'
                         if (bindings.kind === ts.SyntaxKind.NamespaceImport) {
-                            specifiers.push({
-                                name: bindings.name.text || bindings.name.escapedText,
-                                isNamespace: true
+                            const specName = bindings.name.text || bindings.name.escapedText;
+                            import_specifiers.push({
+                                file: filePath,
+                                import_line: importLine,
+                                specifier_name: specName,
+                                original_name: '*',
+                                is_default: 0,
+                                is_namespace: 1,
+                                is_named: 0
                             });
                         }
-                        // Named imports: import { a, b } from 'bar'
+                        // Named imports: import { a, b as c } from 'bar'
                         else if (bindings.kind === ts.SyntaxKind.NamedImports && bindings.elements) {
                             bindings.elements.forEach(element => {
-                                specifiers.push({
-                                    name: element.name.text || element.name.escapedText,
-                                    isNamed: true
+                                const localName = element.name.text || element.name.escapedText;
+                                // propertyName is the original name when aliased: import { foo as bar }
+                                // element.propertyName = 'foo', element.name = 'bar'
+                                let originalName = localName;
+                                if (element.propertyName) {
+                                    originalName = element.propertyName.text || element.propertyName.escapedText;
+                                }
+                                import_specifiers.push({
+                                    file: filePath,
+                                    import_line: importLine,
+                                    specifier_name: localName,
+                                    original_name: originalName,
+                                    is_default: 0,
+                                    is_namespace: 0,
+                                    is_named: 1
                                 });
                             });
                         }
@@ -80,8 +105,7 @@ function extractImports(sourceFile, ts) {
                 imports.push({
                     kind: 'import',
                     module: moduleSpecifier.text,
-                    line: line + 1,
-                    specifiers: specifiers
+                    line: importLine
                 });
             }
         }
@@ -96,8 +120,7 @@ function extractImports(sourceFile, ts) {
                     imports.push({
                         kind: 'require',
                         module: args[0].text,
-                        line: line + 1,
-                        specifiers: []
+                        line: line + 1
                     });
                 }
             }
@@ -112,8 +135,7 @@ function extractImports(sourceFile, ts) {
                 imports.push({
                     kind: 'dynamic_import',
                     module: args[0].text,
-                    line: line + 1,
-                    specifiers: []
+                    line: line + 1
                 });
             }
         }
@@ -122,7 +144,7 @@ function extractImports(sourceFile, ts) {
     }
 
     visit(sourceFile);
-    return imports;
+    return { imports, import_specifiers };
 }
 
 /**
@@ -477,10 +499,13 @@ function extractORMRelationships(sourceFile, ts) {
  * Implements Python's _analyze_import_styles() from javascript.py:790-853.
  *
  * @param {Array} imports - From extractImports()
- * @returns {Array} - Import style records
+ * @param {Array} import_specifiers - Flat specifiers from extractImports()
+ * @param {string} filePath - Relative file path for database records
+ * @returns {Object} - { import_styles, import_style_names }
  */
-function extractImportStyles(imports) {
-    const styles = [];
+function extractImportStyles(imports, import_specifiers, filePath) {
+    const import_styles = [];
+    const import_style_names = [];
 
     for (const imp of imports) {
         const target = imp.module || imp.target;
@@ -488,48 +513,50 @@ function extractImportStyles(imports) {
 
         const line = imp.line || 0;
         let import_style = null;
-        let imported_names = null;
         let alias_name = null;
 
-        // Extract names from specifiers
-        const specifiers = imp.specifiers || [];
-        const namespaceName = specifiers.find(s => s.isNamespace)?.name || null;
-        const defaultName = specifiers.find(s => s.isDefault)?.name || null;
-        const namedImports = specifiers.filter(s => s.isNamed).map(s => s.name);
+        // Find specifiers for this import line from flat array
+        const lineSpecifiers = import_specifiers.filter(s => s.import_line === line);
+        const namespaceSpec = lineSpecifiers.find(s => s.is_namespace === 1);
+        const defaultSpec = lineSpecifiers.find(s => s.is_default === 1);
+        const namedSpecs = lineSpecifiers.filter(s => s.is_named === 1);
 
         // Classify import style
-        if (namespaceName) {
-            // import * as lodash from 'lodash'
+        if (namespaceSpec) {
             import_style = 'namespace';
-            alias_name = namespaceName;
-        } else if (namedImports.length > 0) {
-            // import { map, filter } from 'lodash'
+            alias_name = namespaceSpec.specifier_name;
+        } else if (namedSpecs.length > 0) {
             import_style = 'named';
-            imported_names = namedImports;
-        } else if (defaultName) {
-            // import lodash from 'lodash'
+            // Flatten named imports to junction table
+            namedSpecs.forEach(spec => {
+                import_style_names.push({
+                    import_file: filePath,
+                    import_line: line,
+                    imported_name: spec.specifier_name
+                });
+            });
+        } else if (defaultSpec) {
             import_style = 'default';
-            alias_name = defaultName;
+            alias_name = defaultSpec.specifier_name;
         } else {
-            // import 'polyfill'
             import_style = 'side-effect';
         }
 
         if (import_style) {
             const fullStatement = imp.text || `import ${import_style} from '${target}'`;
 
-            styles.push({
+            import_styles.push({
+                file: filePath,
                 line: line,
                 package: target,
                 import_style: import_style,
-                imported_names: imported_names,
                 alias_name: alias_name,
                 full_statement: fullStatement.substring(0, 200)
             });
         }
     }
 
-    return styles;
+    return { import_styles, import_style_names };
 }
 
 /**
@@ -538,28 +565,31 @@ function extractImportStyles(imports) {
  * Implements Python's module resolution logic from javascript.py:767-786.
  *
  * @param {Array} imports - From extractImports()
+ * @param {Array} import_specifiers - Flat specifiers from extractImports()
  * @returns {Object} - Map of { localName: modulePath }
  */
-function extractRefs(imports) {
+function extractRefs(imports, import_specifiers) {
     const resolved = {};
 
+    // Build line -> module mapping from imports
+    const lineToModule = new Map();
     for (const imp of imports) {
         const modulePath = imp.module || imp.target;
         if (!modulePath) continue;
+        lineToModule.set(imp.line, modulePath);
 
         // Extract module name from path: 'lodash/map' → 'map'
         const moduleName = modulePath.split('/').pop().replace(/\.(js|ts|jsx|tsx)$/, '');
-
         if (moduleName) {
             resolved[moduleName] = modulePath;
         }
+    }
 
-        // Also map imported names to module
-        const specifiers = imp.specifiers || [];
-        for (const spec of specifiers) {
-            if (spec.name) {
-                resolved[spec.name] = modulePath;
-            }
+    // Map imported names to module using flat specifiers
+    for (const spec of import_specifiers) {
+        const modulePath = lineToModule.get(spec.import_line);
+        if (modulePath && spec.specifier_name) {
+            resolved[spec.specifier_name] = modulePath;
         }
     }
 

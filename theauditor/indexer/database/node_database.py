@@ -1,7 +1,8 @@
 """Node.js/TypeScript/React/Vue database operations.
 
 This module contains add_* methods for NODE_TABLES defined in schemas/node_schema.py.
-Handles 17 Node.js tables including TypeScript, React, Vue, and package management.
+Handles 27 Node.js tables including TypeScript, React, Vue, Angular, Sequelize,
+BullMQ, and 10 junction tables for normalized extraction data.
 """
 
 
@@ -394,6 +395,36 @@ class NodeDatabaseMixin:
                     continue
                 self.generic_batches['import_style_names'].append((file_path, line, imported_name))
 
+    def add_import_style_name(self, file_path: str, line: int, imported_name: str):
+        """Add an import style name record directly to the batch.
+
+        Used by _store_import_style_names handler for flat junction array from JS.
+        """
+        if imported_name:  # Skip empty strings
+            self.generic_batches['import_style_names'].append((file_path, line, imported_name))
+
+    # ========================================================
+    # REACT JUNCTION ARRAY BATCH METHODS (flat from JS)
+    # ========================================================
+
+    def add_react_component_hook_flat(self, component_file: str, component_name: str, hook_name: str):
+        """Add a react component hook from flat junction array.
+
+        Used by _store_react_component_hooks handler for flat array from JS.
+        Schema: react_component_hooks(component_file, component_name, hook_name)
+        """
+        if hook_name:  # Skip empty strings
+            self.generic_batches['react_component_hooks'].append((component_file, component_name, hook_name))
+
+    def add_react_hook_dependency_flat(self, hook_file: str, hook_line: int, hook_component: str, dependency_name: str):
+        """Add a react hook dependency from flat junction array.
+
+        Used by _store_react_hook_dependencies handler for flat array from JS.
+        Schema: react_hook_dependencies(hook_file, hook_line, hook_component, dependency_name)
+        """
+        if dependency_name:  # Skip empty strings
+            self.generic_batches['react_hook_dependencies'].append((hook_file, hook_line, hook_component, dependency_name))
+
     # ========================================================
     # FRONTEND API CALLS BATCH METHODS
     # ========================================================
@@ -442,3 +473,128 @@ class NodeDatabaseMixin:
         cursor.execute("SELECT id FROM frameworks WHERE name = ? AND language = ?", (name, language))
         result = cursor.fetchone()
         return result[0] if result else None
+
+    # ========================================================
+    # CORE LANGUAGE JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_func_param(self, file: str, function_line: int, function_name: str,
+                       param_index: int, param_name: str, param_type: str | None = None):
+        """Add a function parameter to the batch.
+
+        Schema: func_params(file, function_line, function_name, param_index, param_name, param_type)
+        """
+        self.generic_batches['func_params'].append((
+            file, function_line, function_name, param_index, param_name, param_type
+        ))
+
+    def add_func_decorator(self, file: str, function_line: int, function_name: str,
+                           decorator_index: int, decorator_name: str,
+                           decorator_line: int | None = None):
+        """Add a function decorator to the batch.
+
+        Schema: func_decorators(file, function_line, function_name, decorator_index, decorator_name, decorator_line)
+        """
+        self.generic_batches['func_decorators'].append((
+            file, function_line, function_name, decorator_index, decorator_name, decorator_line
+        ))
+
+    def add_func_decorator_arg(self, file: str, function_line: int, function_name: str,
+                               decorator_index: int, arg_index: int, arg_value: str | None = None):
+        """Add a function decorator argument to the batch.
+
+        Schema: func_decorator_args(file, function_line, function_name, decorator_index, arg_index, arg_value)
+        """
+        self.generic_batches['func_decorator_args'].append((
+            file, function_line, function_name, decorator_index, arg_index, arg_value
+        ))
+
+    def add_func_param_decorator(self, file: str, function_line: int, function_name: str,
+                                 param_index: int, decorator_name: str,
+                                 decorator_args: str | None = None):
+        """Add a function parameter decorator to the batch (NestJS @Body, @Param, etc).
+
+        Schema: func_param_decorators(file, function_line, function_name, param_index, decorator_name, decorator_args)
+        """
+        self.generic_batches['func_param_decorators'].append((
+            file, function_line, function_name, param_index, decorator_name, decorator_args
+        ))
+
+    def add_class_decorator(self, file: str, class_line: int, class_name: str,
+                            decorator_index: int, decorator_name: str,
+                            decorator_line: int | None = None):
+        """Add a class decorator to the batch.
+
+        Schema: class_decorators(file, class_line, class_name, decorator_index, decorator_name, decorator_line)
+        """
+        self.generic_batches['class_decorators'].append((
+            file, class_line, class_name, decorator_index, decorator_name, decorator_line
+        ))
+
+    def add_class_decorator_arg(self, file: str, class_line: int, class_name: str,
+                                decorator_index: int, arg_index: int, arg_value: str | None = None):
+        """Add a class decorator argument to the batch.
+
+        Schema: class_decorator_args(file, class_line, class_name, decorator_index, arg_index, arg_value)
+        """
+        self.generic_batches['class_decorator_args'].append((
+            file, class_line, class_name, decorator_index, arg_index, arg_value
+        ))
+
+    # ========================================================
+    # DATA FLOW JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_assignment_source_var(self, file: str, line: int, target_var: str,
+                                  source_var: str, var_index: int):
+        """Add an assignment source variable to the batch.
+
+        Schema: assignment_source_vars(file, line, target_var, source_var, var_index)
+        """
+        self.generic_batches['assignment_source_vars'].append((
+            file, line, target_var, source_var, var_index
+        ))
+
+    def add_return_source_var(self, file: str, line: int, function_name: str,
+                              source_var: str, var_index: int):
+        """Add a return source variable to the batch.
+
+        Schema: return_source_vars(file, line, function_name, source_var, var_index)
+        """
+        self.generic_batches['return_source_vars'].append((
+            file, line, function_name, source_var, var_index
+        ))
+
+    # ========================================================
+    # MODULE FRAMEWORK JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_import_specifier(self, file: str, import_line: int, specifier_name: str,
+                             original_name: str | None = None, is_default: bool = False,
+                             is_namespace: bool = False, is_named: bool = True):
+        """Add an import specifier to the batch.
+
+        Schema: import_specifiers(file, import_line, specifier_name, original_name, is_default, is_namespace, is_named)
+        """
+        self.generic_batches['import_specifiers'].append((
+            file, import_line, specifier_name, original_name,
+            1 if is_default else 0, 1 if is_namespace else 0, 1 if is_named else 0
+        ))
+
+    # ========================================================
+    # SEQUELIZE ORM JUNCTION TABLE BATCH METHODS
+    # ========================================================
+
+    def add_sequelize_model_field(self, file: str, model_name: str, field_name: str,
+                                  data_type: str, is_primary_key: bool = False,
+                                  is_nullable: bool = True, is_unique: bool = False,
+                                  default_value: str | None = None):
+        """Add a Sequelize model field to the batch.
+
+        Schema: sequelize_model_fields(file, model_name, field_name, data_type, is_primary_key, is_nullable, is_unique, default_value)
+        """
+        self.generic_batches['sequelize_model_fields'].append((
+            file, model_name, field_name, data_type,
+            1 if is_primary_key else 0, 1 if is_nullable else 0,
+            1 if is_unique else 0, default_value
+        ))

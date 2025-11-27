@@ -89,7 +89,9 @@ class DataStorer:
         self.infrastructure._current_extracted = extracted
 
         # JSX pass filtering - only process specific data types in JSX mode
-        jsx_only_types = {'symbols', 'assignments', 'function_calls', 'returns', 'cfg'}
+        # Include junction arrays that need JSX data captured
+        jsx_only_types = {'symbols', 'assignments', 'function_calls', 'returns', 'cfg',
+                          'assignment_source_vars', 'return_source_vars'}
 
         # ======================================================================
         # DATA FIDELITY: Generate receipt by counting items passed to handlers
