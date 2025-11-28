@@ -1,17 +1,3 @@
-## REMOVED Requirements
-
-### Requirement: Findings Aggregation Source
-
-**Reason**: Findings SHALL be queried from database, not read from JSON files.
-
-**Migration**: Code using `.pf/raw/*.json` for findings aggregation SHALL query `findings_consolidated` table instead. See `consolidate-findings-queries` change for details.
-
-### Requirement: Graceful Degradation on Missing Files
-
-**Reason**: ZERO FALLBACK policy. Missing data is a bug, not a recoverable condition.
-
-**Migration**: Remove try/except handlers around JSON file reads. If data is expected, its absence should crash (exposing the bug).
-
 ## MODIFIED Requirements
 
 ### Requirement: Final Status Reporting
