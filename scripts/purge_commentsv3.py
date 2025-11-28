@@ -697,6 +697,7 @@ def purge_directory(
     preserve_semantic: bool = False,
     preserve_copyright: bool = False,
     truncate_docstrings: bool = False,
+    skip_commands: bool = False,
     dry_run: bool = False,
     extract_only: bool = False
 ) -> tuple[int, int, int, int, int]:
@@ -734,6 +735,8 @@ def purge_directory(
         safe_print("PRESERVING: Copyright/license headers")
     if truncate_docstrings:
         safe_print("TRUNCATING: Verbose docstrings to first line only")
+        if skip_commands:
+            safe_print("SKIPPING: Docstrings in commands/ directories (preserving --help)")
     safe_print("")
 
     for root, dirs, files in os.walk(directory):
@@ -746,6 +749,10 @@ def purge_directory(
                 # Normalize to forward slashes for consistent JSON output
                 filepath_normalized = filepath.replace("\\", "/")
 
+                # Check if this file is in a commands directory
+                is_command_file = "/commands/" in filepath_normalized or "\\commands\\" in filepath
+                should_truncate = truncate_docstrings and not (skip_commands and is_command_file)
+
                 removed, debt, preserved, docstrings = process_file(
                     filepath_normalized,
                     graveyard_log,
@@ -754,7 +761,7 @@ def purge_directory(
                     docstring_log,
                     preserve_semantic=preserve_semantic,
                     preserve_copyright=preserve_copyright,
-                    truncate_docstrings=truncate_docstrings,
+                    truncate_docstrings=should_truncate,
                     dry_run=dry_run or extract_only  # Don't modify source files
                 )
 
@@ -963,6 +970,12 @@ AFTER RUNNING:
     )
 
     parser.add_argument(
+        "--skip-commands",
+        action="store_true",
+        help="Skip docstring truncation in commands/ directory (preserves --help text)"
+    )
+
+    parser.add_argument(
         "--graveyard",
         default="comment_graveyard.json",
         help="Output file for ALL removed comments (default: comment_graveyard.json)"
@@ -1039,6 +1052,7 @@ AFTER RUNNING:
         preserve_semantic=args.preserve_semantic,
         preserve_copyright=args.preserve_copyright,
         truncate_docstrings=args.truncate_docstrings,
+        skip_commands=args.skip_commands,
         dry_run=args.dry_run,
         extract_only=args.extract_only
     )
