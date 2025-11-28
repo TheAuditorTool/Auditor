@@ -8,7 +8,6 @@ import sys
 
 import click
 
-from theauditor.events import ConsoleLogger
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -74,10 +73,10 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
       aud full --wipecache        # Force cache rebuild (for corruption recovery)
 
     Output Files:
-      .pf/readthis/*_chunk*.json  # Chunked findings for AI consumption
-      .pf/readthis/summary.json   # Executive summary with severity counts
-      .pf/raw/*.json              # Raw tool outputs (immutable)
+      .pf/raw/*.json              # All analysis artifacts (patterns, lint, terraform, etc.)
+      .pf/raw/audit_summary.json  # Executive summary with severity counts
       .pf/pipeline.log            # Detailed execution trace
+      .pf/fce.log                 # Factual Correlation Engine output
 
     Exit Codes:
       0 = No issues found
@@ -130,8 +129,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
 
-    logger = ConsoleLogger(quiet=quiet)
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -145,7 +142,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
                 use_subprocess_for_taint=subprocess_taint,
                 wipe_cache=wipecache,
                 index_only=index_only,
-                observer=logger,
             )
         )
     except KeyboardInterrupt:
@@ -200,7 +196,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         if low > 0:
             click.echo(f"  - Low: {low}")
 
-    click.echo("\nReview the chunked data in .pf/readthis/ for complete findings.")
+    click.echo("\nReview findings in .pf/raw/ or run 'aud summary' for overview.")
     click.echo("=" * 60)
 
     if exit_code != ExitCodes.SUCCESS:

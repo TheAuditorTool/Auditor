@@ -32,11 +32,11 @@ pip install theauditor
 # Run complete security audit (auto-creates .pf/ directory)
 aud full
 
-# View findings
-cat .pf/readthis/summary.json
+# View findings summary
+aud summary
 ```
 
-**Output**: `.pf/readthis/` contains AI-optimized finding reports (<65KB per file)
+**Output**: `.pf/raw/` contains all analysis artifacts (patterns, lint, terraform, etc.)
 
 ---
 
@@ -128,18 +128,19 @@ Runs all available linters (ruff, mypy, eslint, tsc, prettier) and normalizes ou
 
 ### 5. AI-Optimized Output
 
-All findings chunked into <65KB JSON files optimized for LLM context windows:
+All findings stored in `.pf/raw/` with machine-readable JSON format:
 
 ```
-.pf/readthis/
-├── summary.json              # Executive summary
-├── patterns_chunk01.json     # Security patterns
-├── taint_chunk01.json        # Taint analysis results
-├── terraform_chunk01.json    # Infrastructure findings
-└── *_chunk*.json             # Maximum 3 chunks per analysis type
+.pf/raw/
+├── audit_summary.json        # Executive summary with severity counts
+├── patterns.json             # Security pattern detections
+├── lint.json                 # Linter findings (ruff, mypy, eslint)
+├── terraform_findings.json   # Infrastructure security findings
+├── taint_analysis.json       # Data flow analysis results
+└── *.json                    # Additional analysis artifacts
 ```
 
-**Design Goal**: Enable AI assistants to consume complete audit results without context overflow.
+**Design Goal**: Single source of truth in database, JSON files for human inspection.
 
 ---
 
@@ -318,8 +319,8 @@ aud init
 # Run complete audit
 aud full
 
-# View findings
-cat .pf/readthis/summary.json
+# View findings summary
+aud summary
 ```
 
 ### Incremental Analysis (10-100x faster)

@@ -16,6 +16,7 @@ dependencies = [
     # BOOTSTRAP ONLY: Minimal CLI to trigger sandbox setup
     # ALL actual analysis runs in .auditor_venv/ sandbox
     "click==8.3.1",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
