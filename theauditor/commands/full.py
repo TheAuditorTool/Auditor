@@ -7,10 +7,8 @@ import asyncio
 import sys
 
 import click
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
+from theauditor.pipeline.ui import console, print_status_panel
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -132,9 +130,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
 
-    # Use Rich console for final output
-    console = Console(force_terminal=sys.stdout.isatty())
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -172,65 +167,49 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         exit_code = ExitCodes.TASK_INCOMPLETE
 
     if critical > 0:
-        status_panel = Panel(
-            Text.assemble(
-                ("STATUS: [CRITICAL]\n", "bold red"),
-                (f"Audit complete. Found {critical} critical vulnerabilities.\n", "red"),
-                ("Immediate action required - deployment should be blocked.", "red")
-            ),
-            border_style="red",
-            expand=False
+        print_status_panel(
+            "CRITICAL",
+            f"Audit complete. Found {critical} critical vulnerabilities.",
+            "Immediate action required - deployment should be blocked.",
+            level="critical"
         )
-        console.print(status_panel)
         exit_code = ExitCodes.CRITICAL_SEVERITY
     elif high > 0:
-        status_panel = Panel(
-            Text.assemble(
-                ("STATUS: [HIGH]\n", "bold yellow"),
-                (f"Audit complete. Found {high} high-severity issues.\n", "yellow"),
-                ("Priority remediation needed before next release.", "yellow")
-            ),
-            border_style="yellow",
-            expand=False
+        print_status_panel(
+            "HIGH",
+            f"Audit complete. Found {high} high-severity issues.",
+            "Priority remediation needed before next release.",
+            level="high"
         )
-        console.print(status_panel)
         if exit_code == ExitCodes.SUCCESS:
             exit_code = ExitCodes.HIGH_SEVERITY
     elif medium > 0 or low > 0:
-        status_panel = Panel(
-            Text.assemble(
-                ("STATUS: [MODERATE]\n", "bold blue"),
-                (f"Audit complete. Found {medium} medium and {low} low issues.\n", "blue"),
-                ("Schedule fixes for upcoming sprints.", "blue")
-            ),
-            border_style="blue",
-            expand=False
+        print_status_panel(
+            "MODERATE",
+            f"Audit complete. Found {medium} medium and {low} low issues.",
+            "Schedule fixes for upcoming sprints.",
+            level="medium"
         )
-        console.print(status_panel)
     else:
-        status_panel = Panel(
-            Text.assemble(
-                ("STATUS: [CLEAN]\n", "bold green"),
-                ("No critical or high-severity issues found.\n", "green"),
-                ("Codebase meets security and quality standards.", "green")
-            ),
-            border_style="green",
-            expand=False
+        print_status_panel(
+            "CLEAN",
+            "No critical or high-severity issues found.",
+            "Codebase meets security and quality standards.",
+            level="success"
         )
-        console.print(status_panel)
 
     if critical + high + medium + low > 0:
         console.print("\n[bold]Findings breakdown:[/bold]")
         if critical > 0:
-            console.print(f"  - [bold red]Critical: {critical}[/bold red]")
+            console.print(f"  - [critical]Critical: {critical}[/critical]")
         if high > 0:
-            console.print(f"  - [bold yellow]High:     {high}[/bold yellow]")
+            console.print(f"  - [high]High:     {high}[/high]")
         if medium > 0:
-            console.print(f"  - [bold blue]Medium:   {medium}[/bold blue]")
+            console.print(f"  - [medium]Medium:   {medium}[/medium]")
         if low > 0:
-            console.print(f"  - [cyan]Low:      {low}[/cyan]")
+            console.print(f"  - [low]Low:      {low}[/low]")
 
-    console.print("\nReview the findings in [bold cyan].pf/raw/[/bold cyan] or run 'aud summary' for overview.")
+    console.print("\nReview the findings in [path].pf/raw/[/path] or run [cmd]aud summary[/cmd] for overview.")
     console.rule()
 
     if exit_code != ExitCodes.SUCCESS:
