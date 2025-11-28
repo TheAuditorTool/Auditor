@@ -79,6 +79,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             "import_specifiers": [],
             "import_style_names": [],
             "sequelize_model_fields": [],
+            "cfg_blocks": [],
+            "cfg_edges": [],
+            "cfg_block_statements": [],
         }
 
         if not tree or not self.ast_parser:
@@ -160,6 +163,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "import_style_names": "import_style_names",
                     "sequelize_model_fields": "sequelize_model_fields",
                     "jwt_patterns": "jwt_patterns",
+                    "cfg_blocks": "cfg_blocks",
+                    "cfg_edges": "cfg_edges",
+                    "cfg_block_statements": "cfg_block_statements",
                 }
 
                 for js_key, python_key in key_mappings.items():
