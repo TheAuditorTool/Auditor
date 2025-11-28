@@ -77,7 +77,7 @@
 
 ### 2.1 Problem Analysis
 
-**Current Flow** (`batch_templates.js:119-175`):
+**Current Flow** (`batch_templates.js:134-180`):
 
 ```javascript
 function prepareVueSfcFile(filePath) {
@@ -471,18 +471,23 @@ No migration needed - database is regenerated on each `aud full`.
 The resolver is called from `theauditor/indexer/orchestrator.py` in the post-processing phase:
 
 ```python
-# Location: theauditor/indexer/orchestrator.py:491 (after resolve_handler_file_paths)
-# Add this line:
+# Location: theauditor/indexer/orchestrator.py:467 (after resolve_handler_file_paths)
+# Add this block:
+if os.environ.get("THEAUDITOR_DEBUG"):
+    print("[INDEXER] PHASE 6.10: Resolving import paths...", file=sys.stderr)
 JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+self.db_manager.commit()
 ```
 
-**Existing resolver calls** (for reference, lines 474-490):
+**Existing resolver calls** (for reference, lines 449-466):
 ```python
-# Line 474:
+# Line 449:
 JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
-# Line 490:
+# Line 457:
+JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
+# Line 465:
 JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
-# Line 491 (ADD HERE):
+# Line 467 (ADD HERE):
 JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
 ```
 
@@ -537,7 +542,8 @@ Both are backwards-compatible. Schema change is additive (new column can be igno
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2025-11-28 | 2.1 | **IRONCLAD**: Added current schema, exact integration point (orchestrator.py:491) |
+| 2025-11-28 | 3.0 | **LINE NUMBER SYNC**: Re-verified all line numbers. prepareVueSfcFile:134-180, orchestrator integration:467 |
+| 2025-11-28 | 2.1 | **IRONCLAD**: Added current schema, exact integration point |
 | 2025-11-28 | 2.0 | **ARCHITECTURE REWRITE**: Section 3 rewritten for post-indexing DB-first resolution |
 | 2025-11-28 | 1.1 | Line numbers updated after schema normalizations |
 | 2025-11-24 | 1.0 | Initial design document |

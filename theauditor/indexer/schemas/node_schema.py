@@ -435,11 +435,13 @@ IMPORT_STYLES = TableSchema(
         Column("import_style", "TEXT", nullable=False),
         Column("alias_name", "TEXT"),
         Column("full_statement", "TEXT"),
+        Column("resolved_path", "TEXT"),  # Post-indexing resolution target
     ],
     indexes=[
         ("idx_import_styles_file", ["file"]),
         ("idx_import_styles_package", ["package"]),
         ("idx_import_styles_style", ["import_style"]),
+        ("idx_import_styles_resolved", ["resolved_path"]),
     ],
 )
 

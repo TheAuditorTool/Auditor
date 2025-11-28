@@ -165,8 +165,13 @@ function prepareVueSfcFile(filePath) {
     (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
     (descriptor.script && descriptor.script.lang) ||
     "js";
-  const tempFilePath = createVueTempPath(scopeId, langHint || "js");
-  fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+  // REMOVED: Disk I/O eliminated - using in-memory virtual file system
+  // const tempFilePath = createVueTempPath(scopeId, langHint || "js");
+  // fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+
+  // Generate virtual path for in-memory TypeScript processing
+  const isTs = langHint && langHint.toLowerCase().includes("ts");
+  const virtualPath = `/virtual_vue/${scopeId}.${isTs ? "ts" : "js"}`;
 
   let templateAst = null;
   if (descriptor.template && descriptor.template.content) {
@@ -191,12 +196,52 @@ function prepareVueSfcFile(filePath) {
   }
 
   return {
-    tempFilePath,
+    virtualPath,
+    scriptContent: compiledScript.content,
     descriptor,
     compiledScript,
     templateAst,
     scopeId,
     hasStyle: descriptor.styles && descriptor.styles.length > 0,
+  };
+}
+
+/**
+ * Create a custom TypeScript CompilerHost that serves Vue files from memory.
+ * This eliminates disk I/O for Vue SFC compilation.
+ *
+ * @param {object} ts - TypeScript module
+ * @param {object} compilerOptions - TypeScript compiler options
+ * @param {Map<string, string>} vueContentMap - Map of virtual path -> script content
+ * @returns {object} Custom CompilerHost
+ */
+function createVueAwareCompilerHost(ts, compilerOptions, vueContentMap) {
+  const defaultHost = ts.createCompilerHost(compilerOptions);
+
+  return {
+    ...defaultHost,
+
+    fileExists: (fileName) => {
+      if (vueContentMap.has(fileName)) {
+        return true;
+      }
+      return defaultHost.fileExists(fileName);
+    },
+
+    readFile: (fileName) => {
+      if (vueContentMap.has(fileName)) {
+        return vueContentMap.get(fileName);
+      }
+      return defaultHost.readFile(fileName);
+    },
+
+    getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      if (vueContentMap.has(fileName)) {
+        const content = vueContentMap.get(fileName);
+        return ts.createSourceFile(fileName, content, languageVersion, true);
+      }
+      return defaultHost.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    },
   };
 }
 
@@ -299,9 +344,9 @@ async function main() {
       if (ext === ".vue") {
         try {
           const vueMeta = prepareVueSfcFile(absoluteFilePath);
-          fileEntry.absolute = vueMeta.tempFilePath;
-          fileEntry.cleanup = vueMeta.tempFilePath;
+          fileEntry.absolute = vueMeta.virtualPath;  // Use virtual path for in-memory TS
           fileEntry.vueMeta = vueMeta;
+          // cleanup is null - no temp files to clean up
         } catch (err) {
           preprocessingErrors.set(
             filePath,
@@ -386,10 +431,22 @@ async function main() {
           }
         }
         const projectReferences = parsedConfig.projectReferences || [];
+
+        // Build vueContentMap for in-memory Vue file handling
+        const vueContentMap = new Map();
+        for (const fileInfo of groupedFiles) {
+          if (fileInfo.vueMeta) {
+            vueContentMap.set(fileInfo.vueMeta.virtualPath, fileInfo.vueMeta.scriptContent);
+          }
+        }
+        const host = vueContentMap.size > 0
+          ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
+          : undefined;
+
         program = ts.createProgram(
           groupedFiles.map((f) => f.absolute),
           compilerOptions,
-          undefined,
+          host,
           undefined,
           undefined,
           projectReferences,
@@ -407,9 +464,22 @@ async function main() {
           baseUrl: resolvedProjectRoot,
           rootDir: resolvedProjectRoot,
         };
+
+        // Build vueContentMap for in-memory Vue file handling
+        const vueContentMap = new Map();
+        for (const fileInfo of groupedFiles) {
+          if (fileInfo.vueMeta) {
+            vueContentMap.set(fileInfo.vueMeta.virtualPath, fileInfo.vueMeta.scriptContent);
+          }
+        }
+        const host = vueContentMap.size > 0
+          ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
+          : undefined;
+
         program = ts.createProgram(
           groupedFiles.map((f) => f.absolute),
           compilerOptions,
+          host,
         );
       }
 
@@ -941,8 +1011,13 @@ function prepareVueSfcFile(filePath) {
     (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
     (descriptor.script && descriptor.script.lang) ||
     "js";
-  const tempFilePath = createVueTempPath(scopeId, langHint || "js");
-  fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+  // REMOVED: Disk I/O eliminated - using in-memory virtual file system
+  // const tempFilePath = createVueTempPath(scopeId, langHint || "js");
+  // fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+
+  // Generate virtual path for in-memory TypeScript processing
+  const isTs = langHint && langHint.toLowerCase().includes("ts");
+  const virtualPath = `/virtual_vue/${scopeId}.${isTs ? "ts" : "js"}`;
 
   let templateAst = null;
   if (descriptor.template && descriptor.template.content) {
@@ -967,10 +1042,52 @@ function prepareVueSfcFile(filePath) {
   }
 
   return {
-    tempFilePath,
+    virtualPath,
+    scriptContent: compiledScript.content,
     scopeId,
     descriptor,
+    compiledScript,
     templateAst,
+    hasStyle: descriptor.styles && descriptor.styles.length > 0,
+  };
+}
+
+/**
+ * Create a custom TypeScript CompilerHost that serves Vue files from memory.
+ * This eliminates disk I/O for Vue SFC compilation.
+ *
+ * @param {object} ts - TypeScript module
+ * @param {object} compilerOptions - TypeScript compiler options
+ * @param {Map<string, string>} vueContentMap - Map of virtual path -> script content
+ * @returns {object} Custom CompilerHost
+ */
+function createVueAwareCompilerHost(ts, compilerOptions, vueContentMap) {
+  const defaultHost = ts.createCompilerHost(compilerOptions);
+
+  return {
+    ...defaultHost,
+
+    fileExists: (fileName) => {
+      if (vueContentMap.has(fileName)) {
+        return true;
+      }
+      return defaultHost.fileExists(fileName);
+    },
+
+    readFile: (fileName) => {
+      if (vueContentMap.has(fileName)) {
+        return vueContentMap.get(fileName);
+      }
+      return defaultHost.readFile(fileName);
+    },
+
+    getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      if (vueContentMap.has(fileName)) {
+        const content = vueContentMap.get(fileName);
+        return ts.createSourceFile(fileName, content, languageVersion, true);
+      }
+      return defaultHost.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    },
   };
 }
 
@@ -1091,9 +1208,9 @@ try {
     if (ext === ".vue") {
       try {
         const vueMeta = prepareVueSfcFile(absoluteFilePath);
-        fileEntry.absolute = vueMeta.tempFilePath;
-        fileEntry.cleanup = vueMeta.tempFilePath;
+        fileEntry.absolute = vueMeta.virtualPath;  // Use virtual path for in-memory TS
         fileEntry.vueMeta = vueMeta;
+        // cleanup is null - no temp files to clean up
       } catch (err) {
         preprocessingErrors.set(
           filePath,
@@ -1165,10 +1282,22 @@ try {
         }
       }
       const projectReferences = parsedConfig.projectReferences || [];
+
+      // Build vueContentMap for in-memory Vue file handling
+      const vueContentMap = new Map();
+      for (const fileInfo of groupedFiles) {
+        if (fileInfo.vueMeta) {
+          vueContentMap.set(fileInfo.vueMeta.virtualPath, fileInfo.vueMeta.scriptContent);
+        }
+      }
+      const host = vueContentMap.size > 0
+        ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
+        : undefined;
+
       program = ts.createProgram(
         groupedFiles.map((f) => f.absolute),
         compilerOptions,
-        undefined,
+        host,
         undefined,
         undefined,
         projectReferences,
@@ -1186,9 +1315,22 @@ try {
         baseUrl: resolvedProjectRoot,
         rootDir: resolvedProjectRoot,
       };
+
+      // Build vueContentMap for in-memory Vue file handling
+      const vueContentMap = new Map();
+      for (const fileInfo of groupedFiles) {
+        if (fileInfo.vueMeta) {
+          vueContentMap.set(fileInfo.vueMeta.virtualPath, fileInfo.vueMeta.scriptContent);
+        }
+      }
+      const host = vueContentMap.size > 0
+        ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
+        : undefined;
+
       program = ts.createProgram(
         groupedFiles.map((f) => f.absolute),
         compilerOptions,
+        host,
       );
     }
 

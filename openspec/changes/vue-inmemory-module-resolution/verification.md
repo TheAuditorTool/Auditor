@@ -36,19 +36,19 @@ Read `theauditor/ast_extractors/javascript/batch_templates.js` to find disk I/O 
 
 **File**: `theauditor/ast_extractors/javascript/batch_templates.js`
 
-**ES Module Variant (lines 146-147)**:
+**ES Module Variant (lines 168-169)**:
 ```javascript
 const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
 ```
 
-**CommonJS Variant (lines 750-751)**:
+**CommonJS Variant (lines 944-945)**:
 ```javascript
 const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
 fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
 ```
 
-**Cleanup Code (ES Module lines 618-621)**:
+**Cleanup Code (ES Module line 793, CommonJS line 1531)**:
 ```javascript
 finally {
     if (fileInfo.cleanup) {
@@ -278,11 +278,11 @@ Before implementation, the proposal was rewritten (v2.0) with:
 
 ## Architect Approval
 
-**Status**: PENDING
+**Status**: APPROVED 2025-11-28
 
-- [ ] Architect has reviewed verification findings
-- [ ] Architect approves corrected proposal (v2.0)
-- [ ] Architect authorizes implementation to begin
+- [x] Architect has reviewed verification findings
+- [x] Architect approves corrected proposal (v4.0 with line number sync)
+- [x] Architect authorizes implementation to begin
 
 ---
 
@@ -290,6 +290,7 @@ Before implementation, the proposal was rewritten (v2.0) with:
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2025-11-28 | 3.0 | **LINE NUMBER SYNC**: ES prepareVueSfcFile:134, fs.writeFileSync:169/945, cleanup:793/1531 |
 | 2025-11-28 | 2.2 | Line numbers re-verified and updated (747-749) |
 | 2025-11-27 | 2.1 | Re-verified after schema normalization |
 | 2025-11-24 | 2.0 | Complete verification with corrected paths |
