@@ -459,20 +459,10 @@ CFG_BLOCK_STATEMENTS_JSX = TableSchema(
     ],
 )
 
-# ============================================================================
-# FINDINGS TABLE (Sparse Wide Table pattern - NO JSON blobs)
-# ============================================================================
-# ARCHITECTURE: Tool-specific metadata stored in typed columns, not JSON.
-# - 79% of rows have NULL for tool-specific columns (free storage in SQLite)
-# - Enables SQL filtering: WHERE cfg_complexity > 10
-# - Eliminates json.loads() overhead in FCE
-# - Taint complex data lives in taint_flows table, not here
-# ============================================================================
 
 FINDINGS_CONSOLIDATED = TableSchema(
     name="findings_consolidated",
     columns=[
-        # === CORE COLUMNS (13) - Unchanged ===
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
@@ -486,51 +476,41 @@ FINDINGS_CONSOLIDATED = TableSchema(
         Column("code_snippet", "TEXT"),
         Column("cwe", "TEXT"),
         Column("timestamp", "TEXT", nullable=False),
-
-        # === CFG-ANALYSIS COLUMNS (9) - 66 rows use these ===
-        Column("cfg_function", "TEXT"),           # Function name
-        Column("cfg_complexity", "INTEGER"),      # Cyclomatic complexity
-        Column("cfg_block_count", "INTEGER"),     # Number of basic blocks
-        Column("cfg_edge_count", "INTEGER"),      # Number of control flow edges
-        Column("cfg_has_loops", "INTEGER"),       # Boolean as 0/1
-        Column("cfg_has_recursion", "INTEGER"),   # Boolean as 0/1
-        Column("cfg_start_line", "INTEGER"),      # Function start line
-        Column("cfg_end_line", "INTEGER"),        # Function end line
-        Column("cfg_threshold", "INTEGER"),       # Complexity threshold used
-
-        # === GRAPH-ANALYSIS COLUMNS (7) - 50 rows use these ===
-        Column("graph_id", "TEXT"),               # Node identifier
-        Column("graph_in_degree", "INTEGER"),     # Incoming connections
-        Column("graph_out_degree", "INTEGER"),    # Outgoing connections
-        Column("graph_total_connections", "INTEGER"),  # Total connections
-        Column("graph_centrality", "REAL"),       # Betweenness centrality
-        Column("graph_score", "REAL"),            # Composite hotspot score
-        Column("graph_cycle_nodes", "TEXT"),      # Comma-separated node list for cycles
-
-        # === MYPY COLUMNS (3) - 4,397 rows use these ===
-        Column("mypy_error_code", "TEXT"),        # e.g., "arg-type", "no-untyped-def"
-        Column("mypy_severity_int", "INTEGER"),   # Severity as integer
-        Column("mypy_column", "INTEGER"),         # Column number from mypy
-
-        # === TERRAFORM COLUMNS (4) - 7 rows use these ===
-        Column("tf_finding_id", "TEXT"),          # Terraform finding ID
-        Column("tf_resource_id", "TEXT"),         # Resource identifier
-        Column("tf_remediation", "TEXT"),         # Remediation guidance
-        Column("tf_graph_context", "TEXT"),       # Graph context (stringified)
+        Column("cfg_function", "TEXT"),
+        Column("cfg_complexity", "INTEGER"),
+        Column("cfg_block_count", "INTEGER"),
+        Column("cfg_edge_count", "INTEGER"),
+        Column("cfg_has_loops", "INTEGER"),
+        Column("cfg_has_recursion", "INTEGER"),
+        Column("cfg_start_line", "INTEGER"),
+        Column("cfg_end_line", "INTEGER"),
+        Column("cfg_threshold", "INTEGER"),
+        Column("graph_id", "TEXT"),
+        Column("graph_in_degree", "INTEGER"),
+        Column("graph_out_degree", "INTEGER"),
+        Column("graph_total_connections", "INTEGER"),
+        Column("graph_centrality", "REAL"),
+        Column("graph_score", "REAL"),
+        Column("graph_cycle_nodes", "TEXT"),
+        Column("mypy_error_code", "TEXT"),
+        Column("mypy_severity_int", "INTEGER"),
+        Column("mypy_column", "INTEGER"),
+        Column("tf_finding_id", "TEXT"),
+        Column("tf_resource_id", "TEXT"),
+        Column("tf_remediation", "TEXT"),
+        Column("tf_graph_context", "TEXT"),
     ],
     indexes=[
-        # Existing indexes (unchanged)
         ("idx_findings_file_line", ["file", "line"]),
         ("idx_findings_tool", ["tool"]),
         ("idx_findings_severity", ["severity"]),
         ("idx_findings_rule", ["rule"]),
         ("idx_findings_category", ["category"]),
         ("idx_findings_tool_rule", ["tool", "rule"]),
-        # Partial indexes for sparse columns (3-tuple: name, columns, WHERE clause)
         ("idx_findings_cfg_complexity", ["cfg_complexity"], "cfg_complexity IS NOT NULL"),
         ("idx_findings_graph_score", ["graph_score"], "graph_score IS NOT NULL"),
         ("idx_findings_mypy_error_code", ["mypy_error_code"], "mypy_error_code IS NOT NULL"),
-    ]
+    ],
 )
 
 

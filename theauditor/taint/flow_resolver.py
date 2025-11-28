@@ -58,7 +58,6 @@ class FlowResolver:
         self.max_flows = 100_000
         self.max_flows_per_entry = 1_000
 
-        # Initialize shared sanitizer registry (pass our registry for pattern lookups)
         self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=registry)
 
         self.adjacency_list: dict[str, list[str]] = defaultdict(list)
@@ -140,16 +139,16 @@ class FlowResolver:
             Language identifier ('python', 'javascript', 'rust', 'unknown')
         """
         if not file_path:
-            return 'unknown'
+            return "unknown"
 
         lower = file_path.lower()
-        if lower.endswith('.py'):
-            return 'python'
-        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
-            return 'javascript'
-        elif lower.endswith('.rs'):
-            return 'rust'
-        return 'unknown'
+        if lower.endswith(".py"):
+            return "python"
+        elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
+            return "javascript"
+        elif lower.endswith(".rs"):
+            return "rust"
+        return "unknown"
 
     def _get_request_fields(self, file_path: str) -> list[str]:
         """Get request field patterns for a file's language.
@@ -165,7 +164,7 @@ class FlowResolver:
         Raises:
             ValueError: If registry is not provided (ZERO FALLBACK POLICY)
         """
-        # ZERO FALLBACK POLICY - Registry is MANDATORY
+
         if not self.registry:
             raise ValueError(
                 "TaintRegistry is MANDATORY for FlowResolver._get_request_fields(). "
@@ -175,8 +174,14 @@ class FlowResolver:
         lang = self._get_language_for_file(file_path)
         patterns = self.registry.get_source_patterns(lang)
 
-        # Filter to only request-related patterns
-        request_patterns = [p for p in patterns if any(kw in p.lower() for kw in ['req', 'request', 'body', 'params', 'query', 'form', 'args', 'json'])]
+        request_patterns = [
+            p
+            for p in patterns
+            if any(
+                kw in p.lower()
+                for kw in ["req", "request", "body", "params", "query", "form", "args", "json"]
+            )
+        ]
 
         return request_patterns
 
@@ -195,28 +200,23 @@ class FlowResolver:
         cursor = self.graph_conn.cursor()
         entry_nodes = []
 
-        # FIX: Query graphs.db DIRECTLY for request source nodes
-        # Old code tried to construct node IDs from express_middleware_chains.handler_function
-        # but that column stores wrapper format (handler(controllerName.method)) which doesn't
-        # match actual node IDs in graphs.db (ControllerClass.method::req.body)
-        #
-        # New approach: Query for all nodes matching request source patterns directly
-        # Collect patterns from ALL languages since we're querying the full graph
         request_patterns = []
         if self.registry:
-            for lang in ['javascript', 'python', 'rust']:
+            for lang in ["javascript", "python", "rust"]:
                 patterns = self.registry.get_source_patterns(lang)
                 for p in patterns:
                     if p not in request_patterns:
                         request_patterns.append(p)
 
         for pattern in request_patterns:
-            # Find all nodes in graphs.db that end with this pattern
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id FROM nodes
                 WHERE graph_type = 'data_flow'
                   AND (id LIKE ? OR id LIKE ?)
-            """, (f'%::{pattern}', f'%::{pattern}.%'))
+            """,
+                (f"%::{pattern}", f"%::{pattern}.%"),
+            )
 
             for (node_id,) in cursor.fetchall():
                 if node_id not in entry_nodes:
@@ -586,18 +586,9 @@ class FlowResolver:
             status: Flow classification (VULNERABLE, SANITIZED, or TRUNCATED)
             sanitizer_meta: Sanitizer metadata dict if flow is SANITIZED, None otherwise
         """
-        # ------------------------------------------------------------------
-        # STEP 0: FILTER GARBAGE (Self-referential flows are not real flows)
-        # Skip recording if source == sink with no actual path traversal
-        # ------------------------------------------------------------------
-        if source == sink or len(path) < 2:
-            return  # Not a real flow - source and sink are the same node
 
-        # ------------------------------------------------------------------
-        # STEP 1: EXTRACT IDENTITY (THE FINGERPRINT)
-        # We parse the strings to get the clean file/variable names.
-        # This is the "Fingerprint" of the flow.
-        # ------------------------------------------------------------------
+        if source == sink or len(path) < 2:
+            return
 
         source_parts = source.split("::")
         source_file = source_parts[0] if len(source_parts) > 0 else ""

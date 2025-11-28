@@ -55,7 +55,7 @@ class SanitizerRegistry:
             """)
 
             for row in self.repo_cursor.fetchall():
-                pattern = row['sink_pattern']
+                pattern = row["sink_pattern"]
                 if pattern:
                     self.safe_sinks.add(pattern)
 
@@ -164,16 +164,16 @@ class SanitizerRegistry:
             Language identifier ('python', 'javascript', 'rust', 'unknown')
         """
         if not file_path:
-            return 'unknown'
+            return "unknown"
 
         lower = file_path.lower()
-        if lower.endswith('.py'):
-            return 'python'
-        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
-            return 'javascript'
-        elif lower.endswith('.rs'):
-            return 'rust'
-        return 'unknown'
+        if lower.endswith(".py"):
+            return "python"
+        elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
+            return "javascript"
+        elif lower.endswith(".rs"):
+            return "rust"
+        return "unknown"
 
     def _get_validation_patterns(self, file_path: str) -> list[str]:
         """Get validation/sanitizer patterns for a file's language.
@@ -188,7 +188,6 @@ class SanitizerRegistry:
         """
         lang = self._get_language_for_file(file_path)
 
-        # ZERO FALLBACK POLICY - Registry is MANDATORY
         if not self.registry:
             raise ValueError(
                 "TaintRegistry is MANDATORY for SanitizerRegistry._get_validation_patterns(). "
@@ -240,8 +239,7 @@ class SanitizerRegistry:
 
                 if len(parts) > 1:
                     func = parts[1]
-                    # CHECK 0: Validation middleware patterns in function name
-                    # Get language-specific patterns from registry
+
                     validation_patterns = self._get_validation_patterns(hop_file)
                     for pattern in validation_patterns:
                         if pattern in func:
@@ -260,8 +258,6 @@ class SanitizerRegistry:
             if self.debug:
                 print(f"[SanitizerRegistry] Hop {i + 1}: {hop_file}:{hop_line}", file=sys.stderr)
 
-            # CHECK 1: Validation patterns in node string (IFDS comprehensive check)
-            # Uses same registry-driven patterns as CHECK 0 (no more duplication)
             if node_str:
                 validation_patterns = self._get_validation_patterns(hop_file)
                 for pattern in validation_patterns:

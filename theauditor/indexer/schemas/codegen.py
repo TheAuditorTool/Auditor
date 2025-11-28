@@ -150,10 +150,9 @@ class SchemaCodeGenerator:
             )
             code.append("")
 
-            # Generate get_by_{column} for indexed columns
             for idx_def in schema.indexes:
-                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples
-                if len(idx_cols) == 1:  # Single column index
+                _idx_name, idx_cols = idx_def[0], idx_def[1]
+                if len(idx_cols) == 1:
                     col_name = idx_cols[0]
 
                     col_def = next((c for c in schema.columns if c.name == col_name), None)
@@ -217,9 +216,13 @@ class SchemaCodeGenerator:
         code.append("                data = []")
         code.append("            setattr(self, table_name, data)")
         code.append("")
-        code.append("            # Auto-build indexes for indexed columns (always create, even if empty)")
+        code.append(
+            "            # Auto-build indexes for indexed columns (always create, even if empty)"
+        )
         code.append("            for idx_def in schema.indexes:")
-        code.append("                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples")
+        code.append(
+            "                _idx_name, idx_cols = idx_def[0], idx_def[1]  # Handle 2 or 3 element tuples"
+        )
         code.append("                if len(idx_cols) == 1:  # Single column index")
         code.append("                    col_name = idx_cols[0]")
         code.append(

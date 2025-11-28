@@ -43,22 +43,17 @@ class TypeResolver:
         Returns:
             Model name if found, None otherwise
         """
-        # Check cache first
+
         if node_id in self._model_cache:
             return self._model_cache[node_id]
 
-        # Query nodes table
-        self.graph_cursor.execute(
-            "SELECT metadata FROM nodes WHERE id = ?",
-            (node_id,)
-        )
+        self.graph_cursor.execute("SELECT metadata FROM nodes WHERE id = ?", (node_id,))
         row = self.graph_cursor.fetchone()
 
         model = None
         if row and row[0]:
             model = self._extract_model_from_metadata(row[0])
 
-        # Cache result (even None)
         self._model_cache[node_id] = model
         return model
 
@@ -79,18 +74,15 @@ class TypeResolver:
         except (json.JSONDecodeError, TypeError):
             return None
 
-        # Direct 'model' key (from ORM strategies)
-        if 'model' in metadata:
-            return metadata['model']
+        if "model" in metadata:
+            return metadata["model"]
 
-        # Extract from query_type (e.g., 'User.findAll' -> 'User')
-        query_type = metadata.get('query_type', '')
-        if query_type and '.' in query_type:
-            return query_type.split('.')[0]
+        query_type = metadata.get("query_type", "")
+        if query_type and "." in query_type:
+            return query_type.split(".")[0]
 
-        # Extract from target_model (from ORM relationship edges)
-        if 'target_model' in metadata:
-            return metadata['target_model']
+        if "target_model" in metadata:
+            return metadata["target_model"]
 
         return None
 
@@ -110,7 +102,6 @@ class TypeResolver:
         model_a = self.get_model_for_node(node_a_id)
         model_b = self.get_model_for_node(node_b_id)
 
-        # Both must have a model, and they must match
         if model_a and model_b:
             return model_a == model_b
 
@@ -128,13 +119,12 @@ class TypeResolver:
             True if file contains API endpoints
         """
         if self.repo_cursor is None:
-            # No repo cursor - fall back to name-based heuristic
             lower = file_path.lower()
-            return any(pattern in lower for pattern in [
-                'controller', 'routes', 'handlers', 'views', 'endpoints'
-            ])
+            return any(
+                pattern in lower
+                for pattern in ["controller", "routes", "handlers", "views", "endpoints"]
+            )
 
-        # Lazy load controller files
         if self._controller_files is None:
             self._load_controller_files()
 
@@ -173,15 +163,13 @@ class TypeResolver:
         else:
             return None
 
-        # Check common keys
-        for key in ['model', 'target_model', 'source_model']:
+        for key in ["model", "target_model", "source_model"]:
             if key in metadata:
                 return metadata[key]
 
-        # Extract from query_type
-        query_type = metadata.get('query_type', '')
-        if query_type and '.' in query_type:
-            return query_type.split('.')[0]
+        query_type = metadata.get("query_type", "")
+        if query_type and "." in query_type:
+            return query_type.split(".")[0]
 
         return None
 
