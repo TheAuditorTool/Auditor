@@ -292,5 +292,5 @@ You are in a very good place. To get a "Green" board:
 
 
 
-Would you like me to help you debug the `aud suggest` crash if you paste the stack trace?
-
+Other known issues:
+linters.py is trying to load json and/or json blob parsing...
