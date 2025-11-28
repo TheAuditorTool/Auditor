@@ -379,16 +379,98 @@ PACKAGE_CONFIGS = TableSchema(
         Column("file_path", "TEXT", nullable=False, primary_key=True),
         Column("package_name", "TEXT"),
         Column("version", "TEXT"),
-        Column("dependencies", "TEXT"),
-        Column("dev_dependencies", "TEXT"),
-        Column("peer_dependencies", "TEXT"),
-        Column("scripts", "TEXT"),
-        Column("engines", "TEXT"),
-        Column("workspaces", "TEXT"),
         Column("private", "BOOLEAN", default="0"),
     ],
     indexes=[
         ("idx_package_configs_file", ["file_path"]),
+    ],
+)
+
+
+# Junction tables for package_configs (replaces JSON blob columns)
+PACKAGE_DEPENDENCIES = TableSchema(
+    name="package_dependencies",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("name", "TEXT", nullable=False),
+        Column("version_spec", "TEXT"),
+        Column("is_dev", "BOOLEAN", default="0"),
+        Column("is_peer", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_package_dependencies_file_path", ["file_path"]),
+        ("idx_package_dependencies_name", ["name"]),
+    ],
+    unique_constraints=[["file_path", "name", "is_dev", "is_peer"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="package_configs",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
+PACKAGE_SCRIPTS = TableSchema(
+    name="package_scripts",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("script_name", "TEXT", nullable=False),
+        Column("script_command", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_package_scripts_file_path", ["file_path"]),
+    ],
+    unique_constraints=[["file_path", "script_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="package_configs",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
+PACKAGE_ENGINES = TableSchema(
+    name="package_engines",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("engine_name", "TEXT", nullable=False),
+        Column("version_spec", "TEXT"),
+    ],
+    indexes=[
+        ("idx_package_engines_file_path", ["file_path"]),
+    ],
+    unique_constraints=[["file_path", "engine_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="package_configs",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
+PACKAGE_WORKSPACES = TableSchema(
+    name="package_workspaces",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("workspace_path", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_package_workspaces_file_path", ["file_path"]),
+    ],
+    unique_constraints=[["file_path", "workspace_path"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="package_configs",
+            foreign_columns=["file_path"],
+        )
     ],
 )
 
@@ -862,6 +944,10 @@ NODE_TABLES: dict[str, TableSchema] = {
     "vue_provide_inject": VUE_PROVIDE_INJECT,
     "type_annotations": TYPE_ANNOTATIONS,
     "package_configs": PACKAGE_CONFIGS,
+    "package_dependencies": PACKAGE_DEPENDENCIES,
+    "package_scripts": PACKAGE_SCRIPTS,
+    "package_engines": PACKAGE_ENGINES,
+    "package_workspaces": PACKAGE_WORKSPACES,
     "dependency_versions": DEPENDENCY_VERSIONS,
     "lock_analysis": LOCK_ANALYSIS,
     "import_styles": IMPORT_STYLES,

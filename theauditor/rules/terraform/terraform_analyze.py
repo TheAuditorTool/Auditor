@@ -70,15 +70,15 @@ def _check_public_s3_buckets(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type = 'aws_s3_bucket'
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
         resource_id = row["resource_id"]
+        properties = _get_resource_properties(cursor, resource_id)
         snippet = f'resource "aws_s3_bucket" "{row["resource_name"]}"'
         line = row["line"] or 1
 
@@ -122,14 +122,14 @@ def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type IN ('aws_db_instance', 'aws_rds_cluster')
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
+        properties = _get_resource_properties(cursor, row["resource_id"])
         if not properties.get("storage_encrypted"):
             findings.append(
                 _build_finding(
@@ -149,14 +149,14 @@ def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type = 'aws_ebs_volume'
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
+        properties = _get_resource_properties(cursor, row["resource_id"])
         if not properties.get("encrypted"):
             findings.append(
                 _build_finding(
@@ -179,14 +179,14 @@ def _check_iam_wildcards(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type IN ('aws_iam_policy', 'aws_iam_role_policy')
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
+        properties = _get_resource_properties(cursor, row["resource_id"])
         policy_str = properties.get("policy")
         policy = _load_json(policy_str) if isinstance(policy_str, str) else None
         if not policy:
@@ -235,15 +235,15 @@ def _check_resource_secrets(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json,
-               sensitive_flags_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
-        sensitive_props = _load_json(row["sensitive_flags_json"]) or []
+        resource_id = row["resource_id"]
+        properties = _get_resource_properties(cursor, resource_id)
+        sensitive_props = _get_sensitive_properties(cursor, resource_id)
 
         for prop_name in sensitive_props:
             prop_value = properties.get(prop_name)
@@ -305,14 +305,14 @@ def _check_missing_encryption(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type = 'aws_sns_topic'
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"])
+        properties = _get_resource_properties(cursor, row["resource_id"])
         if "kms_master_key_id" not in properties:
             findings.append(
                 _build_finding(
@@ -335,14 +335,14 @@ def _check_security_groups(cursor) -> list[StandardFinding]:
 
     cursor.execute(
         """
-        SELECT resource_id, file_path, resource_name, properties_json, line
+        SELECT resource_id, file_path, resource_name, line
         FROM terraform_resources
         WHERE resource_type IN ('aws_security_group', 'aws_security_group_rule')
         """
     )
 
     for row in cursor.fetchall():
-        properties = _load_json(row["properties_json"]) or {}
+        properties = _get_resource_properties(cursor, row["resource_id"]) or {}
         ingress_rules = properties.get("ingress", [])
         if isinstance(ingress_rules, dict):
             ingress_rules = [ingress_rules]
@@ -388,6 +388,41 @@ def _load_json(raw: Any) -> Any:
         return json.loads(raw)
     except (TypeError, json.JSONDecodeError):
         return {}
+
+
+def _get_resource_properties(cursor, resource_id: str) -> dict:
+    """Get resource properties from junction table."""
+    cursor.execute(
+        """
+        SELECT property_name, property_value
+        FROM terraform_resource_properties
+        WHERE resource_id = ?
+        """,
+        (resource_id,),
+    )
+    properties = {}
+    for row in cursor.fetchall():
+        value = row["property_value"]
+        if value:
+            try:
+                properties[row["property_name"]] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                properties[row["property_name"]] = value
+        else:
+            properties[row["property_name"]] = value
+    return properties
+
+
+def _get_sensitive_properties(cursor, resource_id: str) -> list[str]:
+    """Get list of sensitive property names from junction table."""
+    cursor.execute(
+        """
+        SELECT property_name FROM terraform_resource_properties
+        WHERE resource_id = ? AND is_sensitive = 1
+        """,
+        (resource_id,),
+    )
+    return [row["property_name"] for row in cursor.fetchall()]
 
 
 def _is_high_entropy_secret(value: str, threshold: float = 4.0) -> bool:

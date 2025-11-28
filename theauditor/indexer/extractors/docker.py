@@ -123,15 +123,51 @@ class DockerExtractor(BaseExtractor):
             if user:
                 env_vars["_DOCKER_USER"] = user
 
+            file_path_str = str(file_info["path"])
+
+            # Parent table (metadata only - data goes to junction tables)
             self.db_manager.add_docker_image(
-                file_path=str(file_info["path"]),
+                file_path=file_path_str,
                 base_image=base_image,
-                ports=exposed_ports if exposed_ports else [],
-                env_vars=env_vars,
-                build_args=build_args,
                 user=user,
                 has_healthcheck=has_healthcheck,
             )
+
+            # Junction table: ports
+            for port_str in exposed_ports:
+                port_str = str(port_str)
+                protocol = "tcp"
+                if "/" in port_str:
+                    port_str, protocol = port_str.split("/", 1)
+                try:
+                    port_num = int(port_str)
+                    self.db_manager.add_dockerfile_port(
+                        file_path=file_path_str,
+                        port=port_num,
+                        protocol=protocol,
+                    )
+                except ValueError:
+                    pass  # Skip invalid port numbers
+
+            # Junction table: env vars
+            for var_name, var_value in env_vars.items():
+                if var_name == "_DOCKER_USER":
+                    continue  # Skip internal marker
+                self.db_manager.add_dockerfile_env_var(
+                    file_path=file_path_str,
+                    var_name=var_name,
+                    var_value=str(var_value) if var_value else None,
+                    is_build_arg=False,
+                )
+
+            # Junction table: build args
+            for arg_name, arg_value in build_args.items():
+                self.db_manager.add_dockerfile_env_var(
+                    file_path=file_path_str,
+                    var_name=arg_name,
+                    var_value=str(arg_value) if arg_value else None,
+                    is_build_arg=True,
+                )
 
         except Exception:
             pass

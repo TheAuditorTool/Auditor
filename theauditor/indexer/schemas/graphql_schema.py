@@ -73,7 +73,6 @@ GRAPHQL_FIELDS = TableSchema(
         Column("return_type", "TEXT", nullable=False),
         Column("is_list", "BOOLEAN", default="0"),
         Column("is_nullable", "BOOLEAN", default="1"),
-        Column("directives_json", "TEXT", nullable=True),
         Column("line", "INTEGER", nullable=True),
         Column("column", "INTEGER", nullable=True),
     ],
@@ -100,7 +99,6 @@ GRAPHQL_FIELD_ARGS = TableSchema(
         Column("has_default", "BOOLEAN", default="0"),
         Column("default_value", "TEXT", nullable=True),
         Column("is_nullable", "BOOLEAN", default="1"),
-        Column("directives_json", "TEXT", nullable=True),
     ],
     primary_key=["field_id", "arg_name"],
     indexes=[
@@ -110,6 +108,53 @@ GRAPHQL_FIELD_ARGS = TableSchema(
     foreign_keys=[
         ForeignKey(
             local_columns=["field_id"], foreign_table="graphql_fields", foreign_columns=["field_id"]
+        )
+    ],
+)
+
+
+# Junction tables for GraphQL directives (replaces JSON blob columns)
+GRAPHQL_FIELD_DIRECTIVES = TableSchema(
+    name="graphql_field_directives",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("field_id", "INTEGER", nullable=False),  # FK to graphql_fields.field_id
+        Column("directive_name", "TEXT", nullable=False),
+        Column("arguments_json", "TEXT"),  # JSON for directive args (rarely queried)
+    ],
+    indexes=[
+        ("idx_graphql_field_directives_field", ["field_id"]),
+        ("idx_graphql_field_directives_name", ["directive_name"]),
+    ],
+    unique_constraints=[["field_id", "directive_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["field_id"],
+            foreign_table="graphql_fields",
+            foreign_columns=["field_id"],
+        )
+    ],
+)
+
+GRAPHQL_ARG_DIRECTIVES = TableSchema(
+    name="graphql_arg_directives",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("field_id", "INTEGER", nullable=False),  # FK part 1
+        Column("arg_name", "TEXT", nullable=False),  # FK part 2
+        Column("directive_name", "TEXT", nullable=False),
+        Column("arguments_json", "TEXT"),  # JSON for directive args (rarely queried)
+    ],
+    indexes=[
+        ("idx_graphql_arg_directives_fk", ["field_id", "arg_name"]),
+        ("idx_graphql_arg_directives_name", ["directive_name"]),
+    ],
+    unique_constraints=[["field_id", "arg_name", "directive_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["field_id", "arg_name"],
+            foreign_table="graphql_field_args",
+            foreign_columns=["field_id", "arg_name"],
         )
     ],
 )
@@ -214,7 +259,9 @@ GRAPHQL_TABLES: dict[str, TableSchema] = {
     "graphql_schemas": GRAPHQL_SCHEMAS,
     "graphql_types": GRAPHQL_TYPES,
     "graphql_fields": GRAPHQL_FIELDS,
+    "graphql_field_directives": GRAPHQL_FIELD_DIRECTIVES,
     "graphql_field_args": GRAPHQL_FIELD_ARGS,
+    "graphql_arg_directives": GRAPHQL_ARG_DIRECTIVES,
     "graphql_resolver_mappings": GRAPHQL_RESOLVER_MAPPINGS,
     "graphql_resolver_params": GRAPHQL_RESOLVER_PARAMS,
     "graphql_execution_edges": GRAPHQL_EXECUTION_EDGES,

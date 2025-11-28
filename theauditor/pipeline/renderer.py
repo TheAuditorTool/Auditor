@@ -1,15 +1,31 @@
 """Rich-based pipeline renderer with parallel track buffering."""
 import sys
+import time
 from pathlib import Path
 from typing import TextIO
 
-from rich.console import Console
+from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
 
 from theauditor.events import PipelineObserver
 from .structures import PhaseResult, TaskStatus
 from .ui import AUDITOR_THEME
+
+
+class DynamicTable:
+    """Wrapper that builds a fresh table on each Rich render cycle.
+
+    This enables live timer updates - Rich calls __rich_console__ on each
+    refresh (4x/second), and we recalculate elapsed times dynamically.
+    """
+
+    def __init__(self, renderer: "RichRenderer"):
+        self.renderer = renderer
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        """Called by Rich on each refresh - return fresh table with live timers."""
+        yield self.renderer._build_live_table()
 
 
 class RichRenderer(PipelineObserver):
@@ -44,34 +60,30 @@ class RichRenderer(PipelineObserver):
         self._live: Live | None = None
         self._table: Table | None = None
 
-    def _build_table(self) -> Table:
-        """Build the status table."""
+    def _build_live_table(self) -> Table:
+        """Build fresh table with current elapsed times (called on each refresh)."""
         table = Table(title="Pipeline Progress", expand=True)
         table.add_column("Phase", style="cyan", no_wrap=True)
         table.add_column("Status", style="green", width=12)
         table.add_column("Time", justify="right", width=8)
-        return table
 
-    def _update_table(self):
-        """Rebuild table with current phase states."""
-        if not self._table:
-            return
-        self._table = self._build_table()
+        now = time.time()
         for name, info in self._phases.items():
             status = info.get('status', 'pending')
-            elapsed = info.get('elapsed', 0)
 
-            # UI TWEAK: Show 0.0s for running phases instead of -
-            if status == "running" or elapsed > 0:
+            # Calculate elapsed: live calc for running, stored value for completed
+            if status == "running":
+                start_time = info.get('start_time', now)
+                elapsed = now - start_time
                 time_str = f"{elapsed:.1f}s"
+            elif info.get('elapsed', 0) > 0:
+                time_str = f"{info['elapsed']:.1f}s"
             else:
                 time_str = "-"
 
-            self._table.add_row(name, status, time_str)
+            table.add_row(name, status, time_str)
 
-        # CRITICAL FIX 1: Tell Live display about the new table object
-        if self._live:
-            self._live.update(self._table)
+        return table
 
     # Buffer truncation limit per spec requirement
     MAX_BUFFER_LINES = 50
@@ -108,8 +120,10 @@ class RichRenderer(PipelineObserver):
     def start(self):
         """Start the live display (call before pipeline runs)."""
         if self.is_tty and not self.quiet:
-            self._table = self._build_table()
-            self._live = Live(self._table, refresh_per_second=4, console=self.console)
+            # Use DynamicTable wrapper - Rich calls __rich_console__ on each refresh
+            # This rebuilds the table with live elapsed times (ticking timer!)
+            dynamic_table = DynamicTable(self)
+            self._live = Live(dynamic_table, refresh_per_second=4, console=self.console)
             self._live.__enter__()
 
     def stop(self):
@@ -129,20 +143,20 @@ class RichRenderer(PipelineObserver):
     def on_phase_start(self, name: str, index: int, total: int) -> None:
         self._current_phase = index
         self._total_phases = total
-        self._phases[name] = {'status': 'running', 'elapsed': 0}
-        self._update_table()
+        self._phases[name] = {'status': 'running', 'start_time': time.time()}
+        # DynamicTable auto-refreshes - no manual update needed
         if not self._live:
             self._write(f"\n[Phase {index}/{total}] {name}")
 
     def on_phase_complete(self, name: str, elapsed: float) -> None:
         self._phases[name] = {'status': 'success', 'elapsed': elapsed}
-        self._update_table()
+        # DynamicTable auto-refreshes - no manual update needed
         if not self._live:
             self._write(f"[OK] {name} completed in {elapsed:.1f}s")
 
     def on_phase_failed(self, name: str, error: str, exit_code: int) -> None:
         self._phases[name] = {'status': 'FAILED', 'elapsed': 0}
-        self._update_table()
+        # DynamicTable auto-refreshes - no manual update needed
         self._write(f"[FAILED] {name} (exit code {exit_code})", is_error=True)
         if error:
             truncated = error[:200] + "..." if len(error) > 200 else error
@@ -155,12 +169,12 @@ class RichRenderer(PipelineObserver):
         self._in_parallel_mode = True
         self._current_track = track_name
         self._parallel_buffers[track_name] = []
-        self._phases[track_name] = {'status': 'running', 'elapsed': 0}
-        self._update_table()
+        self._phases[track_name] = {'status': 'running', 'start_time': time.time()}
+        # DynamicTable auto-refreshes - no manual update needed
 
     def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
         self._phases[track_name] = {'status': 'success', 'elapsed': elapsed}
-        self._update_table()
+        # DynamicTable auto-refreshes - no manual update needed
 
         # Flush buffer atomically
         buffer = self._parallel_buffers.pop(track_name, [])

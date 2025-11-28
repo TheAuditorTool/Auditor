@@ -74,7 +74,6 @@ class GraphQLDatabaseMixin:
         return_type: str,
         is_list: bool = False,
         is_nullable: bool = True,
-        directives_json: str | None = None,
         line: int | None = None,
         column: int | None = None,
     ):
@@ -86,9 +85,10 @@ class GraphQLDatabaseMixin:
             return_type: GraphQL return type (e.g., 'User', 'String!', '[Post]')
             is_list: Whether field returns a list (e.g., [User])
             is_nullable: Whether field return is nullable
-            directives_json: JSON array of directive objects (e.g., @auth, @deprecated)
             line: Line number in schema file (optional)
             column: Column number in schema file (optional)
+
+        Note: Directives go to junction table graphql_field_directives (via add_graphql_field_directive)
 
         NO FALLBACKS. type_id MUST exist from prior add_graphql_type call.
         """
@@ -99,10 +99,27 @@ class GraphQLDatabaseMixin:
                 return_type,
                 1 if is_list else 0,
                 1 if is_nullable else 0,
-                directives_json,
                 line,
                 column,
             )
+        )
+
+    def add_graphql_field_directive(
+        self, field_id: int, directive_name: str, arguments_json: str | None = None
+    ):
+        """Add a GraphQL field directive to the batch (junction table).
+
+        Schema: graphql_field_directives(id, field_id, directive_name, arguments_json)
+
+        Args:
+            field_id: FK to graphql_fields.field_id
+            directive_name: Directive name with @ prefix (e.g., '@auth', '@deprecated')
+            arguments_json: JSON object of directive arguments (optional)
+
+        NO FALLBACKS. field_id MUST exist.
+        """
+        self.generic_batches["graphql_field_directives"].append(
+            (field_id, directive_name, arguments_json)
         )
 
     def add_graphql_field_arg(
@@ -113,7 +130,6 @@ class GraphQLDatabaseMixin:
         has_default: bool = False,
         default_value: str | None = None,
         is_nullable: bool = True,
-        directives_json: str | None = None,
     ):
         """Add a GraphQL field argument definition record to the batch.
 
@@ -124,7 +140,8 @@ class GraphQLDatabaseMixin:
             has_default: Whether argument has a default value
             default_value: Default value as string (optional)
             is_nullable: Whether argument is nullable
-            directives_json: JSON array of directive objects (optional)
+
+        Note: Directives go to junction table graphql_arg_directives (via add_graphql_arg_directive)
 
         NO FALLBACKS. field_id MUST exist from prior add_graphql_field call.
         """
@@ -136,8 +153,30 @@ class GraphQLDatabaseMixin:
                 1 if has_default else 0,
                 default_value,
                 1 if is_nullable else 0,
-                directives_json,
             )
+        )
+
+    def add_graphql_arg_directive(
+        self,
+        field_id: int,
+        arg_name: str,
+        directive_name: str,
+        arguments_json: str | None = None,
+    ):
+        """Add a GraphQL argument directive to the batch (junction table).
+
+        Schema: graphql_arg_directives(id, field_id, arg_name, directive_name, arguments_json)
+
+        Args:
+            field_id: FK part 1 to graphql_field_args
+            arg_name: FK part 2 to graphql_field_args
+            directive_name: Directive name with @ prefix (e.g., '@deprecated')
+            arguments_json: JSON object of directive arguments (optional)
+
+        NO FALLBACKS. (field_id, arg_name) MUST exist.
+        """
+        self.generic_batches["graphql_arg_directives"].append(
+            (field_id, arg_name, directive_name, arguments_json)
         )
 
     def add_graphql_resolver_mapping(

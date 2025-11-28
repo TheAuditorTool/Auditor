@@ -280,24 +280,60 @@ class CodeSnapshotsRow(TypedDict):
     shadow_sha: str | None
     files_json: str | None
 
+class ComposeServiceCapabilitiesRow(TypedDict):
+    """Row type for compose_service_capabilities table."""
+    id: int
+    file_path: str
+    service_name: str
+    capability: str
+    is_add: bool
+
+class ComposeServiceDepsRow(TypedDict):
+    """Row type for compose_service_deps table."""
+    id: int
+    file_path: str
+    service_name: str
+    depends_on_service: str
+    condition: str | None
+
+class ComposeServiceEnvRow(TypedDict):
+    """Row type for compose_service_env table."""
+    id: int
+    file_path: str
+    service_name: str
+    var_name: str
+    var_value: str | None
+
+class ComposeServicePortsRow(TypedDict):
+    """Row type for compose_service_ports table."""
+    id: int
+    file_path: str
+    service_name: str
+    host_port: int | None
+    container_port: int
+    protocol: str | None
+
+class ComposeServiceVolumesRow(TypedDict):
+    """Row type for compose_service_volumes table."""
+    id: int
+    file_path: str
+    service_name: str
+    host_path: str | None
+    container_path: str
+    mode: str | None
+
 class ComposeServicesRow(TypedDict):
     """Row type for compose_services table."""
     file_path: str
     service_name: str
     image: str | None
-    ports: str | None
-    volumes: str | None
-    environment: str | None
     is_privileged: bool | None
     network_mode: str | None
     user: str | None
-    cap_add: str | None
-    cap_drop: str | None
     security_opt: str | None
     restart: str | None
     command: str | None
     entrypoint: str | None
-    depends_on: str | None
     healthcheck: str | None
 
 class ConfigFilesRow(TypedDict):
@@ -330,11 +366,23 @@ class DockerImagesRow(TypedDict):
     """Row type for docker_images table."""
     file_path: str
     base_image: str | None
-    exposed_ports: str | None
-    env_vars: str | None
-    build_args: str | None
     user: str | None
     has_healthcheck: bool | None
+
+class DockerfileEnvVarsRow(TypedDict):
+    """Row type for dockerfile_env_vars table."""
+    id: int
+    file_path: str
+    var_name: str
+    var_value: str | None
+    is_build_arg: bool | None
+
+class DockerfilePortsRow(TypedDict):
+    """Row type for dockerfile_ports table."""
+    id: int
+    file_path: str
+    port: int
+    protocol: str | None
 
 class EnvVarUsageRow(TypedDict):
     """Row type for env_var_usage table."""
@@ -601,6 +649,14 @@ class GithubWorkflowsRow(TypedDict):
     concurrency: str | None
     env: str | None
 
+class GraphqlArgDirectivesRow(TypedDict):
+    """Row type for graphql_arg_directives table."""
+    id: int
+    field_id: int
+    arg_name: str
+    directive_name: str
+    arguments_json: str | None
+
 class GraphqlExecutionEdgesRow(TypedDict):
     """Row type for graphql_execution_edges table."""
     from_field_id: int
@@ -615,7 +671,13 @@ class GraphqlFieldArgsRow(TypedDict):
     has_default: bool | None
     default_value: str | None
     is_nullable: bool | None
-    directives_json: str | None
+
+class GraphqlFieldDirectivesRow(TypedDict):
+    """Row type for graphql_field_directives table."""
+    id: int
+    field_id: int
+    directive_name: str
+    arguments_json: str | None
 
 class GraphqlFieldsRow(TypedDict):
     """Row type for graphql_fields table."""
@@ -625,7 +687,6 @@ class GraphqlFieldsRow(TypedDict):
     return_type: str
     is_list: bool | None
     is_nullable: bool | None
-    directives_json: str | None
     line: int | None
     column: int | None
 
@@ -767,13 +828,36 @@ class PackageConfigsRow(TypedDict):
     file_path: str
     package_name: str | None
     version: str | None
-    dependencies: str | None
-    dev_dependencies: str | None
-    peer_dependencies: str | None
-    scripts: str | None
-    engines: str | None
-    workspaces: str | None
     private: bool | None
+
+class PackageDependenciesRow(TypedDict):
+    """Row type for package_dependencies table."""
+    id: int
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: bool | None
+    is_peer: bool | None
+
+class PackageEnginesRow(TypedDict):
+    """Row type for package_engines table."""
+    id: int
+    file_path: str
+    engine_name: str
+    version_spec: str | None
+
+class PackageScriptsRow(TypedDict):
+    """Row type for package_scripts table."""
+    id: int
+    file_path: str
+    script_name: str
+    script_command: str
+
+class PackageWorkspacesRow(TypedDict):
+    """Row type for package_workspaces table."""
+    id: int
+    file_path: str
+    workspace_path: str
 
 class PlanJobsRow(TypedDict):
     """Row type for plan_jobs table."""
@@ -1625,6 +1709,20 @@ class TerraformOutputsRow(TypedDict):
     description: str | None
     line: int | None
 
+class TerraformResourceDepsRow(TypedDict):
+    """Row type for terraform_resource_deps table."""
+    id: int
+    resource_id: str
+    depends_on_ref: str
+
+class TerraformResourcePropertiesRow(TypedDict):
+    """Row type for terraform_resource_properties table."""
+    id: int
+    resource_id: str
+    property_name: str
+    property_value: str | None
+    is_sensitive: bool | None
+
 class TerraformResourcesRow(TypedDict):
     """Row type for terraform_resources table."""
     resource_id: str
@@ -1632,9 +1730,6 @@ class TerraformResourcesRow(TypedDict):
     resource_type: str
     resource_name: str
     module_path: str | None
-    properties_json: str | None
-    depends_on_json: str | None
-    sensitive_flags_json: str | None
     has_public_exposure: bool | None
     line: int | None
 

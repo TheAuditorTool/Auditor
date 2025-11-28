@@ -126,10 +126,10 @@ class GenericExtractor(BaseExtractor):
         return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
 
     def _extract_compose_direct(self, file_path: str, content: str) -> None:
-        """Extract Docker Compose services directly to database.
+        """Extract Docker Compose services to compose_services and junction tables.
 
-        Parses YAML inline, writes to compose_services table (17 fields).
-        No intermediate dict, no parser abstraction.
+        Parses YAML inline, writes to compose_services table (17 fields)
+        and junction tables for ports, volumes, env, capabilities, deps.
 
         Args:
             file_path: Path to docker-compose.yml
@@ -168,34 +168,181 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(entrypoint, str):
                     entrypoint = [entrypoint]
 
+                # Normalize depends_on for parent table
+                depends_on_list = depends_on
                 if isinstance(depends_on, dict):
-                    depends_on = list(depends_on.keys())
+                    depends_on_list = list(depends_on.keys())
 
                 if isinstance(user, int):
                     user = str(user)
 
+                # Parent table (metadata only - data goes to junction tables)
                 self.db_manager.add_compose_service(
                     file_path=file_path,
                     service_name=service_name,
                     image=image,
-                    ports=ports,
-                    volumes=volumes,
-                    environment=environment,
                     is_privileged=is_privileged,
                     network_mode=network_mode,
                     user=user,
-                    cap_add=cap_add if cap_add else None,
-                    cap_drop=cap_drop if cap_drop else None,
                     security_opt=security_opt if security_opt else None,
                     restart=restart,
                     command=command,
                     entrypoint=entrypoint,
-                    depends_on=depends_on,
                     healthcheck=healthcheck,
                 )
 
+                # Junction table: ports
+                for port_mapping in ports or []:
+                    parsed = self._parse_port_mapping(port_mapping)
+                    if parsed:
+                        self.db_manager.add_compose_service_port(
+                            file_path=file_path,
+                            service_name=service_name,
+                            host_port=parsed.get("host_port"),
+                            container_port=parsed["container_port"],
+                            protocol=parsed.get("protocol", "tcp"),
+                        )
+
+                # Junction table: volumes
+                for volume_mapping in volumes or []:
+                    parsed = self._parse_volume_mapping(volume_mapping)
+                    if parsed:
+                        self.db_manager.add_compose_service_volume(
+                            file_path=file_path,
+                            service_name=service_name,
+                            host_path=parsed.get("host_path"),
+                            container_path=parsed["container_path"],
+                            mode=parsed.get("mode", "rw"),
+                        )
+
+                # Junction table: environment
+                for var_name, var_value in (environment or {}).items():
+                    self.db_manager.add_compose_service_env(
+                        file_path=file_path,
+                        service_name=service_name,
+                        var_name=var_name,
+                        var_value=str(var_value) if var_value is not None else None,
+                    )
+
+                # Junction table: capabilities (cap_add)
+                for cap in cap_add or []:
+                    self.db_manager.add_compose_service_capability(
+                        file_path=file_path,
+                        service_name=service_name,
+                        capability=cap,
+                        is_add=True,
+                    )
+
+                # Junction table: capabilities (cap_drop)
+                for cap in cap_drop or []:
+                    self.db_manager.add_compose_service_capability(
+                        file_path=file_path,
+                        service_name=service_name,
+                        capability=cap,
+                        is_add=False,
+                    )
+
+                # Junction table: dependencies
+                if depends_on:
+                    deps_to_process = depends_on
+                    if isinstance(depends_on, dict):
+                        # Format: {service: {condition: "service_healthy"}}
+                        for dep_service, dep_config in depends_on.items():
+                            condition = "service_started"
+                            if isinstance(dep_config, dict):
+                                condition = dep_config.get("condition", "service_started")
+                            self.db_manager.add_compose_service_dep(
+                                file_path=file_path,
+                                service_name=service_name,
+                                depends_on_service=dep_service,
+                                condition=condition,
+                            )
+                    elif isinstance(depends_on, list):
+                        for dep_service in depends_on:
+                            self.db_manager.add_compose_service_dep(
+                                file_path=file_path,
+                                service_name=service_name,
+                                depends_on_service=dep_service,
+                                condition="service_started",
+                            )
+
         except (yaml.YAMLError, ValueError, TypeError):
             pass
+
+    def _parse_port_mapping(self, port_str: str) -> dict | None:
+        """Parse a port mapping string into components.
+
+        Args:
+            port_str: Port mapping like "8080:80", "8080:80/tcp", "80"
+
+        Returns:
+            Dict with host_port, container_port, protocol or None
+        """
+        if not port_str:
+            return None
+        port_str = str(port_str)
+
+        protocol = "tcp"
+        if "/" in port_str:
+            port_str, protocol = port_str.rsplit("/", 1)
+
+        if ":" in port_str:
+            parts = port_str.split(":")
+            # Could be "host:container" or "ip:host:container"
+            if len(parts) == 2:
+                try:
+                    return {
+                        "host_port": int(parts[0]) if parts[0] else None,
+                        "container_port": int(parts[1]),
+                        "protocol": protocol,
+                    }
+                except ValueError:
+                    return None
+            elif len(parts) == 3:
+                # ip:host:container
+                try:
+                    return {
+                        "host_port": int(parts[1]) if parts[1] else None,
+                        "container_port": int(parts[2]),
+                        "protocol": protocol,
+                    }
+                except ValueError:
+                    return None
+        else:
+            # Just container port
+            try:
+                return {
+                    "host_port": None,
+                    "container_port": int(port_str),
+                    "protocol": protocol,
+                }
+            except ValueError:
+                return None
+        return None
+
+    def _parse_volume_mapping(self, volume_str: str) -> dict | None:
+        """Parse a volume mapping string into components.
+
+        Args:
+            volume_str: Volume mapping like "./data:/app/data", "/app/data", "./data:/app/data:ro"
+
+        Returns:
+            Dict with host_path, container_path, mode or None
+        """
+        if not volume_str:
+            return None
+        volume_str = str(volume_str)
+
+        # Handle named volumes (no host path)
+        if ":" not in volume_str:
+            return {"host_path": None, "container_path": volume_str, "mode": "rw"}
+
+        parts = volume_str.split(":")
+        if len(parts) == 2:
+            return {"host_path": parts[0], "container_path": parts[1], "mode": "rw"}
+        elif len(parts) >= 3:
+            return {"host_path": parts[0], "container_path": parts[1], "mode": parts[2]}
+        return None
 
     def _extract_image(self, config: dict[str, Any]) -> str | None:
         """Extract Docker image name from service config.
@@ -333,7 +480,7 @@ class GenericExtractor(BaseExtractor):
         )
 
     def _extract_package_direct(self, file_path: str, content: str) -> None:
-        """Extract package.json to package_configs table.
+        """Extract package.json to package_configs and junction tables.
 
         Args:
             file_path: Path to package.json
@@ -342,18 +489,73 @@ class GenericExtractor(BaseExtractor):
         try:
             pkg_data = json.loads(content)
 
+            # Parent table (metadata only - data goes to junction tables)
             self.db_manager.add_package_config(
                 file_path=file_path,
                 package_name=pkg_data.get("name", "unknown"),
                 version=pkg_data.get("version", "unknown"),
-                dependencies=pkg_data.get("dependencies"),
-                dev_dependencies=pkg_data.get("devDependencies"),
-                peer_dependencies=pkg_data.get("peerDependencies"),
-                scripts=pkg_data.get("scripts"),
-                engines=pkg_data.get("engines"),
-                workspaces=pkg_data.get("workspaces"),
                 is_private=pkg_data.get("private", False),
             )
+
+            # Junction tables: normalized dependency data
+            deps = pkg_data.get("dependencies") or {}
+            for name, version_spec in deps.items():
+                self.db_manager.add_package_dependency(
+                    file_path=file_path,
+                    name=name,
+                    version_spec=version_spec,
+                    is_dev=False,
+                    is_peer=False,
+                )
+
+            dev_deps = pkg_data.get("devDependencies") or {}
+            for name, version_spec in dev_deps.items():
+                self.db_manager.add_package_dependency(
+                    file_path=file_path,
+                    name=name,
+                    version_spec=version_spec,
+                    is_dev=True,
+                    is_peer=False,
+                )
+
+            peer_deps = pkg_data.get("peerDependencies") or {}
+            for name, version_spec in peer_deps.items():
+                self.db_manager.add_package_dependency(
+                    file_path=file_path,
+                    name=name,
+                    version_spec=version_spec,
+                    is_dev=False,
+                    is_peer=True,
+                )
+
+            # Junction table: scripts
+            scripts = pkg_data.get("scripts") or {}
+            for script_name, script_command in scripts.items():
+                self.db_manager.add_package_script(
+                    file_path=file_path,
+                    script_name=script_name,
+                    script_command=script_command,
+                )
+
+            # Junction table: engines
+            engines = pkg_data.get("engines") or {}
+            for engine_name, version_spec in engines.items():
+                self.db_manager.add_package_engine(
+                    file_path=file_path,
+                    engine_name=engine_name,
+                    version_spec=version_spec,
+                )
+
+            # Junction table: workspaces
+            workspaces = pkg_data.get("workspaces") or []
+            if isinstance(workspaces, dict):
+                # Handle {"packages": [...]} format
+                workspaces = workspaces.get("packages", [])
+            for workspace_path in workspaces:
+                self.db_manager.add_package_workspace(
+                    file_path=file_path,
+                    workspace_path=workspace_path,
+                )
 
         except json.JSONDecodeError:
             pass

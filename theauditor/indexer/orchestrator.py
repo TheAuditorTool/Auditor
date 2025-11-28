@@ -515,7 +515,7 @@ class IndexerOrchestrator:
                 flow_parts.append(f"{self.counts['variable_usage']} variable usages")
             if self.counts.get("object_literals", 0) > 0:
                 flow_parts.append(f"{self.counts['object_literals']} object literal properties")
-            print(flow_msg + ", ".join(flow_parts))
+            print(f"{flow_msg}{', '.join(flow_parts)}")
 
         if self.counts.get("cfg_blocks", 0) > 0:
             cfg_msg = f"[Indexer] Control flow: {self.counts['cfg_blocks']} blocks, {self.counts['cfg_edges']} edges"
@@ -530,7 +530,7 @@ class IndexerOrchestrator:
                 db_parts.append(f"{self.counts['orm']} ORM queries")
             if self.counts.get("sql_queries", 0) > 0:
                 db_parts.append(f"{self.counts['sql_queries']} SQL queries")
-            print(db_msg + ", ".join(db_parts))
+            print(f"{db_msg}{', '.join(db_parts)}")
 
         if (
             self.counts.get("compose", 0) > 0
@@ -545,7 +545,7 @@ class IndexerOrchestrator:
                 infra_parts.append(f"{self.counts['compose']} compose services")
             if self.counts.get("nginx", 0) > 0:
                 infra_parts.append(f"{self.counts['nginx']} nginx blocks")
-            print(infra_msg + ", ".join(infra_parts))
+            print(f"{infra_msg}{', '.join(infra_parts)}")
 
         if self.counts.get("frameworks", 0) > 0 or self.counts.get("package_configs", 0) > 0:
             config_msg = "[Indexer] Configuration: "
@@ -556,7 +556,7 @@ class IndexerOrchestrator:
                 config_parts.append(f"{self.counts['package_configs']} package configs")
             if self.counts.get("config_files", 0) > 0:
                 config_parts.append(f"{self.counts['config_files']} config files")
-            print(config_msg + ", ".join(config_parts))
+            print(f"{config_msg}{', '.join(config_parts)}")
 
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
 
@@ -567,9 +567,7 @@ class IndexerOrchestrator:
         jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            print(
-                f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
-            )
+            print(f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
 
             jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
