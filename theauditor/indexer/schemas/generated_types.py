@@ -95,6 +95,7 @@ class AssignmentSourcesRow(TypedDict):
     id: int
     assignment_file: str
     assignment_line: int
+    assignment_col: int
     assignment_target: str
     source_var_name: str
 
@@ -111,6 +112,7 @@ class AssignmentsRow(TypedDict):
     """Row type for assignments table."""
     file: str
     line: int
+    col: int
     target_var: str
     source_expr: str
     in_function: str
@@ -555,6 +557,7 @@ class FunctionReturnSourcesRow(TypedDict):
     id: int
     return_file: str
     return_line: int
+    return_col: int
     return_function: str
     return_var_name: str
 
@@ -571,6 +574,7 @@ class FunctionReturnsRow(TypedDict):
     """Row type for function_returns table."""
     file: str
     line: int
+    col: int
     function_name: str
     return_expr: str
     has_jsx: bool | None

@@ -340,7 +340,7 @@ export function extractAssignments(
 
     if (kind === 'VariableDeclaration') {
       const varDecl = node as ts.VariableDeclaration;
-      const { line } = sourceFile.getLineAndCharacterOfPosition(
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
         node.getStart(sourceFile)
       );
       const inFunction = scopeMap.get(line + 1) || 'global';
@@ -368,6 +368,7 @@ export function extractAssignments(
               target_var: targetVar,
               source_expr: initializer.getText(sourceFile).substring(0, 500),
               line: line + 1,
+              col: character,
               in_function: inFunction,
             });
           }
@@ -398,6 +399,7 @@ export function extractAssignments(
                 target_var: targetVar,
                 source_expr: sourceExprText,
                 line: line + 1,
+                col: character,
                 in_function: inFunction,
               });
             }
@@ -432,6 +434,7 @@ export function extractAssignments(
                 target_var: targetVar,
                 source_expr: sourceExprText,
                 line: line + 1,
+                col: character,
                 in_function: inFunction,
               });
             }
@@ -444,7 +447,7 @@ export function extractAssignments(
         binExpr.operatorToken &&
         binExpr.operatorToken.kind === ts.SyntaxKind.EqualsToken
       ) {
-        const { line } = sourceFile.getLineAndCharacterOfPosition(
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile)
         );
         const inFunction = scopeMap.get(line + 1) || 'global';
@@ -472,6 +475,7 @@ export function extractAssignments(
             target_var: targetVar,
             source_expr: sourceExpr,
             line: line + 1,
+            col: character,
             in_function: inFunction,
           });
         }
@@ -785,7 +789,7 @@ export function extractReturns(
 
     if (node.kind === ts.SyntaxKind.ReturnStatement) {
       const returnStmt = node as ts.ReturnStatement;
-      const { line } = sourceFile.getLineAndCharacterOfPosition(
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
         node.getStart(sourceFile)
       );
       const functionName = scopeMap.get(line + 1) || 'global';
@@ -820,6 +824,7 @@ export function extractReturns(
       returns.push({
         function_name: functionName,
         line: line + 1,
+        col: character,
         return_expr: returnExpr,
         has_jsx: hasJsx,
         returns_component: returnsComponent,

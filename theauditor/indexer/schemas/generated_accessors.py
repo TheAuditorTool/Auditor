@@ -309,23 +309,23 @@ class AssignmentSourcesTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from assignment_sources."""
-        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'])
+        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'])
         cursor.execute(query)
-        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_source_var_name(cursor: sqlite3.Cursor, source_var_name: str) -> list[dict[str, Any]]:
         """Get rows by source_var_name."""
-        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'], where="source_var_name = ?")
+        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'], where="source_var_name = ?")
         cursor.execute(query, (source_var_name,))
-        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_assignment_file(cursor: sqlite3.Cursor, assignment_file: str) -> list[dict[str, Any]]:
         """Get rows by assignment_file."""
-        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'], where="assignment_file = ?")
+        query = build_query('assignment_sources', ['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'], where="assignment_file = ?")
         cursor.execute(query, (assignment_file,))
-        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'assignment_file', 'assignment_line', 'assignment_col', 'assignment_target', 'source_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class AssignmentSourcesJsxTable:
@@ -359,37 +359,37 @@ class AssignmentsTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from assignments."""
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'])
+        query = build_query('assignments', ['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], where="file = ?")
+        query = build_query('assignments', ['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_in_function(cursor: sqlite3.Cursor, in_function: str) -> list[dict[str, Any]]:
         """Get rows by in_function."""
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], where="in_function = ?")
+        query = build_query('assignments', ['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], where="in_function = ?")
         cursor.execute(query, (in_function,))
-        return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_target_var(cursor: sqlite3.Cursor, target_var: str) -> list[dict[str, Any]]:
         """Get rows by target_var."""
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], where="target_var = ?")
+        query = build_query('assignments', ['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], where="target_var = ?")
         cursor.execute(query, (target_var,))
-        return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_property_path(cursor: sqlite3.Cursor, property_path: str) -> list[dict[str, Any]]:
         """Get rows by property_path."""
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], where="property_path = ?")
+        query = build_query('assignments', ['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], where="property_path = ?")
         cursor.execute(query, (property_path,))
-        return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'target_var', 'source_expr', 'in_function', 'property_path'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class AssignmentsJsxTable:
@@ -1431,23 +1431,23 @@ class FunctionReturnSourcesTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from function_return_sources."""
-        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_function', 'return_var_name'])
+        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'])
         cursor.execute(query)
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_return_var_name(cursor: sqlite3.Cursor, return_var_name: str) -> list[dict[str, Any]]:
         """Get rows by return_var_name."""
-        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_function', 'return_var_name'], where="return_var_name = ?")
+        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'], where="return_var_name = ?")
         cursor.execute(query, (return_var_name,))
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_return_file(cursor: sqlite3.Cursor, return_file: str) -> list[dict[str, Any]]:
         """Get rows by return_file."""
-        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_function', 'return_var_name'], where="return_file = ?")
+        query = build_query('function_return_sources', ['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'], where="return_file = ?")
         cursor.execute(query, (return_file,))
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_col', 'return_function', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FunctionReturnSourcesJsxTable:
@@ -1481,23 +1481,23 @@ class FunctionReturnsTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from function_returns."""
-        query = build_query('function_returns', ['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'])
+        query = build_query('function_returns', ['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('function_returns', ['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], where="file = ?")
+        query = build_query('function_returns', ['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_function_name(cursor: sqlite3.Cursor, function_name: str) -> list[dict[str, Any]]:
         """Get rows by function_name."""
-        query = build_query('function_returns', ['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], where="function_name = ?")
+        query = build_query('function_returns', ['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], where="function_name = ?")
         cursor.execute(query, (function_name,))
-        return [dict(zip(['file', 'line', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'col', 'function_name', 'return_expr', 'has_jsx', 'returns_component', 'cleanup_operations'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FunctionReturnsJsxTable:

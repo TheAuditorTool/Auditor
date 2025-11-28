@@ -76,6 +76,7 @@ class CoreDatabaseMixin:
         source_vars: list[str],
         in_function: str,
         property_path: str | None = None,
+        col: int = 0,
     ):
         """Add a variable assignment record to the batch.
 
@@ -86,6 +87,7 @@ class CoreDatabaseMixin:
         Args:
             property_path: Full property path for destructured assignments (e.g., 'req.params.id')
                           NULL for non-destructured assignments (e.g., 'const x = y')
+            col: Column position (required for minified files where multiple assignments on same line)
 
         NO FALLBACKS. If source_vars is malformed, hard fail.
         """
@@ -97,12 +99,12 @@ class CoreDatabaseMixin:
             import sys
 
             print(
-                f"[TRACE] add_assignment() call #{batch_idx}: {file_path}:{line} {target_var} in {in_function}",
+                f"[TRACE] add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}",
                 file=sys.stderr,
             )
 
         self.generic_batches["assignments"].append(
-            (file_path, line, target_var, source_expr, in_function, property_path)
+            (file_path, line, col, target_var, source_expr, in_function, property_path)
         )
 
         if source_vars:
@@ -110,7 +112,7 @@ class CoreDatabaseMixin:
                 if not source_var:
                     continue
                 self.generic_batches["assignment_sources"].append(
-                    (file_path, line, target_var, source_var)
+                    (file_path, line, col, target_var, source_var)
                 )
 
     def add_function_call_arg(
@@ -156,6 +158,7 @@ class CoreDatabaseMixin:
         function_name: str,
         return_expr: str,
         return_vars: list[str],
+        col: int = 0,
     ):
         """Add a function return statement record to the batch.
 
@@ -163,11 +166,14 @@ class CoreDatabaseMixin:
         - Phase 1: Batch function return record (without return_vars column)
         - Phase 2: Batch junction records for each return variable
 
+        Args:
+            col: Column position (required for minified files where multiple returns on same line)
+
         NO FALLBACKS. If return_vars is malformed, hard fail.
         """
 
         self.generic_batches["function_returns"].append(
-            (file_path, line, function_name, return_expr)
+            (file_path, line, col, function_name, return_expr)
         )
 
         if return_vars:
@@ -175,7 +181,7 @@ class CoreDatabaseMixin:
                 if not return_var:
                     continue
                 self.generic_batches["function_return_sources"].append(
-                    (file_path, line, function_name, return_var)
+                    (file_path, line, col, function_name, return_var)
                 )
 
     def add_config_file(self, path: str, content: str, file_type: str, context: str | None = None):
