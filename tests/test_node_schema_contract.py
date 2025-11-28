@@ -86,9 +86,9 @@ class TestNodeTableRegistry:
     """Tests to verify Node tables are properly registered."""
 
     def test_node_tables_count(self):
-        """Verify expected number of Node tables (39 original + 8 junction = 47)."""
-        assert len(NODE_TABLES) == 47, (
-            f"Expected 47 Node tables, got {len(NODE_TABLES)}. "
+        """Verify expected number of Node tables (39 original + 8 junction + 4 package junction = 51)."""
+        assert len(NODE_TABLES) == 51, (
+            f"Expected 51 Node tables, got {len(NODE_TABLES)}. "
             f"Tables: {sorted(NODE_TABLES.keys())}"
         )
 
@@ -364,9 +364,9 @@ class TestSchemaContractIntegrity:
         """Verify global TABLES count was updated for new junction tables."""
         from theauditor.indexer.schema import TABLES
 
-        # Updated 2025-11-28: 147 + 8 Node junction tables = 155
-        assert len(TABLES) == 155, (
-            f"Expected 155 total tables (147 + 8 junction), got {len(TABLES)}. "
+        # Updated 2025-11-29: 155 + 15 JSON normalization junction tables = 170
+        assert len(TABLES) == 170, (
+            f"Expected 170 total tables (155 + 15 JSON normalization junction), got {len(TABLES)}. "
             "Update schema.py assertion if intentionally changing table count."
         )
 

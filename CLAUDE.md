@@ -166,6 +166,27 @@ python -m theauditor.cli --help  # Too verbose
 
 **Bottom Line**: Think "Windows with bash shell" not "Linux". Use Windows paths (C:/) and Windows Python (.exe), but Unix commands work (cd, ls, grep).
 
+### 2.6 JavaScript Extractor Build Requirement
+The JavaScript/TypeScript AST extractor is a compiled TypeScript bundle. If it's missing, `aud full` will fail.
+
+```bash
+# Build the extractor bundle (required before first run or after TS changes)
+cd C:/Users/santa/Desktop/TheAuditor/theauditor/ast_extractors/javascript
+npm install    # First time only
+npm run build  # Produces dist/extractor.js (~10MB)
+```
+
+**If you see this error:**
+```
+FileNotFoundError: Extractor bundle not found at .../dist/extractor.js
+```
+**Solution:** Run `npm run build` in the javascript directory.
+
+**Important:**
+- DO NOT edit `dist/extractor.js` directly - it's auto-generated
+- Source files are in `src/` directory (TypeScript)
+- After editing `src/*.ts`, run `npm run build` to regenerate bundle
+
 ---
 
 ## SECTION 3: AUD COMMANDS - CORRECT USAGE
