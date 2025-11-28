@@ -165,6 +165,211 @@ cmd "prefix${var}suffix"
 
 Track quote context for each variable expansion to detect word-splitting vulnerabilities.
 
+### Decision 9: tree-sitter-bash Node Type Mapping
+
+The following tree-sitter node types map to extraction entities:
+
+| Entity | tree-sitter Node Type | Key Children |
+|--------|----------------------|--------------|
+| Function | `function_definition` | `name` (word), `body` (compound_statement) |
+| Variable assignment | `variable_assignment` | `name` (variable_name), `value` (various) |
+| Export/local/declare | `declaration_command` | first child is keyword, rest are assignments |
+| Command | `command` | `name` (word), `argument` (word/expansion) |
+| Pipeline | `pipeline` | multiple `command` children |
+| Command substitution | `command_substitution` | `$()` or backtick style, contains commands |
+| Variable expansion | `simple_expansion` or `expansion` | `$var` or `${var}` |
+| Redirection | `file_redirect` | operator (`>`, `<`), destination |
+| Here document | `heredoc_redirect` | `<<EOF` style |
+| If statement | `if_statement` | `condition`, `consequence`, `alternative` |
+| For loop | `for_statement` | `variable`, `value`, `body` |
+| While loop | `while_statement` | `condition`, `body` |
+| Case statement | `case_statement` | `value`, `case_item` children |
+
+**Verified via:** `tree-sitter parse test.sh` with tree-sitter-bash grammar.
+
+**Function style detection:**
+```python
+def get_function_style(node):
+    # Check if 'function' keyword present
+    for child in node.children:
+        if child.type == 'function' or (child.type == 'word' and child.text == b'function'):
+            # Check for parens
+            has_parens = any(c.type == '(' for c in node.children)
+            return 'function' if has_parens else 'function_no_parens'
+    return 'posix'  # name() style
+```
+
+### Decision 10: Shebang Detection Architecture
+
+**Problem:** Current `ExtractorRegistry.get_extractor()` (extractors/__init__.py:120-129) uses extension only. Extensionless Bash scripts need shebang detection.
+
+**Solution:** Add shebang detection in file discovery phase before extractor routing.
+
+**Implementation location:** `theauditor/indexer/core.py` or `file_iterator.py`
+
+```python
+# In file iteration, before extractor lookup:
+BASH_SHEBANGS = [
+    b'#!/bin/bash',
+    b'#!/usr/bin/env bash',
+    b'#!/bin/sh',
+    b'#!/usr/bin/env sh',
+]
+
+def detect_bash_shebang(file_path: Path) -> bool:
+    """Check if extensionless file has bash shebang."""
+    if file_path.suffix:  # Has extension, skip
+        return False
+    try:
+        with open(file_path, 'rb') as f:
+            first_line = f.readline(128)
+        return any(first_line.startswith(shebang) for shebang in BASH_SHEBANGS)
+    except (IOError, OSError):
+        return False
+
+# In file enumeration:
+if detect_bash_shebang(file_path):
+    file_info['detected_language'] = 'bash'
+    file_info['extension'] = '.sh'  # Virtual extension for routing
+```
+
+**Extractor modification:** BashExtractor checks `file_info.get('detected_language')` in addition to extension.
+
+### Decision 11: Storage Wiring Pattern
+
+**Pattern from existing code:** See `theauditor/indexer/storage/python_storage.py:14-44`
+
+```python
+# theauditor/indexer/storage/bash_storage.py
+from .base import BaseStorage
+
+class BashStorage(BaseStorage):
+    """Bash-specific storage handlers."""
+
+    def __init__(self, db_manager, counts: dict[str, int]):
+        super().__init__(db_manager, counts)
+
+        # Map extraction data keys to handler methods
+        self.handlers = {
+            "bash_functions": self._store_bash_functions,
+            "bash_variables": self._store_bash_variables,
+            "bash_sources": self._store_bash_sources,
+            "bash_commands": self._store_bash_commands,
+            "bash_pipes": self._store_bash_pipes,
+            "bash_subshells": self._store_bash_subshells,
+            "bash_redirections": self._store_bash_redirections,
+        }
+
+    def _store_bash_functions(self, file_path: str, bash_functions: list, jsx_pass: bool):
+        """Store Bash function definitions."""
+        for func in bash_functions:
+            self.db_manager.add_bash_function(
+                file_path,
+                func.get("line", 0),
+                func.get("end_line", 0),
+                func.get("name", ""),
+                func.get("style", "posix"),
+                func.get("body_start_line", 0),
+                func.get("body_end_line", 0),
+            )
+            self.counts["bash_functions"] = self.counts.get("bash_functions", 0) + 1
+```
+
+**Wiring location:** `theauditor/indexer/orchestrator.py` - add BashStorage to storage handlers list.
+
+### Decision 12: Database Manager Method Pattern
+
+**Pattern from:** `theauditor/indexer/database/base_database.py`
+
+Database manager uses generic batch insertion. Add methods following existing pattern:
+
+```python
+# In theauditor/indexer/database/repo_database.py (or equivalent)
+
+def add_bash_function(self, file: str, line: int, end_line: int,
+                      name: str, style: str, body_start: int, body_end: int):
+    """Add a Bash function definition."""
+    self._batch_insert("bash_functions", {
+        "file": file,
+        "line": line,
+        "end_line": end_line,
+        "name": name,
+        "style": style,
+        "body_start_line": body_start,
+        "body_end_line": body_end,
+    })
+
+def add_bash_variable(self, file: str, line: int, name: str,
+                      scope: str, readonly: bool, value_expr: str,
+                      containing_function: str | None):
+    """Add a Bash variable assignment."""
+    self._batch_insert("bash_variables", {
+        "file": file,
+        "line": line,
+        "name": name,
+        "scope": scope,
+        "readonly": readonly,
+        "value_expr": value_expr,
+        "containing_function": containing_function,
+    })
+
+# Similar methods for: add_bash_source, add_bash_command,
+# add_bash_command_arg, add_bash_pipe, add_bash_subshell, add_bash_redirection
+```
+
+**Batch insertion pattern:** `_batch_insert()` accumulates rows and flushes at batch_size threshold.
+
+### Decision 13: Schema Python Definition Pattern
+
+**Pattern from:** `theauditor/indexer/schemas/python_schema.py`
+
+```python
+# theauditor/indexer/schemas/bash_schema.py
+from .utils import Column, TableSchema
+
+BASH_FUNCTIONS = TableSchema(
+    name="bash_functions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("end_line", "INTEGER", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("style", "TEXT", nullable=False, default="'posix'"),
+        Column("body_start_line", "INTEGER"),
+        Column("body_end_line", "INTEGER"),
+    ],
+    primary_key=["file", "name", "line"],
+    indexes=[
+        ("idx_bash_functions_file", ["file"]),
+        ("idx_bash_functions_name", ["name"]),
+    ],
+)
+
+# ... similar for other 7 tables ...
+
+BASH_TABLES = {
+    "bash_functions": BASH_FUNCTIONS,
+    "bash_variables": BASH_VARIABLES,
+    "bash_sources": BASH_SOURCES,
+    "bash_commands": BASH_COMMANDS,
+    "bash_command_args": BASH_COMMAND_ARGS,
+    "bash_pipes": BASH_PIPES,
+    "bash_subshells": BASH_SUBSHELLS,
+    "bash_redirections": BASH_REDIRECTIONS,
+}
+```
+
+**Registration:** Add to `theauditor/indexer/schema.py:15-24`:
+```python
+from .schemas.bash_schema import BASH_TABLES
+
+TABLES: dict[str, TableSchema] = {
+    **CORE_TABLES,
+    **BASH_TABLES,  # Add this line
+    # ... rest
+}
+```
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
