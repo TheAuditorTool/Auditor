@@ -1,10 +1,4 @@
-"""
-Adapter to make SchemaMemoryCache compatible with existing MemoryCache interface.
-
-This is a Phase 2 temporary adapter that allows SchemaMemoryCache to work
-with the existing taint code that expects the old MemoryCache interface.
-This will be removed in Phase 4 when we refactor the taint code directly.
-"""
+"""Adapter to make SchemaMemoryCache compatible with existing MemoryCache interface."""
 
 from typing import Any
 
@@ -127,11 +121,7 @@ class SchemaMemoryCacheAdapter:
     def find_security_sinks_cached(
         self, sinks_dict: dict[str, list[str]] | None = None
     ) -> list[dict[str, Any]]:
-        """Find security sinks using cache - adapter method.
-
-        ZERO FALLBACK POLICY: Use sinks_dict from TaintRegistry, no hardcoded patterns.
-        This adapter is temporary (will be removed in Phase 4).
-        """
+        """Find security sinks using cache - adapter method."""
         sinks = []
 
         if hasattr(self._cache, "sql_queries"):

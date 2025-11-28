@@ -1,14 +1,4 @@
-"""Prisma ORM Analyzer - Database-First Approach.
-
-Detects Prisma ORM anti-patterns and performance issues using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Prisma ORM Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -127,23 +117,7 @@ PRISMA_SOURCES = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Prisma ORM anti-patterns and performance issues.
-
-    Detects:
-    - Unbounded queries without pagination
-    - N+1 query patterns
-    - Missing transactions for multiple writes
-    - Unhandled OrThrow methods
-    - Unsafe raw SQL queries
-    - Missing database indexes
-    - Connection pool configuration issues
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Prisma ORM issues found
-    """
+    """Detect Prisma ORM anti-patterns and performance issues."""
     findings = []
 
     if not context.db_path:
@@ -433,14 +407,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def register_taint_patterns(taint_registry):
-    """Register Prisma-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    ORM-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Prisma-specific taint patterns."""
     for pattern in RAW_QUERY_METHODS:
         taint_registry.register_sink(pattern, "sql", "javascript")
         taint_registry.register_sink(f"prisma.{pattern}", "sql", "javascript")

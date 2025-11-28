@@ -1,13 +1,4 @@
-"""Planning database manager.
-
-This module manages planning.db operations following DatabaseManager pattern.
-
-ARCHITECTURE: Separate planning.db from repo_index.db
-- planning.db stores plans, tasks, specs, and code snapshots
-- repo_index.db remains unchanged (used for verification)
-- Shadow git repo (.pf/snapshots.git) for efficient snapshot storage
-- NO FALLBACKS. Hard failure if planning.db malformed or missing.
-"""
+"""Planning database manager."""
 
 import json
 import sqlite3
@@ -20,23 +11,10 @@ from .shadow_git import ShadowRepoManager
 
 
 class PlanningManager:
-    """Manages planning database operations.
-
-    Follows DatabaseManager pattern from theauditor/indexer/database.py
-    but operates on planning.db instead of repo_index.db.
-
-    NO FALLBACKS. Hard failure if planning.db is malformed or missing.
-    """
+    """Manages planning database operations."""
 
     def __init__(self, db_path: Path):
-        """Initialize planning database connection.
-
-        Args:
-            db_path: Path to planning.db (typically .pf/planning.db)
-
-        Raises:
-            FileNotFoundError: If planning.db doesn't exist (must init first)
-        """
+        """Initialize planning database connection."""
         if not db_path.exists():
             raise FileNotFoundError(
                 f"Planning database not found: {db_path}\nRun 'aud planning init' first."
@@ -49,17 +27,7 @@ class PlanningManager:
 
     @classmethod
     def init_database(cls, db_path: Path) -> PlanningManager:
-        """Create planning.db if it doesn't exist and initialize schema.
-
-        Also initializes shadow git repository (.pf/snapshots.git) for
-        efficient snapshot storage using pygit2.
-
-        Args:
-            db_path: Path to planning.db
-
-        Returns:
-            PlanningManager instance
-        """
+        """Create planning.db if it doesn't exist and initialize schema."""
 
         conn = sqlite3.connect(str(db_path))
         conn.close()
@@ -75,10 +43,7 @@ class PlanningManager:
         return manager
 
     def create_schema(self):
-        """Create planning tables using schema.py definitions.
-
-        Creates: plans, plan_tasks, plan_specs, code_snapshots, code_diffs, plan_phases, plan_jobs
-        """
+        """Create planning tables using schema.py definitions."""
         cursor = self.conn.cursor()
 
         planning_tables = [
@@ -106,14 +71,7 @@ class PlanningManager:
         self.conn.commit()
 
     def _ensure_schema_compliance(self):
-        """Self-healing: Ensures the existing physical DB matches code expectations.
-
-        Run automatically in __init__. Handles schema migrations for existing
-        planning.db files when new columns are added.
-
-        This is NOT a fallback pattern - it's a forward migration that ensures
-        old databases work with new code. If migration fails, it fails hard.
-        """
+        """Self-healing: Ensures the existing physical DB matches code expectations."""
         cursor = self.conn.cursor()
 
         cursor.execute("PRAGMA table_info(code_snapshots)")
@@ -124,18 +82,7 @@ class PlanningManager:
             self.conn.commit()
 
     def create_plan(self, name: str, description: str = "", metadata: dict = None) -> int:
-        """Create new plan and return plan ID.
-
-        Args:
-            name: Plan name (required)
-            description: Plan description
-            metadata: Optional metadata dict (stored as JSON)
-
-        Returns:
-            plan_id: ID of created plan
-
-        NO FALLBACKS. Raises sqlite3.IntegrityError if name is duplicate.
-        """
+        """Create new plan and return plan ID."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plans (name, description, created_at, status, metadata_json)
@@ -158,20 +105,7 @@ class PlanningManager:
         spec_yaml: str = None,
         assigned_to: str = None,
     ) -> int:
-        """Add task to plan and return task ID.
-
-        Args:
-            plan_id: ID of plan to add task to
-            title: Task title (required)
-            description: Task description
-            spec_yaml: Optional YAML spec for verification
-            assigned_to: Optional assignee
-
-        Returns:
-            task_id: ID of created task
-
-        NO FALLBACKS. Raises sqlite3.IntegrityError if plan_id invalid.
-        """
+        """Add task to plan and return task ID."""
         cursor = self.conn.cursor()
 
         cursor.execute("SELECT MAX(task_number) FROM plan_tasks WHERE plan_id = ?", (plan_id,))
@@ -200,15 +134,7 @@ class PlanningManager:
         return cursor.lastrowid
 
     def update_task_status(self, task_id: int, status: str, completed_at: str = None):
-        """Update task status.
-
-        Args:
-            task_id: ID of task to update
-            status: New status (pending|in_progress|completed|failed)
-            completed_at: Optional completion timestamp
-
-        NO FALLBACKS. Raises sqlite3.IntegrityError if task_id invalid.
-        """
+        """Update task status."""
         cursor = self.conn.cursor()
 
         if completed_at is None and status == "completed":
@@ -221,16 +147,7 @@ class PlanningManager:
         self.conn.commit()
 
     def load_task_spec(self, task_id: int) -> str | None:
-        """Load verification spec YAML for task.
-
-        Args:
-            task_id: ID of task
-
-        Returns:
-            spec_yaml: YAML text or None if no spec
-
-        NO FALLBACKS. Returns None if task has no spec (not an error).
-        """
+        """Load verification spec YAML for task."""
         cursor = self.conn.cursor()
         cursor.execute(
             """SELECT ps.spec_yaml
@@ -243,29 +160,14 @@ class PlanningManager:
         return row["spec_yaml"] if row else None
 
     def get_plan(self, plan_id: int) -> dict | None:
-        """Get plan by ID.
-
-        Args:
-            plan_id: ID of plan
-
-        Returns:
-            dict with plan details or None if not found
-        """
+        """Get plan by ID."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM plans WHERE id = ?", (plan_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
     def list_tasks(self, plan_id: int, status_filter: str = None) -> list[dict]:
-        """List tasks for a plan.
-
-        Args:
-            plan_id: ID of plan
-            status_filter: Optional status filter (pending|in_progress|completed|failed)
-
-        Returns:
-            List of task dicts
-        """
+        """List tasks for a plan."""
         cursor = self.conn.cursor()
 
         if status_filter:
@@ -288,26 +190,7 @@ class PlanningManager:
         files_affected: list[str],
         task_id: int | None = None,
     ) -> tuple[int, str]:
-        """Create code snapshot using shadow git repository.
-
-        Reads files from project_root, commits them to .pf/snapshots.git,
-        and stores metadata in SQLite. Uses atomic transaction for sequence
-        assignment to prevent race conditions.
-
-        Args:
-            plan_id: ID of plan
-            checkpoint_name: Name of checkpoint (e.g., "added-imports")
-            project_root: Root directory of user's project
-            files_affected: List of relative file paths to snapshot
-            task_id: Optional task ID for sequence tracking
-
-        Returns:
-            tuple: (snapshot_id, shadow_sha)
-                - snapshot_id: SQLite row ID
-                - shadow_sha: SHA-1 of commit in snapshots.git
-
-        NO FALLBACKS. Raises on any error.
-        """
+        """Create code snapshot using shadow git repository."""
 
         shadow = ShadowRepoManager(self.db_path.parent)
         shadow_sha = shadow.create_snapshot(
@@ -350,14 +233,7 @@ class PlanningManager:
         git_ref: str | None = None,
         files_json: str | None = None,
     ) -> int:
-        """DEPRECATED: Legacy snapshot creation without shadow git.
-
-        Use create_snapshot() instead for new code.
-        Kept for backward compatibility with existing callers.
-
-        Returns:
-            snapshot_id: ID of created snapshot
-        """
+        """DEPRECATED: Legacy snapshot creation without shadow git."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO code_snapshots
@@ -378,18 +254,7 @@ class PlanningManager:
     def add_diff(
         self, snapshot_id: int, file_path: str, diff_text: str, added_lines: int, removed_lines: int
     ) -> int:
-        """Add diff to snapshot.
-
-        Args:
-            snapshot_id: ID of snapshot
-            file_path: Path of changed file
-            diff_text: Full unified diff text
-            added_lines: Number of added lines
-            removed_lines: Number of removed lines
-
-        Returns:
-            diff_id: ID of created diff
-        """
+        """Add diff to snapshot."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO code_diffs
@@ -401,17 +266,7 @@ class PlanningManager:
         return cursor.lastrowid
 
     def get_snapshot(self, snapshot_id: int) -> dict | None:
-        """Get snapshot by ID with associated diffs.
-
-        If snapshot has shadow_sha, retrieves diff from shadow git repo.
-        Otherwise falls back to legacy code_diffs table.
-
-        Args:
-            snapshot_id: ID of snapshot
-
-        Returns:
-            dict with snapshot details and diffs/diff_text
-        """
+        """Get snapshot by ID with associated diffs."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM code_snapshots WHERE id = ?", (snapshot_id,))
         snapshot = cursor.fetchone()
@@ -432,17 +287,7 @@ class PlanningManager:
         return result
 
     def get_snapshot_diff(self, snapshot_id: int) -> str:
-        """Get unified diff for a snapshot from shadow git repo.
-
-        Args:
-            snapshot_id: ID of snapshot
-
-        Returns:
-            str: Unified diff text (empty string if no changes)
-
-        Raises:
-            ValueError: If snapshot not found or has no shadow_sha
-        """
+        """Get unified diff for a snapshot from shadow git repo."""
         cursor = self.conn.cursor()
         cursor.execute(
             "SELECT shadow_sha, task_id, sequence FROM code_snapshots WHERE id = ?",
@@ -475,39 +320,20 @@ class PlanningManager:
         return shadow.get_diff(old_sha, shadow_sha)
 
     def archive_plan(self, plan_id: int):
-        """Archive plan (mark as archived).
-
-        Args:
-            plan_id: ID of plan to archive
-        """
+        """Archive plan (mark as archived)."""
         cursor = self.conn.cursor()
         cursor.execute("UPDATE plans SET status = 'archived' WHERE id = ?", (plan_id,))
         self.conn.commit()
 
     def get_task_number(self, task_id: int) -> int | None:
-        """Get task_number from task_id.
-
-        Args:
-            task_id: ID of task
-
-        Returns:
-            task_number or None if task not found
-        """
+        """Get task_number from task_id."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT task_number FROM plan_tasks WHERE id = ?", (task_id,))
         row = cursor.fetchone()
         return row["task_number"] if row else None
 
     def get_task_id(self, plan_id: int, task_number: int) -> int | None:
-        """Get task_id from plan_id and task_number.
-
-        Args:
-            plan_id: ID of plan
-            task_number: Task number within plan
-
-        Returns:
-            task_id or None if task not found
-        """
+        """Get task_id from plan_id and task_number."""
         cursor = self.conn.cursor()
         cursor.execute(
             "SELECT id FROM plan_tasks WHERE plan_id = ? AND task_number = ?",
@@ -517,24 +343,13 @@ class PlanningManager:
         return row["id"] if row else None
 
     def update_task_assignee(self, task_id: int, assigned_to: str):
-        """Update task assignee.
-
-        Args:
-            task_id: ID of task to update
-            assigned_to: New assignee name
-        """
+        """Update task assignee."""
         cursor = self.conn.cursor()
         cursor.execute("UPDATE plan_tasks SET assigned_to = ? WHERE id = ?", (assigned_to, task_id))
         self.conn.commit()
 
     def update_plan_status(self, plan_id: int, status: str, metadata_json: str = None):
-        """Update plan status and metadata.
-
-        Args:
-            plan_id: ID of plan to update
-            status: New status (active|archived|cancelled)
-            metadata_json: Optional metadata JSON string
-        """
+        """Update plan status and metadata."""
         cursor = self.conn.cursor()
         if metadata_json:
             cursor.execute(
@@ -546,16 +361,7 @@ class PlanningManager:
         self.conn.commit()
 
     def _insert_spec(self, plan_id: int, spec_yaml: str, spec_type: str = None) -> int:
-        """Insert spec and return spec ID (internal helper).
-
-        Args:
-            plan_id: ID of plan
-            spec_yaml: YAML specification text
-            spec_type: Optional spec type (e.g., "api_migration")
-
-        Returns:
-            spec_id: ID of created spec
-        """
+        """Insert spec and return spec ID (internal helper)."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plan_specs (plan_id, spec_yaml, spec_type, created_at)
@@ -574,19 +380,7 @@ class PlanningManager:
         status: str = "pending",
         created_at: str = "",
     ):
-        """Add a phase to a plan (hierarchical planning structure).
-
-        Args:
-            plan_id: ID of plan
-            phase_number: Phase number within plan
-            title: Phase title (required)
-            description: Phase description
-            success_criteria: What completion looks like for this phase (criteria)
-            status: Phase status (pending|in_progress|completed)
-            created_at: Creation timestamp (auto-generated if empty)
-
-        NO FALLBACKS. Raises sqlite3.IntegrityError if duplicate phase_number.
-        """
+        """Add a phase to a plan (hierarchical planning structure)."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plan_phases
@@ -612,18 +406,7 @@ class PlanningManager:
         is_audit_job: int = 0,
         created_at: str = "",
     ):
-        """Add a job (checkbox item) to a task (hierarchical task breakdown).
-
-        Args:
-            task_id: ID of task
-            job_number: Job number within task
-            description: Job description (checkbox text)
-            completed: Job completion status (0 or 1, SQLite BOOLEAN)
-            is_audit_job: Flag for audit jobs (0 or 1, SQLite BOOLEAN)
-            created_at: Creation timestamp (auto-generated if empty)
-
-        NO FALLBACKS. Raises sqlite3.IntegrityError if duplicate job_number.
-        """
+        """Add a job (checkbox item) to a task (hierarchical task breakdown)."""
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plan_jobs

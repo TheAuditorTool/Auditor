@@ -1,14 +1,4 @@
-"""Graph-based dead code detection using NetworkX and graphs.db.
-
-Replaces O(n²) nested loop approach with graph reachability analysis.
-Detects zombie clusters (circular dead code) and orphaned features.
-
-NO FALLBACKS. Hard fail if graphs.db missing or malformed.
-Databases are regenerated fresh every run - missing data = BUG.
-
-This is the SINGLE SOURCE OF TRUTH for dead code detection.
-The old SQL-based approximation (deadcode.py) has been merged here.
-"""
+"""Graph-based dead code detection using NetworkX and graphs.db."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -52,19 +42,7 @@ class DeadCode:
 def detect_isolated_modules(
     db_path: str, path_filter: str = None, exclude_patterns: list[str] = None
 ) -> list[DeadCode]:
-    """Detect dead code using graph-based analysis.
-
-    This is the backward-compatible wrapper for the old deadcode.py API.
-    Internally uses GraphDeadCodeDetector for accurate graph reachability.
-
-    Args:
-        db_path: Path to repo_index.db
-        path_filter: Optional LIKE pattern
-        exclude_patterns: Paths to skip
-
-    Returns:
-        List of DeadCode findings
-    """
+    """Detect dead code using graph-based analysis."""
     repo_db = Path(db_path)
     graphs_db = repo_db.parent / "graphs.db"
 
@@ -84,14 +62,7 @@ detect_all = detect_isolated_modules
 
 
 class GraphDeadCodeDetector:
-    """Graph-based dead code analyzer.
-
-    Uses:
-    - graphs.db for import/call graph structure
-    - repo_index.db for entry point detection (decorators, frameworks)
-
-    Zero fallback policy: crashes if databases malformed or missing tables.
-    """
+    """Graph-based dead code analyzer."""
 
     def __init__(self, graphs_db_path: str, repo_db_path: str, debug: bool = False):
         self.graphs_db = Path(graphs_db_path)
@@ -149,16 +120,7 @@ class GraphDeadCodeDetector:
         exclude_patterns: list[str] | None = None,
         analyze_symbols: bool = False,
     ) -> list[DeadCode]:
-        """Run full dead code analysis.
-
-        Args:
-            path_filter: Optional SQL LIKE pattern (e.g., 'src/%')
-            exclude_patterns: Paths to skip
-            analyze_symbols: Enable symbol-level (function/class) analysis
-
-        Returns:
-            List of DeadCode findings with cluster IDs
-        """
+        """Run full dead code analysis."""
         exclude_patterns = exclude_patterns or DEFAULT_EXCLUSIONS
 
         findings = []
@@ -192,11 +154,7 @@ class GraphDeadCodeDetector:
         return findings
 
     def _build_import_graph(self, path_filter: str | None = None) -> nx.DiGraph:
-        """Build import graph from graphs.db.
-
-        Optimization: Bulk add_edges_from for 10x speedup.
-        NO FALLBACK - crashes if query fails.
-        """
+        """Build import graph from graphs.db."""
         graph = nx.DiGraph()
         cursor = self.graphs_conn.cursor()
 
@@ -218,11 +176,7 @@ class GraphDeadCodeDetector:
         return graph
 
     def _build_call_graph(self, path_filter: str | None, live_modules: set[str]) -> nx.DiGraph:
-        """Build call graph for symbol-level analysis.
-
-        Only includes functions/classes within live modules.
-        NO FALLBACK - crashes if query fails.
-        """
+        """Build call graph for symbol-level analysis."""
         graph = nx.DiGraph()
         cursor = self.graphs_conn.cursor()
 
@@ -250,16 +204,7 @@ class GraphDeadCodeDetector:
         return graph
 
     def _find_entry_points(self, graph: nx.DiGraph) -> set[str]:
-        """Multi-strategy entry point detection.
-
-        Strategies:
-        1. Pattern-based (cli.py, main.py, __main__.py, index.*)
-        2. Decorator-based (@app.route, @task, @click.command)
-        3. Framework-based (React routes, Vue routes)
-        4. Test files (test_*.py, *.test.js)
-
-        NO FALLBACK - crashes if tables malformed.
-        """
+        """Multi-strategy entry point detection."""
         entry_points = set()
 
         for node in graph.nodes():
@@ -288,10 +233,7 @@ class GraphDeadCodeDetector:
         return entry_points
 
     def _find_decorated_entry_points(self) -> set[str]:
-        """Query repo_index.db for decorator-based entry points.
-
-        NO FALLBACK - crashes if table missing (Phase 0 verified it exists).
-        """
+        """Query repo_index.db for decorator-based entry points."""
         cursor = self.repo_conn.cursor()
         entry_points = set()
 
@@ -309,10 +251,7 @@ class GraphDeadCodeDetector:
         return entry_points
 
     def _find_framework_entry_points(self) -> set[str]:
-        """Query repo_index.db for framework-specific entry points.
-
-        NO FALLBACK - crashes if tables missing.
-        """
+        """Query repo_index.db for framework-specific entry points."""
         cursor = self.repo_conn.cursor()
         entry_points = set()
 
@@ -330,15 +269,7 @@ class GraphDeadCodeDetector:
     def _find_dead_nodes(
         self, graph: nx.DiGraph, entry_points: set[str], exclude_patterns: list[str]
     ) -> list[DeadCode]:
-        """Find dead nodes using graph reachability.
-
-        Algorithm:
-        1. Compute reachable set from all entry points
-        2. Dead nodes = all_nodes - reachable_nodes - excluded_nodes
-        3. Cluster dead nodes into zombie clusters (weakly_connected_components)
-
-        NO FALLBACK - returns findings or crashes.
-        """
+        """Find dead nodes using graph reachability."""
 
         reachable = set()
         for entry in entry_points:
@@ -387,15 +318,7 @@ class GraphDeadCodeDetector:
     def _find_dead_symbols(
         self, call_graph: nx.DiGraph, live_modules: set[str], exclude_patterns: list[str]
     ) -> list[DeadCode]:
-        """Find dead functions/classes within live modules.
-
-        Algorithm:
-        1. Build call graph of symbols within live modules
-        2. Find entry points (exported functions, decorated functions)
-        3. Dead symbols = defined but never called
-
-        NO FALLBACK - crashes if query fails.
-        """
+        """Find dead functions/classes within live modules."""
         cursor = self.repo_conn.cursor()
 
         placeholders = ",".join("?" * len(live_modules))
@@ -443,10 +366,7 @@ class GraphDeadCodeDetector:
         return findings
 
     def _get_symbol_count(self, file_path: str) -> int:
-        """Query symbols table for file's symbol count.
-
-        NO FALLBACK - crashes if query fails.
-        """
+        """Query symbols table for file's symbol count."""
         cursor = self.repo_conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM symbols WHERE path = ?", (file_path,))
         return cursor.fetchone()[0]
@@ -486,11 +406,7 @@ class GraphDeadCodeDetector:
         return confidence, reason
 
     def export_cluster_dot(self, cluster_id: int, findings: list[DeadCode], output_path: str):
-        """Export zombie cluster as DOT file for visualization.
-
-        NO FALLBACK - crashes if pydot not installed.
-        User must install pydot if they want visualization.
-        """
+        """Export zombie cluster as DOT file for visualization."""
         cluster_nodes = {f.path for f in findings if f.cluster_id == cluster_id}
 
         if not cluster_nodes:

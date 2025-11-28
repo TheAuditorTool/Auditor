@@ -1,17 +1,4 @@
-"""Intelligent parsers for raw artifacts and structured events.
-
-This module provides THE MISSING 90% of ML intelligence:
-- Tier 1: Pipeline.log parsing (macro phase timing)
-- Tier 2: Enhanced journal parsing (ALL event types, not just apply_patch)
-- Tier 3: Raw/*.json parsing (ground truth findings from all tools)
-- Tier 4: Git analysis (churn, authors, workflows, worktrees)
-
-FIXES:
-- Old journal parser only looked at apply_patch (10% of data)
-- Raw directory completely ignored except graph_metrics.json
-- Phase differentiation non-existent (all 26 phases treated the same)
-- Git analysis limited to commit counts (missing authors, recency, workflow data)
-"""
+"""Intelligent parsers for raw artifacts and structured events."""
 
 import json
 import re
@@ -20,26 +7,7 @@ from pathlib import Path
 
 
 def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
-    """
-    Extract phase-level execution data from pipeline.log.
-
-    Returns dict mapping phase names to timing/status:
-    {
-        "1. Index repository": {
-            "elapsed": 45.2,
-            "status": "success",
-            "phase_num": 1,
-            "exit_code": 0
-        },
-        "14. Taint analysis": {
-            "elapsed": 120.5,
-            "status": "success",
-            "phase_num": 14,
-            "exit_code": 0,
-            "findings": "CRITICAL"
-        }
-    }
-    """
+    """Extract phase-level execution data from pipeline.log."""
     if not log_path.exists():
         return {}
 
@@ -127,18 +95,7 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
 
 
 def parse_journal_events(journal_path: Path) -> dict:
-    """
-    Extract ALL journal event types (not just apply_patch!).
-
-    Returns rich dict with:
-    {
-        "phase_timing": {phase_name: {"elapsed": 120.5, "status": "success"}},
-        "file_touches": {file_path: {"analyze": 3, "findings": 12}},
-        "findings_by_file": {file_path: [{"severity": "critical", "category": "sqli"}]},
-        "patches": {file_path: {"success": 2, "failed": 1}},
-        "pipeline_summary": {"total_phases": 25, "failed_phases": 0, ...}
-    }
-    """
+    """Extract ALL journal event types (not just apply_patch!)."""
     if not journal_path.exists():
         return {
             "phase_timing": {},
@@ -236,20 +193,7 @@ def parse_journal_events(journal_path: Path) -> dict:
 
 
 def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
-    """
-    Parse raw/taint_analysis.json for detailed vulnerability data.
-
-    Returns dict mapping file paths to vulnerability details:
-    {
-        "auth.py": {
-            "vulnerability_paths": 3,
-            "critical_count": 2,
-            "high_count": 1,
-            "cwe_list": ["CWE-89", "CWE-79"],
-            "max_taint_path_length": 5
-        }
-    }
-    """
+    """Parse raw/taint_analysis.json for detailed vulnerability data."""
     file_path = raw_path / "taint_analysis.json"
     if not file_path.exists():
         return {}
@@ -299,24 +243,9 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
-    """
-    Query findings_consolidated for vulnerability findings (tool='vulnerability_scanner').
-
-    ZERO FALLBACK: No try/except for DB query. Crash if DB missing.
-
-    Returns dict mapping file paths to CVE details:
-    {
-        "package.json": {
-            "cve_count": 5,
-            "max_cvss_score": 9.8,
-            "critical_cves": 2,
-            "exploitable_count": 1
-        }
-    }
-    """
+    """Query findings_consolidated for vulnerability findings (tool='vulnerability_scanner')."""
     import sqlite3
 
-    # DB path is parent of raw_path (.pf/)
     db_path = raw_path.parent / "repo_index.db"
     if not db_path.exists():
         return {}
@@ -324,7 +253,6 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
 
-    # Query vulnerability findings from database
     cursor.execute("""
         SELECT file, severity, confidence
         FROM findings_consolidated
@@ -347,7 +275,6 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
 
         stats[file]["cve_count"] += 1
 
-        # Map severity to CVSS-like score for backwards compatibility
         if severity == "critical":
             stats[file]["critical_cves"] += 1
             stats[file]["max_cvss_score"] = max(stats[file]["max_cvss_score"], 9.5)
@@ -357,7 +284,6 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
         elif severity == "medium":
             stats[file]["max_cvss_score"] = max(stats[file]["max_cvss_score"], 5.0)
 
-        # High confidence implies exploitable
         if confidence and confidence >= 0.9:
             stats[file]["exploitable_count"] += 1
 
@@ -366,24 +292,9 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_patterns(raw_path: Path) -> dict[str, dict]:
-    """
-    Query findings_consolidated for pattern detection findings (tool='patterns').
-
-    ZERO FALLBACK: No try/except for DB query. Crash if DB missing.
-
-    Returns dict mapping file paths to pattern counts:
-    {
-        "config.py": {
-            "hardcoded_secrets": 3,
-            "weak_crypto": 1,
-            "insecure_random": 0,
-            "dangerous_functions": 2
-        }
-    }
-    """
+    """Query findings_consolidated for pattern detection findings (tool='patterns')."""
     import sqlite3
 
-    # DB path is parent of raw_path (.pf/)
     db_path = raw_path.parent / "repo_index.db"
     if not db_path.exists():
         return {}
@@ -391,7 +302,6 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
 
-    # Query pattern findings from database
     cursor.execute("""
         SELECT file, category, rule
         FROM findings_consolidated
@@ -414,12 +324,16 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
 
         stats[file]["total_patterns"] += 1
 
-        # Categorize based on category or rule name
         cat_lower = (category or "").lower()
         rule_lower = (rule or "").lower()
         combined = f"{cat_lower} {rule_lower}"
 
-        if "secret" in combined or "password" in combined or "key" in combined or "credential" in combined:
+        if (
+            "secret" in combined
+            or "password" in combined
+            or "key" in combined
+            or "credential" in combined
+        ):
             stats[file]["hardcoded_secrets"] += 1
         elif "crypto" in combined or "md5" in combined or "sha1" in combined or "hash" in combined:
             stats[file]["weak_crypto"] += 1
@@ -433,18 +347,7 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_fce(raw_path: Path) -> dict[str, dict]:
-    """
-    Parse raw/fce.json for factual correlation analysis.
-
-    Returns dict mapping file paths to correlation data:
-    {
-        "auth.py": {
-            "failure_correlations": 3,
-            "cross_file_dependencies": 5,
-            "hotspot_score": 0.85
-        }
-    }
-    """
+    """Parse raw/fce.json for factual correlation analysis."""
     file_path = raw_path / "fce.json"
     if not file_path.exists():
         return {}
@@ -480,18 +383,7 @@ def parse_fce(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
-    """
-    Parse raw/cfg_analysis.json for control flow complexity per function.
-
-    Returns dict mapping file paths to CFG metrics:
-    {
-        "service.py": {
-            "max_cyclomatic_complexity": 18,
-            "avg_cyclomatic_complexity": 6.5,
-            "complex_function_count": 3
-        }
-    }
-    """
+    """Parse raw/cfg_analysis.json for control flow complexity per function."""
     file_path = raw_path / "cfg_analysis.json"
     if not file_path.exists():
         return {}
@@ -538,18 +430,7 @@ def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_frameworks(raw_path: Path) -> dict[str, dict]:
-    """
-    Parse raw/frameworks.json for detected frameworks and versions.
-
-    Returns dict mapping file paths to framework info:
-    {
-        "app.py": {
-            "frameworks": ["flask", "sqlalchemy"],
-            "has_vulnerable_version": True,
-            "framework_count": 2
-        }
-    }
-    """
+    """Parse raw/frameworks.json for detected frameworks and versions."""
     file_path = raw_path / "frameworks.json"
     if not file_path.exists():
         return {}
@@ -582,12 +463,7 @@ def parse_frameworks(raw_path: Path) -> dict[str, dict]:
 
 
 def parse_graph_metrics(raw_path: Path) -> dict[str, float]:
-    """
-    Parse raw/graph_metrics.json for centrality scores.
-
-    Returns dict mapping file paths to centrality scores:
-    {"auth.py": 0.85, "service.py": 0.62}
-    """
+    """Parse raw/graph_metrics.json for centrality scores."""
     file_path = raw_path / "graph_metrics.json"
     if not file_path.exists():
         return {}
@@ -600,20 +476,7 @@ def parse_graph_metrics(raw_path: Path) -> dict[str, float]:
 
 
 def parse_all_raw_artifacts(raw_dir: Path) -> dict:
-    """
-    Parse ALL raw/*.json files and combine into unified feature dict.
-
-    Returns dict with all parsed artifact categories:
-    {
-        "taint": {...},
-        "vulnerabilities": {...},
-        "patterns": {...},
-        "fce": {...},
-        "cfg": {...},
-        "frameworks": {...},
-        "graph_metrics": {...}
-    }
-    """
+    """Parse ALL raw/*.json files and combine into unified feature dict."""
     if not raw_dir.exists():
         return {}
 
@@ -631,28 +494,7 @@ def parse_all_raw_artifacts(raw_dir: Path) -> dict:
 def parse_git_churn(
     root_path: Path, days: int = 90, file_paths: list[str] | None = None
 ) -> dict[str, dict]:
-    """
-    Parse git history for commit churn, author diversity, and recency.
-
-    Delegates to existing MetadataCollector.collect_churn() for DRY compliance.
-    NOTE: Git analysis does NOT skip .venv or excluded dirs (user requirement).
-
-    Args:
-        root_path: Project root directory
-        days: Number of days to analyze (default 90)
-        file_paths: Optional list of files to filter (None = all files)
-
-    Returns:
-        Dict mapping file paths to git metrics:
-        {
-            "auth.py": {
-                "commits_90d": 23,
-                "unique_authors": 5,
-                "days_since_modified": 2,
-                "days_active_in_range": 45
-            }
-        }
-    """
+    """Parse git history for commit churn, author diversity, and recency."""
     try:
         from theauditor.indexer.metadata_collector import MetadataCollector
 
@@ -683,32 +525,12 @@ def parse_git_churn(
 
 
 def parse_git_workflows(root_path: Path) -> dict[str, dict]:
-    """
-    Parse .github/workflows/*.yml for CI/CD metadata.
-
-    FUTURE ENHANCEMENT: Not implemented yet, but reserved for:
-    - Workflow trigger frequency
-    - Test success rates
-    - Deployment frequency
-
-    Returns:
-        Dict mapping workflow files to metadata (currently empty)
-    """
+    """Parse .github/workflows/*.yml for CI/CD metadata."""
 
     return {}
 
 
 def parse_git_worktrees(root_path: Path) -> dict[str, dict]:
-    """
-    Parse git worktrees for active development branch analysis.
-
-    FUTURE ENHANCEMENT: Not implemented yet, but reserved for:
-    - Number of active worktrees
-    - Branch divergence metrics
-    - Parallel development detection
-
-    Returns:
-        Dict mapping worktree paths to metadata (currently empty)
-    """
+    """Parse git worktrees for active development branch analysis."""
 
     return {}

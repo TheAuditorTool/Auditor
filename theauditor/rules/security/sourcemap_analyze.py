@@ -1,18 +1,4 @@
-"""Source Map Exposure Analyzer - Hybrid Database + File I/O Approach.
-
-Detects exposed source maps using a JUSTIFIED HYBRID approach because:
-1. Source maps are BUILD ARTIFACTS not indexed in database
-2. .map files exist only in dist/build directories
-3. Inline maps are added by bundlers, not in source
-4. sourceMappingURL comments are in generated files
-
-Follows v1.1+ schema contract compliance for database queries:
-- Frozensets for all patterns (O(1) lookups)
-- Direct database queries (assumes all tables exist per schema contract)
-- Uses parameterized queries (no SQL injection)
-- Proper confidence levels
-- Minimal file I/O (last 5KB only for build artifacts)
-"""
+"""Source Map Exposure Analyzer - Hybrid Database + File I/O Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -144,22 +130,14 @@ class SourcemapAnalyzer:
     """Analyzer for source map exposure vulnerabilities."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with context.
-
-        Args:
-            context: Rule context containing database and project paths
-        """
+        """Initialize analyzer with context."""
         self.context = context
         self.patterns = SourcemapPatterns()
         self.findings = []
         self.seen_files = set()
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point using hybrid approach.
-
-        Returns:
-            List of source map exposure findings
-        """
+        """Main analysis entry point using hybrid approach."""
 
         if self.context.db_path:
             self._analyze_database()
@@ -422,10 +400,7 @@ class SourcemapAnalyzer:
             )
 
     def _analyze_build_artifacts(self):
-        """Analyze build artifacts for exposed source maps.
-
-        This MUST use file I/O because build outputs are not in the database.
-        """
+        """Analyze build artifacts for exposed source maps."""
         project_root = Path(self.context.project_path)
 
         build_dirs = self._find_build_directories(project_root)
@@ -621,28 +596,13 @@ class SourcemapAnalyzer:
 
 
 def find_sourcemap_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect source map exposure vulnerabilities.
-
-    Uses hybrid approach:
-    - Database: Build configurations, webpack settings
-    - File I/O: Actual .map files and JavaScript in build directories
-
-    Args:
-        context: Standardized rule context with database and project paths
-
-    Returns:
-        List of source map exposure findings
-    """
+    """Detect source map exposure vulnerabilities."""
     analyzer = SourcemapAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register source map related taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register source map related taint patterns."""
     patterns = SourcemapPatterns()
 
     taint_sinks = [

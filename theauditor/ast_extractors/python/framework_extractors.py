@@ -1,18 +1,4 @@
-"""Framework extractors - Backward-compatible facade.
-
-This module re-exports all framework extraction functions from domain-specific modules.
-Existing code using `from framework_extractors import extract_*` will continue working.
-
-New code should import directly from domain modules for clarity:
-  from .orm_extractors import extract_sqlalchemy_definitions
-  from .validation_extractors import extract_pydantic_validators
-  from .django_web_extractors import extract_django_cbvs
-  from .task_graphql_extractors import extract_celery_tasks
-
-REFACTOR NOTE:
-This file was reduced from 2222 lines to ~150 lines as part of refactor-framework-extractors-domain-split.
-All implementation moved to domain-specific files. This file now serves as a re-export facade only.
-"""
+"""Framework extractors - Backward-compatible facade."""
 
 from .django_web_extractors import (
     extract_django_admin,
@@ -56,17 +42,7 @@ FASTAPI_HTTP_METHODS = {
 
 
 def _extract_fastapi_dependencies(func_node):
-    """Collect dependency call targets from FastAPI route parameters.
-
-    TEMPORARY: This function is not yet used but will be needed for FastAPI routes extraction.
-    Will be moved to fastapi_extractors.py in future PR.
-
-    Args:
-        func_node: ast.FunctionDef node representing a FastAPI route function
-
-    Returns:
-        List of dependency target names extracted from Depends() calls
-    """
+    """Collect dependency call targets from FastAPI route parameters."""
     import ast
 
     from ..base import get_node_name

@@ -1,36 +1,4 @@
-"""TypeScript/JavaScript Behavioral AST Extraction Layer.
-
-This module is Part 2 of the TypeScript implementation layer split.
-
-RESPONSIBILITY: Behavioral Analysis (Context-Dependent Semantic Extraction)
-================================================================================
-
-Core Components:
-- Assignments: Variable assignment tracking with accurate function context
-- Function Parameters: Parameter extraction for all function types
-- Call Arguments: Call-site analysis with scope resolution
-- Returns: Return statement analysis with JSX detection
-- CFG: Control flow graph extraction and construction
-- Object Literals: Object literal parsing for dynamic dispatch resolution
-
-ARCHITECTURAL CONTRACT:
-- Depends on typescript_impl_structure.py for scope mapping foundation
-- Uses build_scope_map() for O(1) line-to-function lookups
-- NO file_path context (3-layer architecture: INDEXER provides file paths)
-- Stateful operations (requires scope context from build_scope_map)
-
-DEPENDENCIES:
-- build_scope_map: Used by 4/7 extractors (assignments, calls_with_args, returns, object_literals)
-- _canonical_callee_from_call: Call name resolution (calls_with_args, object_literals)
-- _strip_comment_prefix: Text cleaning (calls_with_args)
-- detect_jsx_in_node: JSX detection (returns)
-
-CONSUMERS:
-- ast_extractors/__init__.py (orchestrator router)
-- Taint analysis (uses function_call_args, assignments, returns)
-- Pattern rules (uses all behavioral data)
-- CFG analysis (uses cfg_blocks, cfg_edges)
-"""
+"""TypeScript/JavaScript Behavioral AST Extraction Layer."""
 
 import os
 import sys
@@ -46,10 +14,7 @@ from .typescript_impl_structure import (
 
 
 def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring.
-
-    CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
-    """
+    """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring."""
     assignments = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -491,11 +456,7 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 def extract_typescript_calls_with_args(
     tree: dict, function_params: dict[str, list[str]], parser_self
 ) -> list[dict[str, Any]]:
-    """Extract function calls with arguments from TypeScript semantic AST.
-
-    CRITICAL FIX: Now uses line-based scope mapping instead of broken recursive tracking.
-    This solves the "100% anonymous caller" problem that crippled taint analysis.
-    """
+    """Extract function calls with arguments from TypeScript semantic AST."""
     calls = []
 
     if os.environ.get("THEAUDITOR_DEBUG"):
@@ -628,13 +589,7 @@ def extract_typescript_calls_with_args(
 
 
 def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract ALL return statements from TypeScript semantic AST, including JSX.
-
-    CRITICAL FIXES:
-    - Uses line-based scope mapping for accurate function context
-    - Tracks multiple returns per function (early returns, conditionals)
-    - Properly detects and preserves JSX returns for React components
-    """
+    """Extract ALL return statements from TypeScript semantic AST, including JSX."""
     returns = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -765,18 +720,7 @@ def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
 
 
 def extract_typescript_cfg(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract control flow graphs from pre-extracted CFG data.
-
-    PHASE 5 UNIFIED SINGLE-PASS ARCHITECTURE:
-    CFG is now extracted directly in JavaScript using extractCFG() function,
-    which handles ALL node types including JSX (JsxElement, JsxSelfClosingElement, etc.).
-
-    This fixes the jsx='preserved' 0 CFG bug where Python's AST traverser
-    couldn't understand JSX nodes.
-
-    Returns:
-        List of CFG objects (one per function) from extracted_data.cfg
-    """
+    """Extract control flow graphs from pre-extracted CFG data."""
     cfgs = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -798,23 +742,7 @@ def extract_typescript_cfg(tree: dict, parser_self) -> list[dict[str, Any]]:
 
 
 def extract_typescript_object_literals(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract object literal properties via direct semantic AST traversal.
-
-    This is the centralized, correct implementation for object literal extraction.
-
-    ARCHITECTURAL CONTRACT:
-    -----------------------
-    This function is an IMPLEMENTATION layer component. It:
-    - RECEIVES: AST tree only (no file path context)
-    - EXTRACTS: Object literal data with line numbers
-    - RETURNS: List[Dict] with keys: line, variable_name, property_name, property_value, property_type, nested_level, in_function
-    - MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-    File path context is provided by the INDEXER layer when storing to database.
-    See indexer/__init__.py:952 which calls db_manager.add_object_literal(file_path, obj_lit['line'], ...)
-
-    This separation ensures single source of truth for file paths.
-    """
+    """Extract object literal properties via direct semantic AST traversal."""
     object_literals = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -977,10 +905,7 @@ def extract_typescript_object_literals(tree: dict, parser_self) -> list[dict[str
 
 
 def build_typescript_function_cfg(func_node: dict) -> dict[str, Any]:
-    """Build CFG for a single TypeScript function using AST traversal.
-
-    This properly traverses the AST instead of using string matching.
-    """
+    """Build CFG for a single TypeScript function using AST traversal."""
     blocks = []
     edges = []
     block_counter = [0]

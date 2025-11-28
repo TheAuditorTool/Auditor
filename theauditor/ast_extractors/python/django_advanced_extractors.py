@@ -1,20 +1,4 @@
-"""
-Django Advanced Pattern Extractors (Phase 3.4)
-
-This module contains extractors for advanced Django patterns:
-- Django signals (signal definitions and connections)
-- Django receivers (@receiver decorators)
-- Django custom managers (BaseManager/Manager subclasses)
-- Django QuerySet methods (custom querysets)
-
-These extractors identify Django-specific patterns for:
-- Event-driven architecture analysis
-- Signal/receiver dependency tracking
-- Custom ORM manager/queryset usage
-- Django application flow analysis
-
-All extractors follow architectural contract: NO file_path in results.
-"""
+"""Django Advanced Pattern Extractors (Phase 3.4)"""
 
 import ast
 import json
@@ -25,29 +9,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
-    """
-    Extract Django signal definitions and connections.
-
-    Detects:
-    - django.dispatch.Signal() definitions
-    - signal.connect() calls
-    - Signal subclass definitions
-    - providing_args parameter
-
-    Security relevance:
-    - Signals can trigger privileged operations
-    - Signal receivers may bypass authentication
-    - Signal chains can create TOCTOU vulnerabilities
-
-    Returns:
-        List of dicts with keys:
-        - line: int
-        - signal_name: str
-        - signal_type: str (definition, connection, custom)
-        - providing_args: str (JSON array of argument names)
-        - sender: str (optional - for connections)
-        - receiver_function: str (optional - for connections)
-    """
+    """Extract Django signal definitions and connections."""
     results = []
 
     if not context.tree:
@@ -123,28 +85,7 @@ def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
-    """
-    Extract Django @receiver decorators.
-
-    Detects:
-    - @receiver(signal_name) decorators
-    - Multiple signals in one decorator
-    - sender parameter
-
-    Security relevance:
-    - Receivers can bypass normal authentication flow
-    - Receivers may have elevated privileges
-    - Race conditions in signal handlers
-    - TOCTOU between signal and receiver
-
-    Returns:
-        List of dicts with keys:
-        - line: int
-        - function_name: str
-        - signals: str (JSON array of signal names)
-        - sender: str (optional)
-        - is_weak: bool (weak=True/False parameter)
-    """
+    """Extract Django @receiver decorators."""
     results = []
 
     if not context.tree:
@@ -184,28 +125,7 @@ def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
-    """
-    Extract Django custom manager definitions.
-
-    Detects:
-    - models.Manager subclasses
-    - Custom manager methods
-    - .objects assignments in models
-    - Multiple managers per model
-
-    Security relevance:
-    - Custom managers can bypass row-level security
-    - Manager methods may not respect permissions
-    - Queryset filtering can be security boundary
-
-    Returns:
-        List of dicts with keys:
-        - line: int
-        - manager_name: str
-        - base_class: str (Manager, BaseManager, etc.)
-        - custom_methods: str (JSON array of method names)
-        - model_assignment: str (Model.objects = ManagerName())
-    """
+    """Extract Django custom manager definitions."""
     results = []
 
     if not context.tree:
@@ -262,30 +182,7 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
-    """
-    Extract Django QuerySet method definitions and chains.
-
-    Detects:
-    - QuerySet subclasses
-    - Custom queryset methods
-    - Queryset method chains (.filter().exclude().order_by())
-    - as_manager() pattern
-
-    Security relevance:
-    - QuerySets define data access boundaries
-    - Custom filters may have security implications
-    - Method chaining can bypass security checks
-    - as_manager() exposes queryset methods on model
-
-    Returns:
-        List of dicts with keys:
-        - line: int
-        - queryset_name: str
-        - base_class: str (QuerySet)
-        - custom_methods: str (JSON array of method names)
-        - has_as_manager: bool
-        - method_chain: str (optional - for queryset chains)
-    """
+    """Extract Django QuerySet method definitions and chains."""
     results = []
 
     if not context.tree:

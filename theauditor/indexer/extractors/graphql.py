@@ -1,13 +1,4 @@
-"""GraphQL SDL extractor for schema definition language files.
-
-This extractor parses .graphql, .gql, and .graphqls files to extract:
-- Schema metadata and fingerprints
-- Type definitions (object, interface, input, enum, union, scalar)
-- Field definitions with return types and directives
-- Field argument definitions
-
-NO FALLBACKS. NO REGEX. Pure AST-based extraction using graphql-core.
-"""
+"""GraphQL SDL extractor for schema definition language files."""
 
 import hashlib
 import json
@@ -34,16 +25,7 @@ from . import BaseExtractor
 
 
 class GraphQLExtractor(BaseExtractor):
-    """Extractor for GraphQL SDL (.graphql/.gql/.graphqls) files.
-
-    Uses graphql-core to parse schema definition language and extract
-    structured metadata for database storage.
-
-    ARCHITECTURE:
-    - NO fallbacks - hard fail if parsing fails
-    - Returns dict with keys matching DataStorer handler names
-    - Type IDs and field IDs are generated incrementally
-    """
+    """Extractor for GraphQL SDL (.graphql/.gql/.graphqls) files."""
 
     def supported_extensions(self) -> list[str]:
         """Return supported GraphQL file extensions."""
@@ -52,16 +34,7 @@ class GraphQLExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract GraphQL schema metadata from SDL file.
-
-        Args:
-            file_info: File metadata dictionary with 'path' key
-            content: Raw SDL content
-            tree: Unused (graphql-core handles parsing)
-
-        Returns:
-            Dict with keys: graphql_schemas, graphql_types, graphql_fields, graphql_field_args
-        """
+        """Extract GraphQL schema metadata from SDL file."""
         file_path = file_info["path"]
 
         try:
@@ -152,15 +125,7 @@ class GraphQLExtractor(BaseExtractor):
         )
 
     def _extract_type(self, node: DefinitionNode, schema_path: str) -> dict[str, Any] | None:
-        """Extract type metadata from AST node.
-
-        Args:
-            node: GraphQL type definition node
-            schema_path: File path of the schema
-
-        Returns:
-            Dict with type metadata or None if unsupported
-        """
+        """Extract type metadata from AST node."""
         if not hasattr(node, "name") or not node.name:
             return None
 
@@ -209,17 +174,7 @@ class GraphQLExtractor(BaseExtractor):
     def _extract_field(
         self, node: FieldDefinitionNode, type_id: int, field_id: int, type_name: str = None
     ) -> dict[str, Any] | None:
-        """Extract field metadata from AST node.
-
-        Args:
-            node: GraphQL field definition node
-            type_id: Parent type ID
-            field_id: Field ID
-            type_name: Parent type name (for test convenience)
-
-        Returns:
-            Dict with field metadata or None if invalid
-        """
+        """Extract field metadata from AST node."""
         if not hasattr(node, "name") or not node.name:
             return None
 
@@ -258,16 +213,7 @@ class GraphQLExtractor(BaseExtractor):
     def _extract_field_arg(
         self, node: InputValueDefinitionNode, field_id: int, field_name: str = None
     ) -> dict[str, Any] | None:
-        """Extract field argument metadata from AST node.
-
-        Args:
-            node: GraphQL input value definition node
-            field_id: Parent field ID
-            field_name: Parent field name (for test convenience)
-
-        Returns:
-            Dict with argument metadata or None if invalid
-        """
+        """Extract field argument metadata from AST node."""
         if not hasattr(node, "name") or not node.name:
             return None
 
@@ -305,14 +251,7 @@ class GraphQLExtractor(BaseExtractor):
         return result
 
     def _parse_type(self, type_node) -> tuple:
-        """Parse GraphQL type node into (type_string, is_list, is_nullable).
-
-        Args:
-            type_node: GraphQL type node (can be NonNullType, ListType, or NamedType)
-
-        Returns:
-            Tuple of (type_string, is_list, is_nullable)
-        """
+        """Parse GraphQL type node into (type_string, is_list, is_nullable)."""
         is_nullable = True
         is_list = False
         type_string = ""
@@ -342,14 +281,7 @@ class GraphQLExtractor(BaseExtractor):
         return (type_string, is_list, is_nullable)
 
     def _extract_directives(self, directives: list[DirectiveNode]) -> list[dict[str, Any]]:
-        """Extract directive metadata from AST nodes.
-
-        Args:
-            directives: List of directive nodes
-
-        Returns:
-            List of directive dicts
-        """
+        """Extract directive metadata from AST nodes."""
         result = []
         for directive in directives:
             if not hasattr(directive, "name") or not directive.name:

@@ -13,10 +13,11 @@ from rich import box
 
 from theauditor import __version__
 
-# Windows console encoding fix
+
 if platform.system() == "Windows":
     subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
     import codecs
+
     sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
     sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
@@ -85,25 +86,20 @@ class RichGroup(click.Group):
         """Render help output using Rich components."""
         console = Console(force_terminal=sys.stdout.isatty())
 
-        # Header
         console.print()
         console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]")
         console.print(
-            "[center]Local-first | Air-gapped | Polyglot Static Analysis[/center]",
-            style="dim"
+            "[center]Local-first | Air-gapped | Polyglot Static Analysis[/center]", style="dim"
         )
         console.print()
 
-        # Get all registered commands
         registered = {
             name: cmd
             for name, cmd in self.commands.items()
             if not name.startswith("_") and not getattr(cmd, "hidden", False)
         }
 
-        # Render Categories
         for cat_id, cat_data in self.COMMAND_CATEGORIES.items():
-            # Create a table for commands in this category
             table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
             table.add_column("Command", style="bold white", width=20)
             table.add_column("Description", style="dim")
@@ -112,7 +108,7 @@ class RichGroup(click.Group):
             for cmd_name in cat_data["commands"]:
                 if cmd_name in registered:
                     cmd = registered[cmd_name]
-                    # Extract short help
+
                     help_text = (cmd.help or "").split("\n")[0].strip()
                     if len(help_text) > 60:
                         help_text = help_text[:57] + "..."
@@ -126,20 +122,19 @@ class RichGroup(click.Group):
                     title=f"[{cat_data['style']}]{cat_data['title']}[/]",
                     subtitle=f"[dim]{cat_data['description']}[/dim]",
                     subtitle_align="right",
-                    border_style=cat_data['style'],
-                    box=box.ROUNDED
+                    border_style=cat_data["style"],
+                    box=box.ROUNDED,
                 )
                 console.print(panel)
 
-        # Footer
         console.print()
         console.print(
             "[dim]Run [bold]aud <command> --help[/bold] for detailed usage options.[/dim]",
-            justify="center"
+            justify="center",
         )
         console.print(
             "[dim]Run [bold]aud manual --list[/bold] for concept documentation.[/dim]",
-            justify="center"
+            justify="center",
         )
         console.print()
 
@@ -152,9 +147,6 @@ def cli():
     pass
 
 
-# ------------------------------------------------------------------------------
-# COMMAND REGISTRATION
-# ------------------------------------------------------------------------------
 from theauditor.commands._archive import _archive
 from theauditor.commands.blueprint import blueprint
 from theauditor.commands.boundaries import boundaries
@@ -196,7 +188,7 @@ from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
 
-# Hidden/System Commands
+
 init.hidden = True
 index.hidden = True
 cli.add_command(init)
@@ -205,14 +197,14 @@ cli.add_command(_archive)
 cli.add_command(init_js)
 cli.add_command(init_config)
 
-# Setup & Core
+
 cli.add_command(setup_ai)
 cli.add_command(tools)
 cli.add_command(full)
 cli.add_command(workset)
 cli.add_command(manual)
 
-# Security
+
 cli.add_command(detect_patterns)
 cli.add_command(detect_frameworks)
 cli.add_command(taint_analyze)
@@ -223,32 +215,32 @@ cli.add_command(terraform)
 cli.add_command(cdk)
 cli.add_command(workflows)
 
-# Dependencies & Docs
+
 cli.add_command(deps)
 cli.add_command(docs)
 
-# Code Quality & Graph
+
 cli.add_command(lint)
 cli.add_command(cfg)
 cli.add_command(graph)
 cli.add_command(graphql)
 cli.add_command(deadcode)
 
-# Data & Reporting
+
 cli.add_command(summary)
 cli.add_command(fce)
 cli.add_command(structure)
 cli.add_command(metadata)
 cli.add_command(blueprint)
 
-# Advanced Queries
+
 cli.add_command(query)
 cli.add_command(explain)
 cli.add_command(impact)
 cli.add_command(refactor_command, name="refactor")
 cli.add_command(context_command, name="context")
 
-# Insights & ML
+
 cli.add_command(insights_command, name="insights")
 cli.add_command(learn)
 cli.add_command(suggest)
@@ -256,11 +248,13 @@ cli.add_command(learn_feedback)
 cli.add_command(session)
 cli.add_command(planning)
 
-# Legacy aliases
+
 @click.command("setup-claude", hidden=True)
 @click.pass_context
 def setup_claude_alias(ctx, **kwargs):
     ctx.invoke(setup_ai, **kwargs)
+
+
 setup_claude_alias.params = setup_ai.params
 cli.add_command(setup_claude_alias)
 

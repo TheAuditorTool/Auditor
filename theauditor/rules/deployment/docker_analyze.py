@@ -1,22 +1,4 @@
-"""Dockerfile Security Analyzer - Database-First Approach.
-
-Detects security misconfigurations in Dockerfile images.
-Uses pre-extracted data from docker_images table - NO FILE I/O.
-
-Tables Used (guaranteed by schema contract):
-- docker_images: Dockerfile metadata (USER, ENV, ARG, base_image, exposed_ports, has_healthcheck)
-
-Detects:
-- Root user containers (missing USER instruction)
-- Hardcoded secrets in ENV/ARG
-- High-entropy strings (potential secrets)
-- Vulnerable/outdated base images
-- Missing HEALTHCHECK instruction
-- Sensitive ports exposed
-- Base image CVE scanning (optional)
-
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""Dockerfile Security Analyzer - Database-First Approach."""
 
 import json
 import math
@@ -123,31 +105,7 @@ SENSITIVE_PORT_NUMS = frozenset(
 
 
 def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Dockerfile security misconfigurations using indexed data.
-
-    Detection Strategy:
-    1. Query docker_images table for all Dockerfiles
-    2. Check USER instruction (root user detection)
-    3. Scan ENV/ARG for hardcoded secrets
-    4. Validate base image versions
-    5. Check for missing HEALTHCHECK
-    6. Detect sensitive ports exposed
-    7. Optional: Scan base images for CVEs
-
-    Database Tables Used:
-    - docker_images: Dockerfile metadata (USER, ENV, ARG, base_image, exposed_ports, has_healthcheck)
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of findings for detected security issues
-
-    Known Limitations:
-    - Multi-stage builds: Only checks final USER instruction
-    - ARG secrets: Detects but cannot prevent build-time exposure
-    - CVE scanning: Requires network access (optional)
-    """
+    """Detect Dockerfile security misconfigurations using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -171,13 +129,7 @@ def find_docker_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
-    """Detect containers running as root user.
-
-    CIS Docker Benchmark: Containers should never run as root.
-    A container breakout would grant attacker root privileges on the host.
-
-    Checks docker_images.env_vars['_DOCKER_USER'] field.
-    """
+    """Detect containers running as root user."""
     findings = []
 
     from theauditor.indexer.schema import build_query
@@ -217,17 +169,7 @@ def _check_root_user(cursor, patterns: DockerfilePatterns) -> list[StandardFindi
 
 
 def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
-    """Detect hardcoded secrets in ENV and ARG instructions.
-
-    ENV and ARG values are stored in image layers and can be inspected
-    by anyone with access to the image. Secrets must use Docker secrets
-    or external secret managers.
-
-    Detection methods:
-    1. Sensitive key names (PASSWORD, TOKEN, etc.)
-    2. Known secret patterns (GitHub PAT, AWS keys, etc.)
-    3. High Shannon entropy (random-looking strings)
-    """
+    """Detect hardcoded secrets in ENV and ARG instructions."""
     findings = []
 
     from theauditor.indexer.schema import build_query
@@ -341,13 +283,7 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> list[Standar
 
 
 def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> list[StandardFinding]:
-    """Detect use of vulnerable or EOL base images.
-
-    Checks for:
-    1. Known vulnerable/deprecated versions
-    2. Unpinned versions (:latest tag)
-    3. Images without registry namespace (typosquatting risk)
-    """
+    """Detect use of vulnerable or EOL base images."""
     findings = []
 
     from theauditor.indexer.schema import build_query
@@ -418,18 +354,7 @@ def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> list[Stand
 
 
 def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
-    """Check if a string has high Shannon entropy (potential secret).
-
-    Shannon entropy measures randomness. High entropy indicates
-    random-looking strings that might be API keys, tokens, or secrets.
-
-    Args:
-        value: String to analyze
-        threshold: Entropy threshold (default 4.0 bits per character)
-
-    Returns:
-        True if entropy exceeds threshold
-    """
+    """Check if a string has high Shannon entropy (potential secret)."""
 
     if len(value) < 10:
         return False
@@ -451,14 +376,7 @@ def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
 
 
 def _check_missing_healthcheck(cursor) -> list[StandardFinding]:
-    """Detect containers without HEALTHCHECK instruction.
-
-    HEALTHCHECK allows Docker/Kubernetes to monitor container health.
-    Without it, orchestrators can't detect application failures and
-    will keep routing traffic to dead containers.
-
-    Checks docker_images.has_healthcheck field.
-    """
+    """Detect containers without HEALTHCHECK instruction."""
     findings = []
 
     from theauditor.indexer.schema import build_query
@@ -488,13 +406,7 @@ def _check_missing_healthcheck(cursor) -> list[StandardFinding]:
 
 
 def _check_sensitive_ports(cursor) -> list[StandardFinding]:
-    """Detect containers exposing sensitive management ports.
-
-    Exposing management ports (SSH, RDP, database ports) in production
-    increases attack surface. These should be behind VPN/bastion hosts.
-
-    Checks docker_images.exposed_ports field against known sensitive ports.
-    """
+    """Detect containers exposing sensitive management ports."""
     findings = []
 
     from theauditor.indexer.schema import build_query

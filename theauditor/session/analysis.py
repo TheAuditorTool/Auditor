@@ -1,12 +1,4 @@
-"""SessionAnalysis - Orchestrate complete session analysis pipeline.
-
-This module orchestrates the 3-layer analysis:
-1. Layer 1 (Execution Capture): Parse session logs, extract diffs
-2. Layer 2 (Deterministic Scoring): Run diffs through SAST pipeline
-3. Layer 3 (Workflow Correlation): Check planning.md compliance
-
-Stores results to session_executions table via SessionExecutionStore.
-"""
+"""SessionAnalysis - Orchestrate complete session analysis pipeline."""
 
 import logging
 from pathlib import Path
@@ -25,13 +17,7 @@ class SessionAnalysis:
     def __init__(
         self, db_path: Path = None, project_root: Path = None, workflow_path: Path | None = None
     ):
-        """Initialize session analysis orchestrator.
-
-        Args:
-            db_path: Path to repo_index.db for SAST scoring (default: .pf/repo_index.db)
-            project_root: Root directory of project (default: current directory)
-            workflow_path: Path to planning.md (optional)
-        """
+        """Initialize session analysis orchestrator."""
 
         self.project_root = project_root or Path.cwd()
         self.db_path = db_path or (self.project_root / ".pf" / "repo_index.db")
@@ -45,14 +31,7 @@ class SessionAnalysis:
         logger.info("SessionAnalysis orchestrator initialized")
 
     def analyze_session(self, session: Session) -> SessionExecution:
-        """Analyze complete session: score diffs + check workflow + store.
-
-        Args:
-            session: Session object to analyze
-
-        Returns:
-            SessionExecution object with complete analysis
-        """
+        """Analyze complete session: score diffs + check workflow + store."""
         logger.info(f"Analyzing session: {session.session_id}")
 
         files_read = set()
@@ -122,14 +101,7 @@ class SessionAnalysis:
         return execution
 
     def analyze_multiple_sessions(self, sessions: list) -> list:
-        """Analyze multiple sessions in batch.
-
-        Args:
-            sessions: List of Session objects
-
-        Returns:
-            List of SessionExecution objects
-        """
+        """Analyze multiple sessions in batch."""
         logger.info(f"Analyzing {len(sessions)} sessions...")
 
         executions = []
@@ -148,11 +120,7 @@ class SessionAnalysis:
         return executions
 
     def get_correlation_statistics(self) -> dict:
-        """Get correlation statistics (workflow compliance vs outcomes).
-
-        Returns:
-            Dict with statistical summary
-        """
+        """Get correlation statistics (workflow compliance vs outcomes)."""
         stats = self.store.get_statistics()
 
         if "compliant" in stats and "non_compliant" in stats:

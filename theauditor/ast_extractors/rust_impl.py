@@ -1,39 +1,10 @@
-"""Rust AST extraction implementation using tree-sitter.
-
-This module provides the 12 required extraction methods for Rust,
-matching the interface of python_impl.py and typescript_impl.py.
-
-All extraction is AST-based using tree-sitter-rust. NO REGEX.
-
-Tree-sitter Rust Node Types:
-- function_item: fn declarations
-- struct_item: struct definitions
-- enum_item: enum definitions
-- impl_item: impl blocks
-- trait_item: trait definitions
-- use_declaration: use statements
-- let_declaration: variable bindings
-- call_expression: function calls
-- field_expression: struct.field access
-- return_expression: return statements
-- unsafe_block: unsafe { } blocks
-- macro_invocation: macro!() calls
-"""
+"""Rust AST extraction implementation using tree-sitter."""
 
 from .base import extract_vars_from_rust_node
 
 
 def extract_rust_functions(tree, content: str, file_path: str) -> list[dict]:
-    """Extract function definitions from Rust AST.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of function dicts with name, line, params, return_type
-    """
+    """Extract function definitions from Rust AST."""
     functions = []
 
     def traverse(node, depth=0):
@@ -115,21 +86,7 @@ def _extract_function_details(node, content: str, file_path: str) -> dict | None
 
 
 def extract_rust_classes(tree, content: str, file_path: str) -> list[dict]:
-    """Extract struct, enum, and trait definitions.
-
-    In Rust, 'classes' are represented by:
-    - struct items
-    - enum items
-    - trait items
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of class/struct/enum dicts
-    """
+    """Extract struct, enum, and trait definitions."""
     classes = []
 
     def traverse(node, depth=0):
@@ -203,19 +160,7 @@ def _extract_class_details(node, content: str, file_path: str) -> dict | None:
 
 
 def extract_rust_imports(tree, content: str, file_path: str) -> list[tuple[str, str]]:
-    """Extract use declarations from Rust AST.
-
-    CRITICAL: NO REGEX - pure AST traversal.
-    This replaces the forbidden regex pattern from rust_lsp_backup.py.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of ('use', import_path) tuples
-    """
+    """Extract use declarations from Rust AST."""
     imports = []
 
     def traverse(node, depth=0):
@@ -243,16 +188,7 @@ def extract_rust_imports(tree, content: str, file_path: str) -> list[tuple[str, 
 
 
 def extract_rust_exports(tree, content: str, file_path: str) -> list[dict]:
-    """Extract pub items (Rust's export mechanism).
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of export dicts
-    """
+    """Extract pub items (Rust's export mechanism)."""
     exports = []
 
     def traverse(node, depth=0):
@@ -281,16 +217,7 @@ def extract_rust_exports(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_rust_calls(tree, content: str, file_path: str) -> list[dict]:
-    """Extract function calls and macro invocations.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of call dicts
-    """
+    """Extract function calls and macro invocations."""
     calls = []
 
     def traverse(node, depth=0):
@@ -331,18 +258,7 @@ def extract_rust_calls(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_rust_properties(tree, content: str, file_path: str) -> list[dict]:
-    """Extract field access expressions.
-
-    Examples: obj.field, self.value, request.body
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of property access dicts
-    """
+    """Extract field access expressions."""
     properties = []
 
     def traverse(node, depth=0):
@@ -374,21 +290,7 @@ def extract_rust_properties(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_rust_assignments(tree, content: str, file_path: str) -> list[dict]:
-    """Extract let bindings and assignment expressions.
-
-    Examples:
-    - let x = 5;
-    - let mut y = foo();
-    - x = y + 1;
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of assignment dicts with target_var, source_expr, line, in_function
-    """
+    """Extract let bindings and assignment expressions."""
     assignments = []
 
     scope_map = _build_function_scope_map(tree, content)
@@ -450,16 +352,7 @@ def extract_rust_assignments(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_rust_function_params(tree, content: str, file_path: str) -> dict[str, list[str]]:
-    """Extract function parameter names.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        Dict mapping function_name -> [param_names]
-    """
+    """Extract function parameter names."""
     func_params = {}
 
     def traverse(node, depth=0):
@@ -497,19 +390,7 @@ def extract_rust_function_params(tree, content: str, file_path: str) -> dict[str
 def extract_rust_calls_with_args(
     tree, content: str, file_path: str, function_params: dict[str, list[str]]
 ) -> list[dict]:
-    """Extract function calls with their arguments.
-
-    CRITICAL for taint analysis.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-        function_params: Dict of function_name -> param_names
-
-    Returns:
-        List of call dicts with caller, callee, arguments
-    """
+    """Extract function calls with their arguments."""
     calls = []
 
     scope_map = _build_function_scope_map(tree, content)
@@ -559,20 +440,7 @@ def extract_rust_calls_with_args(
 
 
 def extract_rust_returns(tree, content: str, file_path: str) -> list[dict]:
-    """Extract return expressions (both explicit and implicit).
-
-    Rust has two types of returns:
-    1. Explicit: return x;
-    2. Implicit: last expression without semicolon
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of return dicts with function_name, return_expr, line
-    """
+    """Extract return expressions (both explicit and implicit)."""
     returns = []
 
     scope_map = _build_function_scope_map(tree, content)
@@ -689,34 +557,14 @@ def extract_rust_returns(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_rust_cfg(tree, content: str, file_path: str) -> list[dict]:
-    """Extract control flow graph information.
-
-    Placeholder implementation - full CFG extraction is complex.
-    Returns basic control flow structure for now.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of CFG dicts (basic structure)
-    """
+    """Extract control flow graph information."""
     cfgs = []
 
     return cfgs
 
 
 def _get_node_text(node, content: str) -> str:
-    """Extract text for a tree-sitter node.
-
-    Args:
-        node: tree-sitter node
-        content: File content
-
-    Returns:
-        Text content of the node
-    """
+    """Extract text for a tree-sitter node."""
     if node is None:
         return ""
 
@@ -729,19 +577,7 @@ def _get_node_text(node, content: str) -> str:
 
 
 def _is_valid_identifier(text: str) -> bool:
-    """Check if text is a valid Rust identifier.
-
-    Rust identifiers:
-    - Start with letter or underscore
-    - Contain only letters, digits, underscores
-    - Not just underscores
-
-    Args:
-        text: Text to validate
-
-    Returns:
-        True if valid identifier
-    """
+    """Check if text is a valid Rust identifier."""
     if not text or len(text) > 200:
         return False
 
@@ -759,15 +595,7 @@ def _is_valid_identifier(text: str) -> bool:
 
 
 def _build_function_scope_map(tree, content: str) -> dict[int, str]:
-    """Build a map of line numbers to containing function names.
-
-    Args:
-        tree: tree-sitter parse tree
-        content: File content
-
-    Returns:
-        Dict mapping line_number -> function_name
-    """
+    """Build a map of line numbers to containing function names."""
     scope_map = {}
 
     def traverse(node, depth=0):

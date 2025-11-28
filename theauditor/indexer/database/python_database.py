@@ -1,28 +1,10 @@
-"""Python-specific database operations.
-
-This module contains add_* methods for PYTHON_TABLES defined in schemas/python_schema.py.
-
-Handles 30 Python tables with 30 add_* methods:
-- 8 original methods for 8 kept tables (ORM, routes, validators, decorators, Django, package_configs)
-- 20 methods for consolidated tables (loops, branches, security, testing, etc.)
-- 2 methods for expression decomposition (comprehensions, control_statements)
-
-HISTORY:
-- 2025-11-25: Purged ~140 zombie methods (1,655 lines deleted)
-- 2025-11-25: Added 20 consolidated table methods
-- 2025-11-25: Removed dead add_python_blueprint method (table doesn't exist)
-- 2025-11-26: Added 2 expression decomposition methods (Phase 2 Fidelity Control)
-"""
+"""Python-specific database operations."""
 
 import json
 
 
 class PythonDatabaseMixin:
-    """Mixin providing add_* methods for PYTHON_TABLES.
-
-    CRITICAL: This mixin assumes self.generic_batches exists (from BaseDatabaseManager).
-    DO NOT instantiate directly - only use as mixin for DatabaseManager.
-    """
+    """Mixin providing add_* methods for PYTHON_TABLES."""
 
     def add_python_orm_model(
         self,
@@ -114,17 +96,7 @@ class PythonDatabaseMixin:
         optional_dependencies: str,
         build_system: str | None,
     ):
-        """Add a Python package configuration (pyproject.toml/requirements.txt) to the batch.
-
-        Args:
-            file_path: Path to the dependency file
-            file_type: 'pyproject' or 'requirements'
-            project_name: Package name (from pyproject.toml)
-            project_version: Package version (from pyproject.toml)
-            dependencies: JSON array of dependency dicts
-            optional_dependencies: JSON object with optional dependency groups
-            build_system: JSON object with build system info
-        """
+        """Add a Python package configuration (pyproject.toml/requirements.txt) to the batch."""
         self.generic_batches["python_package_configs"].append(
             (
                 file_path,
@@ -228,19 +200,7 @@ class PythonDatabaseMixin:
         estimated_complexity: str | None,
         has_growing_operation: bool,
     ):
-        """Add a Python loop (for/while/async for/complexity) to the batch.
-
-        Args:
-            loop_kind: 'for', 'while', 'async_for', 'complexity_analysis' (discriminator)
-            loop_type: Extractor's subtype (e.g., 'enumerate', 'zip') - NOT overwritten
-            has_else: Whether loop has else clause
-            nesting_level: Depth of loop nesting
-            target_count: Number of loop variables (for/async_for)
-            in_function: Name of containing function
-            is_infinite: Whether loop is infinite (while only)
-            estimated_complexity: Big-O complexity (complexity_analysis only)
-            has_growing_operation: Whether loop has growing operation (complexity_analysis only)
-        """
+        """Add a Python loop (for/while/async for/complexity) to the batch."""
         self.generic_batches["python_loops"].append(
             (
                 file_path,
@@ -284,12 +244,7 @@ class PythonDatabaseMixin:
         cleanup_calls: str | None,
         in_function: str | None,
     ):
-        """Add a Python branch (if/match/raise/except/finally) to the batch.
-
-        Args:
-            branch_kind: 'if', 'match', 'raise', 'except', 'finally' (discriminator)
-            branch_type: Extractor's subtype - NOT overwritten
-        """
+        """Add a Python branch (if/match/raise/except/finally) to the batch."""
         self.generic_batches["python_branches"].append(
             (
                 file_path,
@@ -354,13 +309,7 @@ class PythonDatabaseMixin:
         has_memoization: bool,
         in_function: str | None,
     ):
-        """Add an advanced Python function pattern to the batch.
-
-        Args:
-            function_kind: 'generator', 'async', 'lambda', 'context_manager', 'async_generator',
-                          'recursive', 'memoized' (discriminator)
-            function_type: Extractor's subtype - NOT overwritten
-        """
+        """Add an advanced Python function pattern to the batch."""
         self.generic_batches["python_functions_advanced"].append(
             (
                 file_path,
@@ -414,13 +363,7 @@ class PythonDatabaseMixin:
         is_async: bool,
         in_function: str | None,
     ):
-        """Add a Python I/O operation to the batch.
-
-        Args:
-            io_kind: 'file', 'network', 'database', 'process', 'param_flow',
-                    'closure', 'nonlocal', 'conditional' (discriminator)
-            io_type: Extractor's subtype - NOT overwritten
-        """
+        """Add a Python I/O operation to the batch."""
         self.generic_batches["python_io_operations"].append(
             (
                 file_path,
@@ -454,12 +397,7 @@ class PythonDatabaseMixin:
         is_property_setter: bool,
         in_function: str | None,
     ):
-        """Add a Python state mutation to the batch.
-
-        Args:
-            mutation_kind: 'instance', 'class', 'global', 'argument', 'augmented' (discriminator)
-            mutation_type: Extractor's subtype - NOT overwritten
-        """
+        """Add a Python state mutation to the batch."""
         self.generic_batches["python_state_mutations"].append(
             (
                 file_path,
@@ -504,13 +442,7 @@ class PythonDatabaseMixin:
         decorator_type: str | None,
         has_arguments: bool,
     ):
-        """Add a Python class feature to the batch.
-
-        Args:
-            feature_kind: 'metaclass', 'dataclass', 'enum', 'slots', 'abstract',
-                         'method_type', 'dunder', 'visibility', 'class_decorator', 'inheritance'
-            feature_type: Preserved subtype from extractor
-        """
+        """Add a Python class feature to the batch."""
         self.generic_batches["python_class_features"].append(
             (
                 file_path,
@@ -573,19 +505,7 @@ class PythonDatabaseMixin:
         has_copy: bool,
         has_deepcopy: bool,
     ) -> int:
-        """Add a Python protocol - returns row ID for junction table FK.
-
-        CRITICAL: Uses direct cursor.execute() to return lastrowid for junction FK.
-        DO NOT USE BATCHING - junction tables need parent ID.
-
-        Args:
-            protocol_kind: 'iterator', 'container', 'callable', 'comparison',
-                          'arithmetic', 'pickle', 'context_manager', 'copy'
-            protocol_type: Preserved subtype from extractor
-
-        Returns:
-            int: Row ID of inserted protocol (for python_protocol_methods FK)
-        """
+        """Add a Python protocol - returns row ID for junction table FK."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -663,13 +583,7 @@ class PythonDatabaseMixin:
         method_name: str | None,
         is_functools: bool,
     ):
-        """Add a Python descriptor to the batch.
-
-        Args:
-            descriptor_kind: 'property', 'descriptor', 'dynamic_attr', 'cached_property',
-                            'descriptor_protocol', 'attr_access'
-            descriptor_type: Preserved subtype from extractor
-        """
+        """Add a Python descriptor to the batch."""
         self.generic_batches["python_descriptors"].append(
             (
                 file_path,
@@ -707,17 +621,7 @@ class PythonDatabaseMixin:
         is_runtime_checkable: bool,
         methods: str | None,
     ) -> int:
-        """Add a Python type definition - returns row ID for junction table FK.
-
-        CRITICAL: Uses direct cursor.execute() to return lastrowid for junction FK.
-        DO NOT USE BATCHING - junction tables need parent ID.
-
-        Args:
-            type_kind: 'typed_dict', 'generic', 'protocol'
-
-        Returns:
-            int: Row ID of inserted type definition (for python_typeddict_fields FK)
-        """
+        """Add a Python type definition - returns row ID for junction table FK."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -774,12 +678,7 @@ class PythonDatabaseMixin:
         overload_count: int | None,
         variants: str | None,
     ):
-        """Add a Python Literal/Overload type to the batch.
-
-        Args:
-            literal_kind: 'literal', 'overload'
-            literal_type: Preserved subtype from extractor
-        """
+        """Add a Python Literal/Overload type to the batch."""
         self.generic_batches["python_literals"].append(
             (
                 file_path,
@@ -813,13 +712,7 @@ class PythonDatabaseMixin:
         is_critical: bool,
         has_concatenation: bool,
     ):
-        """Add a Python security finding to the batch.
-
-        Args:
-            finding_kind: Discriminator: 'auth', 'command_injection', 'crypto',
-                         'dangerous_eval', 'jwt', 'password', 'path_traversal', 'sql_injection'
-            finding_type: Extractor's subtype (preserved)
-        """
+        """Add a Python security finding to the batch."""
         self.generic_batches["python_security_findings"].append(
             (
                 file_path,
@@ -849,12 +742,7 @@ class PythonDatabaseMixin:
         assertion_type: str | None,
         test_expr: str | None,
     ):
-        """Add a Python test case to the batch.
-
-        Args:
-            test_kind: Discriminator: 'unittest', 'assertion'
-            test_type: Extractor's subtype (preserved)
-        """
+        """Add a Python test case to the batch."""
         self.generic_batches["python_test_cases"].append(
             (
                 file_path,
@@ -880,20 +768,7 @@ class PythonDatabaseMixin:
         autouse: bool,
         in_function: str | None,
     ) -> int:
-        """Add a Python test fixture - returns row ID for junction table FK.
-
-        CRITICAL: Uses direct cursor.execute() to return lastrowid for junction FK.
-        DO NOT USE BATCHING - junction tables need parent ID.
-
-        Args:
-            fixture_kind: Discriminator: 'fixture', 'parametrize', 'marker', 'mock',
-                         'plugin_hook', 'hypothesis'
-            fixture_type: Extractor's subtype (preserved)
-            scope: 'function', 'class', 'module', 'session'
-
-        Returns:
-            int: Row ID of inserted fixture (for python_fixture_params FK)
-        """
+        """Add a Python test fixture - returns row ID for junction table FK."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -944,20 +819,7 @@ class PythonDatabaseMixin:
         has_process_view: bool,
         has_process_template_response: bool,
     ) -> int:
-        """Add a Python framework configuration - returns row ID for junction table FK.
-
-        CRITICAL: Uses direct cursor.execute() to return lastrowid for junction FK.
-        DO NOT USE BATCHING - junction tables need parent ID.
-
-        Args:
-            config_kind: Discriminator: 'app', 'extension', 'hook', 'error_handler', 'task',
-                        'signal', 'admin', 'form', 'middleware', 'blueprint', 'resolver', etc.
-            config_type: Extractor's subtype (preserved)
-            framework: 'flask', 'celery', 'django', 'graphene', 'ariadne', 'strawberry'
-
-        Returns:
-            int: Row ID of inserted config (for python_framework_methods FK)
-        """
+        """Add a Python framework configuration - returns row ID for junction table FK."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -1006,19 +868,7 @@ class PythonDatabaseMixin:
         field_type: str | None,
         required: bool,
     ) -> int:
-        """Add a Python validation schema - returns row ID for junction table FK.
-
-        CRITICAL: Uses direct cursor.execute() to return lastrowid for junction FK.
-        DO NOT USE BATCHING - junction tables need parent ID.
-
-        Args:
-            schema_kind: Discriminator: 'schema', 'field', 'serializer', 'form'
-            schema_type: Extractor's subtype (preserved)
-            framework: 'marshmallow', 'drf', 'wtforms'
-
-        Returns:
-            int: Row ID of inserted schema (for python_schema_validators FK)
-        """
+        """Add a Python validation schema - returns row ID for junction table FK."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -1067,12 +917,7 @@ class PythonDatabaseMixin:
         variable: str | None,
         used_in: str | None,
     ):
-        """Add a Python operator usage to the batch.
-
-        Args:
-            operator_kind: Discriminator: 'binary', 'unary', 'membership', 'chained', 'ternary', 'walrus', 'matmul'
-            operator_type: Extractor's subtype (preserved)
-        """
+        """Add a Python operator usage to the batch."""
         self.generic_batches["python_operators"].append(
             (
                 file_path,
@@ -1104,12 +949,7 @@ class PythonDatabaseMixin:
         builtin: str | None,
         has_key: bool,
     ):
-        """Add a Python collection operation to the batch.
-
-        Args:
-            collection_kind: Discriminator: 'dict', 'list', 'set', 'string', 'builtin'
-            collection_type: Extractor's subtype (preserved)
-        """
+        """Add a Python collection operation to the batch."""
         self.generic_batches["python_collections"].append(
             (
                 file_path,
@@ -1144,12 +984,7 @@ class PythonDatabaseMixin:
         threading_type: str | None,
         is_decorator: bool,
     ):
-        """Add a Python stdlib usage to the batch.
-
-        Args:
-            stdlib_kind: Discriminator: 're', 'json', 'datetime', 'pathlib', 'logging', 'threading', 'contextlib', 'typing', 'weakref', 'contextvars'
-            usage_type: Extractor's subtype (preserved)
-        """
+        """Add a Python stdlib usage to the batch."""
         self.generic_batches["python_stdlib_usage"].append(
             (
                 file_path,
@@ -1189,12 +1024,7 @@ class PythonDatabaseMixin:
         is_default: bool,
         export_type: str | None,
     ):
-        """Add an advanced Python import pattern to the batch.
-
-        Args:
-            import_kind: Discriminator: 'static', 'dynamic', 'namespace', 'module_attr', 'export'
-            import_type: Extractor's subtype (preserved)
-        """
+        """Add an advanced Python import pattern to the batch."""
         self.generic_batches["python_imports_advanced"].append(
             (
                 file_path,
@@ -1249,13 +1079,7 @@ class PythonDatabaseMixin:
         awaited_expr: str | None,
         containing_function: str | None,
     ):
-        """Add a Python expression pattern to the batch.
-
-        Args:
-            expression_kind: Discriminator: 'slice', 'tuple', 'unpack', 'none', 'truthiness',
-                            'format', 'ellipsis', 'bytes', 'exec', 'yield', 'await', 'resource'
-            expression_type: Extractor's subtype (preserved)
-        """
+        """Add a Python expression pattern to the batch."""
         self.generic_batches["python_expressions"].append(
             (
                 file_path,
@@ -1305,19 +1129,7 @@ class PythonDatabaseMixin:
         nesting_level: int,
         in_function: str | None,
     ):
-        """Add a Python comprehension to the batch.
-
-        Args:
-            comp_kind: 'list', 'dict', 'set', 'generator' (discriminator)
-            comp_type: Extractor's subtype (preserved, not overwritten)
-            iteration_var: The loop variable name
-            iteration_source: The iterable expression
-            result_expr: The expression that produces each element
-            filter_expr: The filter condition (if any)
-            has_filter: Whether comprehension has an 'if' clause
-            nesting_level: Depth of nested comprehensions
-            in_function: Name of containing function
-        """
+        """Add a Python comprehension to the batch."""
         self.generic_batches["python_comprehensions"].append(
             (
                 file_path,
@@ -1350,21 +1162,7 @@ class PythonDatabaseMixin:
         is_async: bool,
         in_function: str | None,
     ):
-        """Add a Python control statement to the batch.
-
-        Args:
-            statement_kind: 'break', 'continue', 'pass', 'assert', 'del', 'with' (discriminator)
-            statement_type: Extractor's subtype (preserved)
-            loop_type: For break/continue - type of enclosing loop
-            condition_type: For assert - type of condition expression
-            has_message: For assert - whether assertion has a message
-            target_count: For del - number of targets deleted
-            target_type: For del - type of deletion target
-            context_count: For with - number of context managers
-            has_alias: For with - whether 'as' clause is used
-            is_async: For with - whether it's 'async with'
-            in_function: Name of containing function
-        """
+        """Add a Python control statement to the batch."""
         self.generic_batches["python_control_statements"].append(
             (
                 file_path,

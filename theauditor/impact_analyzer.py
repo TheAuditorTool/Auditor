@@ -1,8 +1,4 @@
-"""Backward compatibility shim for impact_analyzer module.
-
-This module has been moved to theauditor.insights.impact_analyzer.
-This shim maintains backward compatibility for existing imports.
-"""
+"""Backward compatibility shim for impact_analyzer module."""
 
 from theauditor.insights.impact_analyzer import (
     analyze_impact,

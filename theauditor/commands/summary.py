@@ -36,13 +36,17 @@ def _get_findings_by_tools(db_path: Path, tools: tuple[str, ...]) -> dict[str, d
         tools,
     )
 
-    # Include all possible severity levels (standard + lint-specific)
     results: dict[str, dict[str, int]] = {}
     for tool, severity, count in cursor.fetchall():
         if tool not in results:
             results[tool] = {
-                "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
-                "error": 0, "warning": 0,  # Lint tools use these
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "info": 0,
+                "error": 0,
+                "warning": 0,
             }
         if severity in results[tool]:
             results[tool][severity] = count
@@ -206,16 +210,18 @@ def summary(root, raw_dir, out):
             "vulnerabilities": vulnerability_count,
         }
 
-    # Query findings from database (source of truth)
-    # ZERO FALLBACK: No try/except - crash if DB missing
     db_path = Path(root) / ".pf" / "repo_index.db"
 
-    # Lint findings from ruff, mypy, eslint
     lint_tools = ("ruff", "mypy", "eslint")
     lint_findings = _get_findings_by_tools(db_path, lint_tools)
     lint_by_severity = {
-        "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
-        "error": 0, "warning": 0,  # Lint tools use these
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "error": 0,
+        "warning": 0,
     }
     total_lint_issues = 0
     for tool_counts in lint_findings.values():
@@ -229,13 +235,14 @@ def summary(root, raw_dir, out):
             "total_issues": total_lint_issues,
             "by_severity": lint_by_severity,
         }
-        # Only add standard severities to total (error/warning are lint-specific)
+
         for sev in ("critical", "high", "medium", "low", "info"):
             audit_summary["total_findings_by_severity"][sev] += lint_by_severity.get(sev, 0)
 
-    # Pattern findings from patterns tool
     pattern_findings = _get_findings_by_tools(db_path, ("patterns",))
-    pattern_by_severity = pattern_findings.get("patterns", {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0})
+    pattern_by_severity = pattern_findings.get(
+        "patterns", {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    )
     total_patterns = sum(pattern_by_severity.values())
 
     if total_patterns > 0:
@@ -243,7 +250,7 @@ def summary(root, raw_dir, out):
             "total_patterns_matched": total_patterns,
             "by_severity": pattern_by_severity,
         }
-        # Only add standard severities to total
+
         for sev in ("critical", "high", "medium", "low", "info"):
             audit_summary["total_findings_by_severity"][sev] += pattern_by_severity.get(sev, 0)
 
@@ -285,13 +292,13 @@ def summary(root, raw_dir, out):
             if sev in audit_summary["total_findings_by_severity"]:
                 audit_summary["total_findings_by_severity"][sev] += count
 
-    # Terraform findings from database
     terraform_findings = _get_findings_by_tools(db_path, ("terraform",))
-    terraform_by_severity = terraform_findings.get("terraform", {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0})
+    terraform_by_severity = terraform_findings.get(
+        "terraform", {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    )
     total_terraform = sum(terraform_by_severity.values())
 
     if total_terraform > 0:
-        # Get category breakdown and resources from DB
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
         cursor.execute("""

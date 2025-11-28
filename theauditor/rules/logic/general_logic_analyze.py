@@ -1,21 +1,4 @@
-"""General Logic Analyzer - Database-First Approach.
-
-Detects common programming mistakes and best practice violations using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Tables Used (guaranteed by schema contract):
-- assignments: Variable assignments for money/float/division analysis
-- function_call_args: Function calls for datetime, file, connection, transaction checks
-- symbols: Symbol lookups for zero checks and context managers
-- cfg_blocks: Control flow blocks for try/finally/with detection
-- files: File metadata
-
-Detects 12 types of issues:
-- Business Logic: Money/float arithmetic, timezone-naive datetime, email regex, division by zero, percentage calc errors
-- Resource Management: File handles, connections, transactions, sockets, streams, async operations, locks
-
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""General Logic Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -234,26 +217,7 @@ DIVISION_SINKS = frozenset(["divide", "div", "quotient", "average", "mean"])
 
 
 def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect common logic and resource management issues using indexed data.
-
-    Detects:
-    Business Logic Issues:
-    - Money/float arithmetic precision problems
-    - Timezone-naive datetime usage
-    - Email regex validation anti-pattern
-    - Division by zero risks
-    - Percentage calculation errors
-
-    Resource Management Issues:
-    - File handles not closed properly
-    - Database connections without cleanup
-    - Transactions without commit/rollback
-    - Sockets without proper cleanup
-    - Streams without cleanup
-
-    Returns:
-        List of logic and resource issues found
-    """
+    """Detect common logic and resource management issues using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -795,11 +759,7 @@ def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def register_taint_patterns(taint_registry):
-    """Register logic-related patterns with the taint analysis registry.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register logic-related patterns with the taint analysis registry."""
     for pattern in DATETIME_SOURCES:
         taint_registry.register_source(pattern, "datetime", "any")
 

@@ -1,28 +1,4 @@
-"""TypeScript/JavaScript Structural AST Extraction Layer.
-
-This module is Part 1 of the TypeScript implementation layer split.
-
-RESPONSIBILITY: Structural Extraction (Stateless AST Traversal)
-=================================================================
-
-Core Components:
-- AST Utilities: Node traversal, name extraction, member resolution
-- JSX Detection: Complete JSX node recognition for React analysis
-- Scope Mapping: build_scope_map() - THE FOUNDATION for behavioral analysis
-- Structural Extractors: Functions, classes, calls, imports, exports, properties
-
-ARCHITECTURAL CONTRACT:
-- NO file_path context (3-layer architecture: INDEXER provides file paths)
-- NO behavioral analysis (assignments, returns, CFG belong in typescript_impl.py)
-- Stateless operations only (no scope-dependent context)
-
-CONSUMERS:
-- typescript_impl.py (behavioral analysis layer)
-- ast_extractors/__init__.py (orchestrator router)
-
-CRITICAL: build_scope_map (line ~353) fixes "100% anonymous caller" bug
-by providing O(1) line-to-function lookups for accurate scope resolution.
-"""
+"""TypeScript/JavaScript Structural AST Extraction Layer."""
 
 import sys
 from typing import Any
@@ -163,10 +139,7 @@ def _canonical_callee_from_call(node: dict[str, Any]) -> str:
 
 
 def extract_semantic_ast_symbols(node, depth=0):
-    """Extract symbols from TypeScript semantic AST including property accesses.
-
-    This is a helper used by multiple extraction functions.
-    """
+    """Extract symbols from TypeScript semantic AST including property accesses."""
     symbols = []
     if depth > 100 or not isinstance(node, dict):
         return symbols
@@ -278,15 +251,7 @@ JSX_NODE_KINDS = frozenset(
 
 
 def detect_jsx_in_node(node, depth=0):
-    """Comprehensively detect JSX in AST node.
-
-    This function handles both preserved and transformed JSX:
-    - Preserved mode: Detects actual JSX syntax nodes
-    - Transformed mode: Detects React.createElement patterns
-
-    Returns:
-        Tuple of (has_jsx, returns_component)
-    """
+    """Comprehensively detect JSX in AST node."""
     if depth > 50 or not isinstance(node, dict):
         return False, False
 
@@ -352,10 +317,7 @@ def detect_jsx_in_node(node, depth=0):
 
 
 def extract_jsx_tag_name(node):
-    """Extract tag name from JSX element node.
-
-    Handles various JSX element structures to extract the tag name.
-    """
+    """Extract tag name from JSX element node."""
 
     if "openingElement" in node:
         opening = node["openingElement"]
@@ -373,10 +335,7 @@ def extract_jsx_tag_name(node):
 
 
 def analyze_create_element_component(node):
-    """Analyze React.createElement call to determine if it's a component.
-
-    Components have capital letters or are passed as references.
-    """
+    """Analyze React.createElement call to determine if it's a component."""
     if "arguments" in node and isinstance(node["arguments"], list) and len(node["arguments"]) > 0:
         first_arg = node["arguments"][0]
         if isinstance(first_arg, dict):
@@ -396,15 +355,7 @@ def check_for_jsx(node, depth=0):
 
 
 def build_scope_map(ast_root: dict) -> dict[int, str]:
-    """Build a map of line numbers to containing function names.
-
-    This solves the core problem: traverse() loses track of which function it's in.
-    By pre-mapping all line numbers to their containing functions, we can do O(1)
-    lookups instead of broken recursive tracking.
-
-    Returns:
-        Dict mapping line number to function name for fast lookups
-    """
+    """Build a map of line numbers to containing function names."""
 
     scope_map = {}
     function_ranges = []
@@ -412,11 +363,7 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
     class_stack = []
 
     def collect_functions(node, depth=0):
-        """Recursively collect all function declarations with their line ranges.
-
-        CRITICAL FIX: Now handles PropertyDeclaration with wrapped functions
-        (e.g., create = this.asyncHandler(async (req, res) => {}))
-        """
+        """Recursively collect all function declarations with their line ranges."""
         if depth > 100 or not isinstance(node, dict):
             return
 
@@ -569,17 +516,7 @@ def build_scope_map(ast_root: dict) -> dict[int, str]:
 
 
 def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[dict]:
-    """Extract function metadata from TypeScript semantic AST for symbol table.
-
-    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
-
-    Now supports two modes:
-    1. PRE-EXTRACTED DATA (batch parsing) - Functions extracted in JavaScript, received directly
-    2. AST TRAVERSAL (individual parsing) - Fallback to full AST traversal for backward compatibility
-
-    This hybrid approach eliminates JSON.stringify crashes for batch parsing (512MB+ → 5MB)
-    while maintaining backward compatibility for individual file parsing.
-    """
+    """Extract function metadata from TypeScript semantic AST for symbol table."""
     functions = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -762,11 +699,7 @@ def extract_typescript_functions(tree: dict, parser_self) -> list[dict]:
 
 
 def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
-    """Extract COMPLETE function AST nodes from TypeScript semantic AST.
-
-    This returns the full AST node for each function, including its body,
-    which is essential for Control Flow Graph construction.
-    """
+    """Extract COMPLETE function AST nodes from TypeScript semantic AST."""
     functions = []
 
     ast_root = tree.get("ast", {})
@@ -807,10 +740,7 @@ def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
 
 
 def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
-    """Extract class definitions from TypeScript semantic AST.
-
-    PHASE 2: Rewritten to use single-pass AST traversal instead of filtered symbols.
-    """
+    """Extract class definitions from TypeScript semantic AST."""
     classes = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -876,14 +806,7 @@ def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
 
 
 def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
-    """Extract function calls from TypeScript semantic AST.
-
-    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
-
-    Now supports two modes:
-    1. PRE-EXTRACTED DATA (batch parsing) - Calls extracted in JavaScript
-    2. AST TRAVERSAL (individual parsing) - Fallback for backward compatibility
-    """
+    """Extract function calls from TypeScript semantic AST."""
     calls = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -910,12 +833,7 @@ def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
 
 
 def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract import statements from TypeScript semantic AST.
-
-    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
-
-    Imports are now part of extracted_data (batch) or tree.imports (individual).
-    """
+    """Extract import statements from TypeScript semantic AST."""
     imports = []
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
@@ -977,10 +895,7 @@ def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
 
 
 def extract_typescript_exports(tree: dict, parser_self) -> list[dict[str, Any]]:
-    """Extract export statements from TypeScript semantic AST.
-
-    Currently returns empty list - exports aren't extracted by semantic parser yet.
-    """
+    """Extract export statements from TypeScript semantic AST."""
     return []
 
 

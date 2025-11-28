@@ -1,14 +1,4 @@
-"""Base database manager with core infrastructure.
-
-This module contains the BaseDatabaseManager class which provides:
-- Database connection management
-- Transaction control
-- Schema creation and validation
-- Generic batch flushing system
-- Table clearing
-
-All language-specific add_* methods are provided by mixin classes.
-"""
+"""Base database manager with core infrastructure."""
 
 import os
 import sqlite3
@@ -20,43 +10,23 @@ from ..schema import TABLES, get_table_schema
 
 
 def validate_table_name(table: str) -> str:
-    """Validate table name against schema to prevent SQL injection.
-
-    Args:
-        table: Table name to validate
-
-    Returns:
-        The validated table name
-
-    Raises:
-        ValueError: If table name is not in TABLES registry
-    """
+    """Validate table name against schema to prevent SQL injection."""
     if table not in TABLES:
         raise ValueError(f"Invalid table name: {table}. Must be one of the schema-defined tables.")
     return table
 
 
 class BaseDatabaseManager:
-    """Base database manager providing core infrastructure.
-
-    This class implements schema-driven database operations and generic batching.
-    It should be used as a base class with language-specific mixins.
-    """
+    """Base database manager providing core infrastructure."""
 
     def __init__(self, db_path: str, batch_size: int = DEFAULT_BATCH_SIZE):
-        """Initialize the database manager.
-
-        Args:
-            db_path: Path to the SQLite database file
-            batch_size: Size of batches for insert operations
-        """
+        """Initialize the database manager."""
         self.db_path = db_path
 
         self.conn = sqlite3.connect(db_path, timeout=60)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
-        # ZERO FALLBACK POLICY: Enable foreign key enforcement
-        # If this causes crashes, it exposes insertion order bugs
+
         self.conn.execute("PRAGMA foreign_keys = ON")
 
         if batch_size <= 0:
@@ -93,15 +63,7 @@ class BaseDatabaseManager:
         self.conn.close()
 
     def validate_schema(self) -> bool:
-        """
-        Validate database schema matches expected definitions.
-
-        Runs after indexing to ensure all tables were created correctly.
-        Logs warnings for any mismatches.
-
-        Returns:
-            True if all schemas valid, False if mismatches found
-        """
+        """Validate database schema matches expected definitions."""
         import sys
 
         from ..schema import validate_all_tables
@@ -126,14 +88,7 @@ class BaseDatabaseManager:
         return False
 
     def create_schema(self) -> None:
-        """Create all database tables and indexes using schema.py definitions.
-
-        ARCHITECTURE: Schema-driven table creation.
-        - Loops over TABLES registry from schema.py
-        - Calls TableSchema.create_table_sql() for CREATE TABLE
-        - Calls TableSchema.create_indexes_sql() for CREATE INDEX
-        - NO hardcoded SQL (909 lines → 20 lines)
-        """
+        """Create all database tables and indexes using schema.py definitions."""
         cursor = self.conn.cursor()
 
         for _table_name, table_schema in TABLES.items():
@@ -165,13 +120,7 @@ class BaseDatabaseManager:
         self.conn.commit()
 
     def clear_tables(self) -> None:
-        """Clear all existing data from tables using schema.py registry.
-
-        ARCHITECTURE: Schema-driven table clearing.
-        - Loops over TABLES registry from schema.py
-        - Executes DELETE FROM for each table
-        - NO hardcoded table list (48 lines → 10 lines)
-        """
+        """Clear all existing data from tables using schema.py registry."""
         cursor = self.conn.cursor()
 
         try:
@@ -183,21 +132,7 @@ class BaseDatabaseManager:
             raise RuntimeError(f"Failed to clear existing data: {e}") from e
 
     def flush_generic_batch(self, table_name: str, insert_mode: str = "INSERT") -> None:
-        """Flush a single table's batch using schema-driven INSERT.
-
-        ARCHITECTURE: Schema-driven batch flushing.
-        - Looks up table schema from TABLES registry
-        - Gets column list from TableSchema.column_names()
-        - Builds INSERT statement dynamically
-        - Handles INSERT, INSERT OR REPLACE, INSERT OR IGNORE modes
-
-        Args:
-            table_name: Name of table to flush
-            insert_mode: SQL insert verb - one of:
-                - 'INSERT': Standard insert (fails on constraint violation)
-                - 'INSERT OR REPLACE': Update existing rows (for files, jsx tables)
-                - 'INSERT OR IGNORE': Skip duplicates (for frameworks)
-        """
+        """Flush a single table's batch using schema-driven INSERT."""
         batch = self.generic_batches.get(table_name, [])
         if not batch:
             return
@@ -251,18 +186,7 @@ class BaseDatabaseManager:
         self.generic_batches[table_name] = []
 
     def flush_batch(self, batch_idx: int | None = None) -> None:
-        """Execute all pending batch inserts using schema-driven approach.
-
-        ARCHITECTURE: Hybrid flushing strategy.
-        - Generic tables: Use flush_generic_batch() (475 lines → 50 lines)
-        - CFG tables: Keep special case logic for ID mapping (required)
-        - JWT patterns: Keep special flush method (dict-based interface)
-
-        Special Cases:
-        1. CFG blocks: MUST be inserted before edges/statements (ID dependencies)
-        2. Junction tables: MUST be inserted after parent records
-        3. INSERT modes: Respect OR REPLACE/OR IGNORE for specific tables
-        """
+        """Execute all pending batch inserts using schema-driven approach."""
         cursor = self.conn.cursor()
 
         try:
@@ -607,7 +531,6 @@ class BaseDatabaseManager:
                     self.flush_generic_batch(table_name, insert_mode)
 
         except sqlite3.IntegrityError as e:
-            # ZERO FALLBACK POLICY: Translate IntegrityError into actionable messages
             error_msg = str(e)
 
             if "UNIQUE constraint failed" in error_msg:
@@ -626,7 +549,6 @@ class BaseDatabaseManager:
                     f"  Check flush_order in base_database.py."
                 ) from e
 
-            # Re-raise as RuntimeError for other integrity errors
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e
             else:
@@ -649,10 +571,7 @@ class BaseDatabaseManager:
                 raise RuntimeError(f"Batch insert failed: {e}") from e
 
     def _flush_jwt_patterns(self):
-        """Flush JWT patterns batch (special dict-based interface).
-
-        KEPT FOR BACKWARD COMPATIBILITY: add_jwt_pattern uses dict format.
-        """
+        """Flush JWT patterns batch (special dict-based interface)."""
         if not self.jwt_patterns_batch:
             return
         cursor = self.conn.cursor()
@@ -677,21 +596,7 @@ class BaseDatabaseManager:
         self.jwt_patterns_batch.clear()
 
     def write_findings_batch(self, findings: list[dict], tool_name: str) -> None:
-        """Write findings to database using batch insert with typed columns.
-
-        Implements the Sparse Wide Table pattern: tool-specific metadata is stored
-        in dedicated typed columns (cfg_*, graph_*, mypy_*, tf_*) instead of JSON.
-
-        Args:
-            findings: List of finding dicts from any tool (patterns, taint, lint, etc.)
-            tool_name: Name of the tool that generated findings (e.g., 'patterns', 'taint')
-
-        Notes:
-            - Maps tool-specific data to typed columns based on tool_name
-            - NO JSON serialization - all data in typed columns
-            - Taint data goes to taint_flows table, not here (just a marker row)
-            - 79% of rows will have NULL for tool-specific columns (free in SQLite)
-        """
+        """Write findings to database using batch insert with typed columns."""
         if not findings:
             return
 

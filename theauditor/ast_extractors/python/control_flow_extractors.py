@@ -1,42 +1,4 @@
-"""Control flow and import extractors - Loops, conditionals, match, imports, flow control.
-
-This module contains extraction logic for control flow patterns:
-- For loops (with enumerate, zip, else clause detection)
-- While loops (with else clause, infinite loop detection)
-- Async for loops (async iteration patterns)
-- If/elif/else statements (chain length, nested detection)
-- Match statements (Python 3.10+ pattern matching with guards)
-- Break/continue/pass statements (loop control flow)
-- Assert statements (with message detection)
-- Del statements (deletion patterns)
-- Import statements (security/performance patterns)
-- With statements (context manager usage)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 5 Implementation (Python Coverage V2):
-============================================
-Implements 10 control flow patterns.
-
-Expected extraction from TheAuditor codebase:
-- ~400 for loops
-- ~150 while loops
-- ~20 async for loops
-- ~600 if statements
-- ~15 match statements
-- ~200 break/continue/pass
-- ~100 assert statements
-- ~50 del statements
-- ~500 import statements
-- ~80 with statements
-Total: ~2,115 control flow records
-"""
+"""Control flow and import extractors - Loops, conditionals, match, imports, flow control."""
 
 import ast
 import logging
@@ -81,28 +43,7 @@ def _build_parent_map(tree: ast.AST) -> dict:
 
 
 def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
-    """Extract for loop patterns with enumerate, zip, else clause detection.
-
-    Detects:
-    - enumerate() patterns
-    - zip() patterns
-    - range() patterns
-    - .items(), .values(), .keys() patterns
-    - else clause
-    - Nesting level
-    - Target count (unpacking)
-
-    Returns:
-        List of for loop dicts:
-        {
-            'line': int,
-            'loop_type': str,  # 'enumerate' | 'zip' | 'range' | 'items' | 'values' | 'keys' | 'plain'
-            'has_else': bool,
-            'nesting_level': int,
-            'target_count': int,
-            'in_function': str,
-        }
-    """
+    """Extract for loop patterns with enumerate, zip, else clause detection."""
     for_loops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -149,23 +90,7 @@ def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
-    """Extract while loop patterns with infinite loop detection.
-
-    Detects:
-    - else clause
-    - Infinite loops (while True)
-    - Nesting level
-
-    Returns:
-        List of while loop dicts:
-        {
-            'line': int,
-            'has_else': bool,
-            'is_infinite': bool,
-            'nesting_level': int,
-            'in_function': str,
-        }
-    """
+    """Extract while loop patterns with infinite loop detection."""
     while_loops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -195,21 +120,7 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_async_for_loops(context: FileContext) -> list[dict[str, Any]]:
-    """Extract async for loop patterns.
-
-    Detects:
-    - else clause
-    - Target count (unpacking)
-
-    Returns:
-        List of async for loop dicts:
-        {
-            'line': int,
-            'has_else': bool,
-            'target_count': int,
-            'in_function': str,
-        }
-    """
+    """Extract async for loop patterns."""
     async_for_loops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -234,27 +145,7 @@ def extract_async_for_loops(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract if/elif/else statement patterns.
-
-    Detects:
-    - elif branches
-    - else clause
-    - Chain length (if, if-elif, if-elif-elif, etc.)
-    - Nesting level
-    - Complex conditions
-
-    Returns:
-        List of if statement dicts:
-        {
-            'line': int,
-            'has_elif': bool,
-            'has_else': bool,
-            'chain_length': int,
-            'nesting_level': int,
-            'has_complex_condition': bool,
-            'in_function': str,
-        }
-    """
+    """Extract if/elif/else statement patterns."""
     if_statements = []
 
     if not isinstance(context.tree, ast.AST):
@@ -303,25 +194,7 @@ def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_match_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract match/case statement patterns (Python 3.10+).
-
-    Detects:
-    - Number of case branches
-    - Wildcard pattern (case _)
-    - Guards (case x if condition)
-    - Pattern types
-
-    Returns:
-        List of match statement dicts:
-        {
-            'line': int,
-            'case_count': int,
-            'has_wildcard': bool,
-            'has_guards': bool,
-            'pattern_types': str,  # Comma-separated
-            'in_function': str,
-        }
-    """
+    """Extract match/case statement patterns (Python 3.10+)."""
     match_statements = []
 
     if not isinstance(context.tree, ast.AST):
@@ -369,21 +242,7 @@ def extract_match_statements(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
-    """Extract break, continue, and pass statements.
-
-    Detects:
-    - Statement type
-    - Containing loop type (for/while)
-
-    Returns:
-        List of flow control dicts:
-        {
-            'line': int,
-            'statement_type': str,  # 'break' | 'continue' | 'pass'
-            'loop_type': str,  # 'for' | 'while' | 'none'
-            'in_function': str,
-        }
-    """
+    """Extract break, continue, and pass statements."""
     flow_control = []
 
     if not isinstance(context.tree, ast.AST):
@@ -424,21 +283,7 @@ def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract assert statement patterns.
-
-    Detects:
-    - Message presence
-    - Condition type
-
-    Returns:
-        List of assert statement dicts:
-        {
-            'line': int,
-            'has_message': bool,
-            'condition_type': str,  # 'comparison' | 'isinstance' | 'callable' | 'simple'
-            'in_function': str,
-        }
-    """
+    """Extract assert statement patterns."""
     assert_statements = []
 
     if not isinstance(context.tree, ast.AST):
@@ -470,21 +315,7 @@ def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_del_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract del statement patterns.
-
-    Detects:
-    - Target type (name, subscript, attribute)
-    - Target count
-
-    Returns:
-        List of del statement dicts:
-        {
-            'line': int,
-            'target_type': str,  # 'name' | 'subscript' | 'attribute'
-            'target_count': int,
-            'in_function': str,
-        }
-    """
+    """Extract del statement patterns."""
     del_statements = []
 
     if not isinstance(context.tree, ast.AST):
@@ -515,28 +346,7 @@ def extract_del_statements(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_import_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract import statement patterns.
-
-    Detects:
-    - Import type (import, from, relative)
-    - Module name
-    - Aliases
-    - Wildcard imports
-    - Relative import level
-
-    Returns:
-        List of import statement dicts:
-        {
-            'line': int,
-            'import_type': str,  # 'import' | 'from' | 'relative'
-            'module': str,
-            'has_alias': bool,
-            'is_wildcard': bool,
-            'relative_level': int,
-            'imported_names': str,  # Comma-separated
-            'in_function': str,
-        }
-    """
+    """Extract import statement patterns."""
     import_statements = []
 
     if not isinstance(context.tree, ast.AST):
@@ -562,23 +372,7 @@ def extract_import_statements(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_with_statements(context: FileContext) -> list[dict[str, Any]]:
-    """Extract with statement patterns (context managers).
-
-    Detects:
-    - Async with
-    - Multiple context managers
-    - Aliases
-
-    Returns:
-        List of with statement dicts:
-        {
-            'line': int,
-            'is_async': bool,
-            'context_count': int,
-            'has_alias': bool,
-            'in_function': str,
-        }
-    """
+    """Extract with statement patterns (context managers)."""
     with_statements = []
 
     if not isinstance(context.tree, ast.AST):

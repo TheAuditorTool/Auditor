@@ -1,18 +1,4 @@
-"""Python Control Flow Graph (CFG) extractor.
-
-This module contains extraction logic for building control flow graphs from Python functions.
-Matches the pattern of JavaScript's cfg_extractor.js.
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: CFG data with line numbers
-- RETURN: List[Dict] with CFG structures
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python Control Flow Graph (CFG) extractor."""
 
 import ast
 import logging
@@ -24,10 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:
-    """Extract control flow graphs for all Python functions.
-
-    Returns CFG data matching the database schema expectations.
-    """
+    """Extract control flow graphs for all Python functions."""
     cfg_data = []
 
     if not context.tree:
@@ -42,14 +25,7 @@ def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:
 
 
 def build_python_function_cfg(func_node: ast.FunctionDef) -> dict[str, Any]:
-    """Build control flow graph for a single Python function.
-
-    Args:
-        func_node: Function AST node
-
-    Returns:
-        CFG data dictionary
-    """
+    """Build control flow graph for a single Python function."""
     blocks = []
     edges = []
     block_id_counter = [0]
@@ -103,16 +79,7 @@ def build_python_function_cfg(func_node: ast.FunctionDef) -> dict[str, Any]:
 def process_python_statement(
     stmt: ast.stmt, current_block_id: int, get_next_block_id
 ) -> tuple | None:
-    """Process a statement and update CFG.
-
-    Args:
-        stmt: Statement AST node
-        current_block_id: Current block ID
-        get_next_block_id: Function to get next block ID
-
-    Returns:
-        Tuple of (new_blocks, new_edges, next_block_id) or None
-    """
+    """Process a statement and update CFG."""
     blocks = []
     edges = []
 

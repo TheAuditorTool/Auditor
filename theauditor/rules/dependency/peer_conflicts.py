@@ -1,17 +1,4 @@
-"""Detect peer dependency mismatches (database-first implementation).
-
-This rule detects when declared peer dependencies don't match actual installed versions
-by checking the package_configs table. It doesn't require lock file parsing.
-
-Detection Strategy:
-1. Query peer_dependencies from package_configs
-2. Query actual installed versions from same table
-3. Check if peer requirements are satisfied
-4. Flag mismatches (e.g., package requires React ^17 but project has React 18)
-
-Database Tables Used:
-- package_configs: Peer dependency declarations and actual versions
-"""
+"""Detect peer dependency mismatches (database-first implementation)."""
 
 import json
 import sqlite3
@@ -29,17 +16,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect peer dependency version mismatches.
-
-    Checks if peer dependency requirements match actual installed versions.
-    Common issue: Installing a library that requires React ^17 when project uses React 18.
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of findings for peer dependency conflicts
-    """
+    """Detect peer dependency version mismatches."""
     findings = []
 
     try:
@@ -118,21 +95,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _has_major_version_mismatch(requirement: str, actual: str) -> bool:
-    """Check if requirement and actual version have major version mismatch.
-
-    This is a simple heuristic that detects obvious conflicts.
-    Examples:
-        requirement="^17.0.0", actual="18.2.0" → True (mismatch)
-        requirement="^17.0.0", actual="17.5.0" → False (compatible)
-        requirement=">=16.0.0", actual="18.2.0" → False (compatible)
-
-    Args:
-        requirement: Version requirement string (e.g., "^17.0.0", ">=16.0.0")
-        actual: Actual installed version (e.g., "18.2.0")
-
-    Returns:
-        True if there's a major version mismatch
-    """
+    """Check if requirement and actual version have major version mismatch."""
     try:
         req_clean = requirement.lstrip("^~<>=vV").split(".")[0]
         if req_clean in ("*", "x", "X", ""):

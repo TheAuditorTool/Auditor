@@ -1,9 +1,4 @@
-"""Deprecated Terraform parser placeholder.
-
-Terraform extraction now relies entirely on the tree-sitter-powered
-``TerraformExtractor``. This module is kept for backwards compatibility so that
-legacy imports fail with a clear error instead of ``ModuleNotFoundError``.
-"""
+"""Deprecated Terraform parser placeholder."""
 
 from pathlib import Path
 from typing import Any

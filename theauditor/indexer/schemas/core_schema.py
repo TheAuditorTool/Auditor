@@ -1,19 +1,4 @@
-"""
-Core schema definitions - Used by ALL languages.
-
-This module contains table schemas used across Python, Node, Rust, and all extractors:
-- File tracking (files, config_files, refs)
-- Symbol definitions (symbols, symbols_jsx)
-- Data flow tables (assignments, function_call_args, function_returns)
-- Security patterns (sql_queries, jwt_patterns)
-- Control flow graphs (cfg_blocks, cfg_edges)
-- Findings (findings_consolidated)
-
-Design Philosophy:
-- Core tables are language-agnostic
-- Used by multiple extractors (Python + Node + Rust)
-- Security-critical patterns (SQL, JWT, taint analysis)
-"""
+"""Core schema definitions - Used by ALL languages."""
 
 from .utils import Column, ForeignKey, TableSchema
 
@@ -238,7 +223,12 @@ ASSIGNMENT_SOURCES = TableSchema(
     ],
     foreign_keys=[
         ForeignKey(
-            local_columns=["assignment_file", "assignment_line", "assignment_col", "assignment_target"],
+            local_columns=[
+                "assignment_file",
+                "assignment_line",
+                "assignment_col",
+                "assignment_target",
+            ],
             foreign_table="assignments",
             foreign_columns=["file", "line", "col", "target_var"],
         )
@@ -283,7 +273,10 @@ FUNCTION_RETURN_SOURCES = TableSchema(
         Column("return_var_name", "TEXT", nullable=False),
     ],
     indexes=[
-        ("idx_function_return_sources_return", ["return_file", "return_line", "return_col", "return_function"]),
+        (
+            "idx_function_return_sources_return",
+            ["return_file", "return_line", "return_col", "return_function"],
+        ),
         ("idx_function_return_sources_var", ["return_var_name"]),
         ("idx_function_return_sources_file", ["return_file"]),
     ],

@@ -1,9 +1,4 @@
-"""Centralized error handler for TheAuditor commands.
-
-This module provides a decorator that captures detailed error information
-including full tracebacks, while presenting clean error messages to users.
-All detailed debugging information is logged to .pf/error.log.
-"""
+"""Centralized error handler for TheAuditor commands."""
 
 import traceback
 from collections.abc import Callable
@@ -16,20 +11,7 @@ from .constants import ERROR_LOG_FILE, PF_DIR
 
 
 def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator that provides robust error handling with detailed logging.
-
-    This decorator:
-    1. Catches all exceptions from the wrapped command
-    2. Logs full traceback to .pf/error.log for debugging
-    3. Shows clean, user-friendly error messages in the console
-    4. Points users to the error log for detailed information
-
-    Args:
-        func: The Click command function to wrap
-
-    Returns:
-        Wrapped function with enhanced error handling
-    """
+    """Decorator that provides robust error handling with detailed logging."""
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:

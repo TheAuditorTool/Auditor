@@ -15,12 +15,7 @@ class FrameworkDetector:
     """Detects frameworks and libraries used in a project."""
 
     def __init__(self, project_path: Path, exclude_patterns: list[str] = None):
-        """Initialize detector with project path.
-
-        Args:
-            project_path: Root directory of the project.
-            exclude_patterns: List of patterns to exclude from scanning.
-        """
+        """Initialize detector with project path."""
         self.project_path = Path(project_path)
         self.detected_frameworks = []
         self.deps_cache = None
@@ -29,11 +24,7 @@ class FrameworkDetector:
         self._cargo_workspace_cache: dict[str, dict] = {}
 
     def detect_all(self) -> list[dict[str, Any]]:
-        """Detect all frameworks in the project.
-
-        Returns:
-            List of detected framework info dictionaries.
-        """
+        """Detect all frameworks in the project."""
         self.detected_frameworks = []
 
         self._load_deps_cache()
@@ -595,16 +586,7 @@ class FrameworkDetector:
                 pass
 
     def _find_cargo_workspace_root(self, cargo_toml_path: Path) -> Path | None:
-        """Find the Cargo workspace root for a given Cargo.toml.
-
-        Walks up the directory tree looking for a Cargo.toml with [workspace] section.
-
-        Args:
-            cargo_toml_path: Path to a Cargo.toml file
-
-        Returns:
-            Path to workspace root Cargo.toml, or None if not in a workspace
-        """
+        """Find the Cargo workspace root for a given Cargo.toml."""
         parser = ManifestParser()
         current = cargo_toml_path.parent
 
@@ -623,14 +605,7 @@ class FrameworkDetector:
         return None
 
     def _get_cargo_workspace_deps(self, workspace_root: Path) -> dict:
-        """Get workspace dependencies from a Cargo workspace root.
-
-        Args:
-            workspace_root: Path to the workspace root Cargo.toml
-
-        Returns:
-            Dict mapping package names to version strings
-        """
+        """Get workspace dependencies from a Cargo workspace root."""
         cache_key = str(workspace_root)
         if cache_key in self._cargo_workspace_cache:
             return self._cargo_workspace_cache[cache_key]
@@ -643,15 +618,7 @@ class FrameworkDetector:
         return ws_deps
 
     def _resolve_cargo_workspace_version(self, package_name: str, cargo_toml_path: Path) -> str:
-        """Resolve a workspace dependency version.
-
-        Args:
-            package_name: Name of the package
-            cargo_toml_path: Path to the Cargo.toml using workspace = true
-
-        Returns:
-            Resolved version string, or "workspace" if not found
-        """
+        """Resolve a workspace dependency version."""
         workspace_root = self._find_cargo_workspace_root(cargo_toml_path)
         if not workspace_root:
             return "workspace"
@@ -660,11 +627,7 @@ class FrameworkDetector:
         return ws_deps.get(package_name, "workspace")
 
     def format_table(self) -> str:
-        """Format detected frameworks as a table.
-
-        Returns:
-            Formatted table string.
-        """
+        """Format detected frameworks as a table."""
         if not self.detected_frameworks:
             return "No frameworks detected."
 
@@ -695,19 +658,11 @@ class FrameworkDetector:
         return "\n".join(lines)
 
     def to_json(self) -> str:
-        """Export detected frameworks to JSON.
-
-        Returns:
-            JSON string.
-        """
+        """Export detected frameworks to JSON."""
         return json.dumps(self.detected_frameworks, indent=2, sort_keys=True)
 
     def save_to_file(self, output_path: Path) -> None:
-        """Save detected frameworks to a JSON file.
-
-        Args:
-            output_path: Path where the JSON file should be saved.
-        """
+        """Save detected frameworks to a JSON file."""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(self.to_json())

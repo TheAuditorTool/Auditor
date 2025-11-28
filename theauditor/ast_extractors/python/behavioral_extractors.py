@@ -1,44 +1,4 @@
-"""Behavioral pattern extractors - Recursion, generators, properties, dynamic attributes.
-
-This module contains extraction logic for behavioral patterns:
-- Recursion patterns (direct, mutual, tail recursion)
-- Generator yield patterns (extends core_extractors.py generators)
-- Property access patterns (computed properties, validated setters)
-- Dynamic attribute access (__getattr__, __setattr__, __getattribute__)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'recursion_type', 'property_name', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Causal Learning Purpose:
-========================
-These extractors enable hypothesis generation for DIEC tool:
-- "Function X uses recursion with base case Y" → Test recursive behavior
-- "Generator X yields when condition Y" → Test lazy evaluation
-- "Property X computes value rather than storing" → Test computed properties
-- "Class uses dynamic attribute interception" → Test __getattr__ behavior
-
-Each extraction enables >3 hypothesis types per python_coverage.md requirements.
-Target >70% validation rate when hypotheses are tested experimentally.
-
-Week 3 Implementation (Priority 5 - Behavioral):
-=================================================
-Behavioral patterns reveal algorithm characteristics that can only be verified through testing.
-
-Expected extraction from TheAuditor codebase:
-- ~80 recursion patterns (direct, mutual, tail)
-- ~200 generator yields (enhanced from existing extractor)
-- ~150 property patterns
-- ~10 dynamic attribute patterns
-Total: ~430 behavioral pattern records
-"""
+"""Behavioral pattern extractors - Recursion, generators, properties, dynamic attributes."""
 
 import ast
 import logging
@@ -56,10 +16,7 @@ DYNAMIC_METHODS = frozenset({"__getattr__", "__setattr__", "__getattribute__", "
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -70,32 +27,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Detect recursion patterns including direct, mutual, and tail recursion.
-
-    Detects:
-    - Direct recursion: function calls itself
-    - Mutual recursion: function A calls B, B calls A
-    - Tail recursion: recursive call is last operation (return recursive_call())
-    - Base cases: conditions that stop recursion
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of recursion pattern dicts:
-        {
-            'line': int,
-            'function_name': str,
-            'recursion_type': str,  # 'direct' | 'tail' | 'mutual'
-            'calls_function': str,  # Function being called (same as function_name for direct)
-            'base_case_line': int | None,  # Line number of base case condition
-            'is_async': bool,
-        }
-
-    Enables hypothesis: "Function X uses recursion with base case Y"
-    Experiment design: Call X with known input, verify recursive behavior and termination
-    """
+    """Detect recursion patterns including direct, mutual, and tail recursion."""
     recursion_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -214,38 +146,7 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
-    """Extract generator yield patterns (ENHANCED from core_extractors.py).
-
-    NOTE: core_extractors.py:998-1097 already extracts basic generators.
-    This extractor ENHANCES that by adding:
-    - Yield conditions (if x > 0: yield value)
-    - Yield expressions (what is being yielded)
-    - Yield from delegation tracking
-
-    Detects:
-    - Simple yield: yield value
-    - Conditional yield: if condition: yield value
-    - Yield from: yield from other_generator()
-    - Yield in loops: for x in data: yield x
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of generator yield dicts:
-        {
-            'line': int,
-            'generator_function': str,
-            'yield_type': str,  # 'yield' | 'yield_from'
-            'yield_expr': str,  # Expression being yielded
-            'condition': str | None,  # Condition if inside if statement
-            'in_loop': bool,  # True if yield is inside a loop
-        }
-
-    Enables hypothesis: "Generator X yields when condition Y"
-    Experiment design: Iterate generator, verify yield conditions and values
-    """
+    """Extract generator yield patterns (ENHANCED from core_extractors.py)."""
     yields = []
 
     if not isinstance(context.tree, ast.AST):
@@ -309,32 +210,7 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract property patterns including computed properties and validated setters.
-
-    Detects:
-    - @property getters (computed properties)
-    - @property.setter setters (with validation)
-    - @property.deleter deleters
-    - Computed properties (getters with logic, not just return self._x)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of property pattern dicts:
-        {
-            'line': int,
-            'property_name': str,
-            'access_type': str,  # 'getter' | 'setter' | 'deleter'
-            'in_class': str,  # Class name containing property
-            'has_computation': bool,  # True if getter has computation (not just return self._x)
-            'has_validation': bool,  # True if setter has validation (if/raise)
-        }
-
-    Enables hypothesis: "Property X computes value rather than returning stored attribute"
-    Experiment design: Access property, verify computation occurs vs simple attribute return
-    """
+    """Extract property patterns including computed properties and validated setters."""
     properties = []
 
     if not isinstance(context.tree, ast.AST):
@@ -443,31 +319,7 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dynamic attribute access patterns (__getattr__, __setattr__, __getattribute__).
-
-    Detects:
-    - __getattr__ implementation (fallback attribute access)
-    - __setattr__ implementation (attribute assignment interception)
-    - __getattribute__ implementation (all attribute access interception)
-    - __delattr__ implementation (attribute deletion)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of dynamic attribute dicts:
-        {
-            'line': int,
-            'method_name': str,  # '__getattr__' | '__setattr__' | '__getattribute__' | '__delattr__'
-            'in_class': str,  # Class name containing method
-            'has_delegation': bool,  # True if method delegates to another object
-            'has_validation': bool,  # True if method validates (for setattr)
-        }
-
-    Enables hypothesis: "Class uses dynamic attribute interception"
-    Experiment design: Access/set attributes on instance, verify interception occurs
-    """
+    """Extract dynamic attribute access patterns (__getattr__, __setattr__, __getattribute__)."""
     dynamic_attrs = []
 
     if not isinstance(context.tree, ast.AST):

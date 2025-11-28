@@ -1,20 +1,4 @@
-"""OAuth/SSO Security Analyzer - Database-First Approach.
-
-Detects OAuth and Single Sign-On security vulnerabilities using database-driven approach.
-Follows gold standard patterns from jwt_analyze.py.
-
-NO AST TRAVERSAL. NO FILE I/O. PURE DATABASE QUERIES.
-
-Detects:
-- Missing state parameter in OAuth flows (CSRF)
-- Redirect URI validation bypass
-- OAuth tokens in URL fragments/parameters
-
-CWE Coverage:
-- CWE-352: Cross-Site Request Forgery (CSRF)
-- CWE-601: URL Redirection to Untrusted Site ('Open Redirect')
-- CWE-598: Use of GET Request Method With Sensitive Query Strings
-"""
+"""OAuth/SSO Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -74,23 +58,7 @@ TOKEN_URL_PATTERNS = frozenset(
 
 
 def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect OAuth and SSO security vulnerabilities.
-
-    This is a database-first rule following the gold standard pattern.
-    NO file I/O, NO AST traversal - only SQL queries on indexed data.
-    All pattern matching done in Python after database fetch.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of OAuth/SSO security findings
-
-    Example findings:
-        - OAuth redirect without state parameter
-        - res.redirect(req.query.redirect_uri) without validation
-        - const url = `/#access_token=${token}`
-    """
+    """Detect OAuth and SSO security vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -113,20 +81,7 @@ def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
-    """Detect OAuth flows without state parameter.
-
-    The state parameter prevents CSRF attacks in OAuth flows by:
-    - Binding the authorization request to the user's session
-    - Preventing attackers from injecting malicious authorization codes
-
-    Without state, attackers can:
-    1. Start OAuth flow for victim's account
-    2. Capture authorization code
-    3. Inject code into victim's session
-    4. Gain access to victim's account
-
-    CWE-352: Cross-Site Request Forgery (CSRF)
-    """
+    """Detect OAuth flows without state parameter."""
     findings = []
 
     query = build_query(
@@ -191,20 +146,7 @@ def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
 
 
 def _check_redirect_validation(cursor) -> list[StandardFinding]:
-    """Detect OAuth redirect URI validation issues.
-
-    Open redirect vulnerabilities in OAuth callbacks allow attackers to:
-    - Steal authorization codes by redirecting to attacker-controlled domains
-    - Phish users by appearing to come from legitimate domain
-
-    Proper validation should:
-    - Whitelist exact redirect URIs
-    - Validate against registered URIs
-    - Not use regex with loose patterns
-    - Check protocol, domain, and path
-
-    CWE-601: URL Redirection to Untrusted Site
-    """
+    """Detect OAuth redirect URI validation issues."""
     findings = []
 
     query = build_query(
@@ -312,21 +254,7 @@ def _check_redirect_validation(cursor) -> list[StandardFinding]:
 
 
 def _check_token_in_url(cursor) -> list[StandardFinding]:
-    """Detect OAuth tokens in URL fragments or parameters.
-
-    Tokens in URLs are exposed in:
-    - Browser history
-    - Server logs
-    - Referrer headers
-    - Proxy logs
-
-    OAuth 2.0 best practices:
-    - Use authorization code flow (not implicit flow)
-    - Never put access_token in URL
-    - Use token in Authorization header or POST body
-
-    CWE-598: Use of GET Request Method With Sensitive Query Strings
-    """
+    """Detect OAuth tokens in URL fragments or parameters."""
     findings = []
 
     query = build_query(

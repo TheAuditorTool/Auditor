@@ -1,27 +1,4 @@
-"""Docker Compose Security Analyzer - Database-First Approach.
-
-Detects security misconfigurations in Docker Compose services.
-Uses pre-extracted data from compose_services table - NO FILE I/O.
-
-Tables Used (guaranteed by schema contract):
-- compose_services: Docker Compose service configurations (17 fields - Phase 3C enhanced)
-
-Detects 11 security issues:
-- Privileged containers
-- Host network mode
-- Docker socket mounting (container escape)
-- Dangerous volume mounts
-- Hardcoded secrets / weak passwords
-- Exposed database/admin ports
-- Vulnerable/unpinned images
-- Root user (Phase 3C)
-- Dangerous capabilities (Phase 3C)
-- Disabled security features (Phase 3C)
-- Command injection risk (Phase 3C)
-- Missing cap_drop (Phase 3C)
-
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""Docker Compose Security Analyzer - Database-First Approach."""
 
 import json
 import sqlite3
@@ -197,26 +174,7 @@ ROOT_USER_IDS = frozenset(["root", "0", "UID 0"])
 
 
 def find_compose_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Docker Compose security misconfigurations using indexed data.
-
-    Analyzes compose_services table for:
-    - Docker socket mounting (container escape risk)
-    - Privileged containers
-    - Host network mode
-    - Weak/hardcoded passwords
-    - Exposed database and admin ports
-    - Unpinned or vulnerable image versions
-    - Dangerous volume mounts
-    - Insecure capabilities
-
-    All data comes from pre-indexed compose_services table.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Docker Compose security misconfigurations using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -264,14 +222,7 @@ def find_compose_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def analyze_service(row: tuple) -> list[StandardFinding]:
-    """Analyze a single Docker Compose service for security issues.
-
-    Args:
-        row: Database row with ALL 17 service fields (Phase 3C)
-
-    Returns:
-        List of findings for this service
-    """
+    """Analyze a single Docker Compose service for security issues."""
     findings = []
 
     try:
@@ -494,16 +445,7 @@ def analyze_service(row: tuple) -> list[StandardFinding]:
 def check_port_exposure(
     file_path: str, service_name: str, port_mapping: str
 ) -> list[StandardFinding]:
-    """Check if sensitive ports are exposed externally.
-
-    Args:
-        file_path: Path to compose file
-        service_name: Name of the service
-        port_mapping: Port mapping string (e.g., "0.0.0.0:3306:3306")
-
-    Returns:
-        List of findings for port exposure issues
-    """
+    """Check if sensitive ports are exposed externally."""
     findings = []
 
     parts = port_mapping.split(":")
@@ -554,16 +496,7 @@ def check_port_exposure(
 
 
 def check_image_security(file_path: str, service_name: str, image: str) -> list[StandardFinding]:
-    """Check Docker image for security issues.
-
-    Args:
-        file_path: Path to compose file
-        service_name: Name of the service
-        image: Docker image string
-
-    Returns:
-        List of findings for image issues
-    """
+    """Check Docker image for security issues."""
     findings = []
 
     if ":latest" in image or (":" not in image and "/" in image):

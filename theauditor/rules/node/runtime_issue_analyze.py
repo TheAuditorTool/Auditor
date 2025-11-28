@@ -1,12 +1,4 @@
-"""Golden Standard Node.js Runtime Security Analyzer.
-
-Detects runtime security vulnerabilities in JavaScript/TypeScript via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
-
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""Golden Standard Node.js Runtime Security Analyzer."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -174,16 +166,7 @@ class RuntimePatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Node.js runtime security issues.
-
-    This is the main entry point called by the orchestrator.
-
-    Args:
-        context: Standardized rule context with project metadata
-
-    Returns:
-        List of runtime security findings
-    """
+    """Detect Node.js runtime security issues."""
     analyzer = RuntimeAnalyzer(context)
     return analyzer.analyze()
 

@@ -1,9 +1,4 @@
-"""SQL file extractor.
-
-Handles extraction of SQL-specific elements including:
-- SQL object definitions (tables, indexes, views, functions)
-- SQL queries and their structure
-"""
+"""SQL file extractor."""
 
 from typing import Any
 
@@ -11,22 +6,7 @@ from . import BaseExtractor
 
 
 def parse_sql_query(query_text: str) -> tuple[str, list[str]] | None:
-    """Parse SQL query to extract command type and table names.
-
-    Shared helper used by Python and JavaScript extractors to maintain
-    consistent SQL parsing logic across languages.
-
-    Args:
-        query_text: Raw SQL query string
-
-    Returns:
-        Tuple of (command, tables) if parseable, None if unparseable
-        - command: SQL command type (SELECT, INSERT, UPDATE, etc.)
-        - tables: List of table names referenced in query
-
-    Raises:
-        ImportError: If sqlparse is not installed (hard failure)
-    """
+    """Parse SQL query to extract command type and table names."""
     try:
         import sqlparse
     except ImportError as e:
@@ -87,16 +67,7 @@ class SQLExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all relevant information from a SQL file.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree (not used for SQL)
-
-        Returns:
-            Dictionary containing all extracted data
-        """
+        """Extract all relevant information from a SQL file."""
         result = {"sql_objects": [], "sql_queries": []}
 
         result["sql_objects"] = self.extract_sql_objects(content)

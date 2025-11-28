@@ -1,17 +1,4 @@
-"""GitHub Actions Reusable Workflow Security Risks Detection.
-
-Detects supply chain risks where workflows call external reusable workflows with
-secrets: inherit or extensive secret passing, allowing external organizations to
-access repository secrets.
-
-Attack Pattern:
-1. Workflow calls reusable workflow from external org/repo
-2. Uses secrets: inherit or passes many secrets explicitly
-3. External org gains access to all repository secrets
-4. External workflow compromised = secret theft
-
-CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
-"""
+"""GitHub Actions Reusable Workflow Security Risks Detection."""
 
 import logging
 import sqlite3
@@ -36,20 +23,7 @@ METADATA = RuleMetadata(
 
 
 def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect external reusable workflows with secret access.
-
-    Detection Logic:
-    1. Find jobs that use reusable workflows (uses_reusable_workflow = 1)
-    2. Check if workflow is external (different org/repo)
-    3. Check if workflow has mutable version (@main, @v1)
-    4. Report HIGH severity for supply chain risk
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect external reusable workflows with secret access."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -129,22 +103,7 @@ def _build_reusable_workflow_finding(
     is_mutable: bool,
     secret_count: int,
 ) -> StandardFinding:
-    """Build finding for reusable workflow risk.
-
-    Args:
-        workflow_path: Path to calling workflow file
-        workflow_name: Calling workflow display name
-        job_key: Job key
-        job_name: Job display name
-        reusable_path: Full reusable workflow path with version
-        workflow_ref: Reusable workflow reference (org/repo/.github/workflows/x.yml)
-        version: Version/ref used
-        is_mutable: Whether version is mutable
-        secret_count: Number of secrets passed to reusable workflow
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for reusable workflow risk."""
 
     if is_mutable and secret_count > 0 or secret_count > 2:
         severity = Severity.HIGH

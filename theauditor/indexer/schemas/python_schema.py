@@ -1,27 +1,4 @@
-"""
-Python-specific schema definitions.
-
-This module contains table schemas specific to Python frameworks and patterns:
-- ORM models (SQLAlchemy, Django)
-- HTTP routes (Flask, FastAPI, Django)
-- Validation patterns (Pydantic)
-- Decorators
-- Control flow (loops, branches, exceptions)
-- Security findings (injections, crypto, auth)
-- Testing (fixtures, test cases)
-- Framework configs (Flask, Django, Celery)
-
-Design Philosophy:
-- Python-only tables
-- Framework-specific extractions
-- Complements core schema with language-specific patterns
-- Domain-grouped consolidated tables with discriminator columns
-
-TABLE HISTORY:
-- 2025-11-25: Reduced from 149 to 8 tables (consolidate-python-orphan-tables)
-- 2025-11-25: Added 20 consolidated tables (wire-extractors-to-consolidated-schema)
-- Current: 28 tables (8 original + 20 consolidated)
-"""
+"""Python-specific schema definitions."""
 
 from .utils import Column, TableSchema
 

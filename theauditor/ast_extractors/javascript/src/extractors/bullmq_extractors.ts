@@ -1,50 +1,28 @@
-/**
- * BullMQ Extractors
- *
- * Extracts BullMQ queue and worker definitions.
- */
-
-import * as ts from 'typescript';
-import type {
-  BullMQQueue,
-  BullMQWorker,
-} from '../schema';
-
-// =============================================================================
-// TYPES
-// =============================================================================
+import * as ts from "typescript";
+import type { BullMQQueue, BullMQWorker } from "../schema";
 
 interface ExtractBullMQResult {
   bullmq_queues: BullMQQueue[];
   bullmq_workers: BullMQWorker[];
 }
 
-// =============================================================================
-// BULLMQ QUEUES AND WORKERS
-// =============================================================================
-
-/**
- * Extract BullMQ queues and workers from source file
- */
 export function extractBullMQQueueWorkers(
   sourceFile: ts.SourceFile,
-  filePath: string
+  filePath: string,
 ): ExtractBullMQResult {
   const bullmq_queues: BullMQQueue[] = [];
   const bullmq_workers: BullMQWorker[] = [];
 
-  // Track processed queues to avoid duplicates
   const processedQueues = new Set<string>();
   const processedWorkers = new Set<string>();
 
   function visit(node: ts.Node): void {
-    // Look for new Queue(...) calls
     if (ts.isNewExpression(node)) {
       const expr = node.expression;
-      if (ts.isIdentifier(expr) && expr.text === 'Queue') {
+      if (ts.isIdentifier(expr) && expr.text === "Queue") {
         if (node.arguments && node.arguments.length > 0) {
           const queueNameArg = node.arguments[0];
-          let queueName = 'unknown';
+          let queueName = "unknown";
 
           if (ts.isStringLiteral(queueNameArg)) {
             queueName = queueNameArg.text;
@@ -57,12 +35,20 @@ export function extractBullMQQueueWorkers(
 
             let redisConfig: string | null = null;
 
-            // Parse options for redis config
-            if (node.arguments.length > 1 && ts.isObjectLiteralExpression(node.arguments[1])) {
+            if (
+              node.arguments.length > 1 &&
+              ts.isObjectLiteralExpression(node.arguments[1])
+            ) {
               const optionsObj = node.arguments[1];
               for (const prop of optionsObj.properties) {
-                if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-                  if (prop.name.text === 'connection' || prop.name.text === 'redis') {
+                if (
+                  ts.isPropertyAssignment(prop) &&
+                  ts.isIdentifier(prop.name)
+                ) {
+                  if (
+                    prop.name.text === "connection" ||
+                    prop.name.text === "redis"
+                  ) {
                     redisConfig = prop.initializer.getText(sourceFile);
                   }
                 }
@@ -71,7 +57,9 @@ export function extractBullMQQueueWorkers(
 
             bullmq_queues.push({
               file: filePath,
-              line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+              line:
+                sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+                1,
               queue_name: queueName,
               redis_config: redisConfig,
             });
@@ -79,13 +67,12 @@ export function extractBullMQQueueWorkers(
         }
       }
 
-      // Look for new Worker(...) calls
-      if (ts.isIdentifier(expr) && expr.text === 'Worker') {
+      if (ts.isIdentifier(expr) && expr.text === "Worker") {
         if (node.arguments && node.arguments.length >= 2) {
           const queueNameArg = node.arguments[0];
           const processorArg = node.arguments[1];
 
-          let queueName = 'unknown';
+          let queueName = "unknown";
           if (ts.isStringLiteral(queueNameArg)) {
             queueName = queueNameArg.text;
           } else if (ts.isIdentifier(queueNameArg)) {
@@ -99,9 +86,11 @@ export function extractBullMQQueueWorkers(
             let workerFunction: string | null = null;
             let processorPath: string | null = null;
 
-            // Check processor argument type
-            if (ts.isArrowFunction(processorArg) || ts.isFunctionExpression(processorArg)) {
-              workerFunction = 'inline';
+            if (
+              ts.isArrowFunction(processorArg) ||
+              ts.isFunctionExpression(processorArg)
+            ) {
+              workerFunction = "inline";
             } else if (ts.isStringLiteral(processorArg)) {
               processorPath = processorArg.text;
             } else if (ts.isIdentifier(processorArg)) {
@@ -110,7 +99,9 @@ export function extractBullMQQueueWorkers(
 
             bullmq_workers.push({
               file: filePath,
-              line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+              line:
+                sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+                1,
               queue_name: queueName,
               worker_function: workerFunction,
               processor_path: processorPath,
@@ -120,15 +111,14 @@ export function extractBullMQQueueWorkers(
       }
     }
 
-    // Look for createQueue or similar factory functions
     if (ts.isCallExpression(node)) {
       const expr = node.expression;
       if (ts.isIdentifier(expr)) {
         const fnName = expr.text.toLowerCase();
-        if (fnName.includes('queue') && fnName.includes('create')) {
+        if (fnName.includes("queue") && fnName.includes("create")) {
           if (node.arguments.length > 0) {
             const queueNameArg = node.arguments[0];
-            let queueName = 'unknown';
+            let queueName = "unknown";
 
             if (ts.isStringLiteral(queueNameArg)) {
               queueName = queueNameArg.text;
@@ -139,7 +129,9 @@ export function extractBullMQQueueWorkers(
 
               bullmq_queues.push({
                 file: filePath,
-                line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+                line:
+                  sourceFile.getLineAndCharacterOfPosition(node.getStart())
+                    .line + 1,
                 queue_name: queueName,
                 redis_config: null,
               });
@@ -148,10 +140,9 @@ export function extractBullMQQueueWorkers(
         }
       }
 
-      // Look for queue.process() calls
-      if (ts.isPropertyAccessExpression(expr) && expr.name.text === 'process') {
+      if (ts.isPropertyAccessExpression(expr) && expr.name.text === "process") {
         const queueExpr = expr.expression;
-        let queueName = 'unknown';
+        let queueName = "unknown";
 
         if (ts.isIdentifier(queueExpr)) {
           queueName = queueExpr.text;
@@ -167,8 +158,11 @@ export function extractBullMQQueueWorkers(
             let workerFunction: string | null = null;
             let processorPath: string | null = null;
 
-            if (ts.isArrowFunction(processorArg) || ts.isFunctionExpression(processorArg)) {
-              workerFunction = 'inline';
+            if (
+              ts.isArrowFunction(processorArg) ||
+              ts.isFunctionExpression(processorArg)
+            ) {
+              workerFunction = "inline";
             } else if (ts.isStringLiteral(processorArg)) {
               processorPath = processorArg.text;
             } else if (ts.isIdentifier(processorArg)) {
@@ -177,7 +171,9 @@ export function extractBullMQQueueWorkers(
 
             bullmq_workers.push({
               file: filePath,
-              line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+              line:
+                sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+                1,
               queue_name: queueName,
               worker_function: workerFunction,
               processor_path: processorPath,
@@ -194,9 +190,5 @@ export function extractBullMQQueueWorkers(
 
   return { bullmq_queues, bullmq_workers };
 }
-
-// =============================================================================
-// EXPORTS
-// =============================================================================
 
 export { ExtractBullMQResult };

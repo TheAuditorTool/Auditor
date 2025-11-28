@@ -1,8 +1,4 @@
-"""GraphQL N+1 Query Detection - CFG-Based Loop Analysis.
-
-Detects N+1 query patterns where resolvers execute DB queries inside loops.
-Uses cfg_blocks + graphql_execution_edges. NO regex fallbacks.
-"""
+"""GraphQL N+1 Query Detection - CFG-Based Loop Analysis."""
 
 import sqlite3
 
@@ -24,17 +20,7 @@ METADATA = RuleMetadata(
 
 
 def check_graphql_nplus1(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect N+1 query patterns in GraphQL resolvers.
-
-    Strategy:
-    1. Find list-returning GraphQL fields (is_list=1)
-    2. Get their child field resolvers
-    3. Check if child resolvers have loops in CFG
-    4. Check if those loops contain DB queries
-    5. Report N+1 pattern
-
-    NO FALLBACKS. Database must exist.
-    """
+    """Detect N+1 query patterns in GraphQL resolvers."""
     if not context.db_path:
         return []
 

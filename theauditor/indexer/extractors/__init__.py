@@ -1,24 +1,4 @@
-"""Extractor framework for the indexer.
-
-This module defines the BaseExtractor abstract class and the ExtractorRegistry
-for dynamic discovery and registration of language-specific extractors.
-
-CRITICAL ARCHITECTURE PRINCIPLE:
-BaseExtractor provides MINIMAL string-based fallback methods for configuration
-files (JSON, YAML, Nginx) that lack AST parsers.
-
-Language extractors (Python, JavaScript) MUST use AST-based extraction.
-String/regex extraction is ONLY for:
-1. Route definitions (inherently string literals in all frameworks)
-2. SQL DDL (CREATE TABLE etc in .sql files)
-
-CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR ANYTHING ELSE. USE AST.
-
-FORBIDDEN:
-- Regex-based import extraction (use AST)
-- Regex-based SQL query extraction in code files (use AST to find db.execute() calls)
-- Regex-based JWT extraction (use AST via function_calls data)
-"""
+"""Extractor framework for the indexer."""
 
 import importlib
 import os
@@ -30,69 +10,27 @@ from ..config import ROUTE_PATTERNS, SQL_PATTERNS
 
 
 class BaseExtractor(ABC):
-    """Abstract base class for all language extractors.
-
-    Provides minimal string-based fallback methods for files without AST parsers
-    (configuration files, etc.). Language-specific extractors should use AST-based
-    extraction instead of these methods.
-
-    Design Philosophy:
-    - AST-first: Language extractors (Python, JS) should use AST parsers
-    - String fallback: Only for config files (webpack, nginx, docker-compose)
-    - Pattern quality: Only include patterns with low false positive rates
-    """
+    """Abstract base class for all language extractors."""
 
     def __init__(self, root_path: Path, ast_parser: Any | None = None):
-        """Initialize the extractor.
-
-        Args:
-            root_path: Project root path
-            ast_parser: Optional AST parser instance (for language extractors)
-        """
+        """Initialize the extractor."""
         self.root_path = root_path
         self.ast_parser = ast_parser
 
     @abstractmethod
     def supported_extensions(self) -> list[str]:
-        """Return list of file extensions this extractor supports.
-
-        Returns:
-            List of file extensions (e.g., ['.py', '.pyx'])
-        """
+        """Return list of file extensions this extractor supports."""
         pass
 
     @abstractmethod
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all relevant information from a file.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree
-
-        Returns:
-            Dictionary containing all extracted data
-        """
+        """Extract all relevant information from a file."""
         pass
 
     def extract_routes(self, content: str) -> list[tuple[str, str]]:
-        """Extract route definitions from file content.
-
-        Routes are inherently string-based in all frameworks:
-        - Express: app.get('/path', ...)
-        - Flask: @app.route('/path')
-        - Django: path('/path', ...)
-
-        This is a legitimate use of regex as routes are string literals.
-
-        Args:
-            content: File content
-
-        Returns:
-            List of (method, path) tuples
-        """
+        """Extract route definitions from file content."""
         routes = []
         for pattern in ROUTE_PATTERNS:
             for match in pattern.finditer(content):
@@ -106,20 +44,7 @@ class BaseExtractor(ABC):
         return routes
 
     def extract_sql_objects(self, content: str) -> list[tuple[str, str]]:
-        """Extract SQL object definitions from .sql files.
-
-        This method detects DDL statements (CREATE TABLE, CREATE INDEX, etc.)
-        in actual SQL files, not code files.
-
-        For SQL queries embedded in code (Python, JavaScript), language extractors
-        should use AST-based extraction to find db.execute() calls.
-
-        Args:
-            content: SQL file content
-
-        Returns:
-            List of (kind, name) tuples
-        """
+        """Extract SQL object definitions from .sql files."""
         objects = []
         for pattern in SQL_PATTERNS:
             for match in pattern.finditer(content):
@@ -144,46 +69,22 @@ class BaseExtractor(ABC):
         return objects
 
     def cleanup(self) -> None:
-        """Clean up extractor resources after all files processed.
-
-        Override this if extractor maintains persistent resources
-        (LSP sessions, database connections, temp directories).
-
-        Default: no-op.
-        """
+        """Clean up extractor resources after all files processed."""
         pass
 
 
 class ExtractorRegistry:
-    """Registry for dynamic discovery and management of extractors.
-
-    Automatically discovers all extractor modules in the extractors/ directory
-    and registers them by their supported file extensions.
-
-    Design:
-    - One extractor class per file (python.py → PythonExtractor)
-    - Extractors register themselves via supported_extensions()
-    - No hardcoded mapping - pure discovery pattern
-    """
+    """Registry for dynamic discovery and management of extractors."""
 
     def __init__(self, root_path: Path, ast_parser: Any | None = None):
-        """Initialize the registry and discover extractors.
-
-        Args:
-            root_path: Project root path
-            ast_parser: Optional AST parser instance
-        """
+        """Initialize the registry and discover extractors."""
         self.root_path = root_path
         self.ast_parser = ast_parser
         self.extractors = {}
         self._discover()
 
     def _discover(self):
-        """Auto-discover and register all extractor modules.
-
-        Scans the extractors/ directory for Python files, imports them,
-        and registers any BaseExtractor subclasses found.
-        """
+        """Auto-discover and register all extractor modules."""
         extractor_dir = Path(__file__).parent
 
         for file_path in extractor_dir.glob("*.py"):
@@ -217,15 +118,7 @@ class ExtractorRegistry:
                 continue
 
     def get_extractor(self, file_path: str, file_extension: str) -> BaseExtractor | None:
-        """Get the appropriate extractor for a file.
-
-        Args:
-            file_path: Full file path
-            file_extension: File extension (e.g., '.py')
-
-        Returns:
-            Extractor instance or None if not supported
-        """
+        """Get the appropriate extractor for a file."""
         extractor = self.extractors.get(file_extension)
         if not extractor:
             return None
@@ -236,9 +129,5 @@ class ExtractorRegistry:
         return extractor
 
     def supported_extensions(self) -> list[str]:
-        """Get list of all supported file extensions.
-
-        Returns:
-            List of supported extensions
-        """
+        """Get list of all supported file extensions."""
         return list(self.extractors.keys())

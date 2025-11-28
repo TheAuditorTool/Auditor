@@ -1,42 +1,4 @@
-"""Advanced class feature extractors - Metaclasses, descriptors, dataclasses, enums.
-
-This module contains extraction logic for advanced Python class features:
-- Metaclasses (type subclasses, __metaclass__)
-- Descriptors (__get__, __set__, __delete__)
-- Dataclasses (@dataclass decorator and fields)
-- Enums (Enum subclasses and members)
-- Slots (__slots__ optimization)
-- Abstract base classes (ABC, @abstractmethod)
-- Class methods and static methods (@classmethod, @staticmethod)
-- Multiple inheritance and MRO
-- Dunder methods (__init__, __str__, __repr__, __eq__, etc.)
-- Visibility conventions (_private, __name_mangling)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 4 Implementation (Python Coverage V2):
-============================================
-Implements advanced class features.
-
-Expected extraction from TheAuditor codebase:
-- ~5 metaclasses
-- ~10 descriptors
-- ~20 dataclasses
-- ~10 enums
-- ~15 __slots__ usage
-- ~30 abstract classes
-- ~100 class/static methods
-- ~50 multiple inheritance cases
-- ~200 dunder methods
-- ~150 visibility patterns
-Total: ~590 advanced class feature records
-"""
+"""Advanced class feature extractors - Metaclasses, descriptors, dataclasses, enums."""
 
 import ast
 import logging
@@ -93,22 +55,7 @@ CONTEXT_DUNDERS = {"__enter__", "__exit__", "__aenter__", "__aexit__"}
 
 
 def extract_metaclasses(context: FileContext) -> list[dict[str, Any]]:
-    """Extract metaclass definitions and usage.
-
-    Detects:
-    - Classes that inherit from type
-    - Classes using metaclass= parameter
-    - __metaclass__ attribute (Python 2 style)
-
-    Returns:
-        List of metaclass dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'metaclass_name': str,
-            'is_definition': bool,  # True if defining metaclass, False if using
-        }
-    """
+    """Extract metaclass definitions and usage."""
     metaclasses = []
 
     if not isinstance(context.tree, ast.AST):
@@ -143,21 +90,7 @@ def extract_metaclasses(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_descriptors(context: FileContext) -> list[dict[str, Any]]:
-    """Extract descriptor protocol implementations.
-
-    Detects classes with __get__, __set__, __delete__ methods.
-
-    Returns:
-        List of descriptor dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_get': bool,
-            'has_set': bool,
-            'has_delete': bool,
-            'descriptor_type': str,  # 'data' | 'non-data' | 'read-only'
-        }
-    """
+    """Extract descriptor protocol implementations."""
     descriptors = []
 
     if not isinstance(context.tree, ast.AST):
@@ -194,19 +127,7 @@ def extract_descriptors(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dataclass definitions.
-
-    Detects @dataclass decorator usage and field definitions.
-
-    Returns:
-        List of dataclass dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'frozen': bool,  # If frozen=True
-            'field_count': int,
-        }
-    """
+    """Extract dataclass definitions."""
     dataclasses = []
 
     if not isinstance(context.tree, ast.AST):
@@ -250,19 +171,7 @@ def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_enums(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Enum class definitions.
-
-    Detects classes inheriting from Enum and their members.
-
-    Returns:
-        List of enum dicts:
-        {
-            'line': int,
-            'enum_name': str,
-            'enum_type': str,  # 'Enum' | 'IntEnum' | 'Flag' | 'IntFlag'
-            'member_count': int,
-        }
-    """
+    """Extract Enum class definitions."""
     enums = []
 
     if not isinstance(context.tree, ast.AST):
@@ -297,18 +206,7 @@ def extract_enums(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_slots(context: FileContext) -> list[dict[str, Any]]:
-    """Extract __slots__ usage.
-
-    Detects classes using __slots__ for memory optimization.
-
-    Returns:
-        List of slots dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'slot_count': int,
-        }
-    """
+    """Extract __slots__ usage."""
     slots = []
 
     if not isinstance(context.tree, ast.AST):
@@ -334,18 +232,7 @@ def extract_slots(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_abstract_classes(context: FileContext) -> list[dict[str, Any]]:
-    """Extract abstract base classes (ABC) and abstract methods.
-
-    Detects classes using ABC or @abstractmethod decorators.
-
-    Returns:
-        List of ABC dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'abstract_method_count': int,
-        }
-    """
+    """Extract abstract base classes (ABC) and abstract methods."""
     abstract_classes = []
 
     if not isinstance(context.tree, ast.AST):
@@ -376,17 +263,7 @@ def extract_abstract_classes(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_method_types(context: FileContext) -> list[dict[str, Any]]:
-    """Extract method types (@classmethod, @staticmethod, instance methods).
-
-    Returns:
-        List of method type dicts:
-        {
-            'line': int,
-            'method_name': str,
-            'method_type': str,  # 'instance' | 'class' | 'static'
-            'in_class': str,
-        }
-    """
+    """Extract method types (@classmethod, @staticmethod, instance methods)."""
     method_types = []
 
     if not isinstance(context.tree, ast.AST):
@@ -416,19 +293,7 @@ def extract_method_types(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_multiple_inheritance(context: FileContext) -> list[dict[str, Any]]:
-    """Extract multiple inheritance patterns.
-
-    Detects classes with more than one base class.
-
-    Returns:
-        List of multiple inheritance dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'base_count': int,
-            'base_classes': str,  # Comma-separated
-        }
-    """
+    """Extract multiple inheritance patterns."""
     multi_inheritance = []
 
     if not isinstance(context.tree, ast.AST):
@@ -455,19 +320,7 @@ def extract_multiple_inheritance(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dunder (magic) method definitions.
-
-    Categorizes dunder methods by purpose.
-
-    Returns:
-        List of dunder method dicts:
-        {
-            'line': int,
-            'method_name': str,
-            'category': str,  # 'lifecycle' | 'representation' | 'comparison' | etc.
-            'in_class': str,
-        }
-    """
+    """Extract dunder (magic) method definitions."""
     dunder_methods = []
 
     if not isinstance(context.tree, ast.AST):
@@ -513,18 +366,7 @@ def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_visibility_conventions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract naming conventions for visibility (_private, __name_mangling).
-
-    Returns:
-        List of visibility dicts:
-        {
-            'line': int,
-            'name': str,
-            'visibility': str,  # 'public' | 'protected' | 'private'
-            'is_name_mangled': bool,
-            'in_class': str,
-        }
-    """
+    """Extract naming conventions for visibility (_private, __name_mangling)."""
     visibility = []
 
     if not isinstance(context.tree, ast.AST):

@@ -1,23 +1,4 @@
-"""Python Cryptography Vulnerability Analyzer - Database-First Approach.
-
-Detects weak cryptography and insecure crypto practices using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-
-Detects:
-- Weak hash algorithms (MD5, SHA1)
-- Hardcoded cryptographic keys/secrets
-- Insecure random number generation
-- Missing HMAC verification
-- Weak key derivation
-- ECB mode usage
-- Small key sizes
-"""
+"""Python Cryptography Vulnerability Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -208,21 +189,13 @@ class CryptoAnalyzer:
     """Analyzer for Python cryptography vulnerabilities."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = CryptoPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of cryptography vulnerabilities found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -683,24 +656,13 @@ FLAGGED: Missing database features for better crypto detection:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Python cryptography vulnerabilities.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of cryptography vulnerabilities found
-    """
+    """Detect Python cryptography vulnerabilities."""
     analyzer = CryptoAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register crypto-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register crypto-specific taint patterns."""
     patterns = CryptoPatterns()
 
     for pattern in patterns.WEAK_HASHES:

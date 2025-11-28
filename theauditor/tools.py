@@ -9,11 +9,7 @@ from typing import Any
 
 
 def detect_tool_version(cmd: list[str]) -> str:
-    """
-    Detect tool version by running command.
-
-    Returns version string or "missing" if not found.
-    """
+    """Detect tool version by running command."""
     try:
         with (
             tempfile.NamedTemporaryFile(
@@ -64,15 +60,7 @@ def detect_tool_version(cmd: list[str]) -> str:
 
 
 def write_tools_report(out_dir: str) -> dict[str, Any]:
-    """
-    Detect all tool versions and write reports.
-
-    Writes:
-    - {out_dir}/TOOLS.md - Human-readable markdown
-    - {out_dir}/tools.json - Machine-readable JSON
-
-    Returns the tools dictionary.
-    """
+    """Detect all tool versions and write reports."""
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 

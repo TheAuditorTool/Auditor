@@ -42,12 +42,7 @@ class PatternLoader:
     """Loads and manages detection patterns from YAML files."""
 
     def __init__(self, patterns_dir: Path | None = None):
-        """Initialize pattern loader.
-
-        Args:
-            patterns_dir: Directory containing pattern YAML files.
-                         Defaults to theauditor/patterns/
-        """
+        """Initialize pattern loader."""
         if patterns_dir is None:
             patterns_dir = Path(__file__).parent / "rules" / "YAML"
         self.patterns_dir = Path(patterns_dir)
@@ -55,15 +50,7 @@ class PatternLoader:
         self._loaded = False
 
     def load_patterns(self, categories: list[str] | None = None) -> dict[str, list[Pattern]]:
-        """Load patterns from YAML files.
-
-        Args:
-            categories: Optional list of categories to load (e.g., ['runtime_issues', 'db_issues'])
-                       If None, loads all available patterns.
-
-        Returns:
-            Dictionary mapping category names to lists of patterns.
-        """
+        """Load patterns from YAML files."""
         if not self.patterns_dir.exists():
             raise FileNotFoundError(f"Patterns directory not found: {self.patterns_dir}")
 
@@ -95,14 +82,7 @@ class PatternLoader:
         return self.patterns
 
     def _load_yaml_file(self, file_path: Path) -> list[Pattern]:
-        """Load patterns from a single YAML file.
-
-        Args:
-            file_path: Path to YAML file.
-
-        Returns:
-            List of Pattern objects.
-        """
+        """Load patterns from a single YAML file."""
         with open(file_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
@@ -131,14 +111,7 @@ class PatternLoader:
         return patterns
 
     def get_patterns_for_language(self, language: str) -> list[Pattern]:
-        """Get all patterns applicable to a specific language.
-
-        Args:
-            language: Programming language (e.g., 'python', 'javascript').
-
-        Returns:
-            List of applicable patterns.
-        """
+        """Get all patterns applicable to a specific language."""
         if not self._loaded:
             self.load_patterns()
 
@@ -151,11 +124,7 @@ class PatternLoader:
         return applicable_patterns
 
     def get_all_patterns(self) -> list[Pattern]:
-        """Get all loaded patterns.
-
-        Returns:
-            List of all patterns from all categories.
-        """
+        """Get all loaded patterns."""
         if not self._loaded:
             self.load_patterns()
 
@@ -166,11 +135,7 @@ class PatternLoader:
         return all_patterns
 
     def validate_patterns(self) -> dict[str, list[str]]:
-        """Validate all loaded patterns.
-
-        Returns:
-            Dictionary of validation errors by category.
-        """
+        """Validate all loaded patterns."""
         if not self._loaded:
             self.load_patterns()
 

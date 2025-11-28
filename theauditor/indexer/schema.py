@@ -1,49 +1,4 @@
-"""
-Database schema definitions - Single Source of Truth.
-
-CRITICAL: After adding/modifying ANY table schema, you MUST run:
-    python -m theauditor.indexer.schemas.codegen
-This regenerates generated_cache.py which the taint analyzer ACTUALLY uses!
-Without this step, your new tables will NOT be loaded into memory!
-
-This module is now a STUB that merges language-specific schema modules.
-The actual table definitions have been split into:
-- schemas/core_schema.py (21 tables - language-agnostic core patterns)
-- schemas/security_schema.py (5 tables - cross-language security patterns)
-- schemas/frameworks_schema.py (5 tables - cross-language framework patterns)
-- schemas/python_schema.py (30 tables - Python-specific: 8 original + 20 consolidated + 2 decomposed)
-- schemas/node_schema.py (17 tables - Node/React/Vue/TypeScript)
-- schemas/infrastructure_schema.py (18 tables - Docker/Terraform/CDK/GitHub Actions)
-- schemas/planning_schema.py (5 tables - Planning/meta-system)
-- schemas/graphql_schema.py (8 tables - GraphQL schema, types, fields, resolvers)
-
-This stub maintains 100% backward compatibility with all existing imports.
-
-Design Philosophy:
-- Indexer creates tables from these schemas
-- Taint analyzer queries using these schemas
-- Pattern rules query using these schemas
-- Memory cache pre-loads using these schemas
-- NO MORE HARDCODED COLUMN NAMES
-
-Usage:
-    from theauditor.indexer.schema import TABLES, build_query
-
-    # Build a query dynamically:
-    query = build_query('variable_usage', ['file', 'line', 'variable_name'])
-    # Returns: "SELECT file, line, variable_name FROM variable_usage"
-
-    # Validate database matches schema:
-    mismatches = validate_all_tables(cursor)
-    if mismatches:
-        print(f"Schema errors: {mismatches}")
-
-Schema Contract:
-- This is the SINGLE source of truth for ALL database schemas
-- Changes here propagate to ALL consumers automatically
-- Schema validation runs at indexing time and analysis time
-- Breaking changes detected at runtime, not production
-"""
+"""Database schema definitions - Single Source of Truth."""
 
 import sqlite3
 
@@ -237,29 +192,7 @@ def build_query(
     order_by: str | None = None,
     limit: int | None = None,
 ) -> str:
-    """
-    Build a SELECT query using schema definitions.
-
-    Args:
-        table_name: Name of the table
-        columns: List of column names to select (None = all columns)
-        where: Optional WHERE clause (without 'WHERE' keyword)
-        order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
-        limit: Optional LIMIT clause (just the number, e.g., 1, 10, 100)
-
-    Returns:
-        Complete SELECT query string
-
-    Example:
-        >>> build_query('variable_usage', ['file', 'line', 'variable_name'])
-        'SELECT file, line, variable_name FROM variable_usage'
-
-        >>> build_query('sql_queries', where="command != 'UNKNOWN'")
-        'SELECT file_path, line_number, query_text, command, tables, extraction_source FROM sql_queries WHERE command != \\'UNKNOWN\\''
-
-        >>> build_query('symbols', ['name', 'line'], where="type = 'function'", order_by="line DESC", limit=1)
-        'SELECT name, line FROM symbols WHERE type = \\'function\\' ORDER BY line DESC LIMIT 1'
-    """
+    """Build a SELECT query using schema definitions."""
     if table_name not in TABLES:
         raise ValueError(
             f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}"
@@ -305,42 +238,7 @@ def build_join_query(
     limit: int | None = None,
     join_type: str = "LEFT",
 ) -> str:
-    """Build a JOIN query using schema definitions and foreign keys.
-
-    This function generates SQL JOIN queries with schema validation,
-    eliminating the need for raw SQL and enabling type-safe joins.
-
-    Args:
-        base_table: Name of the base table (e.g., 'react_hooks')
-        base_columns: Columns to select from base table (e.g., ['file', 'line', 'hook_name'])
-        join_table: Name of table to join (e.g., 'react_hook_dependencies')
-        join_columns: Columns to select/aggregate from join table (e.g., ['dependency_name'])
-        join_on: Optional explicit JOIN conditions as (base_col, join_col) tuples.
-                 If None, uses foreign key relationship from schema.
-        aggregate: Optional aggregation for join columns (e.g., {'dependency_name': 'GROUP_CONCAT'})
-        where: Optional WHERE clause (without 'WHERE' keyword)
-        group_by: Optional GROUP BY columns (required when using aggregation)
-        order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
-        limit: Optional LIMIT clause (just the number)
-        join_type: Type of JOIN ('LEFT', 'INNER', 'RIGHT') - default 'LEFT'
-
-    Returns:
-        Complete SELECT query string with JOIN
-
-    Example:
-        >>> build_join_query(
-        ...     base_table='react_hooks',
-        ...     base_columns=['file', 'line', 'hook_name'],
-        ...     join_table='react_hook_dependencies',
-        ...     join_columns=['dependency_name'],
-        ...     aggregate={'dependency_name': 'GROUP_CONCAT'},
-        ...     group_by=['file', 'line', 'hook_name']
-        ... )
-        'SELECT rh.file, rh.line, rh.hook_name, GROUP_CONCAT(rhd.dependency_name, '|') as dependency_name_concat FROM react_hooks rh LEFT JOIN react_hook_dependencies rhd ON rh.file = rhd.hook_file AND rh.line = rhd.hook_line AND rh.component_name = rhd.hook_component GROUP BY rh.file, rh.line, rh.hook_name'
-
-    Raises:
-        ValueError: If tables don't exist, columns invalid, or foreign key not found
-    """
+    """Build a JOIN query using schema definitions and foreign keys."""
 
     if base_table not in TABLES:
         raise ValueError(
@@ -448,13 +346,7 @@ def build_join_query(
 
 
 def validate_all_tables(cursor: sqlite3.Cursor) -> dict[str, list[str]]:
-    """
-    Validate all table schemas against actual database.
-
-    Returns:
-        Dict of {table_name: [errors]} for tables with mismatches.
-        Empty dict means all schemas are valid.
-    """
+    """Validate all table schemas against actual database."""
     results = {}
     for table_name, schema in TABLES.items():
         is_valid, errors = schema.validate_against_db(cursor)
@@ -464,18 +356,7 @@ def validate_all_tables(cursor: sqlite3.Cursor) -> dict[str, list[str]]:
 
 
 def get_table_schema(table_name: str) -> TableSchema:
-    """
-    Get schema for a specific table.
-
-    Args:
-        table_name: Name of the table
-
-    Returns:
-        TableSchema object
-
-    Raises:
-        ValueError: If table doesn't exist
-    """
+    """Get schema for a specific table."""
     if table_name not in TABLES:
         raise ValueError(
             f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}"

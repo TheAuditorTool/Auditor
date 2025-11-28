@@ -1,19 +1,4 @@
-"""Django web framework extractors (non-ORM patterns).
-
-This module extracts Django-specific web patterns:
-- Class-Based Views (CBVs): ListView, DetailView, CreateView, UpdateView, DeleteView, etc.
-- Forms: Django Form and ModelForm definitions with field validation
-- Admin: ModelAdmin customizations (list_display, list_filter, search_fields, etc.)
-- Middleware: Middleware class definitions and hooks
-
-ARCHITECTURAL CONTRACT:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'view_class_name', 'form_class_name', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Django web framework extractors (non-ORM patterns)."""
 
 import ast
 import logging
@@ -47,10 +32,7 @@ DJANGO_CBV_TYPES = {
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -61,10 +43,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
-    """Fetch keyword argument by name from AST call.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Fetch keyword argument by name from AST call."""
     for keyword in call.keywords:
         if keyword.arg == name:
             return keyword.value
@@ -72,10 +51,7 @@ def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
 
 
 def _extract_list_of_strings(node) -> str | None:
-    """Helper: Extract list/tuple of string constants as comma-separated string.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Helper: Extract list/tuple of string constants as comma-separated string."""
     items = []
 
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -89,21 +65,7 @@ def _extract_list_of_strings(node) -> str | None:
 
 
 def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django Class-Based View definitions.
-
-    Detects:
-    - Generic views (ListView, DetailView, CreateView, UpdateView, DeleteView, etc.)
-    - Model associations (model = User or queryset = User.objects.all())
-    - Permission decorators on dispatch() method
-    - get_queryset() overrides (SQL injection surface)
-    - http_method_names restrictions
-    - template_name attributes
-
-    Security relevance:
-    - Missing permission checks = access control bypass
-    - get_queryset() overrides = SQL injection surface
-    - http_method_names = attack surface enumeration
-    """
+    """Extract Django Class-Based View definitions."""
     cbvs = []
     if not isinstance(context.tree, ast.AST):
         return cbvs
@@ -232,19 +194,7 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django Form and ModelForm definitions.
-
-    Detects:
-    - Form and ModelForm class inheritance
-    - ModelForm Meta.model associations
-    - Field count (for validation surface area)
-    - Custom clean() or clean_<field> methods (validators)
-
-    Security relevance:
-    - Form fields = input validation surface
-    - Missing clean() methods = unvalidated input
-    - ModelForm without validators = direct DB write risk
-    """
+    """Extract Django Form and ModelForm definitions."""
     forms = []
     if not isinstance(context.tree, ast.AST):
         return forms
@@ -300,19 +250,7 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django form field definitions.
-
-    Detects:
-    - Field types (CharField, EmailField, IntegerField, etc.)
-    - required/optional (required=False keyword)
-    - max_length constraint
-    - Custom validators (clean_<fieldname> methods)
-
-    Security relevance:
-    - Fields without max_length = DoS risk (unbounded input)
-    - Optional fields without validation = incomplete sanitization
-    - Fields without custom validators = missing business logic checks
-    """
+    """Extract Django form field definitions."""
     fields = []
     if not isinstance(context.tree, ast.AST):
         return fields
@@ -377,23 +315,7 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django ModelAdmin customizations.
-
-    Detects:
-    - ModelAdmin class registrations
-    - Associated model (from admin.site.register or inline Meta)
-    - list_display fields (columns shown in admin list view)
-    - list_filter fields (filtering sidebar)
-    - search_fields (search functionality)
-    - readonly_fields (non-editable fields)
-    - Custom admin actions (bulk operations)
-
-    Security relevance:
-    - Exposed fields in list_display = information disclosure
-    - Missing readonly_fields = mass assignment risk
-    - Custom actions without permission checks = privilege escalation
-    - search_fields without validation = SQL injection
-    """
+    """Extract Django ModelAdmin customizations."""
     admins = []
     if not isinstance(context.tree, ast.AST):
         return admins
@@ -478,22 +400,7 @@ def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django middleware class definitions.
-
-    Detects:
-    - Middleware class definitions (MiddlewareMixin, callable classes)
-    - process_request() method (pre-view processing)
-    - process_response() method (post-view processing)
-    - process_exception() method (exception handling)
-    - process_view() method (view-level processing)
-    - process_template_response() method (template processing)
-
-    Security relevance:
-    - process_request without auth checks = bypass opportunity
-    - process_response modifying sensitive data = data leakage
-    - process_exception logging = information disclosure
-    - Missing middleware hooks = incomplete security layer
-    """
+    """Extract Django middleware class definitions."""
     middlewares = []
     if not isinstance(context.tree, ast.AST):
         return middlewares

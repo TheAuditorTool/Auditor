@@ -1,19 +1,4 @@
-"""Terraform Provisioning Flow Graph Builder.
-
-Constructs data flow graphs from Terraform resources, showing how variables,
-resources, and outputs connect through dependencies and interpolations.
-
-Architecture:
-- Database-first: Reads from repo_index.db terraform_* tables
-- Outputs to graphs.db via XGraphStore.save_custom_graph()
-- Zero fallbacks: Missing data = empty graph (exposes indexer bugs)
-- Same format as DFGBuilder (dataclass → asdict)
-
-Usage:
-    builder = TerraformGraphBuilder(db_path=".pf/repo_index.db")
-    graph = builder.build_provisioning_flow_graph(root=".")
-    # Returns: {'nodes': [...], 'edges': [...], 'metadata': {...}}
-"""
+"""Terraform Provisioning Flow Graph Builder."""
 
 import json
 import re
@@ -55,17 +40,10 @@ class ProvisioningEdge:
 
 
 class TerraformGraphBuilder:
-    """Build Terraform provisioning flow graphs from repo_index.db.
-
-    Follows DFGBuilder pattern exactly - database-first, zero fallbacks.
-    """
+    """Build Terraform provisioning flow graphs from repo_index.db."""
 
     def __init__(self, db_path: str):
-        """Initialize builder with database path.
-
-        Args:
-            db_path: Path to repo_index.db
-        """
+        """Initialize builder with database path."""
         self.db_path = Path(db_path)
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
@@ -74,17 +52,7 @@ class TerraformGraphBuilder:
         self.store = XGraphStore(db_path=str(graphs_db_path))
 
     def build_provisioning_flow_graph(self, root: str = ".") -> dict[str, Any]:
-        """Build provisioning flow graph from Terraform data.
-
-        Queries terraform_* tables to construct a graph showing how
-        variables flow through resources to outputs.
-
-        Args:
-            root: Project root (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata (same format as DFGBuilder)
-        """
+        """Build provisioning flow graph from Terraform data."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -128,10 +96,12 @@ class TerraformGraphBuilder:
 
             resource_id = row["resource_id"]
 
-            # Get properties from junction table
             properties = self._get_resource_properties(cursor, resource_id)
-            sensitive_props = [p for p, v in properties.items()
-                              if self._is_property_sensitive(cursor, resource_id, p)]
+            sensitive_props = [
+                p
+                for p, v in properties.items()
+                if self._is_property_sensitive(cursor, resource_id, p)
+            ]
 
             nodes[resource_id] = ProvisioningNode(
                 id=resource_id,
@@ -165,7 +135,6 @@ class TerraformGraphBuilder:
                     )
                     stats["edges_created"] += 1
 
-            # Get dependencies from junction table
             depends_on = self._get_resource_deps(cursor, resource_id)
             for dep_ref in depends_on:
                 dep_id = self._resolve_resource_reference(cursor, dep_ref, row["file_path"])
@@ -244,12 +213,7 @@ class TerraformGraphBuilder:
         return result
 
     def _extract_variable_references(self, properties: dict) -> set[str]:
-        """Extract variable names from property values.
-
-        Searches for Terraform variable interpolations:
-        - Modern: var.NAME
-        - Legacy: ${var.NAME}
-        """
+        """Extract variable names from property values."""
         var_names = set()
 
         def scan_value(val):
@@ -268,10 +232,7 @@ class TerraformGraphBuilder:
         return var_names
 
     def _find_variable_id(self, cursor, var_name: str, current_file: str) -> str | None:
-        """Find variable ID by name (may be in different file).
-
-        Tries same file first, then any file (for module variables).
-        """
+        """Find variable ID by name (may be in different file)."""
 
         cursor.execute(
             """
@@ -296,16 +257,7 @@ class TerraformGraphBuilder:
         return row["variable_id"] if row else None
 
     def _resolve_resource_reference(self, cursor, ref: str, current_file: str) -> str | None:
-        """Resolve resource reference like 'aws_security_group.web' to resource_id.
-
-        Args:
-            cursor: Database cursor
-            ref: Resource reference (e.g., "aws_security_group.web")
-            current_file: Current file path
-
-        Returns:
-            resource_id or None if not found
-        """
+        """Resolve resource reference like 'aws_security_group.web' to resource_id."""
 
         parts = ref.split(".", 1)
         if len(parts) != 2:
@@ -324,13 +276,7 @@ class TerraformGraphBuilder:
         return row["resource_id"] if row else None
 
     def _extract_references_from_expression(self, expr_json: str) -> set[str]:
-        """Extract all Terraform references from an expression.
-
-        Matches patterns:
-        - aws_*.name (resource references)
-        - var.name (variable references)
-        - data.*.name (data source references)
-        """
+        """Extract all Terraform references from an expression."""
         refs = set()
         if not expr_json:
             return refs
@@ -347,16 +293,7 @@ class TerraformGraphBuilder:
         return refs
 
     def _resolve_reference(self, cursor, ref: str, current_file: str) -> str | None:
-        """Resolve any Terraform reference to node ID.
-
-        Args:
-            cursor: Database cursor
-            ref: Terraform reference (var.X, aws_Y.Z, etc.)
-            current_file: Current file path
-
-        Returns:
-            Node ID or None if not found
-        """
+        """Resolve any Terraform reference to node ID."""
         if ref.startswith("var."):
             var_name = ref.split(".", 1)[1]
             return self._find_variable_id(cursor, var_name, current_file)
@@ -364,15 +301,7 @@ class TerraformGraphBuilder:
             return self._resolve_resource_reference(cursor, ref, current_file)
 
     def _find_property_path(self, properties: dict, var_name: str) -> str | None:
-        """Find which property path contains the variable reference.
-
-        Args:
-            properties: Resource properties dict
-            var_name: Variable name to search for
-
-        Returns:
-            Property key or None if not found
-        """
+        """Find which property path contains the variable reference."""
 
         for key, val in properties.items():
             if isinstance(val, str) and var_name in val:
@@ -380,15 +309,7 @@ class TerraformGraphBuilder:
         return None
 
     def _get_resource_properties(self, cursor, resource_id: str) -> dict[str, Any]:
-        """Get resource properties from junction table.
-
-        Args:
-            cursor: Database cursor
-            resource_id: Resource ID to look up
-
-        Returns:
-            Dict of property_name -> property_value
-        """
+        """Get resource properties from junction table."""
         cursor.execute(
             """
             SELECT property_name, property_value
@@ -400,7 +321,7 @@ class TerraformGraphBuilder:
         properties = {}
         for row in cursor.fetchall():
             value = row["property_value"]
-            # Try to parse JSON values
+
             if value:
                 try:
                     properties[row["property_name"]] = json.loads(value)
@@ -411,16 +332,7 @@ class TerraformGraphBuilder:
         return properties
 
     def _is_property_sensitive(self, cursor, resource_id: str, property_name: str) -> bool:
-        """Check if a property is marked as sensitive.
-
-        Args:
-            cursor: Database cursor
-            resource_id: Resource ID
-            property_name: Property name to check
-
-        Returns:
-            True if property is sensitive
-        """
+        """Check if a property is marked as sensitive."""
         cursor.execute(
             """
             SELECT is_sensitive FROM terraform_resource_properties
@@ -432,15 +344,7 @@ class TerraformGraphBuilder:
         return bool(row and row["is_sensitive"]) if row else False
 
     def _get_resource_deps(self, cursor, resource_id: str) -> list[str]:
-        """Get resource dependencies from junction table.
-
-        Args:
-            cursor: Database cursor
-            resource_id: Resource ID to look up
-
-        Returns:
-            List of dependency references
-        """
+        """Get resource dependencies from junction table."""
         cursor.execute(
             """
             SELECT depends_on_ref FROM terraform_resource_deps
@@ -451,10 +355,7 @@ class TerraformGraphBuilder:
         return [row["depends_on_ref"] for row in cursor.fetchall()]
 
     def _write_to_graphs_db(self, graph: dict[str, Any]):
-        """Write graph to graphs.db using XGraphStore.save_custom_graph().
-
-        Converts ProvisioningNode/Edge format to XGraphStore format.
-        """
+        """Write graph to graphs.db using XGraphStore.save_custom_graph()."""
 
         store_nodes = []
         for node in graph["nodes"]:

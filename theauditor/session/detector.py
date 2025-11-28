@@ -8,19 +8,7 @@ AgentType = Literal["claude-code", "codex", "unknown"]
 
 
 def detect_session_directory(root_path: Path) -> Path | None:
-    """
-    Auto-detect AI assistant session directory for current project.
-
-    Supports:
-    - Claude Code: ~/.claude/projects/<project-name>/
-    - Codex: ~/.codex/sessions/YYYY/MM/DD/*.jsonl (filters by cwd in session_meta)
-
-    Args:
-        root_path: Project root directory
-
-    Returns:
-        Path to session directory or None if not found
-    """
+    """Auto-detect AI assistant session directory for current project."""
     home = Path.home()
 
     claude_dir = detect_claude_code_sessions(root_path, home)
@@ -52,14 +40,7 @@ def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
 
 
 def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
-    """
-    Detect Codex session directory by scanning for matching cwd.
-
-    Codex stores sessions in: ~/.codex/sessions/YYYY/MM/DD/*.jsonl
-    Each session has session_meta with cwd field.
-
-    Returns path to ~/.codex/sessions if sessions with matching cwd found.
-    """
+    """Detect Codex session directory by scanning for matching cwd."""
     codex_sessions = home / ".codex" / "sessions"
 
     if not codex_sessions.exists():
@@ -92,16 +73,7 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
 
 
 def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Path]:
-    """
-    Get all Codex session files matching the project root path.
-
-    Args:
-        root_path: Project root directory
-        sessions_dir: Base ~/.codex/sessions directory
-
-    Returns:
-        List of .jsonl files with matching cwd
-    """
+    """Get all Codex session files matching the project root path."""
     matching = []
 
     for session_file in sessions_dir.rglob("*.jsonl"):
@@ -123,15 +95,7 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
 
 
 def detect_agent_type(session_dir: Path) -> AgentType:
-    """
-    Detect what type of AI agent created the sessions by inspecting .jsonl format.
-
-    Args:
-        session_dir: Directory containing session .jsonl files
-
-    Returns:
-        'claude-code', 'codex', or 'unknown'
-    """
+    """Detect what type of AI agent created the sessions by inspecting .jsonl format."""
 
     for jsonl_file in session_dir.glob("*.jsonl"):
         try:

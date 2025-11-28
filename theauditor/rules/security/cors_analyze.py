@@ -1,24 +1,4 @@
-"""CORS Security Analyzer - Golden Standard Implementation.
-
-Detects comprehensive CORS vulnerabilities using database-driven approach.
-Follows golden standard patterns with frozensets, proper confidence levels,
-and table existence checks.
-
-Detects 15+ real-world CORS vulnerabilities:
-- Classic wildcard with credentials
-- Subdomain wildcard takeover risks
-- Null origin bypass
-- Origin reflection without validation
-- Regex escape failures
-- Protocol downgrade attacks
-- Port confusion vulnerabilities
-- Case sensitivity bypasses
-- Cache poisoning via missing Vary header
-- Excessive preflight cache
-- WebSocket CORS bypass
-- Dynamic validation flaws
-- Framework-specific misconfigurations
-"""
+"""CORS Security Analyzer - Golden Standard Implementation."""
 
 import re
 import sqlite3
@@ -178,21 +158,13 @@ class CORSAnalyzer:
     """Comprehensive CORS vulnerability detection following golden standard."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with context and patterns.
-
-        Args:
-            context: Standard rule context with database path
-        """
+        """Initialize analyzer with context and patterns."""
         self.context = context
         self.patterns = CORSPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main entry point - runs all CORS vulnerability checks.
-
-        Returns:
-            List of CORS vulnerability findings
-        """
+        """Main entry point - runs all CORS vulnerability checks."""
         if not self.context.db_path:
             return []
 
@@ -972,24 +944,13 @@ class CORSAnalyzer:
 
 
 def find_cors_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Main entry point for CORS vulnerability detection.
-
-    Args:
-        context: Standard rule context with database path
-
-    Returns:
-        List of CORS vulnerability findings
-    """
+    """Main entry point for CORS vulnerability detection."""
     analyzer = CORSAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register CORS-related taint patterns for flow analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register CORS-related taint patterns for flow analysis."""
     patterns = CORSPatterns()
 
     origin_sources = [

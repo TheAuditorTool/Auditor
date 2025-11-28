@@ -1,14 +1,4 @@
-"""Performance Analyzer - Database-First Approach.
-
-Detects performance anti-patterns and inefficiencies using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows golden standard patterns:
-- Frozensets for O(1) pattern matching
-- Direct database queries (fail-fast on missing tables)
-- Schema contract compliance (v1.1+ - uses build_query())
-- Proper confidence levels
-"""
+"""Performance Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -244,23 +234,7 @@ PERF_SOURCES = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect performance anti-patterns and inefficiencies.
-
-    Detects:
-    - Database queries in loops (N+1 problem)
-    - Expensive operations in loops
-    - Inefficient string concatenation
-    - Synchronous I/O blocking event loop
-    - Unbounded operations
-    - Deep property access chains
-    - Unoptimized taint flows
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of performance issues found
-    """
+    """Detect performance anti-patterns and inefficiencies."""
     findings = []
 
     if not context.db_path:
@@ -881,14 +855,7 @@ def _find_large_object_operations(cursor) -> list[StandardFinding]:
 
 
 def register_taint_patterns(taint_registry):
-    """Register performance-related taint patterns.
-
-    This function is called by the orchestrator to register
-    performance-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register performance-related taint patterns."""
 
     for pattern in DB_OPERATIONS:
         taint_registry.register_sink(pattern, "database", "all")

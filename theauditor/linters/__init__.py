@@ -1,18 +1,4 @@
-"""Linters package - REFACTORED: Single-file orchestration.
-
-DEPRECATED modules (renamed to .bak, kept for reference):
-- detector.py.bak (272 lines) - Replaced by LinterOrchestrator database queries
-- runner.py.bak (387 lines) - Replaced by LinterOrchestrator._run_* methods
-- parsers.py.bak (504 lines) - Replaced by LinterOrchestrator JSON parsing
-
-NEW architecture (single file):
-- linters.py (400 lines) - Complete linter orchestration
-
-Config files (kept for setup):
-- package.json - Copied to .auditor_venv/.theauditor_tools/ during setup
-- eslint.config.cjs - Copied to .auditor_venv/.theauditor_tools/ during setup
-- pyproject.toml - Copied to .auditor_venv/.theauditor_tools/ during setup
-"""
+"""Linters package - REFACTORED: Single-file orchestration."""
 
 from .linters import LinterOrchestrator
 

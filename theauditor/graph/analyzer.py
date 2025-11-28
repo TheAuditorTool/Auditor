@@ -1,15 +1,4 @@
-"""Graph analyzer module - pure graph algorithms for dependency and call graphs.
-
-This module provides ONLY non-interpretive graph algorithms:
-- Cycle detection (DFS)
-- Shortest path finding (BFS)
-- Layer identification (topological sort)
-- Impact analysis (graph traversal)
-- Statistical summaries (counts and grouping)
-
-For interpretive metrics like health scores, recommendations, and weighted
-rankings, see the optional graph.insights module.
-"""
+"""Graph analyzer module - pure graph algorithms for dependency and call graphs."""
 
 from collections import defaultdict, deque
 from pathlib import Path
@@ -20,15 +9,7 @@ class XGraphAnalyzer:
     """Analyze cross-project dependency and call graphs using pure algorithms."""
 
     def __init__(self, graph: dict[str, Any] | None = None):
-        """
-        Initialize analyzer with optional graph for caching.
-
-        If graph is provided, adjacency lists are pre-built for faster
-        repeated queries. If None, methods operate in stateless mode.
-
-        Args:
-            graph: Optional graph dict with 'nodes' and 'edges' keys
-        """
+        """Initialize analyzer with optional graph for caching."""
         self.upstream = defaultdict(list)
         self.downstream = defaultdict(list)
         self.nodes = set()
@@ -38,15 +19,7 @@ class XGraphAnalyzer:
             self._build_index(graph)
 
     def _build_index(self, graph: dict[str, Any]) -> None:
-        """
-        Build adjacency list indices from graph data.
-
-        Pre-computes upstream/downstream relationships for O(1) lookup.
-        Called automatically by __init__ if graph provided.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges' keys
-        """
+        """Build adjacency list indices from graph data."""
         self.nodes = {n["id"] for n in graph.get("nodes", [])}
 
         for edge in graph.get("edges", []):
@@ -58,18 +31,7 @@ class XGraphAnalyzer:
         self._cached = True
 
     def detect_cycles(self, graph: dict[str, Any]) -> list[dict[str, Any]]:
-        """
-        Detect cycles using ITERATIVE DFS (stack-based).
-
-        Safe for deep graphs - no RecursionError risk. Uses explicit stack
-        instead of Python's call stack, allowing unlimited graph depth.
-
-        Args:
-            graph: Graph with 'nodes' and 'edges' keys
-
-        Returns:
-            List of cycles, each with nodes and size
-        """
+        """Detect cycles using ITERATIVE DFS (stack-based)."""
 
         adj = defaultdict(list)
         for edge in graph.get("edges", []):
@@ -124,21 +86,7 @@ class XGraphAnalyzer:
         call_graph: dict[str, Any] | None = None,
         max_depth: int = 3,
     ) -> dict[str, Any]:
-        """
-        Calculate the impact of changing target files using graph traversal.
-
-        Uses cached adjacency lists if available (stateful mode), otherwise
-        builds them on-the-fly (stateless mode).
-
-        Args:
-            targets: List of file/module IDs that will change
-            import_graph: Import/dependency graph
-            call_graph: Optional call graph
-            max_depth: Maximum traversal depth
-
-        Returns:
-            Raw impact data with upstream and downstream effects
-        """
+        """Calculate the impact of changing target files using graph traversal."""
 
         if self._cached:
             upstream = self.upstream
@@ -197,20 +145,7 @@ class XGraphAnalyzer:
     def find_shortest_path(
         self, source: str, target: str, graph: dict[str, Any]
     ) -> list[str] | None:
-        """
-        Find shortest path between two nodes using BFS with deque.
-
-        Pure pathfinding algorithm without interpretation. Uses deque
-        for O(1) queue operations instead of O(N) list.pop(0).
-
-        Args:
-            source: Source node ID
-            target: Target node ID
-            graph: Graph with edges
-
-        Returns:
-            List of node IDs forming the path, or None if no path exists
-        """
+        """Find shortest path between two nodes using BFS with deque."""
 
         adj = defaultdict(list)
         for edge in graph.get("edges", []):
@@ -233,17 +168,7 @@ class XGraphAnalyzer:
         return None
 
     def identify_layers(self, graph: dict[str, Any]) -> dict[str, list[str]]:
-        """
-        Identify architectural layers using topological sorting.
-
-        Pure graph layering algorithm without interpretation.
-
-        Args:
-            graph: Import/dependency graph
-
-        Returns:
-            Dict mapping layer number to list of node IDs
-        """
+        """Identify architectural layers using topological sorting."""
 
         in_degree = defaultdict(int)
         nodes = {node["id"] for node in graph.get("nodes", [])}
@@ -280,18 +205,7 @@ class XGraphAnalyzer:
         return layers
 
     def get_graph_summary(self, graph_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Extract basic statistics from a graph without interpretation.
-
-        This method provides raw counts and statistics only,
-        no subjective metrics or labels.
-
-        Args:
-            graph_data: Large graph dict with 'nodes' and 'edges'
-
-        Returns:
-            Concise summary with raw statistics only
-        """
+        """Extract basic statistics from a graph without interpretation."""
 
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
@@ -377,19 +291,7 @@ class XGraphAnalyzer:
         return dict(sorted_exts[:10])
 
     def identify_hotspots(self, graph: dict[str, Any], top_n: int = 10) -> list[dict[str, Any]]:
-        """
-        Identify hotspot nodes based on connectivity (in/out degree).
-
-        Pure graph algorithm that identifies most connected nodes
-        without interpretation or scoring.
-
-        Args:
-            graph: Graph with 'nodes' and 'edges'
-            top_n: Number of top hotspots to return
-
-        Returns:
-            List of hotspot nodes with their degree counts
-        """
+        """Identify hotspot nodes based on connectivity (in/out degree)."""
 
         in_degree = defaultdict(int)
         out_degree = defaultdict(int)
@@ -421,17 +323,7 @@ class XGraphAnalyzer:
         return hotspots[:top_n]
 
     def calculate_node_degrees(self, graph: dict[str, Any]) -> dict[str, dict[str, int]]:
-        """
-        Calculate in-degree and out-degree for all nodes.
-
-        Pure counting algorithm without interpretation.
-
-        Args:
-            graph: Graph with edges
-
-        Returns:
-            Dict mapping node IDs to degree counts
-        """
+        """Calculate in-degree and out-degree for all nodes."""
         degrees = defaultdict(lambda: {"in_degree": 0, "out_degree": 0})
 
         for edge in graph.get("edges", []):
@@ -443,19 +335,7 @@ class XGraphAnalyzer:
     def analyze_impact(
         self, graph: dict[str, Any], targets: list[str], max_depth: int = 3
     ) -> dict[str, Any]:
-        """
-        Analyze impact of changes to target nodes.
-
-        Wrapper method for impact_of_change to match expected API.
-
-        Args:
-            graph: Graph with 'nodes' and 'edges'
-            targets: List of target node IDs
-            max_depth: Maximum traversal depth
-
-        Returns:
-            Impact analysis results with upstream/downstream effects
-        """
+        """Analyze impact of changes to target nodes."""
 
         result = self.impact_of_change(targets, graph, None, max_depth)
 

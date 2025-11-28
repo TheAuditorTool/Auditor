@@ -1,25 +1,4 @@
-"""Python security pattern extractors - OWASP Top 10 focus.
-
-This module contains extraction logic for security-critical patterns:
-- Authentication decorators
-- Password hashing
-- JWT operations
-- SQL injection patterns
-- Command injection
-- Path traversal
-- Dangerous eval/exec
-- Cryptography operations
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python security pattern extractors - OWASP Top 10 focus."""
 
 import ast
 import logging
@@ -85,19 +64,7 @@ JWT_DECODE_METHODS = frozenset(["decode"])
 
 
 def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract authentication and authorization decorators.
-
-    Detects:
-    - @login_required
-    - @permission_required
-    - @requires_auth
-    - Custom auth decorators
-
-    Security relevance:
-    - Missing auth decorators = unauthorized access
-    - Functions without auth = attack surface
-    - Inconsistent auth patterns = security gaps
-    """
+    """Extract authentication and authorization decorators."""
     auth_patterns = []
     if not isinstance(context.tree, ast.AST):
         return auth_patterns
@@ -139,19 +106,7 @@ def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_password_hashing(context: FileContext) -> list[dict[str, Any]]:
-    """Extract password hashing operations.
-
-    Detects:
-    - bcrypt.hashpw()
-    - pbkdf2_hmac()
-    - argon2.hash()
-    - Weak hashing (md5, sha1)
-
-    Security relevance:
-    - Weak hashing = credential theft
-    - Missing salt = rainbow table attacks
-    - Hardcoded passwords = critical vulnerability
-    """
+    """Extract password hashing operations."""
     hash_patterns = []
     if not isinstance(context.tree, ast.AST):
         return hash_patterns
@@ -200,19 +155,7 @@ def extract_password_hashing(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_sql_injection_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract SQL injection vulnerability patterns.
-
-    Detects:
-    - String formatting in SQL queries
-    - f-strings in SQL
-    - % formatting in SQL
-    - .format() in SQL
-
-    Security relevance:
-    - String interpolation in SQL = SQL injection
-    - Missing parameterization = critical vulnerability
-    - User input in queries = attack vector
-    """
+    """Extract SQL injection vulnerability patterns."""
     sql_patterns = []
     if not isinstance(context.tree, ast.AST):
         return sql_patterns
@@ -263,19 +206,7 @@ def extract_sql_injection_patterns(context: FileContext) -> list[dict[str, Any]]
 
 
 def extract_command_injection_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract command injection vulnerability patterns.
-
-    Detects:
-    - subprocess.call/run with shell=True
-    - os.system() calls
-    - os.popen() calls
-    - eval() on shell commands
-
-    Security relevance:
-    - shell=True with user input = command injection
-    - os.system = always vulnerable
-    - Command string concatenation = critical risk
-    """
+    """Extract command injection vulnerability patterns."""
     cmd_patterns = []
     if not isinstance(context.tree, ast.AST):
         return cmd_patterns
@@ -321,19 +252,7 @@ def extract_command_injection_patterns(context: FileContext) -> list[dict[str, A
 
 
 def extract_path_traversal_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract path traversal vulnerability patterns.
-
-    Detects:
-    - open() with user input
-    - Path concatenation with user input
-    - Missing path validation
-    - os.path.join with untrusted input
-
-    Security relevance:
-    - Unvalidated paths = arbitrary file access
-    - Path traversal (../) = directory escape
-    - Reading arbitrary files = information disclosure
-    """
+    """Extract path traversal vulnerability patterns."""
     path_patterns = []
     if not isinstance(context.tree, ast.AST):
         return path_patterns
@@ -374,19 +293,7 @@ def extract_path_traversal_patterns(context: FileContext) -> list[dict[str, Any]
 
 
 def extract_dangerous_eval_exec(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dangerous eval/exec/compile calls.
-
-    Detects:
-    - eval() with user input
-    - exec() calls
-    - compile() calls
-    - __import__() dynamic imports
-
-    Security relevance:
-    - eval/exec = arbitrary code execution
-    - Most critical vulnerability class
-    - No safe use of eval with untrusted input
-    """
+    """Extract dangerous eval/exec/compile calls."""
     dangerous_patterns = []
     if not isinstance(context.tree, ast.AST):
         return dangerous_patterns
@@ -423,21 +330,7 @@ def extract_dangerous_eval_exec(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract cryptography operations and weak algorithms.
-
-    Detects:
-    - AES/DES encryption
-    - RSA key generation
-    - Weak algorithms (DES, RC4)
-    - Hardcoded keys
-    - ECB mode usage
-
-    Security relevance:
-    - Weak algorithms = broken crypto
-    - ECB mode = pattern leakage
-    - Hardcoded keys = key compromise
-    - Small key sizes = brute force
-    """
+    """Extract cryptography operations and weak algorithms."""
     crypto_patterns = []
     if not isinstance(context.tree, ast.AST):
         return crypto_patterns
@@ -493,17 +386,7 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
-    """Extract SQL queries from database execution calls using AST.
-
-    Detects SQL queries in:
-    - sqlite3.execute()
-    - psycopg2.execute()
-    - SQLAlchemy session.execute()
-    - Django ORM .raw()
-
-    Returns:
-        List of SQL query dicts with command, tables, and source info
-    """
+    """Extract SQL queries from database execution calls using AST."""
     from theauditor.indexer.extractors.sql import parse_sql_query
 
     queries = []
@@ -559,19 +442,7 @@ def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract JWT patterns from PyJWT library calls using AST.
-
-    NO REGEX. This uses Python AST analysis to detect JWT library usage.
-
-    Detects:
-    - jwt.encode() - Token signing
-    - jwt.decode() - Token validation
-    - Hardcoded secrets (security risk)
-    - Weak algorithms
-
-    Returns:
-        List of JWT pattern dicts with type, secret_type, and algorithm
-    """
+    """Extract JWT patterns from PyJWT library calls using AST."""
     patterns = []
     if not isinstance(context.tree, ast.AST):
         return patterns

@@ -81,13 +81,7 @@ class ManifestParser:
             return []
 
     def extract_nested_value(self, data: dict | list, key_path: list[str]) -> Any:
-        """
-        Navigate nested dict with key path.
-        Handles wildcards (*) for dynamic keys.
-
-        Example: ["tool", "poetry", "group", "*", "dependencies"]
-        Returns the value at the path, or None if not found.
-        """
+        """Navigate nested dict with key path."""
         if not key_path:
             return data
 
@@ -128,10 +122,7 @@ class ManifestParser:
         return current
 
     def check_package_in_deps(self, deps: Any, package_name: str) -> str | None:
-        """
-        Check if a package exists in dependencies and return its version.
-        Handles various dependency formats including Cargo workspace inheritance.
-        """
+        """Check if a package exists in dependencies and return its version."""
         if deps is None:
             return None
 
@@ -190,16 +181,7 @@ class ManifestParser:
         return None
 
     def parse_cargo_toml(self, path: Path) -> dict:
-        """Parse Cargo.toml for Rust dependencies and workspace info.
-
-        Returns:
-            Dict with keys:
-            - dependencies: {name: version_or_spec}
-            - dev_dependencies: {name: version_or_spec}
-            - workspace_dependencies: {name: version_or_spec} (if workspace root)
-            - workspace_members: [str] (if workspace root)
-            - is_workspace_member: bool
-        """
+        """Parse Cargo.toml for Rust dependencies and workspace info."""
         data = self.parse_toml(path)
         if not data:
             return {}
@@ -234,18 +216,7 @@ class ManifestParser:
         return result
 
     def _normalize_cargo_dep(self, spec: Any) -> str:
-        """Normalize a Cargo dependency spec to a version string.
-
-        Args:
-            spec: Can be:
-                - "1.0" (simple version string)
-                - {"version": "1.0", "features": [...]}
-                - {"workspace": true}
-                - {"git": "...", "branch": "..."}
-
-        Returns:
-            Version string, "workspace", "git", or str(spec)
-        """
+        """Normalize a Cargo dependency spec to a version string."""
         if isinstance(spec, str):
             return spec
 
@@ -265,14 +236,7 @@ class ManifestParser:
         return str(spec)
 
     def discover_monorepo_manifests(self, root: Path) -> list[Path]:
-        """Find all manifest files in a polyglot monorepo.
-
-        Args:
-            root: Project root directory
-
-        Returns:
-            List of manifest file paths, excluding node_modules/vendor/etc.
-        """
+        """Find all manifest files in a polyglot monorepo."""
         manifests = []
         skip_dirs = {
             "node_modules",

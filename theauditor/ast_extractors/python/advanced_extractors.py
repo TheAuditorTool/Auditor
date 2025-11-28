@@ -1,19 +1,4 @@
-"""Python Coverage V2 - Advanced Patterns (8 extractors).
-
-Extracts advanced/rarely-used Python patterns for complete coverage beyond
-basic curriculum needs. These patterns are typically seen in advanced libraries
-and frameworks rather than introductory Python code.
-
-Architectural Contract (CRITICAL):
-===================================
-All extraction functions:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python Coverage V2 - Advanced Patterns (8 extractors)."""
 
 import ast
 from typing import Any
@@ -41,20 +26,7 @@ def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
 
 
 def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
-    """Extract namespace package patterns (pkgutil.extend_path usage).
-
-    Detects:
-    - pkgutil.extend_path() calls
-    - __path__ manipulation for namespace packages
-
-    Returns:
-        List of namespace package dicts:
-        {
-            'line': int,
-            'pattern': str,  # 'extend_path' | 'path_manipulation'
-            'in_function': str,
-        }
-    """
+    """Extract namespace package patterns (pkgutil.extend_path usage)."""
     results = []
     if not context.tree:
         return results
@@ -91,21 +63,7 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
-    """Extract @cached_property decorator usage.
-
-    Detects:
-    - functools.cached_property
-    - Custom cached_property implementations
-
-    Returns:
-        List of cached property dicts:
-        {
-            'line': int,
-            'method_name': str,
-            'in_class': str,
-            'is_functools': bool,
-        }
-    """
+    """Extract @cached_property decorator usage."""
     results = []
     if not context.tree:
         return results
@@ -143,19 +101,7 @@ def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract descriptor protocol implementations (__get__, __set__, __delete__).
-
-    Returns:
-        List of descriptor protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_get': bool,
-            'has_set': bool,
-            'has_delete': bool,
-            'is_data_descriptor': bool,  # Has __set__ or __delete__
-        }
-    """
+    """Extract descriptor protocol implementations (__get__, __set__, __delete__)."""
     results = []
     if not context.tree:
         return results
@@ -190,19 +136,7 @@ def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract attribute access protocol (__getattr__, __setattr__, __delattr__, __getattribute__).
-
-    Returns:
-        List of attribute access protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_getattr': bool,
-            'has_setattr': bool,
-            'has_delattr': bool,
-            'has_getattribute': bool,
-        }
-    """
+    """Extract attribute access protocol (__getattr__, __setattr__, __delattr__, __getattribute__)."""
     results = []
     if not context.tree:
         return results
@@ -240,17 +174,7 @@ def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, An
 
 
 def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract copy protocol (__copy__, __deepcopy__).
-
-    Returns:
-        List of copy protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_copy': bool,
-            'has_deepcopy': bool,
-        }
-    """
+    """Extract copy protocol (__copy__, __deepcopy__)."""
     results = []
     if not context.tree:
         return results
@@ -280,21 +204,7 @@ def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Ellipsis (...) usage patterns.
-
-    Detects:
-    - Ellipsis in type hints
-    - Ellipsis in slicing
-    - Ellipsis as placeholder
-
-    Returns:
-        List of ellipsis usage dicts:
-        {
-            'line': int,
-            'context': str,  # 'type_hint' | 'slice' | 'expression' | 'pass_placeholder'
-            'in_function': str,
-        }
-    """
+    """Extract Ellipsis (...) usage patterns."""
     results = []
     if not context.tree:
         return results
@@ -327,22 +237,7 @@ def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract bytes/bytearray operations.
-
-    Detects:
-    - bytes() constructor calls
-    - bytearray() constructor calls
-    - .encode()/.decode() calls
-    - bytes literals (b'...')
-
-    Returns:
-        List of bytes operation dicts:
-        {
-            'line': int,
-            'operation': str,  # 'bytes' | 'bytearray' | 'encode' | 'decode' | 'literal'
-            'in_function': str,
-        }
-    """
+    """Extract bytes/bytearray operations."""
     results = []
     if not context.tree:
         return results
@@ -399,21 +294,7 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
-    """Extract exec/eval/compile dynamic execution patterns.
-
-    SECURITY NOTE: These patterns are security-sensitive and should be
-    carefully reviewed for potential code injection vulnerabilities.
-
-    Returns:
-        List of dynamic execution dicts:
-        {
-            'line': int,
-            'operation': str,  # 'exec' | 'eval' | 'compile'
-            'has_globals': bool,
-            'has_locals': bool,
-            'in_function': str,
-        }
-    """
+    """Extract exec/eval/compile dynamic execution patterns."""
     results = []
     if not context.tree:
         return results

@@ -1,22 +1,4 @@
-"""Python core AST extractors - Language fundamentals.
-
-This module contains extraction logic for core Python language features:
-- Functions, classes, imports, exports
-- Assignments, returns, calls
-- Properties, dicts
-- Type annotations and helpers
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-"""
+"""Python core AST extractors - Language fundamentals."""
 
 import ast
 import logging
@@ -101,15 +83,7 @@ def _parse_function_type_comment(comment: str | None) -> tuple[list[str], str | 
 
 
 def extract_python_functions(context: FileContext) -> list[dict]:
-    """Extract function definitions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance for accessing methods
-
-    Returns:
-        List of function info dictionaries
-    """
+    """Extract function definitions from Python AST."""
     functions = []
 
     if not context.tree:
@@ -318,12 +292,7 @@ def extract_python_attribute_annotations(context: FileContext) -> list[dict]:
 
 
 def extract_python_imports(context: FileContext) -> list[dict[str, Any]]:
-    """Extract import statements from Python AST.
-
-    Handles both:
-    - `import X` (ast.Import) -> target = "X"
-    - `from X import Y` (ast.ImportFrom) -> target = "X" (the module being imported from)
-    """
+    """Extract import statements from Python AST."""
     imports = []
 
     if not context.tree:
@@ -369,10 +338,7 @@ def extract_python_imports(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_python_exports(context: FileContext) -> list[dict[str, Any]]:
-    """Extract export statements from Python AST.
-
-    In Python, all top-level functions, classes, and assignments are "exported".
-    """
+    """Extract export statements from Python AST."""
     exports = []
 
     if not context.tree:
@@ -475,16 +441,7 @@ def extract_python_calls_with_args(
     function_params: dict[str, list[str]] = None,
     resolved_imports: dict[str, str] = None,
 ) -> list[dict[str, Any]]:
-    """Extract Python function calls with argument mapping.
-
-    Args:
-        context: FileContext containing AST tree and node index
-        function_params: Map of function names to parameter lists (optional)
-        resolved_imports: Map of imported names to their file paths (for cross-file taint analysis)
-
-    Returns:
-        List of call records with callee_file_path populated for local imports
-    """
+    """Extract Python function calls with argument mapping."""
     calls = []
     function_params = function_params or {}
     resolved_imports = resolved_imports or {}
@@ -620,11 +577,7 @@ def extract_python_returns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_python_properties(context: FileContext) -> list[dict]:
-    """Extract property accesses from Python AST.
-
-    In Python, these would be attribute accesses.
-    Currently returns empty list for consistency.
-    """
+    """Extract property accesses from Python AST."""
     return []
 
 
@@ -651,21 +604,7 @@ def extract_python_calls(context: FileContext) -> list[dict]:
 
 
 def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dict literal structures from Python AST.
-
-    This is the centralized, correct implementation for dict literal extraction.
-    Extracts patterns like:
-    - {'key': value}
-    - {'key': func_ref}
-    - {**spread_dict}
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of dict property records matching object_literals schema
-    """
+    """Extract dict literal structures from Python AST."""
     object_literals = []
 
     if not context.tree or not isinstance(context.tree, ast.Module):
@@ -767,20 +706,7 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_python_decorators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract decorator usage from Python AST.
-
-    Extracts all decorator patterns:
-    - Built-in: @property, @staticmethod, @classmethod, @abstractmethod
-    - Framework: @app.route, @task, @pytest.fixture, etc.
-    - Custom: Any @decorator_name pattern
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of decorator records
-    """
+    """Extract decorator usage from Python AST."""
     decorators = []
 
     if not context.tree:
@@ -822,20 +748,7 @@ def extract_python_decorators(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_python_context_managers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract context manager usage from Python AST.
-
-    Extracts:
-    - with statements (with open(...) as f:)
-    - async with statements
-    - Custom context manager classes (__enter__/__exit__ methods)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of context manager records
-    """
+    """Extract context manager usage from Python AST."""
     context_managers = []
 
     if not context.tree:
@@ -860,21 +773,7 @@ def extract_python_context_managers(context: FileContext) -> list[dict[str, Any]
 
 
 def extract_generators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Python generator patterns.
-
-    Detects:
-    - Generator functions (functions with yield/yield from)
-    - Generator expressions (x for x in iterable)
-    - yield patterns (yield, yield value, yield from)
-    - send() usage (bidirectional communication)
-    - Infinite generators (while True with yield - DoS risk)
-
-    Security relevance:
-    - DoS: Infinite generators without break conditions
-    - Memory leaks: Unclosed generators holding resources
-    - Taint tracking: Data flow through yield/send
-    - Resource exhaustion: Generator expressions in hot paths
-    """
+    """Extract Python generator patterns."""
     generators = []
     if not isinstance(context.tree, ast.AST):
         return generators
@@ -923,14 +822,7 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_variable_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract ALL variable usage for complete data flow analysis.
-
-    This is critical for taint analysis, dead code detection, and
-    understanding the complete data flow in Python code.
-
-    Returns:
-        List of all variable usage records with read/write/delete operations
-    """
+    """Extract ALL variable usage for complete data flow analysis."""
     usage = []
     if not isinstance(context.tree, ast.AST):
         return usage

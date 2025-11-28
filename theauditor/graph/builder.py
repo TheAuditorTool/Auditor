@@ -74,13 +74,7 @@ class ImpactAnalysis:
 
 
 class XGraphBuilder:
-    """Build cross-project dependency and call graphs.
-
-    This builder operates in database-first mode, reading all extraction data
-    (imports, exports, calls) from the repo_index.db populated by the indexer.
-    No regex-based extraction fallbacks exist - if data is not in the database,
-    the extraction will return empty results, allowing us to identify edge cases.
-    """
+    """Build cross-project dependency and call graphs."""
 
     def __init__(
         self, batch_size: int = 200, exclude_patterns: list[str] = None, project_root: str = "."
@@ -103,23 +97,7 @@ class XGraphBuilder:
 
     @lru_cache(maxsize=1024)
     def _find_tsconfig_context(self, folder_path: Path) -> str:
-        """Recursive lookup for the nearest tsconfig.json.
-
-        Returns the string 'context' expected by ModuleResolver.
-        This replaces hardcoded "backend"/"frontend" magic strings with
-        actual filesystem discovery.
-
-        Args:
-            folder_path: Directory to start searching from
-
-        Returns:
-            Relative path from project root to tsconfig directory, or "root"
-
-        Examples:
-            - backend/tsconfig.json exists → returns "backend"
-            - api/services/tsconfig.json exists → returns "api/services"
-            - No tsconfig.json found → returns "root"
-        """
+        """Recursive lookup for the nearest tsconfig.json."""
 
         if (folder_path / "tsconfig.json").exists():
             try:
@@ -171,11 +149,7 @@ class XGraphBuilder:
         return any(pattern in path_str for pattern in self.exclude_patterns)
 
     def extract_imports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return structured import metadata for the given file.
-
-        NO DATABASE ACCESS - Uses pre-loaded cache (O(1) lookup).
-        Cache normalizes paths internally (Guardian of Hygiene).
-        """
+        """Return structured import metadata for the given file."""
         return self.db_cache.get_imports(rel_path)
 
     def extract_imports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
@@ -188,11 +162,7 @@ class XGraphBuilder:
         return self.extract_imports_from_db(str(rel_path))
 
     def extract_exports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return exported symbol metadata for the given file.
-
-        NO DATABASE ACCESS - Uses pre-loaded cache (O(1) lookup).
-        Cache normalizes paths internally (Guardian of Hygiene).
-        """
+        """Return exported symbol metadata for the given file."""
         return self.db_cache.get_exports(rel_path)
 
     def extract_exports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
@@ -205,13 +175,7 @@ class XGraphBuilder:
         return self.extract_exports_from_db(str(rel_path))
 
     def extract_call_args_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return call argument metadata for the given file.
-
-        ZERO FALLBACK: If database missing, __init__ already crashed.
-        If query fails, let SQLite error propagate (exposes schema bug).
-
-        Note: Not cached yet (complex JOIN query). Future optimization target.
-        """
+        """Return call argument metadata for the given file."""
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -356,19 +320,7 @@ class XGraphBuilder:
             return import_str
 
     def get_file_metrics(self, file_path: Path) -> dict[str, Any]:
-        """Get basic metrics for a file from manifest/database.
-
-        DATABASE-FIRST ARCHITECTURE: Graph builder READS metrics pre-computed by Indexer.
-        NO FILESYSTEM ACCESS (no file I/O, no subprocess calls).
-        NO SUBPROCESS CALLS (no git commands in production code).
-
-        Separation of concerns:
-        - Indexer (aud full): WRITES metrics (LOC, churn) to database
-        - Builder (aud graph build): READS metrics from database/manifest
-
-        If metrics missing from manifest, return defaults.
-        Indexer will populate on next run.
-        """
+        """Get basic metrics for a file from manifest/database."""
 
         return {"loc": 0, "churn": None}
 

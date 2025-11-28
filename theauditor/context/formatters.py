@@ -1,20 +1,4 @@
-"""Output formatters for query results.
-
-Supports three formats:
-- text: Human-readable (default)
-- json: AI-consumable structured data
-- tree: Visual hierarchy (for transitive queries)
-
-NO EMOJIS: Windows Command Prompt uses CP1252 encoding which cannot
-handle emoji characters. All output uses plain ASCII only.
-
-Usage:
-    from theauditor.context.formatters import format_output
-
-    results = engine.get_callers("authenticateUser")
-    text = format_output(results, format='text')
-    json_str = format_output(results, format='json')
-"""
+"""Output formatters for query results."""
 
 import json
 from dataclasses import asdict, is_dataclass
@@ -22,19 +6,7 @@ from typing import Any
 
 
 def format_output(results: Any, format: str = "text") -> str:
-    """Format query results in specified format.
-
-    Args:
-        results: Query results (varies by query type)
-        format: 'text', 'json', or 'tree'
-
-    Returns:
-        Formatted string ready for output
-
-    Example:
-        text = format_output(symbols, format='text')
-        print(text)
-    """
+    """Format query results in specified format."""
     if format == "json":
         return _format_json(results)
     elif format == "tree":
@@ -44,16 +16,7 @@ def format_output(results: Any, format: str = "text") -> str:
 
 
 def _format_text(results: Any) -> str:
-    """Format as human-readable text.
-
-    Handles different result types:
-    - Dict with 'symbol' + 'callers' keys (find_symbol + get_callers)
-    - List[CallSite] (callers/callees)
-    - Dict with 'incoming'/'outgoing' keys (file dependencies)
-    - List[Dict] (API endpoints)
-    - Dict with 'name' key (component tree)
-    - Dict with 'error' key (error response)
-    """
+    """Format as human-readable text."""
 
     if isinstance(results, dict) and "error" in results:
         return f"ERROR: {results['error']}"
@@ -393,50 +356,18 @@ def _format_text(results: Any) -> str:
 
 
 def _format_json(results: Any) -> str:
-    """Format as JSON.
-
-    Converts dataclasses to dicts recursively and serializes as JSON.
-
-    Args:
-        results: Any query result type
-
-    Returns:
-        JSON string with 2-space indentation
-    """
+    """Format as JSON."""
     return json.dumps(_to_dict(results), indent=2, default=str)
 
 
 def _format_tree(results: Any) -> str:
-    """Format as visual tree (for transitive queries).
-
-    Currently a placeholder - falls back to text format.
-    Full tree visualization will be implemented in future phase.
-
-    Args:
-        results: Query results
-
-    Returns:
-        Tree-formatted string (currently text format)
-    """
+    """Format as visual tree (for transitive queries)."""
 
     return _format_text(results)
 
 
 def _to_dict(obj: Any) -> Any:
-    """Convert dataclass to dict recursively.
-
-    Handles:
-    - Dataclasses (convert with asdict)
-    - Lists (recurse on each item)
-    - Dicts (recurse on values)
-    - Other types (return as-is)
-
-    Args:
-        obj: Object to convert
-
-    Returns:
-        Dict representation suitable for JSON serialization
-    """
+    """Convert dataclass to dict recursively."""
     if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     elif isinstance(obj, list):

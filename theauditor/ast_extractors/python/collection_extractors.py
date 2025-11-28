@@ -1,38 +1,4 @@
-"""Collection and method extractors - Dict/list/set/string methods + builtins.
-
-This module contains extraction logic for collection operations:
-- Dictionary methods (keys, values, items, get, update, pop, etc.)
-- List methods (append, extend, insert, remove, pop, sort, reverse, etc.)
-- Set operations (union, intersection, difference, symmetric_difference)
-- String methods (split, join, strip, replace, find, startswith, etc.)
-- Builtin functions (len, sum, max, min, sorted, enumerate, zip, map, filter)
-- Itertools patterns (chain, cycle, combinations, permutations)
-- Functools patterns (partial, reduce, lru_cache)
-- Collections module (defaultdict, Counter, deque, etc.)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 3 Implementation (Python Coverage V2):
-============================================
-Implements 8 collection and method patterns.
-
-Expected extraction from TheAuditor codebase:
-- ~300 dict operations
-- ~200 list mutations
-- ~50 set operations
-- ~250 string methods
-- ~400 builtin function calls
-- ~30 itertools usage
-- ~40 functools usage
-- ~50 collections module usage
-Total: ~1,320 collection pattern records
-"""
+"""Collection and method extractors - Dict/list/set/string methods + builtins."""
 
 import ast
 import logging
@@ -201,19 +167,7 @@ COLLECTIONS_TYPES = {
 
 
 def extract_dict_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract dictionary method calls.
-
-    Detects all dict method usage: keys(), values(), items(), get(), update(), etc.
-
-    Returns:
-        List of dict operation dicts:
-        {
-            'line': int,
-            'operation': str,  # Method name
-            'has_default': bool,  # For get() with default
-            'in_function': str,
-        }
-    """
+    """Extract dictionary method calls."""
     dict_ops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -241,19 +195,7 @@ def extract_dict_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_list_mutations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract list method calls (focusing on mutations).
-
-    Detects: append(), extend(), insert(), remove(), pop(), sort(), reverse(), etc.
-
-    Returns:
-        List of list mutation dicts:
-        {
-            'line': int,
-            'method': str,  # Method name
-            'mutates_in_place': bool,  # True if modifies list
-            'in_function': str,
-        }
-    """
+    """Extract list method calls (focusing on mutations)."""
     list_mutations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -279,18 +221,7 @@ def extract_list_mutations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_set_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract set operations (union, intersection, difference, etc.).
-
-    Detects both method calls and operators: union() vs |, intersection() vs &
-
-    Returns:
-        List of set operation dicts:
-        {
-            'line': int,
-            'operation': str,  # Method name
-            'in_function': str,
-        }
-    """
+    """Extract set operations (union, intersection, difference, etc.)."""
     set_ops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -313,18 +244,7 @@ def extract_set_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_string_methods(context: FileContext) -> list[dict[str, Any]]:
-    """Extract string method calls.
-
-    Detects: split(), join(), strip(), replace(), find(), startswith(), etc.
-
-    Returns:
-        List of string method dicts:
-        {
-            'line': int,
-            'method': str,  # Method name
-            'in_function': str,
-        }
-    """
+    """Extract string method calls."""
     string_methods = []
 
     if not isinstance(context.tree, ast.AST):
@@ -347,19 +267,7 @@ def extract_string_methods(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_builtin_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract builtin function usage.
-
-    Detects: len(), sum(), max(), min(), sorted(), enumerate(), zip(), map(), filter()
-
-    Returns:
-        List of builtin usage dicts:
-        {
-            'line': int,
-            'builtin': str,  # Function name
-            'has_key': bool,  # For sorted(items, key=...)
-            'in_function': str,
-        }
-    """
+    """Extract builtin function usage."""
     builtins = []
 
     if not isinstance(context.tree, ast.AST):
@@ -390,19 +298,7 @@ def extract_builtin_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract itertools function usage.
-
-    Detects: chain(), cycle(), combinations(), permutations(), etc.
-
-    Returns:
-        List of itertools usage dicts:
-        {
-            'line': int,
-            'function': str,  # Function name
-            'is_infinite': bool,  # True for cycle, repeat (no count)
-            'in_function': str,
-        }
-    """
+    """Extract itertools function usage."""
     itertools_usage = []
 
     if not isinstance(context.tree, ast.AST):
@@ -437,19 +333,7 @@ def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract functools function usage.
-
-    Detects: partial(), reduce(), lru_cache(), cached_property(), etc.
-
-    Returns:
-        List of functools usage dicts:
-        {
-            'line': int,
-            'function': str,  # Function name
-            'is_decorator': bool,  # True if used as @decorator
-            'in_function': str,
-        }
-    """
+    """Extract functools function usage."""
     functools_usage = []
 
     if not isinstance(context.tree, ast.AST):
@@ -491,19 +375,7 @@ def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_collections_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract collections module usage.
-
-    Detects: defaultdict, Counter, deque, OrderedDict, ChainMap, namedtuple
-
-    Returns:
-        List of collections usage dicts:
-        {
-            'line': int,
-            'collection_type': str,  # Type name
-            'default_factory': str,  # For defaultdict (if detectable)
-            'in_function': str,
-        }
-    """
+    """Extract collections module usage."""
     collections_usage = []
 
     if not isinstance(context.tree, ast.AST):

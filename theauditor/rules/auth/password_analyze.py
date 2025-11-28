@@ -1,22 +1,4 @@
-"""Password Security Analyzer - Database-First Approach.
-
-Detects password security vulnerabilities using database-driven approach.
-Follows gold standard patterns from jwt_analyze.py.
-
-NO AST TRAVERSAL. NO FILE I/O. PURE DATABASE QUERIES.
-
-Detects:
-- Weak password hashing algorithms (MD5, SHA1)
-- Hardcoded passwords in source code
-- Lack of password complexity enforcement
-- Passwords in GET request parameters
-
-CWE Coverage:
-- CWE-327: Use of Broken or Risky Cryptographic Algorithm
-- CWE-259: Use of Hard-coded Password
-- CWE-521: Weak Password Requirements
-- CWE-598: Use of GET Request Method With Sensitive Query Strings
-"""
+"""Password Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -93,23 +75,7 @@ URL_FUNCTION_KEYWORDS = frozenset(["url", "uri", "query", "querystring"])
 
 
 def find_password_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect password security vulnerabilities.
-
-    This is a database-first rule following the gold standard pattern.
-    NO file I/O, NO AST traversal - only SQL queries on indexed data.
-    All pattern matching done in Python after database fetch.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of password security findings
-
-    Example findings:
-        - const hashed = md5(password)
-        - const adminPassword = "admin123"
-        - const url = `/reset?password=${pwd}`
-    """
+    """Detect password security vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -134,13 +100,7 @@ def find_password_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
-    """Detect weak hash algorithms used for passwords.
-
-    MD5 and SHA1 are broken for password hashing - fast to brute force
-    and vulnerable to rainbow table attacks.
-
-    CWE-327: Use of Broken or Risky Cryptographic Algorithm
-    """
+    """Detect weak hash algorithms used for passwords."""
     findings = []
 
     query = build_query(
@@ -234,15 +194,7 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
 
 
 def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
-    """Detect hardcoded passwords in source code.
-
-    Hardcoded passwords are a critical security risk as they:
-    - Cannot be rotated without code changes
-    - Are visible to anyone with code access
-    - Often leaked in version control
-
-    CWE-259: Use of Hard-coded Password
-    """
+    """Detect hardcoded passwords in source code."""
     findings = []
 
     query = build_query(
@@ -311,15 +263,7 @@ def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
 
 
 def _check_weak_complexity(cursor) -> list[StandardFinding]:
-    """Detect lack of password complexity enforcement.
-
-    Strong passwords should enforce:
-    - Minimum length (12+ characters)
-    - Character diversity (upper, lower, numbers, symbols)
-    - No common passwords
-
-    CWE-521: Weak Password Requirements
-    """
+    """Detect lack of password complexity enforcement."""
     findings = []
 
     query = build_query(
@@ -396,16 +340,7 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
 
 
 def _check_password_in_url(cursor) -> list[StandardFinding]:
-    """Detect passwords in GET request parameters.
-
-    Passwords in URLs are logged in:
-    - Browser history
-    - Server access logs
-    - Proxy logs
-    - Referrer headers
-
-    CWE-598: Use of GET Request Method With Sensitive Query Strings
-    """
+    """Detect passwords in GET request parameters."""
     findings = []
 
     query = build_query(

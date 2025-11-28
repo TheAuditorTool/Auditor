@@ -1,22 +1,4 @@
-"""
-Framework-focused schema definitions - Cross-language framework patterns.
-
-This module contains table schemas for web framework patterns:
-- ORM relationships (SQLAlchemy, Django, Sequelize, TypeORM, Diesel)
-- API routing (Flask, FastAPI, Django, Express, NestJS)
-- ORM query patterns (cross-language ORM analysis)
-
-Design Philosophy:
-- Language-agnostic framework patterns (Python, Node, future Rust)
-- Used by framework-specific security rules
-- Focused on ORM and API routing vulnerabilities
-
-These tables are populated by multiple extractors:
-- ORM_RELATIONSHIPS: Python extractor (SQLAlchemy/Django), Node extractor (Sequelize/TypeORM)
-- API_ENDPOINTS/CONTROLS: Python extractor (Flask/FastAPI/Django), Node extractor (Express/NestJS)
-- ORM_QUERIES: Python extractor, Node extractor
-- PRISMA_MODELS: Node extractor (Prisma)
-"""
+"""Framework-focused schema definitions - Cross-language framework patterns."""
 
 from .utils import Column, ForeignKey, TableSchema
 

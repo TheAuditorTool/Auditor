@@ -1,14 +1,4 @@
-"""Flask Framework Security Analyzer - Database-First Approach.
-
-Analyzes Flask applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Flask Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -79,29 +69,7 @@ class FlaskPatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Flask security misconfigurations.
-
-    Analyzes database for:
-    - Server-Side Template Injection (SSTI)
-    - XSS via Markup()
-    - Debug mode enabled
-    - Hardcoded secret keys
-    - Unsafe file uploads
-    - SQL injection risks
-    - Open redirect vulnerabilities
-    - Eval usage with user input
-    - CORS wildcard configuration
-    - Unsafe deserialization
-    - Werkzeug debugger exposure
-    - Missing CSRF protection
-    - Session cookie security
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Flask security misconfigurations."""
     analyzer = FlaskAnalyzer(context)
     return analyzer.analyze()
 
@@ -737,14 +705,7 @@ FLASK_SQL_SINKS = frozenset(["execute", "executemany", "db.execute", "session.ex
 
 
 def register_taint_patterns(taint_registry):
-    """Register Flask-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Flask-specific taint patterns."""
 
     for pattern in FLASK_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "python")

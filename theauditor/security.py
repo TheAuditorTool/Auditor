@@ -12,19 +12,7 @@ class SecurityError(Exception):
 
 
 def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
-    """
-    Sanitize a file path to prevent path traversal attacks.
-
-    Args:
-        path_str: The path string to sanitize
-        project_root: The root directory to restrict paths within (default: current directory)
-
-    Returns:
-        A resolved Path object that is safe to use
-
-    Raises:
-        SecurityError: If the path attempts to escape the project root
-    """
+    """Sanitize a file path to prevent path traversal attacks."""
     if project_root is None:
         project_root = "."
 
@@ -46,48 +34,19 @@ def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
 
 
 def sanitize_shell_arg(arg: str) -> str:
-    """
-    Sanitize a string for safe use as a shell argument.
-
-    Uses shlex.quote to properly escape special characters and prevent command injection.
-
-    Args:
-        arg: The argument string to sanitize
-
-    Returns:
-        A properly quoted/escaped string safe for shell use
-    """
+    """Sanitize a string for safe use as a shell argument."""
 
     return shlex.quote(arg)
 
 
 def sanitize_url_component(component: str) -> str:
-    """
-    Sanitize a string for safe use in URL construction.
-
-    Properly encodes special characters to prevent URL injection.
-
-    Args:
-        component: The URL component to sanitize (e.g., package name)
-
-    Returns:
-        A properly URL-encoded string
-    """
+    """Sanitize a string for safe use in URL construction."""
 
     return urllib.parse.quote(component, safe="")
 
 
 def validate_package_name(name: str, manager: str) -> bool:
-    """
-    Validate that a package name follows the expected format for its package manager.
-
-    Args:
-        name: The package name to validate
-        manager: The package manager type ("npm", "py", "docker")
-
-    Returns:
-        True if the name is valid, False otherwise
-    """
+    """Validate that a package name follows the expected format for its package manager."""
     import re
 
     if not name or len(name) > 214:
@@ -111,24 +70,7 @@ def validate_package_name(name: str, manager: str) -> bool:
 def sanitize_config_path(
     config_value: str, config_section: str, config_key: str, project_root: str = "."
 ) -> Path:
-    """
-    Sanitize a path value from configuration.
-
-    This is specifically for paths that come from config files or environment variables,
-    which are common sources of tainted input.
-
-    Args:
-        config_value: The path value from config
-        config_section: The config section (e.g., "paths")
-        config_key: The config key (e.g., "manifest")
-        project_root: The root directory to restrict paths within
-
-    Returns:
-        A sanitized Path object
-
-    Raises:
-        SecurityError: If the path is invalid or attempts traversal
-    """
+    """Sanitize a path value from configuration."""
     if not config_value:
         raise SecurityError(f"Empty path in config[{config_section}][{config_key}]")
 

@@ -1,23 +1,4 @@
-"""Python Injection Vulnerability Analyzer - Database-First Approach.
-
-Detects various injection vulnerabilities in Python code using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-
-Detects:
-- SQL Injection
-- Command Injection
-- Code Injection (eval/exec)
-- Template Injection
-- LDAP Injection
-- NoSQL Injection
-- XPath Injection
-"""
+"""Python Injection Vulnerability Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -239,21 +220,13 @@ class InjectionAnalyzer:
     """Analyzer for Python injection vulnerabilities."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = InjectionPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of injection vulnerabilities found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -695,24 +668,13 @@ FLAGGED: Missing database features that would improve injection detection:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Python injection vulnerabilities.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of injection vulnerabilities found
-    """
+    """Detect Python injection vulnerabilities."""
     analyzer = InjectionAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register injection-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register injection-specific taint patterns."""
     patterns = InjectionPatterns()
 
     for pattern in patterns.USER_INPUTS:

@@ -1,9 +1,4 @@
-"""JavaScript/TypeScript semantic parser using the TypeScript Compiler API.
-
-This module replaces Tree-sitter's syntactic parsing with true semantic analysis
-using the TypeScript compiler, enabling accurate type analysis, symbol resolution,
-and cross-file understanding for JavaScript and TypeScript projects.
-"""
+"""JavaScript/TypeScript semantic parser using the TypeScript Compiler API."""
 
 import json
 import os
@@ -38,11 +33,7 @@ class JSSemanticParser:
     """Semantic parser for JavaScript/TypeScript using the TypeScript Compiler API."""
 
     def __init__(self, project_root: str = None):
-        """Initialize the semantic parser.
-
-        Args:
-            project_root: Absolute path to project root. If not provided, uses current directory.
-        """
+        """Initialize the semantic parser."""
         self.project_root = Path(project_root).resolve() if project_root else Path.cwd().resolve()
         self.using_windows_node = False
         self.tsc_path = None
@@ -111,11 +102,7 @@ class JSSemanticParser:
         self.batch_helper_script = self._create_batch_helper_script()
 
     def _detect_module_type(self) -> str:
-        """Detect the project's module type from package.json.
-
-        Returns:
-            "module" if ES modules are used, "commonjs" otherwise
-        """
+        """Detect the project's module type from package.json."""
         try:
             package_json_path = self.project_root / "package.json"
             if package_json_path.exists():
@@ -132,11 +119,7 @@ class JSSemanticParser:
             return "commonjs"
 
     def _convert_path_for_node(self, path: Path) -> str:
-        """Convert path to appropriate format for node execution.
-
-        If using Windows node.exe from WSL, converts to Windows path.
-        Otherwise returns the path as-is.
-        """
+        """Convert path to appropriate format for node execution."""
         path_str = str(path)
         if self.using_windows_node:
             try:
@@ -152,11 +135,7 @@ class JSSemanticParser:
         return path_str
 
     def _check_tsc_availability(self) -> bool:
-        """Check if TypeScript compiler is available in our sandbox.
-
-        CRITICAL: We ONLY use our own sandboxed TypeScript installation.
-        We do not check or use any user-installed versions.
-        """
+        """Check if TypeScript compiler is available in our sandbox."""
 
         search_dir = self.project_root
         sandbox_base = None
@@ -242,29 +221,18 @@ class JSSemanticParser:
         return False
 
     def _create_helper_script(self) -> Path:
-        """DEPRECATED: Single-file mode removed in Phase 5.
-
-        Raises:
-            RuntimeError: Always - single-file mode causes 512MB crash
-        """
+        """DEPRECATED: Single-file mode removed in Phase 5."""
         raise RuntimeError(
             "Single-file mode removed in Phase 5. Single-file templates serialize full AST (512MB crash). "
             "Use _create_batch_helper_script() instead (sets ast: null)."
         )
 
     def _create_batch_helper_script(self) -> Path:
-        """Create a Node.js helper script for batch TypeScript AST extraction.
-
-        This script processes multiple files in a single TypeScript program,
-        dramatically improving performance by reusing the dependency cache.
-
-        Returns:
-            Path to the created batch helper script
-        """
+        """Create a Node.js helper script for batch TypeScript AST extraction."""
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
 
-        batch_helper_path = pf_dir / "tsc_batch_helper.cjs"  # .cjs forces CommonJS regardless of project package.json
+        batch_helper_path = pf_dir / "tsc_batch_helper.cjs"
 
         if self.project_module_type == "module":
             batch_helper_content = js_helper_templates.get_batch_helper("module")
@@ -280,23 +248,7 @@ class JSSemanticParser:
         jsx_mode: str = "transformed",
         tsconfig_map: dict[str, str] | None = None,
     ) -> dict[str, dict[str, Any]]:
-        """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
-
-        This dramatically improves performance by reusing the TypeScript program
-        and dependency cache across multiple files.
-
-        PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
-        All data (symbols, calls, CFG, etc.) extracted in one call.
-        No more two-pass system with cfg_only flag.
-
-        Args:
-            file_paths: List of paths to JavaScript or TypeScript files to parse
-            jsx_mode: JSX transformation mode ('transformed' or 'preserved')
-            tsconfig_map: Optional mapping of file paths to tsconfig paths
-
-        Returns:
-            Dictionary mapping file paths to their AST results
-        """
+        """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process."""
 
         results = {}
         valid_files = []
@@ -504,34 +456,7 @@ class JSSemanticParser:
     def get_semantic_ast(
         self, file_path: str, jsx_mode: str = "transformed", tsconfig_path: str | None = None
     ) -> dict[str, Any]:
-        """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
-
-        CRITICAL JSX HANDLING:
-        This function operates differently based on jsx_mode parameter:
-        - 'preserved': Keeps JSX nodes like JsxElement, JsxOpeningElement
-                      Used for structural analysis (accessibility, prop validation)
-        - 'transformed': Converts JSX to React.createElement calls
-                        Used for data flow analysis (taint tracking)
-
-        The jsx_mode parameter is propagated from the indexer orchestration
-        layer and determines which database tables receive the extracted data.
-
-        Args:
-            file_path: Path to the JavaScript or TypeScript file to parse
-            jsx_mode: Either 'preserved' or 'transformed' (default: 'transformed')
-            tsconfig_path: Optional explicit path to tsconfig.json controlling this file
-
-        Returns:
-            Dictionary containing the semantic AST and metadata:
-            - success: Boolean indicating if parsing was successful
-            - ast: The full AST tree with semantic information
-            - diagnostics: List of errors/warnings from TypeScript
-            - symbols: List of symbols with type information
-            - nodeCount: Total number of AST nodes
-            - hasTypes: Boolean indicating if type information is available
-            - jsx_mode: The JSX mode used for this extraction
-            - error: Error message if parsing failed
-        """
+        """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler."""
 
         if jsx_mode not in ["preserved", "transformed"]:
             return {
@@ -727,15 +652,7 @@ class JSSemanticParser:
             }
 
     def resolve_imports(self, ast_data: dict[str, Any], current_file: str) -> dict[str, str]:
-        """Resolve import statements in the AST using ModuleResolver.
-
-        Args:
-            ast_data: The AST data returned by get_semantic_ast
-            current_file: Path to the current file being analyzed
-
-        Returns:
-            Dictionary mapping import statements to resolved file paths
-        """
+        """Resolve import statements in the AST using ModuleResolver."""
         resolved_imports = {}
 
         if not ast_data.get("success") or not ast_data.get("ast"):
@@ -793,14 +710,7 @@ class JSSemanticParser:
         return resolved_imports
 
     def extract_type_issues(self, ast_data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Extract type-related issues from the semantic AST.
-
-        Args:
-            ast_data: The AST data returned by get_semantic_ast
-
-        Returns:
-            List of type issues found (any types, type suppressions, unsafe casts)
-        """
+        """Extract type-related issues from the semantic AST."""
         issues = []
 
         if not ast_data.get("success") or not ast_data.get("ast"):
@@ -888,19 +798,7 @@ def get_semantic_ast(
     jsx_mode: str = "transformed",
     tsconfig_path: str | None = None,
 ) -> dict[str, Any]:
-    """Get semantic AST for a JavaScript/TypeScript file.
-
-    This is a convenience function that creates or reuses a cached parser instance
-    and calls its get_semantic_ast method.
-
-    Args:
-        file_path: Path to the JavaScript or TypeScript file to parse
-        project_root: Absolute path to project root. If not provided, uses current directory.
-        jsx_mode: JSX parsing mode ('preserved' or 'transformed')
-
-    Returns:
-        Dictionary containing the semantic AST and metadata
-    """
+    """Get semantic AST for a JavaScript/TypeScript file."""
 
     cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
     if cache_key not in _parser_cache:
@@ -927,24 +825,7 @@ def get_semantic_ast_batch(
     jsx_mode: str = "transformed",
     tsconfig_map: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
-
-    This is a convenience function that creates or reuses a cached parser instance
-    and calls its get_semantic_ast_batch method.
-
-    PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
-    All data (symbols, calls, CFG, etc.) extracted in one call.
-    No more two-pass system with cfg_only flag.
-
-    Args:
-        file_paths: List of paths to JavaScript or TypeScript files to parse
-        project_root: Absolute path to project root. If not provided, uses current directory.
-        jsx_mode: JSX transformation mode ('transformed' or 'preserved')
-        tsconfig_map: Optional mapping of file paths to tsconfig paths
-
-    Returns:
-        Dictionary mapping file paths to their AST results
-    """
+    """Get semantic ASTs for multiple JavaScript/TypeScript files in batch."""
 
     cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
     if cache_key not in _parser_cache:

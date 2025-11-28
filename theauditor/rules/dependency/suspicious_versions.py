@@ -1,17 +1,4 @@
-"""Detect suspicious version specifiers in dependencies.
-
-Suspicious versions like "latest", "*", "0.0.001", or "unknown" indicate
-poor dependency management and can lead to non-reproducible builds or
-security vulnerabilities.
-
-Detection Strategy:
-1. Query package_configs for all dependency versions
-2. Check against SUSPICIOUS_VERSIONS frozenset from config.py
-3. Flag any matches with appropriate severity
-
-Database Tables Used:
-- package_configs: Dependency version specifications
-"""
+"""Detect suspicious version specifiers in dependencies."""
 
 import json
 import sqlite3
@@ -31,14 +18,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect dependencies with suspicious version specifications.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for suspicious versions
-    """
+    """Detect dependencies with suspicious version specifications."""
     findings = []
 
     if not context.db_path:
@@ -65,16 +45,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_versions(file_path: str, deps_json: str, is_dev: bool) -> list[StandardFinding]:
-    """Check dependency versions for suspicious patterns.
-
-    Args:
-        file_path: Path to package file
-        deps_json: JSON string of dependencies
-        is_dev: True if these are dev dependencies
-
-    Returns:
-        List of findings for this dependency set
-    """
+    """Check dependency versions for suspicious patterns."""
     findings = []
 
     try:

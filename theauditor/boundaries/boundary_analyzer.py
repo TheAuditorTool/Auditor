@@ -1,28 +1,4 @@
-"""Input Validation Boundary Analyzer.
-
-Detects where external input enters the system and measures distance to validation.
-
-Boundary Definition:
-    - Entry Points: HTTP routes, CLI commands, file uploads, message handlers
-    - Control Points: Schema validation, type checks, sanitizers
-    - Violation: Entry point uses external data before validation
-
-Examples of Violations:
-
-    BAD (distance = 3):
-        @app.post('/user')
-        def create_user(request):           # ← Entry (req.body untrusted)
-            user_service.create(request.json)   # ← Distance 1 (no validation yet!)
-                def create(data):
-                    db.insert('users', data)    # ← Distance 2 (STILL no validation!)
-                        def insert(table, data):
-                            validate(data)      # ← Distance 3 (TOO LATE! Data already in DB layer)
-
-    GOOD (distance = 0):
-        @app.post('/user')
-        def create_user(data: UserSchema):  # ← Validation IN signature (distance 0)
-            db.insert('users', data)        # ← Safe! Already validated
-"""
+"""Input Validation Boundary Analyzer."""
 
 import sqlite3
 
@@ -32,40 +8,7 @@ VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schem
 
 
 def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> list[dict]:
-    """
-    Analyze input validation boundaries across all entry points.
-
-    Args:
-        db_path: Path to repo_index.db
-        max_entries: Maximum entry points to analyze (performance limit)
-
-    Returns:
-        List of boundary analysis results with:
-            - entry_point: Route/command name
-            - entry_file: File path
-            - entry_line: Line number
-            - controls: List of validation points found
-            - quality: Boundary quality assessment
-            - violations: List of issues found
-
-    Example Output:
-        [
-            {
-                'entry_point': 'POST /api/users',
-                'entry_file': 'src/routes/users.js',
-                'entry_line': 34,
-                'controls': [
-                    {'control_function': 'validateUser', 'distance': 2, ...}
-                ],
-                'quality': {
-                    'quality': 'acceptable',
-                    'reason': 'Single validation at distance 2',
-                    ...
-                },
-                'violations': []
-            }
-        ]
-    """
+    """Analyze input validation boundaries across all entry points."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     results = []
@@ -196,15 +139,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
 
 
 def generate_report(analysis_results: list[dict]) -> str:
-    """
-    Generate human-readable boundary analysis report.
-
-    Args:
-        analysis_results: Output from analyze_input_validation_boundaries()
-
-    Returns:
-        Formatted text report
-    """
+    """Generate human-readable boundary analysis report."""
     total = len(analysis_results)
     clear = sum(1 for r in analysis_results if r["quality"]["quality"] == "clear")
     acceptable = sum(1 for r in analysis_results if r["quality"]["quality"] == "acceptable")

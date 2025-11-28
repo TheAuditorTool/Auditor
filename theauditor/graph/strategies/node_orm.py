@@ -1,10 +1,4 @@
-"""Node.js ORM Strategy - Handles Sequelize/TypeORM/Prisma relationship expansion.
-
-This strategy builds edges for Node.js ORM relationships, enabling taint tracking
-through model relationships (e.g., User.posts -> Post instances).
-
-Created as part of refactor-polyglot-taint-engine (2025-11-27).
-"""
+"""Node.js ORM Strategy - Handles Sequelize/TypeORM/Prisma relationship expansion."""
 
 import sqlite3
 from dataclasses import asdict
@@ -17,31 +11,14 @@ from .base import GraphStrategy
 
 
 class NodeOrmStrategy(GraphStrategy):
-    """Strategy for building Node.js ORM relationship edges.
-
-    Handles:
-    - Sequelize associations (hasMany, belongsTo, hasOne, belongsToMany)
-    - TypeORM relationships (future: when typeorm_entities table exists)
-    - Prisma relations (future: when prisma_models table exists)
-
-    Creates edges from ORM model variables to their relationship attributes,
-    enabling taint tracking through model relationships.
-    """
+    """Strategy for building Node.js ORM relationship edges."""
 
     @property
     def name(self) -> str:
         return "node_orm"
 
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
-        """Build edges for Node.js ORM relationships.
-
-        Args:
-            db_path: Path to repo_index.db
-            project_root: Project root for metadata
-
-        Returns:
-            Dict with nodes, edges, metadata for ORM expansions
-        """
+        """Build edges for Node.js ORM relationships."""
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -139,19 +116,7 @@ class NodeOrmStrategy(GraphStrategy):
         }
 
     def _infer_alias(self, assoc_type: str, target_model: str) -> str:
-        """Infer field name from association type.
-
-        hasMany(Post) -> 'posts' (pluralized)
-        belongsTo(User) -> 'user' (singular lowercase)
-        hasOne(Profile) -> 'profile' (singular lowercase)
-
-        Args:
-            assoc_type: Association type (hasMany, belongsTo, hasOne, belongsToMany)
-            target_model: Target model name
-
-        Returns:
-            Inferred alias for the relationship field
-        """
+        """Infer field name from association type."""
         lower = target_model.lower()
 
         if "Many" in assoc_type:

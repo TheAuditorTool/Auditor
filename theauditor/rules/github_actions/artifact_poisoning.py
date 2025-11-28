@@ -1,18 +1,4 @@
-"""GitHub Actions Artifact Poisoning Detection.
-
-Detects artifact poisoning vulnerabilities where build artifacts are created in
-untrusted contexts (pull_request_target, untrusted jobs) and then consumed/deployed
-in trusted contexts without validation.
-
-Attack Pattern:
-1. Job A: Builds artifact in pull_request_target context (attacker code)
-2. Job A: Uploads artifact via actions/upload-artifact
-3. Job B: Downloads artifact via actions/download-artifact (trusted context)
-4. Job B: Deploys or signs artifact without validation
-5. Result: Attacker artifacts deployed to production or signed with trusted key
-
-CWE-494: Download of Code Without Integrity Check
-"""
+"""GitHub Actions Artifact Poisoning Detection."""
 
 import json
 import logging
@@ -38,21 +24,7 @@ METADATA = RuleMetadata(
 
 
 def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect artifact poisoning via untrusted build → trusted deploy chain.
-
-    Detection Logic:
-    1. Find workflows with pull_request_target trigger
-    2. Identify jobs that upload artifacts (actions/upload-artifact)
-    3. Find dependent jobs that download those artifacts
-    4. Check if download job has dangerous operations (deploy, sign, publish)
-    5. Report CRITICAL if untrusted artifact is deployed without validation
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect artifact poisoning via untrusted build → trusted deploy chain."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -143,16 +115,7 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardF
 
 
 def _check_job_dependency(download_job_id: str, upload_jobs: list[str], cursor) -> bool:
-    """Check if download job depends on any upload job.
-
-    Args:
-        download_job_id: Job ID of download job
-        upload_jobs: List of upload job IDs
-        cursor: Database cursor
-
-    Returns:
-        True if download job depends on any upload job
-    """
+    """Check if download job depends on any upload job."""
     cursor.execute(
         """
         SELECT needs_job_id
@@ -168,15 +131,7 @@ def _check_job_dependency(download_job_id: str, upload_jobs: list[str], cursor) 
 
 
 def _check_dangerous_operations(job_id: str, cursor) -> list[str]:
-    """Check if job performs dangerous operations on downloaded artifacts.
-
-    Args:
-        job_id: Job identifier
-        cursor: Database cursor
-
-    Returns:
-        List of dangerous operation types found
-    """
+    """Check if job performs dangerous operations on downloaded artifacts."""
     dangerous_ops = []
 
     cursor.execute(
@@ -225,20 +180,7 @@ def _build_artifact_poisoning_finding(
     permissions: dict,
     has_dependency: bool,
 ) -> StandardFinding:
-    """Build finding for artifact poisoning vulnerability.
-
-    Args:
-        workflow_path: Path to workflow file
-        workflow_name: Workflow display name
-        upload_jobs: List of upload job keys
-        download_job_key: Download job key
-        dangerous_ops: List of dangerous operations found
-        permissions: Download job permissions dict
-        has_dependency: Whether download job depends on upload job
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for artifact poisoning vulnerability."""
 
     has_write_perms = any(
         perm in permissions and permissions[perm] in ("write", "write-all")

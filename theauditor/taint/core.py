@@ -1,11 +1,4 @@
-"""Core taint analysis engine.
-
-This module contains the main taint analysis function and TaintPath class.
-
-Schema Contract:
-    All queries use build_query() for schema compliance.
-    Table existence is guaranteed by schema contract - no checks needed.
-"""
+"""Core taint analysis engine."""
 
 import json
 import sqlite3
@@ -21,18 +14,7 @@ from theauditor.indexer.schema import build_query
 
 
 class TaintRegistry:
-    """Lightweight pattern accumulator for taint sources, sinks, and sanitizers.
-
-    Populated dynamically by orchestrator from 200+ rules, then fed to discovery.
-
-    Structure: Language-aware nested dictionaries
-        sources[language][category] = [patterns]
-        sinks[language][category] = [patterns]
-        sanitizers[language] = [patterns]
-
-    This allows orchestrator to filter rules by detected frameworks (e.g., only
-    run Python rules if Flask detected) and populate registry with pre-filtered patterns.
-    """
+    """Lightweight pattern accumulator for taint sources, sinks, and sanitizers."""
 
     def __init__(self):
         self.sources: dict[str, dict[str, list[str]]] = {}
@@ -40,13 +22,7 @@ class TaintRegistry:
         self.sanitizers: dict[str, list[str]] = {}
 
     def register_source(self, pattern: str, category: str, language: str):
-        """Register a taint source pattern for a specific language.
-
-        Args:
-            pattern: Source pattern (e.g., 'req.body', 'request.args')
-            category: Source category (e.g., 'user_input', 'http_request')
-            language: Language identifier (e.g., 'python', 'javascript', 'rust')
-        """
+        """Register a taint source pattern for a specific language."""
         if language not in self.sources:
             self.sources[language] = {}
         if category not in self.sources[language]:
@@ -55,13 +31,7 @@ class TaintRegistry:
             self.sources[language][category].append(pattern)
 
     def register_sink(self, pattern: str, category: str, language: str):
-        """Register a taint sink pattern for a specific language.
-
-        Args:
-            pattern: Sink pattern (e.g., 'execute', 'eval', 'system')
-            category: Sink category (e.g., 'sql', 'command', 'xss')
-            language: Language identifier (e.g., 'python', 'javascript', 'rust')
-        """
+        """Register a taint sink pattern for a specific language."""
         if language not in self.sinks:
             self.sinks[language] = {}
         if category not in self.sinks[language]:
@@ -70,12 +40,7 @@ class TaintRegistry:
             self.sinks[language][category].append(pattern)
 
     def register_sanitizer(self, pattern: str, language: str = None):
-        """Register a sanitizer pattern, optionally language-specific.
-
-        Args:
-            pattern: Sanitizer function name (e.g., 'sanitize', 'escape')
-            language: Optional language identifier (None = applies to all languages)
-        """
+        """Register a sanitizer pattern, optionally language-specific."""
         lang_key = language if language else "global"
         if lang_key not in self.sanitizers:
             self.sanitizers[lang_key] = []
@@ -83,15 +48,7 @@ class TaintRegistry:
             self.sanitizers[lang_key].append(pattern)
 
     def is_sanitizer(self, function_name: str, language: str = None) -> bool:
-        """Check if a function is a registered sanitizer.
-
-        Args:
-            function_name: Function name to check
-            language: Optional language to check (also checks global sanitizers)
-
-        Returns:
-            True if function is a registered sanitizer
-        """
+        """Check if a function is a registered sanitizer."""
 
         if "global" in self.sanitizers and function_name in self.sanitizers["global"]:
             return True
@@ -101,33 +58,15 @@ class TaintRegistry:
         )
 
     def get_sources_for_language(self, language: str) -> dict[str, list[str]]:
-        """Get all source patterns for a specific language.
-
-        Args:
-            language: Language identifier (e.g., 'python', 'javascript')
-
-        Returns:
-            Dictionary mapping category to pattern list
-        """
+        """Get all source patterns for a specific language."""
         return self.sources.get(language, {})
 
     def get_sinks_for_language(self, language: str) -> dict[str, list[str]]:
-        """Get all sink patterns for a specific language.
-
-        Args:
-            language: Language identifier (e.g., 'python', 'javascript')
-
-        Returns:
-            Dictionary mapping category to pattern list
-        """
+        """Get all sink patterns for a specific language."""
         return self.sinks.get(language, {})
 
     def get_stats(self) -> dict[str, int]:
-        """Get registry statistics for debugging.
-
-        Returns:
-            Dictionary with simple total counts
-        """
+        """Get registry statistics for debugging."""
 
         total_sources = sum(
             len(patterns)
@@ -148,30 +87,13 @@ class TaintRegistry:
         }
 
     def load_from_database(self, cursor: sqlite3.Cursor) -> None:
-        """Load patterns from database tables.
-
-        Queries framework_taint_patterns for sources/sinks, framework_safe_sinks
-        and validation_framework_usage for sanitizers.
-
-        Args:
-            cursor: Database cursor for repo_index.db
-
-        Note: ZERO FALLBACK - if tables are empty, returns empty. No hardcoded defaults.
-        """
+        """Load patterns from database tables."""
         self._load_taint_patterns(cursor)
         self._load_safe_sinks(cursor)
         self._load_validation_sanitizers(cursor)
 
     def _load_taint_patterns(self, cursor: sqlite3.Cursor) -> None:
-        """Load source/sink patterns from framework_taint_patterns table.
-
-        Schema:
-            framework_taint_patterns(id, framework_id, pattern, pattern_type, category)
-            frameworks(id, name, version, language, path, source, package_manager, is_primary)
-
-        This is the Database-First architecture fix: patterns are seeded during
-        indexing and loaded here at analysis time.
-        """
+        """Load source/sink patterns from framework_taint_patterns table."""
         query = """
             SELECT f.language, ftp.pattern, ftp.pattern_type, ftp.category
             FROM framework_taint_patterns ftp
@@ -193,14 +115,7 @@ class TaintRegistry:
                 self.register_sink(pattern, category, lang)
 
     def _load_safe_sinks(self, cursor: sqlite3.Cursor) -> None:
-        """Load safe sink patterns from framework_safe_sinks table.
-
-        Schema:
-            frameworks(id, name, version, language, path, source, package_manager, is_primary)
-            framework_safe_sinks(framework_id, sink_pattern, sink_type, is_safe, reason)
-
-        Note: Must JOIN with frameworks to get language column.
-        """
+        """Load safe sink patterns from framework_safe_sinks table."""
         query = """
             SELECT f.language, fss.sink_pattern, fss.sink_type
             FROM framework_safe_sinks fss
@@ -215,16 +130,7 @@ class TaintRegistry:
                 self.register_sanitizer(pattern, lang)
 
     def _load_validation_sanitizers(self, cursor: sqlite3.Cursor) -> None:
-        """Load validation patterns from validation_framework_usage table.
-
-        Schema:
-            validation_framework_usage(
-                file_path, line, framework, method, variable_name,
-                is_validator, argument_expr
-            )
-
-        Registers validation methods as sanitizers (e.g., zod.parse, joi.validate).
-        """
+        """Load validation patterns from validation_framework_usage table."""
         query = """
             SELECT DISTINCT framework, method, variable_name
             FROM validation_framework_usage
@@ -246,14 +152,7 @@ class TaintRegistry:
                 self.register_sanitizer(f"{framework}.{method}", "javascript")
 
     def get_source_patterns(self, language: str) -> list[str]:
-        """Get flattened list of source patterns for a language.
-
-        Args:
-            language: Language identifier ('python', 'javascript', 'rust')
-
-        Returns:
-            List of source patterns (e.g., ['req.body', 'req.params', 'req.query'])
-        """
+        """Get flattened list of source patterns for a language."""
         patterns = []
         lang_sources = self.sources.get(language, {})
         for category_patterns in lang_sources.values():
@@ -261,14 +160,7 @@ class TaintRegistry:
         return patterns
 
     def get_sink_patterns(self, language: str) -> list[str]:
-        """Get flattened list of sink patterns for a language.
-
-        Args:
-            language: Language identifier ('python', 'javascript', 'rust')
-
-        Returns:
-            List of sink patterns (e.g., ['execute', 'eval', 'system'])
-        """
+        """Get flattened list of sink patterns for a language."""
         patterns = []
         lang_sinks = self.sinks.get(language, {})
         for category_patterns in lang_sinks.values():
@@ -276,14 +168,7 @@ class TaintRegistry:
         return patterns
 
     def get_sanitizer_patterns(self, language: str) -> list[str]:
-        """Get sanitizer patterns for a language (includes global sanitizers).
-
-        Args:
-            language: Language identifier ('python', 'javascript', 'rust')
-
-        Returns:
-            List of sanitizer patterns for the language + global sanitizers
-        """
+        """Get sanitizer patterns for a language (includes global sanitizers)."""
         patterns = []
 
         if "global" in self.sanitizers:
@@ -297,11 +182,7 @@ class TaintRegistry:
 def has_sanitizer_between(
     cursor: sqlite3.Cursor, source: dict[str, Any], sink: dict[str, Any]
 ) -> bool:
-    """Check if there's a sanitizer call between source and sink in the same function.
-
-    Schema Contract:
-        Queries symbols table (guaranteed to exist)
-    """
+    """Check if there's a sanitizer call between source and sink in the same function."""
     if source["file"] != sink["file"]:
         return False
 
@@ -321,20 +202,10 @@ def has_sanitizer_between(
 
 
 def deduplicate_paths(paths: list[Any]) -> list[Any]:
-    """Deduplicate taint paths while preserving the most informative flow for each source-sink pair.
-
-    Key rule: Prefer cross-file / multi-hop and flow-sensitive paths over shorter, same-file variants.
-    This prevents the Stage 2 direct path (2 steps) from overwriting Stage 3 multi-hop results.
-    """
+    """Deduplicate taint paths while preserving the most informative flow for each source-sink pair."""
 
     def _path_score(path: Any) -> tuple[int, int, int]:
-        """Score paths so we keep the most informative version per source/sink pair.
-
-        Score dimensions (higher is better):
-        1. Number of cross-file hops (`cfg_call`, `argument_pass`, `return_flow`)
-        2. Whether the path used flow-sensitive analysis (Stage 3)
-        3. Path length (prefer longer when cross-file, shorter otherwise)
-        """
+        """Score paths so we keep the most informative version per source/sink pair."""
         steps = path.path or []
 
         cross_hops = 0
@@ -424,41 +295,7 @@ def trace_taint(
     graph_db_path: str = None,
     mode: str = "backward",
 ) -> dict[str, Any]:
-    """
-    Perform taint analysis by tracing data flow from sources to sinks.
-
-    Args:
-        db_path: Path to repo_index.db database
-        max_depth: Maximum depth to trace taint propagation (default 10)
-        registry: MANDATORY TaintRegistry with patterns from rules (NO FALLBACK for backward mode)
-        use_memory_cache: Enable in-memory caching for performance (default: True)
-        memory_limit_mb: Memory limit for cache in MB (default: 12000)
-        cache: Optional pre-loaded MemoryCache to use (avoids reload)
-        graph_db_path: Path to graphs.db (default: .pf/graphs.db, MUST exist)
-        mode: Analysis mode - 'backward' (IFDS), 'forward' or 'complete' (flow resolution)
-
-    Mode Options:
-        - backward: Traditional IFDS backward taint analysis (finds vulnerabilities)
-        - forward/complete: Complete flow resolution to populate ALL flows
-
-    IFDS Mode (backward - BASED ON ALLEN ET AL. 2021):
-        Uses pre-computed graphs.db for 5-10 hop cross-file taint tracking.
-        Implements demand-driven backward IFDS with access path tracking.
-        NO FALLBACKS - If graphs.db or registry missing, CRASHES.
-
-    Forward/Complete Mode (NEW - Codebase Truth Generation):
-        Traces ALL flows from ALL entry points to ALL exit points.
-        Populates resolved_flow_audit table with >100,000 resolved flows.
-        Transforms codebase into queryable atomic truth for AI agents.
-
-    Returns:
-        Dictionary containing:
-        - taint_paths: List of source-to-sink vulnerability paths
-        - sources_found: Number of taint sources identified
-        - sinks_found: Number of security sinks identified
-        - vulnerabilities: Count by vulnerability type
-        - total_flows_resolved: Number of flows resolved (forward mode only)
-    """
+    """Perform taint analysis by tracing data flow from sources to sinks."""
     import sqlite3
 
     if mode == "forward":
@@ -661,11 +498,7 @@ def trace_taint(
         sinks = discovery.filter_framework_safe_sinks(sinks)
 
         def filter_sinks_by_proximity(source, all_sinks):
-            """Filter sinks to same module as source for performance.
-
-            Reduces O(sources × sinks) from 4M to ~400K combinations.
-            ZERO FALLBACK: Returns empty list if source file missing (discovery bug).
-            """
+            """Filter sinks to same module as source for performance."""
             source_file = source.get("file", "")
             if not source_file:
                 return []

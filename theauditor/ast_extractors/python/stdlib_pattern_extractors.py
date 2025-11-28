@@ -1,38 +1,4 @@
-"""Standard library pattern extractors - Regex, JSON, datetime, pathlib, logging, etc.
-
-This module contains extraction logic for standard library usage patterns:
-- Regular expressions (re module)
-- JSON operations (json module)
-- Datetime operations (datetime module)
-- Path operations (pathlib, os.path)
-- Logging patterns (logging module)
-- Threading patterns (threading, multiprocessing)
-- Context managers (contextlib)
-- Type checking (typing, isinstance, issubclass)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 4 Implementation (Python Coverage V2):
-============================================
-Implements standard library patterns.
-
-Expected extraction from TheAuditor codebase:
-- ~80 regex patterns
-- ~40 JSON operations
-- ~30 datetime operations
-- ~200 path operations
-- ~150 logging patterns
-- ~20 threading patterns
-- ~30 context managers
-- ~50 type checking patterns
-Total: ~600 stdlib pattern records
-"""
+"""Standard library pattern extractors - Regex, JSON, datetime, pathlib, logging, etc."""
 
 import ast
 import logging
@@ -88,19 +54,7 @@ CONTEXTLIB_DECORATORS = {"contextmanager", "asynccontextmanager", "closing", "su
 
 
 def extract_regex_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract regular expression usage (re module).
-
-    Detects re.compile(), re.match(), re.search(), re.findall(), etc.
-
-    Returns:
-        List of regex pattern dicts:
-        {
-            'line': int,
-            'operation': str,  # 'compile' | 'match' | 'search' | 'findall' | 'sub'
-            'has_flags': bool,  # If regex flags used (re.IGNORECASE, etc.)
-            'in_function': str,
-        }
-    """
+    """Extract regular expression usage (re module)."""
     regex_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -137,19 +91,7 @@ def extract_regex_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_json_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract JSON serialization/deserialization operations.
-
-    Detects json.dumps(), json.loads(), json.dump(), json.load().
-
-    Returns:
-        List of JSON operation dicts:
-        {
-            'line': int,
-            'operation': str,  # 'dumps' | 'loads' | 'dump' | 'load'
-            'direction': str,  # 'serialize' | 'deserialize'
-            'in_function': str,
-        }
-    """
+    """Extract JSON serialization/deserialization operations."""
     json_operations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -183,18 +125,7 @@ def extract_json_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_datetime_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract datetime module usage.
-
-    Detects datetime(), date(), time(), timedelta(), timezone() usage.
-
-    Returns:
-        List of datetime operation dicts:
-        {
-            'line': int,
-            'datetime_type': str,  # 'datetime' | 'date' | 'time' | 'timedelta' | 'timezone'
-            'in_function': str,
-        }
-    """
+    """Extract datetime module usage."""
     datetime_operations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -228,19 +159,7 @@ def extract_datetime_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_path_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract pathlib and os.path operations.
-
-    Detects Path() usage, exists(), mkdir(), glob(), etc.
-
-    Returns:
-        List of path operation dicts:
-        {
-            'line': int,
-            'operation': str,  # Method/function name
-            'path_type': str,  # 'pathlib' | 'os.path'
-            'in_function': str,
-        }
-    """
+    """Extract pathlib and os.path operations."""
     path_operations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -283,18 +202,7 @@ def extract_path_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_logging_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract logging usage patterns.
-
-    Detects logger.debug(), logger.info(), logger.warning(), etc.
-
-    Returns:
-        List of logging pattern dicts:
-        {
-            'line': int,
-            'log_level': str,  # 'debug' | 'info' | 'warning' | 'error' | 'critical'
-            'in_function': str,
-        }
-    """
+    """Extract logging usage patterns."""
     logging_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -317,18 +225,7 @@ def extract_logging_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract threading and multiprocessing usage.
-
-    Detects Thread(), Lock(), Queue(), Process(), etc.
-
-    Returns:
-        List of threading pattern dicts:
-        {
-            'line': int,
-            'threading_type': str,  # 'Thread' | 'Lock' | 'Queue' | 'Process'
-            'in_function': str,
-        }
-    """
+    """Extract threading and multiprocessing usage."""
     threading_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -366,17 +263,7 @@ def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract contextlib usage (@contextmanager, closing(), suppress()).
-
-    Returns:
-        List of contextlib pattern dicts:
-        {
-            'line': int,
-            'pattern': str,  # 'contextmanager' | 'closing' | 'suppress' | etc.
-            'is_decorator': bool,
-            'in_function': str,
-        }
-    """
+    """Extract contextlib usage (@contextmanager, closing(), suppress())."""
     contextlib_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -434,18 +321,7 @@ def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_type_checking(context: FileContext) -> list[dict[str, Any]]:
-    """Extract runtime type checking patterns.
-
-    Detects isinstance(), issubclass(), type() checks.
-
-    Returns:
-        List of type checking dicts:
-        {
-            'line': int,
-            'check_type': str,  # 'isinstance' | 'issubclass' | 'type'
-            'in_function': str,
-        }
-    """
+    """Extract runtime type checking patterns."""
     type_checking = []
 
     if not isinstance(context.tree, ast.AST):

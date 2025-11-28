@@ -1,10 +1,4 @@
-"""Multi-Tenant Security Analyzer - Phase 2 Clean Implementation.
-
-Database-first detection using ONLY indexed data. No AST traversal, no file I/O.
-Focuses on PostgreSQL RLS (Row Level Security) patterns for multi-tenant applications.
-
-Truth Courier Design: Reports facts about tenant isolation patterns, not recommendations.
-"""
+"""Multi-Tenant Security Analyzer - Phase 2 Clean Implementation."""
 
 import re
 import sqlite3
@@ -14,10 +8,7 @@ from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, Stand
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:
-    """Adapter to let SQLite use Python's regex engine.
-
-    Usage in SQL: WHERE column REGEXP 'pattern'
-    """
+    """Adapter to let SQLite use Python's regex engine."""
     if item is None:
         return False
     try:
@@ -96,26 +87,7 @@ class MultiTenantPatterns:
 
 
 def find_multi_tenant_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect multi-tenant security issues using database queries.
-
-    Detection strategy:
-    1. Query sql_queries for sensitive tables without tenant filtering
-    2. Query for RLS policies missing USING clause
-    3. Check transactions for missing SET LOCAL context
-    4. Find direct ID access without tenant validation
-    5. Detect superuser database connections
-    6. Find raw queries outside transactions
-    7. Detect ORM queries without tenant scope
-    8. Find bulk operations without tenant filtering
-    9. Detect cross-tenant JOINs
-    10. Find subqueries without tenant filtering
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of multi-tenant security findings
-    """
+    """Detect multi-tenant security issues using database queries."""
     findings = []
 
     if not context.db_path:
@@ -151,10 +123,7 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> list[StandardFindi
 def _find_queries_without_tenant_filter(
     cursor, patterns: MultiTenantPatterns
 ) -> list[StandardFinding]:
-    """Find queries on sensitive tables without tenant filtering.
-
-    FIXED: Removed checked_count break and moved migration filter to SQL.
-    """
+    """Find queries on sensitive tables without tenant filtering."""
     findings = []
 
     sensitive_pattern = "|".join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
@@ -262,10 +231,7 @@ def _find_rls_policies_without_using(
 
 
 def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find queries accessing records by ID without tenant validation.
-
-    FIXED: Removed checked_count break and moved filters to SQL.
-    """
+    """Find queries accessing records by ID without tenant validation."""
     findings = []
 
     tenant_pattern = "|".join(re.escape(f) for f in patterns.TENANT_FIELDS)
@@ -302,10 +268,7 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> list[Standa
 
 
 def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find transactions without SET LOCAL for RLS context.
-
-    FIXED: Used Anti-Join pattern to eliminate N+1 query explosion.
-    """
+    """Find transactions without SET LOCAL for RLS context."""
     findings = []
 
     context_pattern = r"(?i)(set\s+local|current_setting).*(facility_id|tenant_id|account_id)"
@@ -463,10 +426,7 @@ def _find_raw_query_without_transaction(
 
 
 def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find ORM queries without tenant filtering using orm_queries table.
-
-    FIXED: Removed checked_count break, used LEFT JOIN to eliminate N+1 queries.
-    """
+    """Find ORM queries without tenant filtering using orm_queries table."""
     findings = []
 
     sensitive_pattern = "|".join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
@@ -520,10 +480,7 @@ def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> lis
 def _find_bulk_operations_without_tenant(
     cursor, patterns: MultiTenantPatterns
 ) -> list[StandardFinding]:
-    """Find bulk INSERT/UPDATE/DELETE operations without tenant field.
-
-    FIXED: Removed checked_count break and moved all filters to SQL.
-    """
+    """Find bulk INSERT/UPDATE/DELETE operations without tenant field."""
     findings = []
 
     sensitive_pattern = "|".join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
@@ -576,10 +533,7 @@ def _find_bulk_operations_without_tenant(
 
 
 def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find JOINs between tables without tenant field in ON clause.
-
-    FIXED: Removed checked_count break and moved filters to SQL.
-    """
+    """Find JOINs between tables without tenant field in ON clause."""
     findings = []
 
     cursor.execute("""
@@ -625,10 +579,7 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[Stan
 
 
 def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find subqueries on sensitive tables without tenant filtering.
-
-    FIXED: Removed checked_count break and moved filters to SQL.
-    """
+    """Find subqueries on sensitive tables without tenant filtering."""
     findings = []
 
     sensitive_pattern = "|".join(re.escape(t) for t in patterns.SENSITIVE_TABLES)

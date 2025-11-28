@@ -1,21 +1,11 @@
-/**
- * Sequelize Extractors
- *
- * Extracts Sequelize model definitions, fields, and associations.
- */
-
-import * as ts from 'typescript';
+import * as ts from "typescript";
 import type {
   SequelizeModel,
   SequelizeModelField,
   SequelizeAssociation,
   Class as IClass,
   FunctionCallArg as IFunctionCallArg,
-} from '../schema';
-
-// =============================================================================
-// TYPES
-// =============================================================================
+} from "../schema";
 
 interface ExtractSequelizeResult {
   sequelize_models: SequelizeModel[];
@@ -23,62 +13,92 @@ interface ExtractSequelizeResult {
   sequelize_associations: SequelizeAssociation[];
 }
 
-// =============================================================================
-// SEQUELIZE MODELS
-// =============================================================================
-
 const SEQUELIZE_DATA_TYPES = new Set([
-  'STRING', 'TEXT', 'CITEXT', 'TSVECTOR', 'INTEGER', 'BIGINT', 'FLOAT', 'REAL',
-  'DOUBLE', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATEONLY', 'TIME', 'NOW', 'UUID',
-  'UUIDV1', 'UUIDV4', 'HSTORE', 'JSON', 'JSONB', 'ARRAY', 'RANGE', 'GEOMETRY',
-  'GEOGRAPHY', 'BLOB', 'ENUM', 'VIRTUAL', 'CIDR', 'INET', 'MACADDR',
+  "STRING",
+  "TEXT",
+  "CITEXT",
+  "TSVECTOR",
+  "INTEGER",
+  "BIGINT",
+  "FLOAT",
+  "REAL",
+  "DOUBLE",
+  "DECIMAL",
+  "BOOLEAN",
+  "DATE",
+  "DATEONLY",
+  "TIME",
+  "NOW",
+  "UUID",
+  "UUIDV1",
+  "UUIDV4",
+  "HSTORE",
+  "JSON",
+  "JSONB",
+  "ARRAY",
+  "RANGE",
+  "GEOMETRY",
+  "GEOGRAPHY",
+  "BLOB",
+  "ENUM",
+  "VIRTUAL",
+  "CIDR",
+  "INET",
+  "MACADDR",
 ]);
 
 const ASSOCIATION_METHODS = new Set([
-  'hasOne', 'hasMany', 'belongsTo', 'belongsToMany',
+  "hasOne",
+  "hasMany",
+  "belongsTo",
+  "belongsToMany",
 ]);
 
-/**
- * Extract Sequelize models and associations from source file
- */
 export function extractSequelizeModels(
   sourceFile: ts.SourceFile,
   classes: IClass[],
   functionCallArgs: IFunctionCallArg[],
-  filePath: string
+  filePath: string,
 ): ExtractSequelizeResult {
   const sequelize_models: SequelizeModel[] = [];
   const sequelize_model_fields: SequelizeModelField[] = [];
   const sequelize_associations: SequelizeAssociation[] = [];
 
-  // Track processed models to avoid duplicates
   const processedModels = new Set<string>();
 
-  // Visit all nodes in the source file
   function visit(node: ts.Node): void {
-    // Look for Model.init() calls
     if (ts.isCallExpression(node)) {
       const expr = node.expression;
-      if (ts.isPropertyAccessExpression(expr) && expr.name.text === 'init') {
+      if (ts.isPropertyAccessExpression(expr) && expr.name.text === "init") {
         const modelName = expr.expression.getText(sourceFile);
         if (!processedModels.has(modelName)) {
           processedModels.add(modelName);
 
           const modelEntry: SequelizeModel = {
             file: filePath,
-            line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+            line:
+              sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+              1,
             model_name: modelName,
             table_name: null,
             extends_model: null,
           };
 
-          // Parse first argument for field definitions
-          if (node.arguments.length > 0 && ts.isObjectLiteralExpression(node.arguments[0])) {
+          if (
+            node.arguments.length > 0 &&
+            ts.isObjectLiteralExpression(node.arguments[0])
+          ) {
             const fieldsObj = node.arguments[0];
             for (const prop of fieldsObj.properties) {
               if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
                 const fieldName = prop.name.text;
-                const fieldDef = parseSequelizeField(prop.initializer, sourceFile, modelName, fieldName, filePath);
+                const fieldDef = parseSequelizeField(
+                  prop.initializer,
+                  sourceFile,
+                  modelName,
+                  fieldName,
+                  filePath,
+                );
                 if (fieldDef) {
                   sequelize_model_fields.push(fieldDef);
                 }
@@ -86,12 +106,17 @@ export function extractSequelizeModels(
             }
           }
 
-          // Parse second argument for options (tableName)
-          if (node.arguments.length > 1 && ts.isObjectLiteralExpression(node.arguments[1])) {
+          if (
+            node.arguments.length > 1 &&
+            ts.isObjectLiteralExpression(node.arguments[1])
+          ) {
             const optionsObj = node.arguments[1];
             for (const prop of optionsObj.properties) {
               if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-                if (prop.name.text === 'tableName' && ts.isStringLiteral(prop.initializer)) {
+                if (
+                  prop.name.text === "tableName" &&
+                  ts.isStringLiteral(prop.initializer)
+                ) {
                   modelEntry.table_name = prop.initializer.text;
                 }
               }
@@ -102,7 +127,6 @@ export function extractSequelizeModels(
         }
       }
 
-      // Look for association calls
       if (ts.isPropertyAccessExpression(expr)) {
         const methodName = expr.name.text;
         if (ASSOCIATION_METHODS.has(methodName)) {
@@ -114,27 +138,36 @@ export function extractSequelizeModels(
             let foreignKey: string | null = null;
             let alias: string | null = null;
 
-            // Parse options for foreign key and alias
-            if (node.arguments.length > 1 && ts.isObjectLiteralExpression(node.arguments[1])) {
+            if (
+              node.arguments.length > 1 &&
+              ts.isObjectLiteralExpression(node.arguments[1])
+            ) {
               const optionsObj = node.arguments[1];
               for (const prop of optionsObj.properties) {
-                if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-                  if (prop.name.text === 'foreignKey') {
+                if (
+                  ts.isPropertyAssignment(prop) &&
+                  ts.isIdentifier(prop.name)
+                ) {
+                  if (prop.name.text === "foreignKey") {
                     if (ts.isStringLiteral(prop.initializer)) {
                       foreignKey = prop.initializer.text;
                     } else if (ts.isObjectLiteralExpression(prop.initializer)) {
-                      // { foreignKey: { name: 'user_id' } }
                       for (const fkProp of prop.initializer.properties) {
-                        if (ts.isPropertyAssignment(fkProp) &&
-                            ts.isIdentifier(fkProp.name) &&
-                            fkProp.name.text === 'name' &&
-                            ts.isStringLiteral(fkProp.initializer)) {
+                        if (
+                          ts.isPropertyAssignment(fkProp) &&
+                          ts.isIdentifier(fkProp.name) &&
+                          fkProp.name.text === "name" &&
+                          ts.isStringLiteral(fkProp.initializer)
+                        ) {
                           foreignKey = fkProp.initializer.text;
                         }
                       }
                     }
                   }
-                  if (prop.name.text === 'as' && ts.isStringLiteral(prop.initializer)) {
+                  if (
+                    prop.name.text === "as" &&
+                    ts.isStringLiteral(prop.initializer)
+                  ) {
                     alias = prop.initializer.text;
                   }
                 }
@@ -143,7 +176,9 @@ export function extractSequelizeModels(
 
             sequelize_associations.push({
               file: filePath,
-              line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+              line:
+                sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+                1,
               source_model: sourceModel,
               target_model: targetModel,
               association_type: methodName,
@@ -155,54 +190,58 @@ export function extractSequelizeModels(
       }
     }
 
-    // Look for class-based models (extending Model)
     if (ts.isClassDeclaration(node) && node.name) {
       const className = node.name.text;
       if (!processedModels.has(className)) {
-        // Check if extends Model
         if (node.heritageClauses) {
           for (const clause of node.heritageClauses) {
             if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
               for (const type of clause.types) {
                 const baseType = type.expression.getText(sourceFile);
-                if (baseType === 'Model' || baseType.includes('Model')) {
+                if (baseType === "Model" || baseType.includes("Model")) {
                   processedModels.add(className);
 
                   sequelize_models.push({
                     file: filePath,
-                    line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+                    line:
+                      sourceFile.getLineAndCharacterOfPosition(node.getStart())
+                        .line + 1,
                     model_name: className,
                     table_name: null,
                     extends_model: baseType,
                   });
 
-                  // Extract fields from class properties
                   for (const member of node.members) {
-                    if (ts.isPropertyDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
+                    if (
+                      ts.isPropertyDeclaration(member) &&
+                      member.name &&
+                      ts.isIdentifier(member.name)
+                    ) {
                       const fieldName = member.name.text;
-                      // Skip static, private, or non-field properties
-                      if (fieldName.startsWith('_')) continue;
+                      if (fieldName.startsWith("_")) continue;
 
-                      let dataType = 'unknown';
-                      let isPrimaryKey = fieldName === 'id';
+                      let dataType = "unknown";
+                      let isPrimaryKey = fieldName === "id";
                       let isNullable = false;
 
-                      // Try to get type from type annotation
                       if (member.type) {
                         dataType = member.type.getText(sourceFile);
-                        if (dataType.includes('null')) {
+                        if (dataType.includes("null")) {
                           isNullable = true;
                         }
                       }
 
-                      // Check for decorators (if using sequelize-typescript)
                       const decorators = ts.getDecorators?.(member) || [];
                       for (const dec of decorators) {
                         if (ts.isCallExpression(dec.expression)) {
-                          const decName = dec.expression.expression.getText(sourceFile);
-                          if (decName === 'PrimaryKey') isPrimaryKey = true;
-                          if (decName === 'AllowNull') isNullable = true;
-                          if (decName === 'Column' && dec.expression.arguments.length > 0) {
+                          const decName =
+                            dec.expression.expression.getText(sourceFile);
+                          if (decName === "PrimaryKey") isPrimaryKey = true;
+                          if (decName === "AllowNull") isNullable = true;
+                          if (
+                            decName === "Column" &&
+                            dec.expression.arguments.length > 0
+                          ) {
                             const arg = dec.expression.arguments[0];
                             if (ts.isPropertyAccessExpression(arg)) {
                               dataType = arg.name.text;
@@ -231,15 +270,14 @@ export function extractSequelizeModels(
       }
     }
 
-    // Look for sequelize.define() calls
     if (ts.isCallExpression(node)) {
       const expr = node.expression;
-      if (ts.isPropertyAccessExpression(expr) && expr.name.text === 'define') {
+      if (ts.isPropertyAccessExpression(expr) && expr.name.text === "define") {
         if (node.arguments.length >= 2) {
           const modelNameArg = node.arguments[0];
           const fieldsArg = node.arguments[1];
 
-          let modelName = 'AnonymousModel';
+          let modelName = "AnonymousModel";
           if (ts.isStringLiteral(modelNameArg)) {
             modelName = modelNameArg.text;
           }
@@ -249,18 +287,28 @@ export function extractSequelizeModels(
 
             const modelEntry: SequelizeModel = {
               file: filePath,
-              line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+              line:
+                sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+                1,
               model_name: modelName,
               table_name: null,
               extends_model: null,
             };
 
-            // Parse fields from second argument
             if (ts.isObjectLiteralExpression(fieldsArg)) {
               for (const prop of fieldsArg.properties) {
-                if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+                if (
+                  ts.isPropertyAssignment(prop) &&
+                  ts.isIdentifier(prop.name)
+                ) {
                   const fieldName = prop.name.text;
-                  const fieldDef = parseSequelizeField(prop.initializer, sourceFile, modelName, fieldName, filePath);
+                  const fieldDef = parseSequelizeField(
+                    prop.initializer,
+                    sourceFile,
+                    modelName,
+                    fieldName,
+                    filePath,
+                  );
                   if (fieldDef) {
                     sequelize_model_fields.push(fieldDef);
                   }
@@ -268,12 +316,20 @@ export function extractSequelizeModels(
               }
             }
 
-            // Parse options from third argument
-            if (node.arguments.length > 2 && ts.isObjectLiteralExpression(node.arguments[2])) {
+            if (
+              node.arguments.length > 2 &&
+              ts.isObjectLiteralExpression(node.arguments[2])
+            ) {
               const optionsObj = node.arguments[2];
               for (const prop of optionsObj.properties) {
-                if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-                  if (prop.name.text === 'tableName' && ts.isStringLiteral(prop.initializer)) {
+                if (
+                  ts.isPropertyAssignment(prop) &&
+                  ts.isIdentifier(prop.name)
+                ) {
+                  if (
+                    prop.name.text === "tableName" &&
+                    ts.isStringLiteral(prop.initializer)
+                  ) {
                     modelEntry.table_name = prop.initializer.text;
                   }
                 }
@@ -294,62 +350,60 @@ export function extractSequelizeModels(
   return { sequelize_models, sequelize_model_fields, sequelize_associations };
 }
 
-/**
- * Parse a Sequelize field definition
- */
 function parseSequelizeField(
   initializer: ts.Expression,
   sourceFile: ts.SourceFile,
   modelName: string,
   fieldName: string,
-  filePath: string
+  filePath: string,
 ): SequelizeModelField | null {
-  let dataType = 'unknown';
-  let isPrimaryKey = fieldName === 'id';
+  let dataType = "unknown";
+  let isPrimaryKey = fieldName === "id";
   let isNullable = true;
   let isUnique = false;
   let defaultValue: string | null = null;
 
-  // Handle direct DataType reference (e.g., DataTypes.STRING)
   if (ts.isPropertyAccessExpression(initializer)) {
     dataType = initializer.name.text;
-  }
-  // Handle DataType call (e.g., DataTypes.STRING(255))
-  else if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression)) {
+  } else if (
+    ts.isCallExpression(initializer) &&
+    ts.isPropertyAccessExpression(initializer.expression)
+  ) {
     dataType = initializer.expression.name.text;
     if (initializer.arguments.length > 0) {
       const arg = initializer.arguments[0].getText(sourceFile);
       dataType = `${dataType}(${arg})`;
     }
-  }
-  // Handle object definition (e.g., { type: DataTypes.STRING, allowNull: false })
-  else if (ts.isObjectLiteralExpression(initializer)) {
+  } else if (ts.isObjectLiteralExpression(initializer)) {
     for (const prop of initializer.properties) {
-      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name))
+        continue;
 
       const propName = prop.name.text;
       const propValue = prop.initializer;
 
-      if (propName === 'type') {
+      if (propName === "type") {
         if (ts.isPropertyAccessExpression(propValue)) {
           dataType = propValue.name.text;
-        } else if (ts.isCallExpression(propValue) && ts.isPropertyAccessExpression(propValue.expression)) {
+        } else if (
+          ts.isCallExpression(propValue) &&
+          ts.isPropertyAccessExpression(propValue.expression)
+        ) {
           dataType = propValue.expression.name.text;
         }
-      } else if (propName === 'primaryKey') {
+      } else if (propName === "primaryKey") {
         isPrimaryKey = propValue.kind === ts.SyntaxKind.TrueKeyword;
-      } else if (propName === 'allowNull') {
+      } else if (propName === "allowNull") {
         isNullable = propValue.kind === ts.SyntaxKind.TrueKeyword;
-      } else if (propName === 'unique') {
+      } else if (propName === "unique") {
         isUnique = propValue.kind === ts.SyntaxKind.TrueKeyword;
-      } else if (propName === 'defaultValue') {
+      } else if (propName === "defaultValue") {
         defaultValue = propValue.getText(sourceFile);
       }
     }
   }
 
-  // Only return if we found a valid data type
-  if (dataType !== 'unknown' || ts.isObjectLiteralExpression(initializer)) {
+  if (dataType !== "unknown" || ts.isObjectLiteralExpression(initializer)) {
     return {
       file: filePath,
       model_name: modelName,
@@ -364,9 +418,5 @@ function parseSequelizeField(
 
   return null;
 }
-
-// =============================================================================
-// EXPORTS
-// =============================================================================
 
 export { ExtractSequelizeResult };

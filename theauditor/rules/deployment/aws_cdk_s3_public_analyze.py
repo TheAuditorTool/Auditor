@@ -1,11 +1,4 @@
-"""AWS CDK S3 Public Access Detection - database-first rule.
-
-Detects S3 buckets with public read access enabled in CDK Python code.
-
-Checks:
-- public_read_access=True (CRITICAL)
-- Missing block_public_access configuration (HIGH)
-"""
+"""AWS CDK S3 Public Access Detection - database-first rule."""
 
 import logging
 import sqlite3

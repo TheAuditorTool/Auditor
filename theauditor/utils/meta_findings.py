@@ -1,10 +1,4 @@
-"""
-Meta-finding formatter for architectural insights.
-
-This module provides utilities to format meta-analysis findings (from graph,
-CFG, churn, coverage analyzers) into the standard findings_consolidated format
-for dual-write pattern: database (FCE performance) + JSON (AI consumption).
-"""
+"""Meta-finding formatter for architectural insights."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -21,52 +15,7 @@ def format_meta_finding(
     tool: str = "meta-analysis",
     additional_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Format a meta-analysis finding into standard findings_consolidated schema.
-
-    Meta-findings are factual observations about code architecture, complexity,
-    churn, and coverage. They maintain Truth Courier principles by reporting
-    only verifiable facts without interpretation (unless from insights module).
-
-    Args:
-        finding_type: Type of meta-finding (e.g., "HOTSPOT", "HIGH_COMPLEXITY",
-                     "HIGH_CHURN", "LOW_COVERAGE")
-        file_path: Path to the file where finding was detected
-        message: Human-readable description of the finding
-        severity: Severity level ("critical", "high", "medium", "low")
-        line: Line number (0 if file-level finding)
-        category: Finding category (default: "architectural")
-        confidence: Confidence score 0.0-1.0 (default: 1.0 for factual findings)
-        tool: Tool name (default: "meta-analysis")
-        additional_info: Optional dict of additional finding data
-
-    Returns:
-        Dict formatted for findings_consolidated table insertion
-
-    Example:
-        >>> format_meta_finding(
-        ...     finding_type="ARCHITECTURAL_HOTSPOT",
-        ...     file_path="src/core/auth.py",
-        ...     message="High connectivity: 47 dependencies",
-        ...     severity="high",
-        ...     confidence=1.0
-        ... )
-        {
-            'file': 'src/core/auth.py',
-            'line': 0,
-            'column': None,
-            'rule': 'ARCHITECTURAL_HOTSPOT',
-            'tool': 'meta-analysis',
-            'message': 'High connectivity: 47 dependencies',
-            'severity': 'high',
-            'category': 'architectural',
-            'confidence': 1.0,
-            'code_snippet': None,
-            'cwe': None,
-            'timestamp': '2025-01-...',
-            'additional_info': {...}
-        }
-    """
+    """Format a meta-analysis finding into standard findings_consolidated schema."""
     return {
         "file": file_path,
         "line": line,
@@ -85,18 +34,7 @@ def format_meta_finding(
 
 
 def format_hotspot_finding(hotspot: dict[str, Any]) -> dict[str, Any]:
-    """
-    Format a graph hotspot into a standard finding.
-
-    Args:
-        hotspot: Hotspot dict from graph analyzer with fields:
-                 - file or id: File path
-                 - score or total_connections: Connectivity score
-                 - in_degree, out_degree: Dependency counts
-
-    Returns:
-        Formatted finding dict
-    """
+    """Format a graph hotspot into a standard finding."""
     file_path = hotspot.get("file") or hotspot.get("id", "unknown")
     score = hotspot.get("score", hotspot.get("total_connections", 0))
     in_deg = hotspot.get("in_degree", 0)
@@ -128,17 +66,7 @@ def format_hotspot_finding(hotspot: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_cycle_finding(cycle: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Format a dependency cycle into findings (one per file in cycle).
-
-    Args:
-        cycle: Cycle dict from graph analyzer with fields:
-               - nodes: List of files in cycle
-               - size: Number of nodes in cycle
-
-    Returns:
-        List of formatted findings, one per file in cycle
-    """
+    """Format a dependency cycle into findings (one per file in cycle)."""
     findings = []
     nodes = cycle.get("nodes", [])
     size = cycle.get("size", len(nodes))
@@ -173,20 +101,7 @@ def format_cycle_finding(cycle: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def format_complexity_finding(func_data: dict[str, Any]) -> dict[str, Any]:
-    """
-    Format a high-complexity function into a standard finding.
-
-    Args:
-        func_data: Function complexity dict from CFG analyzer with fields:
-                   - file: File path
-                   - function: Function name
-                   - complexity: Cyclomatic complexity score
-                   - start_line: Function start line
-                   - block_count, has_loops: Additional metrics
-
-    Returns:
-        Formatted finding dict
-    """
+    """Format a high-complexity function into a standard finding."""
     file_path = func_data.get("file", "unknown")
     function_name = func_data.get("function", "unknown")
     complexity = func_data.get("complexity", 0)
@@ -217,20 +132,7 @@ def format_complexity_finding(func_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_churn_finding(file_data: dict[str, Any], threshold: int = 50) -> dict[str, Any] | None:
-    """
-    Format a high-churn file into a standard finding.
-
-    Args:
-        file_data: File churn dict from metadata collector with fields:
-                   - path: File path
-                   - commits_90d: Number of commits in last 90 days
-                   - unique_authors: Number of distinct authors
-                   - days_since_modified: Days since last modification
-        threshold: Minimum commits to flag (default: 50)
-
-    Returns:
-        Formatted finding dict, or None if below threshold
-    """
+    """Format a high-churn file into a standard finding."""
     file_path = file_data.get("path", "unknown")
     commits = file_data.get("commits_90d", 0)
     authors = file_data.get("unique_authors", 0)
@@ -266,20 +168,7 @@ def format_churn_finding(file_data: dict[str, Any], threshold: int = 50) -> dict
 def format_coverage_finding(
     file_data: dict[str, Any], threshold: float = 50.0
 ) -> dict[str, Any] | None:
-    """
-    Format a low-coverage file into a standard finding.
-
-    Args:
-        file_data: File coverage dict from metadata collector with fields:
-                   - path: File path
-                   - line_coverage_percent: Coverage percentage
-                   - lines_executed, lines_missing: Line counts
-                   - uncovered_lines: List of uncovered line numbers
-        threshold: Maximum coverage % to flag (default: 50%)
-
-    Returns:
-        Formatted finding dict, or None if above threshold
-    """
+    """Format a low-coverage file into a standard finding."""
     file_path = file_data.get("path", "unknown")
     coverage_pct = file_data.get("line_coverage_percent", 100.0)
     lines_missing = file_data.get("lines_missing", 0)

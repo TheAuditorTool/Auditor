@@ -1,17 +1,4 @@
-"""ML module for TheAuditor - Clean architecture.
-
-Public API:
-- learn(): Train ML models from historical data
-- suggest(): Generate predictions for workset files
-- check_ml_available(): Check if ML dependencies are installed
-
-Internal modules (exported for backwards compatibility):
-- loaders: Historical data loading
-- features: Database feature extraction
-- intelligence: Smart parsing (journal + raw artifacts)
-- models: Model operations
-- cli: CLI orchestration
-"""
+"""ML module for TheAuditor - Clean architecture."""
 
 from .cli import learn, suggest
 from .features import (

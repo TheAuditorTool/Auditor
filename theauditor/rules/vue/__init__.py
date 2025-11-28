@@ -1,9 +1,4 @@
-"""Vue.js-specific rule detectors for TheAuditor.
-
-This package contains database-first rules for detecting Vue.js
-anti-patterns, performance issues, and security vulnerabilities
-across Options API, Composition API, Vuex, and Pinia.
-"""
+"""Vue.js-specific rule detectors for TheAuditor."""
 
 from .component_analyze import find_vue_component_issues
 from .hooks_analyze import find_vue_hooks_issues

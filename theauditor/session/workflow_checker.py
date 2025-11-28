@@ -1,12 +1,4 @@
-"""WorkflowChecker - Validate agent execution against planning.md workflows.
-
-This module checks if agent execution follows defined workflows:
-- Did agent run `aud blueprint` first? (MANDATORY)
-- Did agent use `aud query` before editing? (MANDATORY)
-- Did agent read files before editing? (no blind edits)
-
-Returns compliance score and list of violations.
-"""
+"""WorkflowChecker - Validate agent execution against planning.md workflows."""
 
 import logging
 from dataclasses import asdict, dataclass
@@ -42,23 +34,12 @@ class WorkflowChecker:
     }
 
     def __init__(self, workflow_path: Path = None):
-        """Initialize workflow checker.
-
-        Args:
-            workflow_path: Path to planning.md (optional)
-        """
+        """Initialize workflow checker."""
         self.workflow_path = workflow_path
         self.workflows = self._parse_workflows() if workflow_path and workflow_path.exists() else {}
 
     def check_compliance(self, session: Session) -> WorkflowCompliance:
-        """Check if session followed workflow.
-
-        Args:
-            session: Session object to check
-
-        Returns:
-            WorkflowCompliance object with score and violations
-        """
+        """Check if session followed workflow."""
 
         tool_sequence = self._extract_tool_sequence(session)
 
@@ -83,34 +64,16 @@ class WorkflowChecker:
         )
 
     def _parse_workflows(self) -> dict[str, Any]:
-        """Parse workflows from planning.md.
-
-        Returns:
-            Dict of workflow definitions
-        """
+        """Parse workflows from planning.md."""
 
         return {}
 
     def _extract_tool_sequence(self, session: Session) -> list[ToolCall]:
-        """Extract chronological tool call sequence.
-
-        Args:
-            session: Session object
-
-        Returns:
-            List of ToolCall objects in chronological order
-        """
+        """Extract chronological tool call sequence."""
         return session.all_tool_calls
 
     def _check_blueprint_first(self, sequence: list[ToolCall]) -> bool:
-        """Check if aud blueprint was run before modifications.
-
-        Args:
-            sequence: List of tool calls
-
-        Returns:
-            True if blueprint ran before any Edit/Write, False otherwise
-        """
+        """Check if aud blueprint was run before modifications."""
         blueprint_run = False
 
         for call in sequence:
@@ -129,14 +92,7 @@ class WorkflowChecker:
         return True
 
     def _check_query_usage(self, sequence: list[ToolCall]) -> bool:
-        """Check if aud query was used before editing.
-
-        Args:
-            sequence: List of tool calls
-
-        Returns:
-            True if query used appropriately, False otherwise
-        """
+        """Check if aud query was used before editing."""
         for call in sequence:
             if call.tool_name == "Bash":
                 command = call.input_params.get("command", "")
@@ -149,14 +105,7 @@ class WorkflowChecker:
         return True
 
     def _check_blind_edits(self, sequence: list[ToolCall]) -> bool:
-        """Check if files were read before being edited.
-
-        Args:
-            sequence: List of tool calls
-
-        Returns:
-            True if all edits had prior reads, False otherwise
-        """
+        """Check if files were read before being edited."""
         files_read = set()
         blind_edits = []
 
@@ -179,14 +128,7 @@ class WorkflowChecker:
         return True
 
     def _calculate_compliance_score(self, checks: dict[str, bool]) -> float:
-        """Calculate compliance score from checks.
-
-        Args:
-            checks: Dict of check results
-
-        Returns:
-            Compliance score (0.0-1.0)
-        """
+        """Calculate compliance score from checks."""
         if not checks:
             return 0.0
 

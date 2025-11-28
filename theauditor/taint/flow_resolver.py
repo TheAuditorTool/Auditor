@@ -1,18 +1,4 @@
-"""Complete flow resolution engine for codebase truth generation.
-
-This module implements forward flow analysis to populate the resolved_flow_audit table
-with ALL control flows in the codebase, not just vulnerable ones. This transforms
-TheAuditor from a security scanner to a complete codebase resolution engine where
-the database becomes the queryable truth for AI agents.
-
-Architecture:
-    - Forward DFS traversal from ALL entry points to ALL exit points (memory-efficient)
-    - Records complete provenance (hop chains) for every flow
-    - Classifies flows as SAFE or TRUNCATED only (security rules applied later)
-    - Populates resolved_flow_audit table with >100,000 resolved flows
-    - Uses graph node IDs: file::function::variable (matches dfg_builder.py)
-    - Memory optimized: No redundant visited sets, DFS stack instead of BFS queue
-"""
+"""Complete flow resolution engine for codebase truth generation."""
 
 import json
 import sqlite3
@@ -32,20 +18,10 @@ USERCODE_MAX_VISITS = 10
 
 
 class FlowResolver:
-    """Resolves ALL control flows in codebase to populate resolved_flow_audit table.
-
-    This class implements the "Code-to-Truth Compiler" that transforms sprawling
-    codebases into structured knowledge that AI can query without reading source code.
-    """
+    """Resolves ALL control flows in codebase to populate resolved_flow_audit table."""
 
     def __init__(self, repo_db: str, graph_db: str, registry=None):
-        """Initialize the flow resolver with database connections.
-
-        Args:
-            repo_db: Path to repo_index.db containing extracted facts
-            graph_db: Path to graphs.db containing unified data flow graph
-            registry: Optional TaintRegistry for polyglot pattern loading
-        """
+        """Initialize the flow resolver with database connections."""
         self.repo_db = repo_db
         self.graph_db = graph_db
         self.registry = registry
@@ -67,14 +43,7 @@ class FlowResolver:
         self.best_paths_cache: dict[tuple, int] = {}
 
     def _preload_graph(self):
-        """Pre-load the entire data flow graph into memory for O(1) traversal.
-
-        This is the critical optimization that transforms FlowResolver from
-        "10 million SQL queries" to "1 SQL query + RAM lookups".
-
-        Memory cost: ~50-100MB for large codebases (totally acceptable).
-        Speed gain: 1000x faster traversal.
-        """
+        """Pre-load the entire data flow graph into memory for O(1) traversal."""
         logger.info("Pre-loading data flow graph into memory...")
         cursor = self.graph_conn.cursor()
 
@@ -95,18 +64,7 @@ class FlowResolver:
         )
 
     def resolve_all_flows(self) -> int:
-        """Complete forward flow resolution to generate atomic truth.
-
-        Algorithm:
-            1. Get ALL entry points from graph (not pattern-based)
-            2. Get ALL exit points from graph (not pattern-based)
-            3. Trace EVERY path from entry to exit using BFS
-            4. Record ALL paths with complete provenance
-            5. Write resolved flows to resolved_flow_audit table
-
-        Returns:
-            Number of flows resolved and written to database
-        """
+        """Complete forward flow resolution to generate atomic truth."""
         logger.info("Starting complete flow resolution...")
 
         self.repo_conn.execute("DELETE FROM resolved_flow_audit")
@@ -130,14 +88,7 @@ class FlowResolver:
         return self.flows_resolved
 
     def _get_language_for_file(self, file_path: str) -> str:
-        """Detect language from file extension.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            Language identifier ('python', 'javascript', 'rust', 'unknown')
-        """
+        """Detect language from file extension."""
         if not file_path:
             return "unknown"
 
@@ -151,19 +102,7 @@ class FlowResolver:
         return "unknown"
 
     def _get_request_fields(self, file_path: str) -> list[str]:
-        """Get request field patterns for a file's language.
-
-        ZERO FALLBACK: Registry is MANDATORY.
-
-        Args:
-            file_path: Path to file for language detection
-
-        Returns:
-            List of request field patterns (e.g., ['req.body', 'req.params'] for JS)
-
-        Raises:
-            ValueError: If registry is not provided (ZERO FALLBACK POLICY)
-        """
+        """Get request field patterns for a file's language."""
 
         if not self.registry:
             raise ValueError(
@@ -186,17 +125,7 @@ class FlowResolver:
         return request_patterns
 
     def _get_entry_nodes(self) -> list[str]:
-        """Get all entry points from the unified graph.
-
-        Entry points include:
-            - HTTP request sources (req.body, req.params, req.query) - DIRECT GRAPH QUERY
-            - API endpoints (cross_boundary edge targets)
-            - Environment variable accesses
-            - Main/index file exports
-
-        Returns:
-            List of node IDs (format: file::function::variable)
-        """
+        """Get all entry points from the unified graph."""
         cursor = self.graph_conn.cursor()
         entry_nodes = []
 
@@ -285,18 +214,7 @@ class FlowResolver:
         return entry_nodes
 
     def _get_exit_nodes(self) -> set[str]:
-        """Get all exit points from the unified graph.
-
-        Exit points are nodes in the graph that represent sinks:
-            - Variables passed to SQL query functions
-            - Variables passed to response functions
-            - Variables passed to external API calls
-            - Variables written to filesystem
-            - Variables logged to console
-
-        Returns:
-            Set of node IDs representing exit points (format: file::function::variable)
-        """
+        """Get all exit points from the unified graph."""
         exit_nodes = set()
         repo_cursor = self.repo_conn.cursor()
         graph_cursor = self.graph_conn.cursor()
@@ -463,12 +381,7 @@ class FlowResolver:
         return exit_nodes
 
     def _trace_from_entry(self, entry_id: str, exit_nodes: set[str]) -> None:
-        """Trace all flows from a single entry point using DFS with Adaptive Throttling.
-
-        Args:
-            entry_id: Entry point node ID (format: file::function::variable)
-            exit_nodes: Set of exit node IDs to trace to
-        """
+        """Trace all flows from a single entry point using DFS with Adaptive Throttling."""
 
         parts = entry_id.split("::")
         file_path = parts[0].lower()
@@ -532,34 +445,12 @@ class FlowResolver:
                 worklist.append((successor_id, new_path))
 
     def _get_successors(self, node_id: str) -> list[str]:
-        """Get successor nodes from in-memory graph cache (O(1) lookup).
-
-        Args:
-            node_id: Current node ID (format: file::function::variable)
-
-        Returns:
-            List of successor node IDs
-        """
+        """Get successor nodes from in-memory graph cache (O(1) lookup)."""
 
         return self.adjacency_list.get(node_id, [])
 
     def _classify_flow(self, path: list[str]) -> tuple[str, dict | None]:
-        """Classify a flow path based on sanitization.
-
-        Checks if the path goes through any sanitizers (validation frameworks
-        or safe sinks). Returns SANITIZED if it does, otherwise VULNERABLE.
-
-        The /rules/ directory will later reclassify VULNERABLE flows based on
-        specific security patterns.
-
-        Args:
-            path: Complete flow path from entry to exit
-
-        Returns:
-            Tuple of (status, sanitizer_metadata)
-            - status: "SANITIZED" or "VULNERABLE"
-            - sanitizer_metadata: Dict with sanitizer details or None
-        """
+        """Classify a flow path based on sanitization."""
 
         sanitizer_meta = self.sanitizer_registry._path_goes_through_sanitizer(path)
 
@@ -571,21 +462,7 @@ class FlowResolver:
     def _record_flow(
         self, source: str, sink: str, path: list[str], status: str, sanitizer_meta: dict | None
     ) -> None:
-        """Write resolved flow to resolved_flow_audit table with SEMANTIC DEDUPLICATION.
-
-        Optimization: "Truth over Noise".
-        We store only the SHORTEST path for every unique combination of:
-        (Source Node, Sink Node, Status, Sanitizer Method).
-
-        This reduces graph explosion (4k permutations) to distinct semantic outcomes (1-2 paths).
-
-        Args:
-            source: Entry point node ID (format: file::function::variable)
-            sink: Exit point node ID (format: file::function::variable)
-            path: Complete path from source to sink
-            status: Flow classification (VULNERABLE, SANITIZED, or TRUNCATED)
-            sanitizer_meta: Sanitizer metadata dict if flow is SANITIZED, None otherwise
-        """
+        """Write resolved flow to resolved_flow_audit table with SEMANTIC DEDUPLICATION."""
 
         if source == sink or len(path) < 2:
             return
@@ -724,35 +601,12 @@ class FlowResolver:
             logger.debug(f"Recorded {self.flows_resolved} semantic flows...")
 
     def _get_edge_type(self, from_node: str, to_node: str) -> str:
-        """Get the edge type between two nodes from in-memory cache (O(1) lookup).
-
-        Args:
-            from_node: Source node ID (format: file::function::variable)
-            to_node: Target node ID (format: file::function::variable)
-
-        Returns:
-            Edge type (assignment/return/parameter_binding/cross_boundary/etc)
-        """
+        """Get the edge type between two nodes from in-memory cache (O(1) lookup)."""
 
         return self.edge_types.get((from_node, to_node), "unknown")
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
-        """Extract variable name from argument expression.
-
-        Args:
-            arg_expr: Argument expression (e.g., "userInput", "req.body", "getUser()")
-
-        Returns:
-            Variable name or access path, None if not parseable
-
-        Examples:
-            "userInput" -> "userInput"
-            "req.body" -> "req.body"
-            "user.data.id" -> "user.data.id"
-            "getUser()" -> None (function call)
-            "'string'" -> None (literal)
-            "123" -> None (literal)
-        """
+        """Extract variable name from argument expression."""
         if not arg_expr or not isinstance(arg_expr, str):
             return None
 

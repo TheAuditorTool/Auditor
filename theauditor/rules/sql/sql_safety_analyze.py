@@ -1,10 +1,4 @@
-"""SQL Safety Analyzer - Phase 2 Clean Implementation.
-
-Database-first detection using ONLY indexed data. No AST traversal, no file I/O.
-Focuses on SQL safety patterns: missing WHERE, unbounded queries, transaction issues.
-
-Truth Courier Design: Reports facts about SQL patterns, not recommendations.
-"""
+"""SQL Safety Analyzer - Phase 2 Clean Implementation."""
 
 import re
 import sqlite3
@@ -14,10 +8,7 @@ from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, Stand
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:
-    """Adapter to let SQLite use Python's regex engine.
-
-    Usage in SQL: WHERE column REGEXP 'pattern'
-    """
+    """Adapter to let SQLite use Python's regex engine."""
     if item is None:
         return False
     try:
@@ -69,25 +60,7 @@ class SQLSafetyPatterns:
 
 
 def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect SQL safety issues using database queries.
-
-    Detection strategy:
-    1. Query sql_queries for UPDATE/DELETE without WHERE
-    2. Query sql_queries for SELECT without LIMIT
-    3. Query function_call_args for transaction patterns
-    4. Check for missing rollback in transaction scope
-    5. Detect SELECT *
-    6. Find connection leaks
-    7. Detect nested transactions
-    8. Find large IN clauses
-    9. Detect unindexed field queries
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of SQL safety findings
-    """
+    """Detect SQL safety issues using database queries."""
     findings = []
 
     if not context.db_path:
@@ -119,11 +92,7 @@ def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding
 
 
 def _find_update_without_where(cursor) -> list[StandardFinding]:
-    """Find UPDATE statements without WHERE clause.
-
-    FIXED: Moved WHERE check to SQL (was hiding bugs with LIMIT).
-    Uses word boundary regex to avoid matching 'somewhere' or 'elsewhere'.
-    """
+    """Find UPDATE statements without WHERE clause."""
     findings = []
 
     cursor.execute("""
@@ -162,10 +131,7 @@ def _find_update_without_where(cursor) -> list[StandardFinding]:
 
 
 def _find_delete_without_where(cursor) -> list[StandardFinding]:
-    """Find DELETE statements without WHERE clause.
-
-    FIXED: Moved WHERE/TRUNCATE checks to SQL (was hiding bugs with LIMIT).
-    """
+    """Find DELETE statements without WHERE clause."""
     findings = []
 
     cursor.execute("""
@@ -204,10 +170,7 @@ def _find_delete_without_where(cursor) -> list[StandardFinding]:
 
 
 def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
-    """Find SELECT queries without LIMIT that might return large datasets.
-
-    FIXED: Moved LIMIT/aggregate checks to SQL (was hiding bugs with LIMIT).
-    """
+    """Find SELECT queries without LIMIT that might return large datasets."""
     findings = []
 
     safe_tokens = [r"\bLIMIT\b", r"\bTOP\s+\d"]
@@ -267,10 +230,7 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[Standar
 
 
 def _find_select_star(cursor) -> list[StandardFinding]:
-    """Find SELECT * queries that fetch unnecessary columns.
-
-    FIXED: Moved SELECT * check to SQL with regex (handles whitespace variations).
-    """
+    """Find SELECT * queries that fetch unnecessary columns."""
     findings = []
 
     cursor.execute("""
@@ -319,11 +279,7 @@ def _find_select_star(cursor) -> list[StandardFinding]:
 def _find_transactions_without_rollback(
     cursor, patterns: SQLSafetyPatterns
 ) -> list[StandardFinding]:
-    """Find transactions that lack rollback in error handlers.
-
-    FIXED: Used Anti-Join pattern to eliminate N+1 query explosion.
-    Single query finds transactions WITHOUT matching rollbacks.
-    """
+    """Find transactions that lack rollback in error handlers."""
     findings = []
 
     cursor.execute("""
@@ -384,10 +340,7 @@ def _find_transactions_without_rollback(
 
 
 def _find_connection_leaks(cursor) -> list[StandardFinding]:
-    """Find database connections opened but not closed.
-
-    FIXED: Used Anti-Join pattern to eliminate N+1 query explosion.
-    """
+    """Find database connections opened but not closed."""
     findings = []
 
     cursor.execute("""
@@ -448,10 +401,7 @@ def _find_connection_leaks(cursor) -> list[StandardFinding]:
 
 
 def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
-    """Find nested transaction starts that could cause deadlocks.
-
-    FIXED: Used window function (LEAD) to eliminate Python grouping and N+1 queries.
-    """
+    """Find nested transaction starts that could cause deadlocks."""
     findings = []
 
     cursor.execute("""
@@ -500,10 +450,7 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> list[Stand
 
 
 def _find_large_in_clauses(cursor) -> list[StandardFinding]:
-    """Find queries with large IN clauses that could be inefficient.
-
-    FIXED: Moved IN clause check to SQL (was hiding bugs with LIMIT 25).
-    """
+    """Find queries with large IN clauses that could be inefficient."""
     findings = []
 
     cursor.execute("""
@@ -568,10 +515,7 @@ def _find_large_in_clauses(cursor) -> list[StandardFinding]:
 
 
 def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
-    """Find queries on potentially unindexed fields (heuristic-based).
-
-    FIXED: Moved WHERE check to SQL (was hiding bugs with LIMIT 30).
-    """
+    """Find queries on potentially unindexed fields (heuristic-based)."""
     findings = []
 
     cursor.execute("""

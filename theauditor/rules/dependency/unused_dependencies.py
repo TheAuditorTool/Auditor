@@ -1,19 +1,4 @@
-"""Detect unused dependencies - packages declared but never imported.
-
-Unused dependencies bloat package size, increase installation time, and
-create unnecessary security surface area. This rule finds packages that
-are declared in package.json or requirements.txt but never actually used.
-
-Detection Strategy:
-1. Query package_configs for all declared dependencies
-2. Query import_styles for all actual imports
-3. Find declared packages with zero imports
-4. Exclude dev dependencies that may not be directly imported
-
-Database Tables Used:
-- package_configs: Declared dependencies from package files
-- import_styles: Actual import/require statements in code
-"""
+"""Detect unused dependencies - packages declared but never imported."""
 
 import json
 import sqlite3
@@ -32,14 +17,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect packages declared in dependencies but never imported.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for unused dependencies
-    """
+    """Detect packages declared in dependencies but never imported."""
     findings = []
 
     if not context.db_path:
@@ -62,11 +40,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _get_declared_with_locations(cursor) -> dict[str, tuple]:
-    """Get declared dependencies with their file locations.
-
-    Returns:
-        Dict mapping package name -> (file_path, is_dev_dep, is_peer_dep)
-    """
+    """Get declared dependencies with their file locations."""
     declared = {}
 
     query = build_query(
@@ -108,11 +82,7 @@ def _get_declared_with_locations(cursor) -> dict[str, tuple]:
 
 
 def _get_imported_package_names(cursor) -> set[str]:
-    """Get all imported package names (normalized).
-
-    Returns:
-        Set of imported package names (lowercase, base package only)
-    """
+    """Get all imported package names (normalized)."""
     imported = set()
 
     query = build_query("import_styles", ["package"])
@@ -144,15 +114,7 @@ def _normalize_package_name(package: str) -> str:
 
 
 def _find_unused(declared_deps: dict[str, tuple], imported: set[str]) -> list[StandardFinding]:
-    """Find declared dependencies that are never imported.
-
-    Args:
-        declared_deps: Dict of package -> (file, is_dev, is_peer)
-        imported: Set of imported package names
-
-    Returns:
-        List of findings for unused dependencies
-    """
+    """Find declared dependencies that are never imported."""
     findings = []
 
     for package, (file_path, is_dev, is_peer) in declared_deps.items():

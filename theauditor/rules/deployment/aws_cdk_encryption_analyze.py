@@ -1,12 +1,4 @@
-"""AWS CDK Encryption Detection - database-first rule.
-
-Detects unencrypted storage resources in CDK Python code.
-
-Checks:
-- RDS DatabaseInstance without storage_encrypted
-- EBS Volume without encrypted
-- DynamoDB Table with default encryption (not customer-managed)
-"""
+"""AWS CDK Encryption Detection - database-first rule."""
 
 import logging
 import sqlite3

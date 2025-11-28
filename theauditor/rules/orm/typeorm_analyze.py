@@ -1,14 +1,4 @@
-"""TypeORM Analyzer - Database-First Approach.
-
-Detects TypeORM anti-patterns and performance issues using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""TypeORM Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -151,24 +141,7 @@ TYPEORM_SOURCES = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect TypeORM anti-patterns and performance issues.
-
-    Detects:
-    - Unbounded queries without pagination
-    - N+1 query patterns
-    - Missing transactions for multiple writes
-    - Unsafe raw SQL queries
-    - Dangerous cascade configurations
-    - synchronize: true in production
-    - Missing database indexes
-    - Complex joins without limits
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of TypeORM issues found
-    """
+    """Detect TypeORM anti-patterns and performance issues."""
     findings = []
 
     if not context.db_path:
@@ -587,14 +560,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def register_taint_patterns(taint_registry):
-    """Register TypeORM-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    ORM-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register TypeORM-specific taint patterns."""
     for pattern in RAW_QUERY_METHODS:
         taint_registry.register_sink(pattern, "sql", "javascript")
         taint_registry.register_sink(pattern, "sql", "typescript")

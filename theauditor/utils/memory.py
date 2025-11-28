@@ -1,8 +1,4 @@
-"""Memory management utilities for TheAuditor.
-
-This module provides intelligent memory limit detection based on system resources.
-Philosophy: SAST tools need RAM. If you're running complex analysis, allocate accordingly.
-"""
+"""Memory management utilities for TheAuditor."""
 
 import os
 import platform
@@ -42,19 +38,7 @@ else:
 
 
 def get_recommended_memory_limit() -> int:
-    """Get recommended memory limit based on system RAM.
-
-    Uses 60% of available RAM because complex SAST analysis needs resources.
-    If you're analyzing enterprise codebases, you need enterprise hardware.
-
-    Priority order:
-    1. Environment variable THEAUDITOR_MEMORY_LIMIT_MB
-    2. Auto-detection (60% of system RAM)
-    3. Fallback to 12GB if detection fails
-
-    Returns:
-        Memory limit in MB (minimum 2GB, maximum 48GB)
-    """
+    """Get recommended memory limit based on system RAM."""
 
     env_limit = os.environ.get(ENV_MEMORY_LIMIT)
     if env_limit:
@@ -130,11 +114,7 @@ def get_recommended_memory_limit() -> int:
 
 
 def get_available_memory() -> int:
-    """Get currently available system memory in MB.
-
-    Returns:
-        Available memory in MB, or -1 if cannot detect
-    """
+    """Get currently available system memory in MB."""
     try:
         if platform.system() == "Windows":
             memory_status = MEMORYSTATUSEX()

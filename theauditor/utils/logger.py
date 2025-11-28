@@ -5,16 +5,7 @@ import sys
 
 
 def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """
-    Set up a simple logger.
-
-    Args:
-        name: Logger name (usually __name__)
-        level: Logging level
-
-    Returns:
-        Configured logger instance
-    """
+    """Set up a simple logger."""
     logger = logging.getLogger(name)
 
     if not logger.handlers:

@@ -1,21 +1,4 @@
-"""
-Security-focused schema definitions - Cross-language security patterns.
-
-This module contains table schemas for security analysis patterns:
-- Environment variable usage (secrets detection)
-- SQL query tracking (SQL injection detection)
-- JWT token patterns (authentication security)
-
-Design Philosophy:
-- Language-agnostic security patterns (Python, Node, shell scripts)
-- Used by security rules and taint analysis
-- Focused on vulnerability detection (SQL injection, hardcoded secrets, JWT misuse)
-
-These tables are populated by multiple extractors:
-- ENV_VAR_USAGE: Python extractor (process.env), Node extractor (os.environ), shell scripts
-- SQL_QUERIES/SQL_QUERY_TABLES: Python extractor, Node extractor, raw SQL files
-- JWT_PATTERNS: Python extractor, Node extractor
-"""
+"""Security-focused schema definitions - Cross-language security patterns."""
 
 from .utils import Column, ForeignKey, TableSchema
 

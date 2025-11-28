@@ -68,12 +68,7 @@ class SessionAnalyzer:
     def analyze_session(
         self, session: Session, comment_graveyard_path: Path = None
     ) -> tuple[SessionStats, list[Finding]]:
-        """Analyze a single session and return stats + findings.
-
-        Args:
-            session: Parsed session object
-            comment_graveyard_path: Optional path to comment_graveyard.json for hallucination detection
-        """
+        """Analyze a single session and return stats + findings."""
         stats = self._compute_stats(session)
         findings = []
 
@@ -200,17 +195,7 @@ class SessionAnalyzer:
     def _detect_comment_hallucinations(
         self, session: Session, graveyard_path: Path = None
     ) -> list[Finding]:
-        """
-        Detect when AI references comments that may not match reality.
-
-        This detects the "hallucination feedback loop" where:
-        1. AI reads a comment
-        2. AI says "this comment says X"
-        3. The comment actually said Y (or was misleading)
-        4. AI makes decisions based on hallucinated understanding
-
-        Cross-references against comment_graveyard.json if available.
-        """
+        """Detect when AI references comments that may not match reality."""
         findings = []
 
         graveyard_by_file = defaultdict(list)

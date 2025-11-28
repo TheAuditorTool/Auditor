@@ -1,23 +1,4 @@
-"""
-theauditor/linters.py - Run external linters and store findings.
-
-PHILOSOPHY:
-- Database-first: Query files table, don't walk filesystem
-- Config-driven: Use .auditor_venv/.theauditor_tools/ configs
-- Tool-native: Use --format json, no regex parsing
-- Single responsibility: One clear job per function
-- Dual-write: Database + JSON (Truth Courier architecture)
-
-FLOW:
-1. Query database for files by extension
-2. Run tool with --format json --output-file <path>
-3. Parse JSON output (trivial json.load())
-4. Write to findings_consolidated table
-5. Write to .pf/raw/lint.json for AI consumption
-
-ARCHITECT APPROVED: 2025-10-10
-AUDIT FIXES APPLIED: 2025-10-10
-"""
+"""theauditor/linters.py - Run external linters and store findings."""
 
 import json
 import platform
@@ -47,16 +28,7 @@ class LinterOrchestrator:
     """Coordinates running external linters on project files."""
 
     def __init__(self, root_path: str, db_path: str):
-        """Initialize with project root and database path.
-
-        Args:
-            root_path: Project root directory
-            db_path: Path to repo_index.db
-
-        Raises:
-            ValueError: If paths are invalid
-            RuntimeError: If toolbox doesn't exist
-        """
+        """Initialize with project root and database path."""
         self.root = Path(root_path).resolve()
 
         if not self.root.exists():
@@ -80,14 +52,7 @@ class LinterOrchestrator:
         logger.info(f"LinterOrchestrator initialized: root={self.root}, toolbox={self.toolbox}")
 
     def run_all_linters(self, workset_files: list[str] | None = None) -> list[dict[str, Any]]:
-        """Run all available linters on appropriate files.
-
-        Args:
-            workset_files: Optional list of file paths to lint (None = all files)
-
-        Returns:
-            List of finding dictionaries
-        """
+        """Run all available linters on appropriate files."""
         findings = []
 
         js_files = self._get_source_files([".js", ".jsx", ".ts", ".tsx", ".mjs"])
@@ -124,14 +89,7 @@ class LinterOrchestrator:
         return findings
 
     def _get_source_files(self, extensions: list[str]) -> list[str]:
-        """Query database for source files with given extensions.
-
-        Args:
-            extensions: List of file extensions (e.g., ['.js', '.py'])
-
-        Returns:
-            List of file paths from database (empty list on error)
-        """
+        """Query database for source files with given extensions."""
         try:
             cursor = self.db.conn.cursor()
             placeholders = ",".join("?" * len(extensions))
@@ -155,17 +113,7 @@ class LinterOrchestrator:
             return []
 
     def _get_venv_binary(self, name: str) -> Path:
-        """Get path to binary in venv.
-
-        Args:
-            name: Binary name (e.g., 'ruff', 'mypy')
-
-        Returns:
-            Path to binary
-
-        Raises:
-            FileNotFoundError: If binary is not found in venv
-        """
+        """Get path to binary in venv."""
         venv_bin = self.root / ".auditor_venv" / ("Scripts" if IS_WINDOWS else "bin")
         binary = venv_bin / (f"{name}.exe" if IS_WINDOWS else name)
 
@@ -178,16 +126,7 @@ class LinterOrchestrator:
         return binary
 
     def _run_eslint(self, files: list[str]) -> list[dict[str, Any]]:
-        """Run ESLint with our config and parse output.
-
-        Uses batching to avoid command-line length limits (Windows 8191 chars, Linux ~2MB).
-
-        Args:
-            files: List of file paths to lint
-
-        Returns:
-            List of finding dictionaries
-        """
+        """Run ESLint with our config and parse output."""
 
         config_path = self.toolbox / "eslint.config.cjs"
         if not config_path.exists():
@@ -218,17 +157,7 @@ class LinterOrchestrator:
     def _run_eslint_batch(
         self, files: list[str], eslint_bin: Path, config_path: Path, batch_num: int
     ) -> list[dict[str, Any]]:
-        """Run ESLint on a single batch of files.
-
-        Args:
-            files: Batch of file paths to lint
-            eslint_bin: Path to ESLint binary
-            config_path: Path to ESLint config
-            batch_num: Batch number for output file naming
-
-        Returns:
-            List of finding dictionaries from this batch
-        """
+        """Run ESLint on a single batch of files."""
 
         temp_dir = self.root / ".pf" / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -293,16 +222,7 @@ class LinterOrchestrator:
         return findings
 
     def _run_ruff(self, files: list[str]) -> list[dict[str, Any]]:
-        """Run Ruff with our config and parse output.
-
-        Uses batching to avoid command-line length limits.
-
-        Args:
-            files: List of file paths to lint
-
-        Returns:
-            List of finding dictionaries
-        """
+        """Run Ruff with our config and parse output."""
 
         config_path = self.toolbox / "pyproject.toml"
         if not config_path.exists():
@@ -327,17 +247,7 @@ class LinterOrchestrator:
     def _run_ruff_batch(
         self, files: list[str], ruff_bin: Path, config_path: Path, batch_num: int
     ) -> list[dict[str, Any]]:
-        """Run Ruff on a single batch of files.
-
-        Args:
-            files: Batch of file paths to lint
-            ruff_bin: Path to Ruff binary
-            config_path: Path to Ruff config
-            batch_num: Batch number for output file naming
-
-        Returns:
-            List of finding dictionaries from this batch
-        """
+        """Run Ruff on a single batch of files."""
 
         temp_dir = self.root / ".pf" / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -415,16 +325,7 @@ class LinterOrchestrator:
         return findings
 
     def _run_mypy(self, files: list[str]) -> list[dict[str, Any]]:
-        """Run Mypy with our config and parse output.
-
-        Uses batching to avoid command-line length limits.
-
-        Args:
-            files: List of file paths to type-check
-
-        Returns:
-            List of finding dictionaries
-        """
+        """Run Mypy with our config and parse output."""
 
         config_path = self.toolbox / "pyproject.toml"
         if not config_path.exists():
@@ -449,17 +350,7 @@ class LinterOrchestrator:
     def _run_mypy_batch(
         self, files: list[str], mypy_bin: Path, config_path: Path, batch_num: int
     ) -> list[dict[str, Any]]:
-        """Run Mypy on a single batch of files.
-
-        Args:
-            files: Batch of file paths to type-check
-            mypy_bin: Path to Mypy binary
-            config_path: Path to Mypy config
-            batch_num: Batch number for output file naming
-
-        Returns:
-            List of finding dictionaries from this batch
-        """
+        """Run Mypy on a single batch of files."""
 
         temp_dir = self.root / ".pf" / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -561,16 +452,7 @@ class LinterOrchestrator:
         return findings
 
     def _normalize_path(self, path: str) -> str:
-        """Normalize path to forward slashes and make relative to project root.
-
-        Includes path traversal protection per security audit.
-
-        Args:
-            path: Absolute or relative path
-
-        Returns:
-            Normalized relative path with forward slashes
-        """
+        """Normalize path to forward slashes and make relative to project root."""
         path = path.replace("\\", "/")
 
         try:
@@ -591,14 +473,7 @@ class LinterOrchestrator:
         return path
 
     def _write_json_output(self, findings: list[dict[str, Any]]):
-        """Write findings to JSON file for AI consumption.
-
-        Args:
-            findings: List of finding dictionaries
-
-        Raises:
-            IOError: If file write fails (disk full, permissions, etc.)
-        """
+        """Write findings to JSON file for AI consumption."""
         output_file = self.root / ".pf" / "raw" / "lint.json"
 
         try:
@@ -621,14 +496,7 @@ class LinterOrchestrator:
             raise OSError(f"Failed to write {output_file}: {e}") from e
 
     def _run_clippy(self) -> list[dict[str, Any]]:
-        """Run Cargo Clippy on Rust project and parse output.
-
-        Clippy runs at the workspace level, not per-file. It analyzes the entire
-        Rust project and reports issues across all .rs files.
-
-        Returns:
-            List of finding dictionaries
-        """
+        """Run Cargo Clippy on Rust project and parse output."""
 
         cargo_toml = self.root / "Cargo.toml"
         if not cargo_toml.exists():

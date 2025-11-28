@@ -1,15 +1,4 @@
-"""Central UI handler for TheAuditor.
-
-Single source of truth for Rich console styling. Import this instead of
-instantiating Console() in every command file.
-
-Usage:
-    from theauditor.pipeline.ui import console, print_header, print_error
-
-    console.print("[success]All checks passed[/success]")
-    print_header("AUDIT RESULTS")
-    print_error("Database not found")
-"""
+"""Central UI handler for TheAuditor."""
 
 import sys
 
@@ -18,26 +7,25 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-# TheAuditor V2.0 Theme - consistent colors across all commands
-AUDITOR_THEME = Theme({
-    "info": "bold cyan",
-    "warning": "bold yellow",
-    "error": "bold red",
-    "success": "bold green",
-    "critical": "bold red",
-    "high": "bold yellow",
-    "medium": "bold blue",
-    "low": "cyan",
-    "cmd": "bold magenta",
-    "path": "bold cyan",
-    "dim": "dim white",
-})
 
-# Single console instance - import this, don't create your own
-console = Console(
-    theme=AUDITOR_THEME,
-    force_terminal=sys.stdout.isatty()
+AUDITOR_THEME = Theme(
+    {
+        "info": "bold cyan",
+        "warning": "bold yellow",
+        "error": "bold red",
+        "success": "bold green",
+        "critical": "bold red",
+        "high": "bold yellow",
+        "medium": "bold blue",
+        "low": "cyan",
+        "cmd": "bold magenta",
+        "path": "bold cyan",
+        "dim": "dim white",
+    }
 )
+
+
+console = Console(theme=AUDITOR_THEME, force_terminal=sys.stdout.isatty())
 
 
 def print_header(title: str) -> None:
@@ -60,20 +48,8 @@ def print_success(msg: str) -> None:
     console.print(f"[success]OK:[/success] {msg}")
 
 
-def print_status_panel(
-    status: str,
-    message: str,
-    detail: str,
-    level: str = "info"
-) -> None:
-    """Print a status panel with colored border.
-
-    Args:
-        status: Status label (e.g., "CRITICAL", "CLEAN")
-        message: Main message line
-        detail: Additional detail line
-        level: One of "critical", "high", "medium", "low", "success", "info"
-    """
+def print_status_panel(status: str, message: str, detail: str, level: str = "info") -> None:
+    """Print a status panel with colored border."""
     style_map = {
         "critical": ("bold red", "red"),
         "high": ("bold yellow", "yellow"),
@@ -88,9 +64,9 @@ def print_status_panel(
         Text.assemble(
             (f"STATUS: [{status}]\n", text_style),
             (f"{message}\n", border_style),
-            (detail, border_style)
+            (detail, border_style),
         ),
         border_style=border_style,
-        expand=False
+        expand=False,
     )
     console.print(panel)

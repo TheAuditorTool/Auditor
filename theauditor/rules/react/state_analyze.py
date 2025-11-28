@@ -1,10 +1,4 @@
-"""React State Analyzer - Database-Driven Implementation.
-
-Detects React state management issues and anti-patterns using data from
-react_hooks, variable_usage, and assignments tables.
-
-Focuses on state complexity, prop drilling, and state management best practices.
-"""
+"""React State Analyzer - Database-Driven Implementation."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -77,21 +71,13 @@ class ReactStateAnalyzer:
     """Analyzer for React state management patterns and issues."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ReactStatePatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of React state management issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -497,16 +483,6 @@ class ReactStateAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React state management issues and anti-patterns.
-
-    Uses data from react_hooks and related tables to identify state
-    complexity, prop drilling, and management issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of React state management issues found
-    """
+    """Detect React state management issues and anti-patterns."""
     analyzer = ReactStateAnalyzer(context)
     return analyzer.analyze()

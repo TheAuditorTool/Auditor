@@ -1273,7 +1273,6 @@ def _get_dependencies(cursor) -> dict:
         "workspaces": [],
     }
 
-    # Query npm package configs - tables guaranteed to exist after indexing
     cursor.execute("""
         SELECT file_path, package_name, version, dependencies, dev_dependencies
         FROM package_configs
@@ -1304,15 +1303,10 @@ def _get_dependencies(cursor) -> dict:
         deps["total"] += len(prod_deps) + len(dev_deps)
 
         for name, ver in prod_deps.items():
-            deps["packages"].append(
-                {"name": name, "version": ver, "manager": "npm", "dev": False}
-            )
+            deps["packages"].append({"name": name, "version": ver, "manager": "npm", "dev": False})
         for name, ver in dev_deps.items():
-            deps["packages"].append(
-                {"name": name, "version": ver, "manager": "npm", "dev": True}
-            )
+            deps["packages"].append({"name": name, "version": ver, "manager": "npm", "dev": True})
 
-    # Query Python package configs
     cursor.execute("""
         SELECT file_path, project_name, project_version, dependencies, optional_dependencies
         FROM python_package_configs
@@ -1432,7 +1426,6 @@ def _show_deps_drilldown(data: dict, cursor):
         else:
             click.echo("  (No outdated package data - run 'aud deps --check-latest')")
     except sqlite3.OperationalError:
-        # dependency_versions table only exists after 'aud deps --check-latest'
         click.echo("  (No version check data - run 'aud deps --check-latest')")
 
     click.echo("\nRelated Commands:")

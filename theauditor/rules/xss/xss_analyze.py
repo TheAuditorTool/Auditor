@@ -1,15 +1,4 @@
-"""XSS Detection - Framework-Aware Golden Standard Implementation.
-
-CRITICAL: This module queries frameworks table to eliminate false positives.
-Uses frozensets for O(1) lookups following Golden Standard pattern.
-
-NO AST TRAVERSAL. NO FILE I/O. Pure database queries.
-
-REFACTORED (2025-11-22):
-- Constants moved to constants.py (Single Source of Truth)
-- Context manager + sqlite3.Row for name-based access
-- SANITIZER_CALL_PATTERNS with '(' to prevent FPs on definitions
-"""
+"""XSS Detection - Framework-Aware Golden Standard Implementation."""
 
 import sqlite3
 
@@ -37,14 +26,7 @@ METADATA = RuleMetadata(
 
 
 def find_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Main XSS detection with framework awareness.
-
-    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
-    PHASE 2: Integrates SanitizerRegistry for unified sanitizer intelligence.
-
-    Returns:
-        List of XSS findings with drastically reduced false positives
-    """
+    """Main XSS detection with framework awareness."""
     findings = []
 
     if not context.db_path:
@@ -419,11 +401,7 @@ def _check_react_dangerouslysetinnerhtml(cursor: sqlite3.Cursor) -> list[Standar
 
 
 def _check_vue_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
-    """Check Vue v-html directives with user input.
-
-    NO FALLBACKS. Schema contract guarantees vue_directives table exists.
-    If table missing, rule MUST crash to expose indexer bug.
-    """
+    """Check Vue v-html directives with user input."""
     findings = []
 
     cursor.execute("""
@@ -837,9 +815,5 @@ def _check_postmessage_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_xss_issues(context)

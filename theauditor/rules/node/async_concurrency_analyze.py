@@ -1,12 +1,4 @@
-"""Golden Standard JavaScript/TypeScript Async and Concurrency Analyzer.
-
-Detects race conditions, async issues, and concurrency problems via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
-
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""Golden Standard JavaScript/TypeScript Async and Concurrency Analyzer."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -233,16 +225,7 @@ class AsyncPatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect async and concurrency issues in JavaScript/TypeScript.
-
-    This is the main entry point called by the orchestrator.
-
-    Args:
-        context: Standardized rule context with project metadata
-
-    Returns:
-        List of async/concurrency security findings
-    """
+    """Detect async and concurrency issues in JavaScript/TypeScript."""
     analyzer = AsyncConcurrencyAnalyzer(context)
     return analyzer.analyze()
 
@@ -746,38 +729,13 @@ class AsyncConcurrencyAnalyzer:
             pass
 
     def _extract_base_object(self, callee_function: str) -> str:
-        """Extract base object from function call.
-
-        Examples:
-            'fs.existsSync' → 'fs'
-            'user.save' → 'user'
-            'save' → '' (no object)
-
-        Args:
-            callee_function: Function call string
-
-        Returns:
-            Base object name or empty string
-        """
+        """Extract base object from function call."""
         if "." in callee_function:
             return callee_function.split(".")[0]
         return ""
 
     def _extract_operation_target(self, callee_function: str, argument_expr: str) -> str:
-        """Extract operation target (object + first argument).
-
-        Examples:
-            ('fs.existsSync', 'filePath') → 'fs:filePath'
-            ('user.save', '') → 'user'
-            ('save', '') → ''
-
-        Args:
-            callee_function: Function being called
-            argument_expr: Argument expression string
-
-        Returns:
-            Target identifier for grouping operations
-        """
+        """Extract operation target (object + first argument)."""
         base_obj = self._extract_base_object(callee_function)
 
         first_arg = ""
@@ -794,16 +752,7 @@ class AsyncConcurrencyAnalyzer:
         return ""
 
     def _calculate_toctou_confidence(self, check_func: str, write_func: str, target: str) -> float:
-        """Calculate confidence that this is a real TOCTOU vulnerability.
-
-        Args:
-            check_func: Check function name
-            write_func: Write function name
-            target: Target identifier
-
-        Returns:
-            0.0-1.0 confidence score
-        """
+        """Calculate confidence that this is a real TOCTOU vulnerability."""
         confidence = 0.5
 
         if "fs." in check_func or "fs." in write_func:

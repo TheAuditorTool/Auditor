@@ -1,60 +1,5 @@
 # ruff: noqa: N999 - UPPERCASE name is intentional for template visibility
-"""RULE TEMPLATE: Standard Backend/Database Rule (No JSX Required).
-
-================================================================================
-RULE TEMPLATE DOCUMENTATION
-================================================================================
-
-⚠️ CRITICAL: FUNCTION NAMING REQUIREMENT
---------------------------------------------------------------------------------
-Your rule function MUST start with 'find_' prefix:
-  ✅ def find_sql_injection(context: StandardRuleContext)
-  ✅ def find_hardcoded_secrets(context: StandardRuleContext)
-  ❌ def analyze(context: StandardRuleContext)  # WRONG - Won't be discovered!
-  ❌ def detect_xss(context: StandardRuleContext)  # WRONG - Must start with find_
-
-The orchestrator ONLY discovers functions starting with 'find_'. Any other
-name will be silently ignored and your rule will never run.
---------------------------------------------------------------------------------
-
-⚠️ CRITICAL: StandardFinding PARAMETER NAMES
---------------------------------------------------------------------------------
-ALWAYS use these EXACT parameter names when creating findings:
-  ✅ file_path=     (NOT file=)
-  ✅ rule_name=     (NOT rule=)
-  ✅ cwe_id=        (NOT cwe=)
-  ✅ severity=Severity.HIGH (NOT severity='HIGH')
-
-Using wrong names will cause RUNTIME CRASHES. See examples at line 250.
---------------------------------------------------------------------------------
-
-This template is for STANDARD RULES that analyze backend code, databases, or
-general language patterns. These rules:
-
-✅ Run on: .py, .js, .ts files (backend/server code)
-✅ Query: Standard tables (function_call_args, symbols, assignments, etc.)
-✅ Skip: Frontend JSX/TSX files (filtered by orchestrator)
-❌ Do NOT use: JSX-specific tables (*_jsx tables)
-
-WHEN TO USE THIS TEMPLATE:
-- SQL injection detection
-- Authentication/authorization issues
-- Backend API security
-- Database query analysis
-- Server-side validation
-- ORM/database patterns
-- Python/Node.js specific issues
-
-WHEN NOT TO USE THIS TEMPLATE:
-- React/Vue component analysis → Use TEMPLATE_JSX_RULE.py
-- Frontend-specific XSS → Use TEMPLATE_JSX_RULE.py
-- JSX element injection → Use TEMPLATE_JSX_RULE.py
-
-================================================================================
-TEMPLATE BASED ON: sql_injection_analyze.py (Production Rule)
-RULE METADATA: Declares file targeting to skip frontend files
-================================================================================
-"""
+"""RULE TEMPLATE: Standard Backend/Database Rule (No JSX Required)."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -73,13 +18,7 @@ METADATA = RuleMetadata(
 
 @dataclass(frozen=True)
 class YourRulePatterns:
-    """Pattern definitions for your security rule.
-
-    Design principles:
-    - Use frozensets for O(1) membership tests
-    - No regex (use string matching on indexed database fields)
-    - Keep patterns finite and maintainable
-    """
+    """Pattern definitions for your security rule."""
 
     DANGEROUS_FUNCTIONS: frozenset = frozenset(
         [
@@ -104,36 +43,7 @@ class YourRulePatterns:
 
 
 def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect [YOUR VULNERABILITY TYPE] using database-only approach.
-
-    REQUIRED DOCSTRING STRUCTURE:
-    1. One-line summary of what this rule detects
-    2. Detection strategy (how it works)
-    3. Database tables used
-    4. Known limitations
-
-    Detection Strategy:
-    1. Query function_call_args for dangerous function calls
-    2. Check if arguments contain user input patterns
-    3. Exclude if sanitization detected
-    4. Filter out test files, migrations, frontend
-
-    Database Tables Used:
-    - function_call_args: For detecting function calls
-    - assignments: For tracking data flow
-    - symbols: For function definitions (optional)
-
-    Args:
-        context: Rule execution context with db_path, project_path, etc.
-
-    Returns:
-        List of findings (empty list if no issues found)
-
-    Known Limitations:
-    - Cannot detect dynamic function names (variables)
-    - May miss obfuscated patterns
-    - Requires accurate AST extraction
-    """
+    """Detect [YOUR VULNERABILITY TYPE] using database-only approach."""
     findings = []
 
     if not context.db_path:
@@ -154,13 +64,7 @@ def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardFinding]:
-    """Check for dangerous function calls with user input.
-
-    Query pattern:
-    1. Find all calls to dangerous functions
-    2. Check if arguments contain user input
-    3. Deduplicate by file:line
-    """
+    """Check for dangerous function calls with user input."""
     findings = []
 
     dangerous_funcs = ", ".join(f"'{func}'" for func in patterns.DANGEROUS_FUNCTIONS)
@@ -211,10 +115,7 @@ def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardF
 
 
 def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> list[StandardFinding]:
-    """Check for direct user input flow to dangerous sinks.
-
-    Uses assignments table to track data flow.
-    """
+    """Check for direct user input flow to dangerous sinks."""
     findings = []
 
     cursor.execute("""

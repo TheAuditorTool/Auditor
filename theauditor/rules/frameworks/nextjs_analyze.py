@@ -1,14 +1,4 @@
-"""Next.js Framework Security Analyzer - Database-First Approach.
-
-Analyzes Next.js applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Next.js Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -80,30 +70,7 @@ CSRF_INDICATORS = frozenset(["csrf", "CSRF", "csrfToken", "X-CSRF-Token", "next-
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Next.js security vulnerabilities using indexed data.
-
-    Detects (from database):
-    - API route secret exposure
-    - Open redirect vulnerabilities
-    - Server-side rendering injection risks
-    - NEXT_PUBLIC sensitive data exposure
-    - Missing CSRF in API routes
-    - Exposed error details in production
-    - Dangerous HTML serialization without sanitization
-    - Missing rate limiting on API routes
-
-    Known Limitations (requires AST/runtime analysis):
-    - Cannot detect "use server" directives (string literals not indexed)
-    - Cannot reliably detect Server Actions (Next.js 13+ feature)
-    - Cannot detect middleware order or configuration
-    - Cannot analyze Next.js config files (next.config.js)
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Next.js security vulnerabilities using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -434,14 +401,7 @@ DANGEROUS_SINKS = frozenset(
 
 
 def register_taint_patterns(taint_registry):
-    """Register Next.js-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Next.js-specific taint patterns."""
 
     for pattern in RESPONSE_FUNCTIONS | REDIRECT_FUNCTIONS:
         taint_registry.register_sink(pattern, "nextjs", "javascript")

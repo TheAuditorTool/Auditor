@@ -1,24 +1,4 @@
-"""Session Management Security Analyzer - Database-First Approach.
-
-Detects session and cookie security vulnerabilities using database-driven approach.
-Follows gold standard patterns from jwt_analyze.py.
-
-NO AST TRAVERSAL. NO FILE I/O. PURE DATABASE QUERIES.
-
-Detects:
-- Missing httpOnly flag on session cookies (XSS can steal sessions)
-- Missing secure flag on cookies (MITM attacks)
-- Missing SameSite attribute (CSRF attacks)
-- Session fixation vulnerabilities
-- Missing session timeout/expiration
-
-CWE Coverage:
-- CWE-1004: Sensitive Cookie Without 'HttpOnly' Flag
-- CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute
-- CWE-352: Cross-Site Request Forgery (CSRF)
-- CWE-384: Session Fixation
-- CWE-613: Insufficient Session Expiration
-"""
+"""Session Management Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -66,23 +46,7 @@ SESSION_COOKIE_KEYWORDS = frozenset(["session", "auth", "token", "sid"])
 
 
 def find_session_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect session and cookie security vulnerabilities.
-
-    This is a database-first rule following the gold standard pattern.
-    NO file I/O, NO AST traversal - only SQL queries on indexed data.
-    All pattern matching done in Python after database fetch.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of session security findings
-
-    Example findings:
-        - res.cookie('token', jwt) without httpOnly flag
-        - session() middleware without maxAge configuration
-        - req.session.userId = user.id without session.regenerate()
-    """
+    """Detect session and cookie security vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -109,13 +73,7 @@ def find_session_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_missing_httponly(cursor) -> list[StandardFinding]:
-    """Detect cookies set without httpOnly flag.
-
-    Without httpOnly flag, JavaScript can access cookies via document.cookie,
-    making them vulnerable to XSS attacks.
-
-    CWE-1004: Sensitive Cookie Without 'HttpOnly' Flag
-    """
+    """Detect cookies set without httpOnly flag."""
     findings = []
 
     query = build_query(
@@ -172,13 +130,7 @@ def _check_missing_httponly(cursor) -> list[StandardFinding]:
 
 
 def _check_missing_secure(cursor) -> list[StandardFinding]:
-    """Detect cookies set without secure flag.
-
-    Without secure flag, cookies can be transmitted over unencrypted HTTP,
-    making them vulnerable to man-in-the-middle attacks.
-
-    CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute
-    """
+    """Detect cookies set without secure flag."""
     findings = []
 
     query = build_query(
@@ -235,13 +187,7 @@ def _check_missing_secure(cursor) -> list[StandardFinding]:
 
 
 def _check_missing_samesite(cursor) -> list[StandardFinding]:
-    """Detect cookies set without SameSite attribute.
-
-    Without SameSite attribute, cookies are sent with cross-site requests,
-    making them vulnerable to CSRF attacks.
-
-    CWE-352: Cross-Site Request Forgery (CSRF)
-    """
+    """Detect cookies set without SameSite attribute."""
     findings = []
 
     query = build_query(
@@ -298,13 +244,7 @@ def _check_missing_samesite(cursor) -> list[StandardFinding]:
 
 
 def _check_session_fixation(cursor) -> list[StandardFinding]:
-    """Detect session fixation vulnerabilities.
-
-    Session fixation occurs when session ID is not regenerated after login,
-    allowing attackers to hijack authenticated sessions.
-
-    CWE-384: Session Fixation
-    """
+    """Detect session fixation vulnerabilities."""
     findings = []
 
     query = build_query(
@@ -360,13 +300,7 @@ def _check_session_fixation(cursor) -> list[StandardFinding]:
 
 
 def _check_missing_timeout(cursor) -> list[StandardFinding]:
-    """Detect session configuration without timeout/expiration.
-
-    Sessions without expiration can be valid indefinitely, increasing
-    the window for session hijacking attacks.
-
-    CWE-613: Insufficient Session Expiration
-    """
+    """Detect session configuration without timeout/expiration."""
     findings = []
 
     query = build_query(

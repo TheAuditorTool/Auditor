@@ -1,18 +1,4 @@
-"""Node.js storage handlers for JavaScript/TypeScript frameworks.
-
-This module contains handlers for JavaScript/TypeScript frameworks:
-- React: hooks (components in core)
-- Vue: components, hooks, directives, provide/inject, junction tables
-- Angular: components, services, modules, guards, DI, junction tables
-- ORM: sequelize models/associations/fields
-- Queue: bullmq queues/workers
-- Build: import styles, lock analysis
-- Core language: func_params, decorators, param decorators
-- Data flow: assignment/return source vars
-- Module: import specifiers
-
-Handler Count: 35
-"""
+"""Node.js storage handlers for JavaScript/TypeScript frameworks."""
 
 from .base import BaseStorage
 
@@ -81,11 +67,7 @@ class NodeStorage(BaseStorage):
             self.counts["react_hooks"] += 1
 
     def _store_react_component_hooks(self, file_path: str, hooks: list, jsx_pass: bool):
-        """Store React component hooks from flat junction array.
-
-        Junction table: react_component_hooks(component_file, component_name, hook_name)
-        Replaces nested hooks_used array in react_components.
-        """
+        """Store React component hooks from flat junction array."""
         for hook in hooks:
             self.db_manager.add_react_component_hook_flat(
                 hook.get("component_file", file_path),
@@ -95,11 +77,7 @@ class NodeStorage(BaseStorage):
             self.counts["react_component_hooks"] = self.counts.get("react_component_hooks", 0) + 1
 
     def _store_react_hook_dependencies(self, file_path: str, deps: list, jsx_pass: bool):
-        """Store React hook dependencies from flat junction array.
-
-        Junction table: react_hook_dependencies(hook_file, hook_line, hook_component, dependency_name)
-        Replaces nested dependency_vars array in react_hooks.
-        """
+        """Store React hook dependencies from flat junction array."""
         for dep in deps:
             self.db_manager.add_react_hook_dependency_flat(
                 dep.get("hook_file", file_path),
@@ -112,13 +90,7 @@ class NodeStorage(BaseStorage):
             )
 
     def _store_vue_components(self, file_path: str, vue_components: list, jsx_pass: bool):
-        """Store Vue component PARENT RECORDS ONLY.
-
-        Junction data (props, emits, setup_returns) stored via dedicated handlers:
-        - _store_vue_component_props()
-        - _store_vue_component_emits()
-        - _store_vue_component_setup_returns()
-        """
+        """Store Vue component PARENT RECORDS ONLY."""
         for component in vue_components:
             self.db_manager.add_vue_component(
                 file_path,
@@ -257,14 +229,7 @@ class NodeStorage(BaseStorage):
             self.counts["angular_services"] = self.counts.get("angular_services", 0) + 1
 
     def _store_angular_modules(self, file_path: str, angular_modules: list, jsx_pass: bool):
-        """Store Angular module PARENT RECORDS ONLY.
-
-        Junction data (declarations, imports, providers, exports) stored via dedicated handlers:
-        - _store_angular_module_declarations()
-        - _store_angular_module_imports()
-        - _store_angular_module_providers()
-        - _store_angular_module_exports()
-        """
+        """Store Angular module PARENT RECORDS ONLY."""
         for module in angular_modules:
             self.db_manager.add_angular_module(
                 file_path, module.get("line", 0), module.get("name", "")

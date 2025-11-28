@@ -1,18 +1,4 @@
-"""Documentation fetcher for version-correct package docs.
-
-ARCHITECTURE (v2 - Async Rewrite):
-- Async HTTP with httpx for parallel fetching
-- Smart URL probing (HEAD before GET)
-- Reduced URL pattern explosion (240 -> 15 patterns)
-- Shared rate limiting with deps.py
-- Aggressive timeouts (2s probe, 5s fetch)
-
-The old synchronous version was a denial-of-service attack against our own runtime:
-- 240 URL patterns per package
-- 10s timeout per failed guess
-- Sequential blocking
-Result: 300-400s for 80 packages = pipeline killer
-"""
+"""Documentation fetcher for version-correct package docs."""
 
 import asyncio
 import hashlib
@@ -79,21 +65,7 @@ def fetch_docs(
     offline: bool = False,
     output_dir: str = "./.pf/context/docs",
 ) -> dict[str, Any]:
-    """
-    Fetch version-correct documentation for dependencies.
-
-    This is the sync wrapper that calls the async engine.
-
-    Args:
-        deps: List of dependency objects from deps.py
-        allow_net: Whether network access is allowed
-        allowlist: List of allowed URL prefixes (uses DEFAULT_ALLOWLIST if None)
-        offline: Force offline mode
-        output_dir: Base directory for cached docs
-
-    Returns:
-        Summary of fetch operations
-    """
+    """Fetch version-correct documentation for dependencies."""
     if offline or not allow_net:
         return {
             "mode": "offline",
@@ -137,13 +109,7 @@ async def _fetch_docs_async(
     output_path: Path,
     allowlist: list[str],
 ) -> dict[str, Any]:
-    """
-    Async documentation fetcher.
-
-    Architecture:
-    - First pass: Check cache (no network)
-    - Second pass: Fetch missing docs in parallel with rate limiting
-    """
+    """Async documentation fetcher."""
     stats = {
         "mode": "online",
         "fetched": 0,
@@ -482,12 +448,7 @@ async def _crawl_docs_smart(
     version: str,
     allowlist: list[str],
 ) -> dict[str, str]:
-    """
-    Smart documentation crawler with REDUCED URL patterns.
-
-    Old approach: 5 pages x 4 variants x 12 patterns = 240 attempts
-    New approach: Probe root first, then try 3-5 likely pages = 5-10 attempts
-    """
+    """Smart documentation crawler with REDUCED URL patterns."""
     results = {}
 
     doc_url = None
@@ -665,11 +626,7 @@ def check_latest(
     offline: bool = False,
     output_path: str = "./.pf/deps_latest.json",
 ) -> dict[str, Any]:
-    """
-    Check latest versions and compare to locked versions.
-
-    This is a wrapper around deps.check_latest_versions for consistency.
-    """
+    """Check latest versions and compare to locked versions."""
     from .deps import check_latest_versions, write_deps_latest_json
 
     if offline or not allow_net:

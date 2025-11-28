@@ -1,8 +1,4 @@
-"""Journal system for tracking audit execution history.
-
-This module provides functionality to write and read execution journals in NDJSON format.
-The journal tracks all pipeline events, file touches, and results for ML training.
-"""
+"""Journal system for tracking audit execution history."""
 
 import json
 from datetime import UTC, datetime
@@ -14,12 +10,7 @@ class JournalWriter:
     """Writes execution events to journal.ndjson file."""
 
     def __init__(self, journal_path: str = "./.pf/journal.ndjson", history_dir: str | None = None):
-        """Initialize journal writer.
-
-        Args:
-            journal_path: Path to the journal file
-            history_dir: Optional history directory for archival copies
-        """
+        """Initialize journal writer."""
         self.journal_path = Path(journal_path)
         self.history_dir = Path(history_dir) if history_dir else None
         self.session_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -38,15 +29,7 @@ class JournalWriter:
             self.file_handle = None
 
     def write_event(self, event_type: str, data: dict[str, Any]) -> bool:
-        """Write an event to the journal.
-
-        Args:
-            event_type: Type of event (phase, file_touch, result, error, etc.)
-            data: Event data dictionary
-
-        Returns:
-            True if written successfully, False otherwise
-        """
+        """Write an event to the journal."""
         if not self.file_handle:
             return False
 
@@ -68,13 +51,7 @@ class JournalWriter:
             return False
 
     def phase_start(self, phase_name: str, command: str, phase_num: int = 0) -> bool:
-        """Record the start of a pipeline phase.
-
-        Args:
-            phase_name: Human-readable phase name
-            command: Command being executed
-            phase_num: Phase number in sequence
-        """
+        """Record the start of a pipeline phase."""
         return self.write_event(
             "phase_start", {"phase": phase_name, "command": command, "phase_num": phase_num}
         )
@@ -87,15 +64,7 @@ class JournalWriter:
         exit_code: int = 0,
         error_msg: str | None = None,
     ) -> bool:
-        """Record the end of a pipeline phase.
-
-        Args:
-            phase_name: Human-readable phase name
-            success: Whether phase succeeded
-            elapsed: Execution time in seconds
-            exit_code: Process exit code
-            error_msg: Optional error message
-        """
+        """Record the end of a pipeline phase."""
         return self.write_event(
             "phase_end",
             {
@@ -110,14 +79,7 @@ class JournalWriter:
     def file_touch(
         self, file_path: str, operation: str = "analyze", success: bool = True, findings: int = 0
     ) -> bool:
-        """Record a file being touched/analyzed.
-
-        Args:
-            file_path: Path to the file
-            operation: Type of operation (analyze, modify, create, etc.)
-            success: Whether operation succeeded
-            findings: Number of findings/issues found
-        """
+        """Record a file being touched/analyzed."""
         return self.write_event(
             "file_touch",
             {
@@ -131,15 +93,7 @@ class JournalWriter:
     def finding(
         self, file_path: str, severity: str, category: str, message: str, line: int | None = None
     ) -> bool:
-        """Record a specific finding/issue.
-
-        Args:
-            file_path: File where finding was detected
-            severity: Severity level (critical, high, medium, low)
-            category: Category of finding
-            message: Finding message
-            line: Optional line number
-        """
+        """Record a specific finding/issue."""
         return self.write_event(
             "finding",
             {
@@ -154,14 +108,7 @@ class JournalWriter:
     def apply_patch(
         self, file_path: str, success: bool, patch_type: str = "fix", error_msg: str | None = None
     ) -> bool:
-        """Record a patch/fix being applied to a file.
-
-        Args:
-            file_path: File being patched
-            success: Whether patch succeeded
-            patch_type: Type of patch (fix, refactor, update, etc.)
-            error_msg: Optional error message
-        """
+        """Record a patch/fix being applied to a file."""
         return self.write_event(
             "apply_patch",
             {
@@ -181,16 +128,7 @@ class JournalWriter:
         elapsed: float,
         status: str = "complete",
     ) -> bool:
-        """Record pipeline execution summary.
-
-        Args:
-            total_phases: Total number of phases executed
-            failed_phases: Number of failed phases
-            total_files: Total files analyzed
-            total_findings: Total findings detected
-            elapsed: Total execution time
-            status: Overall status (complete, partial, failed)
-        """
+        """Record pipeline execution summary."""
         return self.write_event(
             "pipeline_summary",
             {
@@ -204,11 +142,7 @@ class JournalWriter:
         )
 
     def close(self, copy_to_history: bool = True):
-        """Close the journal file and optionally copy to history.
-
-        Args:
-            copy_to_history: Whether to copy journal to history directory
-        """
+        """Close the journal file and optionally copy to history."""
         if self.file_handle:
             try:
                 self.file_handle.close()
@@ -240,11 +174,7 @@ class JournalReader:
     """Reads and queries journal.ndjson files."""
 
     def __init__(self, journal_path: str = "./.pf/journal.ndjson"):
-        """Initialize journal reader.
-
-        Args:
-            journal_path: Path to the journal file
-        """
+        """Initialize journal reader."""
         self.journal_path = Path(journal_path)
 
     def read_events(
@@ -253,16 +183,7 @@ class JournalReader:
         since: datetime | None = None,
         session_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Read events from journal with optional filtering.
-
-        Args:
-            event_type: Filter by event type
-            since: Only events after this timestamp
-            session_id: Filter by session ID
-
-        Returns:
-            List of matching events
-        """
+        """Read events from journal with optional filtering."""
         if not self.journal_path.exists():
             return []
 
@@ -300,11 +221,7 @@ class JournalReader:
         return events
 
     def get_file_stats(self) -> dict[str, dict[str, int]]:
-        """Get statistics for file touches and failures.
-
-        Returns:
-            Dict mapping file paths to stats (touches, failures, successes)
-        """
+        """Get statistics for file touches and failures."""
         stats = {}
 
         for event in self.read_events(event_type="file_touch"):
@@ -342,11 +259,7 @@ class JournalReader:
         return stats
 
     def get_phase_stats(self) -> dict[str, dict[str, Any]]:
-        """Get statistics for pipeline phases.
-
-        Returns:
-            Dict mapping phase names to execution stats
-        """
+        """Get statistics for pipeline phases."""
         stats = {}
 
         for event in self.read_events(event_type="phase_start"):
@@ -378,14 +291,7 @@ class JournalReader:
         return stats
 
     def get_recent_failures(self, limit: int = 10) -> list[dict[str, Any]]:
-        """Get recent failure events.
-
-        Args:
-            limit: Maximum number of failures to return
-
-        Returns:
-            List of recent failure events
-        """
+        """Get recent failure events."""
         failures = []
 
         for event in self.read_events():
@@ -398,14 +304,7 @@ class JournalReader:
 
 
 def get_journal_writer(run_type: str = "full") -> JournalWriter:
-    """Get a journal writer for the current run.
-
-    Args:
-        run_type: Type of run (full, diff, etc.)
-
-    Returns:
-        JournalWriter instance
-    """
+    """Get a journal writer for the current run."""
 
     history_dir = Path("./.pf/history") / run_type / datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
@@ -413,10 +312,7 @@ def get_journal_writer(run_type: str = "full") -> JournalWriter:
 
 
 def integrate_with_pipeline(pipeline_func):
-    """Decorator to integrate journal writing with pipeline execution.
-
-    This decorator wraps pipeline functions to automatically write journal events.
-    """
+    """Decorator to integrate journal writing with pipeline execution."""
 
     def wrapper(*args, **kwargs):
         journal = kwargs.pop("journal", None)

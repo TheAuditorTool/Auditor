@@ -1,16 +1,4 @@
-"""Data Flow Graph Builder - constructs variable data flow graphs.
-
-This module builds data flow graphs from normalized assignment and return data
-stored in the database. It tracks how data flows between variables through
-assignments and function returns.
-
-Architecture:
-- Database-first: NO fallbacks, NO JSON parsing
-- Reads from normalized junction tables (assignment_sources, function_return_sources)
-- Returns same format as builder.py (dataclass -> asdict)
-- Zero tolerance for missing data - hard fail exposes bugs
-- Strategy Pattern: Language-specific logic delegated to strategies/
-"""
+"""Data Flow Graph Builder - constructs variable data flow graphs."""
 
 import sqlite3
 from collections import defaultdict
@@ -28,19 +16,10 @@ from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
 class DFGBuilder:
-    """Build data flow graphs from normalized database tables.
-
-    This builder operates in database-first mode, reading all assignment and
-    return data from the normalized junction tables. NO JSON parsing exists.
-    If data is missing, the query returns empty - exposing indexer bugs.
-    """
+    """Build data flow graphs from normalized database tables."""
 
     def __init__(self, db_path: str):
-        """Initialize DFG builder with database path.
-
-        Args:
-            db_path: Path to repo_index.db database
-        """
+        """Initialize DFG builder with database path."""
         self.db_path = Path(db_path)
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
@@ -53,17 +32,7 @@ class DFGBuilder:
         ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
-        """Build data flow graph from variable assignments.
-
-        Queries the normalized assignments + assignment_sources tables to construct
-        a graph showing how data flows through variable assignments.
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata (same format as builder.py)
-        """
+        """Build data flow graph from variable assignments."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -175,17 +144,7 @@ class DFGBuilder:
         }
 
     def build_return_flow_graph(self, root: str = ".") -> dict[str, Any]:
-        """Build data flow graph from function returns.
-
-        Queries the normalized function_returns + function_return_sources tables
-        to construct a graph showing how data flows through return statements.
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata
-        """
+        """Build data flow graph from function returns."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -288,21 +247,7 @@ class DFGBuilder:
         }
 
     def build_parameter_binding_edges(self, root: str = ".") -> dict[str, Any]:
-        """Build parameter binding edges connecting caller arguments to callee parameters.
-
-        This is the CRITICAL inter-procedural data flow edge that enables multi-hop
-        cross-function taint analysis. Without these edges, IFDS cannot traverse
-        function boundaries.
-
-        For a call like: processData(userInput)
-        Creates edge: caller_file::caller_func::userInput -> callee_file::processData::data
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata
-        """
+        """Build parameter binding edges connecting caller arguments to callee parameters."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -422,22 +367,7 @@ class DFGBuilder:
         }
 
     def build_cross_boundary_edges(self, root: str = ".") -> dict[str, Any]:
-        """Build edges connecting frontend API calls to backend controllers.
-
-        Creates edges from frontend body variables to backend req.body/params/query.
-        This enables cross-boundary taint flow tracking from user inputs in the
-        frontend to API handlers in the backend.
-
-        Example edge:
-            frontend/src/components/Form.tsx::submit::userData ->
-            backend/src/controllers/user.controller.ts::create::req.body
-
-        Args:
-            root: Project root directory (for metadata only)
-
-        Returns:
-            Dict with nodes, edges, and metadata
-        """
+        """Build edges connecting frontend API calls to backend controllers."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -658,25 +588,7 @@ class DFGBuilder:
         }
 
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
-        """Build unified data flow graph combining all edge types.
-
-        Architecture (Strategy Pattern):
-        - Core builders: Assignment, Return, Parameter, Cross-boundary (always run)
-        - Strategies: Language-specific logic (Express, ORM, etc.) - pluggable
-
-        Includes:
-        - Assignment edges (x = y)
-        - Return edges (return x)
-        - Parameter binding edges (func(x) -> param)
-        - Cross-boundary edges (frontend -> backend API)
-        - Strategy edges (Express middleware, Python ORM, etc.)
-
-        Args:
-            root: Project root directory
-
-        Returns:
-            Combined graph with all data flow edges (complete provenance)
-        """
+        """Build unified data flow graph combining all edge types."""
 
         print("Building assignment flow graph...")
         assignment_graph = self.build_assignment_flow_graph(root)
@@ -739,19 +651,7 @@ class DFGBuilder:
     def get_data_dependencies(
         self, file: str, variable: str, function: str = None
     ) -> dict[str, Any]:
-        """Get all variables that flow into the given variable.
-
-        Performs a backwards traversal from the target variable to find all
-        source variables in its data dependency chain.
-
-        Args:
-            file: File path
-            variable: Variable name
-            function: Function scope (None for global)
-
-        Returns:
-            Dict with dependencies and flow paths
-        """
+        """Get all variables that flow into the given variable."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -808,23 +708,7 @@ class DFGBuilder:
         }
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
-        """Parse an argument expression to extract the variable name.
-
-        Handles various expression types:
-        - Simple variables: "data" -> "data"
-        - Property access: "obj.prop" -> "obj.prop"
-        - Function calls: "validate(data)" -> "data" (unwrap)
-        - Async/Arrow functions: "async () => {}" -> "function_expression"
-        - Object literals: "{a: 1}" -> "object_literal"
-        - Array literals: "[1, 2]" -> "array_literal"
-        - String literals: "'hello'" -> "string_literal"
-
-        Args:
-            arg_expr: The argument expression string
-
-        Returns:
-            Variable name or placeholder, None if unparseable
-        """
+        """Parse an argument expression to extract the variable name."""
         if not arg_expr:
             return None
 

@@ -1,30 +1,4 @@
-"""
-Graph database schema definitions - Used by graphs.db ONLY.
-
-This module contains table schemas for the separate graphs.db database:
-- Graph nodes (modules, functions, variables)
-- Graph edges (imports, calls, data flow)
-- Analysis results (cycles, hotspots, layers)
-
-Design Philosophy:
-- Physically separate database from repo_index.db (different query patterns)
-- Optimized for bidirectional graph traversal (dual indexes on source/target)
-- Denormalized metadata (JSON blobs for flexible graph properties)
-- Polymorphic graph_type column (single tables for import/call/data_flow graphs)
-- NOT included in main TABLES registry (separate lifecycle)
-
-Performance Features:
-- Bidirectional edge indexes (idx_edges_source + idx_edges_target)
-- Composite UNIQUE constraint creates automatic covering index
-- Denormalized metadata avoids excessive JOINs
-- Timestamp tracking for incremental analysis
-
-Database Locations:
-- graphs.db: .pf/graphs.db (opt-in, built via `aud graph build`)
-- repo_index.db: .pf/repo_index.db (automatic, built via `aud index`)
-
-See: CLAUDE.md "WHY TWO DATABASES" section for architectural rationale
-"""
+"""Graph database schema definitions - Used by graphs.db ONLY."""
 
 from .utils import Column, TableSchema
 

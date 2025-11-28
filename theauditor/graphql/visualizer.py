@@ -1,7 +1,4 @@
-"""GraphQL Visualizer - Generate visual representations of GraphQL schemas.
-
-Stub implementation for visualizing GraphQL execution graphs.
-"""
+"""GraphQL Visualizer - Generate visual representations of GraphQL schemas."""
 
 import logging
 import sqlite3
@@ -20,15 +17,7 @@ class GraphQLVisualizer:
         self.conn.row_factory = sqlite3.Row
 
     def generate(self, output_path: str, output_format: str = "svg", type_filter: str = None):
-        """Generate GraphQL schema visualization.
-
-        Args:
-            output_path: Output file path
-            output_format: Format (svg, png, dot)
-            type_filter: Optional type name to filter
-
-        Note: This is a stub implementation. Full visualization requires graphviz.
-        """
+        """Generate GraphQL schema visualization."""
         logger.warning("GraphQL visualization is not yet implemented")
         logger.info("Generating simple text-based schema visualization...")
 

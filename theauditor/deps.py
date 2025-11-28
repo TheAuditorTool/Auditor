@@ -24,33 +24,12 @@ IS_WINDOWS = platform.system() == "Windows"
 
 
 def _canonicalize_name(name: str) -> str:
-    """
-    Normalize package name to PyPI standards (PEP 503).
-    Converts 'PyYAML' -> 'pyyaml', 'My-Package.Cool' -> 'my-package-cool'
-    """
+    """Normalize package name to PyPI standards (PEP 503)."""
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
-    """
-    Parse dependencies from the indexed database.
-
-    Architecture:
-    - DB-ONLY: Reads from package_configs and python_package_configs tables
-    - NO FALLBACKS: If DB doesn't exist, fail loudly
-    - Docker/Cargo: Still parsed from files (not yet indexed)
-
-    Returns list of dependency objects with structure:
-    {
-        "name": str,
-        "version": str,
-        "manager": "npm"|"py"|"docker"|"cargo",
-        "files": [paths that import it],
-        "source": "package.json|pyproject.toml|requirements.txt"
-    }
-
-    Requires: Run 'aud full --index' first to populate the database.
-    """
+    """Parse dependencies from the indexed database."""
     import os
 
     root = Path(root_path)
@@ -124,19 +103,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
 
 
 def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
-    """Read npm dependencies from package_configs table.
-
-    Args:
-        db_path: Path to repo_index.db
-        root: Project root path
-        debug: Debug mode flag
-
-    Returns:
-        List of dependency dictionaries in deps.py format
-
-    Raises:
-        sqlite3.Error: On unexpected database errors (not missing tables)
-    """
+    """Read npm dependencies from package_configs table."""
     import sqlite3
 
     conn = sqlite3.connect(db_path, timeout=60)
@@ -205,19 +172,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
 
 def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
-    """Read Python dependencies from python_package_configs table.
-
-    Args:
-        db_path: Path to repo_index.db
-        root: Project root path
-        debug: Debug mode flag
-
-    Returns:
-        List of dependency dictionaries in deps.py format
-
-    Raises:
-        sqlite3.Error: On unexpected database errors (not missing tables)
-    """
+    """Read Python dependencies from python_package_configs table."""
     import sqlite3
 
     conn = sqlite3.connect(db_path, timeout=60)
@@ -305,14 +260,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
 
 def _parse_python_dep_spec(spec: str) -> tuple[str, str | None]:
-    """
-    Parse a Python dependency specification.
-    Returns (name, version) tuple.
-
-    Package names are normalized to PyPI canonical form (PEP 503):
-    - PyYAML -> pyyaml
-    - My_Package -> my-package
-    """
+    """Parse a Python dependency specification."""
 
     spec = re.sub(r"\[.*?\]", "", spec)
 
@@ -338,19 +286,7 @@ def _parse_python_dep_spec(spec: str) -> tuple[str, str | None]:
 
 
 def _clean_version(version_spec: str) -> str:
-    """
-    Clean version specification to get actual version.
-    Handles Python (PEP 440) and npm (semver) operators.
-
-    Examples:
-    ^1.2.3 -> 1.2.3 (npm caret)
-    ~1.2.3 -> 1.2.3 (npm/Python tilde)
-    >=1.2.3 -> 1.2.3 (greater or equal)
-    ==1.2.3 -> 1.2.3 (Python exact)
-    !=1.2.3 -> 1.2.3 (Python not equal)
-    ~=1.2.3 -> 1.2.3 (Python compatible)
-    ===1.2.3 -> 1.2.3 (Python arbitrary)
-    """
+    """Clean version specification to get actual version."""
 
     version = re.sub(r"^[><=~!^]+", "", version_spec)
 
@@ -406,17 +342,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
 
 
 def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
-    """
-    Parse Docker base images from Dockerfile.
-    Ignores multi-stage build aliases to prevent false "Not found" errors.
-
-    Multi-stage builds like:
-        FROM node:18 AS base
-        FROM base AS build
-
-    The second FROM references the "base" stage, NOT an external image.
-    We track these aliases and skip them.
-    """
+    """Parse Docker base images from Dockerfile."""
     deps = []
 
     stages = set()
@@ -469,15 +395,7 @@ def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
 
 
 def _parse_cargo_deps(deps_dict: dict[str, Any], kind: str) -> list[dict[str, Any]]:
-    """Parse a Cargo.toml dependency section.
-
-    Args:
-        deps_dict: Dictionary from [dependencies] or [dev-dependencies]
-        kind: 'normal' or 'dev'
-
-    Returns:
-        List of dependency dicts
-    """
+    """Parse a Cargo.toml dependency section."""
     deps = []
 
     for name, spec in deps_dict.items():
@@ -591,13 +509,7 @@ async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | 
 async def _fetch_docker_async(
     client, name: str, current_tag: str, allow_prerelease: bool
 ) -> str | None:
-    """Fetch latest Docker tag from Docker Hub (async).
-
-    SAFETY RULES:
-    - NEVER return "latest" as a fallback (that's not a version!)
-    - Prefer clean tags (e.g., "3.4.1" over "3.4.1-ubuntu-timestamp")
-    - Respect base image preference (alpine user stays on alpine)
-    """
+    """Fetch latest Docker tag from Docker Hub (async)."""
     if not validate_package_name(name, "docker"):
         return None
     if "/" not in name:
@@ -652,24 +564,7 @@ async def _fetch_docker_async(
 async def _check_latest_batch_async(
     deps_to_check: list[dict], allow_prerelease: bool
 ) -> dict[str, dict[str, Any]]:
-    """
-    Check latest versions for a batch of dependencies using async HTTP.
-
-    This is the modern async engine that replaces the slow synchronous loop.
-    Uses BOTH:
-    - Semaphore: limits WIDTH (concurrent requests) to 10
-    - RateLimiter: limits SPEED (request frequency) per registry
-
-    Without rate limiting, Semaphore(10) fires 10 requests in 10ms = DDoS pattern.
-    With rate limiting, 10 requests spread over ~1 second = normal traffic.
-
-    Args:
-        deps_to_check: List of dependency objects to check
-        allow_prerelease: Allow pre-release versions
-
-    Returns:
-        Dict keyed by universal key with {latest, error} values
-    """
+    """Check latest versions for a batch of dependencies using async HTTP."""
     try:
         import httpx
     except ImportError:
@@ -742,35 +637,7 @@ def check_latest_versions(
     allow_prerelease: bool = False,
     root_path: str = ".",
 ) -> dict[str, dict[str, Any]]:
-    """
-    Check latest versions from registries with caching.
-
-    Args:
-        deps: List of dependency objects
-        allow_net: Whether network access is allowed
-        offline: Force offline mode
-        cache_file: Path to cache file
-        allow_prerelease: Allow alpha/beta/rc versions (default: stable only)
-
-    Returns dict keyed by "manager:name:version" (Universal Keys) with:
-    {
-        "locked": str,
-        "latest": str,
-        "delta": str,
-        "is_outdated": bool,
-        "last_checked": str (ISO timestamp)
-    }
-
-    KNOWN INEFFICIENCY (TODO for future refactor):
-    The cache key includes the locked version (manager:name:version), which means
-    checking the same package at different versions results in redundant network calls.
-    In a monorepo with 50 services using different versions of "requests", we query
-    PyPI 50 times instead of once.
-
-    Better approach: Separate "Remote Package Info" cache (keyed by manager:name only)
-    from "Local Usage Info" (instance-specific). This would reduce network traffic by
-    ~90% in large monorepos. The current design prioritizes correctness over efficiency.
-    """
+    """Check latest versions from registries with caching."""
     if offline or not allow_net:
         cached_data = _load_deps_cache(root_path)
         if cached_data:
@@ -858,12 +725,7 @@ def check_latest_versions(
 
 
 def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
-    """
-    Load the dependency version cache from repo_index.db.
-
-    Returns empty dict if database doesn't exist or table is empty.
-    Key format: "manager:package_name:locked_version" (Universal Keys - Tweak 2)
-    """
+    """Load the dependency version cache from repo_index.db."""
     import sqlite3
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
@@ -909,13 +771,7 @@ def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
 
 
 def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> None:
-    """
-    Save the dependency version cache to repo_index.db.
-    Uses INSERT OR REPLACE to update existing entries.
-    Creates table if it doesn't exist (for standalone aud deps usage).
-
-    Key format: "manager:package_name:locked_version" (Universal Keys - Tweak 2)
-    """
+    """Save the dependency version cache to repo_index.db."""
     import sqlite3
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
@@ -982,10 +838,7 @@ def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> 
 
 
 def _is_cache_valid(cached_item: dict[str, Any], hours: int = 24) -> bool:
-    """
-    Check if a cached item is still valid based on age.
-    Default is 24 hours for dependency version checks.
-    """
+    """Check if a cached item is still valid based on age."""
     try:
         if "last_checked" not in cached_item:
             return False
@@ -997,21 +850,7 @@ def _is_cache_valid(cached_item: dict[str, Any], hours: int = 24) -> bool:
 
 
 def _is_prerelease_version(version: str) -> bool:
-    """
-    Detect if a version string is a pre-release.
-
-    Checks for common pre-release markers:
-    - alpha: 1.0a1, 1.0.0a1, 1.0-alpha1
-    - beta: 1.0b1, 1.0.0b1, 1.0-beta1
-    - rc: 1.0rc1, 1.0.0rc1, 1.0-rc1
-    - dev: 1.0.dev0, 1.0-dev
-
-    Args:
-        version: Version string to check
-
-    Returns:
-        True if pre-release, False if stable
-    """
+    """Detect if a version string is a pre-release."""
     version_lower = version.lower()
 
     prerelease_markers = [
@@ -1036,24 +875,7 @@ def _is_prerelease_version(version: str) -> bool:
 
 
 def _parse_pypi_version(version_str: str) -> tuple:
-    """
-    Parse PyPI version string into comparable tuple for semantic versioning.
-
-    Handles standard formats: X.Y.Z, X.Y, X
-    Handles date-based versions: YYYYMMDD, YYYY.MM.DD
-
-    Args:
-        version_str: Version string from PyPI
-
-    Returns:
-        Tuple of integers for comparison, e.g., (1, 18, 2)
-
-    Examples:
-        "1.18.2" -> (1, 18, 2)
-        "25.11.0" -> (25, 11, 0)
-        "2.9" -> (2, 9, 0)
-        "4" -> (4, 0, 0)
-    """
+    """Parse PyPI version string into comparable tuple for semantic versioning."""
 
     match = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?", version_str)
     if match:
@@ -1065,22 +887,7 @@ def _parse_pypi_version(version_str: str) -> tuple:
 
 
 def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
-    """
-    Parse Docker tag into semantic components for proper version comparison.
-
-    Args:
-        tag: Docker tag string (e.g., "17-alpine3.21", "v3.4.1", "3.15.0a1-windowsservercore")
-
-    Returns:
-        Dict with version tuple, variant, and stability, or None if unparseable
-        {
-            'tag': str,              # Original tag
-            'version': tuple,        # (major, minor, patch) for semantic comparison
-            'variant': str,          # Base image variant (alpine, bookworm, etc)
-            'stability': str,        # 'stable', 'alpha', 'beta', 'rc', 'dev'
-            'is_clean': bool         # True if tag has no variant (prefer these)
-        }
-    """
+    """Parse Docker tag into semantic components for proper version comparison."""
 
     if tag in ["latest", "alpine", "slim", "bullseye", "bookworm", "main", "master"]:
         return None
@@ -1132,16 +939,7 @@ def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
 
 
 def _extract_base_preference(current_tag: str) -> str:
-    """
-    Extract base image preference from current tag.
-
-    Args:
-        current_tag: Current Docker tag (e.g., "17-alpine3.21")
-
-    Returns:
-        Base type: 'alpine', 'bookworm', 'bullseye', 'windowsservercore', etc.
-        Empty string if no recognizable base.
-    """
+    """Extract base image preference from current tag."""
     tag_lower = current_tag.lower()
 
     base_types = [
@@ -1168,12 +966,7 @@ def _extract_base_preference(current_tag: str) -> str:
 
 
 def _calculate_version_delta(locked: str, latest: str) -> str:
-    """
-    Calculate semantic version delta.
-    Returns: "major", "minor", "patch", "equal", or "unknown"
-
-    Handles both simple versions (1.2.3) and Docker tags (17-alpine3.21).
-    """
+    """Calculate semantic version delta."""
 
     locked_parsed = _parse_docker_tag(locked)
     latest_parsed = _parse_docker_tag(latest)
@@ -1223,16 +1016,7 @@ def write_deps_latest_json(
 
 
 def _create_versioned_backup(path: Path) -> Path:
-    """
-    Create a versioned backup that won't overwrite existing backups.
-
-    Creates backups like:
-    - package.json.bak (first backup)
-    - package.json.bak.1 (second backup)
-    - package.json.bak.2 (third backup)
-
-    Returns the path to the created backup.
-    """
+    """Create a versioned backup that won't overwrite existing backups."""
     base_backup = path.with_suffix(path.suffix + ".bak")
 
     if not base_backup.exists():
@@ -1257,18 +1041,7 @@ def upgrade_all_deps(
     deps_list: list[dict[str, Any]],
     ecosystems: list[str] | None = None,
 ) -> dict[str, int]:
-    """
-    Upgrade dependencies to latest versions.
-
-    Args:
-        root_path: Project root directory
-        latest_info: Dict from check_latest_versions() with version info
-        deps_list: List of dependency objects to upgrade
-        ecosystems: Optional list of ecosystems to upgrade (py, npm, docker, cargo).
-                   If None, upgrades all ecosystems (YOLO mode).
-
-    Returns dict with counts of upgraded packages per file type.
-    """
+    """Upgrade dependencies to latest versions."""
     root = Path(root_path)
     upgraded = {"requirements.txt": 0, "package.json": 0, "pyproject.toml": 0}
 
@@ -1763,17 +1536,7 @@ def _upgrade_dockerfile(
 def generate_grouped_report(
     deps: list[dict[str, Any]], latest_info: dict[str, dict[str, Any]], hide_up_to_date: bool = True
 ) -> None:
-    """
-    Print a report grouped by SOURCE FILE path.
-
-    This solves the "Where the f*** is this coming from?" problem by organizing
-    dependencies by their origin file and clearly marking test fixtures.
-
-    Args:
-        deps: List of dependency objects from parse_dependencies()
-        latest_info: Dict from check_latest_versions() with version info
-        hide_up_to_date: If True, skip files with no outdated deps (default: True)
-    """
+    """Print a report grouped by SOURCE FILE path."""
     from collections import defaultdict
 
     arrow = "->" if IS_WINDOWS else "->"

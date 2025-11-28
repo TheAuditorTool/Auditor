@@ -1,16 +1,4 @@
-"""GitHub Actions Untrusted Checkout Sequence Detection.
-
-Detects the critical vulnerability where pull_request_target workflows check out
-untrusted PR code before any validation, allowing attacker code execution with
-write permissions and access to repository secrets.
-
-Attack Pattern:
-1. Workflow triggers on pull_request_target (runs in target repo context)
-2. Early checkout step uses github.event.pull_request.head.sha (attacker code)
-3. Attacker code executes with GITHUB_TOKEN write permissions
-
-CWE-284: Improper Access Control
-"""
+"""GitHub Actions Untrusted Checkout Sequence Detection."""
 
 import json
 import logging
@@ -36,20 +24,7 @@ METADATA = RuleMetadata(
 
 
 def find_untrusted_checkout_sequence(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect untrusted code checkout in pull_request_target workflows.
-
-    Detection Logic:
-    1. Identify workflows triggered by pull_request_target
-    2. Find jobs with early actions/checkout steps
-    3. Check if checkout uses untrusted ref (github.event.pull_request.head.*)
-    4. Report if checkout occurs before validation job
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect untrusted code checkout in pull_request_target workflows."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -130,16 +105,7 @@ def find_untrusted_checkout_sequence(context: StandardRuleContext) -> list[Stand
 
 
 def _check_untrusted_ref(step_id: str, with_args: str, cursor) -> bool:
-    """Check if checkout step uses untrusted PR ref.
-
-    Args:
-        step_id: Step identifier
-        with_args: JSON string of with: arguments
-        cursor: Database cursor
-
-    Returns:
-        True if checkout uses untrusted ref
-    """
+    """Check if checkout step uses untrusted PR ref."""
 
     if with_args:
         try:
@@ -179,20 +145,7 @@ def _build_untrusted_checkout_finding(
     permissions: dict,
     with_args: str,
 ) -> StandardFinding:
-    """Build finding for untrusted checkout vulnerability.
-
-    Args:
-        workflow_path: Path to workflow file
-        workflow_name: Workflow display name
-        job_key: Job key
-        step_name: Step display name
-        sequence_order: Step order in job
-        permissions: Job permissions dict
-        with_args: Checkout arguments JSON
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for untrusted checkout vulnerability."""
 
     has_write_perms = any(
         perm in permissions and permissions[perm] in ("write", "write-all")

@@ -1,8 +1,4 @@
-"""TaintPath data model for representing taint flow paths.
-
-Moved from core.py to break circular dependency (core.py ↔ ifds_analyzer.py).
-This is a pure data model with no external dependencies.
-"""
+"""TaintPath data model for representing taint flow paths."""
 
 from typing import Any
 
@@ -29,11 +25,7 @@ class TaintPath:
         self.sanitizer_method: str | None = None
 
     def _classify_vulnerability(self) -> str:
-        """Classify the vulnerability based on sink type - factual categorization.
-
-        Uses sink category from discovery (populated by database queries).
-        ZERO FALLBACK POLICY: If category missing, return generic type.
-        """
+        """Classify the vulnerability based on sink type - factual categorization."""
         sink_category = self.sink.get("category", "")
 
         category_map = {

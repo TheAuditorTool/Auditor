@@ -9,16 +9,7 @@ from .indexer.config import SKIP_DIRS
 
 
 def generate_directory_tree(root_path: str = ".", max_depth: int = 4) -> str:
-    """
-    Generate a text-based directory tree representation.
-
-    Args:
-        root_path: Root directory to analyze
-        max_depth: Maximum depth to traverse
-
-    Returns:
-        String representation of directory tree
-    """
+    """Generate a text-based directory tree representation."""
     root = Path(root_path).resolve()
     tree_lines = []
 
@@ -114,16 +105,7 @@ def generate_directory_tree(root_path: str = ".", max_depth: int = 4) -> str:
 
 
 def aggregate_statistics(manifest_path: str, db_path: str) -> dict[str, Any]:
-    """
-    Aggregate project-wide statistics from manifest and database.
-
-    Args:
-        manifest_path: Path to manifest.json
-        db_path: Path to repo_index.db
-
-    Returns:
-        Dictionary containing project statistics
-    """
+    """Aggregate project-wide statistics from manifest and database."""
     stats = {
         "total_files": 0,
         "total_loc": 0,
@@ -292,17 +274,7 @@ def generate_project_summary(
     db_path: str = "./.pf/repo_index.db",
     max_depth: int = 4,
 ) -> str:
-    """
-    Generate comprehensive project summary markdown report.
-
-    Args:
-        root_path: Root directory of project
-        manifest_path: Path to manifest.json
-        db_path: Path to repo_index.db
-
-    Returns:
-        Markdown formatted project summary report
-    """
+    """Generate comprehensive project summary markdown report."""
     lines = []
 
     lines.append("# Project Structure & Intelligence Report")

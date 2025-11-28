@@ -1,25 +1,12 @@
-"""Core database operations for language-agnostic patterns.
-
-This module contains add_* methods for CORE_TABLES defined in schemas/core_schema.py.
-Handles 21 core tables including files, symbols, assignments, function calls, CFG, and JSX variants.
-"""
+"""Core database operations for language-agnostic patterns."""
 
 
 class CoreDatabaseMixin:
-    """Mixin providing add_* methods for CORE_TABLES.
-
-    CRITICAL: This mixin assumes self.generic_batches exists (from BaseDatabaseManager).
-    DO NOT instantiate directly - only use as mixin for DatabaseManager.
-    """
+    """Mixin providing add_* methods for CORE_TABLES."""
 
     def add_file(self, path: str, sha256: str, ext: str, bytes_size: int, loc: int):
-        """Add a file record to the batch.
-
-        ZERO FALLBACK POLICY: No deduplication.
-        If orchestrator sends same file twice, SQLite UNIQUE constraint catches it.
-        Symlinks/junction points should be resolved at FileWalker layer, not here.
-        """
-        self.generic_batches['files'].append((path, sha256, ext, bytes_size, loc))
+        """Add a file record to the batch."""
+        self.generic_batches["files"].append((path, sha256, ext, bytes_size, loc))
 
     def add_ref(self, src: str, kind: str, value: str, line: int | None = None):
         """Add a reference record to the batch."""
@@ -36,18 +23,7 @@ class CoreDatabaseMixin:
         type_annotation: str | None = None,
         parameters: str | None = None,
     ):
-        """Add a symbol record to the batch.
-
-        Args:
-            path: File path containing the symbol
-            name: Symbol name
-            symbol_type: Type of symbol ('function', 'class', 'variable', etc.)
-            line: Line number where symbol is defined
-            col: Column number where symbol is defined
-            end_line: Last line of symbol definition (optional)
-            type_annotation: TypeScript/type annotation (optional)
-            parameters: JSON array of parameter names for functions (optional, e.g., '["data", "_createdBy"]')
-        """
+        """Add a symbol record to the batch."""
         import os
 
         if os.getenv("THEAUDITOR_DEBUG"):
@@ -78,19 +54,7 @@ class CoreDatabaseMixin:
         property_path: str | None = None,
         col: int = 0,
     ):
-        """Add a variable assignment record to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch assignment record (without source_vars column)
-        - Phase 2: Batch junction records for each source variable
-
-        Args:
-            property_path: Full property path for destructured assignments (e.g., 'req.params.id')
-                          NULL for non-destructured assignments (e.g., 'const x = y')
-            col: Column position (required for minified files where multiple assignments on same line)
-
-        NO FALLBACKS. If source_vars is malformed, hard fail.
-        """
+        """Add a variable assignment record to the batch."""
 
         import os
 
@@ -126,18 +90,7 @@ class CoreDatabaseMixin:
         param_name: str,
         callee_file_path: str | None = None,
     ):
-        """Add a function call argument record to the batch.
-
-        Args:
-            file_path: File containing the function call
-            line: Line number of the call
-            caller_function: Name of the calling function
-            callee_function: Name of the called function
-            arg_index: Index of the argument (0-based)
-            arg_expr: Expression passed as argument
-            param_name: Parameter name in callee signature
-            callee_file_path: Resolved file path where callee is defined (for cross-file tracking)
-        """
+        """Add a function call argument record to the batch."""
         self.generic_batches["function_call_args"].append(
             (
                 file_path,
@@ -160,17 +113,7 @@ class CoreDatabaseMixin:
         return_vars: list[str],
         col: int = 0,
     ):
-        """Add a function return statement record to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch function return record (without return_vars column)
-        - Phase 2: Batch junction records for each return variable
-
-        Args:
-            col: Column position (required for minified files where multiple returns on same line)
-
-        NO FALLBACKS. If return_vars is malformed, hard fail.
-        """
+        """Add a function return statement record to the batch."""
 
         self.generic_batches["function_returns"].append(
             (file_path, line, col, function_name, return_expr)
@@ -197,14 +140,7 @@ class CoreDatabaseMixin:
         end_line: int,
         condition_expr: str | None = None,
     ) -> int:
-        """Add a CFG block to the batch and return its temporary ID.
-
-        SPECIAL CASE: CFG blocks use AUTOINCREMENT, so real IDs are unknown until INSERT.
-        This method returns a temporary negative ID that will be mapped to real ID during flush.
-
-        Note: Since we use AUTOINCREMENT, we need to handle IDs carefully.
-        This returns a temporary ID that will be replaced during flush.
-        """
+        """Add a CFG block to the batch and return its temporary ID."""
 
         batch = self.generic_batches["cfg_blocks"]
         temp_id = -(len(batch) + 1)
@@ -334,26 +270,7 @@ class CoreDatabaseMixin:
         nested_level: int = 0,
         in_function: str = "",
     ):
-        """Add object literal property-function mapping to batch.
-
-        Args:
-            file_path: Path to the file containing the object literal
-            line: Line number where the object literal appears
-            variable_name: Name of the variable holding the object (e.g., 'handlers')
-            property_name: Key in the object literal (e.g., 'create')
-            property_value: Value expression (e.g., 'handleCreate' or '{nested}')
-            property_type: Type of value - one of:
-                - 'function_ref': Reference to a function (e.g., handleCreate)
-                - 'literal': Primitive literal value (string, number, boolean)
-                - 'expression': Complex expression
-                - 'object': Nested object literal
-                - 'method_definition': ES6 method syntax (method() {})
-                - 'shorthand': Shorthand property ({ handleClick })
-                - 'arrow_function': Inline arrow function
-                - 'function_expression': Inline function expression
-            nested_level: Depth of nesting (0 = top level, 1 = first nested, etc.)
-            in_function: Name of containing function ('' for module scope)
-        """
+        """Add object literal property-function mapping to batch."""
         self.generic_batches["object_literals"].append(
             (
                 file_path,
@@ -380,14 +297,7 @@ class CoreDatabaseMixin:
         jsx_mode: str = "preserved",
         extraction_pass: int = 1,
     ):
-        """Add a JSX function return record for preserved JSX extraction.
-
-        ARCHITECTURE: Normalized many-to-many relationship (JSX variant).
-        - Phase 1: Batch JSX function return record (without return_vars column)
-        - Phase 2: Batch JSX junction records for each return variable
-
-        NO FALLBACKS. If return_vars is malformed, hard fail.
-        """
+        """Add a JSX function return record for preserved JSX extraction."""
 
         self.generic_batches["function_returns_jsx"].append(
             (
@@ -439,18 +349,7 @@ class CoreDatabaseMixin:
         jsx_mode: str = "preserved",
         extraction_pass: int = 1,
     ):
-        """Add a JSX assignment record for preserved JSX extraction.
-
-        ARCHITECTURE: Normalized many-to-many relationship (JSX variant).
-        - Phase 1: Batch JSX assignment record (without source_vars column)
-        - Phase 2: Batch JSX junction records for each source variable
-
-        Args:
-            property_path: Full property path for destructured assignments (e.g., 'req.params.id')
-                          NULL for non-destructured assignments (e.g., 'const x = y')
-
-        NO FALLBACKS. If source_vars is malformed, hard fail.
-        """
+        """Add a JSX assignment record for preserved JSX extraction."""
 
         self.generic_batches["assignments_jsx"].append(
             (

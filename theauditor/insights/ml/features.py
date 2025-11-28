@@ -1,14 +1,4 @@
-"""Database feature extraction for ML training.
-
-Extracts 50+ semantic features from repo_index.db tables:
-- Security patterns (JWT, SQL, secrets, crypto)
-- Vulnerability flows (taint findings, CWE counts)
-- Type coverage (TypeScript annotations)
-- CFG complexity (control flow graphs)
-- Graph topology (imports, exports, centrality)
-- Semantic imports (HTTP, DB, Auth, Test libraries)
-- AST complexity (functions, classes, calls)
-"""
+"""Database feature extraction for ML training."""
 
 import sqlite3
 from collections import defaultdict
@@ -96,11 +86,7 @@ TEST_LIBS = frozenset(
 
 
 def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract security pattern features from jwt_patterns and sql_queries tables.
-
-    Returns dict with keys: jwt_usage_count, sql_query_count, has_hardcoded_secret, has_weak_crypto
-    """
+    """Extract security pattern features from jwt_patterns and sql_queries tables."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -179,11 +165,7 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
 
 
 def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract taint flow features from findings_consolidated table.
-
-    Returns dict with keys: critical_findings, high_findings, medium_findings, unique_cwe_count
-    """
+    """Extract taint flow features from findings_consolidated table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -242,12 +224,7 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
 
 
 def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract TypeScript type annotation coverage from type_annotations table.
-
-    Returns dict with keys: type_annotation_count, any_type_count, unknown_type_count,
-                           generic_type_count, type_coverage_ratio
-    """
+    """Extract TypeScript type annotation coverage from type_annotations table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -297,11 +274,7 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
 
 
 def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract control flow complexity from cfg_blocks and cfg_edges tables.
-
-    Returns dict with keys: cfg_block_count, cfg_edge_count, cyclomatic_complexity
-    """
+    """Extract control flow complexity from cfg_blocks and cfg_edges tables."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -432,11 +405,7 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
 
 
 def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract semantic import features to understand file purpose.
-
-    Returns dict with keys: has_http_import, has_db_import, has_auth_import, has_test_import
-    """
+    """Extract semantic import features to understand file purpose."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -493,12 +462,7 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
 
 def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract AST-based complexity metrics from the symbols table.
-
-    Returns dict with keys: function_count, class_count, call_count,
-                           try_except_count, async_def_count
-    """
+    """Extract AST-based complexity metrics from the symbols table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -576,26 +540,7 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 def load_comment_hallucination_features(
     session_dir: Path, graveyard_path: Path, file_paths: list[str]
 ) -> dict[str, dict]:
-    """
-    Extract comment hallucination features from Claude Code session logs.
-
-    Detects when AI references comments and tracks hallucination patterns:
-    - comment_reference_count: How often AI mentioned comments for this file
-    - comment_hallucination_count: References flagged as potentially wrong
-    - comment_conflict_rate: Rate of concerning patterns (said X but actually Y)
-
-    Args:
-        session_dir: Path to Claude session logs directory
-        graveyard_path: Path to comment_graveyard.json (from purge script)
-        file_paths: List of files to analyze
-
-    Returns:
-        dict with keys:
-        - comment_reference_count: Total references to comments in this file
-        - comment_hallucination_count: References with warning severity
-        - comment_conflict_rate: Ratio of hallucinations to total references
-        - has_removed_comments: Whether file had comments purged
-    """
+    """Extract comment hallucination features from Claude Code session logs."""
     import json
     from collections import defaultdict
 
@@ -687,27 +632,7 @@ def load_comment_hallucination_features(
 def load_agent_behavior_features(
     session_dir: Path, db_path: str, file_paths: list[str]
 ) -> dict[str, dict]:
-    """
-    Extract AI agent behavior features from Claude Code session logs (Tier 5).
-
-    Cross-references agent actions with repo_index.db ground truth to detect:
-    - Blind edits (editing without reading)
-    - Duplicate implementations (creating symbols that already exist)
-    - Missed context (relevant files not examined)
-    - Tool inefficiency (excessive reads/writes)
-
-    Args:
-        session_dir: Path to Claude session logs directory
-        db_path: Path to repo_index.db for cross-referencing
-        file_paths: List of files to analyze
-
-    Returns:
-        dict with keys:
-        - agent_blind_edit_count: Files edited without prior read
-        - agent_duplicate_impl_rate: Rate of duplicate symbol creation
-        - agent_missed_search_count: Relevant files not examined
-        - agent_read_efficiency: Reads per successful edit (lower = better)
-    """
+    """Extract AI agent behavior features from Claude Code session logs (Tier 5)."""
     if not session_dir or not Path(session_dir).exists() or not file_paths:
         return {}
 
@@ -789,23 +714,7 @@ def load_agent_behavior_features(
 def load_session_execution_features(
     db_path: str = None, file_paths: list[str] = None
 ) -> dict[str, dict]:
-    """
-    Extract Tier 5 features from session_executions table (new 3-layer system).
-
-    Reads pre-computed session analysis data instead of parsing logs on-the-fly.
-    Features:
-    - session_workflow_compliance: Avg compliance_score for file
-    - session_avg_risk_score: Avg risk_score for file
-    - session_blind_edit_rate: Percentage of blind edits
-    - session_user_engagement: Avg user_engagement_rate (INVERSE METRIC: lower = better)
-
-    Args:
-        db_path: Path to session database (default: .pf/ml/session_history.db)
-        file_paths: List of files to analyze
-
-    Returns:
-        dict with 4 new Tier 5 features per file
-    """
+    """Extract Tier 5 features from session_executions table (new 3-layer system)."""
     import json
     import sqlite3
 
@@ -920,17 +829,7 @@ def load_all_db_features(
     session_dir: Path | None = None,
     graveyard_path: Path | None = None,
 ) -> dict[str, dict]:
-    """
-    Convenience function to load all database features at once.
-
-    Args:
-        db_path: Path to repo_index.db
-        file_paths: List of files to analyze
-        session_dir: Optional path to Claude session logs (enables Tier 5 features)
-        graveyard_path: Optional path to comment_graveyard.json (enables hallucination detection)
-
-    Returns combined dict with all feature categories.
-    """
+    """Convenience function to load all database features at once."""
     combined_features = defaultdict(dict)
 
     security = load_security_pattern_features(db_path, file_paths)

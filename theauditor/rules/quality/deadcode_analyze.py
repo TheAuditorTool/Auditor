@@ -1,10 +1,4 @@
-"""Dead code detection rule - finds modules never imported.
-
-Integrated into 'aud full' pipeline via orchestrator.
-Generates findings with severity='info' (quality concern, not security).
-
-Pattern: Follows progress.md rules - analyze() function, execution_scope='database'.
-"""
+"""Dead code detection rule - finds modules never imported."""
 
 from theauditor.context.deadcode_graph import DEFAULT_EXCLUSIONS
 from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
@@ -20,26 +14,7 @@ METADATA = RuleMetadata(
 
 
 def find_dead_code(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect dead code using database queries.
-
-    Detection Strategy:
-        1. Query symbols table for files with code definitions
-        2. Query refs table for imported files
-        3. Set difference identifies dead code
-        4. Filter exclusions (__init__.py, tests, migrations)
-
-    Database Tables Used:
-        - symbols (read: path, name)
-        - refs (read: value, kind)
-
-    Known Limitations:
-        - Does NOT detect dynamically imported modules (importlib.import_module)
-        - Does NOT detect getattr() dynamic calls
-        - Static analysis only
-
-    Returns:
-        List of findings with severity=INFO
-    """
+    """Detect dead code using database queries."""
     findings = []
 
     if not context.db_path:

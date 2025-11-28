@@ -1,37 +1,11 @@
-"""
-Database-driven source and sink discovery.
-
-Phase 3 implementation that discovers sources and sinks from the database
-instead of using hardcoded patterns. This eliminates the need for manual
-pattern maintenance and automatically discovers new sources/sinks as the
-database evolves.
-"""
+"""Database-driven source and sink discovery."""
 
 import sqlite3
 from typing import Any
 
 
 def _matches_file_io_pattern(func_name: str, patterns: list[str]) -> bool:
-    """
-    Strict pattern matching for file I/O functions to avoid false positives.
-
-    Prevents substring matches like 'open' in 'openSgIpv4.addIngressRule'.
-
-    Args:
-        func_name: Function name to check (e.g., 'fs.readFile', 'open', 'openSgIpv4.addIngressRule')
-        patterns: List of file I/O function names (e.g., ['open', 'readFile'])
-
-    Returns:
-        True if func_name is a file I/O function, False for false positives
-
-    Examples:
-        >>> _matches_file_io_pattern('open', ['open'])
-        True
-        >>> _matches_file_io_pattern('fs.open', ['open'])
-        True
-        >>> _matches_file_io_pattern('openSgIpv4.addIngressRule', ['open'])
-        False
-    """
+    """Strict pattern matching for file I/O functions to avoid false positives."""
     if not func_name:
         return False
 
@@ -55,19 +29,7 @@ class TaintDiscovery:
     def discover_sources(
         self, sources_dict: dict[str, list[str]] | None = None
     ) -> list[dict[str, Any]]:
-        """
-        Discover taint sources from database.
-
-        Instead of searching for hardcoded patterns, we discover actual sources
-        that exist in the codebase by querying the database tables directly.
-
-        Args:
-            sources_dict: Dictionary of source patterns by category from TaintRegistry
-                         (e.g., {'http_request': ['req.', 'request.'], 'user_input': ['body.', ...]})
-
-        Returns:
-            List of source dictionaries with metadata
-        """
+        """Discover taint sources from database."""
         sources = []
 
         if sources_dict is None:
@@ -157,19 +119,7 @@ class TaintDiscovery:
     def discover_sinks(
         self, sinks_dict: dict[str, list[str]] | None = None
     ) -> list[dict[str, Any]]:
-        """
-        Discover security sinks from database.
-
-        Instead of searching for hardcoded patterns, we discover actual sinks
-        that exist in the codebase by querying the database tables directly.
-
-        Args:
-            sinks_dict: Dictionary of sink patterns by category from TaintRegistry
-                       (e.g., {'sql': ['Sequelize.literal', ...], 'command': ['exec', ...]})
-
-        Returns:
-            List of sink dictionaries with metadata
-        """
+        """Discover security sinks from database."""
         sinks = []
 
         if sinks_dict is None:
@@ -507,15 +457,7 @@ class TaintDiscovery:
         return sinks
 
     def _assess_sql_risk(self, query_text: str) -> str:
-        """
-        Assess the risk level of an SQL query based on its construction.
-
-        Args:
-            query_text: The SQL query text
-
-        Returns:
-            Risk level: 'critical', 'high', 'medium', or 'low'
-        """
+        """Assess the risk level of an SQL query based on its construction."""
 
         if any(op in query_text for op in ["+", "${", 'f"', "f'", "`${", '".', "'."]):
             return "critical"
@@ -529,23 +471,7 @@ class TaintDiscovery:
         return "medium"
 
     def filter_framework_safe_sinks(self, sinks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Filter out sinks that are automatically safe due to framework protections.
-
-        Database-driven approach: Queries framework_safe_sinks table populated during indexing.
-        ZERO FALLBACK POLICY: No hardcoded safe patterns.
-
-        Examples from database:
-        - Express res.json() (auto-escapes JSON)
-        - React components (escape by default)
-        - Parameterized SQL queries
-
-        Args:
-            sinks: List of discovered sinks
-
-        Returns:
-            Filtered list of sinks that are actually vulnerable
-        """
+        """Filter out sinks that are automatically safe due to framework protections."""
 
         safe_patterns = set()
 
@@ -575,18 +501,7 @@ class TaintDiscovery:
         return filtered
 
     def discover_sanitizers(self) -> list[dict[str, Any]]:
-        """
-        Discover sanitizers from framework tables.
-
-        Queries database for:
-        - validation_framework_usage (Joi, Yup, etc. validators)
-        - python_validators (Pydantic validators)
-        - sequelize_models (ORM models with safe parameterization)
-        - python_orm_models (SQLAlchemy/Django models)
-
-        Returns:
-            List of sanitizer dictionaries to register in TaintRegistry
-        """
+        """Discover sanitizers from framework tables."""
         sanitizers = []
 
         for validator in getattr(self.cache, "validation_framework_usage", []):

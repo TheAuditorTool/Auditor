@@ -1,10 +1,4 @@
-/**
- * Module Framework Extractor
- *
- * Extracts imports, exports, env var usage, ORM relationships, and import styles.
- */
-
-import type * as ts from 'typescript';
+import type * as ts from "typescript";
 import type {
   Import as IImport,
   ImportSpecifier as IImportSpecifier,
@@ -12,11 +6,7 @@ import type {
   ImportStyleName as IImportStyleName,
   EnvVarUsage as IEnvVarUsage,
   ORMRelationship as IORMRelationship,
-} from '../schema';
-
-// =============================================================================
-// EXTRACT IMPORTS
-// =============================================================================
+} from "../schema";
 
 interface ExtractImportsResult {
   imports: IImport[];
@@ -25,8 +15,8 @@ interface ExtractImportsResult {
 
 export function extractImports(
   sourceFile: ts.SourceFile,
-  ts: typeof import('typescript'),
-  filePath: string
+  ts: typeof import("typescript"),
+  filePath: string,
 ): ExtractImportsResult {
   const imports: IImport[] = [];
   const import_specifiers: IImportSpecifier[] = [];
@@ -37,7 +27,7 @@ export function extractImports(
       const moduleSpecifier = importDecl.moduleSpecifier as ts.StringLiteral;
       if (moduleSpecifier && moduleSpecifier.text) {
         const { line } = sourceFile.getLineAndCharacterOfPosition(
-          node.getStart(sourceFile)
+          node.getStart(sourceFile),
         );
         const importLine = line + 1;
 
@@ -45,7 +35,8 @@ export function extractImports(
           if (importDecl.importClause.name) {
             const specName =
               importDecl.importClause.name.text ||
-              importDecl.importClause.name.escapedText?.toString() || '';
+              importDecl.importClause.name.escapedText?.toString() ||
+              "";
             import_specifiers.push({
               file: filePath,
               import_line: importLine,
@@ -63,12 +54,14 @@ export function extractImports(
             if (bindings.kind === ts.SyntaxKind.NamespaceImport) {
               const nsImport = bindings as ts.NamespaceImport;
               const specName =
-                nsImport.name.text || nsImport.name.escapedText?.toString() || '';
+                nsImport.name.text ||
+                nsImport.name.escapedText?.toString() ||
+                "";
               import_specifiers.push({
                 file: filePath,
                 import_line: importLine,
                 specifier_name: specName,
-                original_name: '*',
+                original_name: "*",
                 is_default: 0,
                 is_namespace: 1,
                 is_named: 0,
@@ -79,12 +72,16 @@ export function extractImports(
                 namedImports.elements.forEach((element) => {
                   const localName =
                     (element.name as ts.Identifier).text ||
-                    (element.name as ts.Identifier).escapedText?.toString() || '';
+                    (element.name as ts.Identifier).escapedText?.toString() ||
+                    "";
                   let originalName = localName;
                   if (element.propertyName) {
                     originalName =
                       (element.propertyName as ts.Identifier).text ||
-                      (element.propertyName as ts.Identifier).escapedText?.toString() || '';
+                      (
+                        element.propertyName as ts.Identifier
+                      ).escapedText?.toString() ||
+                      "";
                   }
                   import_specifiers.push({
                     file: filePath,
@@ -102,7 +99,7 @@ export function extractImports(
         }
 
         imports.push({
-          kind: 'import',
+          kind: "import",
           module: moduleSpecifier.text,
           line: importLine,
         });
@@ -112,8 +109,8 @@ export function extractImports(
       const expr = callExpr.expression;
       if (
         expr &&
-        ((expr as ts.Identifier).text === 'require' ||
-          (expr as ts.Identifier).escapedText?.toString() === 'require')
+        ((expr as ts.Identifier).text === "require" ||
+          (expr as ts.Identifier).escapedText?.toString() === "require")
       ) {
         const args = callExpr.arguments;
         if (
@@ -122,13 +119,13 @@ export function extractImports(
           args[0].kind === ts.SyntaxKind.StringLiteral
         ) {
           const { line } = sourceFile.getLineAndCharacterOfPosition(
-            node.getStart(sourceFile)
+            node.getStart(sourceFile),
           );
           const importLine = line + 1;
           const modulePath = (args[0] as ts.StringLiteral).text;
 
           imports.push({
-            kind: 'require',
+            kind: "require",
             module: modulePath,
             line: importLine,
           });
@@ -149,7 +146,8 @@ export function extractImports(
             if (declName.kind === ts.SyntaxKind.Identifier) {
               const specName =
                 (declName as ts.Identifier).text ||
-                (declName as ts.Identifier).escapedText?.toString() || '';
+                (declName as ts.Identifier).escapedText?.toString() ||
+                "";
               import_specifiers.push({
                 file: filePath,
                 import_line: importLine,
@@ -169,13 +167,16 @@ export function extractImports(
                   ) {
                     const localName =
                       (element.name as ts.Identifier).text ||
-                      (element.name as ts.Identifier).escapedText?.toString() || '';
+                      (element.name as ts.Identifier).escapedText?.toString() ||
+                      "";
                     let originalName = localName;
                     if (element.propertyName) {
                       originalName =
                         (element.propertyName as ts.Identifier).text ||
-                        (element.propertyName as ts.Identifier)
-                          .escapedText?.toString() || '';
+                        (
+                          element.propertyName as ts.Identifier
+                        ).escapedText?.toString() ||
+                        "";
                     }
                     import_specifiers.push({
                       file: filePath,
@@ -202,8 +203,10 @@ export function extractImports(
                     const localName =
                       ((element as ts.BindingElement).name as ts.Identifier)
                         .text ||
-                      ((element as ts.BindingElement).name as ts.Identifier)
-                        .escapedText?.toString() || '';
+                      (
+                        (element as ts.BindingElement).name as ts.Identifier
+                      ).escapedText?.toString() ||
+                      "";
                     import_specifiers.push({
                       file: filePath,
                       import_line: importLine,
@@ -233,10 +236,10 @@ export function extractImports(
         args[0].kind === ts.SyntaxKind.StringLiteral
       ) {
         const { line } = sourceFile.getLineAndCharacterOfPosition(
-          callExpr.getStart(sourceFile)
+          callExpr.getStart(sourceFile),
         );
         imports.push({
-          kind: 'dynamic_import',
+          kind: "dynamic_import",
           module: (args[0] as ts.StringLiteral).text,
           line: line + 1,
         });
@@ -250,14 +253,10 @@ export function extractImports(
   return { imports, import_specifiers };
 }
 
-// =============================================================================
-// EXTRACT ENV VAR USAGE
-// =============================================================================
-
 export function extractEnvVarUsage(
   sourceFile: ts.SourceFile,
-  ts: typeof import('typescript'),
-  scopeMap: Map<number, string>
+  ts: typeof import("typescript"),
+  scopeMap: Map<number, string>,
 ): IEnvVarUsage[] {
   const usages: IEnvVarUsage[] = [];
   const visitedNodes = new Set<string>();
@@ -275,45 +274,48 @@ export function extractEnvVarUsage(
 
     const kind = ts.SyntaxKind[node.kind];
 
-    if (kind === 'PropertyAccessExpression') {
+    if (kind === "PropertyAccessExpression") {
       const pae = node as ts.PropertyAccessExpression;
       if (pae.expression && pae.name) {
         const exprKind = ts.SyntaxKind[pae.expression.kind];
 
-        if (exprKind === 'PropertyAccessExpression') {
+        if (exprKind === "PropertyAccessExpression") {
           const innerPae = pae.expression as ts.PropertyAccessExpression;
           if (innerPae.expression && innerPae.name) {
             const objName =
               (innerPae.expression as ts.Identifier).text ||
-              (innerPae.expression as ts.Identifier).escapedText?.toString() || '';
+              (innerPae.expression as ts.Identifier).escapedText?.toString() ||
+              "";
             const propName =
-              innerPae.name.text || innerPae.name.escapedText?.toString() || '';
+              innerPae.name.text || innerPae.name.escapedText?.toString() || "";
 
-            if (objName === 'process' && propName === 'env') {
-              const varName = pae.name.text || pae.name.escapedText?.toString() || '';
-              const { line: envLine } = sourceFile.getLineAndCharacterOfPosition(
-                node.getStart(sourceFile)
-              );
+            if (objName === "process" && propName === "env") {
+              const varName =
+                pae.name.text || pae.name.escapedText?.toString() || "";
+              const { line: envLine } =
+                sourceFile.getLineAndCharacterOfPosition(
+                  node.getStart(sourceFile),
+                );
               const inFunction = scopeMap.get(envLine + 1) || null;
 
-              let accessType = 'read';
+              let accessType = "read";
               if (node.parent) {
                 const parentKind = ts.SyntaxKind[node.parent.kind];
                 if (
-                  parentKind === 'BinaryExpression' &&
+                  parentKind === "BinaryExpression" &&
                   (node.parent as ts.BinaryExpression).operatorToken &&
                   ts.SyntaxKind[
                     (node.parent as ts.BinaryExpression).operatorToken.kind
-                  ] === 'EqualsToken' &&
+                  ] === "EqualsToken" &&
                   (node.parent as ts.BinaryExpression).left === node
                 ) {
-                  accessType = 'write';
+                  accessType = "write";
                 } else if (
-                  parentKind === 'IfStatement' ||
-                  parentKind === 'ConditionalExpression' ||
-                  parentKind === 'PrefixUnaryExpression'
+                  parentKind === "IfStatement" ||
+                  parentKind === "ConditionalExpression" ||
+                  parentKind === "PrefixUnaryExpression"
                 ) {
-                  accessType = 'check';
+                  accessType = "check";
                 }
               }
 
@@ -330,46 +332,49 @@ export function extractEnvVarUsage(
       }
     }
 
-    if (kind === 'ElementAccessExpression') {
+    if (kind === "ElementAccessExpression") {
       const eae = node as ts.ElementAccessExpression;
       if (eae.expression && eae.argumentExpression) {
         const exprKind = ts.SyntaxKind[eae.expression.kind];
 
-        if (exprKind === 'PropertyAccessExpression') {
+        if (exprKind === "PropertyAccessExpression") {
           const pae = eae.expression as ts.PropertyAccessExpression;
           if (pae.expression && pae.name) {
             const objName =
               (pae.expression as ts.Identifier).text ||
-              (pae.expression as ts.Identifier).escapedText?.toString() || '';
-            const propName = pae.name.text || pae.name.escapedText?.toString() || '';
+              (pae.expression as ts.Identifier).escapedText?.toString() ||
+              "";
+            const propName =
+              pae.name.text || pae.name.escapedText?.toString() || "";
 
-            if (objName === 'process' && propName === 'env') {
+            if (objName === "process" && propName === "env") {
               let varName: string | null = null;
               const argKind = ts.SyntaxKind[eae.argumentExpression.kind];
-              if (argKind === 'StringLiteral') {
+              if (argKind === "StringLiteral") {
                 varName = (eae.argumentExpression as ts.StringLiteral).text;
-              } else if (argKind === 'Identifier') {
+              } else if (argKind === "Identifier") {
                 varName = `[${(eae.argumentExpression as ts.Identifier).text || (eae.argumentExpression as ts.Identifier).escapedText?.toString()}]`;
               }
 
               if (varName) {
-                const { line: envLine } = sourceFile.getLineAndCharacterOfPosition(
-                  node.getStart(sourceFile)
-                );
+                const { line: envLine } =
+                  sourceFile.getLineAndCharacterOfPosition(
+                    node.getStart(sourceFile),
+                  );
                 const inFunction = scopeMap.get(envLine + 1) || null;
 
-                let accessType = 'read';
+                let accessType = "read";
                 if (node.parent) {
                   const parentKind = ts.SyntaxKind[node.parent.kind];
                   if (
-                    parentKind === 'BinaryExpression' &&
+                    parentKind === "BinaryExpression" &&
                     (node.parent as ts.BinaryExpression).operatorToken &&
                     ts.SyntaxKind[
                       (node.parent as ts.BinaryExpression).operatorToken.kind
-                    ] === 'EqualsToken' &&
+                    ] === "EqualsToken" &&
                     (node.parent as ts.BinaryExpression).left === node
                   ) {
-                    accessType = 'write';
+                    accessType = "write";
                   }
                 }
 
@@ -387,40 +392,44 @@ export function extractEnvVarUsage(
       }
     }
 
-    if (kind === 'VariableDeclaration') {
+    if (kind === "VariableDeclaration") {
       const varDecl = node as ts.VariableDeclaration;
       if (varDecl.name && varDecl.initializer) {
         const nameKind = ts.SyntaxKind[varDecl.name.kind];
         const initKind = ts.SyntaxKind[varDecl.initializer.kind];
 
         if (
-          nameKind === 'ObjectBindingPattern' &&
-          initKind === 'PropertyAccessExpression'
+          nameKind === "ObjectBindingPattern" &&
+          initKind === "PropertyAccessExpression"
         ) {
           const pae = varDecl.initializer as ts.PropertyAccessExpression;
           if (pae.expression && pae.name) {
             const objName =
               (pae.expression as ts.Identifier).text ||
-              (pae.expression as ts.Identifier).escapedText?.toString() || '';
-            const propName = pae.name.text || pae.name.escapedText?.toString() || '';
+              (pae.expression as ts.Identifier).escapedText?.toString() ||
+              "";
+            const propName =
+              pae.name.text || pae.name.escapedText?.toString() || "";
 
-            if (objName === 'process' && propName === 'env') {
+            if (objName === "process" && propName === "env") {
               const pattern = varDecl.name as ts.ObjectBindingPattern;
               if (pattern.elements) {
                 for (const element of pattern.elements) {
                   if (element.name) {
                     const envVarName =
                       (element.name as ts.Identifier).text ||
-                      (element.name as ts.Identifier).escapedText?.toString() || '';
-                    const { line: envLine } = sourceFile.getLineAndCharacterOfPosition(
-                      element.getStart(sourceFile)
-                    );
+                      (element.name as ts.Identifier).escapedText?.toString() ||
+                      "";
+                    const { line: envLine } =
+                      sourceFile.getLineAndCharacterOfPosition(
+                        element.getStart(sourceFile),
+                      );
                     const inFunction = scopeMap.get(envLine + 1) || null;
 
                     usages.push({
                       line: envLine + 1,
                       var_name: envVarName,
-                      access_type: 'read',
+                      access_type: "read",
                       in_function: inFunction,
                       property_access: `process.env.${envVarName} (destructured)`,
                     });
@@ -440,51 +449,55 @@ export function extractEnvVarUsage(
   return usages;
 }
 
-// =============================================================================
-// EXTRACT ORM RELATIONSHIPS
-// =============================================================================
-
 export function extractORMRelationships(
   sourceFile: ts.SourceFile,
-  ts: typeof import('typescript')
+  ts: typeof import("typescript"),
 ): IORMRelationship[] {
   const relationships: IORMRelationship[] = [];
   const seenRelationships = new Set<string>();
 
   const relationshipMethods = new Set([
-    'hasMany',
-    'belongsTo',
-    'hasOne',
-    'hasAndBelongsToMany',
-    'belongsToMany',
+    "hasMany",
+    "belongsTo",
+    "hasOne",
+    "hasAndBelongsToMany",
+    "belongsToMany",
   ]);
 
   function traverse(node: ts.Node): void {
     if (!node) return;
     const kind = ts.SyntaxKind[node.kind];
 
-    if (kind === 'CallExpression') {
+    if (kind === "CallExpression") {
       const callExpr = node as ts.CallExpression;
-      if (callExpr.expression && callExpr.arguments && callExpr.arguments.length > 0) {
+      if (
+        callExpr.expression &&
+        callExpr.arguments &&
+        callExpr.arguments.length > 0
+      ) {
         const exprKind = ts.SyntaxKind[callExpr.expression.kind];
 
-        if (exprKind === 'PropertyAccessExpression') {
+        if (exprKind === "PropertyAccessExpression") {
           const pae = callExpr.expression as ts.PropertyAccessExpression;
-          const methodName = pae.name.text || pae.name.escapedText?.toString() || '';
+          const methodName =
+            pae.name.text || pae.name.escapedText?.toString() || "";
 
           if (relationshipMethods.has(methodName)) {
             let sourceModel: string | null = null;
             if (pae.expression) {
               const exprExprKind = ts.SyntaxKind[pae.expression.kind];
 
-              if (exprExprKind === 'Identifier') {
+              if (exprExprKind === "Identifier") {
                 sourceModel =
                   (pae.expression as ts.Identifier).text ||
-                  (pae.expression as ts.Identifier).escapedText?.toString() || null;
-              } else if (exprExprKind === 'PropertyAccessExpression') {
+                  (pae.expression as ts.Identifier).escapedText?.toString() ||
+                  null;
+              } else if (exprExprKind === "PropertyAccessExpression") {
                 const innerPae = pae.expression as ts.PropertyAccessExpression;
                 sourceModel =
-                  innerPae.name.text || innerPae.name.escapedText?.toString() || null;
+                  innerPae.name.text ||
+                  innerPae.name.escapedText?.toString() ||
+                  null;
               }
             }
 
@@ -492,13 +505,17 @@ export function extractORMRelationships(
             const firstArg = callExpr.arguments[0];
             if (firstArg) {
               const argKind = ts.SyntaxKind[firstArg.kind];
-              if (argKind === 'Identifier') {
+              if (argKind === "Identifier") {
                 targetModel =
                   (firstArg as ts.Identifier).text ||
-                  (firstArg as ts.Identifier).escapedText?.toString() || null;
-              } else if (argKind === 'PropertyAccessExpression') {
+                  (firstArg as ts.Identifier).escapedText?.toString() ||
+                  null;
+              } else if (argKind === "PropertyAccessExpression") {
                 const argPae = firstArg as ts.PropertyAccessExpression;
-                targetModel = argPae.name.text || argPae.name.escapedText?.toString() || null;
+                targetModel =
+                  argPae.name.text ||
+                  argPae.name.escapedText?.toString() ||
+                  null;
               }
             }
 
@@ -510,39 +527,50 @@ export function extractORMRelationships(
               const optionsArg = callExpr.arguments[1];
               const optionsKind = ts.SyntaxKind[optionsArg.kind];
 
-              if (optionsKind === 'ObjectLiteralExpression') {
+              if (optionsKind === "ObjectLiteralExpression") {
                 const objLit = optionsArg as ts.ObjectLiteralExpression;
                 if (objLit.properties) {
                   for (const prop of objLit.properties) {
                     const propKind = ts.SyntaxKind[prop.kind];
 
-                    if (propKind === 'PropertyAssignment') {
+                    if (propKind === "PropertyAssignment") {
                       const propAssign = prop as ts.PropertyAssignment;
                       const propName =
                         (propAssign.name as ts.Identifier).text ||
-                        (propAssign.name as ts.Identifier).escapedText?.toString() || '';
+                        (
+                          propAssign.name as ts.Identifier
+                        ).escapedText?.toString() ||
+                        "";
 
-                      if (propName === 'foreignKey') {
-                        const initKind = ts.SyntaxKind[propAssign.initializer.kind];
-                        if (initKind === 'StringLiteral') {
-                          foreignKey = (propAssign.initializer as ts.StringLiteral).text;
+                      if (propName === "foreignKey") {
+                        const initKind =
+                          ts.SyntaxKind[propAssign.initializer.kind];
+                        if (initKind === "StringLiteral") {
+                          foreignKey = (
+                            propAssign.initializer as ts.StringLiteral
+                          ).text;
                         }
                       }
 
-                      if (propName === 'onDelete') {
-                        const initKind = ts.SyntaxKind[propAssign.initializer.kind];
-                        if (initKind === 'StringLiteral') {
-                          const value = (propAssign.initializer as ts.StringLiteral).text;
-                          if (value.toUpperCase() === 'CASCADE') {
+                      if (propName === "onDelete") {
+                        const initKind =
+                          ts.SyntaxKind[propAssign.initializer.kind];
+                        if (initKind === "StringLiteral") {
+                          const value = (
+                            propAssign.initializer as ts.StringLiteral
+                          ).text;
+                          if (value.toUpperCase() === "CASCADE") {
                             cascadeDelete = true;
                           }
                         }
                       }
 
-                      if (propName === 'as') {
-                        const initKind = ts.SyntaxKind[propAssign.initializer.kind];
-                        if (initKind === 'StringLiteral') {
-                          asName = (propAssign.initializer as ts.StringLiteral).text;
+                      if (propName === "as") {
+                        const initKind =
+                          ts.SyntaxKind[propAssign.initializer.kind];
+                        if (initKind === "StringLiteral") {
+                          asName = (propAssign.initializer as ts.StringLiteral)
+                            .text;
                         }
                       }
                     }
@@ -553,7 +581,7 @@ export function extractORMRelationships(
 
             if (sourceModel && targetModel) {
               const { line } = sourceFile.getLineAndCharacterOfPosition(
-                node.getStart(sourceFile)
+                node.getStart(sourceFile),
               );
               const lineNum = line + 1;
 
@@ -585,14 +613,10 @@ export function extractORMRelationships(
   return relationships;
 }
 
-// =============================================================================
-// EXTRACT IMPORT STYLES
-// =============================================================================
-
 export function extractImportStyles(
   imports: IImport[],
   import_specifiers: IImportSpecifier[],
-  filePath: string
+  filePath: string,
 ): { import_styles: IImportStyle[]; import_style_names: IImportStyleName[] } {
   const import_styles: IImportStyle[] = [];
   const import_style_names: IImportStyleName[] = [];
@@ -606,17 +630,17 @@ export function extractImportStyles(
     let alias_name: string | null = null;
 
     const lineSpecifiers = import_specifiers.filter(
-      (s) => s.import_line === line
+      (s) => s.import_line === line,
     );
     const namespaceSpec = lineSpecifiers.find((s) => s.is_namespace === 1);
     const defaultSpec = lineSpecifiers.find((s) => s.is_default === 1);
     const namedSpecs = lineSpecifiers.filter((s) => s.is_named === 1);
 
     if (namespaceSpec) {
-      import_style = 'namespace';
+      import_style = "namespace";
       alias_name = namespaceSpec.specifier_name;
     } else if (namedSpecs.length > 0) {
-      import_style = 'named';
+      import_style = "named";
       namedSpecs.forEach((spec) => {
         import_style_names.push({
           import_file: filePath,
@@ -625,10 +649,10 @@ export function extractImportStyles(
         });
       });
     } else if (defaultSpec) {
-      import_style = 'default';
+      import_style = "default";
       alias_name = defaultSpec.specifier_name;
     } else {
-      import_style = 'side-effect';
+      import_style = "side-effect";
     }
 
     if (import_style) {
@@ -648,13 +672,9 @@ export function extractImportStyles(
   return { import_styles, import_style_names };
 }
 
-// =============================================================================
-// EXTRACT REFS (RESOLVED IMPORTS)
-// =============================================================================
-
 export function extractRefs(
   imports: IImport[],
-  import_specifiers: IImportSpecifier[]
+  import_specifiers: IImportSpecifier[],
 ): Record<string, string> {
   const resolved: Record<string, string> = {};
 
@@ -664,10 +684,11 @@ export function extractRefs(
     if (!modulePath) continue;
     lineToModule.set(imp.line, modulePath);
 
-    const moduleName = modulePath
-      .split('/')
-      .pop()
-      ?.replace(/\.(js|ts|jsx|tsx)$/, '') || '';
+    const moduleName =
+      modulePath
+        .split("/")
+        .pop()
+        ?.replace(/\.(js|ts|jsx|tsx)$/, "") || "";
     if (moduleName) {
       resolved[moduleName] = modulePath;
     }

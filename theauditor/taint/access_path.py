@@ -1,34 +1,11 @@
-"""Access Path abstraction for field-sensitive taint tracking.
-
-IFDS uses access paths of the form x.f.g to track taint through object fields.
-This prevents false positives like: req.headers.auth vs req.body.malicious
-
-Based on: "IFDS Taint Analysis with Access Paths" (Allen et al., 2021)
-Section 1: Access Paths - page 3
-"""
+"""Access Path abstraction for field-sensitive taint tracking."""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class AccessPath:
-    """Represents a path through object fields: base.field1.field2...
-
-    Examples:
-        req.body.userId  → AccessPath(file="controller.ts", function="create",
-                                      base="req", fields=("body", "userId"))
-        user.data        → AccessPath(file="service.ts", function="save",
-                                      base="user", fields=("data",))
-        localVar         → AccessPath(file="util.ts", function="helper",
-                                      base="localVar", fields=())
-
-    Attributes:
-        file: Source file path
-        function: Containing function (or "global")
-        base: Base variable name
-        fields: Tuple of field names (empty for simple variables)
-        max_length: k-limiting bound (default 5)
-    """
+    """Represents a path through object fields: base.field1.field2..."""
 
     file: str
     function: str
@@ -54,26 +31,7 @@ class AccessPath:
 
     @staticmethod
     def parse(node_id: str, max_length: int = 5) -> AccessPath | None:
-        """Parse graphs.db node ID into AccessPath.
-
-        Format: "file::function::var" or "file::function::var.field1.field2"
-
-        Args:
-            node_id: Node ID from graphs.db edges table
-            max_length: k-limiting bound (truncate deeper paths)
-
-        Returns:
-            AccessPath or None if node_id is invalid
-
-        Examples:
-            >>> AccessPath.parse("controller.ts::create::req.body.userId")
-            AccessPath(file="controller.ts", function="create",
-                      base="req", fields=("body", "userId"))
-
-            >>> AccessPath.parse("service.ts::save::user")
-            AccessPath(file="service.ts", function="save",
-                      base="user", fields=())
-        """
+        """Parse graphs.db node ID into AccessPath."""
         if not node_id or "::" not in node_id:
             return None
 
@@ -105,21 +63,7 @@ class AccessPath:
         )
 
     def matches(self, other: AccessPath) -> bool:
-        """Check if two access paths could alias (prefix match).
-
-        Conservative approximation: If one is a prefix of the other, assume they alias.
-
-        Examples:
-            req.body matches req.body.userId  → True (prefix)
-            req.body matches req.headers      → False (different fields)
-            user matches user.data            → True (prefix)
-
-        Args:
-            other: Another AccessPath to compare
-
-        Returns:
-            True if paths could potentially alias
-        """
+        """Check if two access paths could alias (prefix match)."""
         if self.base != other.base:
             return False
 
@@ -130,19 +74,7 @@ class AccessPath:
         return self.fields[:min_len] == other.fields[:min_len]
 
     def append_field(self, field: str) -> AccessPath | None:
-        """Append a field to this access path (with k-limiting).
-
-        Args:
-            field: Field name to append
-
-        Returns:
-            New AccessPath with field appended, or None if exceeds max_length
-
-        Examples:
-            >>> path = AccessPath(..., base="req", fields=("body",))
-            >>> path.append_field("userId")
-            AccessPath(..., base="req", fields=("body", "userId"))
-        """
+        """Append a field to this access path (with k-limiting)."""
         if len(self.fields) >= self.max_length:
             return None
 
@@ -155,22 +87,7 @@ class AccessPath:
         )
 
     def strip_fields(self, count: int) -> AccessPath:
-        """Remove N fields from the end (for reification).
-
-        Used in backward analysis when traversing field stores:
-            x.f.g = y  →  If tracking x.f.g, reify to y
-
-        Args:
-            count: Number of fields to remove
-
-        Returns:
-            New AccessPath with fields removed
-
-        Examples:
-            >>> path = AccessPath(..., base="x", fields=("f", "g", "h"))
-            >>> path.strip_fields(2)
-            AccessPath(..., base="x", fields=("f",))
-        """
+        """Remove N fields from the end (for reification)."""
         if count >= len(self.fields):
             return AccessPath(
                 file=self.file,
@@ -189,19 +106,7 @@ class AccessPath:
         )
 
     def change_base(self, new_base: str) -> AccessPath:
-        """Replace the base variable (for assignments: x = y.f).
-
-        Args:
-            new_base: New base variable name
-
-        Returns:
-            New AccessPath with replaced base
-
-        Examples:
-            >>> path = AccessPath(..., base="y", fields=("f",))
-            >>> path.change_base("x")
-            AccessPath(..., base="x", fields=("f",))
-        """
+        """Replace the base variable (for assignments: x = y.f)."""
         return AccessPath(
             file=self.file,
             function=self.function,
@@ -211,17 +116,7 @@ class AccessPath:
         )
 
     def to_pattern_set(self) -> set[str]:
-        """Convert to set of patterns for legacy taint matching.
-
-        Returns all prefixes for substring matching in existing code.
-
-        Returns:
-            Set of pattern strings: {"req", "req.body", "req.body.userId"}
-
-        Examples:
-            >>> AccessPath(..., base="req", fields=("body", "userId")).to_pattern_set()
-            {"req", "req.body", "req.body.userId"}
-        """
+        """Convert to set of patterns for legacy taint matching."""
         patterns = {self.base}
 
         current = self.base

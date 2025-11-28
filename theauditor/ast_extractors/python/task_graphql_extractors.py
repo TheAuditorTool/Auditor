@@ -1,19 +1,4 @@
-"""Task queue and GraphQL resolver extractors.
-
-This module extracts async task queue and GraphQL resolver patterns:
-- Celery: Task definitions (@task, @shared_task), task invocations (.delay, .apply_async), Beat schedules
-- GraphQL (Graphene): resolve_* methods in ObjectType classes
-- GraphQL (Ariadne): @query.field, @mutation.field decorators
-- GraphQL (Strawberry): @strawberry.field decorators
-
-ARCHITECTURAL CONTRACT:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'task_name', 'resolver_name', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Task queue and GraphQL resolver extractors."""
 
 import ast
 import logging
@@ -27,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -41,10 +23,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
-    """Fetch keyword argument by name from AST call.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Fetch keyword argument by name from AST call."""
     for keyword in call.keywords:
         if keyword.arg == name:
             return keyword.value
@@ -52,10 +31,7 @@ def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
 
 
 def _get_bool_constant(node: ast.AST | None) -> bool | None:
-    """Return boolean value for constant/literal nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return boolean value for constant/literal nodes."""
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return node.value
     if isinstance(node, ast.Name):
@@ -67,10 +43,7 @@ def _get_bool_constant(node: ast.AST | None) -> bool | None:
 
 
 def _dependency_name(call: ast.Call) -> str | None:
-    """Extract dependency target from Depends() call.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Extract dependency target from Depends() call."""
     func_name = get_node_name(call.func)
     if not (func_name.endswith("Depends") or func_name == "Depends"):
         return None
@@ -85,24 +58,7 @@ def _dependency_name(call: ast.Call) -> str | None:
 
 
 def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Celery task definitions.
-
-    Detects:
-    - @app.task, @shared_task, @celery.task decorators
-    - Task arguments (function parameters - injection surface)
-    - bind=True (task instance access)
-    - serializer parameter (pickle = RCE risk, json = safe)
-    - max_retries, retry_backoff (error handling)
-    - rate_limit, time_limit (DoS protection)
-    - queue name (privilege separation)
-
-    Security relevance:
-    - Pickle serializer = insecure deserialization (RCE)
-    - Unvalidated task arguments = injection vulnerabilities
-    - Missing rate_limit = resource exhaustion
-    - Shared queue = privilege escalation risk
-    - Missing time_limit = infinite execution (DoS)
-    """
+    """Extract Celery task definitions."""
     tasks = []
     if not isinstance(context.tree, ast.AST):
         return tasks
@@ -189,21 +145,7 @@ def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_celery_task_calls(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Celery task invocation patterns.
-
-    Detects:
-    - task.delay(args) - simple invocation
-    - task.apply_async(args=(...), countdown=60, queue='high') - advanced invocation
-    - chain(task1.s(), task2.s()) - sequential execution
-    - group(task1.s(), task2.s()) - parallel execution
-    - chord(group(...), callback.s()) - parallel with callback
-    - task.s() / task.si() - task signatures
-
-    Security relevance:
-    - Taint tracking: user_input -> task.delay(data) -> unsafe task execution
-    - Privilege escalation: non-admin calling admin tasks
-    - Queue bypass: apply_async with queue override
-    """
+    """Extract Celery task invocation patterns."""
     calls = []
     if not isinstance(context.tree, ast.AST):
         return calls
@@ -280,20 +222,7 @@ def extract_celery_task_calls(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Celery Beat periodic task schedules.
-
-    Detects:
-    - app.conf.beat_schedule = {...} dictionary assignments
-    - crontab() expressions (minute, hour, day_of_week, day_of_month, month_of_year)
-    - schedule() interval expressions (run_every seconds)
-    - @periodic_task decorator (deprecated)
-    - Task references and arguments in schedules
-
-    Security relevance:
-    - Scheduled admin tasks running automatically
-    - Overfrequent schedules (DoS risk)
-    - Sensitive data operations (backups, cleanups)
-    """
+    """Extract Celery Beat periodic task schedules."""
     schedules = []
     if not isinstance(context.tree, ast.AST):
         return schedules
@@ -411,17 +340,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_graphene_resolvers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Graphene GraphQL resolver methods.
-
-    Graphene pattern:
-        class UserType(graphene.ObjectType):
-            name = graphene.String()
-
-            def resolve_name(self, info):
-                return self.name
-
-    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
-    """
+    """Extract Graphene GraphQL resolver methods."""
     resolvers = []
 
     if not context or not context.tree:
@@ -473,19 +392,7 @@ def extract_graphene_resolvers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_ariadne_resolvers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Ariadne GraphQL resolver decorators.
-
-    Ariadne patterns:
-        @query.field("user")
-        def resolve_user(obj, info, id):
-            return get_user(id)
-
-        @mutation.field("createUser")
-        def create_user_resolver(obj, info, name):
-            return create_user(name)
-
-    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
-    """
+    """Extract Ariadne GraphQL resolver decorators."""
     resolvers = []
 
     if not context or not context.tree:
@@ -549,19 +456,7 @@ def extract_ariadne_resolvers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_strawberry_resolvers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Strawberry GraphQL resolver decorators.
-
-    Strawberry patterns:
-        @strawberry.type
-        class User:
-            name: str
-
-            @strawberry.field
-            def full_name(self) -> str:
-                return f"{self.first_name} {self.last_name}"
-
-    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
-    """
+    """Extract Strawberry GraphQL resolver decorators."""
     resolvers = []
 
     if not context or not context.tree:

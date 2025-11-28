@@ -1,16 +1,4 @@
-"""
-Schema utility classes - Foundation for all schema definitions.
-
-This module contains the core class definitions used by ALL schema modules:
-- Column: Represents a database column with type and constraints
-- ForeignKey: Foreign key relationship metadata for JOIN query generation
-- TableSchema: Complete table schema definition
-
-Design Philosophy:
-- Zero dependencies on table definitions (avoids circular imports)
-- Used by all language-specific schema modules
-- Pure class definitions only (no table registries)
-"""
+"""Schema utility classes - Foundation for all schema definitions."""
 
 import sqlite3
 from dataclasses import dataclass, field
@@ -47,34 +35,14 @@ class Column:
 
 @dataclass
 class ForeignKey:
-    """Foreign key relationship metadata for JOIN query generation.
-
-    Purpose: Enables build_join_query() to validate and construct JOINs.
-    NOT used for CREATE TABLE generation (database.py defines FKs).
-
-    Attributes:
-        local_columns: Column names in this table (e.g., ['query_file', 'query_line'])
-        foreign_table: Referenced table name (e.g., 'sql_queries')
-        foreign_columns: Column names in foreign table (e.g., ['file_path', 'line_number'])
-
-    Example:
-        ForeignKey(
-            local_columns=['query_file', 'query_line'],
-            foreign_table='sql_queries',
-            foreign_columns=['file_path', 'line_number']
-        )
-    """
+    """Foreign key relationship metadata for JOIN query generation."""
 
     local_columns: list[str]
     foreign_table: str
     foreign_columns: list[str]
 
     def validate(self, local_table: str, all_tables: dict[str, TableSchema]) -> list[str]:
-        """Validate foreign key definition against schema.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
+        """Validate foreign key definition against schema."""
         errors = []
 
         if self.foreign_table not in all_tables:
@@ -105,33 +73,7 @@ class ForeignKey:
 
 @dataclass
 class TableSchema:
-    """Represents a complete table schema.
-
-    Design Pattern - Foreign Key Constraints:
-        Foreign keys serve TWO purposes in this schema:
-
-        1. JOIN Query Generation (NEW):
-           The foreign_keys field provides metadata for build_join_query() to:
-           - Validate JOIN conditions reference correct tables/columns
-           - Auto-generate proper JOIN ON clauses
-           - Enable type-safe relational queries
-
-        2. Database Integrity (UNCHANGED):
-           Actual FOREIGN KEY constraints in CREATE TABLE statements are still
-           defined exclusively in database.py. This separation maintains backward
-           compatibility and avoids circular dependencies during table creation.
-
-        The foreign_keys field is OPTIONAL and backward compatible. Tables without
-        foreign keys can still be queried normally with build_query().
-
-    Attributes:
-        name: Table name
-        columns: List of column definitions
-        indexes: List of (index_name, [column_names]) tuples
-        primary_key: Composite primary key column list (for multi-column PKs)
-        unique_constraints: List of UNIQUE constraint column lists
-        foreign_keys: List of ForeignKey definitions (for JOIN generation)
-    """
+    """Represents a complete table schema."""
 
     name: str
     columns: list[Column]
@@ -159,12 +101,7 @@ class TableSchema:
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
     def create_indexes_sql(self) -> list[str]:
-        """Generate CREATE INDEX statements.
-
-        Supports both regular and partial indexes:
-        - Regular: (idx_name, [cols])
-        - Partial: (idx_name, [cols], where_clause)
-        """
+        """Generate CREATE INDEX statements."""
         stmts = []
         for idx_def in self.indexes:
             if len(idx_def) == 2:
@@ -181,12 +118,7 @@ class TableSchema:
         return stmts
 
     def validate_against_db(self, cursor: sqlite3.Cursor) -> tuple[bool, list[str]]:
-        """
-        Validate that actual database table matches this schema.
-
-        Returns:
-            (is_valid, [error_messages])
-        """
+        """Validate that actual database table matches this schema."""
         errors = []
 
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.name,))

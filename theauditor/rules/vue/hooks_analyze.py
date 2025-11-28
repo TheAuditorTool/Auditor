@@ -1,14 +1,4 @@
-"""Vue Composition API Hooks Analyzer - Database-First Approach.
-
-Detects Vue 3 Composition API misuse and hook-related issues using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
-"""
+"""Vue Composition API Hooks Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -125,23 +115,7 @@ MEMORY_LEAK_PATTERNS = frozenset(
 
 
 def find_vue_hooks_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue Composition API hooks misuse and issues.
-
-    Detects:
-    - Hooks called outside setup()
-    - Missing cleanup in lifecycle hooks
-    - Dependency issues in watch/computed
-    - Memory leaks from refs/reactive
-    - Incorrect hook ordering
-    - Excessive reactivity overhead
-    - Missing error boundaries
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Vue hooks issues found
-    """
+    """Detect Vue Composition API hooks misuse and issues."""
     findings = []
 
     if not context.db_path:
@@ -170,11 +144,7 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> list[StandardFinding]
 
 
 def _get_composition_api_files(cursor) -> set[str]:
-    """Get all files using Vue Composition API.
-
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
-    """
+    """Get all files using Vue Composition API."""
     vue_files = set()
 
     cursor.execute("""
@@ -599,9 +569,5 @@ def _find_missing_error_boundaries(cursor, vue_files: set[str]) -> list[Standard
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_hooks_issues(context)

@@ -1,8 +1,4 @@
-"""Express.js-specific XSS Detection.
-
-This module detects XSS vulnerabilities specific to Express.js applications.
-Uses database-only approach with framework awareness.
-"""
+"""Express.js-specific XSS Detection."""
 
 import sqlite3
 
@@ -80,11 +76,7 @@ EXPRESS_INPUT_SOURCES = frozenset(
 
 
 def find_express_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Express.js-specific XSS vulnerabilities.
-
-    Returns:
-        List of Express-specific XSS findings
-    """
+    """Detect Express.js-specific XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -110,13 +102,7 @@ def find_express_xss(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _is_express_app(conn) -> bool:
-    """Check if this is an Express.js application.
-
-    Modernization (2025-11-22):
-    - Removed LIMIT 1000 symbol scan fallback (non-deterministic, violates ZERO FALLBACK POLICY)
-    - Trust the indexer: if frameworks table doesn't list Express, return False immediately
-    - This exposes indexer bugs rather than masking them with guesswork
-    """
+    """Check if this is an Express.js application."""
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -130,12 +116,7 @@ def _is_express_app(conn) -> bool:
 
 
 def _check_unsafe_res_send(conn) -> list[StandardFinding]:
-    """Check for res.send() with HTML content containing user input.
-
-    Modernization (2025-11-22):
-    - Performance: Push HTML tag and template literal filtering to SQL
-    - Memory safe: Stream results with cursor iteration instead of fetchall()
-    """
+    """Check for res.send() with HTML content containing user input."""
     findings = []
     cursor = conn.cursor()
 
@@ -176,13 +157,7 @@ def _check_unsafe_res_send(conn) -> list[StandardFinding]:
 
 
 def _check_template_rendering(conn) -> list[StandardFinding]:
-    """Check for unsafe template rendering in Express.
-
-    Modernization (2025-11-22):
-    - Fixed N+1: Single self-JOIN instead of loop + query per render call
-    - Performance: Push user input filtering to SQL
-    - Memory safe: Stream results with cursor iteration
-    """
+    """Check for unsafe template rendering in Express."""
     findings = []
     cursor = conn.cursor()
 
@@ -443,9 +418,5 @@ def _check_jsonp_callback(conn) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_express_xss(context)

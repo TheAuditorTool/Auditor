@@ -1,10 +1,4 @@
-"""FastAPI Framework Security Analyzer - Database-First Approach.
-
-Analyzes FastAPI applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-This replaces fastapi_analyzer.py with a faster, cleaner implementation.
-"""
+"""FastAPI Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -70,27 +64,7 @@ FILE_OPERATIONS = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect FastAPI security vulnerabilities using indexed data.
-
-    Detects (from database):
-    - Direct database access without dependency injection
-    - Missing CORS middleware
-    - Blocking file operations (limited - can't detect async context)
-    - Raw SQL in route handlers
-    - Background tasks without proper error handling
-    - WebSocket endpoints without authentication
-    - Debug endpoints exposed
-    - Form data injection risks
-
-    Known Limitations (requires AST/type analysis):
-    - Cannot detect async functions (not stored in database)
-    - Cannot detect unvalidated path parameters (requires type hints)
-    - Cannot detect Pydantic validation usage
-    - Cannot detect middleware order
-
-    Returns:
-        List of security findings
-    """
+    """Detect FastAPI security vulnerabilities using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -527,14 +501,7 @@ FASTAPI_SQL_SINKS = frozenset(
 
 
 def register_taint_patterns(taint_registry):
-    """Register FastAPI-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register FastAPI-specific taint patterns."""
 
     for pattern in FASTAPI_RESPONSE_SINKS:
         taint_registry.register_sink(pattern, "response", "python")

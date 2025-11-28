@@ -1,22 +1,4 @@
-"""Cryptography Security Analyzer - Schema Contract Compliant Implementation.
-
-Detects 15+ cryptographic vulnerabilities using database-driven approach.
-Follows v1.1+ schema contract compliance (no table checks, no regex).
-
-This implementation:
-- Uses frozensets for ALL patterns (O(1) lookups)
-- Direct database queries (assumes all tables exist per schema contract)
-- Uses parameterized queries (no SQL injection)
-- Implements multi-layer detection
-- Provides confidence scoring
-- Maps all findings to CWE IDs
-- Tokenizes call metadata from normalized database to avoid substring collisions
-
-False positive fixes (2025-11-22):
-- Credit: Token-based matching technique from external contributor @dev-corelift (PR #20)
-- Prevents substring collisions like "includes" triggering "DES" warnings
-- Uses camelCase-aware identifier tokenization for precise pattern matching
-"""
+"""Cryptography Security Analyzer - Schema Contract Compliant Implementation."""
 
 import re
 import sqlite3
@@ -211,17 +193,7 @@ _CAMEL_CASE_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0
 
 
 def _split_identifier_tokens(value: str | None) -> list[str]:
-    """Split identifiers into normalized, lowercase tokens.
-
-    Handles camelCase, snake_case, kebab-case, and mixed patterns.
-    Prevents substring collisions like "includes" matching "DES".
-
-    Examples:
-        >>> _split_identifier_tokens("createDES3Cipher")
-        ['create', 'des3', 'cipher']
-        >>> _split_identifier_tokens("c.path.includes")
-        ['c', 'path', 'includes']
-    """
+    """Split identifiers into normalized, lowercase tokens."""
     if not value:
         return []
 
@@ -281,11 +253,7 @@ CONSTANT_TIME_COMPARISONS = frozenset(
 
 
 def find_crypto_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect cryptographic vulnerabilities using schema contract patterns.
-
-    Implements 15+ crypto vulnerability patterns with unconditional execution.
-    All required tables guaranteed to exist by schema contract.
-    """
+    """Detect cryptographic vulnerabilities using schema contract patterns."""
     findings = []
 
     if not context.db_path:
@@ -332,10 +300,7 @@ def find_crypto_issues(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _determine_confidence(file: str, line: int, func_name: str, cursor) -> Confidence:
-    """Determine confidence level based on context analysis.
-
-    Uses multiple signals to determine if crypto usage is security-critical.
-    """
+    """Determine confidence level based on context analysis."""
 
     if func_name and any(kw in func_name.lower() for kw in SECURITY_KEYWORDS):
         return Confidence.HIGH
@@ -487,17 +452,7 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
 
 
 def _contains_alias(text: str | None, alias: str) -> bool:
-    """Check if the identifier or argument contains a crypto alias token.
-
-    Uses token-based matching to prevent false positives from substring collisions.
-    Credit: @dev-corelift (PR #20)
-
-    Examples:
-        >>> _contains_alias("c.path.includes", "des")
-        False  # "includes" doesn't contain "des" as a token
-        >>> _contains_alias("createDES3Cipher", "des3")
-        True  # "des3" exists as a distinct token
-    """
+    """Check if the identifier or argument contains a crypto alias token."""
     if not text:
         return False
 
@@ -1261,11 +1216,7 @@ def _find_deprecated_libraries(cursor) -> list[StandardFinding]:
 
 
 def register_taint_patterns(taint_registry):
-    """Register crypto-specific patterns with taint analyzer.
-
-    This allows the taint analyzer to track weak random sources
-    flowing into cryptographic operations.
-    """
+    """Register crypto-specific patterns with taint analyzer."""
 
     for func in WEAK_RANDOM_FUNCTIONS:
         taint_registry.register_source(func, "weak_random", "any")

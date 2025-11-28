@@ -1,21 +1,4 @@
-"""Nginx Security Analyzer - Database-First Approach.
-
-Detects security misconfigurations in Nginx configurations via database analysis.
-Uses pre-extracted data from nginx_configs table - NO FILE I/O.
-
-Tables Used (guaranteed by schema contract):
-- nginx_configs: Nginx configuration blocks (directives, SSL, locations, etc.)
-
-Detects:
-- proxy_pass without rate limiting
-- Missing critical security headers
-- Exposed sensitive paths
-- Deprecated SSL/TLS protocols
-- Weak SSL ciphers
-- Server version disclosure
-
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
-"""
+"""Nginx Security Analyzer - Database-First Approach."""
 
 import json
 import re
@@ -104,21 +87,7 @@ class NginxPatterns:
 
 
 def find_nginx_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Nginx security misconfigurations.
-
-    Analyzes nginx_configs table for:
-    - proxy_pass without rate limiting
-    - Missing critical security headers
-    - Exposed sensitive directories
-    - SSL/TLS misconfigurations
-    - Server token disclosure
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Nginx security misconfigurations."""
     analyzer = NginxAnalyzer(context)
     return analyzer.analyze()
 

@@ -1,8 +1,4 @@
-"""Path-Based Factual Correlation using Control Flow Graphs.
-
-This module correlates findings based on control flow structure - purely factual
-relationships about which findings execute together on the same paths.
-"""
+"""Path-Based Factual Correlation using Control Flow Graphs."""
 
 import sqlite3
 from collections import defaultdict
@@ -14,31 +10,17 @@ COMPLEXITY_THRESHOLD = 25
 
 
 class PathCorrelator:
-    """Correlate findings based on shared execution paths in CFG.
-
-    Reports structural facts about control flow relationships, not interpretations.
-    """
+    """Correlate findings based on shared execution paths in CFG."""
 
     def __init__(self, db_path: str):
-        """Initialize with database connection.
-
-        Args:
-            db_path: Path to repo_index.db
-        """
+        """Initialize with database connection."""
         self.db_path = str(db_path)
         self.cfg_builder = CFGBuilder(self.db_path)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
 
     def correlate(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Find findings that co-exist on same execution paths.
-
-        Args:
-            findings: List of finding dictionaries with file, line, tool, etc.
-
-        Returns:
-            List of path clusters with findings guaranteed to be on same path
-        """
+        """Find findings that co-exist on same execution paths."""
 
         findings_by_function = self._group_findings_by_function(findings)
         path_clusters = []
@@ -66,10 +48,7 @@ class PathCorrelator:
         return path_clusters
 
     def _group_findings_by_function(self, findings: list[dict]) -> dict[tuple[str, str], list]:
-        """Group findings by their containing function.
-
-        Uses symbols table to find function boundaries.
-        """
+        """Group findings by their containing function."""
         grouped = defaultdict(list)
         cursor = self.conn.cursor()
 
@@ -117,20 +96,7 @@ class PathCorrelator:
     def _find_finding_paths_with_conditions(
         self, cfg: dict, findings_to_blocks: dict, all_findings: list
     ) -> list[dict]:
-        """Find execution paths containing multiple findings with path conditions.
-
-        ADAPTIVE STRATEGY (v1.3+):
-        - Below complexity threshold (≤25 finding locations): High-precision O(N²) pathfinding
-        - Above threshold (>25): Fast O(N) block clustering to prevent performance cliff
-
-        ALGORITHMIC IMPROVEMENT (v1.1+):
-        Instead of enumerating all paths (which causes false negatives when max_paths
-        is reached), we use targeted graph traversal. For each pair of findings, we
-        check if a path exists between them using BFS. This guarantees complete
-        accuracy regardless of function complexity.
-
-        Reports factual control flow conditions, not interpretations.
-        """
+        """Find execution paths containing multiple findings with path conditions."""
 
         finding_blocks = list(findings_to_blocks.keys())
 
@@ -194,20 +160,7 @@ class PathCorrelator:
         return unique_clusters
 
     def _fast_block_clustering(self, findings_to_blocks: dict[int, list]) -> list[dict]:
-        """
-        O(N) clustering strategy for complex functions.
-
-        Groups findings that share the exact same Basic Block. This is an
-        ADAPTIVE ALGORITHM SELECTION (not a fallback) - chosen when function
-        complexity makes O(N²) pathfinding too expensive.
-
-        Args:
-            findings_to_blocks: Dict mapping block_id -> list of findings
-
-        Returns:
-            List of block_cluster dicts with explicit metadata distinguishing
-            this from high-precision path_cluster results
-        """
+        """O(N) clustering strategy for complex functions."""
         clusters = []
 
         for block_id, findings in findings_to_blocks.items():
@@ -227,14 +180,7 @@ class PathCorrelator:
         return clusters
 
     def _build_cfg_graph(self, cfg: dict) -> dict[int, list[int]]:
-        """Build adjacency list representation of CFG for efficient traversal.
-
-        Args:
-            cfg: CFG dictionary with edges
-
-        Returns:
-            Dict mapping block_id -> list of successor block_ids
-        """
+        """Build adjacency list representation of CFG for efficient traversal."""
         graph = defaultdict(list)
         for edge in cfg.get("edges", []):
             if edge["type"] != "back_edge":
@@ -242,16 +188,7 @@ class PathCorrelator:
         return dict(graph)
 
     def _find_path_bfs(self, graph: dict[int, list[int]], start: int, end: int) -> list[int] | None:
-        """Find a path from start to end using BFS.
-
-        Args:
-            graph: Adjacency list representation of CFG
-            start: Starting block ID
-            end: Target block ID
-
-        Returns:
-            List of block IDs representing the path, or None if no path exists
-        """
+        """Find a path from start to end using BFS."""
         if start == end:
             return [start]
 
@@ -274,10 +211,7 @@ class PathCorrelator:
         return None
 
     def _extract_path_conditions(self, cfg: dict, path_blocks: list[int]) -> list[str]:
-        """Extract the literal conditions from source that define this execution path.
-
-        Returns factual code conditions, not interpretations.
-        """
+        """Extract the literal conditions from source that define this execution path."""
         conditions = []
         blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
         edges_dict = defaultdict(list)

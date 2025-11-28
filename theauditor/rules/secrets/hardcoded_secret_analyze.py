@@ -1,23 +1,4 @@
-"""Hardcoded Secrets Analyzer - Hybrid Database/Pattern Approach.
-
-This rule demonstrates a JUSTIFIED HYBRID approach because:
-1. Entropy calculation is computational, not indexed
-2. Base64 decoding and verification requires runtime processing
-3. Pattern matching for secret formats needs regex evaluation
-4. Sequential/keyboard pattern detection is algorithmic
-5. Normalized assignment metadata distinguishes literal secrets from dynamic sources
-
-Follows gold standard patterns (v1.1+ schema contract compliance):
-- Frozensets for O(1) pattern matching
-- Direct database queries (assumes all tables exist per schema contract)
-- Proper Severity and Confidence enums
-- Standardized finding generation with correct parameter names
-
-False positive fixes (2025-11-22):
-- Credit: Technique adapted from external contributor @dev-corelift (PR #20)
-- Adds literal string extraction to avoid flagging dynamic values like request.headers.get()
-- Properly handles f-strings, template literals, and function calls
-"""
+"""Hardcoded Secrets Analyzer - Hybrid Database/Pattern Approach."""
 
 import base64
 import math
@@ -265,26 +246,7 @@ KEYBOARD_PATTERNS = frozenset(
 
 
 def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect hardcoded secrets using hybrid approach.
-
-    Detects:
-    - API keys and tokens in code
-    - Hardcoded passwords
-    - Private keys and certificates
-    - AWS/Azure/GCP credentials
-    - Database connection strings with passwords
-    - Environment variable fallbacks
-
-    This is a HYBRID rule that uses:
-    - Database for finding string assignments
-    - Pattern matching and entropy calculation (computational)
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of hardcoded secret findings
-    """
+    """Detect hardcoded secrets using hybrid approach."""
     findings = []
 
     if not context.db_path:
@@ -318,24 +280,7 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding
 
 
 def _extract_string_literal(expr: str) -> str | None:
-    """Extract the inner value of a string literal expression.
-
-    Supports Python prefixes (r/u/b/f) and JavaScript/TypeScript string forms.
-    Returns None when the expression is not a static literal (e.g. function
-    calls, template strings, or f-strings).
-
-    Credit: @dev-corelift (PR #20) - Prevents flagging dynamic sources
-
-    Examples:
-        >>> _extract_string_literal('"hardcoded_secret"')
-        'hardcoded_secret'
-        >>> _extract_string_literal('request.headers.get("X-API-Key")')
-        None  # Not a literal
-        >>> _extract_string_literal('f"secret_{user_id}"')
-        None  # F-string with interpolation
-        >>> _extract_string_literal('`secret_${value}`')
-        None  # Template literal with interpolation
-    """
+    """Extract the inner value of a string literal expression."""
     if not expr:
         return None
 
@@ -667,11 +612,7 @@ def _get_suspicious_files(cursor) -> list[str]:
 
 
 def _is_likely_secret(value: str) -> bool:
-    """Check if a string value is likely a secret.
-
-    This function performs computational analysis that cannot be
-    pre-indexed in the database (entropy calculation).
-    """
+    """Check if a string value is likely a secret."""
 
     if len(value) < 16:
         return False
@@ -716,10 +657,7 @@ def _is_likely_secret(value: str) -> bool:
 
 
 def _calculate_entropy(s: str) -> float:
-    """Calculate Shannon entropy of a string.
-
-    This is a computational property that cannot be pre-indexed.
-    """
+    """Calculate Shannon entropy of a string."""
     if not s:
         return 0.0
 
@@ -763,10 +701,7 @@ def _is_keyboard_walk(s: str) -> bool:
 
 
 def _is_base64_secret(value: str) -> bool:
-    """Check if a Base64 string decodes to a secret.
-
-    This requires runtime decoding and entropy calculation.
-    """
+    """Check if a Base64 string decodes to a secret."""
 
     base64_pattern = r"^[A-Za-z0-9+/]{20,}={0,2}$"
     if not re.match(base64_pattern, value):
@@ -789,13 +724,7 @@ def _is_base64_secret(value: str) -> bool:
 
 
 def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFinding]:
-    """Scan file content for secret patterns.
-
-    This is justified file I/O because:
-    1. The database doesn't store full file content
-    2. Pattern matching requires regex evaluation on actual content
-    3. We only scan files identified as suspicious
-    """
+    """Scan file content for secret patterns."""
     findings = []
 
     try:
@@ -854,11 +783,7 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFin
 
 
 def register_taint_patterns(taint_registry):
-    """Register secret-related taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register secret-related taint patterns."""
 
     for keyword in SECRET_KEYWORDS:
         taint_registry.register_source(keyword, "secret", "all")

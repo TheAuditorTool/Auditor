@@ -1,7 +1,4 @@
-"""
-Resolution logic for JavaScript/TypeScript analysis.
-Contains post-processing methods that operate on the SQLite database.
-"""
+"""Resolution logic for JavaScript/TypeScript analysis."""
 
 import json
 import os
@@ -14,20 +11,7 @@ class JavaScriptResolversMixin:
 
     @staticmethod
     def resolve_router_mount_hierarchy(db_path: str):
-        """Resolve router mount hierarchy to populate api_endpoints.full_path.
-
-        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
-
-        Algorithm:
-        1. Load router_mounts table (router.use() statements from AST)
-        2. Resolve mount path expressions (API_PREFIX -> '/api/v1')
-        3. Resolve router variables to file paths (areaRoutes -> './area.routes' -> 'backend/src/routes/area.routes.ts')
-        4. Build 2-level mount hierarchy
-        5. Update api_endpoints.full_path = mount_path + pattern
-
-        Args:
-            db_path: Path to repo_index.db database
-        """
+        """Resolve router mount hierarchy to populate api_endpoints.full_path."""
         debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
         conn = sqlite3.connect(db_path)
@@ -185,30 +169,7 @@ class JavaScriptResolversMixin:
 
     @staticmethod
     def resolve_handler_file_paths(db_path: str):
-        """Resolve handler_file for express_middleware_chains from import statements.
-
-        ADDED 2025-11-27: Phase 6.9 - Cross-file handler file resolution
-
-        Problem:
-            express_middleware_chains stores route definitions in route files,
-            but handlers are defined in controller files. Flow resolver needs
-            handler_file to construct correct DFG node IDs.
-
-            Example:
-                Route file: backend/src/routes/auth.routes.ts
-                Handler expr: authController.adminLogin
-                Handler file: backend/src/controllers/auth.controller.ts
-
-        Algorithm:
-            1. Load middleware chains where handler_file IS NULL
-            2. Parse handler_function to get variable name (AuthController -> authController)
-            3. Look up import that provides that variable
-            4. Resolve module path to actual file path (handle @alias paths)
-            5. Update handler_file column
-
-        Args:
-            db_path: Path to repo_index.db database
-        """
+        """Resolve handler_file for express_middleware_chains from import statements."""
         debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
         conn = sqlite3.connect(db_path)
@@ -430,35 +391,7 @@ class JavaScriptResolversMixin:
 
     @staticmethod
     def resolve_cross_file_parameters(db_path: str):
-        """Resolve parameter names for cross-file function calls.
-
-        ARCHITECTURE: Post-indexing resolution (runs AFTER all files indexed).
-
-        Problem:
-            JavaScript extraction uses file-scoped functionParams map.
-            When controller.ts calls accountService.createAccount(), the map doesn't have
-            createAccount's parameters (defined in service.ts).
-            Result: Falls back to generic names (arg0, arg1).
-
-        Solution:
-            After all files indexed, query symbols table for actual parameter names
-            and update function_call_args.param_name.
-
-        Evidence (before fix):
-            SELECT param_name, COUNT(*) FROM function_call_args GROUP BY param_name:
-                arg0: 10,064 (99.9%)
-                arg1:  2,552
-                data:      1 (0.1%)
-
-        Expected (after fix):
-            data:  1,500+
-            req:     800+
-            res:     600+
-            arg0:      0 (only for truly unresolved calls)
-
-        Args:
-            db_path: Path to repo_index.db database
-        """
+        """Resolve parameter names for cross-file function calls."""
         logger = None
         if "logger" in globals():
             logger = globals()["logger"]
@@ -566,21 +499,7 @@ class JavaScriptResolversMixin:
 
     @staticmethod
     def resolve_import_paths(db_path: str):
-        """Resolve import paths using indexed file data.
-
-        ARCHITECTURE: Post-indexing resolution using database queries (NO filesystem I/O).
-        Runs AFTER all files indexed. Queries `files` table for O(1) path lookups.
-
-        Resolution order:
-        1. Path alias expansion (@/, ~/)
-        2. Relative path resolution (./foo, ../bar)
-        3. Extension/index file variants
-
-        Note: node_modules (bare specifiers like 'lodash') are NOT resolved.
-
-        Args:
-            db_path: Path to repo_index.db database
-        """
+        """Resolve import paths using indexed file data."""
         debug = os.getenv("THEAUDITOR_DEBUG") == "1"
 
         conn = sqlite3.connect(db_path)
@@ -630,22 +549,14 @@ class JavaScriptResolversMixin:
         conn.close()
 
         if debug:
-            print(f"[IMPORT RESOLUTION] Resolved {resolved_count}/{len(imports_to_resolve)} imports")
+            print(
+                f"[IMPORT RESOLUTION] Resolved {resolved_count}/{len(imports_to_resolve)} imports"
+            )
             print(f"[IMPORT RESOLUTION] Unresolved: {unresolved_count}")
 
 
 def _load_path_aliases(cursor) -> dict:
-    """Load path aliases from indexed file structure.
-
-    Detects common project structures (src/, app/) and sets up
-    conventional aliases (@/, ~/).
-
-    Args:
-        cursor: SQLite cursor
-
-    Returns:
-        Dict mapping alias prefixes to base paths
-    """
+    """Load path aliases from indexed file structure."""
     aliases = {}
 
     cursor.execute("""
@@ -672,22 +583,7 @@ def _resolve_import(
     indexed_paths: set,
     path_aliases: dict,
 ) -> str | None:
-    """Resolve a single import path against indexed files.
-
-    Resolution order:
-    1. Path alias expansion (@/, ~/)
-    2. Relative path resolution (./foo, ../bar)
-    3. Extension/index file variants
-
-    Args:
-        import_path: The import path to resolve (e.g., './utils')
-        from_file: The file containing the import
-        indexed_paths: Set of all indexed file paths
-        path_aliases: Dict of alias -> base path mappings
-
-    Returns:
-        Resolved path if found, None otherwise
-    """
+    """Resolve a single import path against indexed files."""
     resolved_base = None
 
     for alias, target in path_aliases.items():
@@ -726,15 +622,7 @@ def _resolve_import(
 
 
 def _resolve_parent_path(from_dir: str, import_path: str) -> str:
-    """Resolve parent path traversals (../).
-
-    Args:
-        from_dir: Directory containing the importing file
-        import_path: Import path starting with ../
-
-    Returns:
-        Resolved base path
-    """
+    """Resolve parent path traversals (../)."""
     parts = from_dir.split("/")
     import_parts = import_path.split("/")
 
@@ -747,14 +635,7 @@ def _resolve_parent_path(from_dir: str, import_path: str) -> str:
 
 
 def _normalize_path(path: str) -> str:
-    """Normalize path by resolving . and .. segments.
-
-    Args:
-        path: Path with potential . and .. segments
-
-    Returns:
-        Normalized path
-    """
+    """Normalize path by resolving . and .. segments."""
     parts = path.split("/")
     result = []
     for part in parts:

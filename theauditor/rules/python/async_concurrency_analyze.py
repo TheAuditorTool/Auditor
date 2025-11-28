@@ -1,14 +1,4 @@
-"""Python Async and Concurrency Analyzer - Database-First Approach.
-
-Detects race conditions, async issues, and concurrency problems using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Python Async and Concurrency Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -268,21 +258,13 @@ class AsyncConcurrencyAnalyzer:
     """Analyzer for Python async and concurrency issues."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ConcurrencyPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of concurrency issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -322,15 +304,7 @@ class AsyncConcurrencyAnalyzer:
             get_table_schema(table_name)
 
     def _validate_columns(self, table_name: str, columns: list[str]):
-        """Validate columns exist in table schema.
-
-        Args:
-            table_name: Table to check
-            columns: List of column names to validate
-
-        Raises:
-            ValueError: If table or column doesn't exist
-        """
+        """Validate columns exist in table schema."""
         schema = get_table_schema(table_name)
         valid_cols = set(schema.column_names())
         for col in columns:
@@ -341,10 +315,7 @@ class AsyncConcurrencyAnalyzer:
                 )
 
     def _detect_concurrency_usage(self) -> bool:
-        """Check if project uses threading/async/multiprocessing.
-
-        Schema: refs(src, kind, value, line)
-        """
+        """Check if project uses threading/async/multiprocessing."""
 
         self._validate_columns("refs", ["value"])
 
@@ -361,11 +332,7 @@ class AsyncConcurrencyAnalyzer:
         return count > 0
 
     def _check_race_conditions(self):
-        """Detect TOCTOU race conditions.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Detect TOCTOU race conditions."""
 
         self._validate_columns("function_call_args", ["file", "line", "callee_function"])
 
@@ -404,10 +371,7 @@ class AsyncConcurrencyAnalyzer:
             )
 
     def _check_shared_state_no_lock(self, has_concurrency: bool):
-        """Find shared state modifications without locks.
-
-        Schema: assignments(file, line, target_var, source_expr, source_vars, in_function)
-        """
+        """Find shared state modifications without locks."""
         if not has_concurrency:
             return
 
@@ -467,11 +431,7 @@ class AsyncConcurrencyAnalyzer:
             )
 
     def _check_lock_nearby(self, file: str, line: int, function: str) -> bool:
-        """Check if there's lock protection nearby.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Check if there's lock protection nearby."""
         lock_placeholders = ",".join("?" * len(self.patterns.LOCK_METHODS))
         params = list(self.patterns.LOCK_METHODS) + [file, line, line]
 
@@ -492,11 +452,7 @@ class AsyncConcurrencyAnalyzer:
         return self.cursor.fetchone()[0] > 0
 
     def _check_async_without_await(self):
-        """Find async function calls not awaited.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Find async function calls not awaited."""
 
         self._validate_columns(
             "function_call_args",
@@ -548,11 +504,7 @@ class AsyncConcurrencyAnalyzer:
                 )
 
     def _check_parallel_writes(self):
-        """Find parallel operations with write operations.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Find parallel operations with write operations."""
 
         self._validate_columns(
             "function_call_args", ["file", "line", "argument_expr", "callee_function"]
@@ -623,11 +575,7 @@ class AsyncConcurrencyAnalyzer:
             )
 
     def _check_threading_issues(self):
-        """Find thread lifecycle issues.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Find thread lifecycle issues."""
 
         self._validate_columns("function_call_args", ["file", "line", "callee_function"])
 
@@ -695,12 +643,7 @@ class AsyncConcurrencyAnalyzer:
             )
 
     def _check_sleep_in_loops(self):
-        """Find sleep operations in loops.
-
-        Schema: cfg_blocks(id, file, function_name, block_type, start_line, end_line, condition_expr)
-                function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Find sleep operations in loops."""
 
         self._validate_columns("cfg_blocks", ["file", "block_type", "start_line", "end_line"])
         self._validate_columns("function_call_args", ["file", "line", "callee_function"])
@@ -736,11 +679,7 @@ class AsyncConcurrencyAnalyzer:
             )
 
     def _check_retry_without_backoff(self):
-        """Find retry loops without exponential backoff.
-
-        Schema: cfg_blocks(id, file, function_name, block_type, start_line, end_line, condition_expr)
-                assignments(file, line, target_var, source_expr, source_vars, in_function)
-        """
+        """Find retry loops without exponential backoff."""
 
         self._validate_columns("cfg_blocks", ["file", "block_type", "start_line", "end_line"])
         self._validate_columns("assignments", ["file", "line", "target_var", "source_expr"])
@@ -797,10 +736,7 @@ class AsyncConcurrencyAnalyzer:
                     )
 
     def _check_backoff_pattern(self, file: str, start: int, end: int) -> bool:
-        """Check if there's exponential backoff in range.
-
-        Schema: assignments(file, line, target_var, source_expr, source_vars, in_function)
-        """
+        """Check if there's exponential backoff in range."""
 
         query = build_query(
             "assignments", ["source_expr"], where="file = ? AND line >= ? AND line <= ?"
@@ -818,11 +754,7 @@ class AsyncConcurrencyAnalyzer:
         return False
 
     def _check_sleep_in_range(self, file: str, start: int, end: int) -> bool:
-        """Check if there's sleep in line range.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-        """
+        """Check if there's sleep in line range."""
         sleep_placeholders = ",".join("?" * len(self.patterns.SLEEP_METHODS))
 
         self.cursor.execute(
@@ -840,12 +772,7 @@ class AsyncConcurrencyAnalyzer:
         return self.cursor.fetchone()[0] > 0
 
     def _check_lock_issues(self):
-        """Find lock-related issues.
-
-        Schema: function_call_args(file, line, caller_function, callee_function,
-                                   argument_index, argument_expr, param_name)
-                assignments(file, line, target_var, source_expr, source_vars, in_function)
-        """
+        """Find lock-related issues."""
 
         self._validate_columns(
             "function_call_args",
@@ -942,24 +869,13 @@ class AsyncConcurrencyAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Python async and concurrency issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of concurrency issues found
-    """
+    """Detect Python async and concurrency issues."""
     analyzer = AsyncConcurrencyAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register concurrency-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register concurrency-specific taint patterns."""
     patterns = ConcurrencyPatterns()
 
     for pattern in SHARED_STATE_SOURCES:

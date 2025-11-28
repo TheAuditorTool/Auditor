@@ -1,11 +1,4 @@
-"""Terraform security analyzer.
-
-⚠️ DEPRECATED: Direct use of this module is maintained for backward
-compatibility with aud terraform analyze. New code should invoke the
-standardized rule at theauditor.rules.terraform.terraform_analyze via the
-rule orchestrator. This wrapper now delegates to that rule and preserves the
-legacy TerraformFinding format plus database dual-writes.
-"""
+"""Terraform security analyzer."""
 
 import sqlite3
 from dataclasses import dataclass

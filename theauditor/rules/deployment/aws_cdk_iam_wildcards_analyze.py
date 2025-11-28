@@ -1,12 +1,4 @@
-"""AWS CDK IAM Wildcard Detection - database-first rule.
-
-Detects IAM policies with overly permissive wildcard actions or resources in CDK Python code.
-
-Checks:
-- IAM policies with actions containing '*' (HIGH)
-- IAM policies with resources containing '*' (HIGH)
-- IAM roles with AdministratorAccess policy attached (CRITICAL)
-"""
+"""AWS CDK IAM Wildcard Detection - database-first rule."""
 
 import logging
 import sqlite3

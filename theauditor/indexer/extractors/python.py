@@ -1,21 +1,4 @@
-"""Python file extractor - Thin wrapper for Python AST extraction.
-
-This module is the entry point for Python file extraction. It:
-1. Builds a FileContext from the AST
-2. Delegates all extraction to python_impl.py
-3. Handles special cases (imports, routes, SQL, JWT, variable usage)
-4. Returns the unified result
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-This is an EXTRACTOR layer module. It:
-- RECEIVES: file_info dict (contains 'path' key from indexer)
-- DELEGATES: To python_impl.extract_all_python_data(context)
-- RETURNS: Extracted data WITHOUT file_path keys
-
-The INDEXER layer (indexer/__init__.py) provides file_path and stores to database.
-This separation ensures single source of truth for file paths.
-"""
+"""Python file extractor - Thin wrapper for Python AST extraction."""
 
 import ast
 from pathlib import Path
@@ -37,16 +20,7 @@ class PythonExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all relevant information from a Python file.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree
-
-        Returns:
-            Dictionary containing all extracted data
-        """
+        """Extract all relevant information from a Python file."""
 
         import sys
 
@@ -183,19 +157,7 @@ class PythonExtractor(BaseExtractor):
         return resolved
 
     def _extract_imports_ast(self, tree: dict[str, Any]) -> list[tuple]:
-        """Extract imports from Python AST.
-
-        Uses Python's ast module to accurately extract import statements,
-        avoiding false matches in comments, strings, or docstrings.
-
-        Args:
-            tree: Parsed AST tree dictionary
-
-        Returns:
-            List of (kind, module, line_number) tuples:
-            - ('import', 'os', 15)
-            - ('from', 'pathlib', 23)
-        """
+        """Extract imports from Python AST."""
         imports = []
 
         if not tree or not isinstance(tree, dict):

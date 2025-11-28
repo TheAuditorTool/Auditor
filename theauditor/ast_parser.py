@@ -1,18 +1,4 @@
-"""AST parser with language-specific parsers for optimal analysis.
-
-Architecture:
-- Python: CPython ast module (stdlib) - NOT Tree-sitter
-- JavaScript/TypeScript: TypeScript Compiler API MANDATORY - NO FALLBACKS
-- Tree-sitter: DEPRECATED for JS/TS (produces corrupted data)
-
-This module provides true structural code analysis using the best parser for
-each language, enabling high-fidelity pattern detection that understands code
-semantics rather than just text matching.
-
-CRITICAL:
-- Python is NEVER parsed by Tree-sitter (see _init_tree_sitter_parsers() lines 63-90)
-- JS/TS MUST use semantic parser - silent fallbacks produce "anonymous" function names
-"""
+"""AST parser with language-specific parsers for optimal analysis."""
 
 import ast
 import hashlib
@@ -118,15 +104,7 @@ class ASTParser:
             self.has_tree_sitter = False
 
     def _detect_project_type(self) -> str:
-        """Detect the primary project type based on manifest files.
-
-        Returns:
-            'polyglot' if multiple language manifest files exist
-            'javascript' if only package.json exists
-            'python' if only Python manifest files exist
-            'go' if only go.mod exists
-            'unknown' otherwise
-        """
+        """Detect the primary project type based on manifest files."""
         if self.project_type is not None:
             return self.project_type
 
@@ -158,17 +136,7 @@ class ASTParser:
         root_path: str = None,
         jsx_mode: str = "transformed",
     ) -> Any:
-        """Parse a file into an AST.
-
-        Args:
-            file_path: Path to the source file.
-            language: Programming language (auto-detected if None).
-            root_path: Absolute path to project root (for sandbox resolution).
-            jsx_mode: JSX extraction mode ('preserved' or 'transformed').
-
-        Returns:
-            AST tree object or None if parsing fails.
-        """
+        """Parse a file into an AST."""
         if language is None:
             language = self._detect_language(file_path)
 
@@ -293,41 +261,17 @@ class ASTParser:
 
     @lru_cache(maxsize=10000)
     def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
-        """Parse Python code with caching based on content hash.
-
-        Args:
-            content_hash: MD5 hash of the file content
-            content: The actual file content
-
-        Returns:
-            Parsed AST or None if parsing fails
-        """
+        """Parse Python code with caching based on content hash."""
         return self._parse_python_builtin(content)
 
     @lru_cache(maxsize=10000)
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
-        """Parse code using Tree-sitter with caching based on content hash.
-
-        Args:
-            content_hash: MD5 hash of the file content
-            content: The actual file content as bytes
-            language: The programming language
-
-        Returns:
-            Parsed Tree-sitter tree
-        """
+        """Parse code using Tree-sitter with caching based on content hash."""
         parser = self.parsers[language]
         return parser.parse(content)
 
     def supports_language(self, language: str) -> bool:
-        """Check if a language is supported for AST parsing.
-
-        Args:
-            language: Programming language name.
-
-        Returns:
-            True if AST parsing is supported.
-        """
+        """Check if a language is supported for AST parsing."""
 
         if language == "python":
             return True
@@ -340,20 +284,7 @@ class ASTParser:
     def parse_content(
         self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = "transformed"
     ) -> Any:
-        """Parse in-memory content into AST.
-
-        Why: parse_file() reads from disk, but universal_detector already has content.
-        This provides memory-based parsing with same infrastructure for both languages.
-
-        Args:
-            content: Source code as string
-            language: Programming language ('python' or 'javascript')
-            filepath: Original file path for error messages
-            jsx_mode: JSX extraction mode ('preserved' or 'transformed')
-
-        Returns:
-            Dictionary with parsed AST or None if parsing fails
-        """
+        """Parse in-memory content into AST."""
         import tempfile
 
         content_bytes = content.encode("utf-8")
@@ -427,19 +358,7 @@ class ASTParser:
     def parse_files_batch(
         self, file_paths: list[Path], root_path: str = None, jsx_mode: str = "transformed"
     ) -> dict[str, Any]:
-        """Parse multiple files into ASTs in batch for performance.
-
-        This method dramatically improves performance for JavaScript/TypeScript projects
-        by processing multiple files in a single TypeScript compiler invocation.
-
-        Args:
-            file_paths: List of paths to source files
-            root_path: Absolute path to project root (for sandbox resolution)
-            jsx_mode: JSX extraction mode ('preserved' or 'transformed')
-
-        Returns:
-            Dictionary mapping file paths to their AST trees
-        """
+        """Parse multiple files into ASTs in batch for performance."""
         results = {}
 
         js_ts_files = []
@@ -554,15 +473,7 @@ class ASTParser:
         return results
 
     def get_supported_languages(self) -> list[str]:
-        """Get list of supported languages.
-
-        Returns:
-            List of language names.
-
-        Note:
-            JavaScript/TypeScript require semantic parser setup (run: aud setup-ai --target .)
-            Will fail loudly at parse time if not configured.
-        """
+        """Get list of supported languages."""
 
         languages = ["python", "javascript", "typescript"]
 

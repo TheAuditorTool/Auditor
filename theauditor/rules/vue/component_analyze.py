@@ -1,14 +1,4 @@
-"""Vue Component Analyzer - Database-First Approach.
-
-Detects Vue-specific component anti-patterns and performance issues using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
-"""
+"""Vue Component Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -132,23 +122,7 @@ COMPONENT_REGISTRATION = frozenset(
 
 
 def find_vue_component_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue component anti-patterns and performance issues.
-
-    Detects:
-    - Props mutation anti-pattern
-    - Missing keys in v-for loops
-    - Excessive component complexity
-    - Unnecessary re-renders
-    - Missing component names
-    - Inefficient computed properties
-    - Template expression complexity
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Vue component issues found
-    """
+    """Detect Vue component anti-patterns and performance issues."""
     findings = []
 
     if not context.db_path:
@@ -177,14 +151,7 @@ def find_vue_component_issues(context: StandardRuleContext) -> list[StandardFind
 
 
 def _get_vue_files(cursor) -> set[str]:
-    """Get all Vue-related files from the database.
-
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
-
-    Queries ALL relevant tables and combines results - no conditional logic.
-    No early returns - trust the database schema.
-    """
+    """Get all Vue-related files from the database."""
     vue_files = set()
 
     cursor.execute("""
@@ -256,12 +223,7 @@ def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
 
 
 def _find_missing_vfor_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find v-for loops without :key attribute.
-
-    Uses BOTH vue_directives (authoritative) and symbols (heuristic) to
-    maximize detection coverage. No conditional logic - executes both strategies
-    unconditionally and deduplicates findings.
-    """
+    """Find v-for loops without :key attribute."""
     findings = []
     found_locations = set()
 
@@ -594,9 +556,5 @@ def _find_complex_template_expressions(cursor, vue_files: set[str]) -> list[Stan
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_component_issues(context)

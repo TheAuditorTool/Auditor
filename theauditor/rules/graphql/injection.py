@@ -1,8 +1,4 @@
-"""GraphQL Injection Detection - Database-First Taint Analysis.
-
-Detects GraphQL arguments flowing to SQL/command sinks without sanitization.
-Uses graphql_execution_edges + taint analysis. NO regex fallbacks.
-"""
+"""GraphQL Injection Detection - Database-First Taint Analysis."""
 
 import sqlite3
 
@@ -24,17 +20,7 @@ METADATA = RuleMetadata(
 
 
 def check_graphql_injection(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect GraphQL injection via taint analysis.
-
-    Strategy:
-    1. Get all GraphQL field arguments (untrusted sources)
-    2. For each argument, check if it flows to dangerous sinks
-    3. Look for SQL queries (sql_queries table) or command execution
-    4. Check if sanitization exists between source and sink
-    5. Report unsanitized flows as injection vulnerabilities
-
-    NO FALLBACKS. Database must exist.
-    """
+    """Detect GraphQL injection via taint analysis."""
     if not context.db_path:
         return []
 

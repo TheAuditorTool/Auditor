@@ -16,17 +16,7 @@ IS_WINDOWS = platform.system() == "Windows"
 
 
 def validate_diff_spec(diff_spec: str) -> list[str]:
-    """Validate and parse git diff spec to prevent command injection.
-
-    Args:
-        diff_spec: Git diff specification (e.g., 'main..feature', 'HEAD~5')
-
-    Returns:
-        List of validated parts for git diff command
-
-    Raises:
-        ValueError: If diff spec contains potentially malicious characters
-    """
+    """Validate and parse git diff spec to prevent command injection."""
 
     if not re.match(r"^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$", diff_spec):
         raise ValueError(

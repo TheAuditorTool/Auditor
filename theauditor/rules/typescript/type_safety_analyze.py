@@ -1,18 +1,4 @@
-"""SQL-based TypeScript type safety analyzer - ENHANCED with semantic type data.
-
-This module provides comprehensive type safety detection for TypeScript projects
-by querying semantic type information from the type_annotations table (populated
-by TypeScript Compiler API).
-
-Follows gold standard patterns (v1.1+ schema contract compliance):
-- Assumes all contracted tables exist (NO table existence checks, NO fallback logic)
-- 100% accurate detection using semantic type data from TypeScript compiler
-- 16 comprehensive patterns (added 'unknown' type detection)
-- Indexed boolean lookups (is_any, is_unknown, is_generic) instead of LIKE scans
-- Direct access to return_type, type_params, and type_annotation columns
-- Proper frozensets for O(1) pattern matching
-- If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
-"""
+"""SQL-based TypeScript type safety analyzer - ENHANCED with semantic type data."""
 
 import logging
 import sqlite3
@@ -47,30 +33,7 @@ METADATA = RuleMetadata(
 
 
 def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """
-    Detect TypeScript type safety issues using semantic type data from TypeScript compiler.
-
-    This enhanced version detects 16 comprehensive patterns:
-    - Explicit and implicit 'any' types (semantic detection via type_annotations)
-    - Missing return types and parameter types (using return_type column)
-    - Unsafe type assertions and non-null assertions
-    - Dangerous type patterns (Function, Object, {})
-    - Untyped API responses and JSON.parse
-    - Missing error handling types
-    - Interface and type definition issues
-    - Unknown types requiring type narrowing (NEW - Pattern 16)
-    - Missing generic type parameters (semantic detection via is_generic)
-    - And much more...
-
-    Uses type_annotations table for 100% accurate semantic detection.
-    NO fallback logic - if table missing, rule crashes (CORRECT behavior per schema contract).
-
-    Args:
-        context: StandardRuleContext with database path
-
-    Returns:
-        List of StandardFinding objects
-    """
+    """Detect TypeScript type safety issues using semantic type data from TypeScript compiler."""
     findings = []
 
     if not context.db_path:

@@ -1,13 +1,4 @@
-"""HCL AST extraction using tree-sitter.
-
-Extracts resources, variables, and outputs from Terraform/HCL files with precise
-line numbers using tree-sitter-hcl.
-
-Architecture:
-- Database-first: Returns structured data for direct database insertion
-- Zero fallbacks: Hard fail on parse errors
-- Line precision: Uses tree-sitter node.start_point for exact locations
-"""
+"""HCL AST extraction using tree-sitter."""
 
 from typing import Any
 
@@ -21,24 +12,7 @@ def _get_body_node(block_node: Any) -> Any | None:
 
 
 def extract_hcl_blocks(node: Any, language: str = "hcl") -> list[dict]:
-    """Extract HCL blocks (resources, variables, outputs) from tree-sitter AST.
-
-    HCL AST Structure:
-        config_file
-        └── body
-            └── block
-                ├── identifier: "resource" | "variable" | "output"
-                ├── string_lit: type (for resources) or name (for variables/outputs)
-                ├── string_lit: name (for resources only)
-                └── body: { attributes }
-
-    Args:
-        node: tree-sitter AST node
-        language: Programming language (default: "hcl")
-
-    Returns:
-        List of block dicts with identifier, type, name, line
-    """
+    """Extract HCL blocks (resources, variables, outputs) from tree-sitter AST."""
     blocks = []
 
     if node is None:
@@ -89,15 +63,7 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> list[dict]:
 
 
 def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
-    """Extract attributes from an HCL block body.
-
-    Args:
-        node: tree-sitter body node
-        block_type: Type of block (for attribute filtering)
-
-    Returns:
-        Dictionary of attribute name -> value
-    """
+    """Extract attributes from an HCL block body."""
     attributes = {}
 
     if node is None or node.type != "body":
@@ -121,16 +87,7 @@ def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
 
 
 def extract_hcl_resources(tree, content: str, file_path: str) -> list[dict]:
-    """Extract Terraform resources with line numbers.
-
-    Args:
-        tree: tree-sitter parse tree (with .root_node)
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of resource dicts with type, name, line, attributes
-    """
+    """Extract Terraform resources with line numbers."""
     all_blocks = extract_hcl_blocks(tree.root_node)
     resources = []
 
@@ -154,16 +111,7 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_hcl_variables(tree, content: str, file_path: str) -> list[dict]:
-    """Extract Terraform variables with line numbers and attributes.
-
-    Args:
-        tree: tree-sitter parse tree (with .root_node)
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of variable dicts with name, line, and attributes (type, sensitive, default, description)
-    """
+    """Extract Terraform variables with line numbers and attributes."""
     all_blocks = extract_hcl_blocks(tree.root_node)
     variables = []
 
@@ -186,16 +134,7 @@ def extract_hcl_variables(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_hcl_outputs(tree, content: str, file_path: str) -> list[dict]:
-    """Extract Terraform outputs with line numbers and attributes.
-
-    Args:
-        tree: tree-sitter parse tree (with .root_node)
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of output dicts with name, line, and attributes (value, sensitive, description)
-    """
+    """Extract Terraform outputs with line numbers and attributes."""
     all_blocks = extract_hcl_blocks(tree.root_node)
     outputs = []
 
@@ -218,16 +157,7 @@ def extract_hcl_outputs(tree, content: str, file_path: str) -> list[dict]:
 
 
 def extract_hcl_data_sources(tree, content: str, file_path: str) -> list[dict]:
-    """Extract Terraform data sources with line numbers.
-
-    Args:
-        tree: tree-sitter parse tree (with .root_node)
-        content: File content
-        file_path: Path to source file
-
-    Returns:
-        List of data source dicts with type, name, line
-    """
+    """Extract Terraform data sources with line numbers."""
     all_blocks = extract_hcl_blocks(tree.root_node)
     data_sources = []
 

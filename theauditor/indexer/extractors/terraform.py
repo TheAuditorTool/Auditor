@@ -1,23 +1,4 @@
-"""Terraform file extractor.
-
-Handles extraction of Terraform/HCL infrastructure definitions including:
-- Resource blocks (aws_instance, azurerm_storage_account, etc.)
-- Variable declarations
-- Output blocks
-- Module configurations
-- Provider settings
-- Data source references
-
-ARCHITECTURE: Database-first, zero fallbacks.
-- Uses tree-sitter HCL parser for structural extraction
-- NO regex fallbacks - hard fail if parsing fails
-- Returns extracted data dict for indexer to store in database
-- Facts go to repo_index.db terraform_* tables
-- Graph edges built separately by TerraformGraphBuilder → graphs.db
-
-CRITICAL: This extractor ONLY extracts facts from .tf files.
-Graph relationships (variable → resource → output) are built in Phase 4 by graph builder.
-"""
+"""Terraform file extractor."""
 
 import json
 import re
@@ -44,25 +25,7 @@ class TerraformExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all relevant information from a Terraform file.
-
-        Args:
-            file_info: File metadata dictionary with 'path' key
-            content: File content (unused - parser reads file directly)
-            tree: Optional pre-parsed AST tree from tree-sitter HCL parser
-
-        Returns:
-            Dictionary containing all extracted data:
-            {
-                'terraform_file': {...},           # File metadata
-                'terraform_resources': [...],      # Resource blocks
-                'terraform_variables': [...],      # Variable declarations
-                'terraform_outputs': [...],        # Output blocks
-                'terraform_modules': [...],        # Module configurations (not stored to DB yet)
-                'terraform_providers': [...],      # Provider settings (not stored to DB yet)
-                'terraform_data': [...],           # Data source blocks (not stored to DB yet)
-            }
-        """
+        """Extract all relevant information from a Terraform file."""
         file_path = file_info["path"]
 
         if file_path.endswith(".tfvars"):
@@ -121,15 +84,7 @@ class TerraformExtractor(BaseExtractor):
             return {}
 
     def _build_file_record(self, file_path: str, parsed: dict) -> dict[str, Any]:
-        """Build terraform_files table record.
-
-        Args:
-            file_path: Path to Terraform file
-            parsed: Parsed Terraform data from TerraformParser
-
-        Returns:
-            Dict with terraform_files table columns
-        """
+        """Build terraform_files table record."""
 
         is_module = "modules/" in file_path or "/module/" in file_path
 
@@ -156,14 +111,7 @@ class TerraformExtractor(BaseExtractor):
         }
 
     def _detect_backend_type(self, parsed: dict) -> str | None:
-        """Detect Terraform backend type from terraform {} blocks.
-
-        Args:
-            parsed: Parsed Terraform data
-
-        Returns:
-            Backend type string ('s3', 'local', 'remote', etc.) or None
-        """
+        """Detect Terraform backend type from terraform {} blocks."""
 
         terraform_blocks = parsed.get("terraform", [])
         for block in terraform_blocks:
@@ -177,14 +125,7 @@ class TerraformExtractor(BaseExtractor):
         return None
 
     def _convert_ts_resources(self, ts_resources: list[dict]) -> list[dict]:
-        """Convert tree-sitter resource format to TerraformParser format.
-
-        Args:
-            ts_resources: Resources from hcl_impl (with line/column)
-
-        Returns:
-            Resources in TerraformParser format matching database schema
-        """
+        """Convert tree-sitter resource format to TerraformParser format."""
         converted = []
         for resource in ts_resources:
             attributes = self._normalize_hcl_attributes(resource.get("attributes", {}))
@@ -206,14 +147,7 @@ class TerraformExtractor(BaseExtractor):
         return converted
 
     def _convert_ts_variables(self, ts_variables: list[dict]) -> list[dict]:
-        """Convert tree-sitter variable format to TerraformParser format.
-
-        Args:
-            ts_variables: Variables from hcl_impl (with line/column and attributes)
-
-        Returns:
-            Variables in TerraformParser format matching database schema
-        """
+        """Convert tree-sitter variable format to TerraformParser format."""
         converted = []
         for v in ts_variables:
             attrs = v.get("attributes", {})
@@ -247,14 +181,7 @@ class TerraformExtractor(BaseExtractor):
         return converted
 
     def _convert_ts_outputs(self, ts_outputs: list[dict]) -> list[dict]:
-        """Convert tree-sitter output format to TerraformParser format.
-
-        Args:
-            ts_outputs: Outputs from hcl_impl (with line/column and attributes)
-
-        Returns:
-            Outputs in TerraformParser format matching database schema
-        """
+        """Convert tree-sitter output format to TerraformParser format."""
         converted = []
         for o in ts_outputs:
             attrs = o.get("attributes", {})
@@ -283,14 +210,7 @@ class TerraformExtractor(BaseExtractor):
         return converted
 
     def _convert_ts_data(self, ts_data: list[dict]) -> list[dict]:
-        """Convert tree-sitter data source format to TerraformParser format.
-
-        Args:
-            ts_data: Data sources from hcl_impl (with line/column)
-
-        Returns:
-            Data sources in TerraformParser format matching database schema
-        """
+        """Convert tree-sitter data source format to TerraformParser format."""
         return [
             {
                 "data_id": f"{d['file_path']}::data.{d['data_type']}.{d['data_name']}",

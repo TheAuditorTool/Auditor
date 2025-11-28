@@ -1,19 +1,4 @@
-"""Interceptor Graph Strategy.
-
-Wires "Pre-Flight" logic (Middleware, Decorators) into the Data Flow Graph.
-This creates structural edges between Route Entries and Handlers, passing through
-validation/auth layers that were previously invisible to the graph walker.
-
-Architecture:
-- Express Middleware Chains: Route -> Middleware 1 -> Middleware 2 -> Controller
-- Python Decorators: Decorator -> Function (decorator wraps the function)
-
-This eliminates the need for Taint Analysis to 'guess' if validation happened.
-It makes validation structurally present in the Data Flow Graph.
-
-NO FALLBACKS. Database-first. If tables don't exist, we skip gracefully
-(strategies are pluggable, not every project has Express or Python).
-"""
+"""Interceptor Graph Strategy."""
 
 import sqlite3
 from collections import defaultdict
@@ -24,28 +9,12 @@ from theauditor.graph.types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
 class InterceptorStrategy:
-    """Graph strategy to wire up interceptors (Middleware, Decorators).
-
-    Connects:
-    1. Express Middleware Chains (Route -> Middleware -> Controller)
-    2. Python Decorators (Decorator -> Function)
-
-    This enables Taint Analysis to naturally walk through validation layers
-    and mark flows as SANITIZED when they pass through validators.
-    """
+    """Graph strategy to wire up interceptors (Middleware, Decorators)."""
 
     name = "interceptors"
 
     def build(self, db_path: str, root: str) -> dict[str, Any]:
-        """Build interceptor edges from middleware chains and decorators.
-
-        Args:
-            db_path: Path to repo_index.db
-            root: Project root directory
-
-        Returns:
-            Dict with nodes, edges, and metadata (same format as other strategies)
-        """
+        """Build interceptor edges from middleware chains and decorators."""
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -86,15 +55,7 @@ class InterceptorStrategy:
         edges: list[DFGEdge],
         stats: dict[str, int],
     ) -> None:
-        """Build edges from Express middleware chains.
-
-        Logic:
-        1. Group middleware by route (method + path)
-        2. Sort by execution_order
-        3. Create chain: Route Entry -> MW1 -> MW2 -> Controller
-
-        Node IDs follow dfg_builder pattern: file::scope::variable
-        """
+        """Build edges from Express middleware chains."""
 
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='express_middleware_chains'"
@@ -224,18 +185,7 @@ class InterceptorStrategy:
         edges: list[DFGEdge],
         stats: dict[str, int],
     ) -> None:
-        """Build edges from Python decorators.
-
-        Logic:
-        - Decorators wrap functions, so data flows THROUGH the decorator first
-        - Create edge: Decorator -> Function
-        - This allows taint analysis to "see" validation decorators
-
-        Example: @validate_json wraps create_user
-        - Data enters validate_json first
-        - Then flows to create_user
-        - If validate_json is a sanitizer, path is marked safe
-        """
+        """Build edges from Python decorators."""
 
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='python_decorators'"
@@ -307,18 +257,7 @@ class InterceptorStrategy:
         edges: list[DFGEdge],
         stats: dict[str, int],
     ) -> None:
-        """Build edges from Django global middleware to views.
-
-        Logic:
-        - Django middleware runs BEFORE every view (configured in settings.MIDDLEWARE)
-        - Create edges: Middleware -> All Views
-        - This allows taint analysis to "see" global auth/security middleware
-
-        Example: BasicAuthMiddleware protects all views
-        - Request enters middleware first
-        - Then flows to view
-        - If middleware is a sanitizer (auth check), path is marked safe
-        """
+        """Build edges from Django global middleware to views."""
 
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='python_django_middleware'"
@@ -400,22 +339,7 @@ class InterceptorStrategy:
         cursor: sqlite3.Cursor,
         method_name: str,
     ) -> tuple[str, str]:
-        """Look up full ClassName.methodName and controller file path from symbols.
-
-        This bridges the naming gap between InterceptorStrategy and DFGBuilder.
-
-        CRITICAL: The handler is REFERENCED in routes file but DEFINED in controller file.
-        e.g., routes/user.routes.ts references userController.create
-              but UserController.create is defined in controllers/user.controller.ts
-
-        Args:
-            cursor: Database cursor
-            method_name: Short method name (e.g., 'create', 'exportData')
-
-        Returns:
-            Tuple of (full_function_name, controller_file_path)
-            Falls back to (method_name, None) if not found
-        """
+        """Look up full ClassName.methodName and controller file path from symbols."""
         try:
             cursor.execute(
                 """

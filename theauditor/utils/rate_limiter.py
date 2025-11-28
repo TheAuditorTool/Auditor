@@ -1,11 +1,4 @@
-"""Async rate limiting utilities for network operations.
-
-Provides throttled concurrency for API calls to avoid 429 bans while
-maintaining good throughput. Used by deps.py and docs_fetch.py.
-
-Key insight: Semaphore limits WIDTH (concurrent requests), RateLimiter
-limits SPEED (request frequency). You need both for polite scraping.
-"""
+"""Async rate limiting utilities for network operations."""
 
 import asyncio
 import time
@@ -27,24 +20,10 @@ TIMEOUT_CRAWL = 5
 
 
 class AsyncRateLimiter:
-    """
-    Lightweight async rate limiter that ensures minimum delay between requests.
-
-    Unlike Semaphore which limits concurrency (width), this limits frequency (speed).
-    Uses non-blocking asyncio.sleep so other tasks can run while waiting.
-
-    Usage:
-        limiter = AsyncRateLimiter(0.1)  # 10 req/sec
-        async with some_semaphore:
-            await limiter.acquire()
-            # ... make request
-    """
+    """Lightweight async rate limiter that ensures minimum delay between requests."""
 
     def __init__(self, delay: float):
-        """
-        Args:
-            delay: Minimum seconds between requests (e.g., 0.1 = 10 req/sec)
-        """
+        """Args:"""
         self.delay = delay
         self.last_request = 0.0
         self._lock: asyncio.Lock | None = None
@@ -70,15 +49,7 @@ _rate_limiters: dict[str, AsyncRateLimiter] = {}
 
 
 def get_rate_limiter(service: str) -> AsyncRateLimiter:
-    """
-    Get or create rate limiter for a service.
-
-    Args:
-        service: Service name ('npm', 'py', 'pypi', 'docker', 'github', 'docs')
-
-    Returns:
-        AsyncRateLimiter configured for that service
-    """
+    """Get or create rate limiter for a service."""
 
     service = service.lower()
     if service == "pypi":

@@ -1,9 +1,3 @@
-/**
- * Framework Extractors
- *
- * Extracts React components, hooks, Vue components, hooks, directives, and GraphQL resolvers.
- */
-
 import type {
   Function as IFunction,
   Class as IClass,
@@ -29,11 +23,7 @@ import type {
   VueDirective as IVueDirective,
   GraphQLResolver as IGraphQLResolver,
   GraphQLResolverParam as IGraphQLResolverParam,
-} from '../schema';
-
-// =============================================================================
-// REACT COMPONENTS
-// =============================================================================
+} from "../schema";
 
 interface ExtractReactComponentsResult {
   react_components: IReactComponent[];
@@ -46,44 +36,55 @@ export function extractReactComponents(
   returns: IFunctionReturn[],
   functionCallArgs: IFunctionCallArg[],
   filePath: string,
-  _imports: IImport[]
+  _imports: IImport[],
 ): ExtractReactComponentsResult {
   const react_components: IReactComponent[] = [];
   const react_component_hooks: IReactComponentHook[] = [];
 
-  // Check if backend path (skip React extraction)
   const isBackendPath =
     filePath &&
-    (filePath.includes('backend/') || filePath.includes('backend\\') ||
-      filePath.includes('server/') || filePath.includes('server\\') ||
-      filePath.includes('/api/') || filePath.includes('\\api\\') ||
-      filePath.includes('controllers/') || filePath.includes('controllers\\') ||
-      filePath.includes('services/') || filePath.includes('services\\') ||
-      filePath.includes('middleware/') || filePath.includes('middleware\\') ||
-      filePath.includes('models/') || filePath.includes('models\\') ||
-      filePath.includes('routes/') || filePath.includes('routes\\'));
+    (filePath.includes("backend/") ||
+      filePath.includes("backend\\") ||
+      filePath.includes("server/") ||
+      filePath.includes("server\\") ||
+      filePath.includes("/api/") ||
+      filePath.includes("\\api\\") ||
+      filePath.includes("controllers/") ||
+      filePath.includes("controllers\\") ||
+      filePath.includes("services/") ||
+      filePath.includes("services\\") ||
+      filePath.includes("middleware/") ||
+      filePath.includes("middleware\\") ||
+      filePath.includes("models/") ||
+      filePath.includes("models\\") ||
+      filePath.includes("routes/") ||
+      filePath.includes("routes\\"));
 
   if (isBackendPath) {
     return { react_components, react_component_hooks };
   }
 
-  // Check if frontend path
   const isFrontendPath =
     filePath &&
-    (filePath.includes('frontend/') || filePath.includes('frontend\\') ||
-      filePath.includes('client/') || filePath.includes('client\\') ||
-      filePath.includes('/components/') || filePath.includes('\\components\\') ||
-      filePath.includes('/pages/') || filePath.includes('\\pages\\') ||
-      filePath.includes('/ui/') || filePath.includes('\\ui\\') ||
-      filePath.endsWith('.tsx') || filePath.endsWith('.jsx'));
+    (filePath.includes("frontend/") ||
+      filePath.includes("frontend\\") ||
+      filePath.includes("client/") ||
+      filePath.includes("client\\") ||
+      filePath.includes("/components/") ||
+      filePath.includes("\\components\\") ||
+      filePath.includes("/pages/") ||
+      filePath.includes("\\pages\\") ||
+      filePath.includes("/ui/") ||
+      filePath.includes("\\ui\\") ||
+      filePath.endsWith(".tsx") ||
+      filePath.endsWith(".jsx"));
 
   if (!isFrontendPath) {
     return { react_components, react_component_hooks };
   }
 
-  // Extract function components
   for (const func of functions) {
-    const name = func.name || '';
+    const name = func.name || "";
     if (!name || name[0] !== name[0].toUpperCase()) continue;
 
     const funcReturns = returns.filter((r) => r.function_name === name);
@@ -94,7 +95,7 @@ export function extractReactComponents(
       if (
         call.caller_function === name &&
         call.callee_function &&
-        call.callee_function.startsWith('use')
+        call.callee_function.startsWith("use")
       ) {
         const hookName = call.callee_function;
         if (!seenHooks.has(hookName)) {
@@ -111,7 +112,7 @@ export function extractReactComponents(
 
     react_components.push({
       name: name,
-      type: 'function',
+      type: "function",
       start_line: func.line,
       end_line: func.line,
       has_jsx: hasJsx,
@@ -119,20 +120,19 @@ export function extractReactComponents(
     });
   }
 
-  // Extract class components
   for (const cls of classes) {
-    const name = cls.name || '';
+    const name = cls.name || "";
     if (!name || name[0] !== name[0].toUpperCase()) continue;
 
     const extendsReact =
       cls.extends_type &&
-      (cls.extends_type.includes('Component') ||
-        cls.extends_type.includes('React'));
+      (cls.extends_type.includes("Component") ||
+        cls.extends_type.includes("React"));
 
     if (extendsReact) {
       react_components.push({
         name: name,
-        type: 'class',
+        type: "class",
         start_line: cls.line,
         end_line: cls.line,
         has_jsx: true,
@@ -144,45 +144,55 @@ export function extractReactComponents(
   return { react_components, react_component_hooks };
 }
 
-// =============================================================================
-// REACT HOOKS
-// =============================================================================
-
 const REACT_HOOKS = new Set([
-  'useState', 'useEffect', 'useCallback', 'useMemo', 'useRef',
-  'useContext', 'useReducer', 'useLayoutEffect', 'useImperativeHandle',
-  'useDebugValue', 'useDeferredValue', 'useTransition', 'useId',
+  "useState",
+  "useEffect",
+  "useCallback",
+  "useMemo",
+  "useRef",
+  "useContext",
+  "useReducer",
+  "useLayoutEffect",
+  "useImperativeHandle",
+  "useDebugValue",
+  "useDeferredValue",
+  "useTransition",
+  "useId",
 ]);
 
 const HOOKS_WITH_DEPS = new Set([
-  'useEffect', 'useCallback', 'useMemo', 'useLayoutEffect', 'useImperativeHandle',
+  "useEffect",
+  "useCallback",
+  "useMemo",
+  "useLayoutEffect",
+  "useImperativeHandle",
 ]);
 
 function parseDependencyArray(expr: string): string[] {
-  if (!expr || typeof expr !== 'string') return [];
+  if (!expr || typeof expr !== "string") return [];
   const trimmed = expr.trim();
 
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
     const inner = trimmed.slice(1, -1).trim();
     if (!inner) return [];
 
     const deps: string[] = [];
     let depth = 0;
-    let current = '';
+    let current = "";
 
     for (const char of inner) {
-      if (char === '[' || char === '(' || char === '{') {
+      if (char === "[" || char === "(" || char === "{") {
         depth++;
         current += char;
-      } else if (char === ']' || char === ')' || char === '}') {
+      } else if (char === "]" || char === ")" || char === "}") {
         depth--;
         current += char;
-      } else if (char === ',' && depth === 0) {
+      } else if (char === "," && depth === 0) {
         const dep = current.trim();
         if (dep && isValidDependencyName(dep)) {
           deps.push(extractBaseName(dep));
         }
-        current = '';
+        current = "";
       } else {
         current += char;
       }
@@ -205,8 +215,8 @@ function isValidDependencyName(name: string): boolean {
 }
 
 function extractBaseName(expr: string): string {
-  if (expr.includes('(')) {
-    return expr.split('(')[0].trim();
+  if (expr.includes("(")) {
+    return expr.split("(")[0].trim();
   }
   return expr;
 }
@@ -219,23 +229,23 @@ interface ExtractReactHooksResult {
 export function extractReactHooks(
   functionCallArgs: IFunctionCallArg[],
   _scopeMap: Map<number, string>,
-  filePath: string
+  filePath: string,
 ): ExtractReactHooksResult {
   const react_hooks: IReactHook[] = [];
   const react_hook_dependencies: IReactHookDependency[] = [];
 
   for (const call of functionCallArgs) {
-    const hookName = call.callee_function || '';
-    if (!hookName || !hookName.startsWith('use')) continue;
-    if (hookName.includes('.')) continue;
+    const hookName = call.callee_function || "";
+    if (!hookName || !hookName.startsWith("use")) continue;
+    if (hookName.includes(".")) continue;
 
     const isReactHook = REACT_HOOKS.has(hookName);
     const isCustomHook =
-      !isReactHook && hookName.startsWith('use') && hookName.length > 3;
+      !isReactHook && hookName.startsWith("use") && hookName.length > 3;
 
     if (isReactHook || isCustomHook) {
       const hookLine = call.line;
-      const componentName = call.caller_function || 'global';
+      const componentName = call.caller_function || "global";
 
       react_hooks.push({
         line: hookLine,
@@ -264,47 +274,60 @@ export function extractReactHooks(
   return { react_hooks, react_hook_dependencies };
 }
 
-// =============================================================================
-// VUE COMPONENTS
-// =============================================================================
-
 const VUE_LIFECYCLE_HOOKS = new Set([
-  'onMounted', 'onBeforeMount', 'onBeforeUpdate', 'onUpdated',
-  'onBeforeUnmount', 'onUnmounted', 'onActivated', 'onDeactivated',
-  'onErrorCaptured', 'onRenderTracked', 'onRenderTriggered', 'onServerPrefetch',
+  "onMounted",
+  "onBeforeMount",
+  "onBeforeUpdate",
+  "onUpdated",
+  "onBeforeUnmount",
+  "onUnmounted",
+  "onActivated",
+  "onDeactivated",
+  "onErrorCaptured",
+  "onRenderTracked",
+  "onRenderTriggered",
+  "onServerPrefetch",
 ]);
 
 const VUE_REACTIVITY_APIS = new Set([
-  'watch', 'watchEffect', 'watchPostEffect', 'watchSyncEffect',
-  'ref', 'reactive', 'computed',
+  "watch",
+  "watchEffect",
+  "watchPostEffect",
+  "watchSyncEffect",
+  "ref",
+  "reactive",
+  "computed",
 ]);
 
-function truncateVueString(value: string | null | undefined, maxLength = 1000): string | null {
-  if (!value || typeof value !== 'string') return null;
-  return value.length > maxLength ? value.slice(0, maxLength) + '...' : value;
+function truncateVueString(
+  value: string | null | undefined,
+  maxLength = 1000,
+): string | null {
+  if (!value || typeof value !== "string") return null;
+  return value.length > maxLength ? value.slice(0, maxLength) + "..." : value;
 }
 
 function getVueBaseName(name: string): string {
-  if (!name || typeof name !== 'string') return '';
-  const parts = name.split('.');
-  return parts[parts.length - 1] || '';
+  if (!name || typeof name !== "string") return "";
+  const parts = name.split(".");
+  return parts[parts.length - 1] || "";
 }
 
 function inferVueComponentName(filePath: string): string {
-  if (!filePath) return 'AnonymousVueComponent';
+  if (!filePath) return "AnonymousVueComponent";
   const segments = filePath.split(/[/\\]/);
-  const candidate = segments.pop() || 'Component';
-  const base = candidate.replace(/\.vue$/i, '') || 'Component';
+  const candidate = segments.pop() || "Component";
+  const base = candidate.replace(/\.vue$/i, "") || "Component";
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
 function groupFunctionCallArgs(
-  functionCallArgs: IFunctionCallArg[]
+  functionCallArgs: IFunctionCallArg[],
 ): Map<string, IFunctionCallArg[]> {
   const grouped = new Map<string, IFunctionCallArg[]>();
   if (!Array.isArray(functionCallArgs)) return grouped;
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
+    const callee = call.callee_function || "";
     if (!callee) continue;
     const key = `${call.line || 0}:${callee}`;
     if (!grouped.has(key)) grouped.set(key, []);
@@ -315,11 +338,11 @@ function groupFunctionCallArgs(
 
 function findFirstVueMacroCall(
   functionCallArgs: IFunctionCallArg[],
-  macroName: string
+  macroName: string,
 ): string | null {
   if (!Array.isArray(functionCallArgs)) return null;
   for (const call of functionCallArgs) {
-    const baseName = getVueBaseName(call.callee_function || '');
+    const baseName = getVueBaseName(call.callee_function || "");
     if (
       baseName === macroName &&
       (call.argument_index === 0 || call.argument_index === null)
@@ -334,18 +357,18 @@ function findFirstVueMacroCall(
 
 function parseVuePropsDefinition(
   propsString: string | null,
-  componentName: string
+  componentName: string,
 ): IVueComponentProp[] {
-  if (!propsString || typeof propsString !== 'string') return [];
+  if (!propsString || typeof propsString !== "string") return [];
   const props: IVueComponentProp[] = [];
   const trimmed = propsString.trim();
 
-  if (trimmed.startsWith('[')) {
+  if (trimmed.startsWith("[")) {
     const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
     if (arrayMatch && arrayMatch[1]) {
       const items = arrayMatch[1]
-        .split(',')
-        .map((s) => s.trim().replace(/['"]/g, ''));
+        .split(",")
+        .map((s) => s.trim().replace(/['"]/g, ""));
       for (const item of items) {
         if (item) {
           props.push({
@@ -361,7 +384,7 @@ function parseVuePropsDefinition(
     return props;
   }
 
-  if (trimmed.startsWith('{')) {
+  if (trimmed.startsWith("{")) {
     const propPattern = /(\w+)\s*:\s*({[^{}]*(?:{[^{}]*}[^{}]*)*}|[^,}]+)/g;
     let match;
     while ((match = propPattern.exec(trimmed)) !== null) {
@@ -371,11 +394,11 @@ function parseVuePropsDefinition(
       let isRequired = 0;
       let defaultValue: string | null = null;
 
-      if (propValue.startsWith('{')) {
+      if (propValue.startsWith("{")) {
         const typeMatch = propValue.match(/type\s*:\s*(\w+)/);
         if (typeMatch) propType = typeMatch[1];
         const reqMatch = propValue.match(/required\s*:\s*(true|false)/);
-        if (reqMatch && reqMatch[1] === 'true') isRequired = 1;
+        if (reqMatch && reqMatch[1] === "true") isRequired = 1;
         const defMatch = propValue.match(/default\s*:\s*([^,}]+)/);
         if (defMatch) defaultValue = defMatch[1].trim();
       } else {
@@ -396,18 +419,18 @@ function parseVuePropsDefinition(
 
 function parseVueEmitsDefinition(
   emitsString: string | null,
-  componentName: string
+  componentName: string,
 ): IVueComponentEmit[] {
-  if (!emitsString || typeof emitsString !== 'string') return [];
+  if (!emitsString || typeof emitsString !== "string") return [];
   const emits: IVueComponentEmit[] = [];
   const trimmed = emitsString.trim();
 
-  if (trimmed.startsWith('[')) {
+  if (trimmed.startsWith("[")) {
     const arrayMatch = trimmed.match(/\[\s*([^\]]*)\s*\]/);
     if (arrayMatch && arrayMatch[1]) {
       const items = arrayMatch[1]
-        .split(',')
-        .map((s) => s.trim().replace(/['"]/g, ''));
+        .split(",")
+        .map((s) => s.trim().replace(/['"]/g, ""));
       for (const item of items) {
         if (item) {
           emits.push({
@@ -421,7 +444,7 @@ function parseVueEmitsDefinition(
     return emits;
   }
 
-  if (trimmed.startsWith('{')) {
+  if (trimmed.startsWith("{")) {
     const emitPattern = /(\w+)\s*:/g;
     let match;
     while ((match = emitPattern.exec(trimmed)) !== null) {
@@ -442,20 +465,20 @@ function parseVueEmitsDefinition(
 
 function parseSetupReturn(
   returnExpr: string | null,
-  componentName: string
+  componentName: string,
 ): IVueComponentSetupReturn[] {
-  if (!returnExpr || typeof returnExpr !== 'string') return [];
+  if (!returnExpr || typeof returnExpr !== "string") return [];
   const returns: IVueComponentSetupReturn[] = [];
   const trimmed = returnExpr.trim();
 
-  if (trimmed.startsWith('{')) {
+  if (trimmed.startsWith("{")) {
     const inner = trimmed.slice(1, -1).trim();
     if (!inner) return returns;
-    const parts = inner.split(',');
+    const parts = inner.split(",");
     for (const part of parts) {
       const cleaned = part.trim();
       if (!cleaned) continue;
-      const colonIndex = cleaned.indexOf(':');
+      const colonIndex = cleaned.indexOf(":");
       let returnName: string;
       if (colonIndex > 0) {
         returnName = cleaned.slice(0, colonIndex).trim();
@@ -495,7 +518,7 @@ export function extractVueComponents(
   vueMeta: VueMeta | null,
   filePath: string,
   functionCallArgs: IFunctionCallArg[],
-  returns: IFunctionReturn[]
+  returns: IFunctionReturn[],
 ): ExtractVueComponentsResult {
   if (!vueMeta || !vueMeta.descriptor) {
     const fallbackName = inferVueComponentName(filePath);
@@ -514,28 +537,35 @@ export function extractVueComponents(
   const startLine = scriptBlock?.loc?.start.line ?? 1;
   const endLine = scriptBlock?.loc?.end.line ?? startLine;
 
-  const propsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineProps');
-  const emitsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineEmits');
+  const propsDefinition = findFirstVueMacroCall(
+    functionCallArgs,
+    "defineProps",
+  );
+  const emitsDefinition = findFirstVueMacroCall(
+    functionCallArgs,
+    "defineEmits",
+  );
 
   const usesCompositionApi =
     Boolean(vueMeta.descriptor.scriptSetup) ||
     (Array.isArray(functionCallArgs) &&
       functionCallArgs.some(
-        (call) => getVueBaseName(call.callee_function || '') === 'defineComponent'
+        (call) =>
+          getVueBaseName(call.callee_function || "") === "defineComponent",
       ));
 
-  let componentType = 'options-api';
+  let componentType = "options-api";
   if (vueMeta.descriptor.scriptSetup) {
-    componentType = 'script-setup';
+    componentType = "script-setup";
   } else if (usesCompositionApi) {
-    componentType = 'composition-api';
+    componentType = "composition-api";
   }
 
   let setupReturnExpr: string | null = null;
   if (Array.isArray(returns)) {
     const setupReturn = returns.find((ret) => {
-      const fnName = (ret.function_name || '').toLowerCase();
-      return fnName.includes('setup');
+      const fnName = (ret.function_name || "").toLowerCase();
+      return fnName.includes("setup");
     });
     if (setupReturn && setupReturn.return_expr) {
       setupReturnExpr = truncateVueString(setupReturn.return_expr);
@@ -550,7 +580,10 @@ export function extractVueComponents(
     vue_components: [
       {
         name: componentName,
-        type: componentType as 'script-setup' | 'composition-api' | 'options-api',
+        type: componentType as
+          | "script-setup"
+          | "composition-api"
+          | "options-api",
         start_line: startLine,
         end_line: endLine,
         has_template: Boolean(vueMeta.descriptor.template),
@@ -565,13 +598,9 @@ export function extractVueComponents(
   };
 }
 
-// =============================================================================
-// VUE HOOKS
-// =============================================================================
-
 export function extractVueHooks(
   functionCallArgs: IFunctionCallArg[],
-  componentName: string | null
+  componentName: string | null,
 ): IVueHook[] {
   const hooks: IVueHook[] = [];
   if (!componentName) return hooks;
@@ -581,14 +610,19 @@ export function extractVueHooks(
   grouped.forEach((args) => {
     if (!Array.isArray(args) || args.length === 0) return;
 
-    const callee = args[0].callee_function || '';
+    const callee = args[0].callee_function || "";
     const baseName = getVueBaseName(callee);
     if (!baseName) return;
 
     const line = args[0].line || 0;
 
-    if (VUE_LIFECYCLE_HOOKS.has(baseName) || VUE_REACTIVITY_APIS.has(baseName)) {
-      const hookType = VUE_LIFECYCLE_HOOKS.has(baseName) ? 'lifecycle' : 'reactivity';
+    if (
+      VUE_LIFECYCLE_HOOKS.has(baseName) ||
+      VUE_REACTIVITY_APIS.has(baseName)
+    ) {
+      const hookType = VUE_LIFECYCLE_HOOKS.has(baseName)
+        ? "lifecycle"
+        : "reactivity";
 
       hooks.push({
         line,
@@ -602,13 +636,9 @@ export function extractVueHooks(
   return hooks;
 }
 
-// =============================================================================
-// VUE PROVIDE/INJECT
-// =============================================================================
-
 export function extractVueProvideInject(
   functionCallArgs: IFunctionCallArg[],
-  componentName: string | null
+  componentName: string | null,
 ): IVueProvideInject[] {
   if (!componentName) return [];
   const grouped = groupFunctionCallArgs(functionCallArgs);
@@ -616,9 +646,9 @@ export function extractVueProvideInject(
 
   grouped.forEach((args) => {
     if (!Array.isArray(args) || args.length === 0) return;
-    const callee = args[0].callee_function || '';
+    const callee = args[0].callee_function || "";
     const baseName = getVueBaseName(callee);
-    if (baseName !== 'provide' && baseName !== 'inject') return;
+    if (baseName !== "provide" && baseName !== "inject") return;
 
     const keyArg = args.find((arg) => arg.argument_index === 0);
     const valueArg = args.find((arg) => arg.argument_index === 1);
@@ -634,18 +664,14 @@ export function extractVueProvideInject(
     records.push({
       line: args[0].line || 0,
       component_name: componentName,
-      type: baseName as 'provide' | 'inject',
-      key: keyName || '',
+      type: baseName as "provide" | "inject",
+      key: keyName || "",
       value_type: valueExpr,
     });
   });
 
   return records;
 }
-
-// =============================================================================
-// VUE DIRECTIVES
-// =============================================================================
 
 interface TemplateNode {
   type: number;
@@ -673,7 +699,7 @@ interface NodeTypes {
 export function extractVueDirectives(
   templateAst: TemplateNode | null,
   componentName: string,
-  nodeTypes: NodeTypes | null
+  nodeTypes: NodeTypes | null,
 ): IVueDirective[] {
   const directives: IVueDirective[] = [];
   if (!templateAst || !nodeTypes) return directives;
@@ -686,7 +712,7 @@ export function extractVueDirectives(
   const FOR = nodeTypes.FOR ?? 11;
 
   function visit(node: TemplateNode): void {
-    if (!node || typeof node !== 'object') return;
+    if (!node || typeof node !== "object") return;
 
     if (node.type === ELEMENT) {
       if (Array.isArray(node.props)) {
@@ -695,9 +721,9 @@ export function extractVueDirectives(
             const modifiersText = Array.isArray(prop.modifiers)
               ? prop.modifiers
                   .map((mod) =>
-                    typeof mod === 'object' ? mod.content || '' : mod
+                    typeof mod === "object" ? mod.content || "" : mod,
                   )
-                  .join(',')
+                  .join(",")
               : null;
 
             directives.push({
@@ -738,10 +764,6 @@ export function extractVueDirectives(
   return directives;
 }
 
-// =============================================================================
-// GRAPHQL RESOLVERS - APOLLO STYLE
-// =============================================================================
-
 interface SymbolTableEntry {
   type?: string;
   value?: Record<string, Record<string, unknown>>;
@@ -757,31 +779,30 @@ export function extractApolloResolvers(
   functions: IFunction[],
   func_params: IFuncParam[],
   symbolTable: Record<string, SymbolTableEntry> | null,
-  filePath: string
+  filePath: string,
 ): ExtractGraphQLResolversResult {
   const graphql_resolvers: IGraphQLResolver[] = [];
   const graphql_resolver_params: IGraphQLResolverParam[] = [];
 
-  // From symbol table
   for (const [symbolName, symbolData] of Object.entries(symbolTable || {})) {
     if (
-      symbolName.toLowerCase().includes('resolver') &&
-      symbolData.type === 'variable'
+      symbolName.toLowerCase().includes("resolver") &&
+      symbolData.type === "variable"
     ) {
       const objData = symbolData.value;
-      if (objData && typeof objData === 'object') {
+      if (objData && typeof objData === "object") {
         for (const typeName in objData) {
           const fields = objData[typeName];
-          if (typeof fields === 'object') {
+          if (typeof fields === "object") {
             for (const fieldName in fields) {
               const fieldFunc = fields[fieldName];
-              if (typeof fieldFunc === 'function' || fieldFunc === 'function') {
+              if (typeof fieldFunc === "function" || fieldFunc === "function") {
                 const resolverName = `${typeName}.${fieldName}`;
                 graphql_resolvers.push({
                   file: filePath,
                   line: symbolData.line || 0,
                   resolver_name: resolverName,
-                  resolver_type: 'apollo-object',
+                  resolver_type: "apollo-object",
                   parent_type: typeName,
                 });
               }
@@ -792,15 +813,14 @@ export function extractApolloResolvers(
     }
   }
 
-  // From functions
   for (const func of functions) {
-    if (func.name && func.name.toLowerCase().includes('resolver')) {
+    if (func.name && func.name.toLowerCase().includes("resolver")) {
       const resolverName = func.name;
 
       const funcParams = func_params.filter(
         (p) =>
           p.function_name === func.name &&
-          !['parent', 'args', 'context', 'info', '_'].includes(p.param_name)
+          !["parent", "args", "context", "info", "_"].includes(p.param_name),
       );
 
       for (const param of funcParams) {
@@ -817,7 +837,7 @@ export function extractApolloResolvers(
         file: filePath,
         line: func.line,
         resolver_name: resolverName,
-        resolver_type: 'apollo-function',
+        resolver_type: "apollo-function",
         parent_type: null,
       });
     }
@@ -825,10 +845,6 @@ export function extractApolloResolvers(
 
   return { graphql_resolvers, graphql_resolver_params };
 }
-
-// =============================================================================
-// GRAPHQL RESOLVERS - NESTJS STYLE
-// =============================================================================
 
 export function extractNestJSResolvers(
   functions: IFunction[],
@@ -839,70 +855,70 @@ export function extractNestJSResolvers(
   class_decorator_args: IClassDecoratorArg[],
   func_params: IFuncParam[],
   func_param_decorators: IFuncParamDecorator[],
-  filePath: string
+  filePath: string,
 ): ExtractGraphQLResolversResult {
   const graphql_resolvers: IGraphQLResolver[] = [];
   const graphql_resolver_params: IGraphQLResolverParam[] = [];
 
   for (const cls of classes) {
     const clsDecorators = class_decorators.filter(
-      (d) => d.class_name === cls.name && d.class_line === cls.line
+      (d) => d.class_name === cls.name && d.class_line === cls.line,
     );
 
     const resolverDecorator = clsDecorators.find(
-      (d) => d.decorator_name === 'Resolver'
+      (d) => d.decorator_name === "Resolver",
     );
     if (!resolverDecorator) continue;
 
-    let typeName = 'Unknown';
+    let typeName = "Unknown";
     const resolverArgs = class_decorator_args.filter(
       (a) =>
         a.class_name === cls.name &&
         a.class_line === cls.line &&
-        a.decorator_index === resolverDecorator.decorator_index
+        a.decorator_index === resolverDecorator.decorator_index,
     );
     if (resolverArgs.length > 0) {
-      typeName = resolverArgs[0].arg_value.replace(/['"]/g, '');
+      typeName = resolverArgs[0].arg_value.replace(/['"]/g, "");
     }
 
     const classMethods = functions.filter(
-      (f) => f.name && f.name.startsWith(cls.name + '.')
+      (f) => f.name && f.name.startsWith(cls.name + "."),
     );
 
     for (const method of classMethods) {
       const methodDecorators = func_decorators.filter(
         (d) =>
-          d.function_name === method.name && d.function_line === method.line
+          d.function_name === method.name && d.function_line === method.line,
       );
 
       for (const decorator of methodDecorators) {
         const decoratorName = decorator.decorator_name;
 
         if (
-          ['Query', 'Mutation', 'Subscription', 'ResolveField'].includes(
-            decoratorName
+          ["Query", "Mutation", "Subscription", "ResolveField"].includes(
+            decoratorName,
           )
         ) {
           let resolverTypeName = typeName;
-          if (decoratorName === 'Query') resolverTypeName = 'Query';
-          else if (decoratorName === 'Mutation') resolverTypeName = 'Mutation';
-          else if (decoratorName === 'Subscription')
-            resolverTypeName = 'Subscription';
+          if (decoratorName === "Query") resolverTypeName = "Query";
+          else if (decoratorName === "Mutation") resolverTypeName = "Mutation";
+          else if (decoratorName === "Subscription")
+            resolverTypeName = "Subscription";
 
           const resolverName = method.name;
 
           const methodParams = func_params.filter(
             (p) =>
               p.function_name === method.name &&
-              p.function_line === method.line
+              p.function_line === method.line,
           );
           const paramDecorators = func_param_decorators.filter(
             (pd) =>
               pd.function_name === method.name &&
-              pd.function_line === method.line
+              pd.function_line === method.line,
           );
           const decoratedParamIndices = new Set(
-            paramDecorators.map((pd) => pd.param_index)
+            paramDecorators.map((pd) => pd.param_index),
           );
 
           for (const param of methodParams) {
@@ -921,7 +937,7 @@ export function extractNestJSResolvers(
             file: filePath,
             line: method.line,
             resolver_name: resolverName,
-            resolver_type: 'nestjs-decorator',
+            resolver_type: "nestjs-decorator",
             parent_type: resolverTypeName,
           });
         }

@@ -1,26 +1,4 @@
-"""Boundary Distance Calculator.
-
-Calculates call-chain distance between entry points and control points
-using XGraphAnalyzer and graphs.db (which includes interceptor/middleware edges).
-
-Distance Semantics:
-    0 = Control at entry point (PERFECT - validation in function signature)
-    1 = Control in first call (GOOD - validation as first line)
-    2 = Control two calls deep (ACCEPTABLE - validation in service layer)
-    3+ = Control too far (BAD - validation after data has spread)
-    None = No control found (CRITICAL - missing validation entirely)
-
-Architecture Note:
-    This module uses XGraphAnalyzer (the "Ferrari") which reads from graphs.db.
-    graphs.db contains pre-computed call graphs INCLUDING virtual edges from
-    InterceptorStrategy (middleware/decorator connections). This allows boundary
-    analysis to see through Express middleware, Flask decorators, etc.
-
-    Previous implementation used BFS over function_call_args in repo_index.db,
-    which was blind to interceptor edges.
-
-Truth Courier Design: Reports factual distance measurements, not recommendations.
-"""
+"""Boundary Distance Calculator."""
 
 import sqlite3
 from collections import deque
@@ -33,21 +11,7 @@ from theauditor.graph.store import XGraphStore
 def calculate_distance(
     db_path: str, entry_file: str, entry_line: int, control_file: str, control_line: int
 ) -> int | None:
-    """
-    Calculate call-chain distance between entry point and control point.
-
-    Uses XGraphAnalyzer with graphs.db (includes interceptor edges).
-
-    Args:
-        db_path: Path to repo_index.db (used to derive graphs.db path)
-        entry_file: File containing entry point
-        entry_line: Line number of entry point
-        control_file: File containing control point
-        control_line: Line number of control point
-
-    Returns:
-        Distance as integer, or None if no path exists
-    """
+    """Calculate call-chain distance between entry point and control point."""
 
     graph_db_path = str(Path(db_path).parent / "graphs.db")
 
@@ -93,12 +57,7 @@ def calculate_distance(
 
 
 def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
-    """
-    Find a node ID in the graph matching file and function name.
-
-    Node IDs in graphs.db can have various formats depending on how they
-    were created. This function tries multiple matching strategies.
-    """
+    """Find a node ID in the graph matching file and function name."""
 
     file_path_normalized = file_path.replace("\\", "/")
 
@@ -124,12 +83,7 @@ def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
 def _calculate_distance_fallback(
     db_path: str, entry_file: str, entry_line: int, control_file: str, control_line: int
 ) -> int | None:
-    """
-    Fallback distance calculation using repo_index.db when graphs.db unavailable.
-
-    NOTE: This fallback does NOT see interceptor edges. It's only used when
-    graphs.db is empty or nodes can't be found.
-    """
+    """Fallback distance calculation using repo_index.db when graphs.db unavailable."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -150,11 +104,7 @@ def _calculate_distance_fallback(
 
 
 def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
-    """
-    Find function containing the given file:line location.
-
-    Uses symbols table to find function definitions that span the line.
-    """
+    """Find function containing the given file:line location."""
     cursor.execute(
         """
         SELECT name, type, line, end_line
@@ -178,11 +128,7 @@ def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
 
 
 def _bfs_distance_sql(cursor, start_func: str, target_func: str, max_depth: int = 10) -> int | None:
-    """
-    BFS through function_call_args (fallback when graphs.db unavailable).
-
-    WARNING: This does NOT see interceptor edges. Only used as fallback.
-    """
+    """BFS through function_call_args (fallback when graphs.db unavailable)."""
     start_file, start_name = start_func.split(":", 1)
     target_file, target_name = target_func.split(":", 1)
 
@@ -225,21 +171,7 @@ def _bfs_distance_sql(cursor, start_func: str, target_func: str, max_depth: int 
 def find_all_paths_to_controls(
     db_path: str, entry_file: str, entry_line: int, control_patterns: list[str], max_depth: int = 5
 ) -> list[dict]:
-    """
-    Find all control points reachable from entry point and their distances.
-
-    Uses XGraphAnalyzer with graphs.db (includes interceptor edges).
-
-    Args:
-        db_path: Path to repo_index.db
-        entry_file: Entry point file
-        entry_line: Entry point line
-        control_patterns: List of control function patterns to find
-        max_depth: Maximum call chain depth to search
-
-    Returns:
-        List of dicts with control_function, control_file, distance, path
-    """
+    """Find all control points reachable from entry point and their distances."""
     graph_db_path = str(Path(db_path).parent / "graphs.db")
 
     store = XGraphStore(graph_db_path)
@@ -261,9 +193,7 @@ def _find_controls_via_graph(
     control_patterns: list[str],
     max_depth: int,
 ) -> list[dict]:
-    """
-    Find control points using graph traversal (includes interceptor edges).
-    """
+    """Find control points using graph traversal (includes interceptor edges)."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     results = []
@@ -377,9 +307,7 @@ def _get_function_line(cursor, file_path: str | None, func_name: str) -> int | N
 def _find_controls_via_sql(
     db_path: str, entry_file: str, entry_line: int, control_patterns: list[str], max_depth: int
 ) -> list[dict]:
-    """
-    Fallback: Find control points using SQL BFS (no interceptor edges).
-    """
+    """Fallback: Find control points using SQL BFS (no interceptor edges)."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     results = []
@@ -452,24 +380,7 @@ def _find_controls_via_sql(
 
 
 def measure_boundary_quality(controls: list[dict]) -> dict:
-    """
-    Assess boundary quality based on control distances.
-
-    Args:
-        controls: List of control points with distances
-
-    Returns:
-        Dict with quality metrics:
-            - quality: 'clear', 'acceptable', 'fuzzy', 'missing'
-            - reason: Factual description of boundary state
-            - facts: List of factual observations (NOT recommendations)
-
-    Quality Levels:
-        - clear: Single control at distance 0
-        - acceptable: Single control at distance 1-2
-        - fuzzy: Multiple controls OR distance 3+
-        - missing: No controls found
-    """
+    """Assess boundary quality based on control distances."""
     if not controls:
         return {
             "quality": "missing",
