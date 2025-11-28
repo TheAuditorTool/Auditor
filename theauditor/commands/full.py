@@ -7,6 +7,9 @@ import asyncio
 import sys
 
 import click
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
@@ -129,6 +132,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
 
+    # Use Rich console for final output
+    console = Console(force_terminal=sys.stdout.isatty())
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -145,7 +151,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             )
         )
     except KeyboardInterrupt:
-        click.echo("\n[INFO] Pipeline stopped by user.", err=True)
+        console.print("\n[bold red][INFO] Pipeline stopped by user.[/bold red]")
         sys.exit(130)
 
     findings = result.get("findings", {})
@@ -154,50 +160,78 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     medium = findings.get("medium", 0)
     low = findings.get("low", 0)
 
-    click.echo("\n" + "=" * 60)
-    click.echo("AUDIT FINAL STATUS")
-    click.echo("=" * 60)
+    console.print()
+    console.rule("[bold]AUDIT FINAL STATUS[/bold]")
+    console.print()
 
     exit_code = ExitCodes.SUCCESS
 
     if result["failed_phases"] > 0:
-        click.echo(f"[WARNING] Pipeline completed with {result['failed_phases']} phase failures")
-        click.echo("Some analysis phases could not complete successfully.")
+        console.print(f"[bold red][WARNING] Pipeline completed with {result['failed_phases']} phase failures[/bold red]")
+        console.print("Some analysis phases could not complete successfully.")
         exit_code = ExitCodes.TASK_INCOMPLETE
 
     if critical > 0:
-        click.echo(
-            f"\nSTATUS: [CRITICAL] - Audit complete. Found {critical} critical vulnerabilities."
+        status_panel = Panel(
+            Text.assemble(
+                ("STATUS: [CRITICAL]\n", "bold red"),
+                (f"Audit complete. Found {critical} critical vulnerabilities.\n", "red"),
+                ("Immediate action required - deployment should be blocked.", "red")
+            ),
+            border_style="red",
+            expand=False
         )
-        click.echo("Immediate action required - deployment should be blocked.")
+        console.print(status_panel)
         exit_code = ExitCodes.CRITICAL_SEVERITY
     elif high > 0:
-        click.echo(f"\nSTATUS: [HIGH] - Audit complete. Found {high} high-severity issues.")
-        click.echo("Priority remediation needed before next release.")
+        status_panel = Panel(
+            Text.assemble(
+                ("STATUS: [HIGH]\n", "bold yellow"),
+                (f"Audit complete. Found {high} high-severity issues.\n", "yellow"),
+                ("Priority remediation needed before next release.", "yellow")
+            ),
+            border_style="yellow",
+            expand=False
+        )
+        console.print(status_panel)
         if exit_code == ExitCodes.SUCCESS:
             exit_code = ExitCodes.HIGH_SEVERITY
     elif medium > 0 or low > 0:
-        click.echo(
-            f"\nSTATUS: [MODERATE] - Audit complete. Found {medium} medium and {low} low issues."
+        status_panel = Panel(
+            Text.assemble(
+                ("STATUS: [MODERATE]\n", "bold blue"),
+                (f"Audit complete. Found {medium} medium and {low} low issues.\n", "blue"),
+                ("Schedule fixes for upcoming sprints.", "blue")
+            ),
+            border_style="blue",
+            expand=False
         )
-        click.echo("Schedule fixes for upcoming sprints.")
+        console.print(status_panel)
     else:
-        click.echo("\nSTATUS: [CLEAN] - No critical or high-severity issues found.")
-        click.echo("Codebase meets security and quality standards.")
+        status_panel = Panel(
+            Text.assemble(
+                ("STATUS: [CLEAN]\n", "bold green"),
+                ("No critical or high-severity issues found.\n", "green"),
+                ("Codebase meets security and quality standards.", "green")
+            ),
+            border_style="green",
+            expand=False
+        )
+        console.print(status_panel)
 
     if critical + high + medium + low > 0:
-        click.echo("\nFindings breakdown:")
+        console.print("\n[bold]Findings breakdown:[/bold]")
         if critical > 0:
-            click.echo(f"  - Critical: {critical}")
+            console.print(f"  - [bold red]Critical: {critical}[/bold red]")
         if high > 0:
-            click.echo(f"  - High: {high}")
+            console.print(f"  - [bold yellow]High:     {high}[/bold yellow]")
         if medium > 0:
-            click.echo(f"  - Medium: {medium}")
+            console.print(f"  - [bold blue]Medium:   {medium}[/bold blue]")
         if low > 0:
-            click.echo(f"  - Low: {low}")
+            console.print(f"  - [cyan]Low:      {low}[/cyan]")
 
-    click.echo("\nReview findings in .pf/raw/ or run 'aud summary' for overview.")
-    click.echo("=" * 60)
+    console.print("\nReview the findings in [bold cyan].pf/raw/[/bold cyan] or run 'aud summary' for overview.")
+    console.rule()
 
     if exit_code != ExitCodes.SUCCESS:
         sys.exit(exit_code)
