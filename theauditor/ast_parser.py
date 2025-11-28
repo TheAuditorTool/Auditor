@@ -22,7 +22,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from theauditor.ast_patterns import ASTPatternMixin
 from theauditor.js_semantic_parser import get_semantic_ast_batch
 
 
@@ -38,7 +37,7 @@ class ASTMatch:
     metadata: dict[str, Any] = None
 
 
-class ASTParser(ASTPatternMixin):
+class ASTParser:
     """Multi-language AST parser using Tree-sitter for structural analysis."""
 
     def __init__(self):
