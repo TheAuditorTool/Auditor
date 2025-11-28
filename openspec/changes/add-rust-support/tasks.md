@@ -145,23 +145,26 @@
 - [ ] 4.2.5 Flag callback function pointers
 
 ### 4.3 Panic Path Detection
-- [ ] 4.3.1 Find .unwrap() calls outside tests
-- [ ] 4.3.2 Find .expect() calls outside tests
-- [ ] 4.3.3 Find panic!() macro usage
-- [ ] 4.3.4 Find unreachable!() macro usage
-- [ ] 4.3.5 Flag panics in async contexts
+- [ ] 4.3.1 Create `theauditor/rules/rust/panic_path_analyze.py`
+- [ ] 4.3.2 Find .unwrap() calls outside tests
+- [ ] 4.3.3 Find .expect() calls outside tests
+- [ ] 4.3.4 Find panic!() macro usage
+- [ ] 4.3.5 Find unreachable!() macro usage
+- [ ] 4.3.6 Flag panics in async contexts
 
 ### 4.4 Integer Safety
-- [ ] 4.4.1 Detect unchecked arithmetic on external input
-- [ ] 4.4.2 Flag `as` casts that may truncate
-- [ ] 4.4.3 Detect array index without bounds check
-- [ ] 4.4.4 Suggest checked_* alternatives
+- [ ] 4.4.1 Create `theauditor/rules/rust/integer_safety_analyze.py`
+- [ ] 4.4.2 Detect unchecked arithmetic on external input
+- [ ] 4.4.3 Flag `as` casts that may truncate
+- [ ] 4.4.4 Detect array index without bounds check
+- [ ] 4.4.5 Suggest checked_* alternatives
 
 ### 4.5 Crypto Misuse
-- [ ] 4.5.1 Detect custom crypto implementations
-- [ ] 4.5.2 Flag weak RNG usage (rand::thread_rng in crypto context)
-- [ ] 4.5.3 Detect hardcoded keys/secrets
-- [ ] 4.5.4 Flag deprecated crypto crates
+- [ ] 4.5.1 Create `theauditor/rules/rust/crypto_analyze.py`
+- [ ] 4.5.2 Detect custom crypto implementations
+- [ ] 4.5.3 Flag weak RNG usage (rand::thread_rng in crypto context)
+- [ ] 4.5.4 Detect hardcoded keys/secrets
+- [ ] 4.5.5 Flag deprecated crypto crates
 
 ## 5. Integration & Testing
 

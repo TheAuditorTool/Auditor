@@ -32,11 +32,12 @@ This is a quick win with high practical value. Bash is simple enough to extract 
 
 - Affected specs: `indexer` (new language support)
 - Affected code:
-  - `theauditor/indexer/extractors/bash.py` - New extractor
-  - `theauditor/ast_extractors/bash_impl.py` - New extraction implementation
-  - `theauditor/schema/` - New bash_schema.sql (~8 tables)
-  - `theauditor/indexer/storage/bash_storage.py` - New storage
-  - `theauditor/rules/bash_security.py` - Security rules
+  - `theauditor/indexer/extractors/bash.py` - New extractor (auto-discovered via ExtractorRegistry)
+  - `theauditor/ast_extractors/bash_impl.py` - New tree-sitter extraction implementation
+  - `theauditor/indexer/schemas/bash_schema.py` - New schema module with 8 TableSchema definitions
+  - `theauditor/indexer/schema.py:15-24` - Add BASH_TABLES import to unified TABLES dict
+  - `theauditor/indexer/storage/bash_storage.py` - New storage handlers
+  - `theauditor/rules/bash/__init__.py` - New rules subdirectory (pattern: rules/python/, rules/security/)
 - Breaking changes: None (new capability)
 - Dependencies: tree-sitter-bash (via tree-sitter-language-pack, already installed)
 - Estimated effort: 8-12 hours total
