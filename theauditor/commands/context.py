@@ -6,15 +6,12 @@ business logic, refactoring contexts, and semantic patterns.
 Example: During OAuth migration, mark all JWT findings as "obsolete".
 """
 
-import json
 import sqlite3
 from pathlib import Path
 
 import click
 
 from theauditor.utils.error_handler import handle_exceptions
-
-MAX_CHUNK_SIZE = 65_000
 
 
 @click.command()
@@ -301,18 +298,6 @@ def context(context_file: str, output: str | None, verbose: bool):
     context.export_to_json(result, output_file)
     click.echo(f"\n✓ Raw results: {output_file}")
 
-    click.echo("\n🔧 Auto-extracting chunks for AI consumption...")
-
-    readthis_dir = pf_dir / "readthis"
-    readthis_dir.mkdir(parents=True, exist_ok=True)
-
-    chunks_created = _extract_semantic_chunks(output_file, readthis_dir, context.context_name)
-
-    if chunks_created > 0:
-        click.echo(f"✓ Created {chunks_created} chunk file(s) in .pf/readthis/")
-    else:
-        click.echo("✓ Results fit in single file (no chunking needed)")
-
     if output:
         context.export_to_json(result, Path(output))
         click.echo(f"\n✓ Custom output: {output}")
@@ -321,7 +306,6 @@ def context(context_file: str, output: str | None, verbose: bool):
     click.echo("📂 OUTPUT LOCATIONS")
     click.echo("=" * 80)
     click.echo(f"\n  Raw JSON:     {output_file}")
-    click.echo(f"  AI Chunks:    .pf/readthis/semantic_context_{context.context_name}_chunk*.json")
     if output:
         click.echo(f"  Custom:       {output}")
 
@@ -338,77 +322,6 @@ def context(context_file: str, output: str | None, verbose: bool):
         click.echo("\n  Run with --verbose for detailed file list")
     else:
         click.echo("\n🎉 All files migrated! No obsolete patterns found.")
-
-
-def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: str) -> int:
-    """Extract and chunk semantic context results for AI consumption.
-
-    Args:
-        json_file: Path to raw JSON file
-        readthis_dir: Output directory for chunks
-        context_name: Name of semantic context
-
-    Returns:
-        Number of chunks created (0 if no chunking needed)
-    """
-
-    with open(json_file, encoding="utf-8") as f:
-        data = json.load(f)
-
-    json_str = json.dumps(data, indent=2)
-    size_bytes = len(json_str.encode("utf-8"))
-
-    if size_bytes <= MAX_CHUNK_SIZE:
-        output_file = readthis_dir / f"semantic_context_{context_name}.json"
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        return 0
-
-    chunks = []
-
-    chunk1 = {
-        "context_name": data.get("context_name"),
-        "description": data.get("description"),
-        "version": data.get("version"),
-        "generated_at": data.get("generated_at"),
-        "migration_progress": data.get("migration_progress"),
-        "high_priority_files": data.get("high_priority_files"),
-        "summary": data.get("classification", {}).get("summary", {}),
-    }
-    chunks.append(chunk1)
-
-    classification = data.get("classification", {})
-    if classification.get("obsolete"):
-        chunk2 = {
-            "context_name": data.get("context_name"),
-            "type": "obsolete_findings",
-            "obsolete": classification["obsolete"],
-            "mixed_files": classification.get("mixed_files", {}),
-        }
-        chunks.append(chunk2)
-
-    if classification.get("current"):
-        chunk3 = {
-            "context_name": data.get("context_name"),
-            "type": "current_findings",
-            "current": classification["current"],
-        }
-        chunks.append(chunk3)
-
-    chunk4 = {
-        "context_name": data.get("context_name"),
-        "type": "transitional_and_suggestions",
-        "transitional": classification.get("transitional", []),
-        "migration_suggestions": data.get("migration_suggestions", []),
-    }
-    chunks.append(chunk4)
-
-    for i, chunk in enumerate(chunks, 1):
-        chunk_file = readthis_dir / f"semantic_context_{context_name}_chunk{i:02d}.json"
-        with open(chunk_file, "w", encoding="utf-8") as f:
-            json.dump(chunk, f, indent=2)
-
-    return len(chunks)
 
 
 context_command = context

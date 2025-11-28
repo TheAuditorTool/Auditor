@@ -36,7 +36,6 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
 
     Always archived:
     - .pf/raw/ (raw tool outputs)
-    - .pf/readthis/ (AI-consumable chunks)
     - All other .pf/ contents
     """
 

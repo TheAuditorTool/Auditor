@@ -88,7 +88,6 @@ def detect_patterns(
 
     Output:
       .pf/raw/patterns.json       # All findings in JSON
-      .pf/readthis/patterns_*.json # AI-optimized chunks
 
     Finding Format:
       {

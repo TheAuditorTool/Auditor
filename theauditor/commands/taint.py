@@ -162,7 +162,6 @@ def taint_analyze(
 
     OUTPUT FILES:
       .pf/raw/taint_analysis.json      # Taint paths with severity
-      .pf/readthis/taint_chunk*.json   # AI-optimized chunks (<65KB)
       .pf/repo_index.db (tables read):
         - function_call_args: Sink detection
         - assignments: Taint propagation

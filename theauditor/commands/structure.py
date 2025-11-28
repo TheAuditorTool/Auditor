@@ -14,7 +14,7 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--manifest", default="./.pf/manifest.json", help="Path to manifest.json")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Path to repo_index.db")
-@click.option("--output", default="./.pf/readthis/STRUCTURE.md", help="Output file path")
+@click.option("--output", default="./.pf/STRUCTURE.md", help="Output file path")
 @click.option("--max-depth", default=4, type=int, help="Maximum directory tree depth")
 @click.option("--monoliths", is_flag=True, help="Find files >2150 lines (too large for AI to read)")
 @click.option(
@@ -71,7 +71,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
       aud structure --output report.md   # Custom output location
 
     Output:
-      .pf/readthis/STRUCTURE.md         # Markdown report
+      .pf/STRUCTURE.md                  # Markdown report
 
     Report Format:
       # Project: MyApp
