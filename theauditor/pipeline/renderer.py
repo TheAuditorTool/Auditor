@@ -60,6 +60,9 @@ class RichRenderer(PipelineObserver):
         self._live: Live | None = None
         self._table: Table | None = None
 
+        # Pipeline timing
+        self._pipeline_start_time: float | None = None
+
     def _build_live_table(self) -> Table:
         """Build fresh table with current elapsed times (called on each refresh)."""
         table = Table(title="Pipeline Progress", expand=True)
@@ -82,6 +85,12 @@ class RichRenderer(PipelineObserver):
                 time_str = "-"
 
             table.add_row(name, status, time_str)
+
+        # Add total time row at bottom
+        if self._pipeline_start_time:
+            total_elapsed = now - self._pipeline_start_time
+            table.add_section()
+            table.add_row("[bold]Total[/bold]", "", f"[bold]{total_elapsed:.1f}s[/bold]")
 
         return table
 
@@ -119,6 +128,7 @@ class RichRenderer(PipelineObserver):
 
     def start(self):
         """Start the live display (call before pipeline runs)."""
+        self._pipeline_start_time = time.time()
         if self.is_tty and not self.quiet:
             # Use DynamicTable wrapper - Rich calls __rich_console__ on each refresh
             # This rebuilds the table with live elapsed times (ticking timer!)
@@ -204,9 +214,15 @@ class RichRenderer(PipelineObserver):
         success = sum(1 for r in results if r.success)
         failed = total - success
 
+        # Calculate total time
+        total_time = ""
+        if self._pipeline_start_time:
+            elapsed = time.time() - self._pipeline_start_time
+            total_time = f" in {elapsed:.1f}s"
+
         self._write(f"\n{'=' * 60}")
         if failed == 0:
-            self._write(f"[OK] AUDIT COMPLETE - All {total} phases successful")
+            self._write(f"[OK] AUDIT COMPLETE - All {total} phases successful{total_time}")
         else:
-            self._write(f"[WARN] AUDIT COMPLETE - {failed} phases failed")
+            self._write(f"[WARN] AUDIT COMPLETE - {failed} phases failed{total_time}")
         self._write('=' * 60)
