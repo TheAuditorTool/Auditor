@@ -98,7 +98,116 @@ esbuild src/main.ts --bundle --platform=node --target=node18 --format=esm --outf
 - If schema changes, both sides must update together
 - Validation failure in Node = immediate error, not silent corruption in Python
 
-### Decision 5: Directory Structure for TypeScript Migration
+### Decision 5: Semantic Extraction via TypeChecker (from discussions.md)
+
+**What:** Use TypeScript's semantic API (`ts.TypeChecker`) instead of text-based parsing
+
+**Why:**
+- Text parsing (`node.getText()`) loses semantic information (aliases, inheritance, cross-file references)
+- TypeChecker provides "God View" - resolves symbols, types, inheritance across entire program
+- Fixes the "anonymous caller" bug where `db.User.findAll()` couldn't be traced to actual model
+
+**Semantic Upgrades Required:**
+
+| Function | Current (Text-Based) | New (Semantic) |
+|----------|---------------------|----------------|
+| `extractClasses` | `node.heritageClauses.getText()` | `checker.getDeclaredTypeOfSymbol(symbol).getBaseTypes()` |
+| `extractCalls` | `buildName(node.expression)` | `checker.getFullyQualifiedName(symbol)` |
+| `getScopeChain` | Line-number based scope map | `checker.getSymbolAtLocation()` parent chain |
+
+**Implementation Pattern:**
+```typescript
+// OLD (Text-based) - loses semantic info
+const extendsType = node.heritageClauses?.[0]?.types?.[0]?.expression?.getText();
+
+// NEW (Semantic) - resolves actual types
+const symbol = checker.getSymbolAtLocation(node.name);
+const instanceType = checker.getDeclaredTypeOfSymbol(symbol);
+const baseTypes = instanceType.getBaseTypes() || [];
+const extendsTypes = baseTypes.map(t => checker.typeToString(t));
+```
+
+### Decision 6: Delete serializeNodeForCFG (from discussions.md)
+
+**What:** DELETE the `serializeNodeForCFG` function from `core_language.js` entirely
+
+**Why:**
+- This function is a "Recursion Bomb" - walks entire AST and builds 5000-level deep JSON
+- Causes 512MB crash on large files when `JSON.stringify()` runs
+- Legacy code from before structured extraction tables existed
+- Python no longer needs raw AST tree - it receives flat extraction tables
+
+**Risk Mitigation:**
+- Verify `batch_templates.js` sets `ast: null` (line 440)
+- Ensure no other code paths call `serializeNodeForCFG`
+
+### Decision 7: CFG Optimization - Skip Non-Executable Code (from discussions.md)
+
+**What:** Modify CFG traversal to skip Interfaces, Types, Imports, and flatten JSX
+
+**Why:**
+- CFG only cares about *executable* code (functions, control flow)
+- Current code visits every node including `InterfaceDeclaration`, `TypeAliasDeclaration`
+- Wastes ~40% memory on TypeScript projects
+- JSX creates thousands of useless CFG blocks for deeply nested HTML
+
+**Optimizations:**
+1. **Skip non-executable nodes:** InterfaceDeclaration, TypeAliasDeclaration, ImportDeclaration, ModuleDeclaration
+2. **Flatten JSX:** Only record root of JSX tree, not every child element
+3. **Depth limit:** Keep existing `depth > 500` guard
+
+**JSX Optimization Pattern:**
+```typescript
+} else if (kind.startsWith("Jsx")) {
+   // Only add CFG statement for ROOT of JSX tree
+   const parentKind = node.parent ? ts.SyntaxKind[node.parent.kind] : "";
+   if (!parentKind.startsWith("Jsx")) {
+       addStatementToBlock(currentId, "jsx_root", line + 1, "<JSX>");
+   }
+   // Continue traversing to find embedded functions/expressions
+   ...
+}
+```
+
+### Decision 8: Delete Python Zombie Methods (from discussions.md)
+
+**What:** Delete duplicate extraction logic from `javascript.py`
+
+**Why:**
+- Python layer has 600+ lines of "fallback" extraction that duplicates JS logic
+- Creates "Double Vision" - two extraction engines fighting each other
+- If JS extraction is missing data, fix JS, don't add Python workarounds
+
+**Methods to DELETE from `javascript.py`:**
+- `_extract_sql_from_function_calls()` - ~100 lines
+- `_extract_jwt_from_function_calls()` - ~80 lines
+- `_extract_routes_from_ast()` - ~200 lines
+- Any `if not extracted_data: ... traverse AST` fallback blocks
+
+**New Pattern:**
+```python
+def extract(self, file_info, content, tree):
+    if isinstance(tree, dict) and "extracted_data" in tree:
+        data = tree["extracted_data"]
+        result["sql_queries"] = data.get("sql_queries", [])  # Trust JS!
+        result["routes"] = data.get("routes", [])            # Trust JS!
+        # NO FALLBACK. If data missing, bug is in JS.
+    return result
+```
+
+### Decision 9: Keep javascript_resolvers.py (Linker Layer)
+
+**What:** Keep `javascript_resolvers.py` unchanged - it's the cross-file "linker"
+
+**Why:**
+- This file runs AFTER extraction, uses SQL to connect dots across files
+- `resolve_cross_file_parameters()` - maps `arg0` to actual param names using `symbols` table
+- `resolve_router_mount_hierarchy()` - reconstructs Express.js route trees
+- This is correct architecture: Frontend (JS) -> IR (SQLite) -> Backend (Python Resolvers)
+
+**Rule:** If `javascript_resolvers.py` fails, fix the JS extraction that feeds it, not the resolver.
+
+### Decision 10: Directory Structure for TypeScript Migration
 
 **What:** New `src/` directory for TypeScript, `dist/` for compiled output
 
@@ -133,7 +242,7 @@ theauditor/ast_extractors/javascript/
 - `types/` provides shared interfaces
 - `dist/` is gitignored - built on setup/CI
 
-### Decision 6: Single ESNext Bundle (Consolidate from Dual)
+### Decision 11: Single ESNext Bundle (Consolidate from Dual)
 
 **What:** Produce single ESNext bundle, drop CommonJS variant
 
@@ -173,25 +282,25 @@ These were "Open Questions" - now resolved:
 
 Complete list of functions that MUST be exported from each extractor module:
 
-### core_language.ts (5 exports)
-| Function | Line | Return Type |
-|----------|------|-------------|
-| `serializeNodeForCFG` | 1 | `SerializedNode \| null` |
-| `extractFunctions` | 74 | `{ functions, func_params, func_decorators, func_decorator_args, func_param_decorators }` |
-| `extractClasses` | 381 | `{ classes, class_decorators, class_decorator_args }` |
-| `extractClassProperties` | 618 | `ClassProperty[]` |
-| `buildScopeMap` | 711 | `Map<number, string>` |
-| `countNodes` | 873 | `number` |
+### core_language.ts (5 exports) - UPDATED per discussions.md
+| Function | Line | Return Type | Notes |
+|----------|------|-------------|-------|
+| ~~`serializeNodeForCFG`~~ | ~~1~~ | ~~`SerializedNode \| null`~~ | **DELETED - Recursion bomb** |
+| `extractFunctions` | 74 | `{ functions, func_params, func_decorators, func_decorator_args, func_param_decorators }` | |
+| `extractClasses` | 381 | `{ classes, class_decorators, class_decorator_args }` | **REWRITE with TypeChecker** - now includes `extends[]`, `implements[]`, `properties[]`, `methods[]` |
+| `extractClassProperties` | 618 | `ClassProperty[]` | |
+| `buildScopeMap` | 711 | `Map<number, string>` | Consider replacing with `getScopeChain()` using TypeChecker |
+| `countNodes` | 873 | `number` | |
 
-### data_flow.ts (7 exports)
-| Function | Line | Return Type |
-|----------|------|-------------|
-| `extractCalls` | 3 | `CallSymbol[]` |
-| `extractAssignments` | 226 | `{ assignments, assignment_source_vars }` |
-| `extractFunctionCallArgs` | 454 | `FunctionCallArg[]` |
-| `extractReturns` | 649 | `{ returns, return_source_vars }` |
-| `extractObjectLiterals` | 838 | `ObjectLiteral[]` |
-| `extractVariableUsage` | 1008 | `VariableUsage[]` |
+### data_flow.ts (6 exports) - UPDATED per discussions.md
+| Function | Line | Return Type | Notes |
+|----------|------|-------------|-------|
+| `extractCalls` | 3 | `CallSymbol[]` | **REWRITE with TypeChecker** - use `checker.getFullyQualifiedName()`, add `defined_in` field |
+| `extractAssignments` | 226 | `{ assignments, assignment_source_vars }` | |
+| `extractFunctionCallArgs` | 454 | `FunctionCallArg[]` | |
+| `extractReturns` | 649 | `{ returns, return_source_vars }` | |
+| `extractObjectLiterals` | 838 | `ObjectLiteral[]` | |
+| `extractVariableUsage` | 1008 | `VariableUsage[]` | |
 
 ### module_framework.ts (5 exports)
 | Function | Line | Return Type |
@@ -226,8 +335,18 @@ Complete list of functions that MUST be exported from each extractor module:
 | `extractNestJSResolvers` | 748 | `{ graphql_resolvers, graphql_resolver_params }` |
 | `extractTypeGraphQLResolvers` | 858 | `{ graphql_resolvers, graphql_resolver_params }` |
 
-### sequelize_extractors.ts, bullmq_extractors.ts, angular_extractors.ts, cfg_extractor.ts
+### sequelize_extractors.ts, bullmq_extractors.ts, angular_extractors.ts
 See `batch_templates.js` for function lists (these files have 1-3 exports each).
+
+### cfg_extractor.ts - UPDATED per discussions.md
+| Function | Return Type | Notes |
+|----------|-------------|-------|
+| `extractCFG` | `{ cfg_blocks, cfg_edges, cfg_block_statements }` | **OPTIMIZE** - skip non-executable code, flatten JSX |
+
+**CFG Optimizations Required:**
+1. Skip `InterfaceDeclaration`, `TypeAliasDeclaration`, `ImportDeclaration`, `ModuleDeclaration`
+2. Flatten JSX - only record root of JSX tree, not every child element
+3. Keep `depth > 500` guard for safety
 
 ## Complete Zod Schema Definition
 
@@ -274,6 +393,19 @@ export const ClassSchema = z.object({
   extends_type: z.string().nullable().optional(),
   has_type_params: z.boolean().optional(),
   type_params: z.string().optional(),
+  // NEW: Semantic fields from TypeChecker (Decision 5)
+  extends: z.array(z.string()).optional(),      // Resolved base types
+  implements: z.array(z.string()).optional(),   // Interface contracts
+  properties: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    inherited: z.boolean(),
+  })).optional(),
+  methods: z.array(z.object({
+    name: z.string(),
+    signature: z.string(),
+    inherited: z.boolean(),
+  })).optional(),
 });
 
 export const AssignmentSchema = z.object({
@@ -510,6 +642,20 @@ export const BullMQWorkerSchema = z.object({
   processor_path: z.string().nullable(),
 });
 
+// === NEW: Call Symbol Schema with Semantic Data (Decision 5) ===
+
+export const CallSymbolSchema = z.object({
+  line: z.number(),
+  column: z.number().optional(),
+  name: z.string(),               // Resolved: "User.findAll" or "sequelize.Model.findAll"
+  original_text: z.string().optional(),  // Raw: "db.users.findAll"
+  defined_in: z.string().nullable().optional(),  // File path where function is defined
+  arguments: z.array(z.string()).optional(),
+  caller_function: z.string().optional(),
+  jsx_mode: z.string().nullable().optional(),
+  extraction_pass: z.number().nullable().optional(),
+});
+
 // === EXTRACTION RECEIPT (TOP-LEVEL OUTPUT) ===
 
 export const ExtractedDataSchema = z.object({
@@ -517,6 +663,7 @@ export const ExtractedDataSchema = z.object({
   symbols: z.array(SymbolSchema).optional(),
   functions: z.array(FunctionSchema).optional(),
   classes: z.array(ClassSchema).optional(),
+  calls: z.array(CallSymbolSchema).optional(),  // NEW: Semantic call data
   assignments: z.array(AssignmentSchema).optional(),
   returns: z.array(FunctionReturnSchema).optional(),
   function_call_args: z.array(FunctionCallArgSchema).optional(),
@@ -651,6 +798,28 @@ Pinned versions for reproducibility:
 - Use forward slashes in all configs (works in Node.js on Windows)
 - Test on Windows before merging
 
+### Risk 5: Semantic Upgrade Name Changes (from discussions.md)
+**Risk:** `checker.getFullyQualifiedName()` may return different names than text parsing
+- Example: `User.init` might become `sequelize.Model.init`
+**Mitigation:**
+- Run extraction on test fixtures before/after, compare output
+- Update downstream extractors (`sequelize_extractors.js`) if patterns change
+- Keep `original_text` field for debugging
+
+### Risk 6: Python Zombie Deletion Exposes Gaps (from discussions.md)
+**Risk:** Deleting Python fallback methods may reveal missing JS extraction
+**Mitigation:**
+- This is intentional - forces us to fix JS extraction
+- If gap found, add to JS extraction, NOT Python
+- Test full pipeline after deletion
+
+### Risk 7: Recursion Bomb Removal (from discussions.md)
+**Risk:** Code that depends on `serializeNodeForCFG` will break
+**Mitigation:**
+- Verify `batch_templates.js` sets `ast: null` before deletion
+- Search codebase for any calls to `serializeNodeForCFG`
+- If called anywhere, refactor callers first
+
 ## Migration Plan
 
 ### Phase 1: Infrastructure (LOW RISK)
@@ -665,22 +834,41 @@ Pinned versions for reproducibility:
 2. Create contract test comparing schema to Python storage handler
 3. Verify schema matches all 50 extraction data types
 
-### Phase 3: Extractor Conversion (HIGH RISK)
-Convert in dependency order:
+### Phase 3: Extractor Conversion WITH Semantic Upgrades (HIGH RISK)
+Convert in dependency order with implementation fixes from discussions.md:
+
 1. `core_language.js` -> `src/extractors/core_language.ts` (foundation)
+   - **DELETE `serializeNodeForCFG`** - recursion bomb
+   - **REWRITE `extractClasses`** to use `checker.getDeclaredTypeOfSymbol()` for inheritance
+   - Add `extends[]`, `implements[]`, `properties[]`, `methods[]` to output
+
 2. `data_flow.js` -> `src/extractors/data_flow.ts`
+   - **REWRITE `extractCalls`** to use `checker.getSymbolAtLocation()` and `checker.getFullyQualifiedName()`
+   - Add `defined_in` field for resolved symbol file paths
+   - Keep `original_text` for debugging
+
 3. `module_framework.js` -> `src/extractors/module_framework.ts`
+
 4. `security_extractors.js` -> `src/extractors/security_extractors.ts`
+
 5. `framework_extractors.js` -> `src/extractors/framework_extractors.ts`
+
 6. `sequelize_extractors.js` -> `src/extractors/sequelize_extractors.ts`
+   - Update string matching if semantic names changed (e.g., `sequelize.Model.init` vs `User.init`)
+
 7. `bullmq_extractors.js` -> `src/extractors/bullmq_extractors.ts`
+
 8. `angular_extractors.js` -> `src/extractors/angular_extractors.ts`
+
 9. `cfg_extractor.js` -> `src/extractors/cfg_extractor.ts`
+   - **OPTIMIZE `visit`** - skip InterfaceDeclaration, TypeAliasDeclaration, ImportDeclaration, ModuleDeclaration
+   - **OPTIMIZE JSX** - only record root of JSX tree, not every child element
 
 Each conversion:
 - Add `export` to each function
 - Add TypeScript types to parameters and return values
 - Add `import` statements for dependencies
+- Apply semantic upgrades where noted
 - Build and test before committing
 
 ### Phase 4: Entry Point Migration (HIGH RISK)
@@ -694,6 +882,27 @@ Each conversion:
 2. Remove `_JS_CACHE`, `_load_javascript_modules()`
 3. Add FileNotFoundError if bundle missing
 4. Test full `aud full --index` pipeline
+
+### Phase 5.3: Python Zombie Cleanup (MEDIUM RISK) - from discussions.md
+Delete duplicate extraction logic from `javascript.py`:
+
+1. **DELETE** `_extract_sql_from_function_calls()` method (~100 lines)
+2. **DELETE** `_extract_jwt_from_function_calls()` method (~80 lines)
+3. **DELETE** `_extract_routes_from_ast()` method (~200 lines)
+4. **DELETE** any `if not extracted_data: ... traverse AST` fallback blocks
+5. **SIMPLIFY** `extract()` method to trust `extracted_data`:
+   ```python
+   def extract(self, file_info, content, tree):
+       if isinstance(tree, dict) and "extracted_data" in tree:
+           data = tree["extracted_data"]
+           result["sql_queries"] = data.get("sql_queries", [])  # Trust JS!
+           result["routes"] = data.get("routes", [])            # Trust JS!
+           # NO FALLBACK. If data missing, bug is in JS.
+       return result
+   ```
+6. Test full pipeline - if anything missing, fix JS extraction, NOT Python
+
+**NOTE:** Keep `javascript_resolvers.py` unchanged - it's the cross-file linker layer (correct architecture).
 
 ### Phase 6: Cleanup (LOW RISK)
 1. Delete old `.js` files

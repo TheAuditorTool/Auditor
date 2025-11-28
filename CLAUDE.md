@@ -192,15 +192,7 @@ aud full              # Full pipeline with network (slow due to docs/deps fetchi
 
 This is the MOST IMPORTANT rule in the entire codebase. Violation of this rule is grounds for immediate rejection.
 
-### 4.1 Current Violations (MUST FIX)
-| File | Issue |
-|------|-------|
-| `fce.py` | 6+ try/except blocks returning empty |
-| `express_analyze.py` | 10 silent exception handlers |
-| `sql_injection_analyze.py` | 3 table existence checks |
-| `context/query.py` | 14 OperationalError handlers |
-
-### 4.2 What is BANNED FOREVER
+### 4.1 What is BANNED FOREVER
 
 **Database Query Fallbacks** - NEVER write multiple queries with fallback logic:
 ```python
@@ -228,7 +220,7 @@ if 'function_call_args' in existing_tables:  # THIS IS CANCER
     cursor.execute("SELECT * FROM function_call_args")
 ```
 
-### 4.3 CORRECT Pattern - HARD FAIL IMMEDIATELY
+### 4.2 CORRECT Pattern - HARD FAIL IMMEDIATELY
 ```python
 # CORRECT - Single query, hard fail if wrong
 cursor.execute("SELECT path FROM symbols WHERE name = ? AND type = 'function'", (name,))
