@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Batch Processing Template Structure
  *
@@ -30,12 +31,12 @@
 // === ES_MODULE_BATCH ===
 
 // ES Module helper script for batch TypeScript AST extraction
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
-import crypto from 'crypto';
-import { fileURLToPath, pathToFileURL } from 'url';
-import { createRequire } from 'module';
+import path from "path";
+import fs from "fs";
+import os from "os";
+import crypto from "crypto";
+import { fileURLToPath, pathToFileURL } from "url";
+import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
 
@@ -45,23 +46,27 @@ let compileVueTemplate = null;
 let VueNodeTypes = null;
 
 try {
-    const vueSfcModule = require('@vue/compiler-sfc');
-    if (vueSfcModule) {
-        parseVueSfc = vueSfcModule.parse;
-        compileVueScript = vueSfcModule.compileScript;
-        compileVueTemplate = vueSfcModule.compileTemplate;
-    }
+  const vueSfcModule = require("@vue/compiler-sfc");
+  if (vueSfcModule) {
+    parseVueSfc = vueSfcModule.parse;
+    compileVueScript = vueSfcModule.compileScript;
+    compileVueTemplate = vueSfcModule.compileTemplate;
+  }
 } catch (err) {
-    console.error(`[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`);
+  console.error(
+    `[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`,
+  );
 }
 
 try {
-    const vueDomModule = require('@vue/compiler-dom');
-    if (vueDomModule) {
-        VueNodeTypes = vueDomModule.NodeTypes;
-    }
+  const vueDomModule = require("@vue/compiler-dom");
+  if (vueDomModule) {
+    VueNodeTypes = vueDomModule.NodeTypes;
+  }
 } catch (err) {
-    console.error(`[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`);
+  console.error(
+    `[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`,
+  );
 }
 
 // ES modules don't have __dirname
@@ -69,755 +74,159 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function findNearestTsconfig(startPath, projectRoot, ts, path) {
-    let currentDir = path.resolve(path.dirname(startPath));
-    const projectRootResolved = path.resolve(projectRoot);
+  let currentDir = path.resolve(path.dirname(startPath));
+  const projectRootResolved = path.resolve(projectRoot);
 
-    while (true) {
-        const candidate = path.join(currentDir, 'tsconfig.json');
-        if (ts.sys.fileExists(candidate)) {
-            return candidate;
-        }
-        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {
-            break;
-        }
-        currentDir = path.dirname(currentDir);
+  while (true) {
+    const candidate = path.join(currentDir, "tsconfig.json");
+    if (ts.sys.fileExists(candidate)) {
+      return candidate;
     }
+    if (
+      currentDir === projectRootResolved ||
+      currentDir === path.dirname(currentDir)
+    ) {
+      break;
+    }
+    currentDir = path.dirname(currentDir);
+  }
 
-    return null;
+  return null;
 }
 
 function createVueScopeId(filePath) {
-    return crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 8);
+  return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 8);
 }
 
 function createVueTempPath(scopeId, langHint) {
-    const isTs = langHint && langHint.toLowerCase().includes('ts');
-    const ext = isTs ? '.ts' : '.js';
-    const randomPart = crypto.randomBytes(4).toString('hex');
-    return path.join(os.tmpdir(), `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`);
+  const isTs = langHint && langHint.toLowerCase().includes("ts");
+  const ext = isTs ? ".ts" : ".js";
+  const randomPart = crypto.randomBytes(4).toString("hex");
+  return path.join(
+    os.tmpdir(),
+    `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`,
+  );
 }
 
 function safeUnlink(filePath) {
-    if (!filePath) {
-        return;
+  if (!filePath) {
+    return;
+  }
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
     }
-    try {
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
-    } catch (err) {
-        console.error(`[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`);
-    }
+  } catch (err) {
+    console.error(
+      `[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`,
+    );
+  }
 }
 
 function ensureVueCompilerAvailable() {
-    if (!parseVueSfc || !compileVueScript) {
-        throw new Error('Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.');
-    }
+  if (!parseVueSfc || !compileVueScript) {
+    throw new Error(
+      "Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.",
+    );
+  }
 }
 
 function prepareVueSfcFile(filePath) {
-    ensureVueCompilerAvailable();
+  ensureVueCompilerAvailable();
 
-    const source = fs.readFileSync(filePath, 'utf8');
-    const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
+  const source = fs.readFileSync(filePath, "utf8");
+  const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
 
-    if (errors && errors.length > 0) {
-        const firstError = errors[0];
-        const message = typeof firstError === 'string'
-            ? firstError
-            : firstError.message || firstError.msg || 'Unknown Vue SFC parse error';
-        throw new Error(message);
+  if (errors && errors.length > 0) {
+    const firstError = errors[0];
+    const message =
+      typeof firstError === "string"
+        ? firstError
+        : firstError.message || firstError.msg || "Unknown Vue SFC parse error";
+    throw new Error(message);
+  }
+
+  if (!descriptor.script && !descriptor.scriptSetup) {
+    throw new Error("Vue SFC is missing <script> or <script setup> block");
+  }
+
+  const scopeId = createVueScopeId(filePath);
+  let compiledScript;
+  try {
+    compiledScript = compileVueScript(descriptor, {
+      id: scopeId,
+      inlineTemplate: false,
+    });
+  } catch (err) {
+    throw new Error(`Failed to compile Vue script: ${err.message}`);
+  }
+
+  const langHint =
+    (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
+    (descriptor.script && descriptor.script.lang) ||
+    "js";
+  const tempFilePath = createVueTempPath(scopeId, langHint || "js");
+  fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+
+  let templateAst = null;
+  if (descriptor.template && descriptor.template.content) {
+    if (typeof compileVueTemplate === "function") {
+      try {
+        const templateResult = compileVueTemplate({
+          source: descriptor.template.content,
+          filename: filePath,
+          id: scopeId,
+        });
+        templateAst = templateResult.ast || null;
+      } catch (err) {
+        console.error(
+          `[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`,
+        );
+      }
+    } else {
+      console.error(
+        `[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`,
+      );
     }
+  }
 
-    if (!descriptor.script && !descriptor.scriptSetup) {
-        throw new Error('Vue SFC is missing <script> or <script setup> block');
-    }
-
-    const scopeId = createVueScopeId(filePath);
-    let compiledScript;
-    try {
-        compiledScript = compileVueScript(descriptor, { id: scopeId, inlineTemplate: false });
-    } catch (err) {
-        throw new Error(`Failed to compile Vue script: ${err.message}`);
-    }
-
-    const langHint = (descriptor.scriptSetup && descriptor.scriptSetup.lang) || (descriptor.script && descriptor.script.lang) || 'js';
-    const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
-    fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
-
-    let templateAst = null;
-    if (descriptor.template && descriptor.template.content) {
-        if (typeof compileVueTemplate === 'function') {
-            try {
-                const templateResult = compileVueTemplate({
-                    source: descriptor.template.content,
-                    filename: filePath,
-                    id: scopeId
-                });
-                templateAst = templateResult.ast || null;
-            } catch (err) {
-                console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
-            }
-        } else {
-            console.error(`[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`);
-        }
-    }
-
-    return {
-        tempFilePath,
-        descriptor,
-        compiledScript,
-        templateAst,
-        scopeId,
-        hasStyle: descriptor.styles && descriptor.styles.length > 0
-    };
+  return {
+    tempFilePath,
+    descriptor,
+    compiledScript,
+    templateAst,
+    scopeId,
+    hasStyle: descriptor.styles && descriptor.styles.length > 0,
+  };
 }
 
 async function main() {
-    try {
-        // Get request and output paths from command line
-        const requestPath = process.argv[2];
-        const outputPath = process.argv[3];
-
-        if (!requestPath || !outputPath) {
-            console.error(JSON.stringify({ error: "Request and output paths required" }));
-            process.exit(1);
-        }
-
-        // Read batch request
-        const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
-        const filePaths = request.files || [];
-        const projectRoot = request.projectRoot;
-        const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
-        // PHASE 5: No more cfgOnly flag - single-pass extraction includes CFG
-
-        if (filePaths.length === 0) {
-            fs.writeFileSync(outputPath, JSON.stringify({}, 'utf8'));
-            process.exit(0);
-        }
-
-        if (!projectRoot) {
-            throw new Error("projectRoot not provided in batch request");
-        }
-
-        // Load TypeScript - search up the directory tree for .auditor_venv
-        let tsPath = null;
-        let searchDir = projectRoot;
-
-        // Search up the directory tree for .auditor_venv (max 10 levels)
-        for (let i = 0; i < 10; i++) {
-            const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-            if (fs.existsSync(potentialPath)) {
-                tsPath = potentialPath;
-                break;
-            }
-            const parent = path.dirname(searchDir);
-            if (parent === searchDir) break;  // Reached root
-            searchDir = parent;
-        }
-
-        // Fallback to project root if not found
-        if (!tsPath) {
-            tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-        }
-
-        if (!fs.existsSync(tsPath)) {
-            throw new Error(`TypeScript not found at: ${tsPath}`);
-        }
-
-        const tsModule = await import(pathToFileURL(tsPath));
-        const ts = tsModule.default || tsModule;
-
-        const configMap = request.configMap || {};
-        const resolvedProjectRoot = path.resolve(projectRoot);
-
-        const normalizedConfigMap = new Map();
-        for (const [key, value] of Object.entries(configMap)) {
-            const resolvedKey = path.resolve(key);
-            normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
-        }
-
-        const filesByConfig = new Map();
-        const DEFAULT_KEY = '__DEFAULT__';
-        const preprocessingErrors = new Map();
-
-        for (const filePath of filePaths) {
-            const absoluteFilePath = path.resolve(filePath);
-            const ext = path.extname(absoluteFilePath).toLowerCase();
-            const fileEntry = {
-                original: filePath,
-                absolute: absoluteFilePath,
-                cleanup: null,
-                vueMeta: null
-            };
-
-            if (ext === '.vue') {
-                try {
-                    const vueMeta = prepareVueSfcFile(absoluteFilePath);
-                    fileEntry.absolute = vueMeta.tempFilePath;
-                    fileEntry.cleanup = vueMeta.tempFilePath;
-                    fileEntry.vueMeta = vueMeta;
-                } catch (err) {
-                    preprocessingErrors.set(filePath, `Vue SFC preprocessing failed: ${err.message}`);
-                    continue;
-                }
-            }
-
-            const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
-            const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
-            const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
-
-            if (!filesByConfig.has(groupKey)) {
-                filesByConfig.set(groupKey, []);
-            }
-            filesByConfig.get(groupKey).push(fileEntry);
-        }
-
-        const results = {};
-        const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
-
-        // DEBUG: Log batch mode info (PHASE 5: single-pass architecture)
-        console.error(`[BATCH DEBUG] Processing ${filePaths.length} files, jsxMode=${jsxMode}, jsxEmitMode=${ts.JsxEmit[jsxEmitMode]}`);
-
-        for (const [configKey, groupedFiles] of filesByConfig.entries()) {
-            const configLabel = configKey === '__DEFAULT__' ? 'DEFAULT' : configKey;
-            console.error(`[BATCH DEBUG] Config group: ${configLabel}, files=${groupedFiles.length}`);
-            if (!groupedFiles || groupedFiles.length === 0) {
-                continue;
-            }
-            let compilerOptions;
-            let program;
-
-            if (configKey !== DEFAULT_KEY) {
-                const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
-                if (tsConfig.error) {
-                    throw new Error(`Failed to read tsconfig: ${ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\n')}`);
-                }
-
-                const configDir = path.dirname(configKey);
-                const parsedConfig = ts.parseJsonConfigFileContent(
-                    tsConfig.config,
-                    ts.sys,
-                    configDir,
-                    {},
-                    configKey
-                );
-
-                if (parsedConfig.errors && parsedConfig.errors.length > 0) {
-                    const errorMessages = parsedConfig.errors
-                        .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\n'))
-                        .join('; ');
-                    throw new Error(`Failed to parse tsconfig: ${errorMessages}`);
-                }
-
-        compilerOptions = Object.assign({}, parsedConfig.options);
-        compilerOptions.jsx = jsxEmitMode;
-        const hasJavaScriptFiles = groupedFiles.some(fileInfo => {
-            const ext = path.extname(fileInfo.absolute).toLowerCase();
-            return ext === '.js' || ext === '.jsx' || ext === '.cjs' || ext === '.mjs';
-        });
-        if (hasJavaScriptFiles) {
-            compilerOptions.allowJs = true;
-            if (compilerOptions.checkJs === undefined) {
-                compilerOptions.checkJs = false;
-            }
-        }
-        const projectReferences = parsedConfig.projectReferences || [];
-        program = ts.createProgram(
-            groupedFiles.map(f => f.absolute),
-            compilerOptions,
-            undefined,
-                    undefined,
-                    undefined,
-                    projectReferences
-                );
-            } else {
-                compilerOptions = {
-                    target: ts.ScriptTarget.Latest,
-                    module: ts.ModuleKind.ESNext,
-                    jsx: jsxEmitMode,
-                    allowJs: true,
-                    checkJs: false,
-                    noEmit: true,
-                    skipLibCheck: true,
-                    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-                    baseUrl: resolvedProjectRoot,
-                    rootDir: resolvedProjectRoot
-                };
-                program = ts.createProgram(
-                    groupedFiles.map(f => f.absolute),
-                    compilerOptions
-                );
-            }
-
-            console.error(`[BATCH DEBUG] Created program, rootNames=${program.getRootFileNames().length}`);
-            const checker = program.getTypeChecker();
-
-            for (const fileInfo of groupedFiles) {
-                try {
-                    const sourceFile = program.getSourceFile(fileInfo.absolute);
-                    if (!sourceFile) {
-                        console.error(`[DEBUG JS BATCH] Could not load sourceFile for ${fileInfo.original}, jsxMode=${jsxMode}`);
-                        results[fileInfo.original] = {
-                            success: false,
-                            error: `Could not load source file: ${fileInfo.original}`,
-                            ast: null,
-                            diagnostics: [],
-                            symbols: []
-                        };
-                        continue;
-                    }
-                    console.error(`[DEBUG JS BATCH] Loaded sourceFile for ${fileInfo.original}, jsxMode=${jsxMode}`);
-
-                    const sourceCode = sourceFile.text;
-
-                    const diagnostics = [];
-                    const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-                    fileDiagnostics.forEach(diagnostic => {
-                        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-                        const location = diagnostic.file && diagnostic.start
-                            ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                            : null;
-
-                        diagnostics.push({
-                            message,
-                            category: ts.DiagnosticCategory[diagnostic.category],
-                            code: diagnostic.code,
-                            line: location ? location.line + 1 : null,
-                            column: location ? location.character : null
-                        });
-                    });
-
-                        // Step 1: Build scope map (line → function name mapping)
-                    const scopeMap = buildScopeMap(sourceFile, ts);
-                    const filePath = fileInfo.original;
-
-                    // Step 2: Extract imports (returns object with junction array)
-                    const importData = extractImports(sourceFile, ts, filePath);
-                    const imports = importData.imports;
-                    const import_specifiers = importData.import_specifiers;
-
-                    console.error(`[DEBUG JS BATCH] Single-pass extraction for ${filePath}, jsxMode=${jsxMode}`);
-
-                    // Step 3: Extract functions (returns object with junction arrays)
-                    const funcData = extractFunctions(sourceFile, checker, ts);
-                    const functions = funcData.functions;
-                    const func_params = funcData.func_params;
-                    const func_decorators = funcData.func_decorators;
-                    const func_decorator_args = funcData.func_decorator_args;
-                    const func_param_decorators = funcData.func_param_decorators;
-
-                    // Build parameter map from func_params junction array
-                    const functionParams = new Map();
-                    func_params.forEach(p => {
-                        if (!functionParams.has(p.function_name)) {
-                            functionParams.set(p.function_name, []);
-                        }
-                        functionParams.get(p.function_name).push(p.param_name);
-                    });
-
-                    // Step 4: Extract classes (returns object with junction arrays)
-                    const classData = extractClasses(sourceFile, checker, ts);
-                    const classes = classData.classes;
-                    const class_decorators = classData.class_decorators;
-                    const class_decorator_args = classData.class_decorator_args;
-
-                    // Step 5: Extract all other data types
-                    const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                    const classProperties = extractClassProperties(sourceFile, ts);
-                    console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`);
-                    const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
-                    const ormRelationships = extractORMRelationships(sourceFile, ts);
-
-                    // Extract assignments (returns object with junction array)
-                    const assignmentData = extractAssignments(sourceFile, ts, scopeMap, filePath);
-                    const assignments = assignmentData.assignments;
-                    const assignment_source_vars = assignmentData.assignment_source_vars;
-
-                    const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-
-                    // Extract returns (returns object with junction array)
-                    const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
-                    const returns = returnData.returns;
-                    const return_source_vars = returnData.return_source_vars;
-
-                    const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                    const variableUsage = extractVariableUsage(assignments, functionCallArgs, assignment_source_vars);
-
-                    // Extract import styles (returns object with junction array)
-                    const importStyleData = extractImportStyles(imports, import_specifiers, filePath);
-                    const importStyles = importStyleData.import_styles;
-                    const import_style_names = importStyleData.import_style_names;
-
-                    const refs = extractRefs(imports, import_specifiers);
-
-                    // Extract React components (returns object with junction arrays)
-                    const reactComponentData = extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports);
-                    const reactComponents = reactComponentData.react_components;
-                    const react_component_hooks = reactComponentData.react_component_hooks;
-
-                    // Extract React hooks (returns object with junction array)
-                    const reactHookData = extractReactHooks(functionCallArgs, scopeMap, filePath);
-                    const reactHooks = reactHookData.react_hooks;
-                    const react_hook_dependencies = reactHookData.react_hook_dependencies;
-
-                    const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpointData = extractAPIEndpoints(functionCallArgs);
-                    const apiEndpoints = apiEndpointData.endpoints || [];
-                    const middlewareChains = apiEndpointData.middlewareChains || [];
-                    const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
-                    const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
-                    const validationUsage = [...validationCalls, ...schemaDefs];
-                    const sqlQueries = extractSQLQueries(functionCallArgs);
-                    const cdkData = extractCDKConstructs(functionCallArgs, imports);
-
-                    // Extract Sequelize models (returns object with junction array)
-                    const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports, filePath);
-                    // DEBUG (2025-11-09): Log sequelize extraction results
-                    if (process.env.THEAUDITOR_DEBUG === '1' && fileInfo.original.includes('model')) {
-                        console.error(`[BATCH] ${fileInfo.original}: sequelizeData =`, JSON.stringify(sequelizeData));
-                    }
-                    const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
-                    const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs, func_decorators, class_decorators, class_decorator_args);
-                    const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
-
-                    let vueComponents = [];
-                    let vueHooks = [];
-                    let vueDirectives = [];
-                    let vueProvideInject = [];
-                    // Junction arrays for normalized Vue data (normalize-node-extractor-output)
-                    let vueComponentProps = [];
-                    let vueComponentEmits = [];
-                    let vueComponentSetupReturns = [];
-
-                    if (fileInfo.vueMeta) {
-                        const vueComponentData = extractVueComponents(
-                            fileInfo.vueMeta,
-                            fileInfo.original,
-                            functionCallArgs,
-                            returns
-                        );
-                        // Use new normalized key (vue_components instead of components)
-                        vueComponents = vueComponentData.vue_components || [];
-                        vueComponentProps = vueComponentData.vue_component_props || [];
-                        vueComponentEmits = vueComponentData.vue_component_emits || [];
-                        vueComponentSetupReturns = vueComponentData.vue_component_setup_returns || [];
-                        const activeComponentName = vueComponentData.primaryName;
-                        vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
-                        vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
-                        vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
-                    }
-
-                    // Step 4: Extract CFG (handles BOTH jsx modes)
-                    // CRITICAL: Extract CFG for BOTH transform and preserved modes
-                    // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
-                    // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
-                    // Storage layer (Python) routes based on jsx_pass flag
-                    console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
-                    const cfg = extractCFG(sourceFile, ts);
-                    console.error(`[DEBUG JS BATCH] Extracted CFG for ${fileInfo.original}`);
-
-                    // Count nodes for complexity metrics
-                    const nodeCount = countNodes(sourceFile, ts);
-
-                    results[fileInfo.original] = {
-                        success: true,
-                        fileName: fileInfo.absolute,
-                        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                        ast: null,
-                        diagnostics: diagnostics,
-                        imports: imports,
-                        nodeCount: nodeCount,
-                        hasTypes: true,
-                        jsxMode: jsxMode,
-                        extracted_data: {
-                            // Core language
-                            functions: functions,
-                            func_params: func_params,
-                            func_decorators: func_decorators,
-                            func_decorator_args: func_decorator_args,
-                            func_param_decorators: func_param_decorators,
-                            classes: classes,
-                            class_decorators: class_decorators,
-                            class_decorator_args: class_decorator_args,
-                            class_properties: classProperties,
-                            // Module system
-                            imports: imports,
-                            import_specifiers: import_specifiers,
-                            import_styles: importStyles,
-                            import_style_names: import_style_names,
-                            resolved_imports: refs,
-                            // Data flow
-                            assignments: assignments,
-                            assignment_source_vars: assignment_source_vars,
-                            returns: returns,
-                            return_source_vars: return_source_vars,
-                            // Other extractors
-                            env_var_usage: envVarUsage,
-                            orm_relationships: ormRelationships,
-                            calls: calls,
-                            function_call_args: functionCallArgs,
-                            object_literals: objectLiterals,
-                            variable_usage: variableUsage,
-                            // React
-                            react_components: reactComponents,
-                            react_component_hooks: react_component_hooks,
-                            react_hooks: reactHooks,
-                            react_hook_dependencies: react_hook_dependencies,
-                            // API & ORM
-                            orm_queries: ormQueries,
-                            routes: apiEndpoints,
-                            express_middleware_chains: middlewareChains,
-                            validation_framework_usage: validationUsage,
-                            sql_queries: sqlQueries,
-                            cdk_constructs: cdkData.cdk_constructs || [],
-                            cdk_construct_properties: cdkData.cdk_construct_properties || [],
-                            // Sequelize
-                            sequelize_models: sequelizeData.sequelize_models || [],
-                            sequelize_associations: sequelizeData.sequelize_associations || [],
-                            sequelize_model_fields: sequelizeData.sequelize_model_fields || [],
-                            // BullMQ
-                            bullmq_queues: bullmqData.bullmq_queues || [],
-                            bullmq_workers: bullmqData.bullmq_workers || [],
-                            // Angular
-                            angular_components: angularData.components || [],
-                            angular_services: angularData.services || [],
-                            angular_modules: angularData.modules || [],
-                            angular_guards: angularData.guards || [],
-                            di_injections: angularData.di_injections || [],
-                            angular_component_styles: angularData.angular_component_styles || [],
-                            angular_module_declarations: angularData.angular_module_declarations || [],
-                            angular_module_imports: angularData.angular_module_imports || [],
-                            angular_module_providers: angularData.angular_module_providers || [],
-                            angular_module_exports: angularData.angular_module_exports || [],
-                            // Vue
-                            vue_components: vueComponents,
-                            vue_component_props: vueComponentProps,
-                            vue_component_emits: vueComponentEmits,
-                            vue_component_setup_returns: vueComponentSetupReturns,
-                            vue_hooks: vueHooks,
-                            vue_directives: vueDirectives,
-                            vue_provide_inject: vueProvideInject,
-                            // Frontend & CFG
-                            frontend_api_calls: frontendApiCalls,
-                            scope_map: Object.fromEntries(scopeMap),
-                            cfg: cfg
-                        }
-                    };
-                    console.error(`[DEBUG JS BATCH] Single-pass complete for ${filePath}`)
-
-                } catch (error) {
-                    results[fileInfo.original] = {
-                        success: false,
-                        error: `Error processing file: ${error.message}`,
-                        ast: null,
-                        diagnostics: [],
-                        symbols: []
-                    };
-                } finally {
-                    if (fileInfo.cleanup) {
-                        safeUnlink(fileInfo.cleanup);
-                    }
-                }
-            }
-        }
-
-        for (const [failedPath, message] of preprocessingErrors.entries()) {
-            results[failedPath] = {
-                success: false,
-                error: message,
-                ast: null,
-                diagnostics: [],
-                symbols: []
-            };
-        }
-
-        // Write all results
-        fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
-        process.exit(0);
-
-    } catch (error) {
-        console.error(JSON.stringify({
-            success: false,
-            error: error.message,
-            stack: error.stack
-        }));
-        process.exit(1);
-    }
-}
-
-// Run the async main function
-main().catch(error => {
-    console.error(JSON.stringify({
-        success: false,
-        error: `Unhandled error: ${error.message}`,
-        stack: error.stack
-    }));
-    process.exit(1);
-});
-
-// === COMMONJS_BATCH ===
-
-// CommonJS helper script for batch TypeScript AST extraction
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const crypto = require('crypto');
-
-let parseVueSfc = null;
-let compileVueScript = null;
-let compileVueTemplate = null;
-let VueNodeTypes = null;
-
-try {
-    const vueSfcModule = require('@vue/compiler-sfc');
-    if (vueSfcModule) {
-        parseVueSfc = vueSfcModule.parse;
-        compileVueScript = vueSfcModule.compileScript;
-        compileVueTemplate = vueSfcModule.compileTemplate;
-    }
-} catch (err) {
-    console.error(`[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`);
-}
-
-try {
-    const vueDomModule = require('@vue/compiler-dom');
-    if (vueDomModule) {
-        VueNodeTypes = vueDomModule.NodeTypes;
-    }
-} catch (err) {
-    console.error(`[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`);
-}
-
-function ensureVueCompilerAvailable() {
-    if (!parseVueSfc || !compileVueScript) {
-        throw new Error('Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.');
-    }
-}
-
-function createVueScopeId(filePath) {
-    return crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 8);
-}
-
-function createVueTempPath(scopeId, langHint) {
-    const isTs = langHint && langHint.toLowerCase().includes('ts');
-    const ext = isTs ? '.ts' : '.js';
-    const randomPart = crypto.randomBytes(4).toString('hex');
-    return path.join(os.tmpdir(), `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`);
-}
-
-function safeUnlink(filePath) {
-    if (!filePath) {
-        return;
-    }
-    try {
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
-    } catch (err) {
-        console.error(`[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`);
-    }
-}
-
-function prepareVueSfcFile(filePath) {
-    ensureVueCompilerAvailable();
-
-    const source = fs.readFileSync(filePath, 'utf8');
-    const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
-
-    if (errors && errors.length > 0) {
-        const firstError = errors[0];
-        const message = typeof firstError === 'string'
-            ? firstError
-            : firstError.message || firstError.msg || 'Unknown Vue SFC parse error';
-        throw new Error(message);
+  try {
+    // Get request and output paths from command line
+    const requestPath = process.argv[2];
+    const outputPath = process.argv[3];
+
+    if (!requestPath || !outputPath) {
+      console.error(
+        JSON.stringify({ error: "Request and output paths required" }),
+      );
+      process.exit(1);
     }
 
-    if (!descriptor.script && !descriptor.scriptSetup) {
-        throw new Error('Vue SFC is missing <script> or <script setup> block');
-    }
-
-    const scopeId = createVueScopeId(filePath);
-    let compiledScript;
-    try {
-        compiledScript = compileVueScript(descriptor, { id: scopeId, inlineTemplate: false });
-    } catch (err) {
-        throw new Error(`Failed to compile Vue script: ${err.message}`);
-    }
-
-    const langHint = (descriptor.scriptSetup && descriptor.scriptSetup.lang) || (descriptor.script && descriptor.script.lang) || 'js';
-    const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
-    fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
-
-    let templateAst = null;
-    if (descriptor.template && descriptor.template.content) {
-        if (typeof compileVueTemplate === 'function') {
-            try {
-                const templateResult = compileVueTemplate({
-                    source: descriptor.template.content,
-                    filename: filePath,
-                    id: scopeId
-                });
-                templateAst = templateResult.ast || null;
-            } catch (err) {
-                console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
-            }
-        } else {
-            console.error(`[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`);
-        }
-    }
-
-    return {
-        tempFilePath,
-        scopeId,
-        descriptor,
-        templateAst
-    };
-}
-
-function findNearestTsconfig(startPath, projectRoot, ts, path) {
-    let currentDir = path.resolve(path.dirname(startPath));
-    const projectRootResolved = path.resolve(projectRoot);
-
-    while (true) {
-        const candidate = path.join(currentDir, 'tsconfig.json');
-        if (ts.sys.fileExists(candidate)) {
-            return candidate;
-        }
-        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {
-            break;
-        }
-        currentDir = path.dirname(currentDir);
-    }
-
-    return null;
-}
-
-// Get request and output paths from command line
-const requestPath = process.argv[2];
-const outputPath = process.argv[3];
-
-if (!requestPath || !outputPath) {
-    console.error(JSON.stringify({ error: "Request and output paths required" }));
-    process.exit(1);
-}
-
-try {
     // Read batch request
-    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+    const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
     const filePaths = request.files || [];
     const projectRoot = request.projectRoot;
-    const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
+    const jsxMode = request.jsxMode || "transformed"; // Default to transformed for backward compatibility
     // PHASE 5: No more cfgOnly flag - single-pass extraction includes CFG
 
     if (filePaths.length === 0) {
-        fs.writeFileSync(outputPath, JSON.stringify({}, 'utf8'));
-        process.exit(0);
+      fs.writeFileSync(outputPath, JSON.stringify({}, "utf8"));
+      process.exit(0);
     }
 
     if (!projectRoot) {
-        throw new Error("projectRoot not provided in batch request");
+      throw new Error("projectRoot not provided in batch request");
     }
 
     // Load TypeScript - search up the directory tree for .auditor_venv
@@ -826,423 +235,1324 @@ try {
 
     // Search up the directory tree for .auditor_venv (max 10 levels)
     for (let i = 0; i < 10; i++) {
-        const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-        if (fs.existsSync(potentialPath)) {
-            tsPath = potentialPath;
-            break;
-        }
-        const parent = path.dirname(searchDir);
-        if (parent === searchDir) break;  // Reached root
-        searchDir = parent;
+      const potentialPath = path.join(
+        searchDir,
+        ".auditor_venv",
+        ".theauditor_tools",
+        "node_modules",
+        "typescript",
+        "lib",
+        "typescript.js",
+      );
+      if (fs.existsSync(potentialPath)) {
+        tsPath = potentialPath;
+        break;
+      }
+      const parent = path.dirname(searchDir);
+      if (parent === searchDir) break; // Reached root
+      searchDir = parent;
     }
 
     // Fallback to project root if not found
     if (!tsPath) {
-        tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+      tsPath = path.join(
+        projectRoot,
+        ".auditor_venv",
+        ".theauditor_tools",
+        "node_modules",
+        "typescript",
+        "lib",
+        "typescript.js",
+      );
     }
 
     if (!fs.existsSync(tsPath)) {
-        throw new Error(`TypeScript not found at: ${tsPath}`);
+      throw new Error(`TypeScript not found at: ${tsPath}`);
     }
 
-    const ts = require(tsPath);
+    const tsModule = await import(pathToFileURL(tsPath));
+    const ts = tsModule.default || tsModule;
 
-    // Find tsconfig.json if available
     const configMap = request.configMap || {};
     const resolvedProjectRoot = path.resolve(projectRoot);
 
     const normalizedConfigMap = new Map();
-    Object.entries(configMap).forEach(([key, value]) => {
-        const resolvedKey = path.resolve(key);
-        normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
-    });
+    for (const [key, value] of Object.entries(configMap)) {
+      const resolvedKey = path.resolve(key);
+      normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
+    }
 
     const filesByConfig = new Map();
-    const DEFAULT_KEY = '__DEFAULT__';
+    const DEFAULT_KEY = "__DEFAULT__";
     const preprocessingErrors = new Map();
 
     for (const filePath of filePaths) {
-        const absoluteFilePath = path.resolve(filePath);
-        const ext = path.extname(absoluteFilePath).toLowerCase();
-        const fileEntry = {
-            original: filePath,
-            absolute: absoluteFilePath,
-            cleanup: null,
-            vueMeta: null
-        };
+      const absoluteFilePath = path.resolve(filePath);
+      const ext = path.extname(absoluteFilePath).toLowerCase();
+      const fileEntry = {
+        original: filePath,
+        absolute: absoluteFilePath,
+        cleanup: null,
+        vueMeta: null,
+      };
 
-        if (ext === '.vue') {
-            try {
-                const vueMeta = prepareVueSfcFile(absoluteFilePath);
-                fileEntry.absolute = vueMeta.tempFilePath;
-                fileEntry.cleanup = vueMeta.tempFilePath;
-                fileEntry.vueMeta = vueMeta;
-            } catch (err) {
-                preprocessingErrors.set(filePath, `Vue SFC preprocessing failed: ${err.message}`);
-                continue;
-            }
+      if (ext === ".vue") {
+        try {
+          const vueMeta = prepareVueSfcFile(absoluteFilePath);
+          fileEntry.absolute = vueMeta.tempFilePath;
+          fileEntry.cleanup = vueMeta.tempFilePath;
+          fileEntry.vueMeta = vueMeta;
+        } catch (err) {
+          preprocessingErrors.set(
+            filePath,
+            `Vue SFC preprocessing failed: ${err.message}`,
+          );
+          continue;
         }
+      }
 
-        const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
-        const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
-        const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
+      const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
+      const nearestConfig =
+        mappedConfig ||
+        findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
+      const groupKey = nearestConfig
+        ? path.resolve(nearestConfig)
+        : DEFAULT_KEY;
 
-        if (!filesByConfig.has(groupKey)) {
-            filesByConfig.set(groupKey, []);
-        }
-        filesByConfig.get(groupKey).push(fileEntry);
+      if (!filesByConfig.has(groupKey)) {
+        filesByConfig.set(groupKey, []);
+      }
+      filesByConfig.get(groupKey).push(fileEntry);
     }
 
     const results = {};
-    const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+    const jsxEmitMode =
+      jsxMode === "preserved" ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+
+    // DEBUG: Log batch mode info (PHASE 5: single-pass architecture)
+    console.error(
+      `[BATCH DEBUG] Processing ${filePaths.length} files, jsxMode=${jsxMode}, jsxEmitMode=${ts.JsxEmit[jsxEmitMode]}`,
+    );
 
     for (const [configKey, groupedFiles] of filesByConfig.entries()) {
-        if (!groupedFiles || groupedFiles.length === 0) {
-            continue;
+      const configLabel = configKey === "__DEFAULT__" ? "DEFAULT" : configKey;
+      console.error(
+        `[BATCH DEBUG] Config group: ${configLabel}, files=${groupedFiles.length}`,
+      );
+      if (!groupedFiles || groupedFiles.length === 0) {
+        continue;
+      }
+      let compilerOptions;
+      let program;
+
+      if (configKey !== DEFAULT_KEY) {
+        const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
+        if (tsConfig.error) {
+          throw new Error(
+            `Failed to read tsconfig: ${ts.flattenDiagnosticMessageText(tsConfig.error.messageText, "\n")}`,
+          );
         }
-        let compilerOptions;
-        let program;
 
-        if (configKey !== DEFAULT_KEY) {
-            const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
-            if (tsConfig.error) {
-                throw new Error(`Failed to read tsconfig: ${ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\n')}`);
-            }
+        const configDir = path.dirname(configKey);
+        const parsedConfig = ts.parseJsonConfigFileContent(
+          tsConfig.config,
+          ts.sys,
+          configDir,
+          {},
+          configKey,
+        );
 
-            const configDir = path.dirname(configKey);
-            const parsedConfig = ts.parseJsonConfigFileContent(
-                tsConfig.config,
-                ts.sys,
-                configDir,
-                {},
-                configKey
+        if (parsedConfig.errors && parsedConfig.errors.length > 0) {
+          const errorMessages = parsedConfig.errors
+            .map((err) =>
+              ts.flattenDiagnosticMessageText(err.messageText, "\n"),
+            )
+            .join("; ");
+          throw new Error(`Failed to parse tsconfig: ${errorMessages}`);
+        }
+
+        compilerOptions = Object.assign({}, parsedConfig.options);
+        compilerOptions.jsx = jsxEmitMode;
+        const hasJavaScriptFiles = groupedFiles.some((fileInfo) => {
+          const ext = path.extname(fileInfo.absolute).toLowerCase();
+          return (
+            ext === ".js" || ext === ".jsx" || ext === ".cjs" || ext === ".mjs"
+          );
+        });
+        if (hasJavaScriptFiles) {
+          compilerOptions.allowJs = true;
+          if (compilerOptions.checkJs === undefined) {
+            compilerOptions.checkJs = false;
+          }
+        }
+        const projectReferences = parsedConfig.projectReferences || [];
+        program = ts.createProgram(
+          groupedFiles.map((f) => f.absolute),
+          compilerOptions,
+          undefined,
+          undefined,
+          undefined,
+          projectReferences,
+        );
+      } else {
+        compilerOptions = {
+          target: ts.ScriptTarget.Latest,
+          module: ts.ModuleKind.ESNext,
+          jsx: jsxEmitMode,
+          allowJs: true,
+          checkJs: false,
+          noEmit: true,
+          skipLibCheck: true,
+          moduleResolution: ts.ModuleResolutionKind.NodeJs,
+          baseUrl: resolvedProjectRoot,
+          rootDir: resolvedProjectRoot,
+        };
+        program = ts.createProgram(
+          groupedFiles.map((f) => f.absolute),
+          compilerOptions,
+        );
+      }
+
+      console.error(
+        `[BATCH DEBUG] Created program, rootNames=${program.getRootFileNames().length}`,
+      );
+      const checker = program.getTypeChecker();
+
+      for (const fileInfo of groupedFiles) {
+        try {
+          const sourceFile = program.getSourceFile(fileInfo.absolute);
+          if (!sourceFile) {
+            console.error(
+              `[DEBUG JS BATCH] Could not load sourceFile for ${fileInfo.original}, jsxMode=${jsxMode}`,
             );
-
-            if (parsedConfig.errors && parsedConfig.errors.length > 0) {
-                const errorMessages = parsedConfig.errors
-                    .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\n'))
-                    .join('; ');
-                throw new Error(`Failed to parse tsconfig: ${errorMessages}`);
-            }
-
-                compilerOptions = Object.assign({}, parsedConfig.options);
-                compilerOptions.jsx = jsxEmitMode;
-                const hasJavaScriptFiles = groupedFiles.some(fileInfo => {
-                    const ext = path.extname(fileInfo.absolute).toLowerCase();
-                    return ext === '.js' || ext === '.jsx' || ext === '.cjs' || ext === '.mjs';
-                });
-                if (hasJavaScriptFiles) {
-                    compilerOptions.allowJs = true;
-                    if (compilerOptions.checkJs === undefined) {
-                        compilerOptions.checkJs = false;
-                    }
-                }
-                const projectReferences = parsedConfig.projectReferences || [];
-                program = ts.createProgram(
-                    groupedFiles.map(f => f.absolute),
-                    compilerOptions,
-                    undefined,
-                undefined,
-                undefined,
-                projectReferences
-            );
-        } else {
-            compilerOptions = {
-                target: ts.ScriptTarget.Latest,
-                module: ts.ModuleKind.ESNext,
-                jsx: jsxEmitMode,
-                allowJs: true,
-                checkJs: false,
-                noEmit: true,
-                skipLibCheck: true,
-                moduleResolution: ts.ModuleResolutionKind.NodeJs,
-                baseUrl: resolvedProjectRoot,
-                rootDir: resolvedProjectRoot
+            results[fileInfo.original] = {
+              success: false,
+              error: `Could not load source file: ${fileInfo.original}`,
+              ast: null,
+              diagnostics: [],
+              symbols: [],
             };
-            program = ts.createProgram(
-                groupedFiles.map(f => f.absolute),
-                compilerOptions
+            continue;
+          }
+          console.error(
+            `[DEBUG JS BATCH] Loaded sourceFile for ${fileInfo.original}, jsxMode=${jsxMode}`,
+          );
+
+          const sourceCode = sourceFile.text;
+
+          const diagnostics = [];
+          const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
+          fileDiagnostics.forEach((diagnostic) => {
+            const message = ts.flattenDiagnosticMessageText(
+              diagnostic.messageText,
+              "\n",
             );
-        }
+            const location =
+              diagnostic.file && diagnostic.start
+                ? diagnostic.file.getLineAndCharacterOfPosition(
+                    diagnostic.start,
+                  )
+                : null;
 
-        const checker = program.getTypeChecker();
+            diagnostics.push({
+              message,
+              category: ts.DiagnosticCategory[diagnostic.category],
+              code: diagnostic.code,
+              line: location ? location.line + 1 : null,
+              column: location ? location.character : null,
+            });
+          });
 
-        for (const fileInfo of groupedFiles) {
-            try {
-                const sourceFile = program.getSourceFile(fileInfo.absolute);
-                if (!sourceFile) {
-                    results[fileInfo.original] = {
-                        success: false,
-                        error: `Could not load source file: ${fileInfo.original}`,
-                        ast: null,
-                        diagnostics: [],
-                        symbols: []
-                    };
-                    continue;
-                }
+          // Step 1: Build scope map (line → function name mapping)
+          const scopeMap = buildScopeMap(sourceFile, ts);
+          const filePath = fileInfo.original;
 
-                const sourceCode = sourceFile.text;
+          // Step 2: Extract imports (returns object with junction array)
+          const importData = extractImports(sourceFile, ts, filePath);
+          const imports = importData.imports;
+          const import_specifiers = importData.import_specifiers;
 
-                const diagnostics = [];
-                const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-                fileDiagnostics.forEach(diagnostic => {
-                    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-                    const location = diagnostic.file && diagnostic.start
-                        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                        : null;
+          console.error(
+            `[DEBUG JS BATCH] Single-pass extraction for ${filePath}, jsxMode=${jsxMode}`,
+          );
 
-                    diagnostics.push({
-                        message,
-                        category: ts.DiagnosticCategory[diagnostic.category],
-                        code: diagnostic.code,
-                        line: location ? location.line + 1 : null,
-                        column: location ? location.character : null
-                    });
-                });
+          // Step 3: Extract functions (returns object with junction arrays)
+          const funcData = extractFunctions(sourceFile, checker, ts);
+          const functions = funcData.functions;
+          const func_params = funcData.func_params;
+          const func_decorators = funcData.func_decorators;
+          const func_decorator_args = funcData.func_decorator_args;
+          const func_param_decorators = funcData.func_param_decorators;
 
-                // Step 1: Build scope map (line → function name mapping)
-                const scopeMap = buildScopeMap(sourceFile, ts);
-                const filePath = fileInfo.original;
-
-                // Step 2: Extract imports (returns object with junction array)
-                const importData = extractImports(sourceFile, ts, filePath);
-                const imports = importData.imports;
-                const import_specifiers = importData.import_specifiers;
-
-                // Step 3: Extract functions (returns object with junction arrays)
-                const funcData = extractFunctions(sourceFile, checker, ts);
-                const functions = funcData.functions;
-                const func_params = funcData.func_params;
-                const func_decorators = funcData.func_decorators;
-                const func_decorator_args = funcData.func_decorator_args;
-                const func_param_decorators = funcData.func_param_decorators;
-
-                // Build parameter map from func_params junction array
-                const functionParams = new Map();
-                func_params.forEach(p => {
-                    if (!functionParams.has(p.function_name)) {
-                        functionParams.set(p.function_name, []);
-                    }
-                    functionParams.get(p.function_name).push(p.param_name);
-                });
-
-                // Step 4: Extract classes (returns object with junction arrays)
-                const classData = extractClasses(sourceFile, checker, ts);
-                const classes = classData.classes;
-                const class_decorators = classData.class_decorators;
-                const class_decorator_args = classData.class_decorator_args;
-
-                // Step 5: Extract all other data types
-                const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                const classProperties = extractClassProperties(sourceFile, ts);
-                console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`);
-                const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
-                const ormRelationships = extractORMRelationships(sourceFile, ts);
-
-                // Extract assignments (returns object with junction array)
-                const assignmentData = extractAssignments(sourceFile, ts, scopeMap, filePath);
-                const assignments = assignmentData.assignments;
-                const assignment_source_vars = assignmentData.assignment_source_vars;
-
-                const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-
-                // Extract returns (returns object with junction array)
-                const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
-                const returns = returnData.returns;
-                const return_source_vars = returnData.return_source_vars;
-
-                const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                const variableUsage = extractVariableUsage(assignments, functionCallArgs, assignment_source_vars);
-
-                // Extract import styles (returns object with junction array)
-                const importStyleData = extractImportStyles(imports, import_specifiers, filePath);
-                const importStyles = importStyleData.import_styles;
-                const import_style_names = importStyleData.import_style_names;
-
-                const refs = extractRefs(imports, import_specifiers);
-
-                // Extract React components (returns object with junction arrays)
-                const reactComponentData = extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports);
-                const reactComponents = reactComponentData.react_components;
-                const react_component_hooks = reactComponentData.react_component_hooks;
-
-                // Extract React hooks (returns object with junction array)
-                const reactHookData = extractReactHooks(functionCallArgs, scopeMap, filePath);
-                const reactHooks = reactHookData.react_hooks;
-                const react_hook_dependencies = reactHookData.react_hook_dependencies;
-
-                const ormQueries = extractORMQueries(functionCallArgs);
-                const apiEndpointData = extractAPIEndpoints(functionCallArgs);
-                const apiEndpoints = apiEndpointData.endpoints || [];
-                const middlewareChains = apiEndpointData.middlewareChains || [];
-                const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
-                const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
-                const validationUsage = [...validationCalls, ...schemaDefs];
-                const sqlQueries = extractSQLQueries(functionCallArgs);
-                const cdkData = extractCDKConstructs(functionCallArgs, imports);
-
-                // Extract Sequelize models (returns object with junction array)
-                const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports, filePath);
-                const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
-                const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs, func_decorators, class_decorators, class_decorator_args);
-                const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
-
-                let vueComponents = [];
-                let vueHooks = [];
-                let vueDirectives = [];
-                let vueProvideInject = [];
-                // Junction arrays for normalized Vue data (normalize-node-extractor-output)
-                let vueComponentProps = [];
-                let vueComponentEmits = [];
-                let vueComponentSetupReturns = [];
-
-                if (fileInfo.vueMeta) {
-                    const vueComponentData = extractVueComponents(
-                        fileInfo.vueMeta,
-                        fileInfo.original,
-                        functionCallArgs,
-                        returns
-                    );
-                    // Use new normalized key (vue_components instead of components)
-                    vueComponents = vueComponentData.vue_components || [];
-                    vueComponentProps = vueComponentData.vue_component_props || [];
-                    vueComponentEmits = vueComponentData.vue_component_emits || [];
-                    vueComponentSetupReturns = vueComponentData.vue_component_setup_returns || [];
-                    const activeComponentName = vueComponentData.primaryName;
-                    vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
-                    vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
-                    vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
-                }
-
-                // Step 4: Extract CFG (handles BOTH jsx modes)
-                // CRITICAL: Extract CFG for BOTH transform and preserved modes
-                // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
-                // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
-                // Storage layer (Python) routes based on jsx_pass flag
-                const cfg = extractCFG(sourceFile, ts);
-
-                // Count nodes for complexity metrics
-                const nodeCount = countNodes(sourceFile, ts);
-
-                results[fileInfo.original] = {
-                    success: true,
-                    fileName: fileInfo.absolute,
-                    languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                    ast: null,
-                    diagnostics: diagnostics,
-                    imports: imports,
-                    nodeCount: nodeCount,
-                    hasTypes: true,
-                    jsxMode: jsxMode,
-                    extracted_data: {
-                        // Core language
-                        functions: functions,
-                        func_params: func_params,
-                        func_decorators: func_decorators,
-                        func_decorator_args: func_decorator_args,
-                        func_param_decorators: func_param_decorators,
-                        classes: classes,
-                        class_decorators: class_decorators,
-                        class_decorator_args: class_decorator_args,
-                        class_properties: classProperties,
-                        // Module system
-                        imports: imports,
-                        import_specifiers: import_specifiers,
-                        import_styles: importStyles,
-                        import_style_names: import_style_names,
-                        resolved_imports: refs,
-                        // Data flow
-                        assignments: assignments,
-                        assignment_source_vars: assignment_source_vars,
-                        returns: returns,
-                        return_source_vars: return_source_vars,
-                        // Other extractors
-                        env_var_usage: envVarUsage,
-                        orm_relationships: ormRelationships,
-                        calls: calls,
-                        function_call_args: functionCallArgs,
-                        object_literals: objectLiterals,
-                        variable_usage: variableUsage,
-                        // React
-                        react_components: reactComponents,
-                        react_component_hooks: react_component_hooks,
-                        react_hooks: reactHooks,
-                        react_hook_dependencies: react_hook_dependencies,
-                        // API & ORM
-                        orm_queries: ormQueries,
-                        routes: apiEndpoints,
-                        express_middleware_chains: middlewareChains,
-                        validation_framework_usage: validationUsage,
-                        sql_queries: sqlQueries,
-                        cdk_constructs: cdkData.cdk_constructs || [],
-                        cdk_construct_properties: cdkData.cdk_construct_properties || [],
-                        // Sequelize
-                        sequelize_models: sequelizeData.sequelize_models || [],
-                        sequelize_associations: sequelizeData.sequelize_associations || [],
-                        sequelize_model_fields: sequelizeData.sequelize_model_fields || [],
-                        // BullMQ
-                        bullmq_queues: bullmqData.bullmq_queues || [],
-                        bullmq_workers: bullmqData.bullmq_workers || [],
-                        // Angular
-                        angular_components: angularData.components || [],
-                        angular_services: angularData.services || [],
-                        angular_modules: angularData.modules || [],
-                        angular_guards: angularData.guards || [],
-                        di_injections: angularData.di_injections || [],
-                        angular_component_styles: angularData.angular_component_styles || [],
-                        angular_module_declarations: angularData.angular_module_declarations || [],
-                        angular_module_imports: angularData.angular_module_imports || [],
-                        angular_module_providers: angularData.angular_module_providers || [],
-                        angular_module_exports: angularData.angular_module_exports || [],
-                        // Vue
-                        vue_components: vueComponents,
-                        vue_component_props: vueComponentProps,
-                        vue_component_emits: vueComponentEmits,
-                        vue_component_setup_returns: vueComponentSetupReturns,
-                        vue_hooks: vueHooks,
-                        vue_directives: vueDirectives,
-                        vue_provide_inject: vueProvideInject,
-                        // Frontend & CFG
-                        frontend_api_calls: frontendApiCalls,
-                        scope_map: Object.fromEntries(scopeMap),
-                        cfg: cfg
-                    }
-                }
-
-            } catch (error) {
-                results[fileInfo.original] = {
-                    success: false,
-                    error: `Error processing file: ${error.message}`,
-                    ast: null,
-                    diagnostics: [],
-                    symbols: []
-                };
-            } finally {
-                if (fileInfo.cleanup) {
-                    safeUnlink(fileInfo.cleanup);
-                }
+          // Build parameter map from func_params junction array
+          const functionParams = new Map();
+          func_params.forEach((p) => {
+            if (!functionParams.has(p.function_name)) {
+              functionParams.set(p.function_name, []);
             }
-        }
-    }
-    for (const [failedPath, message] of preprocessingErrors.entries()) {
-        results[failedPath] = {
+            functionParams.get(p.function_name).push(p.param_name);
+          });
+
+          // Step 4: Extract classes (returns object with junction arrays)
+          const classData = extractClasses(sourceFile, checker, ts);
+          const classes = classData.classes;
+          const class_decorators = classData.class_decorators;
+          const class_decorator_args = classData.class_decorator_args;
+
+          // Step 5: Extract all other data types
+          const calls = extractCalls(
+            sourceFile,
+            checker,
+            ts,
+            resolvedProjectRoot,
+          );
+          const classProperties = extractClassProperties(sourceFile, ts);
+          console.error(
+            `[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`,
+          );
+          const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
+          const ormRelationships = extractORMRelationships(sourceFile, ts);
+
+          // Extract assignments (returns object with junction array)
+          const assignmentData = extractAssignments(
+            sourceFile,
+            ts,
+            scopeMap,
+            filePath,
+          );
+          const assignments = assignmentData.assignments;
+          const assignment_source_vars = assignmentData.assignment_source_vars;
+
+          const functionCallArgs = extractFunctionCallArgs(
+            sourceFile,
+            checker,
+            ts,
+            scopeMap,
+            functionParams,
+            resolvedProjectRoot,
+          );
+
+          // Extract returns (returns object with junction array)
+          const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
+          const returns = returnData.returns;
+          const return_source_vars = returnData.return_source_vars;
+
+          const objectLiterals = extractObjectLiterals(
+            sourceFile,
+            ts,
+            scopeMap,
+          );
+          const variableUsage = extractVariableUsage(
+            assignments,
+            functionCallArgs,
+            assignment_source_vars,
+          );
+
+          // Extract import styles (returns object with junction array)
+          const importStyleData = extractImportStyles(
+            imports,
+            import_specifiers,
+            filePath,
+          );
+          const importStyles = importStyleData.import_styles;
+          const import_style_names = importStyleData.import_style_names;
+
+          const refs = extractRefs(imports, import_specifiers);
+
+          // Extract React components (returns object with junction arrays)
+          const reactComponentData = extractReactComponents(
+            functions,
+            classes,
+            returns,
+            functionCallArgs,
+            filePath,
+            imports,
+          );
+          const reactComponents = reactComponentData.react_components;
+          const react_component_hooks =
+            reactComponentData.react_component_hooks;
+
+          // Extract React hooks (returns object with junction array)
+          const reactHookData = extractReactHooks(
+            functionCallArgs,
+            scopeMap,
+            filePath,
+          );
+          const reactHooks = reactHookData.react_hooks;
+          const react_hook_dependencies = reactHookData.react_hook_dependencies;
+
+          const ormQueries = extractORMQueries(functionCallArgs);
+          const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+          const apiEndpoints = apiEndpointData.endpoints || [];
+          const middlewareChains = apiEndpointData.middlewareChains || [];
+          const validationCalls = extractValidationFrameworkUsage(
+            functionCallArgs,
+            assignments,
+            imports,
+          );
+          const schemaDefs = extractSchemaDefinitions(
+            functionCallArgs,
+            assignments,
+            imports,
+          );
+          const validationUsage = [...validationCalls, ...schemaDefs];
+          const sqlQueries = extractSQLQueries(functionCallArgs);
+          const cdkData = extractCDKConstructs(functionCallArgs, imports);
+
+          // Extract Sequelize models (returns object with junction array)
+          const sequelizeData = extractSequelizeModels(
+            functions,
+            classes,
+            functionCallArgs,
+            imports,
+            filePath,
+          );
+          // DEBUG (2025-11-09): Log sequelize extraction results
+          if (
+            process.env.THEAUDITOR_DEBUG === "1" &&
+            fileInfo.original.includes("model")
+          ) {
+            console.error(
+              `[BATCH] ${fileInfo.original}: sequelizeData =`,
+              JSON.stringify(sequelizeData),
+            );
+          }
+          const bullmqData = extractBullMQJobs(
+            functions,
+            classes,
+            functionCallArgs,
+            imports,
+          );
+          const angularData = extractAngularComponents(
+            functions,
+            classes,
+            imports,
+            functionCallArgs,
+            func_decorators,
+            class_decorators,
+            class_decorator_args,
+          );
+          const frontendApiCalls = extractFrontendApiCalls(
+            functionCallArgs,
+            imports,
+          );
+
+          let vueComponents = [];
+          let vueHooks = [];
+          let vueDirectives = [];
+          let vueProvideInject = [];
+          // Junction arrays for normalized Vue data (normalize-node-extractor-output)
+          let vueComponentProps = [];
+          let vueComponentEmits = [];
+          let vueComponentSetupReturns = [];
+
+          if (fileInfo.vueMeta) {
+            const vueComponentData = extractVueComponents(
+              fileInfo.vueMeta,
+              fileInfo.original,
+              functionCallArgs,
+              returns,
+            );
+            // Use new normalized key (vue_components instead of components)
+            vueComponents = vueComponentData.vue_components || [];
+            vueComponentProps = vueComponentData.vue_component_props || [];
+            vueComponentEmits = vueComponentData.vue_component_emits || [];
+            vueComponentSetupReturns =
+              vueComponentData.vue_component_setup_returns || [];
+            const activeComponentName = vueComponentData.primaryName;
+            vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
+            vueProvideInject = extractVueProvideInject(
+              functionCallArgs,
+              activeComponentName,
+            );
+            vueDirectives = extractVueDirectives(
+              fileInfo.vueMeta.templateAst,
+              activeComponentName,
+              VueNodeTypes,
+            );
+          }
+
+          // Step 4: Extract CFG (handles BOTH jsx modes)
+          // CRITICAL: Extract CFG for BOTH transform and preserved modes
+          // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+          // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+          // Storage layer (Python) routes based on jsx_pass flag
+          console.error(
+            `[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`,
+          );
+          const cfg = extractCFG(sourceFile, ts);
+          console.error(
+            `[DEBUG JS BATCH] Extracted CFG for ${fileInfo.original}`,
+          );
+
+          // Count nodes for complexity metrics
+          const nodeCount = countNodes(sourceFile, ts);
+
+          results[fileInfo.original] = {
+            success: true,
+            fileName: fileInfo.absolute,
+            languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+            ast: null,
+            diagnostics: diagnostics,
+            imports: imports,
+            nodeCount: nodeCount,
+            hasTypes: true,
+            jsxMode: jsxMode,
+            extracted_data: {
+              // Core language
+              functions: functions,
+              func_params: func_params,
+              func_decorators: func_decorators,
+              func_decorator_args: func_decorator_args,
+              func_param_decorators: func_param_decorators,
+              classes: classes,
+              class_decorators: class_decorators,
+              class_decorator_args: class_decorator_args,
+              class_properties: classProperties,
+              // Module system
+              imports: imports,
+              import_specifiers: import_specifiers,
+              import_styles: importStyles,
+              import_style_names: import_style_names,
+              resolved_imports: refs,
+              // Data flow
+              assignments: assignments,
+              assignment_source_vars: assignment_source_vars,
+              returns: returns,
+              return_source_vars: return_source_vars,
+              // Other extractors
+              env_var_usage: envVarUsage,
+              orm_relationships: ormRelationships,
+              calls: calls,
+              function_call_args: functionCallArgs,
+              object_literals: objectLiterals,
+              variable_usage: variableUsage,
+              // React
+              react_components: reactComponents,
+              react_component_hooks: react_component_hooks,
+              react_hooks: reactHooks,
+              react_hook_dependencies: react_hook_dependencies,
+              // API & ORM
+              orm_queries: ormQueries,
+              routes: apiEndpoints,
+              express_middleware_chains: middlewareChains,
+              validation_framework_usage: validationUsage,
+              sql_queries: sqlQueries,
+              cdk_constructs: cdkData.cdk_constructs || [],
+              cdk_construct_properties: cdkData.cdk_construct_properties || [],
+              // Sequelize
+              sequelize_models: sequelizeData.sequelize_models || [],
+              sequelize_associations:
+                sequelizeData.sequelize_associations || [],
+              sequelize_model_fields:
+                sequelizeData.sequelize_model_fields || [],
+              // BullMQ
+              bullmq_queues: bullmqData.bullmq_queues || [],
+              bullmq_workers: bullmqData.bullmq_workers || [],
+              // Angular
+              angular_components: angularData.components || [],
+              angular_services: angularData.services || [],
+              angular_modules: angularData.modules || [],
+              angular_guards: angularData.guards || [],
+              di_injections: angularData.di_injections || [],
+              angular_component_styles:
+                angularData.angular_component_styles || [],
+              angular_module_declarations:
+                angularData.angular_module_declarations || [],
+              angular_module_imports: angularData.angular_module_imports || [],
+              angular_module_providers:
+                angularData.angular_module_providers || [],
+              angular_module_exports: angularData.angular_module_exports || [],
+              // Vue
+              vue_components: vueComponents,
+              vue_component_props: vueComponentProps,
+              vue_component_emits: vueComponentEmits,
+              vue_component_setup_returns: vueComponentSetupReturns,
+              vue_hooks: vueHooks,
+              vue_directives: vueDirectives,
+              vue_provide_inject: vueProvideInject,
+              // Frontend & CFG
+              frontend_api_calls: frontendApiCalls,
+              scope_map: Object.fromEntries(scopeMap),
+              cfg: cfg,
+            },
+          };
+          console.error(
+            `[DEBUG JS BATCH] Single-pass complete for ${filePath}`,
+          );
+        } catch (error) {
+          results[fileInfo.original] = {
             success: false,
-            error: message,
+            error: `Error processing file: ${error.message}`,
             ast: null,
             diagnostics: [],
-            symbols: []
-        };
+            symbols: [],
+          };
+        } finally {
+          if (fileInfo.cleanup) {
+            safeUnlink(fileInfo.cleanup);
+          }
+        }
+      }
+    }
+
+    for (const [failedPath, message] of preprocessingErrors.entries()) {
+      results[failedPath] = {
+        success: false,
+        error: message,
+        ast: null,
+        diagnostics: [],
+        symbols: [],
+      };
     }
 
     // Write all results
-    fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
+    fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), "utf8");
     process.exit(0);
-
-} catch (error) {
-    console.error(JSON.stringify({
+  } catch (error) {
+    console.error(
+      JSON.stringify({
         success: false,
         error: error.message,
-        stack: error.stack
-    }));
+        stack: error.stack,
+      }),
+    );
     process.exit(1);
+  }
+}
+
+// Run the async main function
+main().catch((error) => {
+  console.error(
+    JSON.stringify({
+      success: false,
+      error: `Unhandled error: ${error.message}`,
+      stack: error.stack,
+    }),
+  );
+  process.exit(1);
+});
+
+// === COMMONJS_BATCH ===
+
+// CommonJS helper script for batch TypeScript AST extraction
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
+
+let parseVueSfc = null;
+let compileVueScript = null;
+let compileVueTemplate = null;
+let VueNodeTypes = null;
+
+try {
+  const vueSfcModule = require("@vue/compiler-sfc");
+  if (vueSfcModule) {
+    parseVueSfc = vueSfcModule.parse;
+    compileVueScript = vueSfcModule.compileScript;
+    compileVueTemplate = vueSfcModule.compileTemplate;
+  }
+} catch (err) {
+  console.error(
+    `[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`,
+  );
+}
+
+try {
+  const vueDomModule = require("@vue/compiler-dom");
+  if (vueDomModule) {
+    VueNodeTypes = vueDomModule.NodeTypes;
+  }
+} catch (err) {
+  console.error(
+    `[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`,
+  );
+}
+
+function ensureVueCompilerAvailable() {
+  if (!parseVueSfc || !compileVueScript) {
+    throw new Error(
+      "Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.",
+    );
+  }
+}
+
+function createVueScopeId(filePath) {
+  return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 8);
+}
+
+function createVueTempPath(scopeId, langHint) {
+  const isTs = langHint && langHint.toLowerCase().includes("ts");
+  const ext = isTs ? ".ts" : ".js";
+  const randomPart = crypto.randomBytes(4).toString("hex");
+  return path.join(
+    os.tmpdir(),
+    `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`,
+  );
+}
+
+function safeUnlink(filePath) {
+  if (!filePath) {
+    return;
+  }
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error(
+      `[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`,
+    );
+  }
+}
+
+function prepareVueSfcFile(filePath) {
+  ensureVueCompilerAvailable();
+
+  const source = fs.readFileSync(filePath, "utf8");
+  const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
+
+  if (errors && errors.length > 0) {
+    const firstError = errors[0];
+    const message =
+      typeof firstError === "string"
+        ? firstError
+        : firstError.message || firstError.msg || "Unknown Vue SFC parse error";
+    throw new Error(message);
+  }
+
+  if (!descriptor.script && !descriptor.scriptSetup) {
+    throw new Error("Vue SFC is missing <script> or <script setup> block");
+  }
+
+  const scopeId = createVueScopeId(filePath);
+  let compiledScript;
+  try {
+    compiledScript = compileVueScript(descriptor, {
+      id: scopeId,
+      inlineTemplate: false,
+    });
+  } catch (err) {
+    throw new Error(`Failed to compile Vue script: ${err.message}`);
+  }
+
+  const langHint =
+    (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
+    (descriptor.script && descriptor.script.lang) ||
+    "js";
+  const tempFilePath = createVueTempPath(scopeId, langHint || "js");
+  fs.writeFileSync(tempFilePath, compiledScript.content, "utf8");
+
+  let templateAst = null;
+  if (descriptor.template && descriptor.template.content) {
+    if (typeof compileVueTemplate === "function") {
+      try {
+        const templateResult = compileVueTemplate({
+          source: descriptor.template.content,
+          filename: filePath,
+          id: scopeId,
+        });
+        templateAst = templateResult.ast || null;
+      } catch (err) {
+        console.error(
+          `[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`,
+        );
+      }
+    } else {
+      console.error(
+        `[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`,
+      );
+    }
+  }
+
+  return {
+    tempFilePath,
+    scopeId,
+    descriptor,
+    templateAst,
+  };
+}
+
+function findNearestTsconfig(startPath, projectRoot, ts, path) {
+  let currentDir = path.resolve(path.dirname(startPath));
+  const projectRootResolved = path.resolve(projectRoot);
+
+  while (true) {
+    const candidate = path.join(currentDir, "tsconfig.json");
+    if (ts.sys.fileExists(candidate)) {
+      return candidate;
+    }
+    if (
+      currentDir === projectRootResolved ||
+      currentDir === path.dirname(currentDir)
+    ) {
+      break;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  return null;
+}
+
+// Get request and output paths from command line
+const requestPath = process.argv[2];
+const outputPath = process.argv[3];
+
+if (!requestPath || !outputPath) {
+  console.error(JSON.stringify({ error: "Request and output paths required" }));
+  process.exit(1);
+}
+
+try {
+  // Read batch request
+  const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+  const filePaths = request.files || [];
+  const projectRoot = request.projectRoot;
+  const jsxMode = request.jsxMode || "transformed"; // Default to transformed for backward compatibility
+  // PHASE 5: No more cfgOnly flag - single-pass extraction includes CFG
+
+  if (filePaths.length === 0) {
+    fs.writeFileSync(outputPath, JSON.stringify({}, "utf8"));
+    process.exit(0);
+  }
+
+  if (!projectRoot) {
+    throw new Error("projectRoot not provided in batch request");
+  }
+
+  // Load TypeScript - search up the directory tree for .auditor_venv
+  let tsPath = null;
+  let searchDir = projectRoot;
+
+  // Search up the directory tree for .auditor_venv (max 10 levels)
+  for (let i = 0; i < 10; i++) {
+    const potentialPath = path.join(
+      searchDir,
+      ".auditor_venv",
+      ".theauditor_tools",
+      "node_modules",
+      "typescript",
+      "lib",
+      "typescript.js",
+    );
+    if (fs.existsSync(potentialPath)) {
+      tsPath = potentialPath;
+      break;
+    }
+    const parent = path.dirname(searchDir);
+    if (parent === searchDir) break; // Reached root
+    searchDir = parent;
+  }
+
+  // Fallback to project root if not found
+  if (!tsPath) {
+    tsPath = path.join(
+      projectRoot,
+      ".auditor_venv",
+      ".theauditor_tools",
+      "node_modules",
+      "typescript",
+      "lib",
+      "typescript.js",
+    );
+  }
+
+  if (!fs.existsSync(tsPath)) {
+    throw new Error(`TypeScript not found at: ${tsPath}`);
+  }
+
+  const ts = require(tsPath);
+
+  // Find tsconfig.json if available
+  const configMap = request.configMap || {};
+  const resolvedProjectRoot = path.resolve(projectRoot);
+
+  const normalizedConfigMap = new Map();
+  Object.entries(configMap).forEach(([key, value]) => {
+    const resolvedKey = path.resolve(key);
+    normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
+  });
+
+  const filesByConfig = new Map();
+  const DEFAULT_KEY = "__DEFAULT__";
+  const preprocessingErrors = new Map();
+
+  for (const filePath of filePaths) {
+    const absoluteFilePath = path.resolve(filePath);
+    const ext = path.extname(absoluteFilePath).toLowerCase();
+    const fileEntry = {
+      original: filePath,
+      absolute: absoluteFilePath,
+      cleanup: null,
+      vueMeta: null,
+    };
+
+    if (ext === ".vue") {
+      try {
+        const vueMeta = prepareVueSfcFile(absoluteFilePath);
+        fileEntry.absolute = vueMeta.tempFilePath;
+        fileEntry.cleanup = vueMeta.tempFilePath;
+        fileEntry.vueMeta = vueMeta;
+      } catch (err) {
+        preprocessingErrors.set(
+          filePath,
+          `Vue SFC preprocessing failed: ${err.message}`,
+        );
+        continue;
+      }
+    }
+
+    const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
+    const nearestConfig =
+      mappedConfig ||
+      findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
+    const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
+
+    if (!filesByConfig.has(groupKey)) {
+      filesByConfig.set(groupKey, []);
+    }
+    filesByConfig.get(groupKey).push(fileEntry);
+  }
+
+  const results = {};
+  const jsxEmitMode =
+    jsxMode === "preserved" ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+
+  for (const [configKey, groupedFiles] of filesByConfig.entries()) {
+    if (!groupedFiles || groupedFiles.length === 0) {
+      continue;
+    }
+    let compilerOptions;
+    let program;
+
+    if (configKey !== DEFAULT_KEY) {
+      const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
+      if (tsConfig.error) {
+        throw new Error(
+          `Failed to read tsconfig: ${ts.flattenDiagnosticMessageText(tsConfig.error.messageText, "\n")}`,
+        );
+      }
+
+      const configDir = path.dirname(configKey);
+      const parsedConfig = ts.parseJsonConfigFileContent(
+        tsConfig.config,
+        ts.sys,
+        configDir,
+        {},
+        configKey,
+      );
+
+      if (parsedConfig.errors && parsedConfig.errors.length > 0) {
+        const errorMessages = parsedConfig.errors
+          .map((err) => ts.flattenDiagnosticMessageText(err.messageText, "\n"))
+          .join("; ");
+        throw new Error(`Failed to parse tsconfig: ${errorMessages}`);
+      }
+
+      compilerOptions = Object.assign({}, parsedConfig.options);
+      compilerOptions.jsx = jsxEmitMode;
+      const hasJavaScriptFiles = groupedFiles.some((fileInfo) => {
+        const ext = path.extname(fileInfo.absolute).toLowerCase();
+        return (
+          ext === ".js" || ext === ".jsx" || ext === ".cjs" || ext === ".mjs"
+        );
+      });
+      if (hasJavaScriptFiles) {
+        compilerOptions.allowJs = true;
+        if (compilerOptions.checkJs === undefined) {
+          compilerOptions.checkJs = false;
+        }
+      }
+      const projectReferences = parsedConfig.projectReferences || [];
+      program = ts.createProgram(
+        groupedFiles.map((f) => f.absolute),
+        compilerOptions,
+        undefined,
+        undefined,
+        undefined,
+        projectReferences,
+      );
+    } else {
+      compilerOptions = {
+        target: ts.ScriptTarget.Latest,
+        module: ts.ModuleKind.ESNext,
+        jsx: jsxEmitMode,
+        allowJs: true,
+        checkJs: false,
+        noEmit: true,
+        skipLibCheck: true,
+        moduleResolution: ts.ModuleResolutionKind.NodeJs,
+        baseUrl: resolvedProjectRoot,
+        rootDir: resolvedProjectRoot,
+      };
+      program = ts.createProgram(
+        groupedFiles.map((f) => f.absolute),
+        compilerOptions,
+      );
+    }
+
+    const checker = program.getTypeChecker();
+
+    for (const fileInfo of groupedFiles) {
+      try {
+        const sourceFile = program.getSourceFile(fileInfo.absolute);
+        if (!sourceFile) {
+          results[fileInfo.original] = {
+            success: false,
+            error: `Could not load source file: ${fileInfo.original}`,
+            ast: null,
+            diagnostics: [],
+            symbols: [],
+          };
+          continue;
+        }
+
+        const sourceCode = sourceFile.text;
+
+        const diagnostics = [];
+        const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
+        fileDiagnostics.forEach((diagnostic) => {
+          const message = ts.flattenDiagnosticMessageText(
+            diagnostic.messageText,
+            "\n",
+          );
+          const location =
+            diagnostic.file && diagnostic.start
+              ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+              : null;
+
+          diagnostics.push({
+            message,
+            category: ts.DiagnosticCategory[diagnostic.category],
+            code: diagnostic.code,
+            line: location ? location.line + 1 : null,
+            column: location ? location.character : null,
+          });
+        });
+
+        // Step 1: Build scope map (line → function name mapping)
+        const scopeMap = buildScopeMap(sourceFile, ts);
+        const filePath = fileInfo.original;
+
+        // Step 2: Extract imports (returns object with junction array)
+        const importData = extractImports(sourceFile, ts, filePath);
+        const imports = importData.imports;
+        const import_specifiers = importData.import_specifiers;
+
+        // Step 3: Extract functions (returns object with junction arrays)
+        const funcData = extractFunctions(sourceFile, checker, ts);
+        const functions = funcData.functions;
+        const func_params = funcData.func_params;
+        const func_decorators = funcData.func_decorators;
+        const func_decorator_args = funcData.func_decorator_args;
+        const func_param_decorators = funcData.func_param_decorators;
+
+        // Build parameter map from func_params junction array
+        const functionParams = new Map();
+        func_params.forEach((p) => {
+          if (!functionParams.has(p.function_name)) {
+            functionParams.set(p.function_name, []);
+          }
+          functionParams.get(p.function_name).push(p.param_name);
+        });
+
+        // Step 4: Extract classes (returns object with junction arrays)
+        const classData = extractClasses(sourceFile, checker, ts);
+        const classes = classData.classes;
+        const class_decorators = classData.class_decorators;
+        const class_decorator_args = classData.class_decorator_args;
+
+        // Step 5: Extract all other data types
+        const calls = extractCalls(
+          sourceFile,
+          checker,
+          ts,
+          resolvedProjectRoot,
+        );
+        const classProperties = extractClassProperties(sourceFile, ts);
+        console.error(
+          `[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${filePath}`,
+        );
+        const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
+        const ormRelationships = extractORMRelationships(sourceFile, ts);
+
+        // Extract assignments (returns object with junction array)
+        const assignmentData = extractAssignments(
+          sourceFile,
+          ts,
+          scopeMap,
+          filePath,
+        );
+        const assignments = assignmentData.assignments;
+        const assignment_source_vars = assignmentData.assignment_source_vars;
+
+        const functionCallArgs = extractFunctionCallArgs(
+          sourceFile,
+          checker,
+          ts,
+          scopeMap,
+          functionParams,
+          resolvedProjectRoot,
+        );
+
+        // Extract returns (returns object with junction array)
+        const returnData = extractReturns(sourceFile, ts, scopeMap, filePath);
+        const returns = returnData.returns;
+        const return_source_vars = returnData.return_source_vars;
+
+        const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
+        const variableUsage = extractVariableUsage(
+          assignments,
+          functionCallArgs,
+          assignment_source_vars,
+        );
+
+        // Extract import styles (returns object with junction array)
+        const importStyleData = extractImportStyles(
+          imports,
+          import_specifiers,
+          filePath,
+        );
+        const importStyles = importStyleData.import_styles;
+        const import_style_names = importStyleData.import_style_names;
+
+        const refs = extractRefs(imports, import_specifiers);
+
+        // Extract React components (returns object with junction arrays)
+        const reactComponentData = extractReactComponents(
+          functions,
+          classes,
+          returns,
+          functionCallArgs,
+          filePath,
+          imports,
+        );
+        const reactComponents = reactComponentData.react_components;
+        const react_component_hooks = reactComponentData.react_component_hooks;
+
+        // Extract React hooks (returns object with junction array)
+        const reactHookData = extractReactHooks(
+          functionCallArgs,
+          scopeMap,
+          filePath,
+        );
+        const reactHooks = reactHookData.react_hooks;
+        const react_hook_dependencies = reactHookData.react_hook_dependencies;
+
+        const ormQueries = extractORMQueries(functionCallArgs);
+        const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+        const apiEndpoints = apiEndpointData.endpoints || [];
+        const middlewareChains = apiEndpointData.middlewareChains || [];
+        const validationCalls = extractValidationFrameworkUsage(
+          functionCallArgs,
+          assignments,
+          imports,
+        );
+        const schemaDefs = extractSchemaDefinitions(
+          functionCallArgs,
+          assignments,
+          imports,
+        );
+        const validationUsage = [...validationCalls, ...schemaDefs];
+        const sqlQueries = extractSQLQueries(functionCallArgs);
+        const cdkData = extractCDKConstructs(functionCallArgs, imports);
+
+        // Extract Sequelize models (returns object with junction array)
+        const sequelizeData = extractSequelizeModels(
+          functions,
+          classes,
+          functionCallArgs,
+          imports,
+          filePath,
+        );
+        const bullmqData = extractBullMQJobs(
+          functions,
+          classes,
+          functionCallArgs,
+          imports,
+        );
+        const angularData = extractAngularComponents(
+          functions,
+          classes,
+          imports,
+          functionCallArgs,
+          func_decorators,
+          class_decorators,
+          class_decorator_args,
+        );
+        const frontendApiCalls = extractFrontendApiCalls(
+          functionCallArgs,
+          imports,
+        );
+
+        let vueComponents = [];
+        let vueHooks = [];
+        let vueDirectives = [];
+        let vueProvideInject = [];
+        // Junction arrays for normalized Vue data (normalize-node-extractor-output)
+        let vueComponentProps = [];
+        let vueComponentEmits = [];
+        let vueComponentSetupReturns = [];
+
+        if (fileInfo.vueMeta) {
+          const vueComponentData = extractVueComponents(
+            fileInfo.vueMeta,
+            fileInfo.original,
+            functionCallArgs,
+            returns,
+          );
+          // Use new normalized key (vue_components instead of components)
+          vueComponents = vueComponentData.vue_components || [];
+          vueComponentProps = vueComponentData.vue_component_props || [];
+          vueComponentEmits = vueComponentData.vue_component_emits || [];
+          vueComponentSetupReturns =
+            vueComponentData.vue_component_setup_returns || [];
+          const activeComponentName = vueComponentData.primaryName;
+          vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
+          vueProvideInject = extractVueProvideInject(
+            functionCallArgs,
+            activeComponentName,
+          );
+          vueDirectives = extractVueDirectives(
+            fileInfo.vueMeta.templateAst,
+            activeComponentName,
+            VueNodeTypes,
+          );
+        }
+
+        // Step 4: Extract CFG (handles BOTH jsx modes)
+        // CRITICAL: Extract CFG for BOTH transform and preserved modes
+        // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+        // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+        // Storage layer (Python) routes based on jsx_pass flag
+        const cfg = extractCFG(sourceFile, ts);
+
+        // Count nodes for complexity metrics
+        const nodeCount = countNodes(sourceFile, ts);
+
+        results[fileInfo.original] = {
+          success: true,
+          fileName: fileInfo.absolute,
+          languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+          ast: null,
+          diagnostics: diagnostics,
+          imports: imports,
+          nodeCount: nodeCount,
+          hasTypes: true,
+          jsxMode: jsxMode,
+          extracted_data: {
+            // Core language
+            functions: functions,
+            func_params: func_params,
+            func_decorators: func_decorators,
+            func_decorator_args: func_decorator_args,
+            func_param_decorators: func_param_decorators,
+            classes: classes,
+            class_decorators: class_decorators,
+            class_decorator_args: class_decorator_args,
+            class_properties: classProperties,
+            // Module system
+            imports: imports,
+            import_specifiers: import_specifiers,
+            import_styles: importStyles,
+            import_style_names: import_style_names,
+            resolved_imports: refs,
+            // Data flow
+            assignments: assignments,
+            assignment_source_vars: assignment_source_vars,
+            returns: returns,
+            return_source_vars: return_source_vars,
+            // Other extractors
+            env_var_usage: envVarUsage,
+            orm_relationships: ormRelationships,
+            calls: calls,
+            function_call_args: functionCallArgs,
+            object_literals: objectLiterals,
+            variable_usage: variableUsage,
+            // React
+            react_components: reactComponents,
+            react_component_hooks: react_component_hooks,
+            react_hooks: reactHooks,
+            react_hook_dependencies: react_hook_dependencies,
+            // API & ORM
+            orm_queries: ormQueries,
+            routes: apiEndpoints,
+            express_middleware_chains: middlewareChains,
+            validation_framework_usage: validationUsage,
+            sql_queries: sqlQueries,
+            cdk_constructs: cdkData.cdk_constructs || [],
+            cdk_construct_properties: cdkData.cdk_construct_properties || [],
+            // Sequelize
+            sequelize_models: sequelizeData.sequelize_models || [],
+            sequelize_associations: sequelizeData.sequelize_associations || [],
+            sequelize_model_fields: sequelizeData.sequelize_model_fields || [],
+            // BullMQ
+            bullmq_queues: bullmqData.bullmq_queues || [],
+            bullmq_workers: bullmqData.bullmq_workers || [],
+            // Angular
+            angular_components: angularData.components || [],
+            angular_services: angularData.services || [],
+            angular_modules: angularData.modules || [],
+            angular_guards: angularData.guards || [],
+            di_injections: angularData.di_injections || [],
+            angular_component_styles:
+              angularData.angular_component_styles || [],
+            angular_module_declarations:
+              angularData.angular_module_declarations || [],
+            angular_module_imports: angularData.angular_module_imports || [],
+            angular_module_providers:
+              angularData.angular_module_providers || [],
+            angular_module_exports: angularData.angular_module_exports || [],
+            // Vue
+            vue_components: vueComponents,
+            vue_component_props: vueComponentProps,
+            vue_component_emits: vueComponentEmits,
+            vue_component_setup_returns: vueComponentSetupReturns,
+            vue_hooks: vueHooks,
+            vue_directives: vueDirectives,
+            vue_provide_inject: vueProvideInject,
+            // Frontend & CFG
+            frontend_api_calls: frontendApiCalls,
+            scope_map: Object.fromEntries(scopeMap),
+            cfg: cfg,
+          },
+        };
+      } catch (error) {
+        results[fileInfo.original] = {
+          success: false,
+          error: `Error processing file: ${error.message}`,
+          ast: null,
+          diagnostics: [],
+          symbols: [],
+        };
+      } finally {
+        if (fileInfo.cleanup) {
+          safeUnlink(fileInfo.cleanup);
+        }
+      }
+    }
+  }
+  for (const [failedPath, message] of preprocessingErrors.entries()) {
+    results[failedPath] = {
+      success: false,
+      error: message,
+      ast: null,
+      diagnostics: [],
+      symbols: [],
+    };
+  }
+
+  // Write all results
+  fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), "utf8");
+  process.exit(0);
+} catch (error) {
+  console.error(
+    JSON.stringify({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+    }),
+  );
+  process.exit(1);
 }
