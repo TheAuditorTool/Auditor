@@ -9,7 +9,7 @@ from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
 
-from theauditor.events import PipelineObserver
+from .events import PipelineObserver
 from .structures import PhaseResult, TaskStatus
 from .ui import AUDITOR_THEME
 
