@@ -61,6 +61,10 @@ class RichRenderer(PipelineObserver):
             time_str = f"{elapsed:.1f}s" if elapsed else "-"
             self._table.add_row(name, status, time_str)
 
+        # CRITICAL: Tell Live display about the new table object
+        if self._live:
+            self._live.update(self._table)
+
     # Buffer truncation limit per spec requirement
     MAX_BUFFER_LINES = 50
 
@@ -84,13 +88,14 @@ class RichRenderer(PipelineObserver):
                 elif len(buffer) == self.MAX_BUFFER_LINES:
                     buffer.append("... [truncated, see .pf/pipeline.log for full output]")
                 # else: already truncated, skip
-        elif not self._live:
-            # FALLBACK MODE: Direct print (Non-TTY or sequential quiet override)
+        elif self._live:
+            # LIVE MODE: Print above the table using Live's console
+            # This ensures logs/headers appear while table persists at bottom
+            style = "bold red" if is_error else None
+            self._live.console.print(text, style=style)
+        else:
+            # FALLBACK MODE: Direct print (Non-TTY)
             print(text, file=sys.stderr if is_error else sys.stdout, flush=True)
-        # LIVE MODE: No direct print needed, table updates handle display.
-        # However, for non-phase log messages during live mode (rare in sequential),
-        # Rich might need console.print() to print *above* the live table.
-        # But per design, sequential stages update the table rows.
 
     def start(self):
         """Start the live display (call before pipeline runs)."""
