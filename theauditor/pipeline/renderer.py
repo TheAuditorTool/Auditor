@@ -157,16 +157,19 @@ class RichRenderer(PipelineObserver):
         # Flush buffer atomically
         buffer = self._parallel_buffers.pop(track_name, [])
         if buffer:
-            # Temporarily exit live mode to print buffer
+            header = f"\n{'=' * 60}\n[{track_name}] Complete ({elapsed:.1f}s)\n{'=' * 60}"
+
             if self._live:
-                self._live.stop()
-            print(f"\n{'=' * 60}")
-            print(f"[{track_name}] Complete ({elapsed:.1f}s)")
-            print('=' * 60)
-            for line in buffer:
-                print(line)
-            if self._live:
-                self._live.start()
+                # SEAMLESS: Print ABOVE the table using Live's console
+                # DO NOT use .stop() or .start() - causes flickering
+                self._live.console.print(header)
+                for line in buffer:
+                    self._live.console.print(line)
+            else:
+                # FALLBACK: Standard print for non-TTY
+                print(header, flush=True)
+                for line in buffer:
+                    print(line, flush=True)
 
         # Clear parallel mode if no more tracks
         if not self._parallel_buffers:
