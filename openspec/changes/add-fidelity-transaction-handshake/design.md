@@ -178,6 +178,70 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 - **Hard fail on collapse**: Rejected - too many false positives initially
 - **Skip byte check entirely**: Rejected - loses "Empty Envelope" detection
 
+### Decision 7: Node-Side Manifest Generation (POLYGLOT PARITY)
+
+**What**: Node extractors MUST generate `_extraction_manifest` inside the JavaScript/TypeScript bundle, not in the Python orchestrator.
+
+**Why (The Manifest Provenance Problem)**:
+
+Currently, Node extraction works like this:
+```
+batch_templates.js → raw JSON → javascript.py → builds manifest → reconcile_fidelity
+```
+
+The manifest is built FROM Node's output, not BY Node. If Node silently drops data (fragile extraction), the manifest just counts what arrived—it doesn't know what SHOULD have arrived.
+
+**Example of the Bug**:
+```
+Node extracts 500 symbols, but bug drops 200 silently
+Node outputs: {symbols: [...300 items...]}
+Python orchestrator builds: manifest = {symbols: {count: 300, ...}}
+Storage writes: 300 symbols
+Receipt returns: {symbols: {count: 300, ...}}
+Fidelity: manifest(300) == receipt(300) → PASS
+Result: 200 symbols lost, fidelity check PASSES
+```
+
+**The Fix**: Node must generate its own manifest BEFORE outputting JSON:
+```
+batch_templates.js → extracts data → generates manifest → outputs JSON with manifest
+javascript.py → passes through Node's manifest (does NOT rebuild)
+reconcile_fidelity → compares Node's manifest to receipt
+```
+
+**Implication for Architecture**:
+| Component | Current | Required |
+|-----------|---------|----------|
+| Node extractors | Output raw JSON | Output JSON + `_extraction_manifest` |
+| Python orchestrator | Builds manifest from Node output | Passes through Node's manifest |
+| Fidelity check | Works but blind to Node-side loss | Catches Node-side loss |
+
+**Blocked By**: `new-architecture-js` ticket which converts JS concatenation to TypeScript bundle with Zod validation. Node-side manifest generation should be added DURING that refactor, not bolted on to fragile current architecture.
+
+**Format Requirement**: Node's manifest MUST match Python's format exactly:
+```typescript
+// Inside Node extractor (TypeScript)
+const manifest: Record<string, {
+  tx_id: string;
+  columns: string[];
+  count: number;
+  bytes: number;
+}> = {};
+
+for (const [table, rows] of Object.entries(extractedData)) {
+  manifest[table] = {
+    tx_id: crypto.randomUUID(),
+    columns: Object.keys(rows[0] ?? {}).sort(),
+    count: rows.length,
+    bytes: JSON.stringify(rows).length
+  };
+}
+
+output._extraction_manifest = manifest;
+```
+
+---
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
@@ -188,6 +252,7 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 | Extractor adoption friction | Provide `FidelityToken.attach_manifest()` one-liner |
 | Python version compat | Uses `list[str]` (3.9+), `str \| None` (3.10+); project requires 3.9+ |
 | Byte calculation perf | O(N) string alloc acceptable for <1000 rows; add threshold guard if needed |
+| **Node parity delayed** | **Phase 5 blocked until new-architecture-js; document explicitly** |
 
 ## Migration Plan
 
@@ -196,12 +261,31 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 2. Upgrade `reconcile_fidelity()` for rich tokens
 3. Upgrade `DataStorer.store()` to return rich receipts
 
-**Phase 2: Extractor Adoption** (follow-up changes)
-1. Update JavaScript extractor manifest generation
-2. Update Python extractor manifest generation
-3. Update other extractors as needed
+**Phase 2: Python Extractor Adoption** (this proposal)
+1. Update Python extractor manifest generation (`python_impl.py`)
+2. Full fidelity operational for Python files
+
+**Phase 3: JavaScript Orchestrator** (this proposal - INTERIM)
+1. Update `javascript.py` to use `FidelityToken` for manifest generation
+2. **NOTE**: This is still Python-side manifest generation (counts what arrived, not what Node intended)
+3. Provides SOME protection but cannot catch Node-internal data loss
+
+**Phase 4: Node-Side Manifest Generation** (BLOCKED - requires `new-architecture-js`)
+1. **BLOCKED BY**: `new-architecture-js` ticket must complete first
+2. Convert Node extractors to TypeScript bundle
+3. Add Zod schema validation inside Node
+4. Generate `_extraction_manifest` inside Node BEFORE JSON output
+5. Update `javascript.py` to PASS THROUGH Node's manifest instead of rebuilding
+6. Full fidelity operational for JavaScript/TypeScript files
 
 **Rollback**: Each phase independently revertable via git checkout.
+
+**Parity Timeline**:
+| Milestone | Python Fidelity | Node Fidelity |
+|-----------|-----------------|---------------|
+| Phase 1-2 complete | FULL | NONE |
+| Phase 3 complete | FULL | PARTIAL (counts only) |
+| Phase 4 complete | FULL | FULL |
 
 ## Resolved Questions
 

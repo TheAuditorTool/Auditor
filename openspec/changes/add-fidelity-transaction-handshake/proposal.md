@@ -93,7 +93,78 @@ for table in sorted(tables):
 ### Relationship to Active Changes
 
 - **`refactor-extraction-zero-fallback`**: Complementary - removes deduplication fallbacks
+- **`new-architecture-js`**: REQUIRED DEPENDENCY - Node extractors must generate manifests at source
 - This proposal: Extends fidelity from counts to full transaction handshake
+
+---
+
+## POLYGLOT ASSESSMENT - CRITICAL
+
+### The Parity Problem
+
+**Python**: Ironclad. Python extractor (`python_impl.py`) generates manifests directly from extraction output. Fidelity catches any Python-side data loss.
+
+**Node**: WEAK. Node extractors (`ast_extractors/javascript/*.js`) output raw JSON. The Python orchestrator (`javascript.py`) builds manifests AFTER receiving Node output. This means:
+
+```
+Node extractor silently drops data → Python sees truncated JSON →
+Python builds manifest from truncated data → Fidelity passes →
+DATA LOSS UNDETECTED
+```
+
+### Current Architecture (Fragile)
+
+```
+Node Extractor (10 JS files)
+    ↓ raw JSON (no manifest)
+Python Orchestrator (javascript.py)
+    ↓ builds manifest from whatever arrived
+reconcile_fidelity()
+    ↓ compares manifest to receipt
+    ✓ PASSES (but Node lost data silently)
+```
+
+### Required Architecture (Ironclad)
+
+```
+Node Extractor (bundled TypeScript)
+    ↓ JSON + _extraction_manifest (generated inside Node)
+Python Orchestrator (javascript.py)
+    ↓ passes through Node's manifest
+reconcile_fidelity()
+    ↓ compares Node's manifest to receipt
+    ✗ FAILS if Node's output doesn't match what Storage received
+```
+
+### What This Means for This Ticket
+
+**Phase 1-4**: Python-side only. Infrastructure + Python extractor upgrade.
+
+**Phase 5 (NEW)**: Node-side manifest generation. BLOCKED by `new-architecture-js` ticket which:
+1. Converts fragile JS concatenation to TypeScript bundle
+2. Adds Zod schema validation inside Node
+3. Generates `_extraction_manifest` BEFORE JSON output
+
+**Value Delivery Timeline**:
+| Phase | Scope | Value |
+|-------|-------|-------|
+| 1-3 | Infrastructure | Enables rich tokens (no detection yet) |
+| 4 | Python extractor | Python fidelity fully operational |
+| 5 | Node extractor | Node fidelity fully operational (REQUIRES new-architecture-js) |
+
+### Blocking Relationship
+
+```
+add-fidelity-transaction-handshake (Phase 1-4)
+    ↓ can run independently
+new-architecture-js
+    ↓ must complete first
+add-fidelity-transaction-handshake (Phase 5)
+    ↓ Node-side manifest generation
+FULL PARITY ACHIEVED
+```
+
+---
 
 ### Risk Assessment
 
@@ -103,6 +174,7 @@ for table in sorted(tables):
 | Receipt format breaks fidelity | LOW | MEDIUM | Same backward compat pattern |
 | Performance overhead | LOW | LOW | UUID + column list is ~100 bytes |
 | Byte size false positives | MEDIUM | LOW | Use as warning, not hard fail |
+| **Node fidelity incomplete** | **HIGH** | **HIGH** | **Phase 5 blocked until new-architecture-js completes** |
 
 ### Rollback Strategy
 
