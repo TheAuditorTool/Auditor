@@ -9,6 +9,7 @@ from rich.table import Table
 
 from theauditor.events import PipelineObserver
 from .structures import PhaseResult, TaskStatus
+from .ui import AUDITOR_THEME
 
 
 class RichRenderer(PipelineObserver):
@@ -26,7 +27,8 @@ class RichRenderer(PipelineObserver):
             self.log_file = open(log_file, 'w', encoding='utf-8', buffering=1)
 
         self.is_tty = sys.stdout.isatty()
-        self.console = Console(force_terminal=self.is_tty)
+        # Own console for Live display, but shared theme for consistency
+        self.console = Console(theme=AUDITOR_THEME, force_terminal=self.is_tty)
 
         # Parallel track buffering
         self._parallel_buffers: dict[str, list[str]] = {}

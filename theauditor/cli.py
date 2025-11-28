@@ -6,8 +6,10 @@ import subprocess
 import sys
 
 import click
+from rich.table import Table
 
 from theauditor import __version__
+from theauditor.pipeline.ui import console
 
 if platform.system() == "Windows":
     subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
@@ -198,7 +200,8 @@ class VerboseGroup(click.Group):
     }
 
     def format_help(self, ctx, formatter):
-        """Generate concise categorized help with AI routing annotations."""
+        """Generate Rich-styled categorized help with AI routing annotations."""
+        # Let Click handle the basic header (Usage, Options)
         super().format_help(ctx, formatter)
 
         registered = {
@@ -207,38 +210,49 @@ class VerboseGroup(click.Group):
             if not name.startswith("_") and not getattr(cmd, "hidden", False)
         }
 
-        formatter.write_paragraph()
-        formatter.write_text("Commands:")
+        # Build Rich output
+        console.print()
+        console.rule("[bold]COMMANDS[/bold]")
 
         for _category_id, category_data in self.COMMAND_CATEGORIES.items():
-            formatter.write_text(f"  {category_data['title']}:")
+            # Category header
+            console.print(f"\n[bold cyan]{category_data['title']}[/bold cyan]")
+            console.print(f"[dim]{category_data['description']}[/dim]")
+
+            # Build table for this category
+            table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
+            table.add_column("Command", style="cmd", width=18)
+            table.add_column("Description", style="white")
+            table.add_column("AI Context", style="dim", width=40)
+
             for cmd_name in category_data["commands"]:
                 if cmd_name not in registered:
                     continue
                 cmd = registered[cmd_name]
 
+                # Extract short description
                 first_line = (cmd.help or "").split("\n")[0].strip()
                 period_idx = first_line.find(".")
                 short_help = first_line[:period_idx] if period_idx > 0 else first_line
+                if len(short_help) > 45:
+                    short_help = short_help[:45].rsplit(" ", 1)[0] + "..."
 
-                if len(short_help) > 50:
-                    short_help = short_help[:50].rsplit(" ", 1)[0] + "..."
-                formatter.write_text(f"    {cmd_name:20s} {short_help}")
-
+                # Get AI context
                 cmd_meta = category_data.get("command_meta", {}).get(cmd_name, {})
+                ai_hint = ""
                 if "use_when" in cmd_meta:
-                    formatter.write_text(
-                        f"                          > USE WHEN: {cmd_meta['use_when']}"
-                    )
+                    ai_hint = f"USE: {cmd_meta['use_when']}"
                 elif "run_when" in cmd_meta:
-                    formatter.write_text(f"                          > RUN: {cmd_meta['run_when']}")
-                if "gives" in cmd_meta:
-                    formatter.write_text(f"                          > GIVES: {cmd_meta['gives']}")
+                    ai_hint = f"RUN: {cmd_meta['run_when']}"
 
-            formatter.write_paragraph()
+                table.add_row(cmd_name, short_help, ai_hint)
 
-        formatter.write_text("For detailed options: aud <command> --help")
-        formatter.write_text("For concepts: aud manual --list")
+            console.print(table)
+
+        console.print()
+        console.rule()
+        console.print("For detailed options: [cmd]aud <command> --help[/cmd]")
+        console.print("For concepts: [cmd]aud manual --list[/cmd]")
 
 
 @click.group(cls=VerboseGroup)
