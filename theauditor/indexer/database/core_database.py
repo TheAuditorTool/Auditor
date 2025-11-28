@@ -15,13 +15,11 @@ class CoreDatabaseMixin:
     def add_file(self, path: str, sha256: str, ext: str, bytes_size: int, loc: int):
         """Add a file record to the batch.
 
-        Deduplicates paths to prevent UNIQUE constraint violations.
-        This can happen with symlinks, junction points, or case sensitivity issues.
+        ZERO FALLBACK POLICY: No deduplication.
+        If orchestrator sends same file twice, SQLite UNIQUE constraint catches it.
+        Symlinks/junction points should be resolved at FileWalker layer, not here.
         """
-
-        batch = self.generic_batches["files"]
-        if not any(item[0] == path for item in batch):
-            batch.append((path, sha256, ext, bytes_size, loc))
+        self.generic_batches['files'].append((path, sha256, ext, bytes_size, loc))
 
     def add_ref(self, src: str, kind: str, value: str, line: int | None = None):
         """Add a reference record to the batch."""

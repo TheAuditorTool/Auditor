@@ -117,9 +117,9 @@ class InfrastructureDatabaseMixin:
         block_context = block_context or "default"
 
         batch = self.generic_batches["nginx_configs"]
-        batch_key = (file_path, block_type, block_context)
-        if not any(b[:3] == batch_key for b in batch):
-            batch.append((file_path, block_type, block_context, directives_json, level))
+        # ZERO FALLBACK POLICY: No deduplication.
+        # If extractor sends same nginx config twice, SQLite UNIQUE constraint catches it.
+        batch.append((file_path, block_type, block_context, directives_json, level))
 
     def add_terraform_file(
         self,

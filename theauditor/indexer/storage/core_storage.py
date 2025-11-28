@@ -227,7 +227,43 @@ class CoreStorage(BaseStorage):
 
     def _store_symbols(self, file_path: str, symbols: list, jsx_pass: bool):
         """Store symbols."""
-        for symbol in symbols:
+        for idx, symbol in enumerate(symbols):
+            # ZERO FALLBACK POLICY: Type assertions at storage boundary
+            if not isinstance(symbol, dict):
+                raise TypeError(
+                    f"EXTRACTOR BUG: Symbol at index {idx} must be dict, got {type(symbol).__name__}.\n"
+                    f"  File: {file_path}\n"
+                    f"  Fix extractor to return List[Dict]."
+                )
+
+            if not isinstance(symbol.get('name'), str) or not symbol['name']:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Symbol.name must be non-empty str.\n"
+                    f"  File: {file_path}, Index: {idx}\n"
+                    f"  Got: {repr(symbol.get('name'))}"
+                )
+
+            if not isinstance(symbol.get('type'), str) or not symbol['type']:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Symbol.type must be non-empty str.\n"
+                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
+                    f"  Got: {repr(symbol.get('type'))}"
+                )
+
+            if not isinstance(symbol.get('line'), int) or symbol['line'] < 1:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Symbol.line must be int >= 1.\n"
+                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
+                    f"  Got: {repr(symbol.get('line'))}"
+                )
+
+            if not isinstance(symbol.get('col'), int) or symbol['col'] < 0:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Symbol.col must be int >= 0.\n"
+                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
+                    f"  Got: {repr(symbol.get('col'))}"
+                )
+
             if jsx_pass:
                 self.db_manager.add_symbol_jsx(
                     file_path,
@@ -348,22 +384,50 @@ class CoreStorage(BaseStorage):
                     f"[DEBUG] First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}"
                 )
 
+        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
         seen = set()
-        deduplicated = []
         for assignment in assignments:
-            key = (file_path, assignment["line"], assignment["target_var"])
-            if key not in seen:
-                seen.add(key)
-                deduplicated.append(assignment)
-            else:
-                logger.debug(f"[DEDUP] Skipping duplicate assignment: {key}")
+            key = (file_path, assignment['line'], assignment['target_var'])
+            if key in seen:
+                raise ValueError(
+                    f"EXTRACTOR BUG: Duplicate assignment detected.\n"
+                    f"  File: {file_path}\n"
+                    f"  Identity: {key}\n"
+                    f"  Fix extractor logic to visit nodes only once.\n"
+                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+                )
+            seen.add(key)
 
-        if len(deduplicated) < len(assignments):
-            logger.info(
-                f"[DEDUP] Removed {len(assignments) - len(deduplicated)} duplicate assignments from {file_path}"
-            )
+        for assignment in assignments:
+            # ZERO FALLBACK POLICY: Type assertions at storage boundary
+            if not isinstance(assignment.get('line'), int) or assignment['line'] < 1:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Assignment.line must be int >= 1.\n"
+                    f"  File: {file_path}\n"
+                    f"  Got: {repr(assignment.get('line'))}"
+                )
 
-        for assignment in deduplicated:
+            if not isinstance(assignment.get('target_var'), str) or not assignment['target_var']:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Assignment.target_var must be non-empty str.\n"
+                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
+                    f"  Got: {repr(assignment.get('target_var'))}"
+                )
+
+            if not isinstance(assignment.get('source_expr'), str):
+                raise TypeError(
+                    f"EXTRACTOR BUG: Assignment.source_expr must be str.\n"
+                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
+                    f"  Got: {repr(assignment.get('source_expr'))}"
+                )
+
+            if not isinstance(assignment.get('in_function'), str):
+                raise TypeError(
+                    f"EXTRACTOR BUG: Assignment.in_function must be str.\n"
+                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
+                    f"  Got: {repr(assignment.get('in_function'))}"
+                )
+
             if jsx_pass:
                 self.db_manager.add_assignment_jsx(
                     file_path,
@@ -438,6 +502,28 @@ class CoreStorage(BaseStorage):
                         f"Callee: {call['callee_function']}. Value: {param_name}. Fix extraction layer."
                     )
 
+                # ZERO FALLBACK POLICY: Additional type assertions
+                if not isinstance(call.get('line'), int) or call['line'] < 1:
+                    raise TypeError(
+                        f"EXTRACTOR BUG: Call.line must be int >= 1.\n"
+                        f"  File: {file_path}\n"
+                        f"  Got: {repr(call.get('line'))}"
+                    )
+
+                if not isinstance(call.get('caller_function'), str):
+                    raise TypeError(
+                        f"EXTRACTOR BUG: Call.caller_function must be str.\n"
+                        f"  File: {file_path}, Line: {call.get('line')}\n"
+                        f"  Got: {repr(call.get('caller_function'))}"
+                    )
+
+                if not isinstance(call.get('callee_function'), str) or not call['callee_function']:
+                    raise TypeError(
+                        f"EXTRACTOR BUG: Call.callee_function must be non-empty str.\n"
+                        f"  File: {file_path}, Line: {call.get('line')}\n"
+                        f"  Got: {repr(call.get('callee_function'))}"
+                    )
+
                 self.db_manager.add_function_call_arg(
                     file_path,
                     call["line"],
@@ -453,22 +539,43 @@ class CoreStorage(BaseStorage):
     def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
         """Store return statements."""
 
+        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
         seen = set()
-        deduplicated = []
         for ret in returns:
-            key = (file_path, ret["line"], ret["function_name"])
-            if key not in seen:
-                seen.add(key)
-                deduplicated.append(ret)
-            else:
-                logger.debug(f"[DEDUP] Skipping duplicate function_return: {key}")
+            key = (file_path, ret['line'], ret['function_name'])
+            if key in seen:
+                raise ValueError(
+                    f"EXTRACTOR BUG: Duplicate function_return detected.\n"
+                    f"  File: {file_path}\n"
+                    f"  Identity: {key}\n"
+                    f"  Fix extractor logic to visit nodes only once.\n"
+                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+                )
+            seen.add(key)
 
-        if len(deduplicated) < len(returns):
-            logger.info(
-                f"[DEDUP] Removed {len(returns) - len(deduplicated)} duplicate function_returns from {file_path}"
-            )
+        for ret in returns:
+            # ZERO FALLBACK POLICY: Type assertions at storage boundary
+            if not isinstance(ret.get('line'), int) or ret['line'] < 1:
+                raise TypeError(
+                    f"EXTRACTOR BUG: Return.line must be int >= 1.\n"
+                    f"  File: {file_path}\n"
+                    f"  Got: {repr(ret.get('line'))}"
+                )
 
-        for ret in deduplicated:
+            if not isinstance(ret.get('function_name'), str):
+                raise TypeError(
+                    f"EXTRACTOR BUG: Return.function_name must be str.\n"
+                    f"  File: {file_path}, Line: {ret.get('line')}\n"
+                    f"  Got: {repr(ret.get('function_name'))}"
+                )
+
+            if not isinstance(ret.get('return_expr'), str):
+                raise TypeError(
+                    f"EXTRACTOR BUG: Return.return_expr must be str.\n"
+                    f"  File: {file_path}, Line: {ret.get('line')}\n"
+                    f"  Got: {repr(ret.get('return_expr'))}"
+                )
+
             if jsx_pass:
                 self.db_manager.add_function_return_jsx(
                     file_path,
@@ -612,22 +719,21 @@ class CoreStorage(BaseStorage):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
 
+        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
         seen = set()
-        deduplicated = []
         for usage in env_var_usage:
-            key = (file_path, usage["line"], usage["var_name"], usage["access_type"])
-            if key not in seen:
-                seen.add(key)
-                deduplicated.append(usage)
-            else:
-                logger.debug(f"[DEDUP] Skipping duplicate env_var_usage: {key}")
+            key = (file_path, usage['line'], usage['var_name'], usage['access_type'])
+            if key in seen:
+                raise ValueError(
+                    f"EXTRACTOR BUG: Duplicate env_var_usage detected.\n"
+                    f"  File: {file_path}\n"
+                    f"  Identity: {key}\n"
+                    f"  Fix extractor logic to visit nodes only once.\n"
+                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+                )
+            seen.add(key)
 
-        if len(deduplicated) < len(env_var_usage):
-            logger.info(
-                f"[DEDUP] Removed {len(env_var_usage) - len(deduplicated)} duplicate env_var_usage entries from {file_path}"
-            )
-
-        for usage in deduplicated:
+        for usage in env_var_usage:
             self.db_manager.add_env_var_usage(
                 file_path,
                 usage["line"],
