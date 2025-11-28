@@ -49,7 +49,11 @@ Findings counts SHALL be populated from database queries, NOT from JSON file rea
 
 ## ADDED Requirements
 
-### Requirement: No Readthis Directory Generation
+> **NOTE (2025-11-28)**: The first two requirements below (No Readthis, No Report Command) are
+> **ALREADY SATISFIED** by previous tickets. They remain documented as acceptance criteria but
+> require no implementation work.
+
+### Requirement: No Readthis Directory Generation - ALREADY SATISFIED
 
 The pipeline SHALL NOT create or populate the `.pf/readthis/` directory.
 
@@ -68,7 +72,7 @@ The `.pf/readthis/` directory was designed for AI-optimized chunked output but i
 - **THEN** output SHALL be written to `.pf/raw/` only (if JSON needed)
 - **AND** NO files SHALL be written to `.pf/readthis/`
 
-### Requirement: No Report Command
+### Requirement: No Report Command - ALREADY SATISFIED
 
 The pipeline SHALL NOT include a `report` command.
 

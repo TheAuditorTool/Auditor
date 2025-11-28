@@ -2,10 +2,10 @@
 
 **Status**: PROPOSAL - Awaiting Architect Approval
 **Change ID**: `eliminate-json-blobs-normalize-schema`
-**Complexity**: HIGH (~25 files, ~1200 lines changed)
+**Complexity**: MEDIUM (~20 files, ~800 lines changed)
 **Breaking**: YES - Schema changes require migration + re-index
-**Risk Level**: HIGH - Touches core extraction, database schema, and pipeline output
-**Prerequisite**: `consolidate-findings-queries` (handles JSON readers; this handles writers + schema)
+**Risk Level**: MEDIUM - Touches core extraction and database schema (pipeline cleanup already done)
+**Prerequisite**: SATISFIED - `consolidate-findings-queries` completed, `findings_consolidated` in active use
 
 ---
 
@@ -138,15 +138,17 @@ graphql_arg_directives       (field_id INTEGER FK, arg_name TEXT FK, directive_n
 | `commands/workflows.py` | 162 | JSON output | Remove, data already in DB |
 | `commands/detect_frameworks.py` | 221 | JSON output | Remove, data already in DB |
 
-### Part D: Deprecate .pf/readthis/
+### Part D: Deprecate .pf/readthis/ - ALREADY COMPLETE
 
-1. **Delete `commands/report.py`** - Already marked DEPRECATED
-2. **Remove chunk generation** from:
-   - `context.py:343-407` (semantic context chunks via `_extract_semantic_chunks`)
-   - `taint.py:165` (taint chunks)
-   - `workflows.py:108` (workflow chunks)
-3. **Update `full.py`** to remove readthis references
-4. **Update `pipelines.py`** to remove readthis file counting
+**Status**: DONE (verified 2025-11-28)
+
+Previous tickets already completed this work:
+- `commands/report.py` - DELETED (file does not exist)
+- `context.py` - Rewritten, only 328 lines, no chunk generation
+- `taint.py`, `workflows.py` - No readthis/chunk references
+- `full.py`, `pipelines.py` - No readthis references
+
+**No action required for Part D.**
 
 ---
 
@@ -167,21 +169,21 @@ graphql_arg_directives       (field_id INTEGER FK, arg_name TEXT FK, directive_n
 | Database manager | `indexer/database/node_database.py`, `indexer/database/infrastructure_database.py`, `indexer/database/graphql_database.py` | ADD junction table methods |
 | Extractors | `indexer/extractors/*.py` | MODIFY to use junction tables |
 | Engines | `vulnerability_scanner.py`, `deps.py`, commands/* | REMOVE JSON writes |
-| Report command | `commands/report.py` | DELETE |
-| Pipeline | `pipelines.py`, `full.py` | REMOVE readthis handling |
+| ~~Report command~~ | ~~`commands/report.py`~~ | ~~DELETE~~ ALREADY DONE |
+| ~~Pipeline~~ | ~~`pipelines.py`, `full.py`~~ | ~~REMOVE readthis handling~~ ALREADY DONE |
 
 ### Breaking Changes
 
 1. **Schema change** - Requires `aud full --index` after deployment
 2. **JSON files removed** - External tools reading `.pf/raw/*.json` will break
-3. **readthis removed** - Anything reading `.pf/readthis/` will break
+3. ~~**readthis removed**~~ - ALREADY DONE (nothing reads `.pf/readthis/` anymore)
 
 ### Migration Path
 
 1. Deploy code changes
 2. Run `aud full --index` to rebuild database with new schema
 3. Old `.pf/raw/*.json` files remain (read-only archive) but new runs won't create them
-4. Delete `.pf/readthis/` directory manually (not auto-deleted)
+4. ~~Delete `.pf/readthis/` directory manually~~ - N/A (directory no longer generated)
 
 ---
 
@@ -223,8 +225,8 @@ graphql_arg_directives       (field_id INTEGER FK, arg_name TEXT FK, directive_n
 
 - [ ] No `json.dumps()` calls storing to TEXT columns (except acceptable exceptions)
 - [ ] No `json.dump()` calls to `.pf/raw/` in modified engines
-- [ ] No `.pf/readthis/` directory created by `aud full`
-- [ ] `commands/report.py` deleted
+- [x] No `.pf/readthis/` directory created by `aud full` - VERIFIED DONE
+- [x] `commands/report.py` deleted - VERIFIED DONE
 - [ ] All 15 junction tables exist in schema.py
 - [ ] `aud full --offline` completes without JSON I/O errors
 - [ ] Existing tests pass after schema migration
