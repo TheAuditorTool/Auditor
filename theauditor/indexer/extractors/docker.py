@@ -133,7 +133,8 @@ class DockerExtractor(BaseExtractor):
                 has_healthcheck=has_healthcheck,
             )
 
-            # Junction table: ports
+            # Junction table: ports (deduplicate to avoid UNIQUE constraint violation)
+            seen_ports: set[tuple[int, str]] = set()
             for port_str in exposed_ports:
                 port_str = str(port_str)
                 protocol = "tcp"
@@ -141,11 +142,14 @@ class DockerExtractor(BaseExtractor):
                     port_str, protocol = port_str.split("/", 1)
                 try:
                     port_num = int(port_str)
-                    self.db_manager.add_dockerfile_port(
-                        file_path=file_path_str,
-                        port=port_num,
-                        protocol=protocol,
-                    )
+                    port_key = (port_num, protocol)
+                    if port_key not in seen_ports:
+                        seen_ports.add(port_key)
+                        self.db_manager.add_dockerfile_port(
+                            file_path=file_path_str,
+                            port=port_num,
+                            protocol=protocol,
+                        )
                 except ValueError:
                     pass  # Skip invalid port numbers
 
