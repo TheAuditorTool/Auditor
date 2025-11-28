@@ -82,7 +82,7 @@ Runtime: js_helper_templates.py -> Execs dist/extractor.js -> JSON (guaranteed s
 | `theauditor/ast_extractors/javascript/core_language.js` | DELETE serializeNodeForCFG, REWRITE extractClasses | HIGH - Recursion bomb fix |
 | `theauditor/ast_extractors/javascript/data_flow.js` | REWRITE extractCalls with TypeChecker | HIGH - Symbol resolution |
 | `theauditor/ast_extractors/javascript/cfg_extractor.js` | OPTIMIZE visit + JSX handling | MEDIUM - Performance fix |
-| `theauditor/ast_extractors/javascript.py` | DELETE zombie methods | MEDIUM - Remove 600 lines |
+| `theauditor/indexer/extractors/javascript.py` | DELETE zombie methods | MEDIUM - Remove 600 lines |
 | `theauditor/ast_extractors/js_helper_templates.py` | SIMPLIFY | MEDIUM - Python orchestrator |
 | `theauditor/ast_extractors/javascript/package.json` | NEW | LOW - Build config |
 | `theauditor/ast_extractors/javascript/tsconfig.json` | NEW | LOW - TS config |

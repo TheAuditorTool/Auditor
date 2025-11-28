@@ -9,9 +9,9 @@ ACTIONS:
 1. PURGES: Removes ALL # comments from every .py file
 2. GRAVEYARD: Saves ALL removed comments to a flat JSON (backup/reference)
 3. DEBT REPORT: Saves ONLY TODO/FIXME/etc to a separate JSON (gold mine for review)
+4. TRUNCATE DOCSTRINGS: Optionally truncate verbose docstrings to first line only
 
 PRESERVES (always):
-- Docstrings (triple-quoted strings) - runtime __doc__ dependency
 - Code structure and formatting
 - Shebang lines (#!/usr/bin/env python)
 
@@ -25,6 +25,7 @@ Usage:
   python purge_commentsv3.py ./theauditor --dry-run
   python purge_commentsv3.py ./theauditor --preserve-semantic
   python purge_commentsv3.py ./theauditor --preserve-copyright
+  python purge_commentsv3.py ./theauditor --truncate-docstrings
 """
 
 import argparse
@@ -223,6 +224,219 @@ def safe_print(text: str) -> None:
 # LIBCST TRANSFORMER
 # =============================================================================
 
+def extract_first_line(docstring: str) -> str:
+    """Extract the first meaningful line from a docstring.
+
+    Handles both single-line and multi-line docstrings.
+    Returns just the summary line, properly quoted.
+    """
+    # Remove the triple quotes
+    content = docstring.strip()
+
+    # Detect quote style
+    if content.startswith('"""'):
+        quote = '"""'
+        inner = content[3:-3]
+    elif content.startswith("'''"):
+        quote = "'''"
+        inner = content[3:-3]
+    elif content.startswith('r"""') or content.startswith('f"""'):
+        prefix = content[0]
+        quote = '"""'
+        inner = content[4:-3]
+        quote = prefix + quote
+    elif content.startswith("r'''") or content.startswith("f'''"):
+        prefix = content[0]
+        quote = "'''"
+        inner = content[4:-3]
+        quote = prefix + quote
+    else:
+        # Not a triple-quoted string, return as-is
+        return docstring
+
+    # Get first line/sentence
+    inner = inner.strip()
+
+    # Split on newlines and get first non-empty line
+    lines = inner.split('\n')
+    first_line = ''
+    for line in lines:
+        stripped = line.strip()
+        if stripped:
+            first_line = stripped
+            break
+
+    if not first_line:
+        return f'{quote}{quote}'
+
+    # Return truncated docstring
+    return f'{quote}{first_line}{quote}'
+
+
+class DocstringTruncateTransformer(cst.CSTTransformer):
+    """
+    Truncates verbose docstrings to first line only.
+
+    Identifies docstrings as:
+    - First statement in module body that is a string expression
+    - First statement in function/class body that is a string expression
+
+    Preserves:
+    - Single-line docstrings (already concise)
+    - The first line of multi-line docstrings
+    """
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def __init__(self, filename: str) -> None:
+        super().__init__()
+        self.filename = filename
+        self.truncated_docstrings: list[dict] = []
+        self.is_first_statement_in_body = False
+
+    def _is_docstring_node(self, node: cst.SimpleStatementLine) -> tuple[bool, cst.BaseExpression | None]:
+        """Check if node is a docstring (string expression statement)."""
+        if len(node.body) != 1:
+            return False, None
+
+        stmt = node.body[0]
+        if not isinstance(stmt, cst.Expr):
+            return False, None
+
+        expr = stmt.value
+        # Check for simple string or concatenated string
+        if isinstance(expr, (cst.SimpleString, cst.ConcatenatedString, cst.FormattedString)):
+            return True, expr
+
+        return False, None
+
+    def _should_truncate(self, string_node: cst.BaseExpression) -> bool:
+        """Check if string should be truncated (is multi-line and verbose)."""
+        if isinstance(string_node, cst.SimpleString):
+            value = string_node.value
+            # Only truncate triple-quoted strings
+            if not (value.startswith('"""') or value.startswith("'''") or
+                    value.startswith('r"""') or value.startswith("r'''") or
+                    value.startswith('f"""') or value.startswith("f'''")):
+                return False
+            # Count lines - only truncate if > 1 line
+            return value.count('\n') > 1
+        return False
+
+    def _truncate_string(self, string_node: cst.SimpleString, line: int) -> cst.SimpleString:
+        """Truncate a string to its first line."""
+        original = string_node.value
+        truncated = extract_first_line(original)
+
+        if original != truncated:
+            # Log the truncation
+            original_lines = original.count('\n') + 1
+            self.truncated_docstrings.append({
+                "file": self.filename,
+                "line": line,
+                "original_lines": original_lines,
+                "original": original,
+                "truncated": truncated,
+            })
+
+        return string_node.with_changes(value=truncated)
+
+    def _process_body(
+        self,
+        body: cst.IndentedBlock | cst.SimpleStatementSuite
+    ) -> cst.IndentedBlock | cst.SimpleStatementSuite:
+        """Process a body, truncating the first statement if it's a docstring."""
+        if not isinstance(body, cst.IndentedBlock):
+            return body
+
+        if not body.body:
+            return body
+
+        first_stmt = body.body[0]
+        if not isinstance(first_stmt, cst.SimpleStatementLine):
+            return body
+
+        is_docstring, string_node = self._is_docstring_node(first_stmt)
+        if not is_docstring or not isinstance(string_node, cst.SimpleString):
+            return body
+
+        if not self._should_truncate(string_node):
+            return body
+
+        # Get line number
+        try:
+            pos = self.get_metadata(PositionProvider, first_stmt)
+            line = pos.start.line
+        except (KeyError, AttributeError):
+            line = -1
+
+        # Truncate the docstring
+        new_string = self._truncate_string(string_node, line)
+        new_expr = first_stmt.body[0].with_changes(value=new_string)
+        new_stmt = first_stmt.with_changes(body=[new_expr])
+
+        # Replace first statement in body
+        new_body_list = [new_stmt] + list(body.body[1:])
+        return body.with_changes(body=new_body_list)
+
+    def leave_FunctionDef(
+        self,
+        original_node: cst.FunctionDef,
+        updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        """Truncate function docstrings."""
+        new_body = self._process_body(updated_node.body)
+        if new_body is not updated_node.body:
+            return updated_node.with_changes(body=new_body)
+        return updated_node
+
+    def leave_ClassDef(
+        self,
+        original_node: cst.ClassDef,
+        updated_node: cst.ClassDef
+    ) -> cst.ClassDef:
+        """Truncate class docstrings."""
+        new_body = self._process_body(updated_node.body)
+        if new_body is not updated_node.body:
+            return updated_node.with_changes(body=new_body)
+        return updated_node
+
+    def leave_Module(
+        self,
+        original_node: cst.Module,
+        updated_node: cst.Module
+    ) -> cst.Module:
+        """Truncate module docstrings."""
+        if not updated_node.body:
+            return updated_node
+
+        first_stmt = updated_node.body[0]
+        if not isinstance(first_stmt, cst.SimpleStatementLine):
+            return updated_node
+
+        is_docstring, string_node = self._is_docstring_node(first_stmt)
+        if not is_docstring or not isinstance(string_node, cst.SimpleString):
+            return updated_node
+
+        if not self._should_truncate(string_node):
+            return updated_node
+
+        # Get line number
+        try:
+            pos = self.get_metadata(PositionProvider, first_stmt)
+            line = pos.start.line
+        except (KeyError, AttributeError):
+            line = -1
+
+        # Truncate the docstring
+        new_string = self._truncate_string(string_node, line)
+        new_expr = first_stmt.body[0].with_changes(value=new_string)
+        new_stmt = first_stmt.with_changes(body=[new_expr])
+
+        # Replace first statement
+        new_body = [new_stmt] + list(updated_node.body[1:])
+        return updated_node.with_changes(body=new_body)
+
+
 class CommentPurgeTransformer(cst.CSTTransformer):
     """
     Removes comments while optionally preserving semantic/copyright markers.
@@ -397,14 +611,16 @@ def process_file(
     graveyard_log: list[dict],
     debt_log: list[dict],
     preserved_log: list[dict],
+    docstring_log: list[dict],
     preserve_semantic: bool = False,
     preserve_copyright: bool = False,
+    truncate_docstrings: bool = False,
     dry_run: bool = False
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """
-    Process a single Python file to remove comments.
+    Process a single Python file to remove comments and optionally truncate docstrings.
 
-    Returns: (total_removed, debt_count, preserved_count)
+    Returns: (total_removed, debt_count, preserved_count, docstrings_truncated)
     """
     try:
         # Read with encoding fallback
@@ -416,7 +632,7 @@ def process_file(
         # Wrap with metadata for PositionProvider
         wrapper = MetadataWrapper(module)
 
-        # Create and apply transformer
+        # Create and apply comment transformer
         transformer = CommentPurgeTransformer(
             filepath,
             preserve_semantic=preserve_semantic,
@@ -424,7 +640,7 @@ def process_file(
         )
         modified_module = wrapper.visit(transformer)
 
-        # Collect results
+        # Collect comment results
         removed_count = len(transformer.all_comments)
         debt_count = len(transformer.debt_comments)
         preserved_count = len(transformer.preserved_comments)
@@ -436,25 +652,36 @@ def process_file(
         if preserved_count > 0:
             preserved_log.extend(transformer.preserved_comments)
 
+        # Apply docstring truncation if requested
+        docstrings_truncated = 0
+        if truncate_docstrings:
+            # Re-wrap for second pass (metadata must be fresh)
+            wrapper2 = MetadataWrapper(modified_module)
+            docstring_transformer = DocstringTruncateTransformer(filepath)
+            modified_module = wrapper2.visit(docstring_transformer)
+            docstrings_truncated = len(docstring_transformer.truncated_docstrings)
+            if docstrings_truncated > 0:
+                docstring_log.extend(docstring_transformer.truncated_docstrings)
+
         # Per FAQ Best Practice #4: Only write if tree actually changed
         if not module.deep_equals(modified_module):
             if not dry_run:
                 # Write with same encoding we read with
                 with open(filepath, "w", encoding=encoding, newline="") as f:
                     f.write(modified_module.code)
-            return removed_count, debt_count, preserved_count
+            return removed_count, debt_count, preserved_count, docstrings_truncated
 
-        return 0, 0, preserved_count
+        return 0, 0, preserved_count, 0
 
     except cst.ParserSyntaxError as e:
         safe_print(f"  ! SYNTAX ERROR in {filepath}: {e}")
-        return 0, 0, 0
+        return 0, 0, 0, 0
     except UnicodeDecodeError as e:
         safe_print(f"  ! ENCODING ERROR in {filepath}: {e}")
-        return 0, 0, 0
+        return 0, 0, 0, 0
     except Exception as e:
         safe_print(f"  ! ERROR processing {filepath}: {type(e).__name__}: {e}")
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
 
 # =============================================================================
@@ -465,24 +692,28 @@ def purge_directory(
     directory: str,
     graveyard_file: str,
     debt_file: str,
+    docstring_file: str,
     skip_dirs: set[str],
     preserve_semantic: bool = False,
     preserve_copyright: bool = False,
+    truncate_docstrings: bool = False,
     dry_run: bool = False,
     extract_only: bool = False
-) -> tuple[int, int, int, int]:
+) -> tuple[int, int, int, int, int]:
     """
     Walk directory and purge comments from all Python files.
 
-    Returns: (total_removed, debt_count, preserved_count, files_modified)
+    Returns: (total_removed, debt_count, preserved_count, docstrings_truncated, files_modified)
     """
     total_removed = 0
     total_debt = 0
     total_preserved = 0
+    total_docstrings = 0
     files_modified = 0
     graveyard_log: list[dict] = []
     debt_log: list[dict] = []
     preserved_log: list[dict] = []
+    docstring_log: list[dict] = []
 
     start_time = time.time()
     abs_dir = os.path.abspath(directory)
@@ -501,6 +732,8 @@ def purge_directory(
         safe_print("PRESERVING: Semantic comments (type:, noqa, pylint:, etc.)")
     if preserve_copyright:
         safe_print("PRESERVING: Copyright/license headers")
+    if truncate_docstrings:
+        safe_print("TRUNCATING: Verbose docstrings to first line only")
     safe_print("")
 
     for root, dirs, files in os.walk(directory):
@@ -513,27 +746,34 @@ def purge_directory(
                 # Normalize to forward slashes for consistent JSON output
                 filepath_normalized = filepath.replace("\\", "/")
 
-                removed, debt, preserved = process_file(
+                removed, debt, preserved, docstrings = process_file(
                     filepath_normalized,
                     graveyard_log,
                     debt_log,
                     preserved_log,
+                    docstring_log,
                     preserve_semantic=preserve_semantic,
                     preserve_copyright=preserve_copyright,
+                    truncate_docstrings=truncate_docstrings,
                     dry_run=dry_run or extract_only  # Don't modify source files
                 )
 
-                if removed > 0:
+                if removed > 0 or docstrings > 0:
                     total_removed += removed
                     total_debt += debt
                     total_preserved += preserved
+                    total_docstrings += docstrings
                     files_modified += 1
 
-                    parts = [f"{removed} removed"]
+                    parts = []
+                    if removed > 0:
+                        parts.append(f"{removed} comments")
                     if debt > 0:
                         parts.append(f"{debt} debt")
                     if preserved > 0:
                         parts.append(f"{preserved} kept")
+                    if docstrings > 0:
+                        parts.append(f"{docstrings} docstrings")
 
                     safe_print(f"  - {', '.join(parts)} : {filepath_normalized}")
 
@@ -558,6 +798,15 @@ def purge_directory(
             with open(debt_file, "w", encoding="utf-8") as f:
                 json.dump(sorted_debt, f, indent=2, ensure_ascii=False)
 
+        # 3. Docstring graveyard: sorted by original line count (biggest first)
+        if docstring_log:
+            sorted_docstrings = sorted(
+                docstring_log,
+                key=lambda x: (-x.get("original_lines", 0), x.get("file", ""), x.get("line", 0))
+            )
+            with open(docstring_file, "w", encoding="utf-8") as f:
+                json.dump(sorted_docstrings, f, indent=2, ensure_ascii=False)
+
     duration = time.time() - start_time
 
     # Summary
@@ -568,6 +817,8 @@ def purge_directory(
     safe_print(f"Comments Removed: {total_removed}")
     safe_print(f"Comments Preserved: {len(preserved_log)}")
     safe_print(f"Technical Debt Found: {total_debt}")
+    if truncate_docstrings:
+        safe_print(f"Docstrings Truncated: {total_docstrings}")
 
     # Debt breakdown by marker type
     if debt_log:
@@ -612,9 +863,12 @@ def purge_directory(
         if debt_log:
             safe_print(f"  {debt_file}")
             safe_print(f"    -> {len(debt_log)} items (REVIEW THIS FOR GOLD)")
+        if docstring_log:
+            safe_print(f"  {docstring_file}")
+            safe_print(f"    -> {len(docstring_log)} docstrings (truncated originals)")
     safe_print("=" * 60)
 
-    return total_removed, total_debt, len(preserved_log), files_modified
+    return total_removed, total_debt, len(preserved_log), total_docstrings, files_modified
 
 
 # =============================================================================
@@ -623,21 +877,24 @@ def purge_directory(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Nuclear comment purger - removes ALL # comments, extracts debt markers.",
+        description="Nuclear comment purger - removes ALL # comments, extracts debt markers, truncates docstrings.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 WHAT THIS DOES:
   1. Removes ALL # comments from Python files (by default)
   2. Saves ALL removed comments to graveyard JSON (backup)
   3. Saves ONLY debt markers (TODO/FIXME/etc) to separate JSON
+  4. Optionally truncates verbose docstrings to first line only
 
 OUTPUT FILES:
-  comment_graveyard.json - ALL removed comments (backup dump)
-  technical_debt.json    - ONLY tagged comments (gold mine for review)
+  comment_graveyard.json  - ALL removed comments (backup dump)
+  technical_debt.json     - ONLY tagged comments (gold mine for review)
+  docstring_graveyard.json - Original docstrings before truncation
 
-PRESERVATION FLAGS:
+FLAGS:
   --preserve-semantic    Keep linter directives (type:, noqa, pylint:, etc.)
   --preserve-copyright   Keep copyright/license headers
+  --truncate-docstrings  Truncate multi-line docstrings to first line only
 
 DEBT MARKERS TRACKED (27 types):
   CRITICAL: FIXME, BUG, BROKEN, NOCOMMIT
@@ -646,10 +903,6 @@ DEBT MARKERS TRACKED (27 types):
   LOW:      DEFER, DEFERRED, LATER, WIP
   INFO:     TEMP, TEMPORARY, DEBUG, DEPRECATED, REMOVEME, NOTE, IMPORTANT
 
-SEMANTIC MARKERS PRESERVED (with --preserve-semantic):
-  type:, noqa, pylint:, pragma:, fmt:, yapf:, isort:, nosec, skipcq,
-  noinspection, pyright:, mypy:, ruff:
-
 EXAMPLES:
   # Preview only (ALWAYS DO THIS FIRST)
   python purge_commentsv3.py ./theauditor --dry-run
@@ -657,14 +910,11 @@ EXAMPLES:
   # Extract comments to JSON WITHOUT modifying source files
   python purge_commentsv3.py ./theauditor --extract-only
 
-  # Full nuclear - remove everything
-  python purge_commentsv3.py ./theauditor --no-confirm
+  # Full nuclear - remove comments AND truncate docstrings
+  python purge_commentsv3.py ./theauditor --truncate-docstrings --no-confirm
 
-  # Preserve linter directives (safer)
-  python purge_commentsv3.py ./theauditor --preserve-semantic
-
-  # Preserve both semantic and copyright
-  python purge_commentsv3.py ./theauditor --preserve-semantic --preserve-copyright
+  # Just truncate docstrings (preserve comments)
+  python purge_commentsv3.py ./theauditor --truncate-docstrings --preserve-semantic --no-confirm
 
   # Skip additional directories
   python purge_commentsv3.py . --skip tests,fixtures
@@ -707,6 +957,12 @@ AFTER RUNNING:
     )
 
     parser.add_argument(
+        "--truncate-docstrings",
+        action="store_true",
+        help="Truncate multi-line docstrings to first line only (removes verbose docs)"
+    )
+
+    parser.add_argument(
         "--graveyard",
         default="comment_graveyard.json",
         help="Output file for ALL removed comments (default: comment_graveyard.json)"
@@ -716,6 +972,12 @@ AFTER RUNNING:
         "--debt-file",
         default="technical_debt.json",
         help="Output file for debt markers only (default: technical_debt.json)"
+    )
+
+    parser.add_argument(
+        "--docstring-file",
+        default="docstring_graveyard.json",
+        help="Output file for truncated docstrings (default: docstring_graveyard.json)"
     )
 
     parser.add_argument(
@@ -749,7 +1011,10 @@ AFTER RUNNING:
         safe_print("=" * 60)
         safe_print("WARNING: NUCLEAR OPTION")
         safe_print("This will DELETE ALL # comments from Python files.")
-        safe_print("Docstrings (triple-quoted) will remain intact.")
+        if args.truncate_docstrings:
+            safe_print("This will TRUNCATE all multi-line docstrings to first line.")
+        else:
+            safe_print("Docstrings (triple-quoted) will remain intact.")
         if args.preserve_semantic:
             safe_print("KEEPING: Semantic comments (type:, noqa, etc.)")
         if args.preserve_copyright:
@@ -765,19 +1030,21 @@ AFTER RUNNING:
         safe_print("")
 
     # Execute purge
-    removed, debt, preserved, files = purge_directory(
+    removed, debt, preserved, docstrings, files = purge_directory(
         args.directory,
         args.graveyard,
         args.debt_file,
+        args.docstring_file,
         skip_dirs,
         preserve_semantic=args.preserve_semantic,
         preserve_copyright=args.preserve_copyright,
+        truncate_docstrings=args.truncate_docstrings,
         dry_run=args.dry_run,
         extract_only=args.extract_only
     )
 
     # Next steps
-    if removed > 0 and not args.dry_run:
+    if (removed > 0 or docstrings > 0) and not args.dry_run:
         safe_print("")
         safe_print("NEXT STEPS:")
         safe_print("  1. Clean up whitespace gaps:")
@@ -790,6 +1057,9 @@ AFTER RUNNING:
             safe_print("  3. Address by priority:")
             safe_print("     - CRITICAL first (FIXME, BUG, BROKEN)")
             safe_print("     - Then HIGH (TODO, HACK, XXX)")
+        if docstrings > 0:
+            safe_print("")
+            safe_print(f"  Truncated docstrings backed up to: {args.docstring_file}")
 
     return 0
 

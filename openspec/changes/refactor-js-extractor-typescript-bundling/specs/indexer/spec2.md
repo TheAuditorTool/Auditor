@@ -510,7 +510,7 @@ function visit(node: ts.Node, depth: number = 0, parent: ts.Node | null = null):
 
 **Task Reference:** 5.3.1, 5.3.2, 5.3.3, 5.3.4, 5.3.5
 
-**Location:** `theauditor/ast_extractors/javascript.py`
+**Location:** `theauditor/indexer/extractors/javascript.py`
 
 ### WHY IT'S BROKEN
 
@@ -602,7 +602,7 @@ class JavaScriptExtractor(BaseExtractor):
 
 **Task Reference:** 5.3.7
 
-**Location:** `theauditor/ast_extractors/javascript_resolvers.py`
+**Location:** `theauditor/indexer/extractors/javascript_resolvers.py`
 
 ### WHY IT'S CORRECT (DO NOT MODIFY)
 

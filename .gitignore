@@ -81,6 +81,10 @@ repo_index.db
 teamsop.md
 node_modules/
 
+# JavaScript extractor build artifacts
+theauditor/ast_extractors/javascript/dist/
+theauditor/ast_extractors/javascript/node_modules/
+
 # Test and temporary files
 test_output/
 temp/

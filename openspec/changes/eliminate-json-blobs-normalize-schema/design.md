@@ -174,23 +174,20 @@ db_manager.add_graphql_field_directives(field_id, directives)
 5. Remove JSON column writes from extractors
 6. (Future) Drop JSON columns from schema (optional, they're just unused)
 
-### Decision 6: Readthis Removal Approach
+### Decision 6: Readthis Removal Approach - ALREADY COMPLETE
 
-**What**: Delete `commands/report.py` entirely, remove chunk generation from other commands
+**Status**: DONE (verified 2025-11-28)
 
-**Why**: The command is already marked DEPRECATED. Chunking is obsolete since `aud context query` exists.
+**What was planned**: Delete `commands/report.py` entirely, remove chunk generation from other commands
 
-**Files to Modify**:
-| File | Action |
-|------|--------|
-| `commands/report.py` | DELETE entirely |
-| `commands/context.py:361-408` | Remove `_write_chunks()` calls |
-| `commands/taint.py:165` | Remove chunk output |
-| `commands/workflows.py:108` | Remove chunk output |
-| `commands/detect_patterns.py:91` | Remove chunk output |
-| `commands/full.py:77-78, 203` | Remove readthis references |
-| `pipelines.py:1553, 1560, 1573` | Remove readthis file counting |
-| `cli.py` | Remove `report` command registration |
+**What happened**: Previous tickets already completed this work:
+- `commands/report.py` - DELETED (file does not exist)
+- `context.py` - Rewritten to 328 lines, no chunk generation
+- `taint.py`, `workflows.py`, `detect_patterns.py` - No readthis/chunk references
+- `full.py`, `pipelines.py` - No readthis references
+- `cli.py` - No report command registration
+
+**No action required for Decision 6.**
 
 ---
 
@@ -475,17 +472,17 @@ CREATE INDEX idx_graphql_arg_directives_fk ON graphql_arg_directives(field_id, a
 ### Phase 3: Remove JSON File Writes (Breaking for External Tools)
 
 1. Remove `_write_to_json()` and similar methods from engines
-2. Delete `commands/report.py`
-3. Remove readthis chunk generation
+2. ~~Delete `commands/report.py`~~ - ALREADY DONE
+3. ~~Remove readthis chunk generation~~ - ALREADY DONE
 4. Deploy, run `aud full`
-5. Verify no `.pf/readthis/` created
+5. ~~Verify no `.pf/readthis/` created~~ - ALREADY VERIFIED
 
 ### Rollback
 
 Each phase can be rolled back independently:
 - Phase 1: Junction tables are additive, no rollback needed
 - Phase 2: Re-add JSON column writes
-- Phase 3: Re-add JSON file writes, restore report.py from git
+- Phase 3: Re-add JSON file writes (readthis/report.py already removed, no rollback needed)
 
 ---
 
