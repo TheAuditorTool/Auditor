@@ -10,22 +10,22 @@
 - [ ] **0.1.1** Read `theauditor/indexer/fidelity.py` completely
   - **HOW**: Read file, confirm `reconcile_fidelity()` signature and logic
   - **EXPECTED**: Function accepts `manifest: dict[str, int], receipt: dict[str, int]`
-  - **CURRENT LOCATION**: `fidelity.py:23-90`
+  - **CURRENT LOCATION**: `fidelity.py:10-57`
 
 - [ ] **0.1.2** Verify manifest generation in JavaScript extractor
-  - **HOW**: Read `theauditor/indexer/extractors/javascript.py:758-770`
+  - **HOW**: Read `theauditor/indexer/extractors/javascript.py:711-728`
   - **EXPECTED**: Manifest is `{table_name: count}` with `_total`, `_timestamp`, `_file` metadata
 
 - [ ] **0.1.3** Verify manifest generation in Python extractor
-  - **HOW**: Read `theauditor/ast_extractors/python_impl.py:1049-1056`
+  - **HOW**: Read `theauditor/ast_extractors/python_impl.py:1005-1023`
   - **EXPECTED**: Same pattern as JavaScript extractor
 
 - [ ] **0.1.4** Verify receipt generation in DataStorer
-  - **HOW**: Read `theauditor/indexer/storage/__init__.py:100-121`
+  - **HOW**: Read `theauditor/indexer/storage/__init__.py:67-70`
   - **EXPECTED**: `receipt[data_type] = len(data)` pattern
 
 - [ ] **0.1.5** Verify orchestrator reconciliation call
-  - **HOW**: Read `theauditor/indexer/orchestrator.py:819-830`
+  - **HOW**: Read `theauditor/indexer/orchestrator.py:712-721`
   - **EXPECTED**: `reconcile_fidelity(manifest=manifest, receipt=receipt, file_path=file_path)`
 
 ---
@@ -148,8 +148,8 @@
 
 - [ ] **2.1.1** Update type hints to accept rich tokens
   - **HOW**: Change signature from `dict[str, int]` to `dict[str, Any]`
-  - **LOCATION**: `fidelity.py:23-25`
-  - **NOTE**: Current code has lowercase `any` on line 25 which is a latent bug (should be `Any`). This change fixes both the parameter types AND the return type bug.
+  - **LOCATION**: `fidelity.py:10-12`
+  - **NOTE**: Current code has lowercase `any` on line 12 which is a latent bug (should be `Any`). This change fixes both the parameter types AND the return type bug.
   - **BEFORE**:
     ```python
     def reconcile_fidelity(
@@ -164,7 +164,7 @@
     ```
 
 - [ ] **2.1.2** Add backward compatibility normalization
-  - **HOW**: Insert after line 54 (before the for loop)
+  - **HOW**: Modify the for loop starting at line 21 to normalize legacy int formats
   - **CODE**:
     ```python
     for table in sorted(tables):
@@ -288,23 +288,20 @@
   - **CODE**: `from ..fidelity_utils import FidelityToken`
   - **NOTE**: Storage is in subpackage (indexer/storage/), so use `..` to reach parent (indexer/)
 
-- [ ] **3.1.2** Update store() to generate rich receipts with Receipt Integrity
-  - **HOW**: Modify receipt generation to reflect *actual storage behavior*, not just input echoing
-  - **LOCATION**: `theauditor/indexer/storage/__init__.py:102-121`
-  - **CRITICAL**: Receipt must use columns from *what Storage actually wrote*, not `data[0].keys()`.
-    See design.md Decision 5 for the "Receipt Integrity Trap" explanation.
-  - **CURRENT**:
+- [ ] **3.1.2** Update store() to generate rich receipts
+  - **HOW**: Modify receipt generation to use FidelityToken for dict-based data
+  - **LOCATION**: `theauditor/indexer/storage/__init__.py:56-75` (inside store() method)
+  - **ARCHITECTURE NOTE**: Storage uses handler-based architecture where `DataStorer` aggregates
+    domain-specific handlers (CoreStorage, PythonStorage, NodeStorage, InfrastructureStorage).
+    Handlers call `db_manager.add_*` methods and forward dict keys directly. Therefore,
+    `data[0].keys()` accurately reflects what gets written to the database.
+  - **CURRENT** (lines 67-70):
     ```python
     if isinstance(data, list):
         receipt[data_type] = len(data)
     else:
         receipt[data_type] = 1 if data else 0
     ```
-  - **IMPLEMENTATION STRATEGY**:
-    1. Ensure internal storage methods (`_insert_batch`, `_upsert`) return the list of columns they used
-    2. Pass those *confirmed* columns to `FidelityToken.create_receipt`
-    3. **Fallback**: If storage method returns `None` (legacy handler), fall back to `data[0].keys()`
-       but log a warning that receipt integrity is "optimistic"
   - **AFTER**:
     ```python
     # Extract tx_id from manifest for receipt echo
@@ -313,17 +310,8 @@
     tx_id = table_manifest.get("tx_id") if isinstance(table_manifest, dict) else None
 
     if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-        # Dispatch to storage and get confirmed columns
-        confirmed_cols = self._dispatch_storage(data_type, data)
-
-        # Receipt Integrity: Use confirmed columns if available, else optimistic fallback
-        if confirmed_cols is not None:
-            columns = sorted(confirmed_cols)
-        else:
-            # Legacy handler - log warning and use input columns
-            logger.warning(f"Receipt integrity: {data_type} using optimistic columns (handler returned None)")
-            columns = sorted(list(data[0].keys()))
-
+        # Rich receipt for dict-based data
+        columns = sorted(data[0].keys())
         data_bytes = sum(len(str(v)) for row in data for v in row.values())
         receipt[data_type] = FidelityToken.create_receipt(
             count=len(data),
@@ -337,27 +325,7 @@
     else:
         receipt[data_type] = 1 if data else 0
     ```
-  - **PREREQUISITE**: Task 3.1.3 (new) must be completed first to add column returns to storage methods
-
-- [ ] **3.1.3** Update internal storage methods to return confirmed columns
-  - **HOW**: Modify `_insert_batch`, `_upsert`, and dispatch methods to return column list
-  - **LOCATION**: `theauditor/indexer/storage/__init__.py` (internal methods)
-  - **PATTERN**:
-    ```python
-    def _insert_batch(self, table: str, data: list[dict]) -> list[str] | None:
-        """Insert batch and return columns actually used.
-
-        Returns:
-            List of column names passed to SQL, or None if legacy handler.
-        """
-        if not data:
-            return None
-        columns = list(data[0].keys())  # These are the columns we'll use
-        # ... existing insert logic ...
-        return columns  # Return what we actually passed to SQL
-    ```
-  - **WHY**: Enables Receipt Integrity - receipt reflects actual SQL behavior, not input echo
-  - **SCOPE**: Only update methods that handle dict data; legacy int-based paths return None
+  - **WHY**: Enables schema topology verification without modifying handler architecture
 
 ---
 
@@ -375,7 +343,7 @@ This phase CAN be implemented as a separate OpenSpec change if desired for small
 
 - [ ] **4.1.2** Update manifest generation in `javascript.py`
   - **HOW**: Replace count-based manifest with FidelityToken
-  - **LOCATION**: `theauditor/indexer/extractors/javascript.py:758-770`
+  - **LOCATION**: `theauditor/indexer/extractors/javascript.py:711-728`
   - **CURRENT**:
     ```python
     for key, value in result.items():
@@ -416,7 +384,7 @@ This phase CAN be implemented as a separate OpenSpec change if desired for small
 
 - [ ] **4.2.2** Update manifest generation in `python_impl.py`
   - **HOW**: Replace count-based manifest with FidelityToken
-  - **LOCATION**: `theauditor/ast_extractors/python_impl.py:1049-1056`
+  - **LOCATION**: `theauditor/ast_extractors/python_impl.py:1005-1023`
   - **PATTERN**: Same as JavaScript extractor - replace `manifest[table] = count` with `manifest[table] = FidelityToken.create_manifest(rows)`
 
 ---
@@ -502,7 +470,7 @@ This phase CAN be implemented as a separate OpenSpec change if desired for small
 ### 5.3 Update Python Orchestrator to Pass Through Node Manifest
 - [ ] **5.3.1** Modify `javascript.py` to detect Node-generated manifest
   - **HOW**: Check if `result.get('_extraction_manifest')` exists and is dict-of-dicts
-  - **LOCATION**: `theauditor/indexer/extractors/javascript.py:758-770`
+  - **LOCATION**: `theauditor/indexer/extractors/javascript.py:711-728`
   - **CURRENT**: Builds manifest from scratch
   - **AFTER**:
     ```python
