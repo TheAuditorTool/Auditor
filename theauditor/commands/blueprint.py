@@ -323,11 +323,8 @@ def _get_structure(cursor) -> dict:
     structure["by_language"] = dict(lang_counts)
     structure["by_category"] = dict(category_counts)
 
-    try:
-        cursor.execute("SELECT type, COUNT(*) as count FROM symbols GROUP BY type")
-        structure["by_type"] = {row["type"]: row["count"] for row in cursor.fetchall()}
-    except Exception:
-        pass
+    cursor.execute("SELECT type, COUNT(*) as count FROM symbols GROUP BY type")
+    structure["by_type"] = {row["type"]: row["count"] for row in cursor.fetchall()}
 
     return structure
 
@@ -567,64 +564,49 @@ def _get_security_surface(cursor) -> dict:
         "api_endpoints": {"total": 0, "protected": 0, "unprotected": 0},
     }
 
-    try:
-        cursor.execute("SELECT pattern_type FROM jwt_patterns")
-        for row in cursor.fetchall():
-            if "sign" in row[0]:
-                security["jwt"]["sign"] += 1
-            elif "verify" in row[0] or "decode" in row[0]:
-                security["jwt"]["verify"] += 1
-    except Exception:
-        pass
+    cursor.execute("SELECT pattern_type FROM jwt_patterns")
+    for row in cursor.fetchall():
+        if "sign" in row[0]:
+            security["jwt"]["sign"] += 1
+        elif "verify" in row[0] or "decode" in row[0]:
+            security["jwt"]["verify"] += 1
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM oauth_patterns")
-        security["oauth"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM oauth_patterns")
+    security["oauth"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM password_patterns")
-        security["password"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM password_patterns")
+    security["password"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("""
-            SELECT COUNT(*) FROM sql_queries
-            WHERE file NOT LIKE '%/migrations/%'
-              AND file NOT LIKE '%/seeders/%'
-              AND file NOT LIKE '%migration%'
-        """)
-        security["sql_queries"]["total"] = cursor.fetchone()[0] or 0
+    cursor.execute("""
+        SELECT COUNT(*) FROM sql_queries
+        WHERE file NOT LIKE '%/migrations/%'
+          AND file NOT LIKE '%/seeders/%'
+          AND file NOT LIKE '%migration%'
+    """)
+    security["sql_queries"]["total"] = cursor.fetchone()[0] or 0
 
-        cursor.execute("""
-            SELECT COUNT(*) FROM sql_queries
-            WHERE command != 'UNKNOWN'
-              AND file NOT LIKE '%/migrations/%'
-              AND file NOT LIKE '%/seeders/%'
-              AND file NOT LIKE '%migration%'
-        """)
-        security["sql_queries"]["raw"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("""
+        SELECT COUNT(*) FROM sql_queries
+        WHERE command != 'UNKNOWN'
+          AND file NOT LIKE '%/migrations/%'
+          AND file NOT LIKE '%/seeders/%'
+          AND file NOT LIKE '%migration%'
+    """)
+    security["sql_queries"]["raw"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method != 'USE'")
-        security["api_endpoints"]["total"] = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method != 'USE'")
+    security["api_endpoints"]["total"] = cursor.fetchone()[0] or 0
 
-        cursor.execute("""
-            SELECT COUNT(*) FROM api_endpoints ae
-            JOIN api_endpoint_controls aec
-                ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
-            WHERE ae.method != 'USE'
-        """)
-        security["api_endpoints"]["protected"] = cursor.fetchone()[0] or 0
-        security["api_endpoints"]["unprotected"] = (
-            security["api_endpoints"]["total"] - security["api_endpoints"]["protected"]
-        )
-    except Exception:
-        pass
+    cursor.execute("""
+        SELECT COUNT(*) FROM api_endpoints ae
+        JOIN api_endpoint_controls aec
+            ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+        WHERE ae.method != 'USE'
+    """)
+    security["api_endpoints"]["protected"] = cursor.fetchone()[0] or 0
+    security["api_endpoints"]["unprotected"] = (
+        security["api_endpoints"]["total"] - security["api_endpoints"]["protected"]
+    )
 
     return security
 
@@ -637,23 +619,14 @@ def _get_data_flow(cursor) -> dict:
         "cross_function_flows": 0,
     }
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM findings_consolidated WHERE tool = 'taint'")
-        data_flow["taint_paths"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM findings_consolidated WHERE tool = 'taint'")
+    data_flow["taint_paths"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("SELECT COUNT(DISTINCT source_var_name) FROM assignment_sources")
-        data_flow["taint_sources"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(DISTINCT source_var_name) FROM assignment_sources")
+    data_flow["taint_sources"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM function_return_sources")
-        data_flow["cross_function_flows"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM function_return_sources")
+    data_flow["cross_function_flows"] = cursor.fetchone()[0] or 0
 
     return data_flow
 
@@ -662,22 +635,19 @@ def _get_import_graph(graphs_db_path: Path) -> dict:
     """Get import graph statistics."""
     imports = {"total": 0, "external": 0, "internal": 0, "circular": 0}
 
-    try:
-        conn = sqlite3.connect(graphs_db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(graphs_db_path)
+    cursor = conn.cursor()
 
-        cursor.execute("SELECT COUNT(*) FROM edges WHERE graph_type = 'import'")
-        imports["total"] = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COUNT(*) FROM edges WHERE graph_type = 'import'")
+    imports["total"] = cursor.fetchone()[0] or 0
 
-        cursor.execute(
-            "SELECT COUNT(*) FROM edges WHERE graph_type = 'import' AND target LIKE 'external::%'"
-        )
-        imports["external"] = cursor.fetchone()[0] or 0
-        imports["internal"] = imports["total"] - imports["external"]
+    cursor.execute(
+        "SELECT COUNT(*) FROM edges WHERE graph_type = 'import' AND target LIKE 'external::%'"
+    )
+    imports["external"] = cursor.fetchone()[0] or 0
+    imports["internal"] = imports["total"] - imports["external"]
 
-        conn.close()
-    except Exception:
-        pass
+    conn.close()
 
     return imports
 
@@ -689,30 +659,18 @@ def _get_performance(cursor, db_path: Path) -> dict:
     if db_path.exists():
         metrics["db_size_mb"] = round(db_path.stat().st_size / (1024 * 1024), 2)
 
-    tables = ["symbols", "function_call_args", "assignments", "api_endpoints"]
     total = 0
-    for table in tables:
-        try:
-            if table not in VALID_TABLES:
-                continue
-            cursor.execute(f"SELECT COUNT(*) FROM {table}")
-            total += cursor.fetchone()[0] or 0
-        except Exception:
-            pass
+    for table in VALID_TABLES:
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        total += cursor.fetchone()[0] or 0
 
     metrics["total_rows"] = total
 
-    try:
-        cursor.execute("SELECT COUNT(DISTINCT path) FROM symbols")
-        metrics["files_indexed"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(DISTINCT path) FROM symbols")
+    metrics["files_indexed"] = cursor.fetchone()[0] or 0
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM symbols")
-        metrics["symbols_extracted"] = cursor.fetchone()[0] or 0
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM symbols")
+    metrics["symbols_extracted"] = cursor.fetchone()[0] or 0
 
     return metrics
 
@@ -1093,32 +1051,27 @@ def _show_security_drilldown(data: dict, cursor):
 
     if unprotected > 0:
         click.echo("\n  Unprotected Endpoints (showing first 10):")
-        try:
-            cursor.execute("""
-                SELECT ae.method, ae.path, ae.file, ae.line, ae.handler_function
-                FROM api_endpoints ae
-                LEFT JOIN api_endpoint_controls aec
-                    ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
-                WHERE aec.endpoint_file IS NULL
-                  AND ae.method != 'USE'
-                LIMIT 10
-            """)
-            for i, row in enumerate(cursor.fetchall(), 1):
-                method = row["method"] or "USE"
-                path = row["path"] or "(no path)"
-                file = row["file"]
-                line = row["line"]
-                handler = row["handler_function"] or "(unknown)"
-                click.echo(f"    {i}. {method:7s} {path:40s} ({file}:{line})")
-                click.echo(f"       Handler: {handler}")
+        cursor.execute("""
+            SELECT ae.method, ae.path, ae.file, ae.line, ae.handler_function
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file AND ae.line = aec.endpoint_line
+            WHERE aec.endpoint_file IS NULL
+              AND ae.method != 'USE'
+            LIMIT 10
+        """)
+        for i, row in enumerate(cursor.fetchall(), 1):
+            method = row["method"] or "USE"
+            path = row["path"] or "(no path)"
+            file = row["file"]
+            line = row["line"]
+            handler = row["handler_function"] or "(unknown)"
+            click.echo(f"    {i}. {method:7s} {path:40s} ({file}:{line})")
+            click.echo(f"       Handler: {handler}")
 
-            if unprotected > 10:
-                click.echo(f"    ... {unprotected - 10} more unprotected endpoints")
-                click.echo(
-                    "    → Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list"
-                )
-        except Exception:
-            pass
+        if unprotected > 10:
+            click.echo(f"    ... {unprotected - 10} more unprotected endpoints")
+            click.echo("    -> Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list")
 
     click.echo("\nAuthentication Patterns Detected:")
     jwt_total = sec["jwt"]["sign"] + sec["jwt"]["verify"]
@@ -1138,18 +1091,15 @@ def _show_security_drilldown(data: dict, cursor):
         click.echo("    → Use 'aud context --file auth_migration.yaml' to track progress")
 
     click.echo("\nHardcoded Secrets:")
-    try:
-        cursor.execute(
-            "SELECT COUNT(*) FROM findings_consolidated WHERE rule LIKE '%secret%' OR rule LIKE '%hardcoded%'"
-        )
-        secret_count = cursor.fetchone()[0]
-        if secret_count > 0:
-            click.echo(f"  ⚠ {secret_count} potential hardcoded secrets detected")
-            click.echo("  -> Use 'aud query --symbol <func> --show-code' for details")
-        else:
-            click.echo("  ✓ No hardcoded secrets detected")
-    except Exception:
-        click.echo("  (No secret scan data available)")
+    cursor.execute(
+        "SELECT COUNT(*) FROM findings_consolidated WHERE rule LIKE '%secret%' OR rule LIKE '%hardcoded%'"
+    )
+    secret_count = cursor.fetchone()[0]
+    if secret_count > 0:
+        click.echo(f"  (!) {secret_count} potential hardcoded secrets detected")
+        click.echo("  -> Use 'aud query --symbol <func> --show-code' for details")
+    else:
+        click.echo("  [OK] No hardcoded secrets detected")
 
     click.echo("\nSQL Injection Risk:")
     sql_total = sec["sql_queries"]["total"]
@@ -1169,15 +1119,12 @@ def _show_security_drilldown(data: dict, cursor):
     else:
         click.echo("  ✓ No SQL queries detected (or using ORM)")
 
-    try:
-        cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method = 'POST'")
-        post_count = cursor.fetchone()[0]
-        if post_count > 0:
-            click.echo("\nCSRF Protection:")
-            click.echo(f"  POST endpoints: {post_count}")
-            click.echo("  → Manual review required for CSRF token validation")
-    except Exception:
-        pass
+    cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method = 'POST'")
+    post_count = cursor.fetchone()[0]
+    if post_count > 0:
+        click.echo("\nCSRF Protection:")
+        click.echo(f"  POST endpoints: {post_count}")
+        click.echo("  -> Manual review required for CSRF token validation")
 
     click.echo("\nCross-Reference Commands:")
     click.echo("  → Use 'aud query --show-api-coverage' for full endpoint security matrix")
@@ -1211,112 +1158,100 @@ def _show_taint_drilldown(data: dict, cursor):
         return
 
     click.echo("\nTop Taint Sources (user-controlled data):")
-    try:
-        cursor.execute("""
-            SELECT source_var_name, COUNT(*) as usage_count
-            FROM assignment_sources
-            WHERE source_var_name IN ('req.body', 'req.query', 'req.params', 'req.headers', 'userInput', 'input')
-               OR source_var_name LIKE 'req.%'
-               OR source_var_name LIKE 'request.%'
-            GROUP BY source_var_name
-            ORDER BY usage_count DESC
-            LIMIT 5
-        """)
-        sources = cursor.fetchall()
-        if sources:
-            for i, row in enumerate(sources, 1):
-                click.echo(f"  {i}. {row['source_var_name']} ({row['usage_count']} locations)")
-        else:
-            click.echo("  (No common taint sources detected in junction tables)")
-    except Exception as e:
-        click.echo(f"  (Could not query taint sources: {e})")
+    cursor.execute("""
+        SELECT source_var_name, COUNT(*) as usage_count
+        FROM assignment_sources
+        WHERE source_var_name IN ('req.body', 'req.query', 'req.params', 'req.headers', 'userInput', 'input')
+           OR source_var_name LIKE 'req.%'
+           OR source_var_name LIKE 'request.%'
+        GROUP BY source_var_name
+        ORDER BY usage_count DESC
+        LIMIT 5
+    """)
+    sources = cursor.fetchall()
+    if sources:
+        for i, row in enumerate(sources, 1):
+            click.echo(f"  {i}. {row['source_var_name']} ({row['usage_count']} locations)")
+    else:
+        click.echo("  (No common taint sources detected in junction tables)")
 
     click.echo(f"\nTaint Paths Detected: {df['taint_paths']}")
     click.echo(f"Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)")
 
     click.echo("\nVulnerable Data Flows (showing first 5):")
-    try:
-        cursor.execute("""
-            SELECT rule, category, file, line, message, severity
-            FROM findings_consolidated
-            WHERE tool = 'taint'
-            ORDER BY
-                CASE severity
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2
-                    WHEN 'medium' THEN 3
-                    ELSE 4
-                END,
-                line
-            LIMIT 5
-        """)
-        taint_findings = cursor.fetchall()
-        if taint_findings:
-            for i, finding in enumerate(taint_findings, 1):
-                category = finding["category"] or "unknown"
-                file = finding["file"]
-                line = finding["line"]
-                message = finding["message"] or "Tainted data flow detected"
-                severity = finding["severity"] or "medium"
+    cursor.execute("""
+        SELECT rule, category, file, line, message, severity
+        FROM findings_consolidated
+        WHERE tool = 'taint'
+        ORDER BY
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                ELSE 4
+            END,
+            line
+        LIMIT 5
+    """)
+    taint_findings = cursor.fetchall()
+    if taint_findings:
+        for i, finding in enumerate(taint_findings, 1):
+            category = finding["category"] or "unknown"
+            file = finding["file"]
+            line = finding["line"]
+            message = finding["message"] or "Tainted data flow detected"
+            severity = finding["severity"] or "medium"
 
-                if len(message) > 80:
-                    message = message[:77] + "..."
+            if len(message) > 80:
+                message = message[:77] + "..."
 
-                click.echo(f"\n  {i}. [{severity.upper()}] {category}")
-                click.echo(f"     Location: {file}:{line}")
-                click.echo(f"     Issue: {message}")
+            click.echo(f"\n  {i}. [{severity.upper()}] {category}")
+            click.echo(f"     Location: {file}:{line}")
+            click.echo(f"     Issue: {message}")
 
-            if df["taint_paths"] > 5:
-                click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
-                click.echo("  -> Use 'aud taint-analyze --json' for full vulnerability details")
-        else:
-            click.echo("  (No taint findings in findings_consolidated table)")
-    except Exception as e:
-        click.echo(f"  (Could not query taint findings: {e})")
+        if df["taint_paths"] > 5:
+            click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
+            click.echo("  -> Use 'aud taint-analyze --json' for full vulnerability details")
+    else:
+        click.echo("  (No taint findings in findings_consolidated table)")
 
     click.echo("\nSanitization Coverage:")
-    try:
-        cursor.execute("""
-            SELECT COUNT(*) as sanitizer_count
-            FROM function_call_args
-            WHERE callee_function LIKE '%sanitize%'
-               OR callee_function LIKE '%escape%'
-               OR callee_function LIKE '%validate%'
-               OR callee_function LIKE '%clean%'
-        """)
-        sanitizer_count = cursor.fetchone()["sanitizer_count"]
+    cursor.execute("""
+        SELECT COUNT(*) as sanitizer_count
+        FROM function_call_args
+        WHERE callee_function LIKE '%sanitize%'
+           OR callee_function LIKE '%escape%'
+           OR callee_function LIKE '%validate%'
+           OR callee_function LIKE '%clean%'
+    """)
+    sanitizer_count = cursor.fetchone()["sanitizer_count"]
 
-        if sanitizer_count > 0:
-            click.echo(f"  Sanitization functions called: {sanitizer_count} times")
-            click.echo(f"  → Compare with {df['taint_paths']} taint paths")
-            if sanitizer_count < df["taint_paths"]:
-                coverage_pct = int((sanitizer_count / df["taint_paths"]) * 100)
-                click.echo(f"  ⚠ LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized")
-        else:
-            click.echo("  ⚠ No sanitization functions detected")
-            click.echo(f"  → {df['taint_paths']} taint paths with NO sanitization")
-    except Exception:
-        click.echo("  (Could not analyze sanitization coverage)")
+    if sanitizer_count > 0:
+        click.echo(f"  Sanitization functions called: {sanitizer_count} times")
+        click.echo(f"  -> Compare with {df['taint_paths']} taint paths")
+        if df["taint_paths"] > 0 and sanitizer_count < df["taint_paths"]:
+            coverage_pct = int((sanitizer_count / df["taint_paths"]) * 100)
+            click.echo(f"  (!) LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized")
+    else:
+        click.echo("  (!) No sanitization functions detected")
+        click.echo(f"  -> {df['taint_paths']} taint paths with NO sanitization")
 
     click.echo("\nDynamic Dispatch Vulnerabilities:")
-    try:
-        cursor.execute("""
-            SELECT COUNT(*) as dispatch_count
-            FROM findings_consolidated
-            WHERE rule LIKE '%dynamic%dispatch%'
-               OR rule LIKE '%prototype%pollution%'
-               OR category = 'dynamic_dispatch'
-        """)
-        dispatch_count = cursor.fetchone()["dispatch_count"]
+    cursor.execute("""
+        SELECT COUNT(*) as dispatch_count
+        FROM findings_consolidated
+        WHERE rule LIKE '%dynamic%dispatch%'
+           OR rule LIKE '%prototype%pollution%'
+           OR category = 'dynamic_dispatch'
+    """)
+    dispatch_count = cursor.fetchone()["dispatch_count"]
 
-        if dispatch_count > 0:
-            click.echo(f"  ⚠ {dispatch_count} dynamic dispatch vulnerabilities detected")
-            click.echo("  → User can control which function executes (RCE risk)")
-            click.echo("  → Use 'aud query --category dynamic_dispatch' for locations")
-        else:
-            click.echo("  ✓ No dynamic dispatch vulnerabilities detected")
-    except Exception:
-        click.echo("  (Could not analyze dynamic dispatch)")
+    if dispatch_count > 0:
+        click.echo(f"  (!) {dispatch_count} dynamic dispatch vulnerabilities detected")
+        click.echo("  -> User can control which function executes (RCE risk)")
+        click.echo("  -> Use 'aud query --category dynamic_dispatch' for locations")
+    else:
+        click.echo("  [OK] No dynamic dispatch vulnerabilities detected")
 
     click.echo("\nCross-Reference Commands:")
     click.echo("  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
@@ -1338,105 +1273,101 @@ def _get_dependencies(cursor) -> dict:
         "workspaces": [],
     }
 
-    try:
-        cursor.execute("""
-            SELECT file_path, package_name, version, dependencies, dev_dependencies
-            FROM package_configs
-        """)
-        for row in cursor.fetchall():
-            file_path = row["file_path"]
-            pkg_name = row["package_name"]
-            version = row["version"]
+    # Query npm package configs - tables guaranteed to exist after indexing
+    cursor.execute("""
+        SELECT file_path, package_name, version, dependencies, dev_dependencies
+        FROM package_configs
+    """)
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        pkg_name = row["package_name"]
+        version = row["version"]
 
-            prod_deps = json.loads(row["dependencies"]) if row["dependencies"] else {}
-            dev_deps = json.loads(row["dev_dependencies"]) if row["dev_dependencies"] else {}
+        prod_deps = json.loads(row["dependencies"]) if row["dependencies"] else {}
+        dev_deps = json.loads(row["dev_dependencies"]) if row["dev_dependencies"] else {}
 
-            workspace = {
-                "file": file_path,
-                "name": pkg_name,
-                "version": version,
-                "manager": "npm",
-                "prod_count": len(prod_deps),
-                "dev_count": len(dev_deps),
-                "prod_deps": prod_deps,
-                "dev_deps": dev_deps,
-            }
-            deps["workspaces"].append(workspace)
+        workspace = {
+            "file": file_path,
+            "name": pkg_name,
+            "version": version,
+            "manager": "npm",
+            "prod_count": len(prod_deps),
+            "dev_count": len(dev_deps),
+            "prod_deps": prod_deps,
+            "dev_deps": dev_deps,
+        }
+        deps["workspaces"].append(workspace)
 
-            deps["by_manager"]["npm"] = (
-                deps["by_manager"].get("npm", 0) + len(prod_deps) + len(dev_deps)
+        deps["by_manager"]["npm"] = (
+            deps["by_manager"].get("npm", 0) + len(prod_deps) + len(dev_deps)
+        )
+        deps["total"] += len(prod_deps) + len(dev_deps)
+
+        for name, ver in prod_deps.items():
+            deps["packages"].append(
+                {"name": name, "version": ver, "manager": "npm", "dev": False}
             )
-            deps["total"] += len(prod_deps) + len(dev_deps)
+        for name, ver in dev_deps.items():
+            deps["packages"].append(
+                {"name": name, "version": ver, "manager": "npm", "dev": True}
+            )
 
-            for name, ver in prod_deps.items():
+    # Query Python package configs
+    cursor.execute("""
+        SELECT file_path, project_name, project_version, dependencies, optional_dependencies
+        FROM python_package_configs
+    """)
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        pkg_name = row["project_name"]
+        version = row["project_version"]
+
+        prod_deps_raw = json.loads(row["dependencies"]) if row["dependencies"] else []
+        opt_deps_raw = (
+            json.loads(row["optional_dependencies"]) if row["optional_dependencies"] else {}
+        )
+
+        dev_deps = []
+        if isinstance(opt_deps_raw, dict):
+            for _group_name, group_deps in opt_deps_raw.items():
+                if isinstance(group_deps, list):
+                    dev_deps.extend(group_deps)
+
+        workspace = {
+            "file": file_path,
+            "name": pkg_name,
+            "version": version,
+            "manager": "pip",
+            "prod_count": len(prod_deps_raw),
+            "dev_count": len(dev_deps),
+        }
+        deps["workspaces"].append(workspace)
+
+        deps["by_manager"]["pip"] = (
+            deps["by_manager"].get("pip", 0) + len(prod_deps_raw) + len(dev_deps)
+        )
+        deps["total"] += len(prod_deps_raw) + len(dev_deps)
+
+        for dep in prod_deps_raw:
+            if isinstance(dep, dict):
                 deps["packages"].append(
-                    {"name": name, "version": ver, "manager": "npm", "dev": False}
+                    {
+                        "name": dep.get("name", ""),
+                        "version": dep.get("version", ""),
+                        "manager": "pip",
+                        "dev": False,
+                    }
                 )
-            for name, ver in dev_deps.items():
+        for dep in dev_deps:
+            if isinstance(dep, dict):
                 deps["packages"].append(
-                    {"name": name, "version": ver, "manager": "npm", "dev": True}
+                    {
+                        "name": dep.get("name", ""),
+                        "version": dep.get("version", ""),
+                        "manager": "pip",
+                        "dev": True,
+                    }
                 )
-    except Exception:
-        pass
-
-    try:
-        cursor.execute("""
-            SELECT file_path, project_name, project_version, dependencies, optional_dependencies
-            FROM python_package_configs
-        """)
-        for row in cursor.fetchall():
-            file_path = row["file_path"]
-            pkg_name = row["project_name"]
-            version = row["project_version"]
-
-            prod_deps_raw = json.loads(row["dependencies"]) if row["dependencies"] else []
-            opt_deps_raw = (
-                json.loads(row["optional_dependencies"]) if row["optional_dependencies"] else {}
-            )
-
-            dev_deps = []
-            if isinstance(opt_deps_raw, dict):
-                for _group_name, group_deps in opt_deps_raw.items():
-                    if isinstance(group_deps, list):
-                        dev_deps.extend(group_deps)
-
-            workspace = {
-                "file": file_path,
-                "name": pkg_name,
-                "version": version,
-                "manager": "pip",
-                "prod_count": len(prod_deps_raw),
-                "dev_count": len(dev_deps),
-            }
-            deps["workspaces"].append(workspace)
-
-            deps["by_manager"]["pip"] = (
-                deps["by_manager"].get("pip", 0) + len(prod_deps_raw) + len(dev_deps)
-            )
-            deps["total"] += len(prod_deps_raw) + len(dev_deps)
-
-            for dep in prod_deps_raw:
-                if isinstance(dep, dict):
-                    deps["packages"].append(
-                        {
-                            "name": dep.get("name", ""),
-                            "version": dep.get("version", ""),
-                            "manager": "pip",
-                            "dev": False,
-                        }
-                    )
-            for dep in dev_deps:
-                if isinstance(dep, dict):
-                    deps["packages"].append(
-                        {
-                            "name": dep.get("name", ""),
-                            "version": dep.get("version", ""),
-                            "manager": "pip",
-                            "dev": True,
-                        }
-                    )
-    except Exception:
-        pass
 
     return deps
 
@@ -1500,7 +1431,8 @@ def _show_deps_drilldown(data: dict, cursor):
                 )
         else:
             click.echo("  (No outdated package data - run 'aud deps --check-latest')")
-    except Exception:
+    except sqlite3.OperationalError:
+        # dependency_versions table only exists after 'aud deps --check-latest'
         click.echo("  (No version check data - run 'aud deps --check-latest')")
 
     click.echo("\nRelated Commands:")
