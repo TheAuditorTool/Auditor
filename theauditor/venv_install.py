@@ -741,39 +741,42 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             lockfiles = {}
             target_dir = sandbox_dir.parent.parent
 
-            for name in ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]:
+            # Find npm lockfiles using glob (handles any project structure)
+            npm_lockfile_names = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+            for name in npm_lockfile_names:
+                # Check root first
                 lock = target_dir / name
                 if lock.exists():
                     lockfiles["npm"] = lock
                     break
-
-                for subdir in ["backend", "frontend", "server", "client", "web"]:
-                    lock = target_dir / subdir / name
-                    if lock.exists():
-                        lockfiles["npm"] = lock
-                        break
-                if "npm" in lockfiles:
+                # Then search one level deep (covers monorepos)
+                found_locks = list(target_dir.glob(f"*/{name}"))
+                if found_locks:
+                    # Use first found, preferring shorter paths
+                    found_locks.sort(key=lambda p: len(str(p)))
+                    lockfiles["npm"] = found_locks[0]
                     break
 
             if "npm" not in lockfiles:
                 pkg_json = target_dir / "package.json"
                 if pkg_json.exists():
                     print(
-                        "    ℹ package.json found but no package-lock.json (npm install not run) - skipping npm database"
+                        "    [INFO] package.json found but no package-lock.json (npm install not run) - skipping npm database"
                     )
 
-            for name in ["requirements.txt", "Pipfile.lock", "poetry.lock"]:
+            # Find Python lockfiles using glob (handles any project structure)
+            python_lockfile_names = ["requirements.txt", "Pipfile.lock", "poetry.lock"]
+            for name in python_lockfile_names:
+                # Check root first
                 req = target_dir / name
                 if req.exists():
                     lockfiles["PyPI"] = req
                     break
-
-                for subdir in ["backend", "server", "api"]:
-                    req = target_dir / subdir / name
-                    if req.exists():
-                        lockfiles["PyPI"] = req
-                        break
-                if "PyPI" in lockfiles:
+                # Then search one level deep (covers monorepos)
+                found_reqs = list(target_dir.glob(f"*/{name}"))
+                if found_reqs:
+                    found_reqs.sort(key=lambda p: len(str(p)))
+                    lockfiles["PyPI"] = found_reqs[0]
                     break
 
             if "PyPI" not in lockfiles:

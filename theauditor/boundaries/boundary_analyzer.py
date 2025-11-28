@@ -74,72 +74,58 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
         entry_points = []
 
         cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('python_routes', 'js_routes', 'api_endpoints')"
+            """
+            SELECT file, line, pattern, method FROM python_routes
+            WHERE pattern IS NOT NULL
+            LIMIT ?
+        """,
+            (max_entries // 3,),
         )
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        if "python_routes" in existing_tables:
-            cursor.execute(
-                """
-                SELECT file, line, pattern, method
-                FROM python_routes
-                WHERE pattern IS NOT NULL
-                LIMIT ?
-            """,
-                (max_entries // 2,),
+        for file, line, pattern, method in cursor.fetchall():
+            entry_points.append(
+                {
+                    "type": "http",
+                    "name": f"{method or 'GET'} {pattern}",
+                    "file": file,
+                    "line": line,
+                }
             )
 
-            for file, line, pattern, method in cursor.fetchall():
-                entry_points.append(
-                    {
-                        "type": "http",
-                        "name": f"{method or 'GET'} {pattern}",
-                        "file": file,
-                        "line": line,
-                    }
-                )
-
-        if "js_routes" in existing_tables:
-            cursor.execute(
-                """
-                SELECT file, line, pattern, method
-                FROM js_routes
-                WHERE pattern IS NOT NULL
-                LIMIT ?
-            """,
-                (max_entries // 2,),
+        cursor.execute(
+            """
+            SELECT file, line, pattern, method FROM js_routes
+            WHERE pattern IS NOT NULL
+            LIMIT ?
+        """,
+            (max_entries // 3,),
+        )
+        for file, line, pattern, method in cursor.fetchall():
+            entry_points.append(
+                {
+                    "type": "http",
+                    "name": f"{method or 'GET'} {pattern}",
+                    "file": file,
+                    "line": line,
+                }
             )
 
-            for file, line, pattern, method in cursor.fetchall():
-                entry_points.append(
-                    {
-                        "type": "http",
-                        "name": f"{method or 'GET'} {pattern}",
-                        "file": file,
-                        "line": line,
-                    }
-                )
-
-        if "api_endpoints" in existing_tables:
-            cursor.execute(
-                """
-                SELECT file, line, pattern, method
-                FROM api_endpoints
-                WHERE pattern IS NOT NULL
-                LIMIT ?
-            """,
-                (max_entries // 2,),
+        cursor.execute(
+            """
+            SELECT file, line, pattern, method FROM api_endpoints
+            WHERE pattern IS NOT NULL
+            LIMIT ?
+        """,
+            (max_entries // 3,),
+        )
+        for file, line, pattern, method in cursor.fetchall():
+            entry_points.append(
+                {
+                    "type": "http",
+                    "name": f"{method or 'GET'} {pattern}",
+                    "file": file,
+                    "line": line,
+                }
             )
-
-            for file, line, pattern, method in cursor.fetchall():
-                entry_points.append(
-                    {
-                        "type": "http",
-                        "name": f"{method or 'GET'} {pattern}",
-                        "file": file,
-                        "line": line,
-                    }
-                )
 
         for entry in entry_points[:max_entries]:
             controls = find_all_paths_to_controls(
