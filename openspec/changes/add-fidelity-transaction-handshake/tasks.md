@@ -421,37 +421,172 @@ This phase CAN be implemented as a separate OpenSpec change if desired for small
 
 ---
 
-## 5. Validation
+## 5. Phase 5: Node-Side Manifest Generation (BLOCKED)
 
-### 5.1 Run Tests
-- [ ] **5.1.1** Run unit tests
+> **BLOCKER**: This phase CANNOT proceed until `new-architecture-js` ticket completes.
+> The current Node extraction architecture (runtime JS concatenation) is too fragile
+> to bolt on manifest generation. Wait for TypeScript bundle refactor.
+
+### 5.0 Prerequisites Check
+- [ ] **5.0.1** Verify `new-architecture-js` ticket is COMPLETE
+  - **HOW**: Check `openspec/changes/archive/` for archived ticket OR check if `ast_extractors/javascript/dist/extractor.js` exists
+  - **BLOCKER**: If not complete, STOP. Do not proceed with Phase 5.
+
+### 5.1 Understand Current Node Architecture
+- [ ] **5.1.1** Read `theauditor/ast_extractors/js_helper_templates.py`
+  - **DOCUMENT**: How Python assembles JS fragments at runtime
+  - **NOTE**: This file should be DELETED after `new-architecture-js`
+
+- [ ] **5.1.2** Read `theauditor/ast_extractors/javascript/batch_templates.js`
+  - **DOCUMENT**: Main entry point for Node extraction
+  - **IDENTIFY**: Where JSON output is assembled before `console.log`
+
+### 5.2 Add Manifest Generation to TypeScript Bundle
+- [ ] **5.2.1** Create manifest generation in `javascript/src/fidelity.ts`
+  - **HOW**: Add TypeScript module matching Python's `FidelityToken`
+  - **CONTENT**:
+    ```typescript
+    // javascript/src/fidelity.ts
+    import { randomUUID } from 'crypto';
+
+    export interface FidelityManifest {
+      tx_id: string;
+      columns: string[];
+      count: number;
+      bytes: number;
+    }
+
+    export function createManifest(rows: Record<string, unknown>[]): FidelityManifest {
+      if (!rows.length) {
+        return { tx_id: '', columns: [], count: 0, bytes: 0 };
+      }
+      return {
+        tx_id: randomUUID(),
+        columns: Object.keys(rows[0]).sort(),
+        count: rows.length,
+        bytes: JSON.stringify(rows).length
+      };
+    }
+
+    export function attachManifest(
+      extractedData: Record<string, unknown[]>
+    ): Record<string, unknown[]> & { _extraction_manifest: Record<string, FidelityManifest> } {
+      const manifest: Record<string, FidelityManifest> = {};
+
+      for (const [table, rows] of Object.entries(extractedData)) {
+        if (table.startsWith('_') || !Array.isArray(rows)) continue;
+        if (rows.length > 0 && typeof rows[0] === 'object') {
+          manifest[table] = createManifest(rows as Record<string, unknown>[]);
+        }
+      }
+
+      return {
+        ...extractedData,
+        _extraction_manifest: manifest
+      };
+    }
+    ```
+
+- [ ] **5.2.2** Integrate into main extractor (`javascript/src/main.ts`)
+  - **HOW**: Call `attachManifest()` before JSON output
+  - **LOCATION**: Find where `console.log(JSON.stringify(...))` happens
+  - **CHANGE**:
+    ```typescript
+    import { attachManifest } from './fidelity';
+
+    // BEFORE outputting:
+    const withManifest = attachManifest(results);
+    console.log(JSON.stringify(withManifest));
+    ```
+
+### 5.3 Update Python Orchestrator to Pass Through Node Manifest
+- [ ] **5.3.1** Modify `javascript.py` to detect Node-generated manifest
+  - **HOW**: Check if `result.get('_extraction_manifest')` exists and is dict-of-dicts
+  - **LOCATION**: `theauditor/indexer/extractors/javascript.py:758-770`
+  - **CURRENT**: Builds manifest from scratch
+  - **AFTER**:
+    ```python
+    # Check if Node already generated manifest (new architecture)
+    if '_extraction_manifest' in result:
+        node_manifest = result['_extraction_manifest']
+        # Validate it's the new rich format (dict of dicts, not dict of ints)
+        first_value = next(iter(node_manifest.values()), None) if node_manifest else None
+        if isinstance(first_value, dict) and 'tx_id' in first_value:
+            # Node generated rich manifest - pass through
+            logger.debug("Using Node-generated manifest (new architecture)")
+            # Add metadata
+            node_manifest["_total"] = sum(
+                v.get("count", 0) for v in node_manifest.values()
+                if isinstance(v, dict)
+            )
+            node_manifest["_timestamp"] = datetime.utcnow().isoformat()
+            node_manifest["_file"] = file_info.get("path", "unknown")
+            return result  # Manifest already attached
+
+    # Fallback: Build manifest from Node output (legacy architecture)
+    logger.warning("Building manifest from Node output (legacy - Node should generate)")
+    manifest = {}
+    # ... existing manifest building code ...
+    ```
+
+### 5.4 Add Zod Schema Validation (Optional but Recommended)
+- [ ] **5.4.1** Add Zod schema for extraction output
+  - **HOW**: Define schema matching expected output structure
+  - **LOCATION**: `javascript/src/schema.ts`
+  - **PURPOSE**: Catch malformed extraction output BEFORE Python sees it
+  - **CONTENT**: (See `new_architecture_js.md` draft for full schema)
+
+- [ ] **5.4.2** Validate output before manifest generation
+  - **HOW**: Parse through Zod schema, throw if invalid
+  - **BENEFIT**: Errors thrown inside Node with stack trace, not silent corruption
+
+### 5.5 Validation
+- [ ] **5.5.1** Run extraction on test JavaScript file
+  - **HOW**: `aud full --offline` on a project with JS/TS files
+  - **VERIFY**: Log shows "Using Node-generated manifest"
+
+- [ ] **5.5.2** Verify manifest format matches Python
+  - **HOW**: Add debug logging to print Node manifest
+  - **EXPECTED**: `{table: {tx_id: "...", columns: [...], count: N, bytes: N}}`
+
+- [ ] **5.5.3** Test fidelity catches Node-side data loss
+  - **HOW**: Temporarily break Node extractor to drop a table
+  - **EXPECTED**: `DataFidelityError` raised with schema violation
+
+---
+
+## 6. Validation
+
+### 6.1 Run Tests
+- [ ] **6.1.1** Run unit tests
   - **HOW**: `.venv/Scripts/python.exe -m pytest tests/ -v --tb=short`
   - **EXPECTED**: All tests pass
 
-- [ ] **5.1.2** Run full pipeline
+- [ ] **6.1.2** Run full pipeline
   - **HOW**: `aud full --offline`
   - **EXPECTED**: Completes without fidelity errors
 
-### 5.2 Manual Verification
-- [ ] **5.2.1** Verify backward compatibility
+### 6.2 Manual Verification
+- [ ] **6.2.1** Verify backward compatibility
   - **HOW**: Ensure old-format manifests still work
   - **TEST**: Create test with `manifest = {"symbols": 50}` (int format)
 
-- [ ] **5.2.2** Verify rich format works
+- [ ] **6.2.2** Verify rich format works
   - **HOW**: Ensure new-format manifests/receipts are generated and checked
   - **TEST**: Add debug logging to verify tokens flow through
 
 ---
 
-## 6. Cleanup
+## 7. Cleanup
 
-### 6.1 Documentation
-- [ ] **6.1.1** Update docstring in `fidelity.py`
+### 7.1 Documentation
+- [ ] **7.1.1** Update docstring in `fidelity.py`
   - **HOW**: Add description of new verification modes
 
-### 6.2 Archive
-- [ ] **6.2.1** Archive change when complete
+### 7.2 Archive
+- [ ] **7.2.1** Archive change when complete
   - **HOW**: `openspec archive add-fidelity-transaction-handshake --yes`
+  - **NOTE**: Only archive after Phase 5 (Node-side) is complete for full parity
 
 ---
 
@@ -462,7 +597,13 @@ This phase CAN be implemented as a separate OpenSpec change if desired for small
 | `theauditor/indexer/fidelity_utils.py` | 1 | **NEW** - FidelityToken class |
 | `theauditor/indexer/fidelity.py` | 2 | Upgrade reconcile_fidelity |
 | `theauditor/indexer/storage/__init__.py` | 3 | Rich receipt generation |
+| `theauditor/ast_extractors/python_impl.py` | 4 | Python extractor rich manifests |
+| `theauditor/indexer/extractors/javascript.py` | 4 | JS orchestrator rich manifests (interim) |
 | `tests/test_fidelity_utils.py` | 1 | **NEW** - Unit tests |
+| **Phase 5 (BLOCKED by new-architecture-js)** | | |
+| `theauditor/ast_extractors/javascript/src/fidelity.ts` | 5 | **NEW** - TypeScript FidelityToken |
+| `theauditor/ast_extractors/javascript/src/main.ts` | 5 | Attach manifest before JSON output |
+| `theauditor/indexer/extractors/javascript.py` | 5 | Pass through Node manifest |
 
 ## Appendix: Test Commands
 
