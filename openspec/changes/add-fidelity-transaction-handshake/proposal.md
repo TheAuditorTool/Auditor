@@ -5,7 +5,7 @@
 The current fidelity system (`theauditor/indexer/fidelity.py`) is a **Counter**, not a **Verifier**. It only compares row counts between extraction manifests and storage receipts:
 
 ```python
-# Current: reconcile_fidelity(manifest, receipt, file_path) at fidelity.py:23-90
+# Current: reconcile_fidelity(manifest, receipt, file_path) at fidelity.py:10-57
 # manifest = {"symbols": 50, "assignments": 120}  # counts only
 # receipt  = {"symbols": 50, "assignments": 120}  # counts only
 ```
@@ -60,12 +60,12 @@ Replace simple `{table: count}` with `{table: {tx_id, columns, count, bytes}}`:
 | `theauditor/indexer/fidelity.py` | Upgrade `reconcile_fidelity()` for rich tokens |
 | `theauditor/indexer/fidelity_utils.py` | **NEW** - `FidelityToken` helper class |
 | `theauditor/indexer/storage/__init__.py` | DataStorer.store() returns rich receipts |
-| `theauditor/ast_extractors/python_impl.py` | Generate rich manifests (currently at line 1054) |
-| `theauditor/indexer/extractors/javascript.py` | Generate rich manifests (currently at line 768) |
+| `theauditor/ast_extractors/python_impl.py` | Generate rich manifests (currently at line 1023) |
+| `theauditor/indexer/extractors/javascript.py` | Generate rich manifests (currently at line 728) |
 
 ### Anchored to Existing Code
 
-**Current manifest generation** (`javascript.py:758-770`):
+**Current manifest generation** (`javascript.py:711-728`):
 ```python
 manifest["_total"] = total_items
 manifest["_timestamp"] = datetime.utcnow().isoformat()
@@ -73,7 +73,7 @@ manifest["_file"] = file_info.get("path", "unknown")
 result["_extraction_manifest"] = manifest
 ```
 
-**Current receipt generation** (`storage/__init__.py:113-116`, within `store()` method at lines 68-121):
+**Current receipt generation** (`storage/__init__.py:67-70`, within `store()` method at lines 32-75):
 ```python
 if isinstance(data, list):
     receipt[data_type] = len(data)
@@ -81,7 +81,7 @@ else:
     receipt[data_type] = 1 if data else 0
 ```
 
-**Current reconciliation** (`fidelity.py:54-63`):
+**Current reconciliation** (`fidelity.py:21-26`):
 ```python
 for table in sorted(tables):
     extracted = manifest.get(table, 0)
