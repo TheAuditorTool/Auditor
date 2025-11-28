@@ -666,3 +666,29 @@ class FrameworkDetector:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(self.to_json())
+
+    def detect_test_framework(self) -> dict[str, str]:
+        """Detect the test framework used in the project.
+
+        Returns dict with 'name', 'language', and 'cmd' keys.
+        Used by FCE to determine how to run tests.
+        """
+        if not self.detected_frameworks:
+            self.detect_all()
+
+        for fw in self.detected_frameworks:
+            fw_name = fw["framework"]
+            fw_config = FRAMEWORK_REGISTRY.get(fw_name, {})
+            if fw_config.get("category") == "test":
+                cmd = fw_config.get("command", "")
+                # Handle Java build tool variants
+                if fw_name == "junit":
+                    if (self.project_path / "pom.xml").exists():
+                        cmd = fw_config.get("command_maven", "mvn test")
+                    elif (self.project_path / "build.gradle").exists() or (
+                        self.project_path / "build.gradle.kts"
+                    ).exists():
+                        cmd = fw_config.get("command_gradle", "gradle test")
+                return {"name": fw_name, "language": fw["language"], "cmd": cmd}
+
+        return {"name": "unknown", "language": "unknown", "cmd": ""}

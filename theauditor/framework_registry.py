@@ -606,12 +606,10 @@ FRAMEWORK_REGISTRY = {
         },
         "package_pattern": "grape",
     },
-}
-
-
-TEST_FRAMEWORK_REGISTRY = {
+    # Test frameworks (category: "test")
     "pytest": {
         "language": "python",
+        "category": "test",
         "command": "pytest -q -p no:cacheprovider",
         "detection_sources": {
             "pyproject.toml": [
@@ -647,12 +645,14 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "unittest": {
         "language": "python",
+        "category": "test",
         "command": "python -m unittest discover -q",
         "import_patterns": ["import unittest", "from unittest"],
         "file_patterns": ["test*.py", "*_test.py"],
     },
     "jest": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -668,6 +668,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "vitest": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -685,6 +686,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "mocha": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -695,8 +697,9 @@ TEST_FRAMEWORK_REGISTRY = {
         "config_files": [".mocharc.js", ".mocharc.json", ".mocharc.yaml", ".mocharc.yml"],
         "script_patterns": ["mocha"],
     },
-    "go": {
+    "gotest": {
         "language": "go",
+        "category": "test",
         "command": "go test ./...",
         "file_patterns": ["*_test.go"],
         "detection_sources": {
@@ -705,6 +708,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "junit": {
         "language": "java",
+        "category": "test",
         "command_maven": "mvn test",
         "command_gradle": "gradle test",
         "detection_sources": {
@@ -718,6 +722,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "rspec": {
         "language": "ruby",
+        "category": "test",
         "command": "rspec",
         "detection_sources": {
             "Gemfile": "line_search",
@@ -726,8 +731,9 @@ TEST_FRAMEWORK_REGISTRY = {
         "config_files": [".rspec", "spec/spec_helper.rb"],
         "directory_markers": ["spec/"],
     },
-    "cargo": {
+    "cargo-test": {
         "language": "rust",
+        "category": "test",
         "command": "cargo test",
         "detection_sources": {
             "Cargo.toml": "exists",
