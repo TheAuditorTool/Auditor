@@ -105,7 +105,6 @@ def analyze(root, workset, severity, output, db, chunk_size):
 
     Output Files:
       .pf/raw/github_workflows.json      # Complete workflow analysis
-      .pf/readthis/github_workflows_*.json  # Chunked for LLM (<65KB each)
     """
     try:
         db_path = Path(db)

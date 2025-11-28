@@ -14,7 +14,6 @@ PIPELINE_LOG_FILE = PF_DIR / "pipeline.log"
 
 
 RAW_DIR = PF_DIR / "raw"
-READTHIS_DIR = PF_DIR / "readthis"
 DATABASE_FILE = PF_DIR / "repo_index.db"
 
 

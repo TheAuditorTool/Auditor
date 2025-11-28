@@ -1120,12 +1120,7 @@ class CodeQueryEngine:
     ) -> list[dict]:
         """Query findings from findings_consolidated table.
 
-        Direct SQL query on findings table instead of reading chunked JSON files.
-        Much faster (<20ms vs reading 3 x 65KB JSON files) and no truncation limits.
-
-        Replaces workflow:
-        OLD: Read .pf/readthis/patterns_chunk01.json (chunked, limited to 3 chunks)
-        NEW: aud context query --findings --severity HIGH (instant, no limits)
+        Direct SQL query on findings table - fast and no truncation limits.
 
         Args:
             file_path: Filter by file path (partial match supported)

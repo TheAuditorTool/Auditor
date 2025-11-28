@@ -126,16 +126,12 @@ class VerboseGroup(click.Group):
         "DATA_REPORTING": {
             "title": "DATA & REPORTING",
             "description": "Analysis aggregation and report generation",
-            "commands": ["fce", "report", "structure", "summary", "metadata", "blueprint"],
-            "ai_context": "fce correlates findings, report generates AI chunks, structure maps codebase.",
+            "commands": ["fce", "structure", "summary", "metadata", "blueprint"],
+            "ai_context": "fce correlates findings, structure maps codebase, query reads from database.",
             "command_meta": {
                 "fce": {
                     "use_when": "Need correlated findings across tools",
                     "gives": "Compound vulnerabilities, evidence chains",
-                },
-                "report": {
-                    "use_when": "Need consolidated analysis output",
-                    "gives": "AI-chunked findings report",
                 },
                 "structure": {
                     "use_when": "Need project architecture overview",
@@ -293,7 +289,6 @@ from theauditor.commands.ml import learn, learn_feedback, suggest
 from theauditor.commands.planning import planning
 from theauditor.commands.query import query
 from theauditor.commands.refactor import refactor_command
-from theauditor.commands.report import report
 from theauditor.commands.rules import rules_command
 from theauditor.commands.session import session
 from theauditor.commands.setup import setup_ai
@@ -312,7 +307,6 @@ cli.add_command(index)
 cli.add_command(workset)
 cli.add_command(lint)
 cli.add_command(deps)
-cli.add_command(report)
 cli.add_command(summary)
 cli.add_command(full)
 cli.add_command(fce)

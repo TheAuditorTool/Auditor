@@ -60,7 +60,6 @@ Use this directory to define **semantic context YAML files** for `aud context`. 
 3. Summaries + migration progress land in:
    - CLI output (truth courier facts only)
    - `.pf/raw/semantic_context_<name>.json`
-   - `.pf/readthis/semantic_context_<name>_chunk*.json`
 
 ## Recommended workflow
 

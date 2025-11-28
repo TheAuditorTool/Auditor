@@ -11,7 +11,6 @@ from .constants import (
     PF_DIR,
     PIPELINE_LOG_FILE,
     RAW_DIR,
-    READTHIS_DIR,
 )
 from .error_handler import handle_exceptions
 from .exit_codes import ExitCodes
@@ -40,7 +39,6 @@ __all__ = [
     "ERROR_LOG_FILE",
     "PIPELINE_LOG_FILE",
     "RAW_DIR",
-    "READTHIS_DIR",
     "DATABASE_FILE",
     "DEFAULT_MEMORY_LIMIT_MB",
     "MIN_MEMORY_LIMIT_MB",
