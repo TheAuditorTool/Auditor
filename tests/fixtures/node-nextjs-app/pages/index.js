@@ -1,19 +1,5 @@
-/**
- * Next.js SSR page: Home page with product listing
- *
- * Tests:
- * - getServerSideProps data fetching
- * - SSR pattern extraction
- * - Taint flow from URL params -> SSR -> database
- * - Next.js page component extraction
- */
+import { searchProducts } from "../lib/database";
 
-import { searchProducts } from '../lib/database';
-
-/**
- * Home page component
- * Tests: Next.js page component extraction
- */
 export default function HomePage({ products, filters, error }) {
   if (error) {
     return (
@@ -38,9 +24,9 @@ export default function HomePage({ products, filters, error }) {
             type="text"
             name="search"
             placeholder="Search products..."
-            defaultValue={filters.search || ''}
+            defaultValue={filters.search || ""}
           />
-          <select name="category" defaultValue={filters.category || ''}>
+          <select name="category" defaultValue={filters.category || ""}>
             <option value="">All Categories</option>
             <option value="electronics">Electronics</option>
             <option value="clothing">Clothing</option>
@@ -51,13 +37,13 @@ export default function HomePage({ products, filters, error }) {
             type="number"
             name="minPrice"
             placeholder="Min price"
-            defaultValue={filters.minPrice || ''}
+            defaultValue={filters.minPrice || ""}
           />
           <input
             type="number"
             name="maxPrice"
             placeholder="Max price"
-            defaultValue={filters.maxPrice || ''}
+            defaultValue={filters.maxPrice || ""}
           />
           <button type="submit">Search</button>
         </form>
@@ -67,14 +53,16 @@ export default function HomePage({ products, filters, error }) {
         {products.length === 0 ? (
           <p>No products found.</p>
         ) : (
-          products.map(product => (
+          products.map((product) => (
             <div key={product.id} className="product-card">
               <h3>{product.name}</h3>
               <p className="description">{product.description}</p>
               <p className="price">${product.price.toFixed(2)}</p>
               <p className="category">{product.category_name}</p>
               <div className="rating">
-                <span>{product.avg_rating ? product.avg_rating.toFixed(1) : 'N/A'}</span>
+                <span>
+                  {product.avg_rating ? product.avg_rating.toFixed(1) : "N/A"}
+                </span>
                 <span>({product.review_count} reviews)</span>
               </div>
               <button>Add to Cart</button>
@@ -90,24 +78,15 @@ export default function HomePage({ products, filters, error }) {
   );
 }
 
-/**
- * Server-side data fetching
- * Tests:
- * - getServerSideProps extraction
- * - Taint flow from URL query params -> database
- * - Multi-source taint (search, category, minPrice, maxPrice)
- */
 export async function getServerSideProps(context) {
   const { query } = context;
 
-  // TAINT SOURCES: URL query parameters
-  const search = query.search || null;      // TAINT SOURCE 1
-  const category = query.category || null;  // TAINT SOURCE 2
-  const minPrice = query.minPrice ? parseFloat(query.minPrice) : null;  // TAINT SOURCE 3
-  const maxPrice = query.maxPrice ? parseFloat(query.maxPrice) : null;  // TAINT SOURCE 4
+  const search = query.search || null;
+  const category = query.category || null;
+  const minPrice = query.minPrice ? parseFloat(query.minPrice) : null;
+  const maxPrice = query.maxPrice ? parseFloat(query.maxPrice) : null;
 
   try {
-    // MULTI-SOURCE TAINT: All query params -> searchProducts -> SQL query
     const products = await searchProducts(search, category, minPrice, maxPrice);
 
     return {
@@ -117,19 +96,19 @@ export async function getServerSideProps(context) {
           search,
           category,
           minPrice,
-          maxPrice
-        }
-      }
+          maxPrice,
+        },
+      },
     };
   } catch (err) {
-    console.error('Error fetching products:', err);
+    console.error("Error fetching products:", err);
 
     return {
       props: {
         products: [],
         filters: {},
-        error: 'Failed to load products'
-      }
+        error: "Failed to load products",
+      },
     };
   }
 }

@@ -28,17 +28,17 @@
  *   node purge_comments_js.js ./src --preserve-jsdoc
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 // Try to load jscodeshift - provide helpful error if not installed
 let j;
 try {
-  j = require('jscodeshift');
+  j = require("jscodeshift");
 } catch (e) {
-  console.error('ERROR: jscodeshift not installed.');
-  console.error('Run: npm install -g jscodeshift');
-  console.error('Or:  npm install --save-dev jscodeshift');
+  console.error("ERROR: jscodeshift not installed.");
+  console.error("Run: npm install -g jscodeshift");
+  console.error("Or:  npm install --save-dev jscodeshift");
   process.exit(1);
 }
 
@@ -48,140 +48,171 @@ try {
 
 // Directories to skip by default
 const DEFAULT_SKIP_DIRS = new Set([
-  '.git', '.venv', 'venv', '__pycache__', 'node_modules',
-  '.tox', '.mypy_cache', '.pytest_cache', 'dist', 'build',
-  '.eggs', '.egg-info', '.pf', '.auditor_venv', 'coverage',
-  '.next', '.nuxt', '.output'
+  ".git",
+  ".venv",
+  "venv",
+  "__pycache__",
+  "node_modules",
+  ".tox",
+  ".mypy_cache",
+  ".pytest_cache",
+  "dist",
+  "build",
+  ".eggs",
+  ".egg-info",
+  ".pf",
+  ".auditor_venv",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".output",
 ]);
 
 // File extensions to process (including modern ES module extensions)
-const JS_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts']);
+const JS_EXTENSIONS = new Set([
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".mts",
+  ".cts",
+]);
 
 // Semantic markers - these are CODE INSTRUCTIONS, not human comments
 // Removing these will break linters, type checkers, and bundlers
 const SEMANTIC_MARKERS = [
-  'eslint-disable',
-  'eslint-enable',
-  '@ts-ignore',
-  '@ts-expect-error',
-  '@ts-nocheck',
-  '@ts-check',
-  'prettier-ignore',
-  'istanbul ignore',
-  '@flow',
-  '@noflow',
-  'webpack',
-  'webpackChunkName',
-  '@jsx',
-  '@jsxFrag',
-  '@babel',
-  'sourceMappingURL',
-  'jshint',
-  'jslint',
-  'globals',
-  'exported',
-  'c8 ignore',
-  'v8 ignore',
-  'coverage ignore'
+  "eslint-disable",
+  "eslint-enable",
+  "@ts-ignore",
+  "@ts-expect-error",
+  "@ts-nocheck",
+  "@ts-check",
+  "prettier-ignore",
+  "istanbul ignore",
+  "@flow",
+  "@noflow",
+  "webpack",
+  "webpackChunkName",
+  "@jsx",
+  "@jsxFrag",
+  "@babel",
+  "sourceMappingURL",
+  "jshint",
+  "jslint",
+  "globals",
+  "exported",
+  "c8 ignore",
+  "v8 ignore",
+  "coverage ignore",
 ];
 
 // JSDoc type annotation markers (for --preserve-jsdoc)
 // These provide IDE intellisense and are often required for proper tooling
 const JSDOC_MARKERS = [
-  '@type',
-  '@param',
-  '@returns',
-  '@return',
-  '@typedef',
-  '@template',
-  '@implements',
-  '@extends',
-  '@augments',
-  '@callback',
-  '@property',
-  '@prop',
-  '@member',
-  '@memberof',
-  '@class',
-  '@constructor',
-  '@function',
-  '@method',
-  '@module',
-  '@namespace',
-  '@enum',
-  '@const',
-  '@constant',
-  '@default',
-  '@deprecated',
-  '@description',
-  '@example',
-  '@throws',
-  '@async',
-  '@generator',
-  '@yields',
-  '@private',
-  '@protected',
-  '@public',
-  '@readonly',
-  '@override',
-  '@satisfies'
+  "@type",
+  "@param",
+  "@returns",
+  "@return",
+  "@typedef",
+  "@template",
+  "@implements",
+  "@extends",
+  "@augments",
+  "@callback",
+  "@property",
+  "@prop",
+  "@member",
+  "@memberof",
+  "@class",
+  "@constructor",
+  "@function",
+  "@method",
+  "@module",
+  "@namespace",
+  "@enum",
+  "@const",
+  "@constant",
+  "@default",
+  "@deprecated",
+  "@description",
+  "@example",
+  "@throws",
+  "@async",
+  "@generator",
+  "@yields",
+  "@private",
+  "@protected",
+  "@public",
+  "@readonly",
+  "@override",
+  "@satisfies",
 ];
 
 // Copyright/license markers - legal headers that may be required
 const COPYRIGHT_MARKERS = [
-  'copyright',
-  'license',
-  'licensed',
-  'spdx-license-identifier',
-  'spdx-',
-  '(c)',
-  'all rights reserved',
-  'apache license',
-  'mit license',
-  'bsd license',
-  'gnu general public',
-  'gpl',
-  'lgpl',
-  'mozilla public',
-  'proprietary'
+  "copyright",
+  "license",
+  "licensed",
+  "spdx-license-identifier",
+  "spdx-",
+  "(c)",
+  "all rights reserved",
+  "apache license",
+  "mit license",
+  "bsd license",
+  "gnu general public",
+  "gpl",
+  "lgpl",
+  "mozilla public",
+  "proprietary",
 ];
 
 // Technical debt markers with descriptions
 const DEBT_MARKERS = {
   // === CRITICAL - Address immediately ===
-  'FIXME': { desc: 'Known bug requiring fix', priority: 1, label: 'CRITICAL' },
-  'BUG': { desc: 'Known bug', priority: 1, label: 'CRITICAL' },
-  'BROKEN': { desc: 'Known broken code', priority: 1, label: 'CRITICAL' },
-  'NOCOMMIT': { desc: 'Should not have been committed', priority: 1, label: 'CRITICAL' },
+  FIXME: { desc: "Known bug requiring fix", priority: 1, label: "CRITICAL" },
+  BUG: { desc: "Known bug", priority: 1, label: "CRITICAL" },
+  BROKEN: { desc: "Known broken code", priority: 1, label: "CRITICAL" },
+  NOCOMMIT: {
+    desc: "Should not have been committed",
+    priority: 1,
+    label: "CRITICAL",
+  },
 
   // === HIGH PRIORITY - Address soon ===
-  'TODO': { desc: 'Deferred task', priority: 2, label: 'HIGH' },
-  'HACK': { desc: 'Temporary workaround', priority: 2, label: 'HIGH' },
-  'XXX': { desc: 'Dangerous/requires attention', priority: 2, label: 'HIGH' },
-  'KLUDGE': { desc: 'Ugly hack', priority: 2, label: 'HIGH' },
-  'WORKAROUND': { desc: 'Working around an issue', priority: 2, label: 'HIGH' },
+  TODO: { desc: "Deferred task", priority: 2, label: "HIGH" },
+  HACK: { desc: "Temporary workaround", priority: 2, label: "HIGH" },
+  XXX: { desc: "Dangerous/requires attention", priority: 2, label: "HIGH" },
+  KLUDGE: { desc: "Ugly hack", priority: 2, label: "HIGH" },
+  WORKAROUND: { desc: "Working around an issue", priority: 2, label: "HIGH" },
 
   // === MEDIUM PRIORITY - Technical debt ===
-  'FIX': { desc: 'Needs fixing', priority: 3, label: 'MEDIUM' },
-  'OPTIMIZE': { desc: 'Performance improvement needed', priority: 3, label: 'MEDIUM' },
-  'REFACTOR': { desc: 'Needs refactoring', priority: 3, label: 'MEDIUM' },
-  'CLEANUP': { desc: 'Needs cleanup', priority: 3, label: 'MEDIUM' },
-  'REVIEW': { desc: 'Needs review', priority: 3, label: 'MEDIUM' },
+  FIX: { desc: "Needs fixing", priority: 3, label: "MEDIUM" },
+  OPTIMIZE: {
+    desc: "Performance improvement needed",
+    priority: 3,
+    label: "MEDIUM",
+  },
+  REFACTOR: { desc: "Needs refactoring", priority: 3, label: "MEDIUM" },
+  CLEANUP: { desc: "Needs cleanup", priority: 3, label: "MEDIUM" },
+  REVIEW: { desc: "Needs review", priority: 3, label: "MEDIUM" },
 
   // === LOW PRIORITY - Deferred work ===
-  'DEFER': { desc: 'Explicitly deferred', priority: 4, label: 'LOW' },
-  'DEFERRED': { desc: 'Explicitly deferred', priority: 4, label: 'LOW' },
-  'LATER': { desc: 'Do later', priority: 4, label: 'LOW' },
-  'WIP': { desc: 'Work in progress', priority: 4, label: 'LOW' },
+  DEFER: { desc: "Explicitly deferred", priority: 4, label: "LOW" },
+  DEFERRED: { desc: "Explicitly deferred", priority: 4, label: "LOW" },
+  LATER: { desc: "Do later", priority: 4, label: "LOW" },
+  WIP: { desc: "Work in progress", priority: 4, label: "LOW" },
 
   // === INFORMATIONAL - May contain gold ===
-  'TEMP': { desc: 'Temporary code', priority: 5, label: 'INFO' },
-  'TEMPORARY': { desc: 'Temporary code', priority: 5, label: 'INFO' },
-  'DEBUG': { desc: 'Debug code left in', priority: 5, label: 'INFO' },
-  'DEPRECATED': { desc: 'Should be removed', priority: 5, label: 'INFO' },
-  'REMOVEME': { desc: 'Should be removed', priority: 5, label: 'INFO' },
-  'NOTE': { desc: 'Important note', priority: 6, label: 'NOTE' },
-  'IMPORTANT': { desc: 'Important information', priority: 6, label: 'NOTE' }
+  TEMP: { desc: "Temporary code", priority: 5, label: "INFO" },
+  TEMPORARY: { desc: "Temporary code", priority: 5, label: "INFO" },
+  DEBUG: { desc: "Debug code left in", priority: 5, label: "INFO" },
+  DEPRECATED: { desc: "Should be removed", priority: 5, label: "INFO" },
+  REMOVEME: { desc: "Should be removed", priority: 5, label: "INFO" },
+  NOTE: { desc: "Important note", priority: 6, label: "NOTE" },
+  IMPORTANT: { desc: "Important information", priority: 6, label: "NOTE" },
 };
 
 // =============================================================================
@@ -192,40 +223,50 @@ const DEBT_MARKERS = {
  * Check if comment is a semantic/linter directive.
  */
 function isSemanticComment(value) {
+  if (typeof value !== "string") return false;
   const valueLower = value.toLowerCase();
-  return SEMANTIC_MARKERS.some(marker => valueLower.includes(marker.toLowerCase()));
+  return SEMANTIC_MARKERS.some((marker) =>
+    valueLower.includes(marker.toLowerCase()),
+  );
 }
 
 /**
  * Check if comment is a JSDoc type annotation.
  */
 function isJSDocComment(value, type) {
+  if (typeof value !== "string") return false;
   // JSDoc comments are block comments starting with /**
-  if (type !== 'CommentBlock' && type !== 'Block') {
+  if (type !== "CommentBlock" && type !== "Block") {
     return false;
   }
   // Check if it starts with * (the /** opener leaves the first *)
   const trimmed = value.trim();
-  if (!trimmed.startsWith('*')) {
+  if (!trimmed.startsWith("*")) {
     return false;
   }
   // Check for any JSDoc markers
   const valueLower = value.toLowerCase();
-  return JSDOC_MARKERS.some(marker => valueLower.includes(marker.toLowerCase()));
+  return JSDOC_MARKERS.some((marker) =>
+    valueLower.includes(marker.toLowerCase()),
+  );
 }
 
 /**
  * Check if comment is a copyright/license header.
  */
 function isCopyrightComment(value) {
+  if (typeof value !== "string") return false;
   const valueLower = value.toLowerCase();
-  return COPYRIGHT_MARKERS.some(marker => valueLower.includes(marker.toLowerCase()));
+  return COPYRIGHT_MARKERS.some((marker) =>
+    valueLower.includes(marker.toLowerCase()),
+  );
 }
 
 /**
  * Detect ALL debt markers in a comment.
  */
 function detectDebtTags(commentText) {
+  if (typeof commentText !== "string") return [];
   const commentUpper = commentText.toUpperCase();
   const foundTags = [];
 
@@ -242,7 +283,7 @@ function detectDebtTags(commentText) {
  * Get the highest-priority marker from a list of tags.
  */
 function getPriorityMarker(tags) {
-  if (tags.length === 0) return 'UNKNOWN';
+  if (tags.length === 0) return "UNKNOWN";
   return tags.reduce((best, tag) => {
     const bestPriority = DEBT_MARKERS[best]?.priority ?? 99;
     const tagPriority = DEBT_MARKERS[tag]?.priority ?? 99;
@@ -254,17 +295,24 @@ function getPriorityMarker(tags) {
  * Get comment value (handles both line and block comments).
  */
 function getCommentValue(comment) {
-  return comment.value || '';
+  const value = comment.value;
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  return String(value);
 }
 
 /**
  * Clean comment text for display.
  */
 function cleanCommentText(value, type) {
+  // Handle edge case where value might not be a string
+  if (typeof value !== "string") {
+    return String(value || "");
+  }
   let clean = value;
   // Remove leading/trailing whitespace and asterisks from block comments
-  if (type === 'CommentBlock' || type === 'Block') {
-    clean = clean.replace(/^\s*\*+\s?/gm, '').trim();
+  if (type === "CommentBlock" || type === "Block") {
+    clean = clean.replace(/^\s*\*+\s?/gm, "").trim();
   }
   return clean.trim();
 }
@@ -274,10 +322,10 @@ function cleanCommentText(value, type) {
  */
 function getParser(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  if (ext === '.tsx' || ext === '.mts' || ext === '.cts') return 'tsx';
-  if (ext === '.ts') return 'ts';
-  if (ext === '.jsx') return 'babel';
-  return 'babel';
+  if (ext === ".tsx" || ext === ".mts" || ext === ".cts") return "tsx";
+  if (ext === ".ts") return "ts";
+  if (ext === ".jsx") return "babel";
+  return "babel";
 }
 
 /**
@@ -322,19 +370,19 @@ function processFile(filePath, options) {
     preserveSemantic = false,
     preserveCopyright = false,
     preserveJSDoc = false,
-    dryRun = false
+    dryRun = false,
   } = options;
 
   const results = {
     removed: [],
     debt: [],
     preserved: [],
-    error: null
+    error: null,
   };
 
   let source;
   try {
-    source = fs.readFileSync(filePath, 'utf-8');
+    source = fs.readFileSync(filePath, "utf-8");
   } catch (e) {
     results.error = `Read error: ${e.message}`;
     return results;
@@ -346,15 +394,22 @@ function processFile(filePath, options) {
   }
 
   // Skip generated files (Best Practice from FAQ Section 6.6)
-  if (source.includes('@generated') || source.includes('AUTO-GENERATED') || source.includes('DO NOT EDIT')) {
+  if (
+    source.includes("@generated") ||
+    source.includes("AUTO-GENERATED") ||
+    source.includes("DO NOT EDIT")
+  ) {
     return results;
   }
 
-  const parser = getParser(filePath);
+  const parserName = getParser(filePath);
   let root;
 
   try {
-    root = j(source, { parser });
+    // When using jscodeshift programmatically, use withParser() to set the parser
+    // The { parser: 'tsx' } options syntax only works with the CLI runner
+    const jWithParser = j.withParser(parserName);
+    root = jWithParser(source);
   } catch (e) {
     results.error = `Parse error: ${e.message}`;
     return results;
@@ -380,25 +435,28 @@ function processFile(filePath, options) {
 
     // Check if should preserve
     let shouldPreserve = false;
-    let preserveReason = '';
+    let preserveReason = "";
 
     if (preserveSemantic && isSemanticComment(value)) {
       shouldPreserve = true;
-      preserveReason = 'semantic';
+      preserveReason = "semantic";
     } else if (preserveJSDoc && isJSDocComment(value, type)) {
       shouldPreserve = true;
-      preserveReason = 'jsdoc';
+      preserveReason = "jsdoc";
     } else if (preserveCopyright && isCopyrightComment(value)) {
       shouldPreserve = true;
-      preserveReason = 'copyright';
+      preserveReason = "copyright";
     }
 
     const record = {
-      file: filePath.replace(/\\/g, '/'),
+      file: filePath.replace(/\\/g, "/"),
       line,
-      type: type === 'CommentLine' || type === 'Line' ? 'line' : 'block',
-      raw: type === 'CommentLine' || type === 'Line' ? `//${value}` : `/*${value}*/`,
-      clean: cleanValue
+      type: type === "CommentLine" || type === "Line" ? "line" : "block",
+      raw:
+        type === "CommentLine" || type === "Line"
+          ? `//${value}`
+          : `/*${value}*/`,
+      clean: cleanValue,
     };
 
     if (shouldPreserve) {
@@ -420,14 +478,14 @@ function processFile(filePath, options) {
       // New debt marker found
       const primary = getPriorityMarker(tags);
       activeDebtEntry = {
-        file: filePath.replace(/\\/g, '/'),
+        file: filePath.replace(/\\/g, "/"),
         line,
         primary_marker: primary,
         tags,
-        category: DEBT_MARKERS[primary]?.desc || 'Unknown',
-        priority_label: DEBT_MARKERS[primary]?.label || 'UNKNOWN',
+        category: DEBT_MARKERS[primary]?.desc || "Unknown",
+        priority_label: DEBT_MARKERS[primary]?.label || "UNKNOWN",
         clean: cleanValue,
-        raw: record.raw
+        raw: record.raw,
       };
       results.debt.push(activeDebtEntry);
       lastDebtLine = line;
@@ -447,7 +505,7 @@ function processFile(filePath, options) {
 
   // Best Practice: Use j.Comment to find all comments directly
   // This is more efficient than iterating all nodes (O(comments) vs O(all nodes))
-  root.find(j.Comment).forEach(commentPath => {
+  root.find(j.Comment).forEach((commentPath) => {
     const shouldKeep = processComment(commentPath);
     if (!shouldKeep && !dryRun) {
       commentsToPrune.push(commentPath);
@@ -470,28 +528,34 @@ function processFile(filePath, options) {
 
           // Remove from leadingComments
           if (node.leadingComments) {
-            node.leadingComments = node.leadingComments.filter(c => c !== comment);
+            node.leadingComments = node.leadingComments.filter(
+              (c) => c !== comment,
+            );
             if (node.leadingComments.length === 0) {
               node.leadingComments = undefined;
             }
           }
           // Remove from trailingComments
           if (node.trailingComments) {
-            node.trailingComments = node.trailingComments.filter(c => c !== comment);
+            node.trailingComments = node.trailingComments.filter(
+              (c) => c !== comment,
+            );
             if (node.trailingComments.length === 0) {
               node.trailingComments = undefined;
             }
           }
           // Remove from innerComments
           if (node.innerComments) {
-            node.innerComments = node.innerComments.filter(c => c !== comment);
+            node.innerComments = node.innerComments.filter(
+              (c) => c !== comment,
+            );
             if (node.innerComments.length === 0) {
               node.innerComments = undefined;
             }
           }
           // Remove from comments array
           if (node.comments) {
-            node.comments = node.comments.filter(c => c !== comment);
+            node.comments = node.comments.filter((c) => c !== comment);
             if (node.comments.length === 0) {
               node.comments = undefined;
             }
@@ -502,7 +566,9 @@ function processFile(filePath, options) {
         // These are trailing comments not attached to any specific node
         const programNode = root.get().node;
         if (programNode && programNode.comments) {
-          programNode.comments = programNode.comments.filter(c => c !== comment);
+          programNode.comments = programNode.comments.filter(
+            (c) => c !== comment,
+          );
           if (programNode.comments.length === 0) {
             programNode.comments = undefined;
           }
@@ -515,29 +581,33 @@ function processFile(filePath, options) {
   if (!dryRun && results.removed.length > 0) {
     try {
       let output = root.toSource({
-        quote: 'single',
-        lineTerminator: '\n'
+        quote: "single",
+        lineTerminator: "\n",
       });
 
       // Shebang preservation: ensure newline after shebang if it exists
       // Removing the first comment can sometimes merge shebang with first line
-      if (output.startsWith('#!')) {
-        const firstNewLine = output.indexOf('\n');
+      if (output.startsWith("#!")) {
+        const firstNewLine = output.indexOf("\n");
         if (firstNewLine === -1) {
           // File is just a shebang with no newline
-          output += '\n';
+          output += "\n";
         } else {
           // Check if there's content immediately after shebang line
           const shebangLine = output.substring(0, firstNewLine);
           const afterShebang = output.substring(firstNewLine + 1);
           // Ensure there's proper separation (at least one newline after shebang)
-          if (afterShebang.length > 0 && !afterShebang.startsWith('\n') && !shebangLine.endsWith('\n')) {
-            output = shebangLine + '\n' + afterShebang;
+          if (
+            afterShebang.length > 0 &&
+            !afterShebang.startsWith("\n") &&
+            !shebangLine.endsWith("\n")
+          ) {
+            output = shebangLine + "\n" + afterShebang;
           }
         }
       }
 
-      fs.writeFileSync(filePath, output, 'utf-8');
+      fs.writeFileSync(filePath, output, "utf-8");
     } catch (e) {
       results.error = `Write error: ${e.message}`;
     }
@@ -554,39 +624,39 @@ function main() {
   const args = process.argv.slice(2);
 
   // Parse arguments
-  let targetDir = '.';
+  let targetDir = ".";
   let dryRun = false;
   let extractOnly = false;
   let preserveSemantic = false;
   let preserveCopyright = false;
   let preserveJSDoc = false;
-  let graveyardFile = 'comment_graveyard_js.json';
-  let debtFile = 'technical_debt_js.json';
+  let graveyardFile = "comment_graveyard_js.json";
+  let debtFile = "technical_debt_js.json";
   const extraSkipDirs = [];
   let noConfirm = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === '--dry-run' || arg === '-d') {
+    if (arg === "--dry-run" || arg === "-d") {
       dryRun = true;
-    } else if (arg === '--extract-only') {
+    } else if (arg === "--extract-only") {
       extractOnly = true;
-    } else if (arg === '--preserve-semantic') {
+    } else if (arg === "--preserve-semantic") {
       preserveSemantic = true;
-    } else if (arg === '--preserve-copyright') {
+    } else if (arg === "--preserve-copyright") {
       preserveCopyright = true;
-    } else if (arg === '--preserve-jsdoc') {
+    } else if (arg === "--preserve-jsdoc") {
       preserveJSDoc = true;
-    } else if (arg.startsWith('--graveyard=')) {
-      graveyardFile = arg.split('=')[1];
-    } else if (arg.startsWith('--debt-file=')) {
-      debtFile = arg.split('=')[1];
-    } else if (arg.startsWith('--skip=')) {
-      extraSkipDirs.push(...arg.split('=')[1].split(','));
-    } else if (arg === '--no-confirm') {
+    } else if (arg.startsWith("--graveyard=")) {
+      graveyardFile = arg.split("=")[1];
+    } else if (arg.startsWith("--debt-file=")) {
+      debtFile = arg.split("=")[1];
+    } else if (arg.startsWith("--skip=")) {
+      extraSkipDirs.push(...arg.split("=")[1].split(","));
+    } else if (arg === "--no-confirm") {
       noConfirm = true;
-    } else if (arg === '--help' || arg === '-h') {
+    } else if (arg === "--help" || arg === "-h") {
       console.log(`
 purge_comments_js.js - Nuclear comment purger for JavaScript/TypeScript
 
@@ -615,7 +685,7 @@ Examples:
   node purge_comments_js.js . --extract-only
 `);
       process.exit(0);
-    } else if (!arg.startsWith('-')) {
+    } else if (!arg.startsWith("-")) {
       targetDir = arg;
     }
   }
@@ -633,51 +703,59 @@ Examples:
 
   // Confirmation
   if (!noConfirm && !dryRun && !extractOnly) {
-    console.log('='.repeat(60));
-    console.log('WARNING: NUCLEAR OPTION');
-    console.log('This will DELETE ALL comments from JS/TS files.');
+    console.log("=".repeat(60));
+    console.log("WARNING: NUCLEAR OPTION");
+    console.log("This will DELETE ALL comments from JS/TS files.");
     if (preserveSemantic) {
-      console.log('KEEPING: Semantic comments (eslint-disable, @ts-ignore, etc.)');
+      console.log(
+        "KEEPING: Semantic comments (eslint-disable, @ts-ignore, etc.)",
+      );
     }
     if (preserveJSDoc) {
-      console.log('KEEPING: JSDoc type annotations (@param, @returns, etc.)');
+      console.log("KEEPING: JSDoc type annotations (@param, @returns, etc.)");
     }
     if (preserveCopyright) {
-      console.log('KEEPING: Copyright/license headers');
+      console.log("KEEPING: Copyright/license headers");
     }
-    console.log('='.repeat(60));
-    console.log('');
-    console.log('Run with --no-confirm to skip this prompt.');
-    console.log('Or use --dry-run to preview changes first.');
+    console.log("=".repeat(60));
+    console.log("");
+    console.log("Run with --no-confirm to skip this prompt.");
+    console.log("Or use --dry-run to preview changes first.");
     process.exit(1);
   }
 
   // Mode string
-  let modeStr = '';
-  if (dryRun) modeStr = '[DRY RUN] ';
-  else if (extractOnly) modeStr = '[EXTRACT ONLY] ';
+  let modeStr = "";
+  if (dryRun) modeStr = "[DRY RUN] ";
+  else if (extractOnly) modeStr = "[EXTRACT ONLY] ";
 
   console.log(`${modeStr}NUCLEAR COMMENT PURGE (JavaScript/TypeScript)`);
   console.log(`Target: ${absDir}`);
-  console.log(`Skipping: ${Array.from(skipDirs).sort().join(', ')}`);
-  console.log(`Extensions: ${Array.from(JS_EXTENSIONS).sort().join(', ')}`);
-  console.log(`Debt markers: ${Object.keys(DEBT_MARKERS).length} types tracked`);
+  console.log(`Skipping: ${Array.from(skipDirs).sort().join(", ")}`);
+  console.log(`Extensions: ${Array.from(JS_EXTENSIONS).sort().join(", ")}`);
+  console.log(
+    `Debt markers: ${Object.keys(DEBT_MARKERS).length} types tracked`,
+  );
   if (preserveSemantic) {
-    console.log('PRESERVING: Semantic comments (@ts-ignore, eslint-disable, etc.)');
+    console.log(
+      "PRESERVING: Semantic comments (@ts-ignore, eslint-disable, etc.)",
+    );
   }
   if (preserveJSDoc) {
-    console.log('PRESERVING: JSDoc type annotations (@param, @returns, @type, etc.)');
+    console.log(
+      "PRESERVING: JSDoc type annotations (@param, @returns, @type, etc.)",
+    );
   }
   if (preserveCopyright) {
-    console.log('PRESERVING: Copyright/license headers');
+    console.log("PRESERVING: Copyright/license headers");
   }
-  console.log('');
+  console.log("");
 
   // Collect files
   const files = walkDirectory(absDir, skipDirs, JS_EXTENSIONS);
 
   if (files.length === 0) {
-    console.log('No JavaScript/TypeScript files found.');
+    console.log("No JavaScript/TypeScript files found.");
     process.exit(0);
   }
 
@@ -695,7 +773,7 @@ Examples:
       preserveSemantic,
       preserveCopyright,
       preserveJSDoc,
-      dryRun: dryRun || extractOnly
+      dryRun: dryRun || extractOnly,
     });
 
     if (results.error) {
@@ -718,8 +796,8 @@ Examples:
         parts.push(`${results.preserved.length} kept`);
       }
 
-      const relPath = path.relative(absDir, filePath).replace(/\\/g, '/');
-      console.log(`  - ${parts.join(', ')} : ./${relPath}`);
+      const relPath = path.relative(absDir, filePath).replace(/\\/g, "/");
+      console.log(`  - ${parts.join(", ")} : ./${relPath}`);
     } else if (results.preserved.length > 0) {
       // File had only preserved comments
       allPreserved.push(...results.preserved);
@@ -729,7 +807,11 @@ Examples:
   // Write output files
   if (!dryRun) {
     if (allRemoved.length > 0) {
-      fs.writeFileSync(graveyardFile, JSON.stringify(allRemoved, null, 2), 'utf-8');
+      fs.writeFileSync(
+        graveyardFile,
+        JSON.stringify(allRemoved, null, 2),
+        "utf-8",
+      );
     }
 
     if (allDebt.length > 0) {
@@ -741,15 +823,15 @@ Examples:
         if (a.file !== b.file) return a.file.localeCompare(b.file);
         return a.line - b.line;
       });
-      fs.writeFileSync(debtFile, JSON.stringify(sortedDebt, null, 2), 'utf-8');
+      fs.writeFileSync(debtFile, JSON.stringify(sortedDebt, null, 2), "utf-8");
     }
   }
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
   // Summary
-  console.log('');
-  console.log('='.repeat(60));
+  console.log("");
+  console.log("=".repeat(60));
   console.log(`${modeStr}COMPLETED in ${duration}s`);
   console.log(`Files Processed: ${files.length}`);
   console.log(`Files Modified: ${filesModified}`);
@@ -762,8 +844,8 @@ Examples:
 
   // Debt breakdown
   if (allDebt.length > 0) {
-    console.log('');
-    console.log('=== TECHNICAL DEBT BREAKDOWN ===');
+    console.log("");
+    console.log("=== TECHNICAL DEBT BREAKDOWN ===");
     const debtByMarker = {};
     for (const item of allDebt) {
       const marker = item.primary_marker;
@@ -778,18 +860,20 @@ Examples:
     });
 
     for (const [marker, count] of sortedMarkers) {
-      const info = DEBT_MARKERS[marker] || { desc: 'Unknown', label: '' };
-      console.log(`  ${marker.padEnd(12)} : ${String(count).padStart(4)}  [${info.label.padEnd(8)}] ${info.desc}`);
+      const info = DEBT_MARKERS[marker] || { desc: "Unknown", label: "" };
+      console.log(
+        `  ${marker.padEnd(12)} : ${String(count).padStart(4)}  [${info.label.padEnd(8)}] ${info.desc}`,
+      );
     }
   }
 
   // Preserved breakdown
   if (allPreserved.length > 0) {
-    console.log('');
-    console.log('=== PRESERVED COMMENTS ===');
+    console.log("");
+    console.log("=== PRESERVED COMMENTS ===");
     const byReason = {};
     for (const item of allPreserved) {
-      const reason = item.preserve_reason || 'unknown';
+      const reason = item.preserve_reason || "unknown";
       byReason[reason] = (byReason[reason] || 0) + 1;
     }
     for (const [reason, count] of Object.entries(byReason).sort()) {
@@ -799,8 +883,8 @@ Examples:
 
   // Output files
   if (!dryRun) {
-    console.log('');
-    console.log('OUTPUT FILES:');
+    console.log("");
+    console.log("OUTPUT FILES:");
     if (allRemoved.length > 0) {
       console.log(`  ${graveyardFile}`);
       console.log(`    -> ${allRemoved.length} comments (backup dump)`);
@@ -810,23 +894,23 @@ Examples:
       console.log(`    -> ${allDebt.length} items (REVIEW THIS FOR GOLD)`);
     }
   }
-  console.log('='.repeat(60));
+  console.log("=".repeat(60));
 
   // Next steps
   if (allRemoved.length > 0 && !dryRun) {
-    console.log('');
-    console.log('NEXT STEPS:');
-    console.log('  1. Run your formatter:');
-    console.log('     npx prettier --write .');
-    console.log('     # or: npx eslint --fix .');
-    console.log('');
+    console.log("");
+    console.log("NEXT STEPS:");
+    console.log("  1. Run your formatter:");
+    console.log("     npx prettier --write .");
+    console.log("     # or: npx eslint --fix .");
+    console.log("");
     if (allDebt.length > 0) {
-      console.log('  2. Mine the gold:');
+      console.log("  2. Mine the gold:");
       console.log(`     cat ${debtFile}`);
-      console.log('');
-      console.log('  3. Address by priority:');
-      console.log('     - CRITICAL first (FIXME, BUG, BROKEN)');
-      console.log('     - Then HIGH (TODO, HACK, XXX)');
+      console.log("");
+      console.log("  3. Address by priority:");
+      console.log("     - CRITICAL first (FIXME, BUG, BROKEN)");
+      console.log("     - Then HIGH (TODO, HACK, XXX)");
     }
   }
 }
