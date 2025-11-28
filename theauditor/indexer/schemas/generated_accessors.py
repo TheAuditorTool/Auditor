@@ -1924,30 +1924,37 @@ class ImportStylesTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from import_styles."""
-        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'])
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], where="file = ?")
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_package(cursor: sqlite3.Cursor, package: str) -> list[dict[str, Any]]:
         """Get rows by package."""
-        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], where="package = ?")
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], where="package = ?")
         cursor.execute(query, (package,))
-        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_import_style(cursor: sqlite3.Cursor, import_style: str) -> list[dict[str, Any]]:
         """Get rows by import_style."""
-        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], where="import_style = ?")
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], where="import_style = ?")
         cursor.execute(query, (import_style,))
-        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_resolved_path(cursor: sqlite3.Cursor, resolved_path: str) -> list[dict[str, Any]]:
+        """Get rows by resolved_path."""
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], where="resolved_path = ?")
+        cursor.execute(query, (resolved_path,))
+        return [dict(zip(['file', 'line', 'package', 'import_style', 'alias_name', 'full_statement', 'resolved_path'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class JwtPatternsTable:

@@ -702,6 +702,7 @@ class ImportStylesRow(TypedDict):
     import_style: str
     alias_name: str | None
     full_statement: str | None
+    resolved_path: str | None
 
 class JwtPatternsRow(TypedDict):
     """Row type for jwt_patterns table."""
