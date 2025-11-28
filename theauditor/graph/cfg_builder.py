@@ -198,8 +198,10 @@ class CFGBuilder:
                 complexity = cfg["metrics"]["cyclomatic_complexity"]
 
                 if complexity >= threshold:
-                    start_line = min(b["start_line"] for b in cfg["blocks"]) if cfg["blocks"] else 0
-                    end_line = max(b["end_line"] for b in cfg["blocks"]) if cfg["blocks"] else 0
+                    valid_starts = [b["start_line"] for b in cfg["blocks"] if b["start_line"] is not None]
+                    valid_ends = [b["end_line"] for b in cfg["blocks"] if b["end_line"] is not None]
+                    start_line = min(valid_starts) if valid_starts else 0
+                    end_line = max(valid_ends) if valid_ends else 0
 
                     complex_functions.append(
                         {
@@ -376,7 +378,9 @@ class CFGBuilder:
         dot_lines.append("  node [shape=box];")
 
         for block in cfg["blocks"]:
-            label = f"{block['type']}\\n{block['start_line']}-{block['end_line']}"
+            start = block['start_line'] if block['start_line'] is not None else "?"
+            end = block['end_line'] if block['end_line'] is not None else "?"
+            label = f"{block['type']}\\n{start}-{end}"
             if block["condition"]:
                 label += f"\\n{block['condition'][:20]}..."
 

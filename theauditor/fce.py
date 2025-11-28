@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from theauditor.test_frameworks import detect_test_framework
+from theauditor.framework_detector import FrameworkDetector
 from theauditor.utils.temp_manager import TempManager
 
 
@@ -738,7 +738,8 @@ def run_fce(
     else:
         print("[FCE] Insights directory not found - skipping optional insights loading")
 
-    framework_info = detect_test_framework(root_path)
+    detector = FrameworkDetector(Path(root_path))
+    framework_info = detector.detect_test_framework()
 
     tools = []
     if framework_info["name"] != "unknown" and framework_info["cmd"]:

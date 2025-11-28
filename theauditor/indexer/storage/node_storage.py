@@ -48,6 +48,9 @@ class NodeStorage(BaseStorage):
             "import_specifiers": self._store_import_specifiers,
             "import_style_names": self._store_import_style_names,
             "sequelize_model_fields": self._store_sequelize_model_fields,
+            "cfg_blocks": self._store_cfg_flat,
+            "cfg_edges": self._noop_cfg_edges,
+            "cfg_block_statements": self._noop_cfg_block_statements,
         }
 
     def _store_react_hooks(self, file_path: str, react_hooks: list, jsx_pass: bool):
@@ -553,3 +556,111 @@ class NodeStorage(BaseStorage):
                 field.get("default_value"),
             )
             self.counts["sequelize_model_fields"] = self.counts.get("sequelize_model_fields", 0) + 1
+
+    def _store_cfg_flat(self, file_path: str, cfg_blocks: list, jsx_pass: bool):
+        """Store CFG data from flat arrays (TypeScript extractor format).
+
+        Processes cfg_blocks, cfg_edges, and cfg_block_statements together.
+        The TS extractor outputs flat arrays with string IDs like "block_0".
+        This handler builds the ID mapping and stores to database.
+        """
+        if not cfg_blocks:
+            return
+
+        cfg_edges = self._current_extracted.get("cfg_edges", [])
+        cfg_block_statements = self._current_extracted.get("cfg_block_statements", [])
+
+        block_id_map: dict[tuple[str, str], int] = {}
+
+        for block in cfg_blocks:
+            function_id = block.get("function_id", "")
+            block_id = block.get("block_id", "")
+
+            parts = function_id.rsplit(":", 2)
+            if len(parts) >= 2:
+                block_file_path = parts[0]
+                function_name = parts[1]
+            else:
+                block_file_path = file_path
+                function_name = function_id
+
+            if jsx_pass:
+                temp_id = self.db_manager.add_cfg_block_jsx(
+                    block_file_path,
+                    function_name,
+                    block.get("block_type", ""),
+                    block.get("start_line"),
+                    block.get("end_line"),
+                )
+            else:
+                temp_id = self.db_manager.add_cfg_block(
+                    block_file_path,
+                    function_name,
+                    block.get("block_type", ""),
+                    block.get("start_line"),
+                    block.get("end_line"),
+                )
+
+            block_id_map[(function_id, block_id)] = temp_id
+            self.counts["cfg_blocks"] = self.counts.get("cfg_blocks", 0) + 1
+
+        for edge in cfg_edges:
+            function_id = edge.get("function_id", "")
+            from_block = edge.get("from_block", "")
+            to_block = edge.get("to_block", "")
+
+            parts = function_id.rsplit(":", 2)
+            if len(parts) >= 2:
+                edge_file_path = parts[0]
+                function_name = parts[1]
+            else:
+                edge_file_path = file_path
+                function_name = function_id
+
+            source_id = block_id_map.get((function_id, from_block), -1)
+            target_id = block_id_map.get((function_id, to_block), -1)
+
+            if source_id == -1 or target_id == -1:
+                continue
+
+            if jsx_pass:
+                self.db_manager.add_cfg_edge_jsx(
+                    edge_file_path, function_name, source_id, target_id, edge.get("edge_type", "")
+                )
+            else:
+                self.db_manager.add_cfg_edge(
+                    edge_file_path, function_name, source_id, target_id, edge.get("edge_type", "")
+                )
+            self.counts["cfg_edges"] = self.counts.get("cfg_edges", 0) + 1
+
+        for stmt in cfg_block_statements:
+            function_id = stmt.get("function_id", "")
+            block_id = stmt.get("block_id", "")
+
+            real_block_id = block_id_map.get((function_id, block_id), -1)
+            if real_block_id == -1:
+                continue
+
+            if jsx_pass:
+                self.db_manager.add_cfg_statement_jsx(
+                    real_block_id,
+                    stmt.get("statement_type", ""),
+                    stmt.get("line", 0),
+                    stmt.get("text"),
+                )
+            else:
+                self.db_manager.add_cfg_statement(
+                    real_block_id,
+                    stmt.get("statement_type", ""),
+                    stmt.get("line", 0),
+                    stmt.get("text"),
+                )
+            self.counts["cfg_statements"] = self.counts.get("cfg_statements", 0) + 1
+
+    def _noop_cfg_edges(self, file_path: str, cfg_edges: list, jsx_pass: bool):
+        """No-op handler for cfg_edges. Actual storage is done by _store_cfg_flat."""
+        pass
+
+    def _noop_cfg_block_statements(self, file_path: str, cfg_block_statements: list, jsx_pass: bool):
+        """No-op handler for cfg_block_statements. Actual storage is done by _store_cfg_flat."""
+        pass
