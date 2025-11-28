@@ -264,7 +264,7 @@ class JSSemanticParser:
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
 
-        batch_helper_path = pf_dir / "tsc_batch_helper.js"
+        batch_helper_path = pf_dir / "tsc_batch_helper.cjs"  # .cjs forces CommonJS regardless of project package.json
 
         if self.project_module_type == "module":
             batch_helper_content = js_helper_templates.get_batch_helper("module")
