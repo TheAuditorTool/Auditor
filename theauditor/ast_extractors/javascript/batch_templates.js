@@ -906,7 +906,8 @@ main().catch((error) => {
 // === COMMONJS_BATCH ===
 
 // CommonJS helper script for batch TypeScript AST extraction
-const path = require("path");
+// NOTE: path is already declared by prepended modules (data_flow.js)
+// We reuse that global declaration - no redeclaration needed
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
