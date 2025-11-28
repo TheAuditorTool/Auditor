@@ -58,10 +58,16 @@ class RichRenderer(PipelineObserver):
         for name, info in self._phases.items():
             status = info.get('status', 'pending')
             elapsed = info.get('elapsed', 0)
-            time_str = f"{elapsed:.1f}s" if elapsed else "-"
+
+            # UI TWEAK: Show 0.0s for running phases instead of -
+            if status == "running" or elapsed > 0:
+                time_str = f"{elapsed:.1f}s"
+            else:
+                time_str = "-"
+
             self._table.add_row(name, status, time_str)
 
-        # CRITICAL: Tell Live display about the new table object
+        # CRITICAL FIX 1: Tell Live display about the new table object
         if self._live:
             self._live.update(self._table)
 
@@ -89,7 +95,7 @@ class RichRenderer(PipelineObserver):
                     buffer.append("... [truncated, see .pf/pipeline.log for full output]")
                 # else: already truncated, skip
         elif self._live:
-            # LIVE MODE: Print above the table using Live's console
+            # CRITICAL FIX 2 (Live Mode): Print ABOVE the table using Live's console
             # This ensures logs/headers appear while table persists at bottom
             style = "bold red" if is_error else None
             self._live.console.print(text, style=style)
@@ -160,13 +166,13 @@ class RichRenderer(PipelineObserver):
             header = f"\n{'=' * 60}\n[{track_name}] Complete ({elapsed:.1f}s)\n{'=' * 60}"
 
             if self._live:
-                # SEAMLESS: Print ABOVE the table using Live's console
-                # DO NOT use .stop() or .start() - causes flickering
+                # CRITICAL FIX 3 (Ghost Pipeline): Print ABOVE the table seamlessy
+                # DO NOT stop/start the Live display
                 self._live.console.print(header)
                 for line in buffer:
                     self._live.console.print(line)
             else:
-                # FALLBACK: Standard print for non-TTY
+                # FALLBACK: Standard print
                 print(header, flush=True)
                 for line in buffer:
                     print(line, flush=True)
