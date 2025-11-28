@@ -69,7 +69,7 @@ TABLES: dict[str, TableSchema] = {
 }
 
 
-assert len(TABLES) == 155, f"Schema contract violation: Expected 155 tables, got {len(TABLES)}"
+assert len(TABLES) == 170, f"Schema contract violation: Expected 170 tables, got {len(TABLES)}"
 
 
 FILES = TABLES["files"]

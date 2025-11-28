@@ -20,14 +20,56 @@ DOCKER_IMAGES = TableSchema(
     columns=[
         Column("file_path", "TEXT", nullable=False, primary_key=True),
         Column("base_image", "TEXT"),
-        Column("exposed_ports", "TEXT"),
-        Column("env_vars", "TEXT"),
-        Column("build_args", "TEXT"),
         Column("user", "TEXT"),
         Column("has_healthcheck", "BOOLEAN", default="0"),
     ],
     indexes=[
         ("idx_docker_images_base", ["base_image"]),
+    ],
+)
+
+
+# Junction tables for docker_images (replaces JSON blob columns)
+DOCKERFILE_PORTS = TableSchema(
+    name="dockerfile_ports",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to docker_images.file_path
+        Column("port", "INTEGER", nullable=False),
+        Column("protocol", "TEXT", default="'tcp'"),
+    ],
+    indexes=[
+        ("idx_dockerfile_ports_file_path", ["file_path"]),
+    ],
+    unique_constraints=[["file_path", "port", "protocol"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="docker_images",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
+DOCKERFILE_ENV_VARS = TableSchema(
+    name="dockerfile_env_vars",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK to docker_images.file_path
+        Column("var_name", "TEXT", nullable=False),
+        Column("var_value", "TEXT"),
+        Column("is_build_arg", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_dockerfile_env_vars_file_path", ["file_path"]),
+    ],
+    unique_constraints=[["file_path", "var_name", "is_build_arg"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="docker_images",
+            foreign_columns=["file_path"],
+        )
     ],
 )
 
@@ -37,25 +79,133 @@ COMPOSE_SERVICES = TableSchema(
         Column("file_path", "TEXT", nullable=False),
         Column("service_name", "TEXT", nullable=False),
         Column("image", "TEXT"),
-        Column("ports", "TEXT"),
-        Column("volumes", "TEXT"),
-        Column("environment", "TEXT"),
         Column("is_privileged", "BOOLEAN", default="0"),
         Column("network_mode", "TEXT"),
         Column("user", "TEXT"),
-        Column("cap_add", "TEXT"),
-        Column("cap_drop", "TEXT"),
         Column("security_opt", "TEXT"),
         Column("restart", "TEXT"),
         Column("command", "TEXT"),
         Column("entrypoint", "TEXT"),
-        Column("depends_on", "TEXT"),
         Column("healthcheck", "TEXT"),
     ],
     primary_key=["file_path", "service_name"],
     indexes=[
         ("idx_compose_services_file", ["file_path"]),
         ("idx_compose_services_privileged", ["is_privileged"]),
+    ],
+)
+
+
+# Junction tables for compose_services (replaces JSON blob columns)
+COMPOSE_SERVICE_PORTS = TableSchema(
+    name="compose_service_ports",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK part 1
+        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("host_port", "INTEGER"),
+        Column("container_port", "INTEGER", nullable=False),
+        Column("protocol", "TEXT", default="'tcp'"),
+    ],
+    indexes=[
+        ("idx_compose_service_ports_fk", ["file_path", "service_name"]),
+    ],
+    unique_constraints=[["file_path", "service_name", "host_port", "container_port", "protocol"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path", "service_name"],
+            foreign_table="compose_services",
+            foreign_columns=["file_path", "service_name"],
+        )
+    ],
+)
+
+COMPOSE_SERVICE_VOLUMES = TableSchema(
+    name="compose_service_volumes",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK part 1
+        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("host_path", "TEXT"),
+        Column("container_path", "TEXT", nullable=False),
+        Column("mode", "TEXT", default="'rw'"),
+    ],
+    indexes=[
+        ("idx_compose_service_volumes_fk", ["file_path", "service_name"]),
+    ],
+    unique_constraints=[["file_path", "service_name", "host_path", "container_path"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path", "service_name"],
+            foreign_table="compose_services",
+            foreign_columns=["file_path", "service_name"],
+        )
+    ],
+)
+
+COMPOSE_SERVICE_ENV = TableSchema(
+    name="compose_service_env",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK part 1
+        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("var_name", "TEXT", nullable=False),
+        Column("var_value", "TEXT"),
+    ],
+    indexes=[
+        ("idx_compose_service_env_fk", ["file_path", "service_name"]),
+    ],
+    unique_constraints=[["file_path", "service_name", "var_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path", "service_name"],
+            foreign_table="compose_services",
+            foreign_columns=["file_path", "service_name"],
+        )
+    ],
+)
+
+COMPOSE_SERVICE_CAPABILITIES = TableSchema(
+    name="compose_service_capabilities",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK part 1
+        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("capability", "TEXT", nullable=False),
+        Column("is_add", "BOOLEAN", nullable=False),  # 1=cap_add, 0=cap_drop
+    ],
+    indexes=[
+        ("idx_compose_service_capabilities_fk", ["file_path", "service_name"]),
+    ],
+    unique_constraints=[["file_path", "service_name", "capability"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path", "service_name"],
+            foreign_table="compose_services",
+            foreign_columns=["file_path", "service_name"],
+        )
+    ],
+)
+
+COMPOSE_SERVICE_DEPS = TableSchema(
+    name="compose_service_deps",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),  # FK part 1
+        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("depends_on_service", "TEXT", nullable=False),
+        Column("condition", "TEXT", default="'service_started'"),
+    ],
+    indexes=[
+        ("idx_compose_service_deps_fk", ["file_path", "service_name"]),
+    ],
+    unique_constraints=[["file_path", "service_name", "depends_on_service"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path", "service_name"],
+            foreign_table="compose_services",
+            foreign_columns=["file_path", "service_name"],
+        )
     ],
 )
 
@@ -101,9 +251,6 @@ TERRAFORM_RESOURCES = TableSchema(
         Column("resource_type", "TEXT", nullable=False),
         Column("resource_name", "TEXT", nullable=False),
         Column("module_path", "TEXT"),
-        Column("properties_json", "TEXT"),
-        Column("depends_on_json", "TEXT"),
-        Column("sensitive_flags_json", "TEXT"),
         Column("has_public_exposure", "BOOLEAN", default="0"),
         Column("line", "INTEGER"),
     ],
@@ -118,6 +265,51 @@ TERRAFORM_RESOURCES = TableSchema(
             local_columns=["file_path"],
             foreign_table="terraform_files",
             foreign_columns=["file_path"],
+        )
+    ],
+)
+
+
+# Junction tables for terraform_resources (replaces JSON blob columns)
+TERRAFORM_RESOURCE_PROPERTIES = TableSchema(
+    name="terraform_resource_properties",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("resource_id", "TEXT", nullable=False),  # FK to terraform_resources.resource_id
+        Column("property_name", "TEXT", nullable=False),
+        Column("property_value", "TEXT"),
+        Column("is_sensitive", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_terraform_resource_properties_resource", ["resource_id"]),
+        ("idx_terraform_resource_properties_name", ["property_name"]),
+    ],
+    unique_constraints=[["resource_id", "property_name"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["resource_id"],
+            foreign_table="terraform_resources",
+            foreign_columns=["resource_id"],
+        )
+    ],
+)
+
+TERRAFORM_RESOURCE_DEPS = TableSchema(
+    name="terraform_resource_deps",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("resource_id", "TEXT", nullable=False),  # FK to terraform_resources.resource_id
+        Column("depends_on_ref", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_terraform_resource_deps_resource", ["resource_id"]),
+    ],
+    unique_constraints=[["resource_id", "depends_on_ref"]],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["resource_id"],
+            foreign_table="terraform_resources",
+            foreign_columns=["resource_id"],
         )
     ],
 )
@@ -435,10 +627,19 @@ GITHUB_STEP_REFERENCES = TableSchema(
 
 INFRASTRUCTURE_TABLES: dict[str, TableSchema] = {
     "docker_images": DOCKER_IMAGES,
+    "dockerfile_ports": DOCKERFILE_PORTS,
+    "dockerfile_env_vars": DOCKERFILE_ENV_VARS,
     "compose_services": COMPOSE_SERVICES,
+    "compose_service_ports": COMPOSE_SERVICE_PORTS,
+    "compose_service_volumes": COMPOSE_SERVICE_VOLUMES,
+    "compose_service_env": COMPOSE_SERVICE_ENV,
+    "compose_service_capabilities": COMPOSE_SERVICE_CAPABILITIES,
+    "compose_service_deps": COMPOSE_SERVICE_DEPS,
     "nginx_configs": NGINX_CONFIGS,
     "terraform_files": TERRAFORM_FILES,
     "terraform_resources": TERRAFORM_RESOURCES,
+    "terraform_resource_properties": TERRAFORM_RESOURCE_PROPERTIES,
+    "terraform_resource_deps": TERRAFORM_RESOURCE_DEPS,
     "terraform_variables": TERRAFORM_VARIABLES,
     "terraform_variable_values": TERRAFORM_VARIABLE_VALUES,
     "terraform_outputs": TERRAFORM_OUTPUTS,

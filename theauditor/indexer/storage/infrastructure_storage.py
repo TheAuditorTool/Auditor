@@ -52,18 +52,39 @@ class InfrastructureStorage(BaseStorage):
     def _store_terraform_resources(self, file_path: str, terraform_resources: list, jsx_pass: bool):
         """Store Terraform resources."""
         for resource in terraform_resources:
+            resource_id = resource["resource_id"]
+            properties = resource.get("properties", {})
+            depends_on = resource.get("depends_on", [])
+            sensitive_props = resource.get("sensitive_properties", [])
+
+            # Main table (NO JSON blobs - use junction tables)
             self.db_manager.add_terraform_resource(
-                resource_id=resource["resource_id"],
+                resource_id=resource_id,
                 file_path=resource["file_path"],
                 resource_type=resource["resource_type"],
                 resource_name=resource["resource_name"],
                 module_path=resource.get("module_path"),
-                properties_json=json.dumps(resource.get("properties", {})),
-                depends_on_json=json.dumps(resource.get("depends_on", [])),
-                sensitive_flags_json=json.dumps(resource.get("sensitive_properties", [])),
                 has_public_exposure=resource.get("has_public_exposure", False),
                 line=resource.get("line"),
             )
+
+            # Junction table: terraform_resource_properties
+            for prop_name, prop_value in properties.items():
+                is_sensitive = prop_name in sensitive_props
+                self.db_manager.add_terraform_resource_property(
+                    resource_id=resource_id,
+                    property_name=prop_name,
+                    property_value=str(prop_value) if prop_value is not None else "",
+                    is_sensitive=is_sensitive,
+                )
+
+            # Junction table: terraform_resource_deps
+            for dep in depends_on:
+                self.db_manager.add_terraform_resource_dep(
+                    resource_id=resource_id,
+                    depends_on_resource=dep,
+                )
+
             if "terraform_resources" not in self.counts:
                 self.counts["terraform_resources"] = 0
             self.counts["terraform_resources"] += 1
@@ -177,16 +198,35 @@ class InfrastructureStorage(BaseStorage):
     def _store_graphql_fields(self, file_path: str, graphql_fields: list, jsx_pass: bool):
         """Store GraphQL field definition records."""
         for field in graphql_fields:
+            field_id = field.get("field_id")
+            directives_json = field.get("directives_json")
+
+            # Main table (NO JSON blob - use junction table)
             self.db_manager.add_graphql_field(
                 type_id=field["type_id"],
                 field_name=field["field_name"],
                 return_type=field["return_type"],
                 is_list=field.get("is_list", False),
                 is_nullable=field.get("is_nullable", True),
-                directives_json=field.get("directives_json"),
                 line=field.get("line"),
                 column=field.get("column"),
             )
+
+            # Junction table: graphql_field_directives
+            if field_id and directives_json:
+                try:
+                    directives = json.loads(directives_json)
+                    if isinstance(directives, list):
+                        for directive in directives:
+                            if isinstance(directive, dict):
+                                self.db_manager.add_graphql_field_directive(
+                                    field_id=field_id,
+                                    directive_name=directive.get("name", ""),
+                                    directive_args=json.dumps(directive.get("args", {})),
+                                )
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             if "graphql_fields" not in self.counts:
                 self.counts["graphql_fields"] = 0
             self.counts["graphql_fields"] += 1
@@ -194,15 +234,36 @@ class InfrastructureStorage(BaseStorage):
     def _store_graphql_field_args(self, file_path: str, graphql_field_args: list, jsx_pass: bool):
         """Store GraphQL field argument definition records."""
         for arg in graphql_field_args:
+            field_id = arg["field_id"]
+            arg_name = arg["arg_name"]
+            directives_json = arg.get("directives_json")
+
+            # Main table (NO JSON blob - use junction table)
             self.db_manager.add_graphql_field_arg(
-                field_id=arg["field_id"],
-                arg_name=arg["arg_name"],
+                field_id=field_id,
+                arg_name=arg_name,
                 arg_type=arg["arg_type"],
                 has_default=arg.get("has_default", False),
                 default_value=arg.get("default_value"),
                 is_nullable=arg.get("is_nullable", True),
-                directives_json=arg.get("directives_json"),
             )
+
+            # Junction table: graphql_arg_directives
+            if field_id and arg_name and directives_json:
+                try:
+                    directives = json.loads(directives_json)
+                    if isinstance(directives, list):
+                        for directive in directives:
+                            if isinstance(directive, dict):
+                                self.db_manager.add_graphql_arg_directive(
+                                    field_id=field_id,
+                                    arg_name=arg_name,
+                                    directive_name=directive.get("name", ""),
+                                    directive_args=json.dumps(directive.get("args", {})),
+                                )
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             if "graphql_field_args" not in self.counts:
                 self.counts["graphql_field_args"] = 0
             self.counts["graphql_field_args"] += 1

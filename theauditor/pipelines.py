@@ -317,9 +317,21 @@ async def run_full_pipeline(
 
     reset_stop_flag()
 
-    # Initialize renderer with log file
+    # Create directory FIRST
     pf_dir = Path(root) / ".pf"
     pf_dir.mkdir(parents=True, exist_ok=True)
+
+    # Archive PREVIOUS run BEFORE opening new log file
+    # This prevents WinError 32 (file locked) because log isn't opened yet
+    archive_success = True
+    try:
+        from theauditor.commands._archive import _archive
+        _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
+    except Exception as e:
+        print(f"[WARNING] Archiving failed: {e}", file=sys.stderr)
+        archive_success = False
+
+    # NOW initialize renderer (safe to open log file)
     log_file_path = pf_dir / "pipeline.log"
     error_log_path = pf_dir / "error.log"
 
@@ -330,11 +342,8 @@ async def run_full_pipeline(
     all_created_files: list[str] = []
 
     try:
-        # Archive previous run
-        from theauditor.commands._archive import _archive
-
-        _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
-        renderer.on_log("[INFO] Previous run archived successfully")
+        if archive_success:
+            renderer.on_log("[INFO] Previous run archived successfully")
 
         # Initialize journal
         from theauditor.journal import get_journal_writer

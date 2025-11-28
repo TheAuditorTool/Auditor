@@ -119,7 +119,6 @@ class TerraformGraphBuilder:
 
         cursor.execute("""
             SELECT resource_id, file_path, resource_type, resource_name,
-                   properties_json, depends_on_json, sensitive_flags_json,
                    has_public_exposure
             FROM terraform_resources
         """)
@@ -128,6 +127,12 @@ class TerraformGraphBuilder:
             stats["total_resources"] += 1
 
             resource_id = row["resource_id"]
+
+            # Get properties from junction table
+            properties = self._get_resource_properties(cursor, resource_id)
+            sensitive_props = [p for p, v in properties.items()
+                              if self._is_property_sensitive(cursor, resource_id, p)]
+
             nodes[resource_id] = ProvisioningNode(
                 id=resource_id,
                 file=row["file_path"],
@@ -136,16 +141,11 @@ class TerraformGraphBuilder:
                 name=row["resource_name"],
                 has_public_exposure=bool(row["has_public_exposure"]),
                 metadata={
-                    "properties": json.loads(row["properties_json"])
-                    if row["properties_json"]
-                    else {},
-                    "sensitive_properties": json.loads(row["sensitive_flags_json"])
-                    if row["sensitive_flags_json"]
-                    else [],
+                    "properties": properties,
+                    "sensitive_properties": sensitive_props,
                 },
             )
 
-            properties = json.loads(row["properties_json"]) if row["properties_json"] else {}
             var_refs = self._extract_variable_references(properties)
 
             for var_name in var_refs:
@@ -165,7 +165,8 @@ class TerraformGraphBuilder:
                     )
                     stats["edges_created"] += 1
 
-            depends_on = json.loads(row["depends_on_json"]) if row["depends_on_json"] else []
+            # Get dependencies from junction table
+            depends_on = self._get_resource_deps(cursor, resource_id)
             for dep_ref in depends_on:
                 dep_id = self._resolve_resource_reference(cursor, dep_ref, row["file_path"])
                 if dep_id and dep_id in nodes:
@@ -377,6 +378,77 @@ class TerraformGraphBuilder:
             if isinstance(val, str) and var_name in val:
                 return key
         return None
+
+    def _get_resource_properties(self, cursor, resource_id: str) -> dict[str, Any]:
+        """Get resource properties from junction table.
+
+        Args:
+            cursor: Database cursor
+            resource_id: Resource ID to look up
+
+        Returns:
+            Dict of property_name -> property_value
+        """
+        cursor.execute(
+            """
+            SELECT property_name, property_value
+            FROM terraform_resource_properties
+            WHERE resource_id = ?
+            """,
+            (resource_id,),
+        )
+        properties = {}
+        for row in cursor.fetchall():
+            value = row["property_value"]
+            # Try to parse JSON values
+            if value:
+                try:
+                    properties[row["property_name"]] = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    properties[row["property_name"]] = value
+            else:
+                properties[row["property_name"]] = value
+        return properties
+
+    def _is_property_sensitive(self, cursor, resource_id: str, property_name: str) -> bool:
+        """Check if a property is marked as sensitive.
+
+        Args:
+            cursor: Database cursor
+            resource_id: Resource ID
+            property_name: Property name to check
+
+        Returns:
+            True if property is sensitive
+        """
+        cursor.execute(
+            """
+            SELECT is_sensitive FROM terraform_resource_properties
+            WHERE resource_id = ? AND property_name = ?
+            """,
+            (resource_id, property_name),
+        )
+        row = cursor.fetchone()
+        return bool(row and row["is_sensitive"]) if row else False
+
+    def _get_resource_deps(self, cursor, resource_id: str) -> list[str]:
+        """Get resource dependencies from junction table.
+
+        Args:
+            cursor: Database cursor
+            resource_id: Resource ID to look up
+
+        Returns:
+            List of dependency references
+        """
+        cursor.execute(
+            """
+            SELECT depends_on_ref FROM terraform_resource_deps
+            WHERE resource_id = ?
+            """,
+            (resource_id,),
+        )
+        return [row["depends_on_ref"] for row in cursor.fetchall()]
 
     def _write_to_graphs_db(self, graph: dict[str, Any]):
         """Write graph to graphs.db using XGraphStore.save_custom_graph().

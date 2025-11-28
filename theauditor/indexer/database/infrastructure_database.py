@@ -19,18 +19,17 @@ class InfrastructureDatabaseMixin:
         self,
         file_path: str,
         base_image: str | None,
-        exposed_ports: list[str],
-        env_vars: dict,
-        build_args: dict,
         user: str | None,
         has_healthcheck: bool,
     ):
-        """Add a Docker image record to the batch."""
-        ports_json = json.dumps(exposed_ports)
-        env_json = json.dumps(env_vars)
-        args_json = json.dumps(build_args)
+        """Add a Docker image record to the batch.
+
+        Note: Ports, env vars, build args go to junction tables:
+        - dockerfile_ports (via add_dockerfile_port)
+        - dockerfile_env_vars (via add_dockerfile_env_var)
+        """
         self.generic_batches["docker_images"].append(
-            (file_path, base_image, ports_json, env_json, args_json, user, has_healthcheck)
+            (file_path, base_image, user, has_healthcheck)
         )
 
     def add_compose_service(
@@ -38,52 +37,27 @@ class InfrastructureDatabaseMixin:
         file_path: str,
         service_name: str,
         image: str | None,
-        ports: list[str],
-        volumes: list[str],
-        environment: dict,
         is_privileged: bool,
         network_mode: str,
         user: str | None = None,
-        cap_add: list[str] | None = None,
-        cap_drop: list[str] | None = None,
         security_opt: list[str] | None = None,
         restart: str | None = None,
         command: list[str] | None = None,
         entrypoint: list[str] | None = None,
-        depends_on: list[str] | None = None,
         healthcheck: dict | None = None,
     ):
         """Add a Docker Compose service record to the batch.
 
-        Args:
-            file_path: Path to docker-compose.yml
-            service_name: Name of the service
-            image: Docker image name
-            ports: List of port mappings
-            volumes: List of volume mounts
-            environment: Dictionary of environment variables
-            is_privileged: Whether service runs in privileged mode
-            network_mode: Network mode (bridge, host, etc.)
-            user: User/UID to run as (security: detect root)
-            cap_add: Linux capabilities to add (security: detect dangerous caps)
-            cap_drop: Linux capabilities to drop (security: enforce hardening)
-            security_opt: Security options (security: detect disabled AppArmor/SELinux)
-            restart: Restart policy (operational: availability)
-            command: Override CMD instruction (security: command injection risk)
-            entrypoint: Override ENTRYPOINT instruction (security: tampering)
-            depends_on: Service dependencies (operational: dependency graph)
-            healthcheck: Health check configuration (operational: availability)
+        Note: Ports, volumes, environment, capabilities, depends_on go to junction tables:
+        - compose_service_ports (via add_compose_service_port)
+        - compose_service_volumes (via add_compose_service_volume)
+        - compose_service_env (via add_compose_service_env)
+        - compose_service_capabilities (via add_compose_service_capability)
+        - compose_service_deps (via add_compose_service_dep)
         """
-        ports_json = json.dumps(ports)
-        volumes_json = json.dumps(volumes)
-        env_json = json.dumps(environment)
-
-        cap_add_json = json.dumps(cap_add) if cap_add else None
-        cap_drop_json = json.dumps(cap_drop) if cap_drop else None
         security_opt_json = json.dumps(security_opt) if security_opt else None
         command_json = json.dumps(command) if command else None
         entrypoint_json = json.dumps(entrypoint) if entrypoint else None
-        depends_on_json = json.dumps(depends_on) if depends_on else None
         healthcheck_json = json.dumps(healthcheck) if healthcheck else None
 
         self.generic_batches["compose_services"].append(
@@ -91,19 +65,13 @@ class InfrastructureDatabaseMixin:
                 file_path,
                 service_name,
                 image,
-                ports_json,
-                volumes_json,
-                env_json,
                 is_privileged,
                 network_mode,
                 user,
-                cap_add_json,
-                cap_drop_json,
                 security_opt_json,
                 restart,
                 command_json,
                 entrypoint_json,
-                depends_on_json,
                 healthcheck_json,
             )
         )
@@ -151,13 +119,15 @@ class InfrastructureDatabaseMixin:
         resource_type: str,
         resource_name: str,
         module_path: str | None = None,
-        properties_json: str | None = None,
-        depends_on_json: str | None = None,
-        sensitive_flags_json: str | None = None,
         has_public_exposure: bool = False,
         line: int | None = None,
     ):
-        """Add a Terraform resource record to the batch."""
+        """Add a Terraform resource record to the batch.
+
+        Note: Properties, depends_on, sensitive flags go to junction tables:
+        - terraform_resource_properties (via add_terraform_resource_property)
+        - terraform_resource_deps (via add_terraform_resource_dep)
+        """
         self.generic_batches["terraform_resources"].append(
             (
                 resource_id,
@@ -165,9 +135,6 @@ class InfrastructureDatabaseMixin:
                 resource_type,
                 resource_name,
                 module_path,
-                properties_json,
-                depends_on_json,
-                sensitive_flags_json,
                 has_public_exposure,
                 line,
             )
@@ -498,4 +465,147 @@ class InfrastructureDatabaseMixin:
         """
         self.generic_batches["github_step_references"].append(
             (step_id, reference_location, reference_type, reference_path)
+        )
+
+    # ========== JUNCTION TABLE METHODS (Phase 1.6) ==========
+
+    def add_dockerfile_port(
+        self,
+        file_path: str,
+        port: str,
+        protocol: str = "tcp",
+    ):
+        """Add a Dockerfile EXPOSE port to the batch.
+
+        Schema: dockerfile_ports(file_path, port, protocol)
+        FK: docker_images.file_path (TEXT)
+        """
+        self.generic_batches["dockerfile_ports"].append((file_path, port, protocol))
+
+    def add_dockerfile_env_var(
+        self,
+        file_path: str,
+        var_name: str,
+        var_value: str | None,
+        is_build_arg: bool = False,
+    ):
+        """Add a Dockerfile ENV/ARG variable to the batch.
+
+        Schema: dockerfile_env_vars(file_path, var_name, var_value, is_build_arg)
+        FK: docker_images.file_path (TEXT)
+        """
+        self.generic_batches["dockerfile_env_vars"].append(
+            (file_path, var_name, var_value, 1 if is_build_arg else 0)
+        )
+
+    def add_compose_service_port(
+        self,
+        file_path: str,
+        service_name: str,
+        host_port: str | None,
+        container_port: str,
+        protocol: str = "tcp",
+    ):
+        """Add a compose service port mapping to the batch.
+
+        Schema: compose_service_ports(file_path, service_name, host_port, container_port, protocol)
+        FK: compose_services(file_path, service_name) composite
+        """
+        self.generic_batches["compose_service_ports"].append(
+            (file_path, service_name, host_port, container_port, protocol)
+        )
+
+    def add_compose_service_volume(
+        self,
+        file_path: str,
+        service_name: str,
+        host_path: str,
+        container_path: str,
+        mode: str = "rw",
+    ):
+        """Add a compose service volume mapping to the batch.
+
+        Schema: compose_service_volumes(file_path, service_name, host_path, container_path, mode)
+        FK: compose_services(file_path, service_name) composite
+        """
+        self.generic_batches["compose_service_volumes"].append(
+            (file_path, service_name, host_path, container_path, mode)
+        )
+
+    def add_compose_service_env(
+        self,
+        file_path: str,
+        service_name: str,
+        var_name: str,
+        var_value: str | None,
+    ):
+        """Add a compose service environment variable to the batch.
+
+        Schema: compose_service_env(file_path, service_name, var_name, var_value)
+        FK: compose_services(file_path, service_name) composite
+        """
+        self.generic_batches["compose_service_env"].append(
+            (file_path, service_name, var_name, var_value)
+        )
+
+    def add_compose_service_capability(
+        self,
+        file_path: str,
+        service_name: str,
+        capability: str,
+        is_add: bool = True,
+    ):
+        """Add a compose service capability (cap_add/cap_drop) to the batch.
+
+        Schema: compose_service_capabilities(file_path, service_name, capability, is_add)
+        FK: compose_services(file_path, service_name) composite
+        """
+        self.generic_batches["compose_service_capabilities"].append(
+            (file_path, service_name, capability, 1 if is_add else 0)
+        )
+
+    def add_compose_service_dep(
+        self,
+        file_path: str,
+        service_name: str,
+        depends_on_service: str,
+        condition: str = "service_started",
+    ):
+        """Add a compose service dependency to the batch.
+
+        Schema: compose_service_deps(file_path, service_name, depends_on_service, condition)
+        FK: compose_services(file_path, service_name) composite
+        """
+        self.generic_batches["compose_service_deps"].append(
+            (file_path, service_name, depends_on_service, condition)
+        )
+
+    def add_terraform_resource_property(
+        self,
+        resource_id: str,
+        property_name: str,
+        property_value: str,
+        is_sensitive: bool = False,
+    ):
+        """Add a Terraform resource property to the batch.
+
+        Schema: terraform_resource_properties(resource_id, property_name, property_value, is_sensitive)
+        FK: terraform_resources.resource_id (TEXT)
+        """
+        self.generic_batches["terraform_resource_properties"].append(
+            (resource_id, property_name, property_value, 1 if is_sensitive else 0)
+        )
+
+    def add_terraform_resource_dep(
+        self,
+        resource_id: str,
+        depends_on_resource: str,
+    ):
+        """Add a Terraform resource dependency to the batch.
+
+        Schema: terraform_resource_deps(resource_id, depends_on_resource)
+        FK: terraform_resources.resource_id (TEXT)
+        """
+        self.generic_batches["terraform_resource_deps"].append(
+            (resource_id, depends_on_resource)
         )

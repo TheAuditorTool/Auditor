@@ -464,35 +464,18 @@ class NodeDatabaseMixin:
         file_path: str,
         package_name: str,
         version: str,
-        dependencies: dict | None,
-        dev_dependencies: dict | None,
-        peer_dependencies: dict | None,
-        scripts: dict | None,
-        engines: dict | None,
-        workspaces: list | None,
         is_private: bool = False,
     ):
-        """Add a package.json configuration to the batch."""
-        deps_json = json.dumps(dependencies) if dependencies else None
-        dev_deps_json = json.dumps(dev_dependencies) if dev_dependencies else None
-        peer_deps_json = json.dumps(peer_dependencies) if peer_dependencies else None
-        scripts_json = json.dumps(scripts) if scripts else None
-        engines_json = json.dumps(engines) if engines else None
-        workspaces_json = json.dumps(workspaces) if workspaces else None
+        """Add a package.json configuration to the batch.
 
+        Note: Dependencies, scripts, engines, workspaces go to junction tables:
+        - package_dependencies (via add_package_dependency)
+        - package_scripts (via add_package_script)
+        - package_engines (via add_package_engine)
+        - package_workspaces (via add_package_workspace)
+        """
         self.generic_batches["package_configs"].append(
-            (
-                file_path,
-                package_name,
-                version,
-                deps_json,
-                dev_deps_json,
-                peer_deps_json,
-                scripts_json,
-                engines_json,
-                workspaces_json,
-                is_private,
-            )
+            (file_path, package_name, version, is_private)
         )
 
     def add_lock_analysis(
@@ -830,4 +813,65 @@ class NodeDatabaseMixin:
                 1 if is_unique else 0,
                 default_value,
             )
+        )
+
+    def add_package_dependency(
+        self,
+        file_path: str,
+        name: str,
+        version_spec: str | None,
+        is_dev: bool = False,
+        is_peer: bool = False,
+    ):
+        """Add a package dependency to the batch.
+
+        Schema: package_dependencies(file_path, name, version_spec, is_dev, is_peer)
+        FK: package_configs.file_path (TEXT)
+        """
+        self.generic_batches["package_dependencies"].append(
+            (file_path, name, version_spec, 1 if is_dev else 0, 1 if is_peer else 0)
+        )
+
+    def add_package_script(
+        self,
+        file_path: str,
+        script_name: str,
+        script_command: str,
+    ):
+        """Add a package script to the batch.
+
+        Schema: package_scripts(file_path, script_name, script_command)
+        FK: package_configs.file_path (TEXT)
+        """
+        self.generic_batches["package_scripts"].append(
+            (file_path, script_name, script_command)
+        )
+
+    def add_package_engine(
+        self,
+        file_path: str,
+        engine_name: str,
+        version_spec: str | None,
+    ):
+        """Add a package engine requirement to the batch.
+
+        Schema: package_engines(file_path, engine_name, version_spec)
+        FK: package_configs.file_path (TEXT)
+        """
+        self.generic_batches["package_engines"].append(
+            (file_path, engine_name, version_spec)
+        )
+
+    def add_package_workspace(
+        self,
+        file_path: str,
+        workspace_path: str,
+    ):
+        """Add a package workspace to the batch.
+
+        Schema: package_workspaces(file_path, workspace_path)
+        FK: package_configs.file_path (TEXT)
+        """
+        self.generic_batches["package_workspaces"].append(
+            (file_path, workspace_path)
         )
