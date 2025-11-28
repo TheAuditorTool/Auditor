@@ -1,13 +1,4 @@
-"""DiffScorer - Score code diffs using TheAuditor's SAST pipeline.
-
-This module runs diffs from Edit/Write tool calls through the complete SAST stack:
-- Taint analysis (SQL injection, XSS, command injection)
-- Pattern detection (f-strings in SQL, hardcoded secrets)
-- FCE correlation (incomplete refactors, missed related files)
-- RCA historical risk (file's failure rate from git history)
-
-Aggregate scores into a single risk metric (0.0-1.0).
-"""
+"""DiffScorer - Score code diffs using TheAuditor's SAST pipeline."""
 
 import logging
 import tempfile
@@ -42,26 +33,13 @@ class DiffScorer:
     """Score diffs using TheAuditor's SAST pipeline."""
 
     def __init__(self, db_path: Path, project_root: Path):
-        """Initialize diff scorer.
-
-        Args:
-            db_path: Path to repo_index.db for RCA queries
-            project_root: Root directory of project being analyzed
-        """
+        """Initialize diff scorer."""
         self.db_path = db_path
         self.project_root = project_root
         self.temp_files = []
 
     def score_diff(self, tool_call: ToolCall, files_read: set) -> DiffScore | None:
-        """Score a single diff from Edit/Write tool call.
-
-        Args:
-            tool_call: ToolCall object with diff information
-            files_read: Set of files read before this tool call (for blind edit detection)
-
-        Returns:
-            DiffScore object or None if scoring failed
-        """
+        """Score a single diff from Edit/Write tool call."""
 
         if tool_call.tool_name not in ["Edit", "Write"]:
             return None
@@ -111,14 +89,7 @@ class DiffScorer:
             self._cleanup_temp_files()
 
     def _extract_diff(self, tool_call: ToolCall) -> tuple[str | None, str, str]:
-        """Extract file path, old code, and new code from tool call.
-
-        Args:
-            tool_call: ToolCall object
-
-        Returns:
-            Tuple of (file_path, old_code, new_code)
-        """
+        """Extract file path, old code, and new code from tool call."""
         params = tool_call.input_params
         file_path = params.get("file_path")
         old_code = params.get("old_string", "")
@@ -127,15 +98,7 @@ class DiffScorer:
         return file_path, old_code, new_code
 
     def _write_temp_diff(self, file_path: str, new_code: str) -> Path | None:
-        """Write diff to temporary file for analysis.
-
-        Args:
-            file_path: Original file path (for extension)
-            new_code: New code content
-
-        Returns:
-            Path to temp file or None if failed
-        """
+        """Write diff to temporary file for analysis."""
         try:
             ext = Path(file_path).suffix if file_path else ".txt"
 
@@ -151,14 +114,7 @@ class DiffScorer:
             return None
 
     def _run_taint(self, temp_file: Path) -> float:
-        """Run taint analysis on diff (simplified version).
-
-        Args:
-            temp_file: Path to temp file with code
-
-        Returns:
-            Taint risk score (0.0-1.0)
-        """
+        """Run taint analysis on diff (simplified version)."""
 
         try:
             with open(temp_file, encoding="utf-8") as f:
@@ -178,15 +134,7 @@ class DiffScorer:
             return 0.0
 
     def _run_patterns(self, temp_file: Path, new_code: str) -> float:
-        """Run pattern detection on diff (simplified version).
-
-        Args:
-            temp_file: Path to temp file with code
-            new_code: New code content
-
-        Returns:
-            Pattern risk score (0.0-1.0)
-        """
+        """Run pattern detection on diff (simplified version)."""
 
         risk = 0.0
 
@@ -203,43 +151,19 @@ class DiffScorer:
         return risk
 
     def _check_completeness(self, file_path: str) -> float:
-        """Check if modification is complete via FCE (simplified).
-
-        Args:
-            file_path: Path to file being modified
-
-        Returns:
-            Completeness risk score (0.0-1.0)
-        """
+        """Check if modification is complete via FCE (simplified)."""
 
         return 0.0
 
     def _get_historical_risk(self, file_path: str) -> float:
-        """Get historical risk from RCA stats (simplified).
-
-        Args:
-            file_path: Path to file being modified
-
-        Returns:
-            Historical risk score (0.0-1.0)
-        """
+        """Get historical risk from RCA stats (simplified)."""
 
         if "api.py" in file_path or "auth.py" in file_path:
             return 0.5
         return 0.1
 
     def _aggregate_scores(self, taint: float, patterns: float, fce: float, rca: float) -> float:
-        """Aggregate scores from all analyses into single risk score.
-
-        Args:
-            taint: Taint analysis score
-            patterns: Pattern detection score
-            fce: FCE completeness score
-            rca: RCA historical risk score
-
-        Returns:
-            Aggregate risk score (0.0-1.0)
-        """
+        """Aggregate scores from all analyses into single risk score."""
 
         weights = {"taint": 0.4, "patterns": 0.3, "fce": 0.2, "rca": 0.1}
 

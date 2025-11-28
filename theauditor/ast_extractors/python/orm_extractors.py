@@ -1,18 +1,4 @@
-"""ORM framework extractors - SQLAlchemy and Django ORM.
-
-This module extracts database ORM patterns:
-- SQLAlchemy: Models, fields, relationships (1:1, 1:N, M:N)
-- Django ORM: Models, relationships, ForeignKey/ManyToMany
-- Flask: Blueprints (TEMPORARY - will move to flask_extractors.py in future PR)
-
-ARCHITECTURAL CONTRACT:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'model_name', 'field_name', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""ORM framework extractors - SQLAlchemy and Django ORM."""
 
 import ast
 import logging
@@ -39,10 +25,7 @@ DJANGO_MODEL_BASES = {
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -53,10 +36,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
-    """Fetch keyword argument by name from AST call.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Fetch keyword argument by name from AST call."""
     for keyword in call.keywords:
         if keyword.arg == name:
             return keyword.value
@@ -64,10 +44,7 @@ def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
 
 
 def _get_bool_constant(node: ast.AST | None) -> bool | None:
-    """Return boolean value for constant/literal nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return boolean value for constant/literal nodes."""
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return node.value
     if isinstance(node, ast.Name):
@@ -456,11 +433,7 @@ def extract_django_definitions(context: FileContext) -> tuple[list[dict], list[d
 
 
 def extract_flask_blueprints(context: FileContext) -> list[dict]:
-    """Detect Flask blueprint declarations.
-
-    TEMPORARY: This function logically belongs in flask_extractors.py
-    Will be moved to flask_extractors.py in future PR to avoid scope creep.
-    """
+    """Detect Flask blueprint declarations."""
     blueprints: list[dict[str, Any]] = []
     if not isinstance(context.tree, ast.AST):
         return blueprints

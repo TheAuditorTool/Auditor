@@ -1,10 +1,4 @@
-"""Prisma schema extractor - Database-First Architecture.
-
-Extracts Prisma ORM model definitions from schema.prisma files.
-Inlines parsing logic (no separate parser class).
-
-Populates prisma_models table for use by rules/orm/prisma_analyze.py.
-"""
+"""Prisma schema extractor - Database-First Architecture."""
 
 import re
 from pathlib import Path
@@ -14,47 +8,21 @@ from . import BaseExtractor
 
 
 class PrismaExtractor(BaseExtractor):
-    """Extractor for Prisma schema files.
-
-    Parses schema.prisma files to extract model definitions and field metadata.
-    Direct database writes via self.db_manager.add_prisma_model().
-    """
+    """Extractor for Prisma schema files."""
 
     def supported_extensions(self) -> list[str]:
-        """Return list of file extensions this extractor supports.
-
-        Prisma schemas don't have a specific extension, match by filename.
-        """
+        """Return list of file extensions this extractor supports."""
         return []
 
     def should_extract(self, file_path: str) -> bool:
-        """Check if this extractor should handle the file.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            True if this is a schema.prisma file
-        """
+        """Check if this extractor should handle the file."""
         file_name_lower = Path(file_path).name.lower()
         return file_name_lower == "schema.prisma"
 
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract Prisma models directly to database.
-
-        Parses schema.prisma content inline (regex-based).
-        Writes to prisma_models table via self.db_manager.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree (not used for Prisma)
-
-        Returns:
-            Minimal dict for indexer compatibility
-        """
+        """Extract Prisma models directly to database."""
         try:
             models = self._parse_schema(content)
 
@@ -75,17 +43,7 @@ class PrismaExtractor(BaseExtractor):
         return {}
 
     def _parse_schema(self, content: str) -> list[dict[str, Any]]:
-        """Parse Prisma schema content to extract models.
-
-        Inline parsing logic (copied from prisma_schema_parser.py).
-        Uses regex to extract model definitions and fields.
-
-        Args:
-            content: schema.prisma file content
-
-        Returns:
-            List of model dictionaries with fields
-        """
+        """Parse Prisma schema content to extract models."""
         models = []
 
         model_pattern = re.compile(r"model\s+(\w+)\s*\{([^}]*)\}", re.DOTALL)
@@ -101,14 +59,7 @@ class PrismaExtractor(BaseExtractor):
         return models
 
     def _parse_fields(self, content: str) -> list[dict[str, Any]]:
-        """Parse fields within a model block.
-
-        Args:
-            content: Content inside model { } block
-
-        Returns:
-            List of field dictionaries
-        """
+        """Parse fields within a model block."""
         fields = []
         lines = content.strip().split("\n")
 

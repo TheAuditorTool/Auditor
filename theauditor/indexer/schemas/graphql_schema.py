@@ -1,25 +1,4 @@
-"""
-GraphQL schema definitions - GraphQL schema, types, fields, and resolver mappings.
-
-This module contains table schemas for GraphQL analysis:
-- Schema files and fingerprints (SDL and code-first)
-- Type definitions, fields, and arguments
-- Resolver mappings from GraphQL fields to backend symbols
-- Execution graph edges for taint and security analysis
-- Findings cache for FCE integration
-
-Design Philosophy:
-- Language-agnostic GraphQL patterns (JavaScript, TypeScript, Python)
-- Bridges GraphQL schema layer to backend implementation
-- Enables deterministic taint flows and auth verification
-- Integrates with existing symbols table via resolver_symbol_id foreign keys
-
-These tables are populated by:
-- GraphQL extractor (.graphql/.gql/.graphqls SDL parsing)
-- JavaScript extractor (Apollo, NestJS, TypeGraphQL resolver detection)
-- Python extractor (Graphene, Ariadne, Strawberry resolver detection)
-- GraphQL build command (execution graph construction)
-"""
+"""GraphQL schema definitions - GraphQL schema, types, fields, and resolver mappings."""
 
 from .utils import Column, ForeignKey, TableSchema
 
@@ -113,14 +92,13 @@ GRAPHQL_FIELD_ARGS = TableSchema(
 )
 
 
-# Junction tables for GraphQL directives (replaces JSON blob columns)
 GRAPHQL_FIELD_DIRECTIVES = TableSchema(
     name="graphql_field_directives",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("field_id", "INTEGER", nullable=False),  # FK to graphql_fields.field_id
+        Column("field_id", "INTEGER", nullable=False),
         Column("directive_name", "TEXT", nullable=False),
-        Column("arguments_json", "TEXT"),  # JSON for directive args (rarely queried)
+        Column("arguments_json", "TEXT"),
     ],
     indexes=[
         ("idx_graphql_field_directives_field", ["field_id"]),
@@ -140,10 +118,10 @@ GRAPHQL_ARG_DIRECTIVES = TableSchema(
     name="graphql_arg_directives",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("field_id", "INTEGER", nullable=False),  # FK part 1
-        Column("arg_name", "TEXT", nullable=False),  # FK part 2
+        Column("field_id", "INTEGER", nullable=False),
+        Column("arg_name", "TEXT", nullable=False),
         Column("directive_name", "TEXT", nullable=False),
-        Column("arguments_json", "TEXT"),  # JSON for directive args (rarely queried)
+        Column("arguments_json", "TEXT"),
     ],
     indexes=[
         ("idx_graphql_arg_directives_fk", ["field_id", "arg_name"]),

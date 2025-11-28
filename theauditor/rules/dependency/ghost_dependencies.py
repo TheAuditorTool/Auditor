@@ -1,20 +1,4 @@
-"""Detect ghost dependencies - packages imported but not declared.
-
-Ghost dependencies are packages that are used in code (via import/require)
-but not declared in package.json or requirements.txt. This creates hidden
-dependencies that can break builds when node_modules or virtualenv are
-recreated.
-
-Detection Strategy:
-1. Query import_styles table for all package imports
-2. Query package_configs table for all declared dependencies
-3. Find imports that don't have matching declarations
-4. Exclude stdlib packages (built-in Python/Node.js modules)
-
-Database Tables Used:
-- import_styles: Track all import/require statements
-- package_configs: Declared dependencies from package files
-"""
+"""Detect ghost dependencies - packages imported but not declared."""
 
 import json
 import sqlite3
@@ -152,19 +136,7 @@ ALL_STDLIB = PYTHON_STDLIB | NODEJS_STDLIB
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect packages imported in code but not declared in package files.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for ghost dependencies
-
-    Known Limitations:
-    - Cannot detect monorepo workspace dependencies
-    - May flag dev dependencies that are intentionally omitted
-    - Requires accurate import extraction from indexer
-    """
+    """Detect packages imported in code but not declared in package files."""
     findings = []
 
     if not context.db_path:
@@ -187,16 +159,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _get_declared_dependencies(cursor) -> set[str]:
-    """Extract all declared package names from package_configs table.
-
-    Queries package_configs and parses JSON dependency fields.
-
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        Set of declared package names (normalized to lowercase)
-    """
+    """Extract all declared package names from package_configs table."""
     declared = set()
 
     query = build_query(
@@ -220,14 +183,7 @@ def _get_declared_dependencies(cursor) -> set[str]:
 
 
 def _get_imported_packages(cursor) -> dict:
-    """Extract all imported package names from import_styles table.
-
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        Dict mapping package names to list of (file, line) tuples
-    """
+    """Extract all imported package names from import_styles table."""
     imports = {}
 
     query = build_query(
@@ -250,21 +206,7 @@ def _get_imported_packages(cursor) -> dict:
 
 
 def _normalize_package_name(package: str) -> str:
-    """Normalize package name for comparison.
-
-    Examples:
-        'requests' -> 'requests'
-        'django.contrib.auth' -> 'django'
-        'lodash/map' -> 'lodash'
-        '@vue/reactivity' -> '@vue/reactivity'
-        'node:fs' -> 'node:fs' (keep node: prefix)
-
-    Args:
-        package: Raw package name from import
-
-    Returns:
-        Normalized base package name (lowercase)
-    """
+    """Normalize package name for comparison."""
 
     if package.startswith("@"):
         parts = package.split("/", 2)
@@ -283,16 +225,7 @@ def _normalize_package_name(package: str) -> str:
 def _find_ghost_dependencies(
     cursor, imported_packages: dict, declared_deps: set[str]
 ) -> list[StandardFinding]:
-    """Find packages that are imported but not declared.
-
-    Args:
-        cursor: Database cursor
-        imported_packages: Dict of package -> [(file, line, ...)]
-        declared_deps: Set of declared package names
-
-    Returns:
-        List of findings for ghost dependencies
-    """
+    """Find packages that are imported but not declared."""
     findings = []
     seen = set()
 

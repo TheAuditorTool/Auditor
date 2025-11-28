@@ -1,47 +1,4 @@
-"""Fundamental Python pattern extractors - Core language constructs.
-
-This module contains extraction logic for fundamental Python patterns:
-- Comprehensions (list, dict, set, generator)
-- Lambda functions with closure detection
-- Slice operations (start:stop:step)
-- Tuple operations (pack/unpack)
-- Unpacking patterns (extended unpacking)
-- None handling patterns
-- Truthiness patterns
-- String formatting (f-strings, %, format())
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Week 1 Implementation (Python Coverage V2):
-============================================
-Implements 25 patterns for Python fundamentals:
-- Comprehensions: All 4 types with nesting and filter detection
-- Lambda functions: With closure variable capture
-- Slices: All slice notation patterns
-- Tuples: Pack and unpack operations
-- Unpacking: Extended unpacking with *rest patterns
-- None patterns: is None vs == None detection
-- String formatting: All format types (f-string, %, format(), Template)
-
-Expected extraction from TheAuditor codebase:
-- ~200 comprehensions (list/dict/set/generator)
-- ~100 lambda functions
-- ~150 slice operations
-- ~300 tuple operations
-- ~50 unpacking patterns
-- ~200 None patterns
-- ~100 string formatting patterns
-Total: ~1,100 fundamental pattern records
-"""
+"""Fundamental Python pattern extractors - Core language constructs."""
 
 import ast
 import logging
@@ -55,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -69,11 +23,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _get_node_text(node: ast.AST) -> str:
-    """Convert AST node to approximate source text.
-
-    This is a best-effort reconstruction. For accurate source text,
-    use ast.get_source_segment() with original source code.
-    """
+    """Convert AST node to approximate source text."""
     try:
         if isinstance(node, ast.Name):
             return node.id
@@ -105,15 +55,7 @@ def _get_node_text(node: ast.AST) -> str:
 
 
 def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
-    """Find the function containing this node.
-
-    Args:
-        node: AST node to locate
-        function_ranges: List of (name, start, end) tuples
-
-    Returns:
-        Function name or 'global'
-    """
+    """Find the function containing this node."""
     if not hasattr(node, "lineno"):
         return "global"
 
@@ -127,16 +69,7 @@ def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
 def _detect_closure_captures(
     lambda_node: ast.Lambda, function_ranges: list, all_nodes: list[ast.AST]
 ) -> list[str]:
-    """Detect variables captured from outer scope in lambda.
-
-    Args:
-        lambda_node: The lambda AST node
-        function_ranges: List of function ranges for context
-        all_nodes: All AST nodes in the tree (for scope analysis)
-
-    Returns:
-        List of variable names captured from outer scope
-    """
+    """Detect variables captured from outer scope in lambda."""
 
     lambda_params = set()
     if lambda_node.args:
@@ -173,39 +106,7 @@ def _detect_closure_captures(
 
 
 def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract all comprehension types from Python code.
-
-    Detects:
-    - List comprehensions: [x for x in items]
-    - Dict comprehensions: {k: v for k, v in items}
-    - Set comprehensions: {x for x in items}
-    - Generator expressions: (x for x in items)
-
-    Also detects:
-    - Nested comprehensions (nesting_level)
-    - Filter conditions (has_filter, filter_expr)
-    - Multiple iteration sources
-
-    Args:
-        tree: AST tree dictionary with 'tree' key containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of comprehension dicts:
-        {
-            'line': int,
-            'comp_type': str,  # 'list' | 'dict' | 'set' | 'generator'
-            'result_expr': str,  # Expression being collected
-            'iteration_var': str,  # Primary iteration variable
-            'iteration_source': str,  # What we're iterating over
-            'has_filter': bool,  # Has 'if' condition
-            'filter_expr': str,  # Filter condition if present
-            'nesting_level': int,  # 1 for simple, 2+ for nested
-            'in_function': str,  # Containing function name
-        }
-
-    Enables curriculum: Chapter 9 - Comprehensions and generators
-    """
+    """Extract all comprehension types from Python code."""
     comprehensions = []
 
     if not isinstance(context.tree, ast.AST):
@@ -296,33 +197,7 @@ def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract lambda function definitions with closure detection.
-
-    Detects:
-    - Lambda expressions: lambda x: x + 1
-    - Multi-parameter lambdas: lambda x, y: x + y
-    - Closure captures: lambda x: x + outer_var
-    - Usage context: map, filter, sorted, direct assignment
-
-    Args:
-        tree: AST tree dictionary with 'tree' key
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of lambda dicts:
-        {
-            'line': int,
-            'parameters': List[str],  # ['x', 'y']
-            'parameter_count': int,
-            'body': str,  # Body expression as text
-            'captures_closure': bool,  # True if references outer variables
-            'captured_vars': List[str],  # Variables from outer scope
-            'used_in': str,  # 'map' | 'filter' | 'sorted_key' | 'assignment' | 'argument'
-            'in_function': str,
-        }
-
-    Enables curriculum: Chapter 8 - Lambda functions and closures
-    """
+    """Extract lambda function definitions with closure detection."""
     lambda_functions = []
 
     if not isinstance(context.tree, ast.AST):
@@ -387,30 +262,7 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract slice operations (start:stop:step patterns).
-
-    Detects:
-    - Simple slices: list[1:10]
-    - Step slices: list[::2]
-    - Negative indices: list[-5:]
-    - Slice assignments: list[0:5] = [1, 2, 3]
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of slice dicts:
-        {
-            'line': int,
-            'target': str,  # Variable being sliced
-            'has_start': bool,
-            'has_stop': bool,
-            'has_step': bool,
-            'is_assignment': bool,
-            'in_function': str,
-        }
-    """
+    """Extract slice operations (start:stop:step patterns)."""
     slices = []
 
     if not isinstance(context.tree, ast.AST):
@@ -435,26 +287,7 @@ def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract tuple pack/unpack operations.
-
-    Detects:
-    - Tuple literals: (1, 2, 3)
-    - Tuple packing: x = 1, 2, 3
-    - Tuple unpacking: a, b, c = tuple_var
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of tuple operation dicts:
-        {
-            'line': int,
-            'operation': str,  # 'pack' | 'unpack' | 'literal'
-            'element_count': int,
-            'in_function': str,
-        }
-    """
+    """Extract tuple pack/unpack operations."""
     tuple_ops = []
 
     if not isinstance(context.tree, ast.AST):
@@ -484,27 +317,7 @@ def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract extended unpacking patterns (a, *rest, b = ...).
-
-    Detects:
-    - Extended unpacking: a, *rest, b = [1, 2, 3, 4, 5]
-    - Nested unpacking: (a, (b, c)) = (1, (2, 3))
-    - List unpacking: [a, b, c] = some_list
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of unpacking pattern dicts:
-        {
-            'line': int,
-            'unpack_type': str,  # 'tuple' | 'list' | 'extended' | 'nested'
-            'target_count': int,
-            'has_rest': bool,  # True if has *rest
-            'in_function': str,
-        }
-    """
+    """Extract extended unpacking patterns (a, *rest, b = ...)."""
     unpacking = []
 
     if not isinstance(context.tree, ast.AST):
@@ -558,28 +371,7 @@ def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract None handling patterns (is None vs == None).
-
-    Detects:
-    - None checks: if x is None
-    - None assignments: x = None
-    - None defaults: def func(x=None)
-    - None returns: return None
-    - Incorrect comparisons: x == None (should use 'is')
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of None pattern dicts:
-        {
-            'line': int,
-            'pattern': str,  # 'is_none_check' | 'none_assignment' | 'none_default' | 'none_return'
-            'uses_is': bool,  # True if uses 'is None' (correct)
-            'in_function': str,
-        }
-    """
+    """Extract None handling patterns (is None vs == None)."""
     none_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -603,26 +395,7 @@ def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract truthiness patterns (implicit bool conversion).
-
-    Detects:
-    - Implicit bool: if x:
-    - Explicit bool: bool(x)
-    - Short circuit: x and y, x or y
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of truthiness dicts:
-        {
-            'line': int,
-            'pattern': str,  # 'implicit_bool' | 'explicit_bool' | 'short_circuit'
-            'expression': str,
-            'in_function': str,
-        }
-    """
+    """Extract truthiness patterns (implicit bool conversion)."""
     truthiness = []
 
     if not isinstance(context.tree, ast.AST):
@@ -646,28 +419,7 @@ def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
-    """Extract string formatting patterns (f-strings, %, format()).
-
-    Detects:
-    - F-strings: f"Hello {name}"
-    - %-formatting: "Hello %s" % name
-    - .format(): "Hello {}".format(name)
-    - Template strings: Template("Hello $name")
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of string formatting dicts:
-        {
-            'line': int,
-            'format_type': str,  # 'f_string' | 'percent' | 'format_method' | 'template'
-            'has_expressions': bool,  # True if has expressions (f"{x + 1}")
-            'var_count': int,  # Number of interpolated variables
-            'in_function': str,
-        }
-    """
+    """Extract string formatting patterns (f-strings, %, format())."""
     formatting = []
 
     if not isinstance(context.tree, ast.AST):

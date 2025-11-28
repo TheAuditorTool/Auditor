@@ -1,17 +1,4 @@
-"""Sequelize ORM Analyzer - Database-First Approach.
-
-Detects Sequelize ORM anti-patterns and performance issues using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-This analyzer uses function_call_args table since orm_queries is not
-populated by the standard indexer.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Sequelize ORM Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -179,21 +166,13 @@ class SequelizeAnalyzer:
     """Analyzer for Sequelize ORM anti-patterns and security issues."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = SequelizePatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of Sequelize ORM issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -295,11 +274,7 @@ class SequelizeAnalyzer:
                     )
 
     def _check_associations_nearby(self, file: str, line: int, model: str) -> int:
-        """Check if model has associations defined nearby.
-
-        Returns:
-            0 if no associations, 1 if maybe, 2 if definitely
-        """
+        """Check if model has associations defined nearby."""
 
         query = build_query("function_call_args", ["callee_function"], where="file = ?")
         self.cursor.execute(query, (file,))
@@ -641,24 +616,13 @@ class SequelizeAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Sequelize ORM anti-patterns and performance issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Sequelize ORM issues found
-    """
+    """Detect Sequelize ORM anti-patterns and performance issues."""
     analyzer = SequelizeAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register Sequelize-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Sequelize-specific taint patterns."""
     patterns = SequelizePatterns()
 
     for pattern in patterns.RAW_QUERY_METHODS:

@@ -1,11 +1,4 @@
-"""SessionExecutionStore - Persist session execution data following dual-write principle.
-
-This module stores session execution data to:
-1. Database (session_executions table in repo_index.db)
-2. JSON files (.pf/session_analysis/)
-
-Implements dual-write principle: all data written to both storage types for consistency.
-"""
+"""SessionExecutionStore - Persist session execution data following dual-write principle."""
 
 import json
 import logging
@@ -45,12 +38,7 @@ class SessionExecutionStore:
     """Store session execution data to database and JSON."""
 
     def __init__(self, db_path: Path = None, json_dir: Path = None):
-        """Initialize session execution store.
-
-        Args:
-            db_path: Path to session database (default: .pf/ml/session_history.db)
-            json_dir: Directory for JSON files (default: .pf/ml/session_analysis/)
-        """
+        """Initialize session execution store."""
 
         self.db_path = db_path or Path(".pf/ml/session_history.db")
         self.json_dir = json_dir or Path(".pf/ml/session_analysis")
@@ -113,11 +101,7 @@ class SessionExecutionStore:
             conn.close()
 
     def store_execution(self, execution: SessionExecution):
-        """Store session execution (dual-write: DB + JSON).
-
-        Args:
-            execution: SessionExecution object to store
-        """
+        """Store session execution (dual-write: DB + JSON)."""
 
         self._write_to_db(execution)
 
@@ -126,11 +110,7 @@ class SessionExecutionStore:
         logger.info(f"Stored session execution: {execution.session_id}")
 
     def _write_to_db(self, execution: SessionExecution):
-        """Write session execution to database.
-
-        Args:
-            execution: SessionExecution object
-        """
+        """Write session execution to database."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -179,11 +159,7 @@ class SessionExecutionStore:
             conn.close()
 
     def _write_to_json(self, execution: SessionExecution):
-        """Write session execution to JSON file.
-
-        Args:
-            execution: SessionExecution object
-        """
+        """Write session execution to JSON file."""
         try:
             json_file = self.json_dir / f"session_{execution.session_id}.json"
 
@@ -195,14 +171,7 @@ class SessionExecutionStore:
             logger.error(f"Failed to write JSON: {e}")
 
     def query_executions_for_file(self, file_path: str) -> list[SessionExecution]:
-        """Query session executions that modified a specific file.
-
-        Args:
-            file_path: File path to search for
-
-        Returns:
-            List of SessionExecution objects
-        """
+        """Query session executions that modified a specific file."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -253,11 +222,7 @@ class SessionExecutionStore:
             conn.close()
 
     def get_statistics(self) -> dict[str, Any]:
-        """Get aggregate statistics from session executions.
-
-        Returns:
-            Dict with statistical summary
-        """
+        """Get aggregate statistics from session executions."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 

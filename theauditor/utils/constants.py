@@ -1,8 +1,4 @@
-"""Centralized constants for TheAuditor utils package.
-
-This module provides a single source of truth for paths, directories,
-and configuration values used across utility modules.
-"""
+"""Centralized constants for TheAuditor utils package."""
 
 from pathlib import Path
 

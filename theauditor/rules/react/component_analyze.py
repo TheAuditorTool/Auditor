@@ -1,11 +1,4 @@
-"""React Component Analyzer - Database-Driven Implementation.
-
-Detects React component anti-patterns and performance issues using data from
-react_components, react_hooks, and function_call_args tables.
-
-Focuses on component structure, organization, and best practices.
-Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
-"""
+"""React Component Analyzer - Database-Driven Implementation."""
 
 import sqlite3
 from collections import defaultdict
@@ -65,21 +58,13 @@ class ReactComponentAnalyzer:
     """Analyzer for React component best practices and anti-patterns."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ReactComponentPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of React component issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -545,16 +530,6 @@ class ReactComponentAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React component anti-patterns and best practices violations.
-
-    Uses data from react_components and related tables for accurate detection
-    of component structure, organization, and performance issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of React component issues found
-    """
+    """Detect React component anti-patterns and best practices violations."""
     analyzer = ReactComponentAnalyzer(context)
     return analyzer.analyze()

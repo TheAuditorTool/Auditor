@@ -1,14 +1,4 @@
-"""Express.js Framework Security Analyzer - Database-First Approach.
-
-Analyzes Express.js applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Express.js Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -123,23 +113,7 @@ class ExpressPatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Express.js security misconfigurations.
-
-    Analyzes database for:
-    - Missing Helmet security middleware
-    - Missing error handler (try/catch) in routes
-    - XSS vulnerabilities (direct output of user input)
-    - Synchronous operations blocking event loop
-    - Missing rate limiting on API endpoints
-    - Body parser without size limit
-    - Database queries directly in route handlers
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Express.js security misconfigurations."""
     analyzer = ExpressAnalyzer(context)
     return analyzer.analyze()
 
@@ -675,14 +649,7 @@ EXPRESS_REDIRECT_SINKS = frozenset(["res.redirect", "response.redirect", "res.lo
 
 
 def register_taint_patterns(taint_registry):
-    """Register Express.js-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Express.js-specific taint patterns."""
 
     for pattern in EXPRESS_INPUT_SOURCES:
         taint_registry.register_source(pattern, "http_request", "javascript")

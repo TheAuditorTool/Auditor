@@ -1,18 +1,4 @@
-"""
-Node/JavaScript/TypeScript-specific schema definitions.
-
-This module contains table schemas specific to Node.js, React, Vue, and TypeScript:
-- Framework-specific patterns (React hooks, Vue composition API)
-- TypeScript type annotations
-- API endpoints and middleware
-- Package management and build analysis
-- Validation frameworks (Zod, Joi, Yup)
-
-Design Philosophy:
-- Node/JS/TS-only tables
-- Framework-agnostic core with framework-specific extensions
-- Complements core schema with JavaScript ecosystem patterns
-"""
+"""Node/JavaScript/TypeScript-specific schema definitions."""
 
 from .utils import Column, ForeignKey, TableSchema
 
@@ -387,12 +373,11 @@ PACKAGE_CONFIGS = TableSchema(
 )
 
 
-# Junction tables for package_configs (replaces JSON blob columns)
 PACKAGE_DEPENDENCIES = TableSchema(
     name="package_dependencies",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("name", "TEXT", nullable=False),
         Column("version_spec", "TEXT"),
         Column("is_dev", "BOOLEAN", default="0"),
@@ -416,7 +401,7 @@ PACKAGE_SCRIPTS = TableSchema(
     name="package_scripts",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("script_name", "TEXT", nullable=False),
         Column("script_command", "TEXT", nullable=False),
     ],
@@ -437,7 +422,7 @@ PACKAGE_ENGINES = TableSchema(
     name="package_engines",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("engine_name", "TEXT", nullable=False),
         Column("version_spec", "TEXT"),
     ],
@@ -458,7 +443,7 @@ PACKAGE_WORKSPACES = TableSchema(
     name="package_workspaces",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to package_configs.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("workspace_path", "TEXT", nullable=False),
     ],
     indexes=[
@@ -517,7 +502,7 @@ IMPORT_STYLES = TableSchema(
         Column("import_style", "TEXT", nullable=False),
         Column("alias_name", "TEXT"),
         Column("full_statement", "TEXT"),
-        Column("resolved_path", "TEXT"),  # Post-indexing resolution target
+        Column("resolved_path", "TEXT"),
     ],
     indexes=[
         ("idx_import_styles_file", ["file"]),

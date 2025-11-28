@@ -1,45 +1,4 @@
-"""Exception flow extractors - Raises, catches, finally blocks, context managers.
-
-This module contains extraction logic for exception control flow patterns:
-- Exception raises (raise ValueError("msg"))
-- Exception handlers (except ValueError as e: ...)
-- Finally blocks (finally: cleanup())
-- Context manager cleanup (already exists in core_extractors, enhanced here)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'exception_type', 'handling_strategy', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Causal Learning Purpose:
-========================
-These extractors enable hypothesis generation for DIEC tool:
-- "Function X raises ValueError when input is negative" → Test with invalid input, assert exception
-- "Function converts ValueError to None" → Test error handling strategy
-- "Function always releases lock even on error" → Test resource cleanup in finally block
-- "Function guarantees resource cleanup via context manager" → Test cleanup occurs
-
-Each extraction enables >3 hypothesis types per python_coverage.md requirements.
-Target >70% validation rate when hypotheses are tested experimentally.
-
-Week 1 Implementation (Priority 1 - Exception Flow):
-======================================================
-Exception flow is fundamental to robustness. Cannot design experiments without knowing
-what exceptions can occur and how they're handled.
-
-Expected extraction from TheAuditor codebase:
-- ~800 exception raises (raise statements)
-- ~600 exception handlers (except clauses)
-- ~200 finally blocks
-- ~400 context managers (already extracted by core_extractors.py)
-Total: ~2,000 exception flow records
-"""
+"""Exception flow extractors - Raises, catches, finally blocks, context managers."""
 
 import ast
 import logging
@@ -54,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -68,16 +24,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _detect_handling_strategy(handler_body: list[ast.stmt]) -> str:
-    """Detect exception handling strategy from handler body.
-
-    Strategies:
-    - 'return_none': except: return None
-    - 're_raise': except: raise
-    - 'log_and_continue': except: logging.error(...); pass
-    - 'convert_to_other': except ValueError: raise TypeError
-    - 'pass': except: pass
-    - 'other': Complex handling logic
-    """
+    """Detect exception handling strategy from handler body."""
     if not handler_body:
         return "pass"
 
@@ -124,33 +71,7 @@ def _detect_handling_strategy(handler_body: list[ast.stmt]) -> str:
 
 
 def extract_exception_raises(context: FileContext) -> list[dict[str, Any]]:
-    """Extract exception raise statements with exception type and context.
-
-    Detects:
-    - raise ValueError("message")
-    - raise CustomError() from original_error
-    - raise  # Re-raise in except block
-    - Conditional raises: if condition: raise Error()
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of exception raise dicts:
-        {
-            'line': int,
-            'exception_type': str,  # 'ValueError'
-            'message': str | None,  # Static message if available
-            'from_exception': str | None,  # For exception chaining
-            'in_function': str,
-            'condition': str | None,  # 'if x < 0' if conditional
-            'is_re_raise': bool,  # True for bare 'raise'
-        }
-
-    Enables hypothesis: "Function X raises ValueError when condition Y"
-    Experiment design: Call X with invalid input, assert ValueError raised
-    """
+    """Extract exception raise statements with exception type and context."""
     raises = []
 
     if not isinstance(context.tree, ast.AST):
@@ -231,31 +152,7 @@ def extract_exception_raises(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_exception_catches(context: FileContext) -> list[dict[str, Any]]:
-    """Extract exception handlers (except clauses) and their handling strategies.
-
-    Detects:
-    - except ValueError as e: ...
-    - except (TypeError, ValueError): ...
-    - except Exception: ...
-    - Multiple except clauses for same try block
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of exception handler dicts:
-        {
-            'line': int,
-            'exception_types': str,  # 'ValueError,TypeError' (comma-separated)
-            'variable_name': str | None,  # 'e' in 'as e'
-            'handling_strategy': str,  # 'return_none' | 're_raise' | 'log_and_continue' | etc.
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X converts ValueError to None"
-    Experiment design: Call X with invalid input, assert returns None instead of raising
-    """
+    """Extract exception handlers (except clauses) and their handling strategies."""
     handlers = []
 
     if not isinstance(context.tree, ast.AST):
@@ -328,29 +225,7 @@ def extract_exception_catches(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_finally_blocks(context: FileContext) -> list[dict[str, Any]]:
-    """Extract finally blocks that always execute.
-
-    Detects:
-    - finally: cleanup()
-    - Resource cleanup patterns (file.close(), lock.release())
-    - Multiple cleanup calls in finally block
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of finally block dicts:
-        {
-            'line': int,
-            'cleanup_calls': str,  # Comma-separated function names called in finally
-            'has_cleanup': bool,  # True if contains function calls (cleanup logic)
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X always releases lock even on error"
-    Experiment design: Call X, simulate error, verify lock released in finally
-    """
+    """Extract finally blocks that always execute."""
     finally_blocks = []
 
     if not isinstance(context.tree, ast.AST):
@@ -418,38 +293,7 @@ def extract_finally_blocks(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract context managers (with statements) that ensure cleanup.
-
-    NOTE: This is an ENHANCED version of core_extractors.extract_python_context_managers().
-    The core version already extracts basic context manager usage. This version adds:
-    - In-function context tracking
-    - Resource type classification (file, lock, database, network)
-    - Cleanup guarantee detection
-
-    Detects:
-    - with open(file) as f: ...
-    - with lock: ...
-    - async with aiohttp.ClientSession() as session: ...
-    - @contextmanager decorated functions
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of context manager dicts:
-        {
-            'line': int,
-            'context_expr': str,  # 'open(file)' or 'lock'
-            'variable_name': str | None,  # 'f' in 'as f'
-            'in_function': str,
-            'is_async': bool,
-            'resource_type': str | None,  # 'file' | 'lock' | 'database' | 'network' | None
-        }
-
-    Enables hypothesis: "Function X guarantees resource cleanup"
-    Experiment design: Call X, check resource released even if exception occurs
-    """
+    """Extract context managers (with statements) that ensure cleanup."""
     context_managers = []
 
     if not isinstance(context.tree, ast.AST):
@@ -469,10 +313,7 @@ def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
         return "global"
 
     def classify_resource_type(context_expr: str) -> str | None:
-        """Classify resource type from context expression.
-
-        Returns: 'file' | 'lock' | 'database' | 'network' | None
-        """
+        """Classify resource type from context expression."""
         if not context_expr:
             return None
 

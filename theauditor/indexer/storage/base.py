@@ -1,13 +1,4 @@
-"""Base class for domain-specific storage modules.
-
-Provides shared infrastructure:
-- db_manager: DatabaseManager instance for database operations
-- counts: Statistics tracking dict (mutated across all handlers)
-- _current_extracted: Cross-cutting data access (e.g., resolved_imports)
-
-All domain storage modules (CoreStorage, PythonStorage, etc.) inherit from
-this base class to access shared dependencies without duplication.
-"""
+"""Base class for domain-specific storage modules."""
 
 
 class BaseStorage:

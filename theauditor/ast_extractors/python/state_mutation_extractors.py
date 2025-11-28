@@ -1,47 +1,4 @@
-"""State mutation extractors - Instance, class, global, argument mutations.
-
-This module contains extraction logic for state mutation patterns:
-- Instance attribute mutations (self.x = value)
-- Class attribute mutations (ClassName.x = value, cls.x = value)
-- Global variable mutations (global x; x = value)
-- Mutable argument modifications (def foo(lst): lst.append(x))
-- Augmented assignments (+=, -=, *=, etc. on any target)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'target', 'operation', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Causal Learning Purpose:
-========================
-These extractors enable hypothesis generation for DIEC tool:
-- "Function X modifies instance attribute Y" → Test by checking object.Y before/after
-- "Function has side effects on class state" → Test by monitoring class attributes
-- "Function has global side effects" → Test by monitoring global variables
-- "Function mutates its arguments" → Test by checking argument state before/after
-
-Each extraction enables >3 hypothesis types per python_coverage.md requirements.
-Target >70% validation rate when hypotheses are tested experimentally.
-
-Week 1 Implementation (Priority 1 - Side Effects):
-===================================================
-This is the HIGHEST VALUE extraction for causal learning. Side effects are the #1
-thing static analysis cannot prove but experimentation can validate.
-
-Expected extraction from TheAuditor codebase:
-- ~500 instance mutations (self.x = value)
-- ~80 class mutations (ClassName.instances += 1)
-- ~100 global mutations (global _cache; _cache[key] = value)
-- ~200 argument mutations (def foo(lst): lst.append(x))
-- ~2,100 augmented assignments (x += 1, y *= 2, etc.)
-Total: ~3,000 state mutation records
-"""
+"""State mutation extractors - Instance, class, global, argument mutations."""
 
 import ast
 import logging
@@ -89,10 +46,7 @@ OP_MAP = {
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -103,31 +57,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract instance attribute mutations (self.x = value).
-
-    Detects:
-    - Direct assignment: self.counter = 0
-    - Augmented assignment: self.counter += 1
-    - Nested attributes: self.config.debug = True
-    - Method calls with side effects: self.items.append(x)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of instance mutation dicts:
-        {
-            'line': int,
-            'target': str,  # 'self.counter'
-            'operation': 'assignment' | 'augmented_assignment' | 'method_call',
-            'in_function': str,  # Function name where mutation occurs
-            'is_init': bool,  # True if in __init__ (expected mutation)
-        }
-
-    Enables hypothesis: "Function X modifies instance attribute Y"
-    Experiment design: Call X, check object.Y before/after
-    """
+    """Extract instance attribute mutations (self.x = value)."""
     mutations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -165,10 +95,7 @@ def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
             function_ranges.append((func_name, start_line, end_line, is_property_setter, is_dunder))
 
     def find_containing_function(line_no):
-        """Find the function containing this line.
-
-        Returns tuple: (function_name, is_property_setter, is_dunder)
-        """
+        """Find the function containing this line."""
         for fname, start, end, is_prop, is_dunder in function_ranges:
             if start <= line_no <= end:
                 return fname, is_prop, is_dunder
@@ -231,30 +158,7 @@ def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract class attribute mutations (ClassName.x = value, cls.x = value).
-
-    Detects:
-    - Class variable assignment: MyClass.instances = []
-    - cls.x = value in @classmethod
-    - ClassName.attr += 1 (augmented on class)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of class mutation dicts:
-        {
-            'line': int,
-            'class_name': str,  # 'MyClass' or 'cls'
-            'attribute': str,  # 'instances'
-            'operation': 'assignment' | 'augmented_assignment',
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X modifies class state Y"
-    Experiment design: Monitor ClassName.Y before/after calling X
-    """
+    """Extract class attribute mutations (ClassName.x = value, cls.x = value)."""
     mutations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -267,10 +171,7 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
         class_names.add(node.name)
 
     def find_containing_function(line_no):
-        """Find the function containing this line.
-
-        Returns tuple: (function_name, is_classmethod)
-        """
+        """Find the function containing this line."""
         for fname, start, end, is_cm in function_ranges:
             if start <= line_no <= end:
                 return fname, is_cm
@@ -315,28 +216,7 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract global variable mutations (global x; x = value).
-
-    Detects:
-    - global statement followed by assignment
-    - Module-level variable reassignment (tracked via scoping)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of global mutation dicts:
-        {
-            'line': int,
-            'global_name': str,  # '_cache'
-            'operation': 'assignment' | 'augmented_assignment' | 'item_assignment' | 'attr_assignment',
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X has global side effects"
-    Experiment design: Monitor global variable before/after calling X
-    """
+    """Extract global variable mutations (global x; x = value)."""
     mutations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -445,30 +325,7 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract mutable argument modifications (def foo(lst): lst.append(x)).
-
-    Detects:
-    - def foo(lst): lst.append(x)
-    - def foo(d): d['key'] = value
-    - Any method call on parameter that mutates it
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of argument mutation dicts:
-        {
-            'line': int,
-            'parameter_name': str,  # 'lst'
-            'mutation_type': str,  # 'method_call' | 'item_assignment' | 'attr_assignment' | 'assignment' | 'augmented_assignment'
-            'mutation_detail': str,  # Method name like 'append', 'update', or operation type
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X mutates its arguments"
-    Experiment design: Pass mutable argument, check state before/after
-    """
+    """Extract mutable argument modifications (def foo(lst): lst.append(x))."""
     mutations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -614,34 +471,7 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
-    """Extract augmented assignments (+=, -=, *=, /=, //=, %=, **=, &=, |=, ^=, >>=, <<=).
-
-    Detects ALL augmented assignments on ANY target:
-    - Instance: self.x += 1
-    - Class: cls.x += 1
-    - Global: global_var += 1
-    - Local: local_var += 1
-    - Argument: param += 1
-
-    Categorizes by target type for intelligent hypothesis generation.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of augmented assignment dicts:
-        {
-            'line': int,
-            'target': str,  # Full target expression (e.g., 'self.counter')
-            'operator': str,  # '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '**=' | '&=' | '|=' | '^=' | '>>=' | '<<='
-            'target_type': str,  # 'instance' | 'class' | 'global' | 'local' | 'argument' | 'subscript' | 'unknown'
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X performs in-place operations on Y"
-    Experiment design: Monitor target variable before/after in-place operation
-    """
+    """Extract augmented assignments (+=, -=, *=, /=, //=, %=, **=, &=, |=, ^=, >>=, <<=)."""
     mutations = []
 
     if not isinstance(context.tree, ast.AST):

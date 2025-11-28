@@ -1,32 +1,4 @@
-"""Direct database query interface for AI code navigation.
-
-This module provides exact queries over TheAuditor's indexed data.
-NO inference, NO guessing, NO embeddings - just SQL queries.
-
-Architecture:
-- CodeQueryEngine: Main query interface
-- SymbolInfo/CallSite/Dependency: Typed result objects
-- All queries use existing tables (no schema changes)
-
-Performance:
-- Query time: <10ms (indexed lookups)
-- No caching needed (SQLite is fast enough)
-- Transitive queries use BFS (max depth: 5)
-
-Usage:
-    from theauditor.context import CodeQueryEngine
-
-    engine = CodeQueryEngine(Path.cwd())
-
-    # Find symbol
-    symbols = engine.find_symbol("authenticateUser")
-
-    # Get callers (transitive)
-    callers = engine.get_callers("validateInput", depth=3)
-
-    # Get file dependencies
-    deps = engine.get_file_dependencies("src/auth.ts")
-"""
+"""Direct database query interface for AI code navigation."""
 
 import sqlite3
 from collections import deque
@@ -56,17 +28,7 @@ VALID_TABLES = {
 
 
 def validate_table_name(table: str) -> str:
-    """Validate table name against whitelist to prevent SQL injection.
-
-    Args:
-        table: Table name to validate
-
-    Returns:
-        The validated table name
-
-    Raises:
-        ValueError: If table name is not whitelisted
-    """
+    """Validate table name against whitelist to prevent SQL injection."""
     if table not in VALID_TABLES:
         raise ValueError(f"Invalid table name: {table}")
     return table
@@ -74,18 +36,7 @@ def validate_table_name(table: str) -> str:
 
 @dataclass
 class SymbolInfo:
-    """Symbol definition with full context.
-
-    Attributes:
-        name: Symbol name (function, class, variable, etc.)
-        type: Symbol type (function, class, method, variable, etc.)
-        file: File path (normalized relative path)
-        line: Starting line number
-        end_line: Ending line number
-        signature: Type signature if available
-        is_exported: Whether symbol is exported
-        framework_type: Framework-specific type (component, hook, route, etc.)
-    """
+    """Symbol definition with full context."""
 
     name: str
     type: str
@@ -99,15 +50,7 @@ class SymbolInfo:
 
 @dataclass
 class CallSite:
-    """Function call location with context.
-
-    Attributes:
-        caller_file: File containing the call
-        caller_line: Line number of the call
-        caller_function: Function making the call (None = top-level)
-        callee_function: Function being called
-        arguments: List of argument expressions
-    """
+    """Function call location with context."""
 
     caller_file: str
     caller_line: int
@@ -118,15 +61,7 @@ class CallSite:
 
 @dataclass
 class Dependency:
-    """Import or call dependency between files.
-
-    Attributes:
-        source_file: File that imports/calls
-        target_file: File being imported/called
-        import_type: Type of relationship (import, require, call)
-        line: Line number where dependency occurs
-        symbols: List of imported symbols (if applicable)
-    """
+    """Import or call dependency between files."""
 
     source_file: str
     target_file: str
@@ -136,43 +71,10 @@ class Dependency:
 
 
 class CodeQueryEngine:
-    """Query engine for code navigation.
-
-    Uses existing database tables - NO new schema required.
-    All queries return exact matches with provenance.
-
-    Database Schema Used:
-        repo_index.db:
-            - symbols (33k rows) - symbol.path NOT symbol.file!
-            - symbols_jsx (8k rows)
-            - function_call_args (13k rows)
-            - function_call_args_jsx (4k rows)
-            - variable_usage (57k rows)
-            - assignments (6k rows)
-            - api_endpoints (185 rows)
-            - react_components (1k rows)
-            - react_hooks (667 rows)
-            - refs (1.7k rows)
-
-        graphs.db:
-            - edges (7.3k rows) - import + call relationships
-            - nodes (4.8k rows)
-
-    Performance:
-        - Symbol lookup: <5ms (indexed)
-        - Direct callers: <10ms
-        - Transitive (depth=3): <50ms
-    """
+    """Query engine for code navigation."""
 
     def __init__(self, root: Path):
-        """Initialize with project root.
-
-        Args:
-            root: Project root directory (contains .pf/)
-
-        Raises:
-            FileNotFoundError: If repo_index.db doesn't exist
-        """
+        """Initialize with project root."""
         self.root = root
         pf_dir = root / ".pf"
 
@@ -193,38 +95,11 @@ class CodeQueryEngine:
             self.graph_db = None
 
     def _normalize_path(self, file_path: str) -> str:
-        """Normalize file path for database queries.
-
-        CRITICAL: Call this before ANY query using file paths!
-        Converts Windows absolute paths to Unix-style relative paths
-        that match what's stored in the database.
-
-        Args:
-            file_path: User-provided path (may be absolute Windows path)
-
-        Returns:
-            Normalized path for database LIKE queries
-        """
+        """Normalize file path for database queries."""
         return normalize_path_for_db(file_path, self.root)
 
     def _find_similar_symbols(self, input_name: str, limit: int = 5) -> list[str]:
-        """Find symbols similar to input for helpful 'Did you mean?' suggestions.
-
-        Searches DEFINITION tables (symbols, react_components) for partial matches.
-        Used when exact symbol lookup fails to help users find correct spelling.
-
-        Args:
-            input_name: User-provided symbol name that wasn't found
-            limit: Maximum suggestions to return
-
-        Returns:
-            List of similar symbol names (up to limit)
-
-        Example:
-            # User typed "Sale" but component is "POSSale"
-            suggestions = engine._find_similar_symbols("Sale")
-            # Returns: ["POSSale", "SaleResponse", "SalesReport"]
-        """
+        """Find symbols similar to input for helpful 'Did you mean?' suggestions."""
         cursor = self.repo_db.cursor()
         suggestions = set()
 
@@ -246,36 +121,7 @@ class CodeQueryEngine:
         return list(suggestions)[:limit]
 
     def _resolve_symbol(self, input_name: str) -> tuple[list[str], str | None]:
-        """Resolve user input to qualified symbol name(s).
-
-        Symbol Resolution Step (NOT a fallback - this is normalization).
-        Maps imprecise user input to exact indexed symbols.
-
-        The schema separates DEFINITIONS (symbols table) from USAGE (function_call_args).
-        This method searches both to handle:
-        1. Direct function calls: foo() -> callee_function = 'foo'
-        2. Callback references: router.get(handler) -> argument_expr = 'handler'
-        3. Symbol definitions: function foo() {} -> symbols.name = 'foo'
-
-        Algorithm:
-        1. Check DEFINITIONS (symbols, symbols_jsx, react_components)
-        2. Check USAGE - direct calls (function_call_args.callee_function)
-        3. Check USAGE - callbacks (function_call_args.argument_expr)
-        4. If nothing found, suggest similar symbols
-
-        Args:
-            input_name: User-provided symbol name (may be unqualified)
-
-        Returns:
-            Tuple of (qualified_names: list[str], error: str | None)
-            - If 0 matches: ([], "Symbol 'X' not found. Did you mean: Y, Z?")
-            - If 1+ matches: ([qualified_names], None)
-
-        Example:
-            # User provides "getAllOrders"
-            names, err = engine._resolve_symbol("getAllOrders")
-            # Returns: (["orderController.getAllOrders"], None)
-        """
+        """Resolve user input to qualified symbol name(s)."""
         cursor = self.repo_db.cursor()
         found_symbols = set()
 
@@ -388,22 +234,7 @@ class CodeQueryEngine:
         return list(found_symbols), None
 
     def find_symbol(self, name: str, type_filter: str | None = None) -> list[SymbolInfo] | dict:
-        """Find symbol definitions by exact name match.
-
-        Queries both symbols and symbols_jsx tables for React/JSX support.
-
-        Args:
-            name: Exact symbol name to search for
-            type_filter: Optional type filter (function, class, etc.)
-
-        Returns:
-            List of matching symbols with full context
-
-        Example:
-            symbols = engine.find_symbol("authenticateUser")
-            for sym in symbols:
-                print(f"{sym.name} at {sym.file}:{sym.line}")
-        """
+        """Find symbol definitions by exact name match."""
         cursor = self.repo_db.cursor()
         results = []
 
@@ -474,39 +305,7 @@ class CodeQueryEngine:
         return results
 
     def get_callers(self, symbol_name: str, depth: int = 1) -> list[CallSite] | dict:
-        """Find who calls a symbol (with optional transitive search).
-
-        First resolves user input to qualified symbol name(s), then queries
-        function_call_args table. For depth > 1, recursively finds callers
-        of callers using BFS.
-
-        Symbol Resolution:
-            - "save" may resolve to ["User.save", "File.save"]
-            - If ambiguous, returns callers for ALL matches with labeling
-            - If not found, returns error dict
-
-        Args:
-            symbol_name: Symbol to find callers for (may be unqualified)
-            depth: Traversal depth (1-5, default=1)
-
-        Returns:
-            List of call sites with full context, OR
-            Dict with 'error' key if symbol not found, OR
-            Dict with 'ambiguous' key listing possible matches
-
-        Raises:
-            ValueError: If depth < 1 or depth > 5
-
-        Example:
-            # Direct callers
-            callers = engine.get_callers("validateInput", depth=1)
-
-            # Transitive callers (3 levels deep)
-            callers = engine.get_callers("validateInput", depth=3)
-
-            # Unqualified name (will resolve)
-            callers = engine.get_callers("save", depth=1)  # Finds User.save, File.save
-        """
+        """Find who calls a symbol (with optional transitive search)."""
         if depth < 1 or depth > 5:
             raise ValueError("Depth must be between 1 and 5")
 
@@ -572,21 +371,7 @@ class CodeQueryEngine:
         return all_callers
 
     def get_callees(self, symbol_name: str) -> list[CallSite]:
-        """Find what a symbol calls.
-
-        Query function_call_args WHERE caller_function matches.
-
-        Args:
-            symbol_name: Symbol to find callees for
-
-        Returns:
-            List of call sites showing what this symbol calls
-
-        Example:
-            callees = engine.get_callees("UserController.create")
-            for call in callees:
-                print(f"Calls: {call.callee_function}")
-        """
+        """Find what a symbol calls."""
         cursor = self.repo_db.cursor()
         callees = []
 
@@ -617,22 +402,7 @@ class CodeQueryEngine:
     def get_file_dependencies(
         self, file_path: str, direction: str = "both"
     ) -> dict[str, list[Dependency]]:
-        """Get import dependencies for a file.
-
-        Uses graphs.db edges table with graph_type='import'.
-
-        Args:
-            file_path: File to query (partial path match)
-            direction: 'incoming', 'outgoing', or 'both'
-
-        Returns:
-            Dict with 'incoming' and/or 'outgoing' dependency lists
-
-        Example:
-            deps = engine.get_file_dependencies("src/auth.ts")
-            print(f"Imported by: {deps['incoming']}")
-            print(f"Imports: {deps['outgoing']}")
-        """
+        """Get import dependencies for a file."""
         if not self.graph_db:
             return {"error": "Graph database not found. Run: aud graph build"}
 
@@ -686,21 +456,7 @@ class CodeQueryEngine:
         return result
 
     def get_api_handlers(self, route_pattern: str) -> list[dict]:
-        """Find API endpoint handlers.
-
-        Direct query on api_endpoints table.
-
-        Args:
-            route_pattern: Route to search (supports LIKE wildcards)
-
-        Returns:
-            List of endpoint info dicts
-
-        Example:
-            endpoints = engine.get_api_handlers("/users")
-            for ep in endpoints:
-                print(f"{ep['method']} {ep['path']} -> {ep['handler_function']}")
-        """
+        """Find API endpoint handlers."""
 
         if route_pattern.startswith("C:/Program Files/Git"):
             route_pattern = route_pattern.replace("C:/Program Files/Git", "")
@@ -738,24 +494,7 @@ class CodeQueryEngine:
         return results
 
     def get_component_tree(self, component_name: str) -> dict:
-        """Get React component hierarchy.
-
-        Uses:
-        - react_components table (definition)
-        - react_hooks table (hooks used)
-        - function_call_args_jsx (child components)
-
-        Args:
-            component_name: Component to query
-
-        Returns:
-            Dict with component info, hooks, and children
-
-        Example:
-            tree = engine.get_component_tree("UserProfile")
-            print(f"Hooks: {tree['hooks']}")
-            print(f"Children: {tree['children']}")
-        """
+        """Get React component hierarchy."""
         cursor = self.repo_db.cursor()
 
         cursor.execute(
@@ -803,31 +542,7 @@ class CodeQueryEngine:
         return result
 
     def get_data_dependencies(self, symbol_name: str) -> dict[str, list[dict]]:
-        """Get data dependencies (reads/writes) for a function.
-
-        Uses assignments table (HAS in_function column).
-        NOT variable_usage (that has in_component for React components).
-
-        Data flow analysis:
-        - READS: Variables consumed by the function (from source_vars JSON array)
-        - WRITES: Variables assigned by the function (target_var)
-
-        Args:
-            symbol_name: Function name to analyze
-
-        Returns:
-            Dict with 'reads' and 'writes' lists
-
-        Example:
-            deps = engine.get_data_dependencies("createApp")
-            for read in deps['reads']:
-                print(f"Reads: {read['variable']}")
-            for write in deps['writes']:
-                print(f"Writes: {write['variable']} = {write['expression']}")
-
-        Raises:
-            ValueError: If symbol_name is empty
-        """
+        """Get data dependencies (reads/writes) for a function."""
         if not symbol_name:
             raise ValueError("symbol_name cannot be empty")
 
@@ -874,31 +589,7 @@ class CodeQueryEngine:
         return {"reads": reads, "writes": writes}
 
     def trace_variable_flow(self, var_name: str, from_file: str, depth: int = 3) -> list[dict]:
-        """Trace variable through def-use chains using assignment_sources.
-
-        Uses BFS traversal through assignment_sources junction table to find
-        how variables flow through assignments (X = Y → Z = X → A = Z).
-
-        This is PURE DATA FLOW analysis (what data moves where), complementing
-        get_callers() which is CONTROL FLOW analysis (who calls what).
-
-        Args:
-            var_name: Variable name to trace
-            from_file: Starting file path (can be partial)
-            depth: Traversal depth (1-5, default=3)
-
-        Returns:
-            List of flow step dicts with from_var, to_var, expression, file, line, depth
-
-        Example:
-            # Trace how userToken flows through code
-            flow = engine.trace_variable_flow("userToken", "auth.ts", depth=3)
-            for step in flow:
-                print(f"{step['from_var']} -> {step['to_var']} at {step['file']}:{step['line']}")
-
-        Raises:
-            ValueError: If depth < 1 or depth > 5 or var_name empty
-        """
+        """Trace variable through def-use chains using assignment_sources."""
         if not var_name:
             raise ValueError("var_name cannot be empty")
         if depth < 1 or depth > 5:
@@ -958,28 +649,7 @@ class CodeQueryEngine:
         return flows
 
     def get_cross_function_taint(self, function_name: str) -> list[dict]:
-        """Track variables returned from function and assigned elsewhere.
-
-        This is ADVANCED DATA FLOW: combines function_return_sources with assignment_sources
-        to find cross-function taint propagation (function A returns X → function B assigns X to Y).
-
-        One of the 7 advanced query capabilities unlocked by schema normalization.
-
-        Args:
-            function_name: Function whose return values to trace
-
-        Returns:
-            List of cross-function flow dicts with return_var, assignment_var, files, lines
-
-        Example:
-            # Track how validateUser's returns propagate
-            flows = engine.get_cross_function_taint("validateUser")
-            for flow in flows:
-                print(f"Returns {flow['return_var']} -> Assigned to {flow['assignment_var']}")
-
-        Raises:
-            ValueError: If function_name is empty
-        """
+        """Track variables returned from function and assigned elsewhere."""
         if not function_name:
             raise ValueError("function_name cannot be empty")
 
@@ -1026,28 +696,7 @@ class CodeQueryEngine:
         return flows
 
     def get_api_security_coverage(self, route_pattern: str | None = None) -> list[dict]:
-        """Find API endpoints and their authentication controls via junction table.
-
-        Uses api_endpoint_controls junction table to show which auth mechanisms
-        protect each endpoint (JWT, session, API key, etc.).
-
-        One of the 7 advanced query capabilities unlocked by schema normalization.
-
-        Args:
-            route_pattern: Optional route pattern to filter (partial match)
-
-        Returns:
-            List of endpoint dicts with route, method, and controls list
-
-        Example:
-            # Check auth coverage for /users endpoints
-            coverage = engine.get_api_security_coverage("/users")
-            for ep in coverage:
-                print(f"{ep['method']} {ep['route']}: {len(ep['controls'])} controls")
-
-        Raises:
-            None - gracefully returns empty list if tables missing
-        """
+        """Find API endpoints and their authentication controls via junction table."""
         cursor = self.repo_db.cursor()
 
         if route_pattern:
@@ -1118,33 +767,7 @@ class CodeQueryEngine:
         rule: str | None = None,
         category: str | None = None,
     ) -> list[dict]:
-        """Query findings from findings_consolidated table.
-
-        Direct SQL query on findings table - fast and no truncation limits.
-
-        Args:
-            file_path: Filter by file path (partial match supported)
-            tool: Filter by tool (patterns, taint, eslint, cfg-analysis, etc.)
-            severity: Filter by severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)
-            rule: Filter by rule name (partial match supported)
-            category: Filter by category
-
-        Returns:
-            List of finding dicts with file, line, rule, tool, message, severity, etc.
-
-        Example:
-            # Get all HIGH severity findings
-            findings = engine.get_findings(severity='HIGH')
-
-            # Get taint findings in auth files
-            findings = engine.get_findings(file_path='auth', tool='taint')
-
-            # Get specific pattern rule
-            findings = engine.get_findings(rule='sql-injection')
-
-        Raises:
-            None - gracefully returns empty list if table missing
-        """
+        """Query findings from findings_consolidated table."""
         cursor = self.repo_db.cursor()
 
         where_clauses = []
@@ -1250,33 +873,7 @@ class CodeQueryEngine:
         path_filter: str | None = None,
         limit: int = 100,
     ) -> list[SymbolInfo]:
-        """Search symbols by pattern (LIKE query).
-
-        Faster than Compass's vector similarity (no ML, no CUDA).
-        Uses SQL LIKE for instant pattern matching.
-
-        Args:
-            pattern: Search pattern (supports % wildcards)
-            type_filter: Filter by symbol type (function, class, etc.)
-            path_filter: Filter by file path (supports % wildcards)
-            limit: Maximum results to return
-
-        Returns:
-            List of matching symbols
-
-        Example:
-            # Find all auth-related functions
-            results = engine.pattern_search("auth%", type_filter="function")
-
-            # Find all validation code
-            results = engine.pattern_search("%valid%")
-
-            # Find all controllers in src/api/
-            results = engine.pattern_search("%Controller%", path_filter="src/api/%")
-
-            # List everything in a path
-            results = engine.pattern_search("%", path_filter="services/%")
-        """
+        """Search symbols by pattern (LIKE query)."""
         cursor = self.repo_db.cursor()
         results = []
 
@@ -1318,26 +915,7 @@ class CodeQueryEngine:
         return results[:limit]
 
     def category_search(self, category: str, limit: int = 200) -> dict[str, list[dict]]:
-        """Search across pattern tables by security category.
-
-        NO embeddings, NO inference - direct queries on indexed pattern tables.
-        100x faster than Compass's vector similarity.
-
-        Args:
-            category: Security category (jwt, oauth, password, sql, xss, etc.)
-            limit: Maximum results per table
-
-        Returns:
-            Dict with category results from multiple tables
-
-        Example:
-            # Find all JWT usage
-            results = engine.category_search("jwt")
-            # Returns: jwt_patterns, findings for JWT, symbols with JWT
-
-            # Find all authentication code
-            results = engine.category_search("auth")
-        """
+        """Search across pattern tables by security category."""
         cursor = self.repo_db.cursor()
         results = {}
 
@@ -1377,30 +955,7 @@ class CodeQueryEngine:
     def cross_table_search(
         self, search_term: str, include_tables: list[str] | None = None, limit: int = 50
     ) -> dict[str, list[dict]]:
-        """Search across multiple tables (exploratory analysis).
-
-        Better than Compass's "semantic search" because we return EXACT matches
-        from RICH data (TypeScript compiler, not tree-sitter).
-
-        Args:
-            search_term: Term to search for
-            include_tables: Tables to search (default: all major tables)
-            limit: Results per table
-
-        Returns:
-            Dict of results from each table
-
-        Example:
-            # Find everything about payments
-            results = engine.cross_table_search("payment")
-            # Returns: symbols, findings, api_endpoints, etc.
-
-            # Search specific tables
-            results = engine.cross_table_search(
-                "user",
-                include_tables=["symbols", "api_endpoints", "findings_consolidated"]
-            )
-        """
+        """Search across multiple tables (exploratory analysis)."""
         cursor = self.repo_db.cursor()
         results = {}
 
@@ -1487,15 +1042,7 @@ class CodeQueryEngine:
     }
 
     def get_file_symbols(self, file_path: str, limit: int = 50) -> list[dict]:
-        """Get all symbols defined in a file.
-
-        Args:
-            file_path: File path (partial match supported)
-            limit: Max results
-
-        Returns:
-            List of {name, type, line, end_line, signature, path} dicts
-        """
+        """Get all symbols defined in a file."""
         cursor = self.repo_db.cursor()
         results = []
 
@@ -1529,18 +1076,7 @@ class CodeQueryEngine:
         return results[:limit]
 
     def get_file_hooks(self, file_path: str) -> list[dict]:
-        """Get React/Vue hooks used in a file.
-
-        IMPORTANT: Filters react_hooks table which contains BOTH hooks AND method calls.
-        Only returns actual React hooks (useState, useEffect, etc.) or custom hooks
-        that follow the useXxx naming convention.
-
-        Args:
-            file_path: File path (partial match supported)
-
-        Returns:
-            List of {hook_name, line} dicts
-        """
+        """Get React/Vue hooks used in a file."""
         cursor = self.repo_db.cursor()
         results = []
 
@@ -1590,17 +1126,7 @@ class CodeQueryEngine:
         return results
 
     def get_file_imports(self, file_path: str, limit: int = 50) -> list[dict]:
-        """Get imports declared in a file.
-
-        Uses refs table for what THIS file imports.
-
-        Args:
-            file_path: File path (partial match)
-            limit: Max results
-
-        Returns:
-            List of {module, kind, line} dicts
-        """
+        """Get imports declared in a file."""
         cursor = self.repo_db.cursor()
 
         normalized_path = self._normalize_path(file_path)
@@ -1622,17 +1148,7 @@ class CodeQueryEngine:
         ]
 
     def get_file_importers(self, file_path: str, limit: int = 50) -> list[dict]:
-        """Get files that import this file.
-
-        Uses edges table in graphs.db with graph_type='import'.
-
-        Args:
-            file_path: File path (partial match)
-            limit: Max results
-
-        Returns:
-            List of {source_file, type, line} dicts
-        """
+        """Get files that import this file."""
         if not self.graph_db:
             return []
 
@@ -1771,15 +1287,7 @@ class CodeQueryEngine:
     }
 
     def get_file_outgoing_calls(self, file_path: str, limit: int = 50) -> list[dict]:
-        """Get function calls made FROM this file.
-
-        Args:
-            file_path: File path (partial match)
-            limit: Max results
-
-        Returns:
-            List of {callee_function, line, arguments, caller_function, file} dicts
-        """
+        """Get function calls made FROM this file."""
         cursor = self.repo_db.cursor()
         results = []
 
@@ -1815,17 +1323,7 @@ class CodeQueryEngine:
         return results[:limit]
 
     def get_file_incoming_calls(self, file_path: str, limit: int = 50) -> list[dict]:
-        """Get calls TO symbols defined in this file.
-
-        Optimized: Single query with IN clause instead of O(N) loop.
-
-        Args:
-            file_path: File path (partial match)
-            limit: Max results
-
-        Returns:
-            List of {caller_file, caller_line, caller_function, callee_function} dicts
-        """
+        """Get calls TO symbols defined in this file."""
         cursor = self.repo_db.cursor()
 
         normalized_path = self._normalize_path(file_path)
@@ -1875,20 +1373,7 @@ class CodeQueryEngine:
         return results[:limit]
 
     def get_file_framework_info(self, file_path: str) -> dict:
-        """Get framework-specific information for a file.
-
-        Auto-detects framework from file extension and queries appropriate tables:
-        - React/Vue: components, hooks
-        - Express: middleware, routes
-        - Flask/FastAPI: routes, decorators
-        - Sequelize/SQLAlchemy: models, relationships
-
-        Args:
-            file_path: File path (partial match)
-
-        Returns:
-            Dict with framework name and relevant data
-        """
+        """Get framework-specific information for a file."""
         cursor = self.repo_db.cursor()
         result = {"framework": None}
 
@@ -1993,21 +1478,7 @@ class CodeQueryEngine:
         return result
 
     def get_file_context_bundle(self, file_path: str, limit: int = 20) -> dict:
-        """Aggregate all context for a file in one call.
-
-        This is the main entry point for 'aud explain <file>'.
-
-        Args:
-            file_path: File path (partial match supported)
-            limit: Max items per section
-
-        Returns:
-            Dict with all sections: symbols, hooks, imports, importers,
-            outgoing_calls, incoming_calls, framework_info
-
-        Note: Queries for limit+1 items to enable accurate truncation detection.
-              Caller should check len(section) > limit to detect truncation.
-        """
+        """Aggregate all context for a file in one call."""
 
         query_limit = limit + 1
         return {
@@ -2023,18 +1494,7 @@ class CodeQueryEngine:
         }
 
     def get_symbol_context_bundle(self, symbol_name: str, limit: int = 20, depth: int = 1) -> dict:
-        """Aggregate all context for a symbol in one call.
-
-        This is the main entry point for 'aud explain <Symbol.method>'.
-
-        Args:
-            symbol_name: Symbol name (resolution applied)
-            limit: Max items per section
-            depth: Call graph traversal depth (1-5)
-
-        Returns:
-            Dict with definition, callers, callees, or error dict
-        """
+        """Aggregate all context for a symbol in one call."""
 
         resolved_names, error = self._resolve_symbol(symbol_name)
         if error:
@@ -2086,10 +1546,7 @@ class CodeQueryEngine:
         }
 
     def close(self):
-        """Close database connections.
-
-        Call this when done to release resources.
-        """
+        """Close database connections."""
         if self.repo_db:
             self.repo_db.close()
         if self.graph_db:

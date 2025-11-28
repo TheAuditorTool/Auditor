@@ -1,11 +1,4 @@
-"""Taint analysis module - Schema-driven IFDS architecture.
-
-Clean architecture after stub removal:
-- IFDS analyzer (Allen et al. 2021)
-- Database-driven source/sink discovery (NO hardcoded patterns)
-- Auto-generated schema cache
-- ZERO FALLBACK POLICY enforced
-"""
+"""Taint analysis module - Schema-driven IFDS architecture."""
 
 from .core import (
     TaintRegistry,

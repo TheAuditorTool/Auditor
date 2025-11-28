@@ -1,14 +1,4 @@
-"""Vue Render Analyzer - Database-First Approach.
-
-Detects Vue rendering anti-patterns and performance issues using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
-"""
+"""Vue Render Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -117,23 +107,7 @@ EVENT_HANDLERS = frozenset(
 
 
 def find_vue_render_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue rendering anti-patterns and performance issues.
-
-    Detects:
-    - v-if with v-for (performance anti-pattern)
-    - Missing keys in lists
-    - Unnecessary re-renders
-    - Large lists without virtualization
-    - Complex computed chains
-    - Direct DOM manipulation
-    - Inefficient event handlers
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Vue render issues found
-    """
+    """Detect Vue rendering anti-patterns and performance issues."""
     findings = []
 
     if not context.db_path:
@@ -163,11 +137,7 @@ def find_vue_render_issues(context: StandardRuleContext) -> list[StandardFinding
 
 
 def _get_vue_files(cursor) -> set[str]:
-    """Get all Vue-related files from the database.
-
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
-    """
+    """Get all Vue-related files from the database."""
     vue_files = set()
 
     cursor.execute("""
@@ -647,9 +617,5 @@ def _find_missing_optimizations(cursor, vue_files: set[str]) -> list[StandardFin
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_render_issues(context)

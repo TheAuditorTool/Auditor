@@ -1,16 +1,4 @@
-"""Shared data structures for the graph module.
-
-This module contains the core data types used by:
-- DFGBuilder (the orchestrator)
-- All GraphStrategy implementations (Python ORM, Node Express, etc.)
-
-Extracted to prevent circular imports when strategies need to create nodes/edges.
-
-Architecture:
-- DFGNode: Represents a variable in the data flow graph
-- DFGEdge: Represents a data flow edge between variables
-- create_bidirectional_edges: Helper to create forward + reverse edges
-"""
+"""Shared data structures for the graph module."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -52,28 +40,7 @@ def create_bidirectional_edges(
     function: str,
     metadata: dict[str, Any] = None,
 ) -> list[DFGEdge]:
-    """
-    Helper to create both a FORWARD edge and a REVERSE edge.
-
-    Forward: Source -> Target (type)
-    Reverse: Target -> Source (type_reverse)
-
-    This enables backward traversal algorithms (IFDS) to navigate the graph
-    by querying outgoing edges from a sink.
-
-    Args:
-        source: Source node ID
-        target: Target node ID
-        edge_type: Type of edge (assignment, return, etc.)
-        file: File containing this edge
-        line: Line number
-        expression: Expression for this edge
-        function: Function context
-        metadata: Additional metadata dict
-
-    Returns:
-        List containing both forward and reverse edges
-    """
+    """Helper to create both a FORWARD edge and a REVERSE edge."""
     if metadata is None:
         metadata = {}
 

@@ -1,20 +1,4 @@
-"""Rust file extractor using tree-sitter.
-
-This implementation uses tree-sitter-rust for complete AST traversal,
-replacing the previous LSP-based approach (see rust_lsp_backup.py).
-
-Why tree-sitter over LSP:
-- Complete AST access (LSP only provides symbol locations)
-- No regex needed (LSP required regex for imports - forbidden pattern)
-- Faster (~10ms vs ~200ms per file)
-- No temporary workspace or binary installation required
-- Provides all 12 required extraction methods
-
-LSP code preserved in:
-- theauditor/indexer/extractors/rust_lsp_backup.py
-- theauditor/lsp/rust_analyzer_client.py
-- theauditor/toolboxes/rust.py
-"""
+"""Rust file extractor using tree-sitter."""
 
 import logging
 from pathlib import Path
@@ -29,20 +13,12 @@ class RustExtractor(BaseExtractor):
     """Extractor for Rust files using tree-sitter AST parser."""
 
     def __init__(self, root_path: Path, ast_parser: Any | None = None):
-        """Initialize the Rust extractor.
-
-        Args:
-            root_path: Project root path
-            ast_parser: Optional AST parser (unused, tree-sitter manages its own)
-        """
+        """Initialize the Rust extractor."""
         super().__init__(root_path, ast_parser)
         self._parser = None
 
     def _get_parser(self):
-        """Get or create tree-sitter parser for Rust.
-
-        Lazy initialization to avoid import overhead if not used.
-        """
+        """Get or create tree-sitter parser for Rust."""
         if self._parser is not None:
             return self._parser
 
@@ -66,28 +42,7 @@ class RustExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all relevant information from a Rust file.
-
-        Args:
-            file_info: File metadata dictionary with 'path', 'ext', etc.
-            content: File content
-            tree: Ignored (tree-sitter manages its own parsing)
-
-        Returns:
-            Dictionary containing all extracted data matching the 12-method interface:
-            {
-                'symbols': [...],         # Functions, structs, enums, traits
-                'imports': [...],         # use declarations
-                'exports': [...],         # pub items
-                'calls': [...],           # Function calls
-                'properties': [...],      # Field accesses
-                'assignments': [...],     # let bindings
-                'returns': [...],         # return expressions
-                'function_params': {...}, # Function parameter mapping
-                'function_calls_with_args': [...],  # Calls with arguments
-                'cfg': [...]              # Control flow graphs
-            }
-        """
+        """Extract all relevant information from a Rust file."""
         result = {
             "symbols": [],
             "imports": [],
@@ -179,8 +134,5 @@ class RustExtractor(BaseExtractor):
         return result
 
     def cleanup(self) -> None:
-        """Clean up resources.
-
-        tree-sitter doesn't require cleanup, but method provided for interface compatibility.
-        """
+        """Clean up resources."""
         self._parser = None

@@ -1,10 +1,4 @@
-"""YAML-driven refactor profile evaluation.
-
-This module lets users define business-logic aware refactor checks via YAML.
-The profile describes what *old* schema references must disappear and which
-*new* constructs should exist. We leverage the existing repo_index.db tables
-to find exact files/lines without any AI guesses.
-"""
+"""YAML-driven refactor profile evaluation."""
 
 import fnmatch
 import functools
@@ -128,20 +122,7 @@ class RefactorProfile:
 
     @classmethod
     def load_from_string(cls, yaml_text: str) -> RefactorProfile:
-        """Load profile from a YAML string (no temp file needed).
-
-        This is the preferred method when you already have the YAML content
-        in memory, avoiding unnecessary disk I/O.
-
-        Args:
-            yaml_text: YAML specification text
-
-        Returns:
-            RefactorProfile instance
-
-        Raises:
-            ValueError: If YAML is malformed or missing required fields
-        """
+        """Load profile from a YAML string (no temp file needed)."""
         data = yaml.safe_load(yaml_text)
         return cls._from_dict(data)
 
@@ -324,12 +305,7 @@ class RefactorRuleEngine:
         sources: tuple[_SourceQuery, ...],
         scope: dict[str, list[str]],
     ) -> list[dict[str, Any]]:
-        """Query sources with batched SQL and regex boundary filtering.
-
-        Performance: Batches terms into chunks of 50 to reduce query count from
-        O(terms * sources) to O(ceil(terms/50) * sources). Then filters results
-        with word-boundary regex to eliminate false positives like 'id' matching 'grid'.
-        """
+        """Query sources with batched SQL and regex boundary filtering."""
         if not terms:
             return []
 

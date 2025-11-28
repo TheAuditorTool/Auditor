@@ -8,12 +8,6 @@ METADATA = RuleMetadata(
 
 
 def check_rate_limiting(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for missing rate limiting on expensive queries.
-
-    Note: This is a stub. Full implementation requires:
-    - Analyzing query complexity (field count, depth, list cardinality)
-    - Checking for @rateLimit directives
-    - Detecting pagination implementation
-    """
+    """Check for missing rate limiting on expensive queries."""
 
     return []

@@ -1,14 +1,4 @@
-"""Vue Lifecycle Analyzer - Database-First Approach.
-
-Detects Vue lifecycle hook misuse and anti-patterns using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
-"""
+"""Vue Lifecycle Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -148,23 +138,7 @@ SIDE_EFFECTS = frozenset(
 
 
 def find_vue_lifecycle_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue lifecycle hook misuse and anti-patterns.
-
-    Detects:
-    - DOM access before mount
-    - Missing cleanup in destroy/unmount
-    - Data fetching in wrong hooks
-    - Infinite update loops
-    - Memory leaks from timers
-    - Side effects in computed
-    - Hook execution order issues
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Vue lifecycle issues found
-    """
+    """Detect Vue lifecycle hook misuse and anti-patterns."""
     findings = []
 
     if not context.db_path:
@@ -194,11 +168,7 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> list[StandardFind
 
 
 def _get_vue_files(cursor) -> set[str]:
-    """Get all Vue-related files from the database.
-
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
-    """
+    """Get all Vue-related files from the database."""
     vue_files = set()
 
     cursor.execute("""
@@ -626,9 +596,5 @@ def _find_unhandled_async(cursor, vue_files: set[str]) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_lifecycle_issues(context)

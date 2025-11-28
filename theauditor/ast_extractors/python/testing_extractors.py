@@ -1,21 +1,4 @@
-"""Python testing pattern extractors - pytest and unittest.
-
-This module contains extraction logic for Python testing frameworks:
-- pytest fixtures (@pytest.fixture)
-- pytest parametrize (@pytest.mark.parametrize)
-- pytest markers (custom markers)
-- unittest.mock patterns
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: FileContext with AST tree and optimized node index
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python testing pattern extractors - pytest and unittest."""
 
 import ast
 import logging
@@ -28,14 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
-    """Extract pytest fixture definitions from Python AST.
-
-    Args:
-        context: FileContext containing AST tree and node index
-
-    Returns:
-        List of pytest fixture records
-    """
+    """Extract pytest fixture definitions from Python AST."""
     fixtures = []
 
     if not context.tree:
@@ -78,14 +54,7 @@ def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
-    """Extract pytest.mark.parametrize decorators from Python AST.
-
-    Args:
-        context: FileContext containing AST tree and node index
-
-    Returns:
-        List of parametrize records
-    """
+    """Extract pytest.mark.parametrize decorators from Python AST."""
     parametrizes = []
 
     if not context.tree:
@@ -118,14 +87,7 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_pytest_markers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract custom pytest markers from Python AST.
-
-    Args:
-        context: FileContext containing AST tree and node index
-
-    Returns:
-        List of marker records
-    """
+    """Extract custom pytest markers from Python AST."""
     markers = []
 
     if not context.tree:
@@ -150,14 +112,7 @@ def extract_pytest_markers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_mock_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract unittest.mock usage from Python AST.
-
-    Args:
-        context: FileContext containing AST tree and node index
-
-    Returns:
-        List of mock pattern records
-    """
+    """Extract unittest.mock usage from Python AST."""
     mocks = []
 
     if not context.tree:
@@ -202,19 +157,7 @@ def extract_mock_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
-    """Extract unittest.TestCase classes and test methods.
-
-    Detects:
-    - TestCase class inheritance
-    - setUp/tearDown methods
-    - test_* methods
-    - Assertion method usage
-
-    Security relevance:
-    - Test coverage = code quality
-    - Missing tests = potential bugs
-    - setUp without tearDown = resource leaks
-    """
+    """Extract unittest.TestCase classes and test methods."""
     test_cases = []
 
     if not context.tree:
@@ -262,18 +205,7 @@ def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_assertion_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Extract assertion statements and methods.
-
-    Detects:
-    - assert statements
-    - self.assertEqual, self.assertTrue, etc.
-    - pytest.raises context managers
-    - Assertion counts per function
-
-    Security relevance:
-    - Functions without assertions = untested code
-    - Complex functions with few assertions = insufficient testing
-    """
+    """Extract assertion statements and methods."""
     assertions = []
 
     if not context.tree:
@@ -319,20 +251,7 @@ def extract_assertion_patterns(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_pytest_plugin_hooks(context: FileContext) -> list[dict[str, Any]]:
-    """Extract pytest plugin hooks from conftest.py.
-
-    Detects:
-    - pytest_configure
-    - pytest_collection_modifyitems
-    - pytest_addoption
-    - pytest_runtest_* hooks
-    - Custom fixtures in conftest.py
-
-    Security relevance:
-    - Plugin hooks = test infrastructure
-    - Malicious conftest.py = test manipulation
-    - Custom collection = test selection bias
-    """
+    """Extract pytest plugin hooks from conftest.py."""
     hooks = []
 
     if not context.tree:
@@ -366,19 +285,7 @@ def extract_pytest_plugin_hooks(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_hypothesis_strategies(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Hypothesis property-based testing strategies.
-
-    Detects:
-    - @given decorators
-    - Strategy usage (st.integers, st.text, etc.)
-    - @example decorators
-    - Stateful testing classes
-
-    Security relevance:
-    - Property-based testing = edge case coverage
-    - Missing strategies = incomplete fuzzing
-    - Stateful tests = complex behavior validation
-    """
+    """Extract Hypothesis property-based testing strategies."""
     strategies = []
 
     if not context.tree:

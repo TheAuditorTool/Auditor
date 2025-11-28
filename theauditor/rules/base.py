@@ -1,8 +1,4 @@
-"""Base contracts for rule standardization.
-
-This module defines the universal interface that ALL rules must follow.
-Created as part of the Great Refactor to eliminate signature chaos.
-"""
+"""Base contracts for rule standardization."""
 
 import logging
 from collections.abc import Callable
@@ -34,18 +30,7 @@ class Confidence(Enum):
 
 @dataclass
 class StandardRuleContext:
-    """Universal immutable context for all standardized rules.
-
-    Design Principles:
-    1. Contains everything a rule might need
-    2. Immutable during execution
-    3. Extensible via 'extra' without breaking changes
-    4. Helpers for common operations
-
-    Migration Note:
-    Old rules received various parameters (tree, file_path, **kwargs).
-    This unified context replaces ALL of those parameters.
-    """
+    """Universal immutable context for all standardized rules."""
 
     file_path: Path
     content: str
@@ -65,19 +50,7 @@ class StandardRuleContext:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get_ast(self, expected_type: str = None) -> Any | None:
-        """Safely extract AST with optional type checking.
-
-        Args:
-            expected_type: If provided, only return AST if type matches
-
-        Returns:
-            The AST tree object or None if not available/wrong type
-
-        Example:
-            tree = context.get_ast("python_ast")
-            if tree:
-                # Work with Python AST
-        """
+        """Safely extract AST with optional type checking."""
         if not self.ast_wrapper:
             return None
 
@@ -94,15 +67,7 @@ class StandardRuleContext:
         return self.content.splitlines() if self.content else []
 
     def get_snippet(self, line_num: int, context_lines: int = 2) -> str:
-        """Extract code snippet around a line number.
-
-        Args:
-            line_num: 1-based line number
-            context_lines: Lines before/after to include
-
-        Returns:
-            Code snippet with line numbers
-        """
+        """Extract code snippet around a line number."""
         lines = self.get_lines()
         if not lines or line_num < 1 or line_num > len(lines):
             return ""
@@ -120,10 +85,7 @@ class StandardRuleContext:
 
 @dataclass
 class StandardFinding:
-    """Standardized output from all rules.
-
-    This replaces the various dict formats that rules previously returned.
-    """
+    """Standardized output from all rules."""
 
     rule_name: str
     message: str
@@ -141,14 +103,7 @@ class StandardFinding:
     additional_info: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization.
-
-        Field mappings aligned with findings_consolidated schema:
-        - rule_name → rule
-        - file_path → file
-        - snippet → code_snippet
-        - cwe_id → cwe
-        """
+        """Convert to dictionary for JSON serialization."""
         result = {
             "rule": self.rule_name,
             "message": self.message,
@@ -181,14 +136,7 @@ RuleFunction = Callable[[StandardRuleContext], list[StandardFinding]]
 
 
 def validate_rule_signature(func: Callable) -> bool:
-    """Check if a function follows the standard rule signature.
-
-    Args:
-        func: Function to validate
-
-    Returns:
-        True if signature matches standard, False otherwise
-    """
+    """Check if a function follows the standard rule signature."""
     import inspect
 
     sig = inspect.signature(func)
@@ -199,19 +147,7 @@ def validate_rule_signature(func: Callable) -> bool:
 
 @dataclass
 class RuleMetadata:
-    """Metadata describing rule requirements for smart orchestrator filtering.
-
-    Added in Phase 3B to enable intelligent file targeting and skip irrelevant files.
-
-    Usage in rules:
-        METADATA = RuleMetadata(
-            name="sql_injection",
-            category="sql",
-            target_extensions=['.py', '.js'],
-            exclude_patterns=['migrations/'],
-            requires_jsx_pass=False
-        )
-    """
+    """Metadata describing rule requirements for smart orchestrator filtering."""
 
     name: str
     category: str
@@ -227,10 +163,7 @@ class RuleMetadata:
 
 
 def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
-    """Convert old RuleContext to StandardRuleContext.
-
-    Helper for dual-mode orchestrator during migration.
-    """
+    """Convert old RuleContext to StandardRuleContext."""
     from pathlib import Path
 
     return StandardRuleContext(

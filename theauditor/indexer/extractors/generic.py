@@ -1,24 +1,4 @@
-"""Generic configuration file extractor (Database-First Gold Standard).
-
-Nuclear Option Rewrite (v1.2): Complete elimination of parser abstraction layer.
-
-This extractor handles configuration files with DIRECT database storage:
-- Docker Compose files (docker-compose.yml) → compose_services table
-- Nginx configurations (nginx.conf) → nginx_configs table
-- Package manifests (package.json) → package_configs table
-
-ARCHITECTURE:
-- Database-First: Extracts directly to database via self.db_manager
-- Zero Parsers: Inline YAML/JSON parsing, no external parser classes
-- Zero Intermediate Dicts: No 'config_data' nesting, direct DB writes
-- Zero Backward Compat: Clean slate, orphaned code eliminated
-
-Replaces:
-- compose_parser.py (deprecated)
-- nginx_parser.py (deprecated)
-- webpack_config_parser.py (deprecated)
-- Old generic.py with HAS_CUSTOM_PARSERS flag (eliminated)
-"""
+"""Generic configuration file extractor (Database-First Gold Standard)."""
 
 import json
 from pathlib import Path
@@ -61,27 +41,14 @@ PACKAGE_FILE_PATTERNS: frozenset = frozenset(
 
 
 class GenericExtractor(BaseExtractor):
-    """Extract config files directly to database (Gold Standard v1.2).
-
-    NO parsers, NO intermediate dicts, NO backward compatibility.
-    Direct YAML/JSON parsing → database storage.
-    """
+    """Extract config files directly to database (Gold Standard v1.2)."""
 
     def supported_extensions(self) -> list[str]:
         """This extractor handles files by name pattern, not extension."""
         return []
 
     def should_extract(self, file_path: str) -> bool:
-        """Check if this extractor should handle the file.
-
-        Uses frozenset O(1) lookup for performance.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            True if this extractor handles this config file type
-        """
+        """Check if this extractor should handle the file."""
         file_name = Path(file_path).name.lower()
 
         return (
@@ -94,23 +61,7 @@ class GenericExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract config file data directly to database.
-
-        ARCHITECTURE CHANGE (v1.2 Nuclear Option):
-        - OLD: Return nested dict → indexer unpacks → database
-        - NEW: Call db_manager directly → no intermediate dict
-
-        Returns minimal dict for indexer compatibility.
-        Actual data flows directly to database via self.db_manager calls.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content as string
-            tree: Unused (configs don't have AST)
-
-        Returns:
-            Minimal dict for indexer (empty lists, no config_data nesting)
-        """
+        """Extract config file data directly to database."""
         file_path_str = str(file_info["path"])
         file_name = Path(file_path_str).name.lower()
 
@@ -126,15 +77,7 @@ class GenericExtractor(BaseExtractor):
         return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
 
     def _extract_compose_direct(self, file_path: str, content: str) -> None:
-        """Extract Docker Compose services to compose_services and junction tables.
-
-        Parses YAML inline, writes to compose_services table (17 fields)
-        and junction tables for ports, volumes, env, capabilities, deps.
-
-        Args:
-            file_path: Path to docker-compose.yml
-            content: YAML content as string
-        """
+        """Extract Docker Compose services to compose_services and junction tables."""
         try:
             compose_data = yaml.safe_load(content)
             if not compose_data or "services" not in compose_data:
@@ -168,7 +111,6 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(entrypoint, str):
                     entrypoint = [entrypoint]
 
-                # Normalize depends_on for parent table
                 depends_on_list = depends_on
                 if isinstance(depends_on, dict):
                     depends_on_list = list(depends_on.keys())
@@ -176,7 +118,6 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(user, int):
                     user = str(user)
 
-                # Parent table (metadata only - data goes to junction tables)
                 self.db_manager.add_compose_service(
                     file_path=file_path,
                     service_name=service_name,
@@ -191,7 +132,6 @@ class GenericExtractor(BaseExtractor):
                     healthcheck=healthcheck,
                 )
 
-                # Junction table: ports
                 for port_mapping in ports or []:
                     parsed = self._parse_port_mapping(port_mapping)
                     if parsed:
@@ -203,7 +143,6 @@ class GenericExtractor(BaseExtractor):
                             protocol=parsed.get("protocol", "tcp"),
                         )
 
-                # Junction table: volumes
                 for volume_mapping in volumes or []:
                     parsed = self._parse_volume_mapping(volume_mapping)
                     if parsed:
@@ -215,7 +154,6 @@ class GenericExtractor(BaseExtractor):
                             mode=parsed.get("mode", "rw"),
                         )
 
-                # Junction table: environment
                 for var_name, var_value in (environment or {}).items():
                     self.db_manager.add_compose_service_env(
                         file_path=file_path,
@@ -224,7 +162,6 @@ class GenericExtractor(BaseExtractor):
                         var_value=str(var_value) if var_value is not None else None,
                     )
 
-                # Junction table: capabilities (cap_add)
                 for cap in cap_add or []:
                     self.db_manager.add_compose_service_capability(
                         file_path=file_path,
@@ -233,7 +170,6 @@ class GenericExtractor(BaseExtractor):
                         is_add=True,
                     )
 
-                # Junction table: capabilities (cap_drop)
                 for cap in cap_drop or []:
                     self.db_manager.add_compose_service_capability(
                         file_path=file_path,
@@ -242,11 +178,9 @@ class GenericExtractor(BaseExtractor):
                         is_add=False,
                     )
 
-                # Junction table: dependencies
                 if depends_on:
                     deps_to_process = depends_on
                     if isinstance(depends_on, dict):
-                        # Format: {service: {condition: "service_healthy"}}
                         for dep_service, dep_config in depends_on.items():
                             condition = "service_started"
                             if isinstance(dep_config, dict):
@@ -270,14 +204,7 @@ class GenericExtractor(BaseExtractor):
             pass
 
     def _parse_port_mapping(self, port_str: str) -> dict | None:
-        """Parse a port mapping string into components.
-
-        Args:
-            port_str: Port mapping like "8080:80", "8080:80/tcp", "80"
-
-        Returns:
-            Dict with host_port, container_port, protocol or None
-        """
+        """Parse a port mapping string into components."""
         if not port_str:
             return None
         port_str = str(port_str)
@@ -288,7 +215,7 @@ class GenericExtractor(BaseExtractor):
 
         if ":" in port_str:
             parts = port_str.split(":")
-            # Could be "host:container" or "ip:host:container"
+
             if len(parts) == 2:
                 try:
                     return {
@@ -299,7 +226,6 @@ class GenericExtractor(BaseExtractor):
                 except ValueError:
                     return None
             elif len(parts) == 3:
-                # ip:host:container
                 try:
                     return {
                         "host_port": int(parts[1]) if parts[1] else None,
@@ -309,7 +235,6 @@ class GenericExtractor(BaseExtractor):
                 except ValueError:
                     return None
         else:
-            # Just container port
             try:
                 return {
                     "host_port": None,
@@ -321,19 +246,11 @@ class GenericExtractor(BaseExtractor):
         return None
 
     def _parse_volume_mapping(self, volume_str: str) -> dict | None:
-        """Parse a volume mapping string into components.
-
-        Args:
-            volume_str: Volume mapping like "./data:/app/data", "/app/data", "./data:/app/data:ro"
-
-        Returns:
-            Dict with host_path, container_path, mode or None
-        """
+        """Parse a volume mapping string into components."""
         if not volume_str:
             return None
         volume_str = str(volume_str)
 
-        # Handle named volumes (no host path)
         if ":" not in volume_str:
             return {"host_path": None, "container_path": volume_str, "mode": "rw"}
 
@@ -345,14 +262,7 @@ class GenericExtractor(BaseExtractor):
         return None
 
     def _extract_image(self, config: dict[str, Any]) -> str | None:
-        """Extract Docker image name from service config.
-
-        Args:
-            config: Service configuration dict
-
-        Returns:
-            Image name or None
-        """
+        """Extract Docker image name from service config."""
         image = config.get("image")
         if isinstance(image, str):
             return image
@@ -368,16 +278,7 @@ class GenericExtractor(BaseExtractor):
         return None
 
     def _extract_ports(self, config: dict[str, Any]) -> list[str]:
-        """Extract port mappings from service config.
-
-        Handles both short syntax ("8080:80") and long syntax (target/published).
-
-        Args:
-            config: Service configuration dict
-
-        Returns:
-            List of port mapping strings
-        """
+        """Extract port mappings from service config."""
         ports_raw = config.get("ports", [])
         if not isinstance(ports_raw, list):
             return []
@@ -397,16 +298,7 @@ class GenericExtractor(BaseExtractor):
         return ports
 
     def _extract_volumes(self, config: dict[str, Any]) -> list[str]:
-        """Extract volume mounts from service config.
-
-        Handles both short syntax ("/host:/container") and long syntax (type/source/target).
-
-        Args:
-            config: Service configuration dict
-
-        Returns:
-            List of volume mount strings
-        """
+        """Extract volume mounts from service config."""
         volumes_raw = config.get("volumes", [])
         if not isinstance(volumes_raw, list):
             return []
@@ -428,16 +320,7 @@ class GenericExtractor(BaseExtractor):
         return volumes
 
     def _extract_environment(self, config: dict[str, Any]) -> dict[str, str]:
-        """Extract environment variables from service config.
-
-        Handles both list format ["KEY=value"] and dict format {KEY: value}.
-
-        Args:
-            config: Service configuration dict
-
-        Returns:
-            Dictionary of environment variables
-        """
+        """Extract environment variables from service config."""
         env_raw = config.get("environment", {})
 
         if isinstance(env_raw, dict):
@@ -454,22 +337,7 @@ class GenericExtractor(BaseExtractor):
         return {}
 
     def _extract_nginx_direct(self, file_path: str, content: str) -> None:
-        """Extract Nginx config directly to database.
-
-        MINIMAL IMPLEMENTATION: Only detects file presence, no deep parsing.
-
-        Why minimal? nginx_parser.py uses recursive regex (cancer).
-        Options for future:
-        - Option A: Use pyparsing library (6-8 hours)
-        - Option B: Execute nginx -T in sandbox (validate syntax only)
-        - Option C: This minimal approach (rules handle security checks)
-
-        Current: Option C - let rules query nginx_configs for presence only.
-
-        Args:
-            file_path: Path to nginx.conf
-            content: Config content as string
-        """
+        """Extract Nginx config directly to database."""
 
         self.db_manager.add_nginx_config(
             file_path=file_path,
@@ -480,16 +348,10 @@ class GenericExtractor(BaseExtractor):
         )
 
     def _extract_package_direct(self, file_path: str, content: str) -> None:
-        """Extract package.json to package_configs and junction tables.
-
-        Args:
-            file_path: Path to package.json
-            content: JSON content as string
-        """
+        """Extract package.json to package_configs and junction tables."""
         try:
             pkg_data = json.loads(content)
 
-            # Parent table (metadata only - data goes to junction tables)
             self.db_manager.add_package_config(
                 file_path=file_path,
                 package_name=pkg_data.get("name", "unknown"),
@@ -497,7 +359,6 @@ class GenericExtractor(BaseExtractor):
                 is_private=pkg_data.get("private", False),
             )
 
-            # Junction tables: normalized dependency data
             deps = pkg_data.get("dependencies") or {}
             for name, version_spec in deps.items():
                 self.db_manager.add_package_dependency(
@@ -528,7 +389,6 @@ class GenericExtractor(BaseExtractor):
                     is_peer=True,
                 )
 
-            # Junction table: scripts
             scripts = pkg_data.get("scripts") or {}
             for script_name, script_command in scripts.items():
                 self.db_manager.add_package_script(
@@ -537,7 +397,6 @@ class GenericExtractor(BaseExtractor):
                     script_command=script_command,
                 )
 
-            # Junction table: engines
             engines = pkg_data.get("engines") or {}
             for engine_name, version_spec in engines.items():
                 self.db_manager.add_package_engine(
@@ -546,10 +405,8 @@ class GenericExtractor(BaseExtractor):
                     version_spec=version_spec,
                 )
 
-            # Junction table: workspaces
             workspaces = pkg_data.get("workspaces") or []
             if isinstance(workspaces, dict):
-                # Handle {"packages": [...]} format
                 workspaces = workspaces.get("packages", [])
             for workspace_path in workspaces:
                 self.db_manager.add_package_workspace(

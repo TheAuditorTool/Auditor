@@ -1,8 +1,4 @@
-"""React-specific XSS Detection.
-
-This module detects XSS vulnerabilities specific to React applications.
-Uses database-only approach with React component awareness.
-"""
+"""React-specific XSS Detection."""
 
 import sqlite3
 
@@ -74,11 +70,7 @@ REACT_SAFE_METHODS = frozenset(
 
 
 def find_react_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React-specific XSS vulnerabilities.
-
-    Returns:
-        List of React-specific XSS findings
-    """
+    """Detect React-specific XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -104,12 +96,7 @@ def find_react_xss(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _is_react_app(conn) -> bool:
-    """Check if this is a React application.
-
-    Modernization (2025-11-22):
-    - Removed LIMIT 1000 symbol scan fallback (non-deterministic, violates ZERO FALLBACK POLICY)
-    - Trust the indexer: if frameworks table is empty AND react_components is empty, it's not React
-    """
+    """Check if this is a React application."""
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -131,15 +118,7 @@ def _is_react_app(conn) -> bool:
 
 
 def _check_dangerous_html_prop(conn) -> list[StandardFinding]:
-    """Check for dangerouslySetInnerHTML with user input.
-
-    Modernization (2025-11-22):
-    - Fixed N+1 query: Single JOIN instead of loop + query per component
-    - Fixed blind spot: Removed LIMIT 10 that missed vulnerabilities beyond first 10 lines
-    - Fixed scope: Added end_line boundary to prevent spanning multiple components
-    - Memory safe: Stream results with cursor iteration instead of fetchall()
-    - Performance: Filter for dangerouslySetInnerHTML in SQL to reduce data transfer
-    """
+    """Check for dangerouslySetInnerHTML with user input."""
     findings = []
     cursor = conn.cursor()
 
@@ -207,13 +186,7 @@ def _check_dangerous_html_prop(conn) -> list[StandardFinding]:
 
 
 def _check_javascript_urls(conn) -> list[StandardFinding]:
-    """Check for javascript: URLs in href/src props.
-
-    Modernization (2025-11-22):
-    - Fixed Inverse N+1: Single JOIN instead of loop + query per assignment
-    - Performance: Push href/src and protocol filtering to SQL
-    - Memory safe: Stream results with cursor iteration
-    """
+    """Check for javascript: URLs in href/src props."""
     findings = []
     cursor = conn.cursor()
 
@@ -354,13 +327,7 @@ def _check_unsafe_html_creation(conn) -> list[StandardFinding]:
 
 
 def _check_ref_innerhtml(conn) -> list[StandardFinding]:
-    """Check for direct DOM manipulation via refs.
-
-    Modernization (2025-11-22):
-    - Performance: Push ref innerHTML pattern filtering to SQL
-    - Fixed N+1: Single range JOIN instead of loop + proximity query per ref
-    - Memory safe: Stream results with cursor iteration
-    """
+    """Check for direct DOM manipulation via refs."""
     findings = []
     cursor = conn.cursor()
 
@@ -561,9 +528,5 @@ def _check_server_side_rendering(conn) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_react_xss(context)

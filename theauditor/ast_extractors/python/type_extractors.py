@@ -1,22 +1,4 @@
-"""Python advanced type extractors - Protocol, Generic, TypedDict, Literal.
-
-This module contains extraction logic for advanced Python type system features:
-- Protocol (structural subtyping)
-- Generic[T] (generic classes and functions)
-- TypedDict (structured dict types)
-- Literal (literal types)
-- @overload (function overloading)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python advanced type extractors - Protocol, Generic, TypedDict, Literal."""
 
 import ast
 import logging
@@ -30,15 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_protocols(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Protocol class definitions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of Protocol records
-    """
+    """Extract Protocol class definitions from Python AST."""
     protocols = []
 
     if not context.tree:
@@ -69,15 +43,7 @@ def extract_protocols(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_generics(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Generic class definitions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of Generic records
-    """
+    """Extract Generic class definitions from Python AST."""
     generics = []
 
     if not context.tree:
@@ -115,15 +81,7 @@ def extract_generics(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_typed_dicts(context: FileContext) -> list[dict[str, Any]]:
-    """Extract TypedDict definitions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of TypedDict records
-    """
+    """Extract TypedDict definitions from Python AST."""
     typed_dicts = []
 
     if not context.tree:
@@ -171,10 +129,7 @@ def _is_literal_annotation(annotation_node) -> bool:
 
 
 def _get_literal_type_string(annotation_node) -> str:
-    """Extract Literal type string from AST node.
-
-    Converts Literal["a", "b"] to string representation.
-    """
+    """Extract Literal type string from AST node."""
     if not isinstance(annotation_node, ast.Subscript):
         return ""
 
@@ -202,15 +157,7 @@ def _get_literal_type_string(annotation_node) -> str:
 
 
 def extract_literals(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Literal type usage from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of Literal usage records
-    """
+    """Extract Literal type usage from Python AST."""
     literals = []
 
     if not context.tree:
@@ -244,15 +191,7 @@ def extract_literals(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_overloads(context: FileContext) -> list[dict[str, Any]]:
-    """Extract @overload decorator usage from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of overload records
-    """
+    """Extract @overload decorator usage from Python AST."""
     overloads = []
 
     if not context.tree:

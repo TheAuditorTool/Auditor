@@ -1,26 +1,4 @@
-"""IFDS-based taint analyzer using pre-computed graphs.
-
-This module implements demand-driven backward taint analysis using the IFDS
-framework adapted from "IFDS Taint Analysis with Access Paths" (Allen et al., 2021).
-
-Key differences from paper:
-- Uses pre-computed graphs.db instead of on-the-fly graph construction
-- Database-first (no SSA/φ-nodes, works with normalized AST data)
-- Multi-language (Python, JS, TS via extractors)
-
-Architecture (Phase 6.1 - Goal B: Full Provenance):
-    Sources → [Backward IFDS] → Sinks
-              ↓
-    graphs.db (DFG + Call Graph)
-              ↓
-    8-10 hop cross-file flows (COMPLETE call chain)
-
-CRITICAL: Source matches are WAYPOINTS, not termination points.
-Paths are recorded ONLY at max_depth or natural termination.
-This captures the full call chain: route → middleware → controller → service → ORM
-
-Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
-"""
+"""IFDS-based taint analyzer using pre-computed graphs."""
 
 import sqlite3
 import sys
@@ -35,24 +13,12 @@ if TYPE_CHECKING:
 
 
 class IFDSTaintAnalyzer:
-    """Demand-driven taint analyzer using IFDS backward reachability.
-
-    Uses pre-computed graphs from DFGBuilder and PathCorrelator instead of
-    rebuilding data flow on every run.
-    """
+    """Demand-driven taint analyzer using IFDS backward reachability."""
 
     def __init__(
         self, repo_db_path: str, graph_db_path: str, cache=None, registry=None, type_resolver=None
     ):
-        """Initialize IFDS analyzer with database connections.
-
-        Args:
-            repo_db_path: Path to repo_index.db (CFG, symbols, assignments)
-            graph_db_path: Path to graphs.db (DFG, call graph)
-            cache: Optional memory cache for performance
-            registry: Optional TaintRegistry for sanitizer checking
-            type_resolver: Optional TypeResolver for ORM aliasing and controller detection
-        """
+        """Initialize IFDS analyzer with database connections."""
         self.repo_conn = sqlite3.connect(repo_db_path)
         self.repo_conn.row_factory = sqlite3.Row
         self.repo_cursor = self.repo_conn.cursor()
@@ -89,28 +55,7 @@ class IFDSTaintAnalyzer:
     def analyze_sink_to_sources(
         self, sink: dict, sources: list[dict], max_depth: int = 10
     ) -> tuple[list[TaintPath], list[TaintPath]]:
-        """Find all taint paths from sink to sources using IFDS backward analysis.
-
-        PHASE 6.1 CHANGE (Goal B - Full Provenance):
-        Now returns (vulnerable_paths, sanitized_paths) tuple.
-
-        Algorithm (IFDS paper - demand-driven with full provenance):
-        1. Start at sink (backward analysis is demand-driven from sinks)
-        2. Query graphs.db for data dependencies (backward edges)
-        3. Follow edges backward through assignments, calls, returns, middleware
-        4. Annotate when path reaches ANY source (DO NOT terminate early)
-        5. Continue to max_depth to capture COMPLETE call chain
-        6. Build TaintPath with full hop chain (8-10 hops)
-        7. Classify path as vulnerable or sanitized based on sanitizer presence
-
-        Args:
-            sink: Security sink dict (file, line, pattern, name)
-            sources: List of taint source dicts
-            max_depth: Maximum hops (default 10)
-
-        Returns:
-            Tuple of (vulnerable_paths, sanitized_paths)
-        """
+        """Find all taint paths from sink to sources using IFDS backward analysis."""
         self.max_depth = max_depth
 
         source_aps = []
@@ -139,32 +84,7 @@ class IFDSTaintAnalyzer:
     def _trace_backward_to_any_source(
         self, sink: dict, source_aps: list[tuple[dict, AccessPath]], max_depth: int
     ) -> tuple[list[TaintPath], list[TaintPath]]:
-        """Backward trace from sink, checking if ANY source is reachable.
-
-        PHASE 6.1 CHANGE (Goal B - Full Provenance):
-        Now returns (vulnerable_paths, sanitized_paths) tuple.
-
-        CRITICAL ARCHITECTURAL CHANGE: Source matches are now WAYPOINTS, not termination points.
-        Paths are recorded ONLY at max_depth or natural termination (no predecessors).
-        This captures the COMPLETE call chain (8-10 hops) instead of stopping at first source (2-3 hops).
-
-        Algorithm:
-        1. Start at sink (backward analysis)
-        2. Query graphs.db for data dependencies (backward edges)
-        3. Follow edges backward through assignments, calls, returns, middleware
-        4. When source is matched, ANNOTATE it (store matched_source in worklist state)
-        5. CONTINUE exploring to max_depth (DO NOT terminate early)
-        6. Record path ONLY when exploration terminates (max_depth OR no predecessors)
-        7. Classify path as vulnerable or sanitized based on sanitizer presence
-
-        Args:
-            sink: Sink dict
-            source_aps: List of (source_dict, AccessPath) tuples
-            max_depth: Maximum hops
-
-        Returns:
-            Tuple of (vulnerable_paths, sanitized_paths)
-        """
+        """Backward trace from sink, checking if ANY source is reachable."""
         vulnerable_paths = []
         sanitized_paths = []
 
@@ -289,20 +209,7 @@ class IFDSTaintAnalyzer:
         return (vulnerable_paths, sanitized_paths)
 
     def _get_predecessors(self, ap: AccessPath) -> list[tuple[AccessPath, str, dict]]:
-        """Get all access paths that flow into this access path.
-
-        BIDIRECTIONAL TRAVERSAL: Uses reverse edges for backward analysis.
-
-        The DFG now contains both forward and reverse edges:
-        - Forward: A -> B (type='assignment')
-        - Reverse: B -> A (type='assignment_reverse')
-
-        For backward traversal from B to A, we query:
-        SELECT target FROM edges WHERE source = B AND type LIKE '%_reverse'
-
-        Returns:
-            List of (predecessor_access_path, edge_type, metadata) tuples
-        """
+        """Get all access paths that flow into this access path."""
         predecessors = []
 
         self.graph_cursor.execute(
@@ -373,18 +280,7 @@ class IFDSTaintAnalyzer:
         return predecessors
 
     def _could_alias(self, ap1: AccessPath, ap2: AccessPath) -> bool:
-        """Conservative alias check (no expensive alias analysis).
-
-        From paper (page 10): "Our taint analysis deliberately omits computing
-        complete aliasing information... This deliberate trade-off of soundness
-        for scalability drastically reduces theoretical complexity."
-
-        Args:
-            ap1, ap2: Access paths to compare
-
-        Returns:
-            True if paths could potentially alias (conservative)
-        """
+        """Conservative alias check (no expensive alias analysis)."""
 
         if ap1.base == ap2.base:
             return True
@@ -392,14 +288,7 @@ class IFDSTaintAnalyzer:
         return bool(ap1.matches(ap2))
 
     def _access_paths_match(self, ap1: AccessPath, ap2: AccessPath) -> bool:
-        """Check if two access paths represent the same data.
-
-        Args:
-            ap1, ap2: Access paths to compare
-
-        Returns:
-            True if paths definitely match
-        """
+        """Check if two access paths represent the same data."""
 
         http_objects = {"req", "res", "request", "response"}
 
@@ -431,14 +320,7 @@ class IFDSTaintAnalyzer:
         return bool(ap1.matches(ap2))
 
     def _dict_to_access_path(self, node_dict: dict) -> AccessPath | None:
-        """Convert source/sink dict to AccessPath.
-
-        Args:
-            node_dict: Dict with 'file', 'line', 'name', 'pattern'
-
-        Returns:
-            AccessPath or None if cannot parse
-        """
+        """Convert source/sink dict to AccessPath."""
         file = node_dict.get("file", "")
         pattern = node_dict.get("pattern", node_dict.get("name", ""))
 
@@ -454,15 +336,7 @@ class IFDSTaintAnalyzer:
         return AccessPath(file=file, function=function, base=base, fields=fields)
 
     def _get_containing_function(self, file: str, line: int) -> str:
-        """Get function containing a line.
-
-        Args:
-            file: File path
-            line: Line number
-
-        Returns:
-            Function name or "global"
-        """
+        """Get function containing a line."""
         self.repo_cursor.execute(
             """
             SELECT name FROM symbols
@@ -477,16 +351,7 @@ class IFDSTaintAnalyzer:
         return row["name"] if row else "global"
 
     def _build_taint_path(self, source: dict, sink: dict, hop_chain: list[dict]):
-        """Build TaintPath object from hop chain.
-
-        Args:
-            source: Source dict
-            sink: Sink dict
-            hop_chain: List of hop metadata dicts
-
-        Returns:
-            TaintPath with full hop chain
-        """
+        """Build TaintPath object from hop chain."""
 
         from .taint_path import TaintPath
 
@@ -522,14 +387,7 @@ class IFDSTaintAnalyzer:
         return path
 
     def _get_language_for_file(self, file_path: str) -> str:
-        """Detect language from file extension.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            Language identifier ('python', 'javascript', 'rust', 'unknown')
-        """
+        """Detect language from file extension."""
         if not file_path:
             return "unknown"
 
@@ -543,19 +401,7 @@ class IFDSTaintAnalyzer:
         return "unknown"
 
     def _is_controller_file(self, file_path: str) -> bool:
-        """Check if file is a controller/route handler.
-
-        Uses TypeResolver if available, falls back to name-based heuristic.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            True if file handles API routes
-
-        Raises:
-            ValueError: If type_resolver is not provided (ZERO FALLBACK POLICY)
-        """
+        """Check if file is a controller/route handler."""
 
         if not self.type_resolver:
             raise ValueError(
@@ -566,21 +412,7 @@ class IFDSTaintAnalyzer:
         return self.type_resolver.is_controller_file(file_path)
 
     def _is_true_entry_point(self, node_id: str) -> bool:
-        """Check if a node represents a true entry point (HTTP request data).
-
-        True entry points are where user data enters the backend:
-        - Express/Flask/Django request objects (req.body, request.args, etc.)
-        - Environment variables (process.env.X)
-        - Command line arguments (process.argv)
-
-        This prevents false positives from local variable names like 'query' or 'data'.
-
-        Args:
-            node_id: Node ID in format file::function::variable
-
-        Returns:
-            True if this is a real entry point, False otherwise
-        """
+        """Check if a node represents a true entry point (HTTP request data)."""
         if not node_id:
             return False
 

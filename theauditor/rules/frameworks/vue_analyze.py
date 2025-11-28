@@ -1,14 +1,4 @@
-"""Vue.js Framework Security Analyzer - Database-First Approach.
-
-Analyzes Vue.js applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""Vue.js Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -87,30 +77,7 @@ DOM_MANIPULATION = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue.js security vulnerabilities using indexed data.
-
-    Detects (from database):
-    - v-html directive usage (XSS risk)
-    - Direct innerHTML manipulation
-    - eval() in Vue components
-    - Exposed API keys in frontend
-    - Triple mustache {{{ }}} unescaped interpolation
-    - Dynamic component injection risks
-    - Unsafe target="_blank" links
-    - Direct DOM manipulation bypassing Vue
-
-    Known Limitations (requires AST/template parsing):
-    - Cannot parse .vue SFC template blocks
-    - Cannot detect prop validation structure
-    - Cannot analyze Vue template syntax deeply
-    - Cannot detect computed property side effects
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect Vue.js security vulnerabilities using indexed data."""
     findings = []
 
     if not context.db_path:
@@ -448,14 +415,7 @@ VUE_INPUT_SOURCES = frozenset(
 
 
 def register_taint_patterns(taint_registry):
-    """Register Vue.js-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register Vue.js-specific taint patterns."""
 
     for pattern in VUE_XSS_DIRECTIVES:
         taint_registry.register_sink(pattern, "xss", "javascript")

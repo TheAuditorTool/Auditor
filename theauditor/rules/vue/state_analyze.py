@@ -1,14 +1,4 @@
-"""Vue State Management Analyzer - Database-First Approach.
-
-Detects Vuex and Pinia state management anti-patterns and issues using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
-"""
+"""Vue State Management Analyzer - Database-First Approach."""
 
 import sqlite3
 
@@ -127,23 +117,7 @@ ANTIPATTERNS = frozenset(
 
 
 def find_vue_state_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue state management anti-patterns (Vuex/Pinia).
-
-    Detects:
-    - Direct state mutations outside mutations
-    - Missing namespacing in modules
-    - Synchronous operations in actions
-    - State persistence issues
-    - Memory leaks from subscriptions
-    - Circular dependencies in getters
-    - Excessive store size
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Vue state management issues found
-    """
+    """Detect Vue state management anti-patterns (Vuex/Pinia)."""
     findings = []
 
     if not context.db_path:
@@ -173,11 +147,7 @@ def find_vue_state_issues(context: StandardRuleContext) -> list[StandardFinding]
 
 
 def _get_store_files(cursor) -> set[str]:
-    """Get all Vuex/Pinia store files.
-
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
-    """
+    """Get all Vuex/Pinia store files."""
     store_files = set()
 
     cursor.execute("""
@@ -681,9 +651,5 @@ def _find_unhandled_action_errors(cursor, store_files: set[str]) -> list[Standar
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_state_issues(context)

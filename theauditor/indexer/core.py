@@ -1,8 +1,4 @@
-"""Core functionality for file system operations and AST caching.
-
-This module contains the FileWalker class for directory traversal with monorepo
-detection.
-"""
+"""Core functionality for file system operations and AST caching."""
 
 import fnmatch
 import os
@@ -16,14 +12,7 @@ from .config import MONOREPO_ENTRY_FILES, SKIP_DIRS, STANDARD_MONOREPO_PATHS
 
 
 def is_text_file(file_path: Path) -> bool:
-    """Check if file is text (not binary).
-
-    Args:
-        file_path: Path to the file to check
-
-    Returns:
-        True if file is text, False if binary
-    """
+    """Check if file is text (not binary)."""
     try:
         with open(file_path, "rb") as f:
             chunk = f.read(8192)
@@ -40,15 +29,7 @@ def is_text_file(file_path: Path) -> bool:
 
 
 def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
-    """Get first n lines of a text file.
-
-    Args:
-        file_path: Path to the file
-        n: Number of lines to read
-
-    Returns:
-        List of first n lines from the file
-    """
+    """Get first n lines of a text file."""
     lines = []
     try:
         with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -64,14 +45,7 @@ def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
 
 
 def load_gitignore_patterns(root_path: Path) -> set[str]:
-    """Load patterns from .gitignore if it exists.
-
-    Args:
-        root_path: Project root path
-
-    Returns:
-        Set of directory patterns to ignore
-    """
+    """Load patterns from .gitignore if it exists."""
     gitignore_path = root_path / ".gitignore"
     patterns = set()
 
@@ -101,14 +75,7 @@ class FileWalker:
         follow_symlinks: bool = False,
         exclude_patterns: list[str] | None = None,
     ):
-        """Initialize the file walker.
-
-        Args:
-            root_path: Root directory to walk
-            config: Runtime configuration
-            follow_symlinks: Whether to follow symbolic links
-            exclude_patterns: Additional patterns to exclude
-        """
+        """Initialize the file walker."""
         self.root_path = root_path
         self.config = config
         self.follow_symlinks = follow_symlinks
@@ -126,11 +93,7 @@ class FileWalker:
         }
 
     def detect_monorepo(self) -> tuple[bool, list[Path], list[Path]]:
-        """Detect if project is a monorepo and return source directories.
-
-        Returns:
-            Tuple of (is_monorepo, src_directories, root_entry_files)
-        """
+        """Detect if project is a monorepo and return source directories."""
         monorepo_dirs = []
         monorepo_detected = False
 
@@ -160,15 +123,7 @@ class FileWalker:
         return monorepo_detected, monorepo_dirs, root_entry_files
 
     def process_file(self, file: Path, exclude_file_patterns: list[str]) -> dict[str, Any] | None:
-        """Process a single file and return its info.
-
-        Args:
-            file: Path to the file to process
-            exclude_file_patterns: Patterns for files to exclude
-
-        Returns:
-            File info dictionary or None if file should be skipped
-        """
+        """Process a single file and return its info."""
 
         if exclude_file_patterns:
             filename = file.name
@@ -214,11 +169,7 @@ class FileWalker:
             return None
 
     def walk(self) -> tuple[list[dict], dict[str, Any]]:
-        """Walk directory and collect file information.
-
-        Returns:
-            Tuple of (files_list, statistics)
-        """
+        """Walk directory and collect file information."""
         files = []
 
         exclude_file_patterns = []

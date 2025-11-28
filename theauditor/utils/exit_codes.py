@@ -1,22 +1,8 @@
-"""Centralized exit codes for TheAuditor CLI.
-
-This module provides a single source of truth for all program exit codes,
-eliminating magic numbers and ensuring consistency across the application.
-"""
+"""Centralized exit codes for TheAuditor CLI."""
 
 
 class ExitCodes:
-    """Standard exit codes for TheAuditor CLI commands.
-
-    These codes follow a semantic pattern:
-    - 0: Complete success, no issues found
-    - 1: Command executed but found issues requiring attention
-    - 2: Command executed but found critical/security issues
-    - 3: Command could not complete its intended task
-    - 4+: Reserved for future use
-
-    This aligns with Unix conventions where 0 = success and non-zero = various failure modes.
-    """
+    """Standard exit codes for TheAuditor CLI commands."""
 
     SUCCESS = 0
 
@@ -29,14 +15,7 @@ class ExitCodes:
 
     @classmethod
     def get_description(cls, code: int) -> str:
-        """Get human-readable description for an exit code.
-
-        Args:
-            code: The exit code to describe
-
-        Returns:
-            Human-readable description of the exit code's meaning
-        """
+        """Get human-readable description for an exit code."""
         descriptions = {
             cls.SUCCESS: "Success - No issues found",
             cls.HIGH_SEVERITY: "High severity findings detected",
@@ -48,13 +27,6 @@ class ExitCodes:
 
     @classmethod
     def should_fail_pipeline(cls, code: int) -> bool:
-        """Determine if an exit code should fail a CI/CD pipeline.
-
-        Args:
-            code: The exit code to check
-
-        Returns:
-            True if the code indicates a failure that should stop the pipeline
-        """
+        """Determine if an exit code should fail a CI/CD pipeline."""
 
         return code >= cls.TASK_INCOMPLETE

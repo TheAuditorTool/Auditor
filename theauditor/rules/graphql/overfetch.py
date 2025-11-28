@@ -1,8 +1,4 @@
-"""GraphQL Overfetch Detection - ORM Field Analysis.
-
-Detects resolvers fetching sensitive DB fields not exposed in GraphQL schema.
-Uses orm_queries + graphql_fields comparison. NO regex fallbacks.
-"""
+"""GraphQL Overfetch Detection - ORM Field Analysis."""
 
 import sqlite3
 
@@ -57,16 +53,7 @@ SENSITIVE_FIELDS = frozenset(
 
 
 def check_graphql_overfetch(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect overfetch patterns in GraphQL resolvers.
-
-    Strategy:
-    1. For each GraphQL type, get its exposed fields
-    2. Find resolvers that query ORM models for that type
-    3. Check if ORM query selects fields not in GraphQL schema
-    4. Flag sensitive fields that are fetched but not exposed
-
-    NO FALLBACKS. Database must exist.
-    """
+    """Detect overfetch patterns in GraphQL resolvers."""
     if not context.db_path:
         return []
 

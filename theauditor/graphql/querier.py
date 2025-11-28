@@ -1,7 +1,4 @@
-"""GraphQL Querier - Query GraphQL metadata from database.
-
-Stub implementation for querying GraphQL types, fields, and resolver mappings.
-"""
+"""GraphQL Querier - Query GraphQL metadata from database."""
 
 import logging
 import sqlite3

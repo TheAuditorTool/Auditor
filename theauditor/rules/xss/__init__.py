@@ -1,8 +1,4 @@
-"""XSS vulnerability detection rules module - Framework-Aware Orchestrator.
-
-This module orchestrates all XSS analyzers based on detected frameworks.
-Dramatically reduces false positives by understanding framework context.
-"""
+"""XSS vulnerability detection rules module - Framework-Aware Orchestrator."""
 
 import sqlite3
 
@@ -17,14 +13,7 @@ from .xss_analyze import find_xss_issues
 
 
 def find_all_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Run all XSS analyzers based on detected frameworks.
-
-    This is the main entry point for XSS detection.
-    Runs appropriate analyzers based on framework context.
-
-    Returns:
-        Consolidated list of XSS findings with minimal false positives
-    """
+    """Run all XSS analyzers based on detected frameworks."""
     findings = []
 
     if not context.db_path:

@@ -11,27 +11,7 @@ def initialize_project(
     skip_deps: bool = False,
     progress_callback: Any = None,
 ) -> dict[str, Any]:
-    """
-    Initialize TheAuditor for first-time use by running all setup steps.
-
-    This function handles the sequence of operations:
-    1. Index repository
-    2. Create workset
-    3. Check dependencies (unless skipped/offline)
-    4. Fetch documentation (unless skipped/offline)
-
-    Args:
-        offline: Skip network operations (deps check, docs fetch)
-        skip_docs: Skip documentation fetching
-        skip_deps: Skip dependency checking
-
-    Returns:
-        Dict containing:
-            - stats: Statistics for each step
-            - success: Overall success status
-            - has_failures: Whether any steps failed
-            - next_steps: List of recommended next commands
-    """
+    """Initialize TheAuditor for first-time use by running all setup steps."""
     from theauditor.config_runtime import load_runtime_config
     from theauditor.deps import check_latest_versions, parse_dependencies
     from theauditor.docs_fetch import fetch_docs

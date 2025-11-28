@@ -1,42 +1,4 @@
-"""Protocol and module pattern extractors - Dunder protocols and module metadata.
-
-This module contains extraction logic for Python protocols:
-- Iterator protocol (__iter__, __next__, StopIteration)
-- Container protocol (__len__, __getitem__, __setitem__, __delitem__, __contains__)
-- Callable protocol (__call__)
-- Comparison protocol (rich comparison methods)
-- Arithmetic protocol (numeric dunder methods)
-- Pickle protocol (__getstate__, __setstate__, __reduce__)
-- Weak reference usage (weakref module)
-- Context variables (contextvars module)
-- Module attributes (__name__, __file__, __doc__, __all__)
-- Class decorators (separate from method decorators)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 6 Implementation (Python Coverage V2):
-============================================
-Implements 10 protocol patterns.
-
-Expected extraction from TheAuditor codebase:
-- ~80 iterator protocol implementations
-- ~120 container protocol implementations
-- ~60 callable protocol implementations
-- ~200 comparison protocol implementations
-- ~150 arithmetic protocol implementations
-- ~20 pickle protocol implementations
-- ~30 weakref usage
-- ~15 contextvar usage
-- ~200 module attribute usage
-- ~25 class decorators
-Total: ~900 protocol records
-"""
+"""Protocol and module pattern extractors - Dunder protocols and module metadata."""
 
 import ast
 import logging
@@ -98,25 +60,7 @@ PICKLE_METHODS = {"__getstate__", "__setstate__", "__reduce__", "__reduce_ex__"}
 
 
 def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract iterator protocol implementations.
-
-    Detects:
-    - __iter__ method
-    - __next__ method
-    - StopIteration raises
-    - Generator-based __iter__
-
-    Returns:
-        List of iterator protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_iter': bool,
-            'has_next': bool,
-            'raises_stopiteration': bool,
-            'is_generator': bool,
-        }
-    """
+    """Extract iterator protocol implementations."""
     iterator_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -161,26 +105,7 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract container protocol implementations.
-
-    Detects:
-    - __len__, __getitem__, __setitem__, __delitem__, __contains__
-    - Sequence vs mapping distinction
-
-    Returns:
-        List of container protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_len': bool,
-            'has_getitem': bool,
-            'has_setitem': bool,
-            'has_delitem': bool,
-            'has_contains': bool,
-            'is_sequence': bool,
-            'is_mapping': bool,
-        }
-    """
+    """Extract container protocol implementations."""
     container_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -229,23 +154,7 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_callable_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract callable protocol implementations (__call__).
-
-    Detects:
-    - __call__ method
-    - Parameter count
-    - *args/**kwargs
-
-    Returns:
-        List of callable protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'param_count': int,
-            'has_args': bool,
-            'has_kwargs': bool,
-        }
-    """
+    """Extract callable protocol implementations (__call__)."""
     callable_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -275,23 +184,7 @@ def extract_callable_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract comparison protocol implementations.
-
-    Detects:
-    - Rich comparison methods (__eq__, __lt__, __gt__, __le__, __ge__, __ne__)
-    - @total_ordering decorator
-    - All methods implemented
-
-    Returns:
-        List of comparison protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'methods': str,  # Comma-separated
-            'is_total_ordering': bool,
-            'has_all_rich': bool,
-        }
-    """
+    """Extract comparison protocol implementations."""
     comparison_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -326,23 +219,7 @@ def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_arithmetic_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract arithmetic protocol implementations.
-
-    Detects:
-    - Arithmetic dunder methods (__add__, __mul__, etc.)
-    - Reflected methods (__radd__, __rmul__, etc.)
-    - In-place methods (__iadd__, __imul__, etc.)
-
-    Returns:
-        List of arithmetic protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'methods': str,  # Comma-separated
-            'has_reflected': bool,
-            'has_inplace': bool,
-        }
-    """
+    """Extract arithmetic protocol implementations."""
     arithmetic_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -371,22 +248,7 @@ def extract_arithmetic_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
-    """Extract pickle protocol implementations.
-
-    Detects:
-    - __getstate__, __setstate__, __reduce__, __reduce_ex__
-
-    Returns:
-        List of pickle protocol dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'has_getstate': bool,
-            'has_setstate': bool,
-            'has_reduce': bool,
-            'has_reduce_ex': bool,
-        }
-    """
+    """Extract pickle protocol implementations."""
     pickle_protocols = []
 
     if not isinstance(context.tree, ast.AST):
@@ -415,21 +277,7 @@ def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_weakref_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract weakref module usage.
-
-    Detects:
-    - weakref.ref()
-    - weakref.proxy()
-    - WeakValueDictionary, WeakKeyDictionary
-
-    Returns:
-        List of weakref usage dicts:
-        {
-            'line': int,
-            'usage_type': str,  # 'ref' | 'proxy' | 'WeakValueDictionary' | 'WeakKeyDictionary'
-            'in_function': str,
-        }
-    """
+    """Extract weakref module usage."""
     weakref_usage = []
 
     if not isinstance(context.tree, ast.AST):
@@ -463,21 +311,7 @@ def extract_weakref_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_contextvar_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Extract contextvars module usage.
-
-    Detects:
-    - ContextVar creation
-    - get()/set() operations
-    - Token usage
-
-    Returns:
-        List of contextvar usage dicts:
-        {
-            'line': int,
-            'operation': str,  # 'ContextVar' | 'get' | 'set' | 'Token'
-            'in_function': str,
-        }
-    """
+    """Extract contextvars module usage."""
     contextvar_usage = []
 
     if not isinstance(context.tree, ast.AST):
@@ -516,21 +350,7 @@ def extract_contextvar_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_module_attributes(context: FileContext) -> list[dict[str, Any]]:
-    """Extract module-level attribute usage.
-
-    Detects:
-    - __name__, __file__, __doc__, __all__ usage
-    - Read vs write operations
-
-    Returns:
-        List of module attribute dicts:
-        {
-            'line': int,
-            'attribute': str,  # '__name__' | '__file__' | '__doc__' | '__all__'
-            'usage_type': str,  # 'read' | 'write' | 'check'
-            'in_function': str,
-        }
-    """
+    """Extract module-level attribute usage."""
     module_attributes = []
 
     if not isinstance(context.tree, ast.AST):
@@ -562,22 +382,7 @@ def extract_module_attributes(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_class_decorators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract class decorators (separate from method decorators).
-
-    Detects:
-    - @dataclass, @total_ordering, custom decorators
-    - Decorator arguments
-
-    Returns:
-        List of class decorator dicts:
-        {
-            'line': int,
-            'class_name': str,
-            'decorator': str,
-            'decorator_type': str,  # 'dataclass' | 'total_ordering' | 'custom'
-            'has_arguments': bool,
-        }
-    """
+    """Extract class decorators (separate from method decorators)."""
     class_decorators = []
 
     if not isinstance(context.tree, ast.AST):

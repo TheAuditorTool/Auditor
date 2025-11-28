@@ -1,12 +1,4 @@
-"""Indexer configuration - constants and patterns.
-
-This module contains all configuration values for the indexer package.
-Organized into logical sections for maintainability.
-
-CRITICAL: This file should contain ONLY configuration constants.
-NO business logic, NO regex extraction methods.
-Language extractors should use AST-based extraction, not regex.
-"""
+"""Indexer configuration - constants and patterns."""
 
 import os
 import re

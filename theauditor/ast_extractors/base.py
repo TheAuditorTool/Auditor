@@ -1,21 +1,4 @@
-"""Base utilities and shared helpers for AST extraction.
-
-This module contains utility functions shared across all language implementations.
-
-ARCHITECTURAL PRINCIPLE: NO REGEX FOR EXTRACTION
-================================================
-This module must remain regex-free for code extraction. We have ASTs - use them.
-The only regex that ever existed here was extract_vars_from_tree_sitter_expr(),
-which has been deprecated and gutted to enforce proper AST traversal.
-
-If you're tempted to add regex:
-1. STOP
-2. You already have an AST node
-3. Traverse the AST structure instead
-4. Text parsing is a lazy escape hatch that defeats the entire purpose
-
-This is a deliberate architectural decision to maintain extraction purity.
-"""
+"""Base utilities and shared helpers for AST extraction."""
 
 import ast
 from pathlib import Path
@@ -23,10 +6,7 @@ from typing import Any
 
 
 def get_node_name(node: Any) -> str:
-    """Get the name from an AST node, handling different node types.
-
-    Works with Python's built-in AST nodes.
-    """
+    """Get the name from an AST node, handling different node types."""
     if isinstance(node, ast.Name):
         return node.id
     elif isinstance(node, ast.Attribute):
@@ -40,10 +20,7 @@ def get_node_name(node: Any) -> str:
 
 
 def extract_vars_from_expr(node: ast.AST) -> list[str]:
-    """Extract all variable names from a Python expression.
-
-    Walks the AST to find all Name and Attribute nodes.
-    """
+    """Extract all variable names from a Python expression."""
     vars_list = []
     for subnode in ast.walk(node):
         if isinstance(subnode, ast.Name):
@@ -61,22 +38,7 @@ def extract_vars_from_expr(node: ast.AST) -> list[str]:
 
 
 def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> list[str]:
-    """Extract all variable names from a TypeScript/JavaScript AST node.
-
-    This is the AST-pure replacement for the gutted extract_vars_from_tree_sitter_expr().
-    Recursively traverses the TypeScript compiler API AST to find all identifiers.
-
-    Args:
-        node: TypeScript AST node (Dict from semantic parser)
-        depth: Recursion depth to prevent infinite loops
-
-    Returns:
-        List of variable names found in the expression
-
-    Example:
-        node = {"kind": "BinaryExpression", "text": "req.body.name", ...}
-        returns ["req.body.name", "req.body", "req"]
-    """
+    """Extract all variable names from a TypeScript/JavaScript AST node."""
     if depth > 50 or not isinstance(node, dict):
         return []
 
@@ -117,12 +79,7 @@ def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> list[str]:
 
 
 def sanitize_call_name(name: Any) -> str:
-    """Normalize call expression names for downstream analysis.
-
-    Removes argument lists, trailing dots, and extra whitespace so that
-    `app.get('/users', handler)` and `router.post(`/foo`)` both normalize to
-    `app.get` / `router.post`.
-    """
+    """Normalize call expression names for downstream analysis."""
     if not isinstance(name, str):
         return ""
 
@@ -175,10 +132,7 @@ def find_containing_class_python(tree: ast.AST, line: int) -> str | None:
 
 
 def find_containing_function_tree_sitter(node: Any, content: str, language: str) -> str | None:
-    """Find the function containing a node in Tree-sitter AST.
-
-    Walks up the tree to find parent function, handling all modern JS/TS patterns.
-    """
+    """Find the function containing a node in Tree-sitter AST."""
 
     current = node
     while current and hasattr(current, "parent") and current.parent:
@@ -245,25 +199,7 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
 
 
 def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list[str]:
-    """Extract all variable names from a Rust tree-sitter AST node.
-
-    This is the AST-pure extraction for Rust, matching the pattern of
-    extract_vars_from_typescript_node().
-
-    Recursively traverses the tree-sitter AST to find all identifiers.
-
-    Args:
-        node: Rust tree-sitter node
-        content: File content for text extraction
-        depth: Recursion depth to prevent infinite loops
-
-    Returns:
-        List of variable names found in the expression
-
-    Example:
-        node = field_expression for "request.body.name"
-        returns ["request.body.name", "request.body", "request"]
-    """
+    """Extract all variable names from a Rust tree-sitter AST node."""
     if depth > 50 or node is None:
         return []
 
@@ -307,10 +243,7 @@ def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list
 
 
 def detect_language(file_path: Path) -> str:
-    """Detect language from file extension.
-
-    Returns empty string for unsupported languages.
-    """
+    """Detect language from file extension."""
     ext_map = {
         ".py": "python",
         ".js": "javascript",

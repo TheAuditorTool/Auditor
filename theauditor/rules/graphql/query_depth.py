@@ -19,12 +19,7 @@ METADATA = RuleMetadata(
 
 
 def check_query_depth(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for unrestricted query depth (DoS risk).
-
-    Detects:
-    - List fields returning complex types (potential nested queries)
-    - Lack of depth limiting configuration
-    """
+    """Check for unrestricted query depth (DoS risk)."""
     if not context.db_path:
         return []
 

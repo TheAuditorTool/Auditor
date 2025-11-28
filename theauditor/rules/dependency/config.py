@@ -1,13 +1,4 @@
-"""Configuration and pattern definitions for dependency analysis rules.
-
-This module contains all constant definitions, typosquatting dictionaries,
-and pattern frozensets used by dependency security rules.
-
-Design principles:
-- Use frozensets for O(1) membership tests
-- Keep patterns finite and maintainable
-- No regex (use string matching for performance)
-"""
+"""Configuration and pattern definitions for dependency analysis rules."""
 
 from dataclasses import dataclass
 

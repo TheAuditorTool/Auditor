@@ -1,8 +1,4 @@
-"""Event system for pipeline observers.
-
-Decouples pipeline execution from presentation logic.
-Adheres to ZERO FALLBACK POLICY: Observers must handle their own exceptions.
-"""
+"""Event system for pipeline observers."""
 
 from typing import Protocol
 

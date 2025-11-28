@@ -1,24 +1,4 @@
-"""Indexer orchestration logic.
-
-This module contains the IndexerOrchestrator class that coordinates:
-- File walking and discovery
-- AST parsing and caching
-- Extractor coordination
-- Database storage (via DataStorer)
-- JSX dual-pass processing
-
-The orchestrator implements the main indexing workflow while delegating
-specialized concerns to focused modules (storage, extractors, database).
-
-CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
-1. Add the table definition to the appropriate schema file (e.g., node_schema.py)
-2. Add storage handler to the corresponding storage file (e.g., node_storage.py)
-3. Add database method to the corresponding database file (e.g., node_database.py)
-4. Update table count in schema.py
-5. RUN: python -m theauditor.indexer.schemas.codegen
-   This regenerates generated_cache.py which taint analysis uses for memory loading!
-   WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
-"""
+"""Indexer orchestration logic."""
 
 import logging
 import os
@@ -55,15 +35,7 @@ class IndexerOrchestrator:
         follow_symlinks: bool = False,
         exclude_patterns: list[str] | None = None,
     ):
-        """Initialize the indexer orchestrator.
-
-        Args:
-            root_path: Project root path
-            db_path: Path to SQLite database
-            batch_size: Batch size for database operations
-            follow_symlinks: Whether to follow symbolic links
-            exclude_patterns: Patterns to exclude from indexing
-        """
+        """Initialize the indexer orchestrator."""
         self.root_path = root_path
         self.config = load_runtime_config(str(root_path))
 
@@ -124,23 +96,7 @@ class IndexerOrchestrator:
         self.data_storer = DataStorer(self.db_manager, self.counts)
 
     def _detect_frameworks_inline(self) -> list[dict]:
-        """Detect frameworks inline without file dependency.
-
-        Replaces file-based loading with direct detection to avoid
-        chicken-and-egg problem where frameworks.json doesn't exist
-        until after indexer runs.
-
-        Stores results to frameworks table via _store_frameworks() call
-        at line 229 after second JSX pass completes.
-
-        Returns:
-            List of framework dictionaries with keys:
-            - framework: str (e.g., "express", "react")
-            - version: str (e.g., "4.18.2" or "unknown")
-            - language: str (e.g., "javascript", "python")
-            - path: str (e.g., "." or "backend" for monorepos)
-            - source: str (e.g., "package.json", "requirements.txt")
-        """
+        """Detect frameworks inline without file dependency."""
         from theauditor.framework_detector import FrameworkDetector
 
         try:
@@ -163,12 +119,7 @@ class IndexerOrchestrator:
             return []
 
     def _store_frameworks(self):
-        """Store loaded frameworks in database.
-
-        Stores framework information, safe sinks, and taint patterns.
-        Taint patterns (sources/sinks) are seeded here during indexing so
-        the TaintRegistry can load them at analysis time (Database-First architecture).
-        """
+        """Store loaded frameworks in database."""
         for fw in self.frameworks:
             self.db_manager.add_framework(
                 name=fw.get("framework"),
@@ -325,11 +276,7 @@ class IndexerOrchestrator:
             self.db_manager.add_framework_taint_pattern(django_id, pattern, "sink", category)
 
     def index(self) -> tuple[dict[str, int], dict[str, Any]]:
-        """Run the complete indexing process.
-
-        Returns:
-            Tuple of (counts, stats) dictionaries
-        """
+        """Run the complete indexing process."""
 
         from pathlib import Path
 
@@ -567,7 +514,9 @@ class IndexerOrchestrator:
         jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            print(f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
+            print(
+                f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
+            )
 
             jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
@@ -662,12 +611,7 @@ class IndexerOrchestrator:
         return self.counts, stats
 
     def _process_file(self, file_info: dict[str, Any], js_ts_cache: dict[str, Any]):
-        """Process a single file.
-
-        Args:
-            file_info: File metadata
-            js_ts_cache: Cache of pre-parsed JS/TS ASTs
-        """
+        """Process a single file."""
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
@@ -729,16 +673,7 @@ class IndexerOrchestrator:
     def _get_or_parse_ast(
         self, file_info: dict[str, Any], file_path: Path, js_ts_cache: dict[str, Any]
     ) -> dict | None:
-        """Get AST from cache or parse the file.
-
-        Args:
-            file_info: File metadata
-            file_path: Path to the file
-            js_ts_cache: Cache of pre-parsed JS/TS ASTs
-
-        Returns:
-            Parsed AST tree or None
-        """
+        """Get AST from cache or parse the file."""
         if file_info["ext"] not in SUPPORTED_AST_EXTENSIONS:
             return None
 
@@ -758,15 +693,7 @@ class IndexerOrchestrator:
         return tree
 
     def _select_extractor(self, file_path: str, file_ext: str):
-        """Select the appropriate extractor for a file.
-
-        Args:
-            file_path: Path to the file
-            file_ext: File extension
-
-        Returns:
-            Appropriate extractor instance or None
-        """
+        """Select the appropriate extractor for a file."""
 
         if self.docker_extractor.should_extract(file_path):
             return self.docker_extractor
@@ -778,18 +705,7 @@ class IndexerOrchestrator:
         return self.extractor_registry.get_extractor(file_path, file_ext)
 
     def _store_extracted_data(self, file_path: str, extracted: dict[str, Any]):
-        """Store extracted data in the database - DELEGATED TO DataStorer.
-
-        This method now delegates all storage operations to the DataStorer class.
-        The God Method (1,169 lines) has been refactored into 66 focused handler methods.
-
-        Includes DATA FIDELITY CHECK: compares extraction manifest vs storage receipt
-        to detect silent data loss. See: theauditor/indexer/fidelity.py
-
-        Args:
-            file_path: Path to the source file
-            extracted: Dictionary of extracted data
-        """
+        """Store extracted data in the database - DELEGATED TO DataStorer."""
 
         receipt = self.data_storer.store(file_path, extracted, jsx_pass=False)
 
@@ -805,13 +721,7 @@ class IndexerOrchestrator:
                 raise
 
     def _cleanup_extractors(self):
-        """Call cleanup() on all registered extractors.
-
-        This allows extractors to release persistent resources like:
-        - LSP sessions (Rust, TypeScript)
-        - Database connections
-        - Temporary directories
-        """
+        """Call cleanup() on all registered extractors."""
 
         for extractor in self.extractor_registry.extractors.values():
             try:

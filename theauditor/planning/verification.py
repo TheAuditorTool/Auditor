@@ -1,15 +1,4 @@
-"""Verification integration for planning system.
-
-This module bridges planning with RefactorRuleEngine and CodeQueryEngine.
-
-Integration Points:
-- RefactorProfile.load_from_string() (refactor/profiles.py:130)
-- RefactorRuleEngine.evaluate() (refactor/profiles.py:257)
-- CodeQueryEngine.find_symbol() (context/query.py:158)
-- CodeQueryEngine.get_api_handlers() (context/query.py:412)
-
-NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
-"""
+"""Verification integration for planning system."""
 
 from pathlib import Path
 
@@ -18,40 +7,7 @@ from theauditor.refactor.profiles import ProfileEvaluation, RefactorProfile, Ref
 
 
 def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileEvaluation:
-    """Verify task completion using RefactorRuleEngine.
-
-    Args:
-        spec_yaml: YAML specification (RefactorProfile format)
-        db_path: Path to repo_index.db
-        repo_root: Project root directory
-
-    Returns:
-        ProfileEvaluation with violations and expected_references
-
-    Integration:
-        - Uses RefactorProfile.load_from_string() (in-memory, no temp files)
-        - Uses RefactorRuleEngine.evaluate() (refactor/profiles.py:257)
-
-    NO FALLBACKS. Raises ValueError if spec_yaml is malformed.
-
-    Example:
-        spec_yaml = '''
-        refactor_name: Auth Migration
-        description: Migrate from old_auth to new_auth
-        rules:
-          - id: old-auth-removed
-            description: Old auth should be removed
-            match:
-              identifiers: [old_authenticate]
-            expect:
-              identifiers: [new_authenticate]
-        '''
-        evaluation = verify_task_spec(spec_yaml, db_path, repo_root)
-        if evaluation.total_violations() == 0:
-            print("Task verified: All old auth removed")
-        else:
-            print(f"Found {evaluation.total_violations()} violations")
-    """
+    """Verify task completion using RefactorRuleEngine."""
 
     profile = RefactorProfile.load_from_string(spec_yaml)
 
@@ -62,37 +18,7 @@ def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileE
 
 
 def find_analogous_patterns(root: Path, pattern_spec: dict) -> list[dict]:
-    """Find similar code patterns for greenfield tasks.
-
-    Args:
-        root: Project root (contains .pf/)
-        pattern_spec: Dict describing pattern to find
-          Example: {"type": "api_route", "method": "POST"}
-
-    Returns:
-        List of dicts matching pattern
-
-    Integration:
-        - Uses CodeQueryEngine.find_symbol() (context/query.py:158)
-        - Uses CodeQueryEngine.get_api_handlers() (context/query.py:412)
-
-    Use Case:
-        Task: "Add POST /users route"
-        Greenfield: No existing /users routes
-        Analogous: find_analogous_patterns({"type": "api_route", "method": "POST"})
-        Result: All existing POST routes for reference
-
-    Example:
-        # Find all POST routes
-        patterns = find_analogous_patterns(root, {"type": "api_route", "method": "POST"})
-        for route in patterns:
-            print(f"{route['path']} in {route['file']}")
-
-        # Find functions with name pattern
-        patterns = find_analogous_patterns(root, {"type": "function", "name": "validate*"})
-        for func in patterns:
-            print(f"{func.name} in {func.file}:{func.line}")
-    """
+    """Find similar code patterns for greenfield tasks."""
     engine = CodeQueryEngine(root)
     pattern_type = pattern_spec.get("type")
 

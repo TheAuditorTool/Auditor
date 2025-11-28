@@ -1,12 +1,4 @@
-"""AWS CDK Security Group Detection - database-first rule.
-
-Detects security groups with overly permissive ingress/egress rules in CDK Python code.
-
-Checks:
-- Ingress rules from 0.0.0.0/0 (CRITICAL)
-- Ingress rules from ::/0 IPv6 (CRITICAL)
-- allow_all_outbound=True (LOW - informational)
-"""
+"""AWS CDK Security Group Detection - database-first rule."""
 
 import logging
 import sqlite3

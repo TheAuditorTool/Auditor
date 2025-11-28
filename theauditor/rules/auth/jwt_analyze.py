@@ -1,28 +1,4 @@
-"""JWT Security Detector - Full-Stack Database-First Approach.
-
-Comprehensive JWT security coverage for React/Vite/Node.js/Python stacks.
-NO AST TRAVERSAL. NO STRING PARSING. JUST SQL QUERIES.
-
-Backend Detection (queries actual function names):
-- Hardcoded secrets: jwt.sign(), jsonwebtoken.sign(), jose.JWT.sign(), jwt.encode()
-- Weak variable secrets: Checks argument patterns for obvious weaknesses
-- Missing expiration claims: Checks for expiresIn/exp/maxAge in options
-- Algorithm confusion: Detects mixed symmetric/asymmetric algorithms
-- None algorithm usage: Detects 'none' in algorithm options (critical vulnerability)
-- JWT.decode() usage: Detects decode without signature verification
-
-Frontend Detection (assignments & function_call_args):
-- localStorage/sessionStorage JWT storage (XSS vulnerability)
-- JWT in URL parameters (leaks to logs/history/referrer)
-- Cross-origin JWT transmission (CORS issues)
-- React useState/useContext JWT patterns (UX issues)
-
-KNOWN LIMITATIONS:
-- Won't detect destructured imports: import { sign } from 'jwt'; sign();
-- Won't detect renamed imports: import { sign as jwtSign } from 'jwt';
-- Library coverage: jwt, jsonwebtoken, jose, PyJWT (expand as needed)
-- For comprehensive coverage, combine with dependency analysis
-"""
+"""JWT Security Detector - Full-Stack Database-First Approach."""
 
 import sqlite3
 
@@ -123,28 +99,7 @@ HTTP_FUNCTIONS = frozenset(
 
 
 def find_jwt_flaws(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect JWT vulnerabilities using database queries with Python-side filtering.
-
-    Backend Security (Checks 1-8, 11):
-    - Hardcoded JWT secrets
-    - Weak variable-based secrets
-    - Missing expiration claims
-    - Algorithm confusion attacks
-    - None algorithm usage
-    - JWT.decode() usage (no signature verification)
-    - Sensitive data in JWT payloads
-    - Weak environment variable names
-    - Secret length < 32 characters
-
-    Frontend Security (Checks 9-10, 12-13):
-    - JWT in localStorage/sessionStorage (XSS vulnerability)
-    - JWT in URL parameters (leaks to logs/history)
-    - Cross-origin JWT transmission (CORS issues)
-    - JWT in React state (lost on refresh)
-
-    All pattern matching done in Python after database fetch.
-    File filtering handled by orchestrator via METADATA.
-    """
+    """Detect JWT vulnerabilities using database queries with Python-side filtering."""
     findings = []
 
     if not context.db_path:

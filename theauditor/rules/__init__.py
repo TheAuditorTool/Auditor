@@ -1,8 +1,4 @@
-"""TheAuditor AST-based rule definitions.
-
-This package contains high-fidelity AST-based rules for detecting
-security vulnerabilities, code quality issues, and anti-patterns.
-"""
+"""TheAuditor AST-based rule definitions."""
 
 from .node import find_runtime_issues as find_node_runtime_issues
 from .performance import find_performance_issues

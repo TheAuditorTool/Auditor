@@ -1,23 +1,4 @@
-"""JavaScript/TypeScript extractor.
-
-This extractor:
-1. Delegates core extraction to the AST parser
-2. Performs framework-specific analysis (React/Vue) on the extracted data
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-This is an EXTRACTOR layer module. It:
-- RECEIVES: file_info dict (contains 'path' key from indexer)
-- DELEGATES: To ast_parser.extract_X(tree) methods (line 290 for object literals)
-- RETURNS: Extracted data WITHOUT file_path keys
-
-The INDEXER layer (indexer/__init__.py) provides file_path and stores to database.
-See indexer/__init__.py:948-962 for object literal storage example:
-  - Line 952: Uses file_path parameter (from orchestrator)
-  - Line 953: Uses obj_lit['line'] (from this extractor's delegation to typescript_impl.py)
-
-This separation ensures single source of truth for file paths.
-"""
+"""JavaScript/TypeScript extractor."""
 
 import os
 from datetime import datetime
@@ -38,16 +19,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract all JavaScript/TypeScript information.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content (for fallback patterns only)
-            tree: Parsed AST from js_semantic_parser
-
-        Returns:
-            Dictionary containing all extracted data for database
-        """
+        """Extract all JavaScript/TypeScript information."""
         result = {
             "imports": [],
             "resolved_imports": {},
@@ -466,7 +438,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         classes = [s for s in result["symbols"] if s.get("type") == "class"]
 
         # Query: SELECT * FROM symbols WHERE type='call' OR type='property'
-        # Routes are mapped from extracted_data["api_endpoints"] via key_mappings above
 
         result["router_mounts"] = self._extract_router_mounts(
             result.get("function_calls", []), file_info.get("path", "")
@@ -683,9 +654,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     }
                 )
 
-        # SQL queries and JWT patterns are mapped from extracted_data via key_mappings
-        # NO FALLBACK. If data is missing, the bug is in the JS extractor.
-
         if not result.get("variable_usage"):
             for assign in result.get("assignments", []):
                 result["variable_usage"].append(
@@ -762,23 +730,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         return result
 
     def _analyze_import_styles(self, imports: list[dict], file_path: str) -> list[dict]:
-        """Analyze import statements to determine import style.
-
-        Classifies imports into categories for tree-shaking analysis:
-        - namespace: import * as lodash from 'lodash' (prevents tree-shaking)
-        - named: import { map, filter } from 'lodash' (allows tree-shaking)
-        - default: import lodash from 'lodash' (depends on export structure)
-        - side-effect: import 'polyfill' (no tree-shaking, intentional)
-
-        This enables bundle_analyze.py CHECK 3 (inefficient namespace imports).
-
-        Args:
-            imports: List of import dictionaries from ast_parser
-            file_path: Path to the file being analyzed
-
-        Returns:
-            List of import style records for database
-        """
+        """Analyze import statements to determine import style."""
         import_styles = []
 
         for imp in imports:
@@ -823,20 +775,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         return import_styles
 
     def _determine_sql_source(self, file_path: str, method_name: str) -> str:
-        """Determine extraction source category for SQL query.
-
-        This categorization allows rules to filter intelligently:
-        - migration_file: DDL from migration files (LOW priority for SQL injection)
-        - orm_query: ORM method calls (MEDIUM priority, usually parameterized)
-        - code_execute: Direct database execution (HIGH priority for injection)
-
-        Args:
-            file_path: Path to the file being analyzed
-            method_name: Database method name (execute, query, findAll, etc.)
-
-        Returns:
-            extraction_source category string
-        """
+        """Determine extraction source category for SQL query."""
         file_path_lower = file_path.lower()
 
         if "migration" in file_path_lower or "migrate" in file_path_lower:
@@ -871,28 +810,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
 
         return "code_execute"
 
-    # DELETED Phase 5: _extract_sql_from_function_calls, _extract_jwt_from_function_calls,
-    # _extract_routes_from_ast - These were zombie methods duplicating JS extraction.
-    # SQL, JWT, and routes are now mapped directly from extracted_data via key_mappings.
-    # If data is missing, the bug is in the TypeScript extractor, not Python.
-
     def _extract_router_mounts(self, function_calls: list[dict], file_path: str) -> list[dict]:
-        """Extract router.use() mount statements from function calls.
-
-        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
-
-        Detects patterns like:
-        - router.use('/areas', areaRoutes)
-        - router.use(API_PREFIX, protectedRouter)
-        - protectedRouter.use(`${API_PREFIX}/auth`, authRoutes)
-
-        Args:
-            function_calls: List of function call dictionaries from AST parser
-            file_path: Path to the file being analyzed
-
-        Returns:
-            List of mount dictionaries with router_mounts table fields
-        """
+        """Extract router.use() mount statements from function calls."""
         mounts = []
 
         mounts_by_line = {}

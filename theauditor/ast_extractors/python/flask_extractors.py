@@ -1,26 +1,4 @@
-"""Flask framework extractors.
-
-This module contains extraction logic for Flask web framework patterns:
-- Application factories (create_app pattern)
-- Flask extensions (SQLAlchemy, Login, etc.)
-- Request/response hooks (before_request, after_request)
-- Error handlers (@app.errorhandler)
-- WebSocket handlers (Flask-SocketIO)
-- CLI commands (@click.command)
-- CORS configurations
-- Rate limiting decorators
-- Caching decorators
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Flask framework extractors."""
 
 import ast
 import logging
@@ -93,19 +71,7 @@ def _get_int_constant(node: ast.AST | None) -> int | None:
 
 
 def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask application factory patterns.
-
-    Detects:
-    - create_app() functions
-    - Flask() instantiations
-    - app.config updates
-    - Blueprint registrations
-
-    Security relevance:
-    - Factory pattern security configuration
-    - Config source tracking (environment, file, hardcoded)
-    - Blueprint registration = attack surface
-    """
+    """Extract Flask application factory patterns."""
     factories = []
     if not isinstance(context.tree, ast.AST):
         return factories
@@ -147,18 +113,7 @@ def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask extension registrations.
-
-    Detects:
-    - Extension instantiations (db = SQLAlchemy())
-    - init_app() calls
-    - Extension configuration
-
-    Security relevance:
-    - SQLAlchemy = SQL injection vector
-    - LoginManager = auth bypass risk
-    - CORS = cross-origin policy
-    """
+    """Extract Flask extension registrations."""
     extensions = []
     if not isinstance(context.tree, ast.AST):
         return extensions
@@ -203,20 +158,7 @@ def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask request/response hooks.
-
-    Detects:
-    - @app.before_request
-    - @app.after_request
-    - @app.teardown_request
-    - @app.before_first_request
-    - @app.teardown_appcontext
-
-    Security relevance:
-    - before_request = authentication/authorization checkpoint
-    - after_request = response header injection point
-    - Missing auth in before_request = bypass risk
-    """
+    """Extract Flask request/response hooks."""
     hooks = []
     if not isinstance(context.tree, ast.AST):
         return hooks
@@ -252,18 +194,7 @@ def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask error handler decorators.
-
-    Detects:
-    - @app.errorhandler(404)
-    - @app.errorhandler(Exception)
-    - Custom exception handlers
-
-    Security relevance:
-    - Error handlers = information disclosure risk
-    - Debug info in error messages = vulnerability
-    - Generic exception handlers = hiding errors
-    """
+    """Extract Flask error handler decorators."""
     handlers = []
     if not isinstance(context.tree, ast.AST):
         return handlers
@@ -303,18 +234,7 @@ def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_websocket_handlers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask-SocketIO WebSocket handlers.
-
-    Detects:
-    - @socketio.on('event')
-    - emit() calls
-    - join_room/leave_room
-
-    Security relevance:
-    - WebSocket events = unvalidated input
-    - emit() without auth = unauthorized broadcast
-    - Room management = access control issue
-    """
+    """Extract Flask-SocketIO WebSocket handlers."""
     handlers = []
     if not isinstance(context.tree, ast.AST):
         return handlers
@@ -353,18 +273,7 @@ def extract_flask_websocket_handlers(context: FileContext) -> list[dict[str, Any
 
 
 def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask CLI commands.
-
-    Detects:
-    - @app.cli.command()
-    - @click.command() with Flask context
-    - click.option decorators
-
-    Security relevance:
-    - CLI commands = admin interface
-    - Commands without auth = privilege escalation
-    - Dangerous operations (db drop, user delete)
-    """
+    """Extract Flask CLI commands."""
     commands = []
     if not isinstance(context.tree, ast.AST):
         return commands
@@ -406,18 +315,7 @@ def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask CORS configurations.
-
-    Detects:
-    - CORS() instantiation
-    - @cross_origin decorator
-    - CORS configuration dictionaries
-
-    Security relevance:
-    - CORS(*) = unrestricted cross-origin access
-    - Missing CORS = functional issue
-    - Overly permissive origins = CSRF risk
-    """
+    """Extract Flask CORS configurations."""
     configs = []
     if not isinstance(context.tree, ast.AST):
         return configs
@@ -453,18 +351,7 @@ def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_rate_limits(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask rate limiting decorators.
-
-    Detects:
-    - @limiter.limit() decorators
-    - Rate limit configurations
-    - Per-route vs global limits
-
-    Security relevance:
-    - Missing rate limits = DoS vulnerability
-    - Overly permissive limits = abuse risk
-    - Login endpoints without limits = brute force risk
-    """
+    """Extract Flask rate limiting decorators."""
     limits = []
     if not isinstance(context.tree, ast.AST):
         return limits
@@ -497,18 +384,7 @@ def extract_flask_rate_limits(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_flask_cache_decorators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask caching decorators.
-
-    Detects:
-    - @cache.cached() decorators
-    - @cache.memoize() decorators
-    - Cache timeout values
-
-    Security relevance:
-    - Caching user-specific data = privacy leak
-    - Long cache timeouts on auth checks = stale permissions
-    - Cache key collisions = data leakage
-    """
+    """Extract Flask caching decorators."""
     caches = []
     if not isinstance(context.tree, ast.AST):
         return caches
@@ -569,14 +445,7 @@ AUTH_DECORATORS = frozenset(
 
 
 def _extract_fastapi_dependencies(node: ast.FunctionDef) -> list[str]:
-    """Extract FastAPI dependency injection from function signature.
-
-    Args:
-        node: AST FunctionDef node
-
-    Returns:
-        List of dependency names (e.g., ['Depends(get_current_user)'])
-    """
+    """Extract FastAPI dependency injection from function signature."""
     dependencies = []
     for arg in node.args.args:
         if arg.annotation and isinstance(arg.annotation, ast.Call):
@@ -589,18 +458,7 @@ def _extract_fastapi_dependencies(node: ast.FunctionDef) -> list[str]:
 
 
 def extract_flask_routes(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Flask/FastAPI routes using Python AST.
-
-    Detects:
-    - Flask @app.route() decorators
-    - Flask @blueprint.route() decorators
-    - FastAPI @app.get/post/put/delete() decorators
-    - Authentication decorators
-    - Dependency injection (FastAPI)
-
-    Returns:
-        List of route dictionaries with method, pattern, auth, etc.
-    """
+    """Extract Flask/FastAPI routes using Python AST."""
     routes = []
 
     if not isinstance(context.tree, ast.AST):

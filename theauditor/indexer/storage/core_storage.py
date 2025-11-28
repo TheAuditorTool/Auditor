@@ -1,18 +1,4 @@
-"""Core storage handlers for language-agnostic patterns.
-
-This module contains handlers for code patterns that apply across all languages:
-- File tracking: imports, refs
-- Code structure: symbols, type_annotations, class_properties
-- Data flow: assignments, function_calls, returns
-- Security: sql_objects, sql_queries, jwt_patterns
-- Control flow: cfg blocks/edges/statements
-- Analysis: variable_usage, object_literals, orm_queries, orm_relationships
-- Infrastructure: cdk_constructs, routes
-- Validation: validation_framework_usage
-- Build: package_configs
-
-Handler Count: 21
-"""
+"""Core storage handlers for language-agnostic patterns."""
 
 import json
 import logging
@@ -117,11 +103,7 @@ class CoreStorage(BaseStorage):
     def _store_express_middleware_chains(
         self, file_path: str, express_middleware_chains: list, jsx_pass: bool
     ):
-        """Store Express middleware chains (PHASE 5).
-
-        Each chain record represents one handler in a route definition's execution order.
-        Example: router.post('/', mw1, mw2, controller) creates 3 records.
-        """
+        """Store Express middleware chains (PHASE 5)."""
         for chain in express_middleware_chains:
             if isinstance(chain, dict):
                 self.db_manager.generic_batches["express_middleware_chains"].append(
@@ -199,14 +181,7 @@ class CoreStorage(BaseStorage):
             self.counts["cdk_constructs"] += 1
 
     def _store_cdk_construct_properties(self, file_path: str, properties: list, jsx_pass: bool):
-        """Store CDK construct properties from flat junction array (JS format).
-
-        JS sends: {construct_line, construct_class, property_name, value_expr, property_line}
-        Schema expects: construct_id FK which we reconstruct from file_path + line + class.
-
-        NOTE: construct_name not available in flat format, defaults to 'unnamed'.
-        This matches behavior when Python extracts nested properties.
-        """
+        """Store CDK construct properties from flat junction array (JS format)."""
         for prop in properties:
             if not isinstance(prop, dict):
                 continue
@@ -228,7 +203,6 @@ class CoreStorage(BaseStorage):
     def _store_symbols(self, file_path: str, symbols: list, jsx_pass: bool):
         """Store symbols."""
         for idx, symbol in enumerate(symbols):
-            # ZERO FALLBACK POLICY: Type assertions at storage boundary
             if not isinstance(symbol, dict):
                 raise TypeError(
                     f"EXTRACTOR BUG: Symbol at index {idx} must be dict, got {type(symbol).__name__}.\n"
@@ -236,28 +210,28 @@ class CoreStorage(BaseStorage):
                     f"  Fix extractor to return List[Dict]."
                 )
 
-            if not isinstance(symbol.get('name'), str) or not symbol['name']:
+            if not isinstance(symbol.get("name"), str) or not symbol["name"]:
                 raise TypeError(
                     f"EXTRACTOR BUG: Symbol.name must be non-empty str.\n"
                     f"  File: {file_path}, Index: {idx}\n"
                     f"  Got: {repr(symbol.get('name'))}"
                 )
 
-            if not isinstance(symbol.get('type'), str) or not symbol['type']:
+            if not isinstance(symbol.get("type"), str) or not symbol["type"]:
                 raise TypeError(
                     f"EXTRACTOR BUG: Symbol.type must be non-empty str.\n"
                     f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
                     f"  Got: {repr(symbol.get('type'))}"
                 )
 
-            if not isinstance(symbol.get('line'), int) or symbol['line'] < 1:
+            if not isinstance(symbol.get("line"), int) or symbol["line"] < 1:
                 raise TypeError(
                     f"EXTRACTOR BUG: Symbol.line must be int >= 1.\n"
                     f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
                     f"  Got: {repr(symbol.get('line'))}"
                 )
 
-            if not isinstance(symbol.get('col'), int) or symbol['col'] < 0:
+            if not isinstance(symbol.get("col"), int) or symbol["col"] < 0:
                 raise TypeError(
                     f"EXTRACTOR BUG: Symbol.col must be int >= 0.\n"
                     f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
@@ -384,11 +358,14 @@ class CoreStorage(BaseStorage):
                     f"[DEBUG] First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}"
                 )
 
-        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
-        # NOTE: col is required to distinguish same-target assignments on same line (minified JS)
         seen = set()
         for assignment in assignments:
-            key = (file_path, assignment['line'], assignment.get('col', 0), assignment['target_var'])
+            key = (
+                file_path,
+                assignment["line"],
+                assignment.get("col", 0),
+                assignment["target_var"],
+            )
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate assignment detected.\n"
@@ -400,29 +377,28 @@ class CoreStorage(BaseStorage):
             seen.add(key)
 
         for assignment in assignments:
-            # ZERO FALLBACK POLICY: Type assertions at storage boundary
-            if not isinstance(assignment.get('line'), int) or assignment['line'] < 1:
+            if not isinstance(assignment.get("line"), int) or assignment["line"] < 1:
                 raise TypeError(
                     f"EXTRACTOR BUG: Assignment.line must be int >= 1.\n"
                     f"  File: {file_path}\n"
                     f"  Got: {repr(assignment.get('line'))}"
                 )
 
-            if not isinstance(assignment.get('target_var'), str) or not assignment['target_var']:
+            if not isinstance(assignment.get("target_var"), str) or not assignment["target_var"]:
                 raise TypeError(
                     f"EXTRACTOR BUG: Assignment.target_var must be non-empty str.\n"
                     f"  File: {file_path}, Line: {assignment.get('line')}\n"
                     f"  Got: {repr(assignment.get('target_var'))}"
                 )
 
-            if not isinstance(assignment.get('source_expr'), str):
+            if not isinstance(assignment.get("source_expr"), str):
                 raise TypeError(
                     f"EXTRACTOR BUG: Assignment.source_expr must be str.\n"
                     f"  File: {file_path}, Line: {assignment.get('line')}\n"
                     f"  Got: {repr(assignment.get('source_expr'))}"
                 )
 
-            if not isinstance(assignment.get('in_function'), str):
+            if not isinstance(assignment.get("in_function"), str):
                 raise TypeError(
                     f"EXTRACTOR BUG: Assignment.in_function must be str.\n"
                     f"  File: {file_path}, Line: {assignment.get('line')}\n"
@@ -504,22 +480,21 @@ class CoreStorage(BaseStorage):
                         f"Callee: {call['callee_function']}. Value: {param_name}. Fix extraction layer."
                     )
 
-                # ZERO FALLBACK POLICY: Additional type assertions
-                if not isinstance(call.get('line'), int) or call['line'] < 1:
+                if not isinstance(call.get("line"), int) or call["line"] < 1:
                     raise TypeError(
                         f"EXTRACTOR BUG: Call.line must be int >= 1.\n"
                         f"  File: {file_path}\n"
                         f"  Got: {repr(call.get('line'))}"
                     )
 
-                if not isinstance(call.get('caller_function'), str):
+                if not isinstance(call.get("caller_function"), str):
                     raise TypeError(
                         f"EXTRACTOR BUG: Call.caller_function must be str.\n"
                         f"  File: {file_path}, Line: {call.get('line')}\n"
                         f"  Got: {repr(call.get('caller_function'))}"
                     )
 
-                if not isinstance(call.get('callee_function'), str) or not call['callee_function']:
+                if not isinstance(call.get("callee_function"), str) or not call["callee_function"]:
                     raise TypeError(
                         f"EXTRACTOR BUG: Call.callee_function must be non-empty str.\n"
                         f"  File: {file_path}, Line: {call.get('line')}\n"
@@ -541,11 +516,9 @@ class CoreStorage(BaseStorage):
     def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
         """Store return statements."""
 
-        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
-        # NOTE: col is required to distinguish same-function returns on same line (minified JS)
         seen = set()
         for ret in returns:
-            key = (file_path, ret['line'], ret.get('col', 0), ret['function_name'])
+            key = (file_path, ret["line"], ret.get("col", 0), ret["function_name"])
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate function_return detected.\n"
@@ -557,22 +530,21 @@ class CoreStorage(BaseStorage):
             seen.add(key)
 
         for ret in returns:
-            # ZERO FALLBACK POLICY: Type assertions at storage boundary
-            if not isinstance(ret.get('line'), int) or ret['line'] < 1:
+            if not isinstance(ret.get("line"), int) or ret["line"] < 1:
                 raise TypeError(
                     f"EXTRACTOR BUG: Return.line must be int >= 1.\n"
                     f"  File: {file_path}\n"
                     f"  Got: {repr(ret.get('line'))}"
                 )
 
-            if not isinstance(ret.get('function_name'), str):
+            if not isinstance(ret.get("function_name"), str):
                 raise TypeError(
                     f"EXTRACTOR BUG: Return.function_name must be str.\n"
                     f"  File: {file_path}, Line: {ret.get('line')}\n"
                     f"  Got: {repr(ret.get('function_name'))}"
                 )
 
-            if not isinstance(ret.get('return_expr'), str):
+            if not isinstance(ret.get("return_expr"), str):
                 raise TypeError(
                     f"EXTRACTOR BUG: Return.return_expr must be str.\n"
                     f"  File: {file_path}, Line: {ret.get('line')}\n"
@@ -723,11 +695,15 @@ class CoreStorage(BaseStorage):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
 
-        # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
-        # NOTE: col is required to distinguish same-var accesses on same line (minified JS)
         seen = set()
         for usage in env_var_usage:
-            key = (file_path, usage['line'], usage.get('col', 0), usage['var_name'], usage['access_type'])
+            key = (
+                file_path,
+                usage["line"],
+                usage.get("col", 0),
+                usage["var_name"],
+                usage["access_type"],
+            )
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate env_var_usage detected.\n"

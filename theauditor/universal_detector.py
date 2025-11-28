@@ -1,10 +1,4 @@
-"""Universal pattern detector - AST-first approach with minimal regex fallback.
-
-This module coordinates pattern detection across the codebase:
-- Uses the orchestrator for all AST-parseable files (Python, JS, TS)
-- Falls back to regex patterns ONLY for non-AST files (configs, shell scripts)
-- Acts as a thin coordination layer, not a detection engine itself
-"""
+"""Universal pattern detector - AST-first approach with minimal regex fallback."""
 
 import json
 import os
@@ -66,15 +60,7 @@ class UniversalPatternDetector:
         with_frameworks: bool = True,
         exclude_patterns: list[str] = None,
     ):
-        """Initialize detector.
-
-        Args:
-            project_path: Root path of project to analyze
-            pattern_loader: Optional PatternLoader for non-AST files
-            with_ast: Enable AST-based detection (compatibility flag)
-            with_frameworks: Enable framework detection (compatibility flag)
-            exclude_patterns: Patterns to exclude from scanning
-        """
+        """Initialize detector."""
         self.project_path = Path(project_path).resolve()
         self.pattern_loader = pattern_loader or PatternLoader()
         self.findings: list[Finding] = []
@@ -93,15 +79,7 @@ class UniversalPatternDetector:
     def detect_patterns(
         self, categories: list[str] | None = None, file_filter: str | None = None
     ) -> list[Finding]:
-        """Run pattern detection across project.
-
-        Args:
-            categories: Optional categories to filter patterns
-            file_filter: Optional glob pattern to filter files
-
-        Returns:
-            List of all findings
-        """
+        """Run pattern detection across project."""
         self.findings = []
 
         db_path = self.project_path / ".pf" / "repo_index.db"
@@ -144,15 +122,7 @@ class UniversalPatternDetector:
     def detect_patterns_for_files(
         self, file_list: list[str], categories: list[str] = None
     ) -> list[Finding]:
-        """Targeted pattern detection for specific files.
-
-        Args:
-            file_list: List of files to analyze
-            categories: Optional categories to filter patterns
-
-        Returns:
-            List of findings for specified files
-        """
+        """Targeted pattern detection for specific files."""
         if not file_list:
             return []
 
@@ -191,11 +161,7 @@ class UniversalPatternDetector:
         return self.findings
 
     def _query_files(self, db_path: Path, file_filter: str = None) -> list[tuple]:
-        """Query files from database.
-
-        Returns:
-            List of (full_path, extension, sha256) tuples
-        """
+        """Query files from database."""
         files = []
 
         try:
@@ -222,11 +188,7 @@ class UniversalPatternDetector:
         return files
 
     def _query_specific_files(self, db_path: Path, file_list: list[Path]) -> list[tuple]:
-        """Query specific files from database.
-
-        Returns:
-            List of (full_path, extension, sha256) tuples
-        """
+        """Query specific files from database."""
         files = []
 
         try:
@@ -253,11 +215,7 @@ class UniversalPatternDetector:
         return files
 
     def _process_ast_files(self, files: list[tuple]):
-        """Process AST-parseable files through orchestrator.
-
-        Args:
-            files: List of (path, ext, sha256) tuples
-        """
+        """Process AST-parseable files through orchestrator."""
 
         max_workers = min(8, os.cpu_count() or 4)
 
@@ -329,12 +287,7 @@ class UniversalPatternDetector:
                         print(f"Worker error: {e}")
 
     def _process_regex_files(self, files: list[tuple], categories: list[str] = None):
-        """Process non-AST files with regex patterns.
-
-        Args:
-            files: List of (path, ext, sha256) tuples
-            categories: Optional pattern categories to load
-        """
+        """Process non-AST files with regex patterns."""
 
         patterns_by_category = self.pattern_loader.load_patterns(categories)
 
@@ -382,11 +335,7 @@ class UniversalPatternDetector:
                     print(f"Error processing {file_path}: {e}")
 
     def _run_database_rules(self) -> list[Finding]:
-        """Run database-level rules through orchestrator.
-
-        Returns:
-            List of findings from database rules
-        """
+        """Run database-level rules through orchestrator."""
         findings = []
 
         try:
@@ -416,14 +365,7 @@ class UniversalPatternDetector:
         return findings
 
     def format_table(self, max_rows: int = 50) -> str:
-        """Format findings as a human-readable table.
-
-        Args:
-            max_rows: Maximum number of rows to display
-
-        Returns:
-            Formatted table string
-        """
+        """Format findings as a human-readable table."""
         if not self.findings:
             return "No issues found."
 
@@ -455,14 +397,7 @@ class UniversalPatternDetector:
         return "\n".join(lines)
 
     def to_json(self, output_file: Path | None = None) -> str:
-        """Export findings to JSON.
-
-        Args:
-            output_file: Optional file path to write JSON
-
-        Returns:
-            JSON string
-        """
+        """Export findings to JSON."""
         data = {"findings": [f.to_dict() for f in self.findings]}
 
         json_str = json.dumps(data, indent=2, sort_keys=True)
@@ -476,11 +411,7 @@ class UniversalPatternDetector:
         return json_str
 
     def get_summary_stats(self) -> dict[str, Any]:
-        """Get summary statistics of findings.
-
-        Returns:
-            Dictionary with summary stats
-        """
+        """Get summary statistics of findings."""
         stats = {
             "total_findings": len(self.findings),
             "by_severity": {},

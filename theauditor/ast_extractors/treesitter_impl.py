@@ -1,11 +1,4 @@
-"""Tree-sitter generic AST extraction implementations.
-
-This module contains Tree-sitter extraction logic that works across multiple languages.
-
-CRITICAL: Tree-sitter is FORBIDDEN for JavaScript/TypeScript files.
-It produces corrupted data (e.g., "anonymous" function names).
-JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
-"""
+"""Tree-sitter generic AST extraction implementations."""
 
 from typing import Any
 
@@ -16,17 +9,7 @@ from .base import (
 
 
 def _check_js_ts_forbidden(language: str) -> None:
-    """Enforce that Tree-sitter is NEVER used for JavaScript/TypeScript.
-
-    Tree-sitter produces corrupted data for JS/TS (e.g., "anonymous" function names).
-    These languages MUST use the TypeScript Compiler API semantic parser.
-
-    Args:
-        language: The programming language being parsed
-
-    Raises:
-        RuntimeError: If language is JavaScript or TypeScript
-    """
+    """Enforce that Tree-sitter is NEVER used for JavaScript/TypeScript."""
     if language in ["javascript", "typescript"]:
         raise RuntimeError(
             f"FATAL: Tree-sitter is FORBIDDEN for {language} files.\n"
@@ -856,23 +839,7 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> list
 
 
 def extract_treesitter_cfg(tree: dict, parser_self, language: str) -> list[dict[str, Any]]:
-    """Extract control flow graph from tree-sitter AST.
-
-    NOTE: CFG extraction not implemented for generic tree-sitter.
-    Python projects should use Python's ast module (type="python_ast").
-    TypeScript projects should use semantic parser (type="semantic_ast").
-    Both have language-specific CFG implementations.
-
-    This stub prevents extraction failures when tree-sitter is used as fallback.
-
-    Args:
-        tree: Parsed AST tree dictionary
-        parser_self: ASTParser instance (for compatibility)
-        language: Source language (for compatibility)
-
-    Returns:
-        Empty list (no CFG data from generic tree-sitter)
-    """
+    """Extract control flow graph from tree-sitter AST."""
     _check_js_ts_forbidden(language)
 
     return []

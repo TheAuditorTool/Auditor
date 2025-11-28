@@ -1,12 +1,4 @@
-"""Historical data loaders for ML training.
-
-Loads execution history from archived runs in .pf/history/full/*/
-- Journal stats (file touches, failures, successes)
-- RCA/FCE stats (root cause analysis failures)
-- AST proof stats (invariant checks)
-- Historical findings (past vulnerabilities)
-- Git churn (commit frequency)
-"""
+"""Historical data loaders for ML training."""
 
 import json
 import sqlite3
@@ -17,14 +9,7 @@ from pathlib import Path
 def load_journal_stats(
     history_dir: Path, window: int = 50, run_type: str = "full"
 ) -> dict[str, dict]:
-    """
-    Load and aggregate stats from all historical journal files.
-
-    Args:
-        history_dir: Base history directory
-        window: Number of recent entries to analyze per file
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load and aggregate stats from all historical journal files."""
     if not history_dir.exists():
         return {}
 
@@ -84,13 +69,7 @@ def load_journal_stats(
 
 
 def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load RCA failure stats from all historical RCA files.
-
-    Args:
-        history_dir: Base history directory
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load RCA failure stats from all historical RCA files."""
     if not history_dir.exists():
         return {}
 
@@ -132,13 +111,7 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
 
 
 def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load AST proof stats from all historical AST files.
-
-    Args:
-        history_dir: Base history directory
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load AST proof stats from all historical AST files."""
     if not history_dir.exists():
         return {}
 
@@ -180,11 +153,7 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
 
 
 def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load historical findings from findings_consolidated table in past runs.
-
-    Returns dict with keys: total_findings, critical_count, high_count, recurring_cwes
-    """
+    """Load historical findings from findings_consolidated table in past runs."""
     if not history_dir.exists():
         return {}
 
@@ -237,28 +206,7 @@ def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[
 def load_git_churn(
     file_paths: list[str], window_days: int = 90, root_path: Path = Path(".")
 ) -> dict[str, dict]:
-    """
-    Load git churn data with author diversity and recency.
-
-    DELEGATES to intelligence.parse_git_churn() for DRY compliance.
-    Returns rich git metrics (commits, authors, recency) instead of just count.
-
-    Args:
-        file_paths: List of files to analyze
-        window_days: Number of days to analyze (default 90)
-        root_path: Project root directory
-
-    Returns:
-        Dict mapping file paths to git metrics:
-        {
-            "auth.py": {
-                "commits_90d": 23,
-                "unique_authors": 5,
-                "days_since_modified": 2,
-                "days_active_in_range": 45
-            }
-        }
-    """
+    """Load git churn data with author diversity and recency."""
     if not (root_path / ".git").exists():
         return {}
 
@@ -275,11 +223,7 @@ def load_git_churn(
 def load_all_historical_data(
     history_dir: Path, run_type: str = "full", window: int = 50, enable_git: bool = False
 ) -> dict:
-    """
-    Convenience function to load all historical data at once.
-
-    Returns dict with keys: journal_stats, rca_stats, ast_stats, historical_findings, git_churn
-    """
+    """Convenience function to load all historical data at once."""
     return {
         "journal_stats": load_journal_stats(history_dir, window, run_type),
         "rca_stats": load_rca_stats(history_dir, run_type),

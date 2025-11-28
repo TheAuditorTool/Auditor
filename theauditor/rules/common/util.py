@@ -1,20 +1,4 @@
-"""Security Analysis Utility Library.
-
-Common utility functions for security pattern detection and analysis.
-Provides entropy calculation, pattern recognition, and encoding validation.
-
-IMPORTANT: This is a UTILITY MODULE, not a security rule.
-- Does NOT query the database
-- Does NOT implement StandardRuleContext interface
-- Provides pure computational functions for other rules to use
-
-These functions analyze strings/patterns algorithmically and don't need
-database access. They're used by security rules to analyze data that
-the rules have already extracted from the database.
-
-Module Type: Utility Library (no rule interface required)
-Status: No refactor needed - correct as-is
-"""
+"""Security Analysis Utility Library."""
 
 import base64
 import binascii
@@ -134,17 +118,7 @@ class EntropyCalculator:
 
     @staticmethod
     def calculate(text: str) -> float:
-        """Calculate Shannon entropy of a string.
-
-        High entropy (>4.0) typically indicates random strings like API keys.
-        Low entropy (<3.0) typically indicates natural language or simple patterns.
-
-        Args:
-            text: String to analyze
-
-        Returns:
-            Shannon entropy value (0.0 for empty strings)
-        """
+        """Calculate Shannon entropy of a string."""
         if not text:
             return 0.0
 
@@ -188,20 +162,7 @@ class PatternDetector:
 
     @staticmethod
     def is_sequential(text: str) -> bool:
-        """Check if string follows a sequential pattern.
-
-        Examples:
-        - "abcdef" -> True (incrementing)
-        - "987654" -> True (decrementing)
-        - "zyxwvu" -> True (decrementing)
-        - "abc123" -> False (mixed)
-
-        Args:
-            text: String to analyze
-
-        Returns:
-            True if text follows consistent sequential pattern
-        """
+        """Check if string follows a sequential pattern."""
         if len(text) < PATTERN_CONFIG.MIN_SEQUENTIAL_LENGTH:
             return False
 
@@ -220,21 +181,7 @@ class PatternDetector:
 
     @staticmethod
     def is_keyboard_walk(text: str) -> bool:
-        """Check if string matches keyboard walk patterns.
-
-        Keyboard walks are patterns formed by adjacent keys on QWERTY keyboard.
-
-        Examples:
-        - "qwerty" -> True
-        - "asdfgh" -> True
-        - "1qaz2wsx" -> True
-
-        Args:
-            text: String to analyze
-
-        Returns:
-            True if text matches known keyboard walk pattern
-        """
+        """Check if string matches keyboard walk patterns."""
         text_lower = text.lower()
         all_patterns = KEYBOARD_CONFIG.get_all_patterns()
 
@@ -242,14 +189,7 @@ class PatternDetector:
 
     @staticmethod
     def is_repetitive(text: str) -> bool:
-        """Check if string is highly repetitive.
-
-        Args:
-            text: String to analyze
-
-        Returns:
-            True if any character makes up >90% of the string
-        """
+        """Check if string is highly repetitive."""
         if not text:
             return False
 
@@ -262,14 +202,7 @@ class PatternDetector:
 
     @staticmethod
     def is_test_value(text: str) -> bool:
-        """Check if string is a common test/placeholder value.
-
-        Args:
-            text: String to analyze
-
-        Returns:
-            True if text contains common test values
-        """
+        """Check if string is a common test/placeholder value."""
         if len(text) > PATTERN_CONFIG.MAX_TEST_VALUE_LENGTH:
             return False
 
@@ -282,15 +215,7 @@ class Base64Validator:
 
     @staticmethod
     def decode_and_verify(value: str) -> bool:
-        """Decode Base64 and verify if content is secret-like.
-
-        Args:
-            value: String that matches Base64 pattern
-
-        Returns:
-            True if valid Base64 encoding of secret-like content,
-            False if false positive (sequential, low entropy, etc.)
-        """
+        """Decode Base64 and verify if content is secret-like."""
         decoded_content = Base64Validator._decode_base64(value)
         if decoded_content is None:
             return False
@@ -303,13 +228,7 @@ class Base64Validator:
 
     @staticmethod
     def _decode_base64(value: str) -> str | bytes | None:
-        """Attempt to decode Base64 string.
-
-        Returns:
-            Decoded string if UTF-8 decodable,
-            Decoded bytes if binary,
-            None if invalid Base64
-        """
+        """Attempt to decode Base64 string."""
         try:
             decoded_bytes = base64.b64decode(value, validate=True)
 
@@ -323,14 +242,7 @@ class Base64Validator:
 
     @staticmethod
     def _is_secret_like(text: str) -> bool:
-        """Check if decoded text appears to be a secret.
-
-        Args:
-            text: Decoded text to analyze
-
-        Returns:
-            True if text appears to be a legitimate secret
-        """
+        """Check if decoded text appears to be a secret."""
 
         if PatternDetector.is_sequential(text):
             return False

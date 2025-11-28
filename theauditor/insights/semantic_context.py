@@ -1,21 +1,4 @@
-"""Semantic Context Engine - Apply business logic and semantic understanding to findings.
-
-This module provides a framework for users to define their own business logic,
-refactoring contexts, and semantic understanding that TheAuditor can apply to
-findings. Unlike the core truth couriers which report only facts, this optional
-module allows users to teach TheAuditor about THEIR specific codebase semantics.
-
-Use Cases:
-    - Refactoring detection (old schema vs new schema)
-    - Deprecated API tracking
-    - Business rule enforcement
-    - Migration progress tracking
-    - Architecture pattern compliance
-
-The semantic context engine is completely user-defined via YAML files. TheAuditor
-provides the infrastructure, but YOU define what's obsolete, current, or transitional
-in YOUR codebase.
-"""
+"""Semantic Context Engine - Apply business logic and semantic understanding to findings."""
 
 import json
 import re
@@ -29,23 +12,7 @@ import yaml
 
 @dataclass
 class ContextPattern:
-    """Represents a semantic pattern (obsolete, current, or transitional).
-
-    A pattern defines what code constructs mean in the context of your business logic.
-    For example, "product.unit_price" might be obsolete if you've refactored to use
-    "product_variant.retail_price" instead.
-
-    Attributes:
-        id: Unique identifier for this pattern
-        pattern: Regex pattern to match against finding messages/rules
-        reason: Human-readable explanation of why this pattern matters
-        category: 'obsolete', 'current', or 'transitional'
-        severity: How critical is it (for obsolete patterns)
-        replacement: Suggested replacement pattern
-        scope: Which files this applies to (include/exclude lists)
-        expires: When transitional patterns become obsolete (YYYY-MM-DD)
-        compiled_regex: Pre-compiled regex for performance
-    """
+    """Represents a semantic pattern (obsolete, current, or transitional)."""
 
     id: str
     pattern: str
@@ -82,16 +49,7 @@ class ContextPattern:
             raise ValueError(f"Transitional pattern '{self.id}' must have an 'expires' date")
 
     def matches(self, finding: dict[str, Any]) -> bool:
-        """Check if a finding matches this pattern.
-
-        Matches against both the finding's 'rule' and 'message' fields.
-
-        Args:
-            finding: Dictionary with 'rule' and 'message' keys
-
-        Returns:
-            True if pattern matches the finding
-        """
+        """Check if a finding matches this pattern."""
         message = finding.get("message", "")
         rule = finding.get("rule", "")
         code_snippet = finding.get("code_snippet", "")
@@ -103,19 +61,7 @@ class ContextPattern:
         )
 
     def in_scope(self, file_path: str) -> bool:
-        """Check if a file path is in this pattern's scope.
-
-        Scope rules:
-        1. If no scope defined, all files are in scope
-        2. Excludes are checked first (higher priority)
-        3. If includes are defined, file must match at least one
-
-        Args:
-            file_path: Path to check
-
-        Returns:
-            True if file is in scope
-        """
+        """Check if a file path is in this pattern's scope."""
         if not self.scope:
             return True
 
@@ -132,11 +78,7 @@ class ContextPattern:
         return any(include_pattern in file_path for include_pattern in includes)
 
     def is_expired(self) -> bool:
-        """Check if a transitional pattern has expired.
-
-        Returns:
-            True if pattern has passed its expiration date
-        """
+        """Check if a transitional pattern has expired."""
         if not self.expires:
             return False
 
@@ -149,18 +91,7 @@ class ContextPattern:
 
 @dataclass
 class ClassificationResult:
-    """Result of applying semantic context to findings.
-
-    This structure organizes findings by their semantic meaning in your codebase.
-
-    Attributes:
-        obsolete: Findings that match obsolete patterns (need updating)
-        current: Findings that match current patterns (correct)
-        transitional: Findings using transitional patterns (OK for now)
-        unclassified: Findings that don't match any pattern
-        mixed_files: Files with both obsolete and current patterns
-        summary: Statistics about the classification
-    """
+    """Result of applying semantic context to findings."""
 
     obsolete: list[dict[str, Any]]
     current: list[dict[str, Any]]
@@ -181,11 +112,7 @@ class ClassificationResult:
         }
 
     def get_high_priority_files(self) -> list[str]:
-        """Get files with critical or high severity obsolete patterns.
-
-        Returns:
-            List of file paths that need immediate attention
-        """
+        """Get files with critical or high severity obsolete patterns."""
         high_priority = set()
         for item in self.obsolete:
             if item.get("severity") in ["critical", "high"]:
@@ -193,11 +120,7 @@ class ClassificationResult:
         return sorted(high_priority)
 
     def get_migration_progress(self) -> dict[str, Any]:
-        """Calculate migration progress statistics.
-
-        Returns:
-            Dictionary with migration progress metrics
-        """
+        """Calculate migration progress statistics."""
         total_files = len(
             {item["finding"]["file"] for item in self.obsolete + self.current + self.transitional}
         )
@@ -220,37 +143,10 @@ class ClassificationResult:
 
 
 class SemanticContext:
-    """Main engine for applying semantic business logic to findings.
-
-    This class loads user-defined semantic context from YAML files and applies
-    that context to findings from TheAuditor's analysis tools. It classifies
-    findings as obsolete, current, or transitional based on YOUR business logic.
-
-    Example Usage:
-        context = SemanticContext.load('refactoring.yaml')
-        findings = load_findings_from_database()
-        result = context.classify_findings(findings)
-        report = context.generate_report(result)
-        print(report)
-
-    Attributes:
-        context_file: Path to YAML context file
-        context_name: Name of this semantic context
-        description: Human-readable description
-        version: Context version (for tracking changes)
-        obsolete_patterns: List of patterns that are obsolete
-        current_patterns: List of patterns that are current/correct
-        transitional_patterns: List of patterns that are temporarily OK
-        relationships: Semantic relationships between patterns
-        metadata: Additional metadata (author, tags, etc.)
-    """
+    """Main engine for applying semantic business logic to findings."""
 
     def __init__(self, context_file: Path):
-        """Initialize semantic context.
-
-        Args:
-            context_file: Path to YAML context file
-        """
+        """Initialize semantic context."""
         self.context_file = Path(context_file)
         self.context_name: str = ""
         self.description: str = ""
@@ -263,18 +159,7 @@ class SemanticContext:
 
     @classmethod
     def load(cls, yaml_path: Path) -> SemanticContext:
-        """Load semantic context from YAML file.
-
-        Args:
-            yaml_path: Path to YAML context file
-
-        Returns:
-            Loaded SemanticContext instance
-
-        Raises:
-            FileNotFoundError: If YAML file doesn't exist
-            ValueError: If YAML format is invalid
-        """
+        """Load semantic context from YAML file."""
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
             raise FileNotFoundError(f"Semantic context file not found: {yaml_path}")
@@ -354,17 +239,7 @@ class SemanticContext:
         return instance
 
     def classify_findings(self, findings: list[dict[str, Any]]) -> ClassificationResult:
-        """Apply semantic context to findings.
-
-        This is the core algorithm that applies your business logic to TheAuditor's
-        findings. Each finding is checked against all patterns and classified.
-
-        Args:
-            findings: List of finding dictionaries from TheAuditor
-
-        Returns:
-            ClassificationResult with categorized findings
-        """
+        """Apply semantic context to findings."""
         obsolete_matches: list[dict[str, Any]] = []
         current_matches: list[dict[str, Any]] = []
         transitional_matches: list[dict[str, Any]] = []
@@ -466,15 +341,7 @@ class SemanticContext:
         )
 
     def generate_report(self, result: ClassificationResult, verbose: bool = False) -> str:
-        """Generate human-readable report from classification result.
-
-        Args:
-            result: ClassificationResult from classify_findings()
-            verbose: Include detailed findings list
-
-        Returns:
-            Formatted report string
-        """
+        """Generate human-readable report from classification result."""
         lines = []
 
         lines.append("=" * 80)
@@ -607,14 +474,7 @@ class SemanticContext:
         return "\n".join(lines)
 
     def suggest_migrations(self, result: ClassificationResult) -> list[dict[str, Any]]:
-        """Generate actionable migration suggestions.
-
-        Args:
-            result: ClassificationResult from classify_findings()
-
-        Returns:
-            List of migration suggestions with priorities
-        """
+        """Generate actionable migration suggestions."""
         suggestions = []
 
         files_with_obsolete: dict[str, list[dict]] = {}
@@ -669,12 +529,7 @@ class SemanticContext:
         return suggestions
 
     def export_to_json(self, result: ClassificationResult, output_path: Path) -> None:
-        """Export classification result to JSON file.
-
-        Args:
-            result: ClassificationResult to export
-            output_path: Path to write JSON file
-        """
+        """Export classification result to JSON file."""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -714,12 +569,5 @@ def _generate_file_recommendation(
 
 
 def load_semantic_context(yaml_path: Path) -> SemanticContext:
-    """Helper function to load semantic context.
-
-    Args:
-        yaml_path: Path to YAML context file
-
-    Returns:
-        Loaded SemanticContext instance
-    """
+    """Helper function to load semantic context."""
     return SemanticContext.load(yaml_path)

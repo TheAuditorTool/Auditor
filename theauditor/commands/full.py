@@ -162,7 +162,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     exit_code = ExitCodes.SUCCESS
 
     if result["failed_phases"] > 0:
-        console.print(f"[bold red][WARNING] Pipeline completed with {result['failed_phases']} phase failures[/bold red]")
+        console.print(
+            f"[bold red][WARNING] Pipeline completed with {result['failed_phases']} phase failures[/bold red]"
+        )
         console.print("Some analysis phases could not complete successfully.")
         exit_code = ExitCodes.TASK_INCOMPLETE
 
@@ -171,7 +173,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             "CRITICAL",
             f"Audit complete. Found {critical} critical vulnerabilities.",
             "Immediate action required - deployment should be blocked.",
-            level="critical"
+            level="critical",
         )
         exit_code = ExitCodes.CRITICAL_SEVERITY
     elif high > 0:
@@ -179,7 +181,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             "HIGH",
             f"Audit complete. Found {high} high-severity issues.",
             "Priority remediation needed before next release.",
-            level="high"
+            level="high",
         )
         if exit_code == ExitCodes.SUCCESS:
             exit_code = ExitCodes.HIGH_SEVERITY
@@ -188,14 +190,14 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             "MODERATE",
             f"Audit complete. Found {medium} medium and {low} low issues.",
             "Schedule fixes for upcoming sprints.",
-            level="medium"
+            level="medium",
         )
     else:
         print_status_panel(
             "CLEAN",
             "No critical or high-severity issues found.",
             "Codebase meets security and quality standards.",
-            level="success"
+            level="success",
         )
 
     if critical + high + medium + low > 0:
@@ -209,7 +211,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         if low > 0:
             console.print(f"  - [low]Low:      {low}[/low]")
 
-    console.print("\nReview the findings in [path].pf/raw/[/path] or run [cmd]aud summary[/cmd] for overview.")
+    console.print(
+        "\nReview the findings in [path].pf/raw/[/path] or run [cmd]aud summary[/cmd] for overview."
+    )
     console.rule()
 
     if exit_code != ExitCodes.SUCCESS:

@@ -1,21 +1,4 @@
-"""API Authentication Security Analyzer - Database-First Approach.
-
-Detects missing authentication on state-changing API endpoints using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
-
-Detects:
-- Missing authentication on POST/PUT/PATCH/DELETE endpoints
-- Weak authentication patterns
-- Public endpoints that shouldn't be public
-- GraphQL mutations without auth
-- API key authentication issues
-"""
+"""API Authentication Security Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -313,21 +296,13 @@ class ApiAuthAnalyzer:
     """Analyzer for API authentication security issues."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ApiAuthPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of API authentication issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -447,13 +422,7 @@ class ApiAuthAnalyzer:
                 )
 
     def _check_graphql_mutations(self):
-        """Check GraphQL mutations for authentication using database queries.
-
-        Replaces regex-based heuristics with direct database queries against:
-        - graphql_types (to find Mutation type)
-        - graphql_fields (to get mutation fields)
-        - graphql_resolver_mappings (to find resolver implementations)
-        """
+        """Check GraphQL mutations for authentication using database queries."""
 
         self.cursor.execute("""
             SELECT name FROM sqlite_master
@@ -709,24 +678,13 @@ FLAGGED: Missing database features for better API auth detection:
 
 
 def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect API authentication security issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of API authentication issues found
-    """
+    """Detect API authentication security issues."""
     analyzer = ApiAuthAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register API auth-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register API auth-specific taint patterns."""
     patterns = ApiAuthPatterns()
 
     for pattern in patterns.SENSITIVE_OPERATIONS:

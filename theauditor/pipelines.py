@@ -1,11 +1,4 @@
-"""Pipeline execution module for TheAuditor.
-
-2025 Modern Architecture: AsyncIO + Memory Pipes + RichRenderer
-- No temp files for subprocess IPC
-- No threading/ThreadPoolExecutor
-- Parallel execution via asyncio.gather()
-- Single RichRenderer for all console output
-"""
+"""Pipeline execution module for TheAuditor."""
 
 import asyncio
 import contextlib
@@ -42,26 +35,20 @@ COMMAND_TIMEOUTS = {
 DEFAULT_TIMEOUT = int(os.environ.get("THEAUDITOR_TIMEOUT_SECONDS", "900"))
 
 
-SECURITY_TOOLS = frozenset({
-    "patterns",
-    "taint",
-    "terraform",
-    "cdk",
-    "github-actions-rules",
-    "vulnerability_scanner",
-})
+SECURITY_TOOLS = frozenset(
+    {
+        "patterns",
+        "taint",
+        "terraform",
+        "cdk",
+        "github-actions-rules",
+        "vulnerability_scanner",
+    }
+)
 
 
 def get_command_timeout(cmd: list[str]) -> int:
-    """
-    Determine appropriate timeout for a command based on its name.
-
-    Args:
-        cmd: Command array to execute
-
-    Returns:
-        Timeout in seconds
-    """
+    """Determine appropriate timeout for a command based on its name."""
 
     cmd_str = " ".join(cmd)
 
@@ -79,7 +66,7 @@ _stop_requested = False
 def signal_handler(signum, frame):
     """Handle Ctrl+C by setting stop flag."""
     global _stop_requested
-    # Keep this print - it's an emergency interrupt message
+
     print("\n[INFO] Interrupt received, stopping pipeline gracefully...", file=sys.stderr)
     _stop_requested = True
 
@@ -101,19 +88,7 @@ if not IS_WINDOWS:
 
 
 async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> PhaseResult:
-    """Execute subprocess using asyncio memory pipes (no temp files).
-
-    This is the modern replacement for run_subprocess_with_interrupt().
-    Uses memory pipes instead of disk I/O for 10-100x faster IPC.
-
-    Args:
-        cmd: Command array to execute
-        cwd: Working directory
-        timeout: Maximum execution time in seconds
-
-    Returns:
-        PhaseResult with status, stdout, stderr, elapsed
-    """
+    """Execute subprocess using asyncio memory pipes (no temp files)."""
     start_time = time.time()
     cmd_name = cmd[0] if cmd else "unknown"
 
@@ -167,37 +142,26 @@ async def run_chain_silent(
     root: str,
     chain_name: str,
 ) -> list[PhaseResult]:
-    """Execute a chain of commands silently (no console output).
-
-    This is the modern replacement for run_command_chain().
-    No status files on disk - state is in memory.
-    NO PRINT STATEMENTS - completely silent execution.
-
-    Args:
-        commands: List of (description, command_array) tuples
-        root: Working directory
-        chain_name: Name of this chain (for result labeling)
-
-    Returns:
-        List of PhaseResult for each executed command
-    """
+    """Execute a chain of commands silently (no console output)."""
     results: list[PhaseResult] = []
 
     for description, cmd in commands:
         if is_stop_requested():
-            results.append(PhaseResult(
-                name=description,
-                status=TaskStatus.FAILED,
-                elapsed=0.0,
-                stdout="",
-                stderr="[INTERRUPTED] Pipeline stopped by user",
-                exit_code=-1,
-            ))
+            results.append(
+                PhaseResult(
+                    name=description,
+                    status=TaskStatus.FAILED,
+                    elapsed=0.0,
+                    stdout="",
+                    stderr="[INTERRUPTED] Pipeline stopped by user",
+                    exit_code=-1,
+                )
+            )
             break
 
         cmd_timeout = get_command_timeout(cmd)
         result = await run_command_async(cmd, cwd=root, timeout=cmd_timeout)
-        # Override name with descriptive name
+
         result = PhaseResult(
             name=description,
             status=result.status,
@@ -207,7 +171,6 @@ async def run_chain_silent(
             exit_code=result.exit_code,
         )
 
-        # Check if this is a findings command (exit codes 0, 1, 2 are all success)
         cmd_str = " ".join(str(c) for c in cmd)
         is_findings_command = (
             "taint-analyze" in cmd_str
@@ -218,7 +181,6 @@ async def run_chain_silent(
         )
 
         if is_findings_command:
-            # For findings commands, exit codes 0, 1, 2 are success
             if result.exit_code in [0, 1, 2]:
                 result = PhaseResult(
                     name=result.name,
@@ -232,26 +194,13 @@ async def run_chain_silent(
         results.append(result)
 
         if not result.success:
-            # Stop chain on failure
             break
 
     return results
 
 
 def _get_findings_from_db(root: Path) -> dict:
-    """Query findings_consolidated for severity counts.
-
-    ZERO FALLBACK: No try/except. If DB query fails, pipeline crashes.
-    This exposes bugs instead of hiding them with false "[CLEAN]" status.
-
-    Args:
-        root: Project root path containing .pf/ directory
-
-    Returns:
-        Dict with critical, high, medium, low, total_vulnerabilities counts.
-        Only counts SECURITY_TOOLS (patterns, taint, terraform, cdk).
-        Quality tools (ruff, eslint, mypy) are excluded from security status.
-    """
+    """Query findings_consolidated for severity counts."""
     import sqlite3
 
     db_path = root / ".pf" / "repo_index.db"
@@ -291,47 +240,22 @@ async def run_full_pipeline(
     wipe_cache: bool = False,
     index_only: bool = False,
 ) -> dict[str, Any]:
-    """
-    Run complete audit pipeline in exact order specified in teamsop.md.
-
-    2025 MODERN: Uses RichRenderer for all console output.
-
-    Args:
-        root: Root directory to analyze
-        quiet: Whether to run in quiet mode (minimal output)
-        exclude_self: Whether to exclude TheAuditor's own files from analysis
-        offline: Whether to skip network operations (deps, docs)
-        use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
-        wipe_cache: Whether to delete caches before run (for corruption recovery)
-        index_only: Whether to run only Stage 1+2 (indexing) and skip heavy analysis
-
-    Returns:
-        Dict containing:
-            - success: Whether all phases succeeded
-            - failed_phases: Number of failed phases
-            - total_phases: Total number of phases
-            - elapsed_time: Total execution time in seconds
-            - created_files: List of all created files
-            - log_lines: List of all log lines
-    """
+    """Run complete audit pipeline in exact order specified in teamsop.md."""
 
     reset_stop_flag()
 
-    # Create directory FIRST
     pf_dir = Path(root) / ".pf"
     pf_dir.mkdir(parents=True, exist_ok=True)
 
-    # Archive PREVIOUS run BEFORE opening new log file
-    # This prevents WinError 32 (file locked) because log isn't opened yet
     archive_success = True
     try:
         from theauditor.commands._archive import _archive
+
         _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
     except Exception as e:
         print(f"[WARNING] Archiving failed: {e}", file=sys.stderr)
         archive_success = False
 
-    # NOW initialize renderer (safe to open log file)
     log_file_path = pf_dir / "pipeline.log"
     error_log_path = pf_dir / "error.log"
 
@@ -345,17 +269,14 @@ async def run_full_pipeline(
         if archive_success:
             renderer.on_log("[INFO] Previous run archived successfully")
 
-        # Initialize journal
         from theauditor.journal import get_journal_writer
 
         journal = get_journal_writer(run_type="full")
         renderer.on_log("[INFO] Journal writer initialized for ML training")
 
-        # Create raw directory
         raw_dir = Path(root) / ".pf" / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
 
-        # Log header
         renderer.on_log("TheAuditor Full Pipeline Execution Log")
         renderer.on_log(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         renderer.on_log(f"Working Directory: {Path(root).resolve()}")
@@ -538,7 +459,6 @@ async def run_full_pipeline(
 
             return sorted(set(files))
 
-        # Categorize commands into stages
         foundation_commands = []
         data_prep_commands = []
         track_a_commands = []
@@ -596,9 +516,6 @@ async def run_full_pipeline(
             log_lines.append(mode_msg)
             log_lines.append(skip_msg)
 
-        # ============================================================
-        # STAGE 1: FOUNDATION
-        # ============================================================
         renderer.on_stage_start("FOUNDATION - Sequential Execution", 1)
         log_lines.append("\n" + "=" * 60)
         log_lines.append("[STAGE 1] FOUNDATION - Sequential Execution")
@@ -763,9 +680,6 @@ async def run_full_pipeline(
 
                 break
 
-        # ============================================================
-        # STAGE 2: DATA PREPARATION
-        # ============================================================
         if failed_phases == 0 and data_prep_commands:
             renderer.on_stage_start("DATA PREPARATION - Sequential Execution", 2)
             renderer.on_log("Preparing data structures for parallel analysis...")
@@ -838,7 +752,9 @@ async def run_full_pipeline(
                             renderer.on_log(error_msg, is_error=True)
                             log_lines.append(error_msg)
 
-                        critical_msg = "[CRITICAL] Data preparation stage failed - stopping pipeline"
+                        critical_msg = (
+                            "[CRITICAL] Data preparation stage failed - stopping pipeline"
+                        )
                         renderer.on_log(critical_msg, is_error=True)
                         log_lines.append(critical_msg)
                         break
@@ -860,9 +776,6 @@ async def run_full_pipeline(
 
                     break
 
-        # ============================================================
-        # STAGE 3: HEAVY PARALLEL ANALYSIS
-        # ============================================================
         if (
             failed_phases == 0
             and not index_only
@@ -899,7 +812,6 @@ async def run_full_pipeline(
             tasks = []
             track_names = []
 
-            # Define run_taint_sync with output capture
             if track_a_commands:
                 if not use_subprocess_for_taint:
 
@@ -913,16 +825,22 @@ async def run_full_pipeline(
                         stdout_capture = io.StringIO()
                         stderr_capture = io.StringIO()
 
-                        with contextlib.redirect_stdout(stdout_capture), \
-                             contextlib.redirect_stderr(stderr_capture):
-                            print("[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]")
+                        with (
+                            contextlib.redirect_stdout(stdout_capture),
+                            contextlib.redirect_stderr(stderr_capture),
+                        ):
+                            print(
+                                "[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]"
+                            )
 
                             memory_limit = get_recommended_memory_limit()
                             db_path = Path(root) / ".pf" / "repo_index.db"
 
                             print("[TAINT] Initializing security analysis infrastructure...")
                             registry = TaintRegistry()
-                            orchestrator = RulesOrchestrator(project_path=Path(root), db_path=db_path)
+                            orchestrator = RulesOrchestrator(
+                                project_path=Path(root), db_path=db_path
+                            )
                             orchestrator.collect_rule_patterns(registry)
 
                             all_findings = []
@@ -957,12 +875,16 @@ async def run_full_pipeline(
 
                             if result.get("mode") == "complete":
                                 print("[TAINT] COMPLETE MODE RESULTS:")
-                                print(f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths")
+                                print(
+                                    f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths"
+                                )
                                 print(
                                     f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
                                 )
                             else:
-                                print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities")
+                                print(
+                                    f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities"
+                                )
 
                             print("[TAINT] Running advanced security analysis...")
 
@@ -977,9 +899,13 @@ async def run_full_pipeline(
                                             return True
                                 return False
 
-                            advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
+                            advanced_findings = orchestrator.run_taint_dependent_rules(
+                                taint_checker
+                            )
                             all_findings.extend(advanced_findings)
-                            print(f"[TAINT]   Found {len(advanced_findings)} advanced security issues")
+                            print(
+                                f"[TAINT]   Found {len(advanced_findings)} advanced security issues"
+                            )
 
                             print(
                                 f"[TAINT] Total vulnerabilities found: {len(all_findings) + len(taint_paths)}"
@@ -1036,13 +962,18 @@ async def run_full_pipeline(
                                     )
 
                                 if findings_dicts:
-                                    db_manager.write_findings_batch(findings_dicts, tool_name="taint")
+                                    db_manager.write_findings_batch(
+                                        findings_dicts, tool_name="taint"
+                                    )
                                     db_manager.close()
-                                    print(f"[DB] Wrote {len(findings_dicts)} taint findings to database")
+                                    print(
+                                        f"[DB] Wrote {len(findings_dicts)} taint findings to database"
+                                    )
 
-                            print("[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]")
+                            print(
+                                "[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]"
+                            )
 
-                            # Build summary output
                             output_lines = [
                                 f"[OK] Taint analysis completed",
                                 f"  Infrastructure issues: {len(infra_findings)}",
@@ -1085,9 +1016,10 @@ async def run_full_pipeline(
                     track_names.append("Track A (Taint Analysis)")
                     current_phase += len(track_a_commands)
                 else:
-                    # Subprocess mode for taint
                     renderer.on_parallel_track_start("Track A (Taint Analysis)")
-                    tasks.append(run_chain_silent(track_a_commands, root, "Track A (Taint Analysis)"))
+                    tasks.append(
+                        run_chain_silent(track_a_commands, root, "Track A (Taint Analysis)")
+                    )
                     track_names.append("Track A (Taint Analysis)")
                     current_phase += len(track_a_commands)
 
@@ -1109,7 +1041,6 @@ async def run_full_pipeline(
 
             parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Process results - handle heterogeneous return types
             for i, result in enumerate(parallel_results):
                 track_name = track_names[i] if i < len(track_names) else f"Track {i}"
 
@@ -1130,17 +1061,20 @@ async def run_full_pipeline(
                         pass
 
                 elif isinstance(result, list):
-                    # Track B/C: list[PhaseResult] from run_chain_silent
                     total_elapsed = sum(r.elapsed for r in result)
                     all_success = all(r.success for r in result)
 
                     for phase_result in result:
                         status = "[OK]" if phase_result.success else "[FAILED]"
-                        renderer.on_log(f"{status} {phase_result.name} ({phase_result.elapsed:.1f}s)")
-                        log_lines.append(f"{status} {phase_result.name} ({phase_result.elapsed:.1f}s)")
-                        # Show first 5 lines of stdout as preview
+                        renderer.on_log(
+                            f"{status} {phase_result.name} ({phase_result.elapsed:.1f}s)"
+                        )
+                        log_lines.append(
+                            f"{status} {phase_result.name} ({phase_result.elapsed:.1f}s)"
+                        )
+
                         if phase_result.stdout:
-                            for line in phase_result.stdout.strip().split('\n')[:5]:
+                            for line in phase_result.stdout.strip().split("\n")[:5]:
                                 renderer.on_log(f"  {line}")
                                 log_lines.append(f"  {line}")
 
@@ -1150,12 +1084,11 @@ async def run_full_pipeline(
                         failed_phases += 1
 
                 elif isinstance(result, PhaseResult):
-                    # Track A: single PhaseResult from taint
                     status = "[OK]" if result.success else "[FAILED]"
                     renderer.on_log(f"{status} {result.name} ({result.elapsed:.1f}s)")
                     log_lines.append(f"{status} {result.name} ({result.elapsed:.1f}s)")
                     if result.stdout:
-                        for line in result.stdout.strip().split('\n')[:10]:
+                        for line in result.stdout.strip().split("\n")[:10]:
                             renderer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
                     renderer.on_parallel_track_complete(track_name, result.elapsed)
@@ -1163,7 +1096,6 @@ async def run_full_pipeline(
                     if not result.success:
                         failed_phases += 1
 
-            # Stage 3 results summary
             renderer.on_log("\n" + "=" * 60)
             renderer.on_log("[STAGE 3 RESULTS] Parallel Track Outputs")
             renderer.on_log("=" * 60)
@@ -1171,9 +1103,6 @@ async def run_full_pipeline(
             log_lines.append("[STAGE 3 RESULTS] Parallel Track Outputs")
             log_lines.append("=" * 60)
 
-        # ============================================================
-        # STAGE 4: FINAL AGGREGATION
-        # ============================================================
         if failed_phases == 0 and not index_only and final_commands:
             renderer.on_stage_start("FINAL AGGREGATION - AsyncIO Sequential Execution", 4)
             log_lines.append("\n" + "=" * 60)
@@ -1244,7 +1173,9 @@ async def run_full_pipeline(
 
                 if success:
                     if result.exit_code == 2 and is_findings_command:
-                        ok_msg = f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings"
+                        ok_msg = (
+                            f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings"
+                        )
                     elif result.exit_code == 1 and is_findings_command:
                         ok_msg = f"[OK] {phase_name} completed in {elapsed:.1f}s - HIGH findings"
                     else:
@@ -1301,13 +1232,9 @@ async def run_full_pipeline(
                         renderer.on_log(error_msg, is_error=True)
                         log_lines.append(error_msg)
 
-        # ============================================================
-        # FINAL SUMMARY
-        # ============================================================
         pipeline_elapsed = time.time() - pipeline_start
         all_created_files = collect_created_files()
 
-        # Write allfiles.md
         pf_dir = Path(root) / ".pf"
         allfiles_path = pf_dir / "allfiles.md"
         with open(allfiles_path, "w", encoding="utf-8") as f:
@@ -1407,7 +1334,6 @@ async def run_full_pipeline(
         all_created_files.append(str(allfiles_path))
         all_created_files.append(str(log_file_path))
 
-        # Clean up status files
         status_dir = Path(root) / ".pf" / "status"
         if status_dir.exists():
             try:
@@ -1419,7 +1345,6 @@ async def run_full_pipeline(
             except Exception as e:
                 renderer.on_log(f"[WARNING] Could not clean status files: {e}", is_error=True)
 
-        # Get findings from database
         findings_data = _get_findings_from_db(Path(root))
         critical_findings = findings_data["critical"]
         high_findings = findings_data["high"]
@@ -1460,5 +1385,4 @@ async def run_full_pipeline(
         }
 
     finally:
-        # ALWAYS stop the renderer
         renderer.stop()

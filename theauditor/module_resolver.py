@@ -14,22 +14,10 @@ except ImportError:
 
 
 class ModuleResolver:
-    """Resolves module imports for TypeScript/JavaScript projects.
-
-    Handles:
-    - TypeScript path aliases from tsconfig.json
-    - Webpack aliases from webpack.config.js
-    - Node.js module resolution algorithm
-    - Relative and absolute imports
-    """
+    """Resolves module imports for TypeScript/JavaScript projects."""
 
     def __init__(self, project_root: str | None = None, db_path: str = ".pf/repo_index.db"):
-        """Initialize resolver with database path - NO filesystem access.
-
-        Args:
-            project_root: Deprecated parameter, kept for compatibility
-            db_path: Path to the indexed database
-        """
+        """Initialize resolver with database path - NO filesystem access."""
         if project_root:
             self.project_root = Path(project_root).resolve()
         else:
@@ -153,15 +141,7 @@ class ModuleResolver:
         pass
 
     def resolve(self, import_path: str, containing_file_path: str) -> str:
-        """Resolve an import path to its actual file location.
-
-        Args:
-            import_path: The import string (e.g., '@/utils/helpers')
-            containing_file_path: The file where the import was found
-
-        Returns:
-            The resolved path relative to project root, or the original path if no alias matches
-        """
+        """Resolve an import path to its actual file location."""
 
         if import_path.startswith("."):
             return import_path
@@ -221,16 +201,7 @@ class ModuleResolver:
         return import_path
 
     def resolve_with_context(self, import_path: str, source_file: str, context: str) -> str:
-        """Resolve import using the appropriate context's path mappings.
-
-        Args:
-            import_path: The import string (e.g., '@config/app')
-            source_file: The file containing the import
-            context: Which tsconfig context ('backend', 'frontend', 'root')
-
-        Returns:
-            Resolved path or original if no match
-        """
+        """Resolve import using the appropriate context's path mappings."""
         import os
 
         if import_path.startswith("."):
@@ -254,29 +225,12 @@ class ModuleResolver:
         return import_path
 
     def resolve_webpack_aliases(self, webpack_config_path: str) -> None:
-        """Parse webpack.config.js for resolve.alias mappings.
-
-        Args:
-            webpack_config_path: Path to webpack configuration file
-        """
+        """Parse webpack.config.js for resolve.alias mappings."""
 
         pass
 
     def resolve_with_node_algorithm(self, import_path: str, containing_file: str) -> str | None:
-        """Implement Node.js module resolution algorithm.
-
-        Follows Node.js rules:
-        1. Check relative paths
-        2. Check node_modules in current and parent directories
-        3. Check global modules
-
-        Args:
-            import_path: The module to resolve
-            containing_file: The file containing the import
-
-        Returns:
-            Resolved path or None if not found
-        """
+        """Implement Node.js module resolution algorithm."""
         containing_dir = Path(containing_file).parent
 
         if not import_path.startswith("."):

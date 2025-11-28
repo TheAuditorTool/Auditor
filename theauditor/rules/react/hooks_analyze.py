@@ -1,11 +1,4 @@
-"""React Hooks Analyzer - Database-Driven Implementation.
-
-Detects React hooks violations and anti-patterns using REAL DATA from
-react_hooks, react_components, and variable_usage tables.
-
-No more broken heuristics - this uses actual parsed dependency arrays,
-cleanup detection, and component boundaries from the database.
-"""
+"""React Hooks Analyzer - Database-Driven Implementation."""
 
 import json
 import sqlite3
@@ -96,21 +89,13 @@ class ReactHooksAnalyzer:
     """Analyzer for React hooks violations and best practices."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ReactHooksPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of React hooks violations found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -561,16 +546,6 @@ class ReactHooksAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React hooks violations and anti-patterns.
-
-    Uses real data from react_hooks, react_components, and variable_usage
-    tables for accurate detection instead of broken heuristics.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of React hooks violations found
-    """
+    """Detect React hooks violations and anti-patterns."""
     analyzer = ReactHooksAnalyzer(context)
     return analyzer.analyze()

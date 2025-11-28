@@ -69,20 +69,7 @@ DEFAULTS = {
 
 
 def load_runtime_config(root: str = ".") -> dict[str, Any]:
-    """
-    Load runtime configuration from .pf/config.json and environment variables.
-
-    Config priority (highest to lowest):
-    1. Environment variables (THEAUDITOR_* prefixed)
-    2. .pf/config.json file
-    3. Built-in defaults
-
-    Args:
-        root: Root directory to look for config file
-
-    Returns:
-        Configuration dictionary with merged values
-    """
+    """Load runtime configuration from .pf/config.json and environment variables."""
 
     import copy
 

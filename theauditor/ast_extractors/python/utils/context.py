@@ -8,10 +8,7 @@ from .node_index import NodeIndex
 
 @dataclass
 class FileContext:
-    """Shared context for file extraction with O(1) node lookups.
-
-    Built ONCE per file, used by ALL extractors.
-    """
+    """Shared context for file extraction with O(1) node lookups."""
 
     tree: ast.AST
     content: str
@@ -33,37 +30,15 @@ class FileContext:
         self._build_ranges()
 
     def find_nodes(self, node_type: type[ast.AST] | tuple[type[ast.AST], ...]) -> list[ast.AST]:
-        """O(1) node lookup by type.
-
-        Args:
-            node_type: Single type or tuple of types
-
-        Returns:
-            List of matching nodes
-        """
+        """O(1) node lookup by type."""
         return self._index.find_nodes(node_type)
 
     def walk_tree(self) -> list[ast.AST]:
-        """Get all nodes (fallback for complex patterns).
-
-        Returns:
-            All nodes in tree
-        """
+        """Get all nodes (fallback for complex patterns)."""
         return list(ast.walk(self.tree))
 
     def resolve_symbol(self, name: str) -> str:
-        """Resolve import alias to full module path.
-
-        Examples:
-            jwt.encode -> jose.jwt.encode (if import jose.jwt as jwt)
-            j.encode -> jwt.encode (if import jwt as j)
-
-        Args:
-            name: Symbol name to resolve
-
-        Returns:
-            Resolved full name
-        """
+        """Resolve import alias to full module path."""
         if "." not in name:
             return self.imports.get(name, name)
 
@@ -74,28 +49,14 @@ class FileContext:
         return name
 
     def find_containing_function(self, line: int) -> str | None:
-        """Find function containing given line.
-
-        Args:
-            line: Line number
-
-        Returns:
-            Function name or None if global scope
-        """
+        """Find function containing given line."""
         for fname, start, end in self.function_ranges:
             if start <= line <= end:
                 return fname
         return None
 
     def find_containing_class(self, line: int) -> str | None:
-        """Find class containing given line.
-
-        Args:
-            line: Line number
-
-        Returns:
-            Class name or None if not in class
-        """
+        """Find class containing given line."""
         for cname, start, end in self.class_ranges:
             if start <= line <= end:
                 return cname
@@ -139,16 +100,5 @@ class FileContext:
 
 
 def build_file_context(tree: ast.AST, content: str = "", file_path: str = "") -> FileContext:
-    """Build FileContext with NodeIndex.
-
-    This is the main entry point for extractors.
-
-    Args:
-        tree: Parsed AST tree
-        content: File content (optional)
-        file_path: Path to file (optional)
-
-    Returns:
-        FileContext with index and pre-computed data
-    """
+    """Build FileContext with NodeIndex."""
     return FileContext(tree=tree, content=content, file_path=file_path)

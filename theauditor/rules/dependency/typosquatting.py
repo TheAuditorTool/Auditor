@@ -1,18 +1,4 @@
-"""Detect potential typosquatting in package names.
-
-Typosquatting is a supply-chain attack where malicious packages use names
-similar to popular packages (e.g., 'requets' instead of 'requests').
-This rule detects common typos and suspicious package names.
-
-Detection Strategy:
-1. Query package_configs and import_styles for all package names
-2. Check against TYPOSQUATTING_MAP from config.py
-3. Flag potential typos with suggested corrections
-
-Database Tables Used:
-- package_configs: Declared dependencies
-- import_styles: Imported packages
-"""
+"""Detect potential typosquatting in package names."""
 
 import json
 import sqlite3
@@ -33,14 +19,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect potential typosquatting in package names.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for potential typosquatting
-    """
+    """Detect potential typosquatting in package names."""
     findings = []
 
     if not context.db_path:
@@ -61,14 +40,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_declared_packages(cursor) -> list[StandardFinding]:
-    """Check declared dependencies for typosquatting.
-
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        List of findings for declared dependencies
-    """
+    """Check declared dependencies for typosquatting."""
     findings = []
     seen = set()
 
@@ -115,14 +87,7 @@ def _check_declared_packages(cursor) -> list[StandardFinding]:
 
 
 def _check_imported_packages(cursor) -> list[StandardFinding]:
-    """Check imported packages for typosquatting.
-
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        List of findings for imported packages
-    """
+    """Check imported packages for typosquatting."""
     findings = []
     seen = set()
 

@@ -1,10 +1,4 @@
-"""XSS Detection Constants - Single Source of Truth.
-
-All XSS-related constants consolidated here to ensure consistency
-across xss_analyze.py, vue_xss_analyze.py, and template_xss_analyze.py.
-
-NO DUPLICATES. One brain for sanitizers, sinks, and sources.
-"""
+"""XSS Detection Constants - Single Source of Truth."""
 
 COMMON_INPUT_SOURCES = frozenset(
     [
@@ -227,11 +221,7 @@ TEMPLATE_TARGET_EXTENSIONS = [".py", ".js", ".ts", ".html", ".ejs", ".pug", ".vu
 
 
 def is_sanitized(source_expr: str) -> bool:
-    """Check if expression contains a sanitizer CALL (not just mention).
-
-    Uses SANITIZER_CALL_PATTERNS to ensure we're checking for actual
-    function calls like "escape(input)" not definitions like "const escape = ...".
-    """
+    """Check if expression contains a sanitizer CALL (not just mention)."""
     return any(pattern in source_expr for pattern in SANITIZER_CALL_PATTERNS)
 
 

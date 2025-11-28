@@ -1,23 +1,4 @@
-"""PII Data Analyzer - Comprehensive International Edition.
-
-Detects 200+ PII patterns across 15 categories with international support for 50+ countries.
-Implements GDPR, CCPA, COPPA, HIPAA, PCI-DSS, and other privacy regulation checks.
-
-This implementation:
-- Uses frozensets for O(1) pattern matching (immutable, hashable)
-- Direct database queries (assumes all tables exist per schema contract)
-- Uses parameterized queries (no SQL injection)
-- Implements multi-layer detection patterns
-- Provides confidence scoring based on context
-- Maps all findings to privacy regulations (15 major regulations)
-- Supports international PII formats (50+ countries)
-- Relies on normalized endpoint/storage metadata to reduce substring-based noise
-
-False positive fixes (2025-11-22):
-- Credit: Token-based matching technique from external contributor @dev-corelift (PR #20)
-- Prevents false positives from generic fields like "message" (vs sms_history) and "className" (vs student_id)
-- Uses camelCase-aware identifier tokenization with LRU caching for performance
-"""
+"""PII Data Analyzer - Comprehensive International Edition."""
 
 import re
 import sqlite3
@@ -1230,11 +1211,7 @@ def get_applicable_regulations(pii_type: str) -> list[PrivacyRegulation]:
 
 
 def find_pii_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect PII exposure issues using comprehensive international patterns.
-
-    Implements 25+ detection patterns across 15 PII categories with
-    support for 50+ countries and major privacy regulations.
-    """
+    """Detect PII exposure issues using comprehensive international patterns."""
     findings = []
 
     if not context.db_path:
@@ -1300,17 +1277,7 @@ _CAMEL_CASE_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0
 
 
 def _split_identifier_tokens(value: str | None) -> list[str]:
-    """Split an identifier or arbitrary string into normalized tokens.
-
-    Handles camelCase, snake_case, kebab-case, and mixed patterns.
-    Prevents substring collisions like "message" matching "sms_history".
-
-    Examples:
-        >>> _split_identifier_tokens("className")
-        ['class', 'name']
-        >>> _split_identifier_tokens("sms_history")
-        ['sms', 'history']
-    """
+    """Split an identifier or arbitrary string into normalized tokens."""
     if not value:
         return []
 
@@ -1331,10 +1298,7 @@ def _pattern_tokens(pattern: str) -> tuple[str, ...]:
 
 
 def _match_pattern_tokens(tokens: set[str], pattern: str) -> bool:
-    """Check if identifier tokens match a PII pattern.
-
-    Uses token-based matching to avoid substring collisions.
-    """
+    """Check if identifier tokens match a PII pattern."""
     pattern_tokens = _pattern_tokens(pattern)
     if not pattern_tokens:
         return False
@@ -1346,10 +1310,7 @@ def _match_pattern_tokens(tokens: set[str], pattern: str) -> bool:
 def _detect_pii_matches(
     text: str | None, pii_categories: dict[str, set[str]]
 ) -> list[tuple[str, str]]:
-    """Detect PII patterns in text using token-based matching.
-
-    Returns list of (pattern, category) tuples for all matches.
-    """
+    """Detect PII patterns in text using token-based matching."""
     tokens = set(_split_identifier_tokens(text))
     if not tokens:
         return []
@@ -1365,10 +1326,7 @@ def _detect_pii_matches(
 
 
 def _detect_specific_pattern(text: str | None, patterns: set[str]) -> str | None:
-    """Detect if text matches any pattern from a specific set.
-
-    Returns the first matching pattern, or None.
-    """
+    """Detect if text matches any pattern from a specific set."""
     tokens = set(_split_identifier_tokens(text))
     if not tokens:
         return None

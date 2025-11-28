@@ -1,8 +1,4 @@
-"""AWS CDK security analyzer.
-
-Runs CDK security rules via RulesOrchestrator and stores findings to database.
-Follows the same pattern as TerraformAnalyzer for architectural consistency.
-"""
+"""AWS CDK security analyzer."""
 
 import logging
 import sqlite3
@@ -36,12 +32,7 @@ class AWSCdkAnalyzer:
     """Analyzes AWS CDK code for security misconfigurations."""
 
     def __init__(self, db_path: str, severity_filter: str = "all"):
-        """Initialize CDK analyzer.
-
-        Args:
-            db_path: Path to repo_index.db database
-            severity_filter: Filter findings by severity (all, critical, high, medium, low)
-        """
+        """Initialize CDK analyzer."""
         self.db_path = Path(db_path)
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
@@ -57,11 +48,7 @@ class AWSCdkAnalyzer:
         }
 
     def analyze(self) -> list[CdkFinding]:
-        """Run all CDK security rules and return findings.
-
-        Returns:
-            List of CdkFinding objects
-        """
+        """Run all CDK security rules and return findings."""
 
         project_root = self.db_path.parent
         if project_root.name == ".pf":
@@ -97,30 +84,13 @@ class AWSCdkAnalyzer:
         )
 
     def _is_cdk_rule(self, finding: dict) -> bool:
-        """Check if finding comes from a CDK rule.
-
-        CDK rules have rule_name starting with 'aws-cdk-'.
-
-        Args:
-            finding: Dictionary from orchestrator.run_database_rules()
-                     Note: orchestrator converts StandardFinding.rule_name → dict['rule']
-        """
+        """Check if finding comes from a CDK rule."""
 
         rule_name = finding.get("rule", "")
         return rule_name.startswith("aws-cdk-")
 
     def _convert_findings(self, standard_findings: list[dict]) -> list[CdkFinding]:
-        """Convert finding dictionaries from orchestrator to CdkFinding format.
-
-        Args:
-            standard_findings: List of finding dicts from orchestrator.run_database_rules()
-                              Note: StandardFinding.to_dict() converts:
-                              - rule_name → 'rule'
-                              - file_path → 'file'
-                              - snippet → 'code_snippet'
-                              - cwe_id → 'cwe'
-                              - additional_info → 'details_json' (as JSON string)
-        """
+        """Convert finding dictionaries from orchestrator to CdkFinding format."""
         cdk_findings: list[CdkFinding] = []
 
         for finding in standard_findings:
@@ -146,12 +116,7 @@ class AWSCdkAnalyzer:
         return cdk_findings
 
     def _build_finding_id(self, finding: dict) -> str:
-        """Generate unique finding ID.
-
-        Args:
-            finding: Dictionary from orchestrator.run_database_rules()
-                     Note: dict keys are 'rule' and 'file', not 'rule_name' and 'file_path'
-        """
+        """Generate unique finding ID."""
         parts = [
             "cdk",
             finding.get("rule", ""),

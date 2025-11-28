@@ -1,13 +1,4 @@
-"""Vue.js-specific XSS Detection.
-
-This module detects XSS vulnerabilities specific to Vue.js applications.
-Uses Vue-specific database tables for accurate detection.
-
-REFACTORED (2025-11-22):
-- Constants moved to constants.py (Single Source of Truth)
-- Context manager + sqlite3.Row for name-based access
-- Removed symbol scan heuristic per NO FALLBACK POLICY
-"""
+"""Vue.js-specific XSS Detection."""
 
 import sqlite3
 
@@ -30,13 +21,7 @@ METADATA = RuleMetadata(
 
 
 def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue.js-specific XSS vulnerabilities.
-
-    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
-
-    Returns:
-        List of Vue-specific XSS findings
-    """
+    """Detect Vue.js-specific XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -61,11 +46,7 @@ def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _is_vue_app(cursor: sqlite3.Cursor) -> bool:
-    """Check if this is a Vue.js application.
-
-    NO FALLBACK: Removed symbol scan heuristic per ZERO FALLBACK POLICY.
-    Trust frameworks table and vue_components table only.
-    """
+    """Check if this is a Vue.js application."""
 
     cursor.execute("""
         SELECT COUNT(*) as cnt FROM frameworks
@@ -552,9 +533,5 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_xss(context)

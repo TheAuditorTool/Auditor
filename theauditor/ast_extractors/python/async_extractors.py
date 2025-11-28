@@ -1,22 +1,4 @@
-"""Python async pattern extractors - AsyncIO and concurrent patterns.
-
-This module contains extraction logic for Python async/await patterns:
-- async def functions
-- await expressions
-- async with statements
-- async for loops
-- async generators
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Python async pattern extractors - AsyncIO and concurrent patterns."""
 
 import ast
 import logging
@@ -30,15 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_async_functions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract async function definitions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of async function records
-    """
+    """Extract async function definitions from Python AST."""
     async_functions = []
 
     if not context.tree:
@@ -61,15 +35,7 @@ def extract_async_functions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_await_expressions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract await expressions from Python AST.
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of await expression records
-    """
+    """Extract await expressions from Python AST."""
     awaits = []
 
     if not context.tree:
@@ -101,19 +67,7 @@ def extract_await_expressions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_async_generators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract async generators from Python AST.
-
-    Detects:
-    - async for loops
-    - Functions with yield inside async def
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
-
-    Returns:
-        List of async generator records
-    """
+    """Extract async generators from Python AST."""
     async_generators = []
 
     if not context.tree:

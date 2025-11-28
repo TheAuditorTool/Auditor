@@ -1,26 +1,4 @@
-"""Storage layer: Domain-specific handler modules.
-
-This module provides the DataStorer class that dispatches extracted data
-to domain-specific storage modules (core, python, node, infrastructure).
-
-Architecture:
-- DataStorer: Main orchestrator, delegates to domain modules
-- BaseStorage: Shared logic (db_manager, counts, _current_extracted)
-- CoreStorage: Language-agnostic handlers (symbols, cfg, assignments)
-- PythonStorage: Python framework handlers (django, flask, pytest)
-- NodeStorage: JavaScript framework handlers (react, vue, angular)
-- InfrastructureStorage: IaC handlers (terraform, cdk, graphql)
-
-Design Pattern:
-- Handler dispatch via registry dict (data_type -> handler method)
-- Domain modules inherit from BaseStorage
-- DataStorer aggregates all domain handlers into unified registry
-
-Usage:
-    from theauditor.indexer.storage import DataStorer
-    storer = DataStorer(db_manager, counts)
-    storer.store(file_path, extracted, jsx_pass=False)
-"""
+"""Storage layer: Domain-specific handler modules."""
 
 import os
 from typing import Any
@@ -32,24 +10,10 @@ from .python_storage import PythonStorage
 
 
 class DataStorer:
-    """Main storage orchestrator - aggregates domain-specific handlers.
-
-    ARCHITECTURE:
-    - Single entry point: store(file_path, extracted, jsx_pass)
-    - Handler map: data_type -> handler method
-    - Each handler: 10-40 lines, focused, testable
-
-    CRITICAL: Assumes db_manager and counts are provided by orchestrator.
-    DO NOT instantiate directly - only used by IndexerOrchestrator.
-    """
+    """Main storage orchestrator - aggregates domain-specific handlers."""
 
     def __init__(self, db_manager, counts: dict[str, int]):
-        """Initialize DataStorer with database manager and counts dict.
-
-        Args:
-            db_manager: DatabaseManager instance from orchestrator
-            counts: Shared counts dictionary for statistics tracking
-        """
+        """Initialize DataStorer with database manager and counts dict."""
         self.db_manager = db_manager
         self.counts = counts
 
@@ -68,17 +32,7 @@ class DataStorer:
     def store(
         self, file_path: str, extracted: dict[str, Any], jsx_pass: bool = False
     ) -> dict[str, int]:
-        """Store extracted data via domain-specific handlers.
-
-        Args:
-            file_path: Path to the file being indexed
-            extracted: Dictionary of extracted data (data_type -> data list)
-            jsx_pass: True if this is JSX preserved mode (second pass)
-
-        Returns:
-            Receipt dict mapping data_type -> count of items passed to handlers.
-            Used by fidelity control to verify no data loss.
-        """
+        """Store extracted data via domain-specific handlers."""
 
         self._current_extracted = extracted
 

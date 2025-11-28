@@ -5,11 +5,7 @@ from pathlib import Path
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
-    """
-    Deep merge overlay into base, only adding missing keys.
-
-    Existing values in base are never overwritten.
-    """
+    """Deep merge overlay into base, only adding missing keys."""
     result = base.copy()
 
     for key, value in overlay.items():
@@ -22,14 +18,7 @@ def deep_merge(base: dict, overlay: dict) -> dict:
 
 
 def ensure_package_json(path: str) -> dict[str, str]:
-    """
-    Create or merge minimal package.json for lint/typecheck.
-
-    Returns:
-        {"status": "created"} if new file created
-        {"status": "merged"} if existing file updated
-        {"status": "unchanged"} if no changes needed
-    """
+    """Create or merge minimal package.json for lint/typecheck."""
     package_path = Path(path)
 
     template = {
@@ -69,24 +58,7 @@ def ensure_package_json(path: str) -> dict[str, str]:
 
 
 def add_auditor_hooks(path: str) -> dict[str, str]:
-    """
-    Add TheAuditor hooks to package.json scripts non-destructively.
-
-    Adds the following hooks:
-    - pretest: aud lint --workset
-    - prebuild: aud ast-verify
-    - prepush: aud taint-analyze
-
-    If hooks already exist, prepends Auditor commands with &&.
-
-    Args:
-        path: Path to package.json file
-
-    Returns:
-        {"status": "hooks_added", "details": <list of changes>} if hooks were added
-        {"status": "unchanged"} if all hooks already present
-        {"status": "error", "message": <error>} if error occurred
-    """
+    """Add TheAuditor hooks to package.json scripts non-destructively."""
     package_path = Path(path)
 
     if not package_path.exists():

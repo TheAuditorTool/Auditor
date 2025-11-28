@@ -1,19 +1,10 @@
-"""Node.js/TypeScript/React/Vue database operations.
-
-This module contains add_* methods for NODE_TABLES defined in schemas/node_schema.py.
-Handles 27 Node.js tables including TypeScript, React, Vue, Angular, Sequelize,
-BullMQ, and 10 junction tables for normalized extraction data.
-"""
+"""Node.js/TypeScript/React/Vue database operations."""
 
 import json
 
 
 class NodeDatabaseMixin:
-    """Mixin providing add_* methods for NODE_TABLES.
-
-    CRITICAL: This mixin assumes self.generic_batches exists (from BaseDatabaseManager).
-    DO NOT instantiate directly - only use as mixin for DatabaseManager.
-    """
+    """Mixin providing add_* methods for NODE_TABLES."""
 
     def add_class_property(
         self,
@@ -28,20 +19,7 @@ class NodeDatabaseMixin:
         has_declare: bool = False,
         initializer: str | None = None,
     ):
-        """Add a class property declaration record to the batch.
-
-        Args:
-            file: File containing the class
-            line: Line number of property declaration
-            class_name: Name of the containing class
-            property_name: Name of the property
-            property_type: TypeScript type annotation (e.g., "string", "number | null")
-            is_optional: Whether property has ? modifier
-            is_readonly: Whether property has readonly keyword
-            access_modifier: "private", "protected", or "public" (None = public by default)
-            has_declare: Whether property has declare keyword (TypeScript ambient declaration)
-            initializer: Default value expression if present
-        """
+        """Add a class property declaration record to the batch."""
         self.generic_batches["class_properties"].append(
             (
                 file,
@@ -103,14 +81,7 @@ class NodeDatabaseMixin:
         hooks_used: list[str] | None = None,
         props_type: str | None = None,
     ):
-        """Add a React component to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch component record (without hooks_used column)
-        - Phase 2: Batch junction records for each hook used
-
-        NO FALLBACKS. If hooks_used is malformed, hard fail.
-        """
+        """Add a React component to the batch."""
 
         self.generic_batches["react_components"].append(
             (file_path, name, component_type, start_line, end_line, has_jsx, props_type)
@@ -134,14 +105,7 @@ class NodeDatabaseMixin:
         has_cleanup: bool = False,
         cleanup_type: str | None = None,
     ):
-        """Add a React hook usage to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch hook record (without dependency_vars column)
-        - Phase 2: Batch junction records for each dependency variable
-
-        NO FALLBACKS. If dependency_vars is malformed, hard fail.
-        """
+        """Add a React hook usage to the batch."""
 
         deps_array_json = json.dumps(dependency_array) if dependency_array is not None else None
 
@@ -179,16 +143,7 @@ class NodeDatabaseMixin:
         has_style: bool = False,
         composition_api_used: bool = False,
     ):
-        """Add a Vue component PARENT RECORD ONLY to the batch.
-
-        ARCHITECTURE: Normalized storage - parent record only.
-        Junction data (props, emits, setup_returns) stored via dedicated methods:
-        - add_vue_component_prop()
-        - add_vue_component_emit()
-        - add_vue_component_setup_return()
-
-        NO FALLBACKS. NO JUNCTION DISPATCH. SINGLE CODE PATH.
-        """
+        """Add a Vue component PARENT RECORD ONLY to the batch."""
         self.generic_batches["vue_components"].append(
             (
                 file_path,
@@ -346,14 +301,7 @@ class NodeDatabaseMixin:
         style_paths: list | str | None = None,
         has_lifecycle_hooks: bool = False,
     ):
-        """Add an Angular component to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationships.
-        - Phase 1: Batch parent component record (NO style_paths column)
-        - Phase 2: Batch junction records for each style path
-
-        NO FALLBACKS. If data is malformed, hard fail.
-        """
+        """Add an Angular component to the batch."""
 
         self.generic_batches["angular_components"].append(
             (file, line, component_name, selector, template_path, 1 if has_lifecycle_hooks else 0)
@@ -388,17 +336,7 @@ class NodeDatabaseMixin:
         )
 
     def add_angular_module(self, file: str, line: int, module_name: str):
-        """Add an Angular module PARENT RECORD ONLY to the batch.
-
-        ARCHITECTURE: Normalized storage - parent record only.
-        Junction data (declarations, imports, providers, exports) stored via dedicated methods:
-        - add_angular_module_declaration()
-        - add_angular_module_import()
-        - add_angular_module_provider()
-        - add_angular_module_export()
-
-        NO FALLBACKS. NO JUNCTION DISPATCH. SINGLE CODE PATH.
-        """
+        """Add an Angular module PARENT RECORD ONLY to the batch."""
         self.generic_batches["angular_modules"].append((file, line, module_name))
 
     def add_angular_guard(
@@ -466,14 +404,7 @@ class NodeDatabaseMixin:
         version: str,
         is_private: bool = False,
     ):
-        """Add a package.json configuration to the batch.
-
-        Note: Dependencies, scripts, engines, workspaces go to junction tables:
-        - package_dependencies (via add_package_dependency)
-        - package_scripts (via add_package_script)
-        - package_engines (via add_package_engine)
-        - package_workspaces (via add_package_workspace)
-        """
+        """Add a package.json configuration to the batch."""
         self.generic_batches["package_configs"].append(
             (file_path, package_name, version, is_private)
         )
@@ -512,15 +443,7 @@ class NodeDatabaseMixin:
         full_statement: str | None = None,
         resolved_path: str | None = None,
     ):
-        """Add an import style record to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch import style record (without imported_names column)
-        - Phase 2: Batch junction records for each imported name
-        - Phase 3 (post-indexing): resolved_path populated by resolve_import_paths()
-
-        NO FALLBACKS. If imported_names is malformed, hard fail.
-        """
+        """Add an import style record to the batch."""
 
         self.generic_batches["import_styles"].append(
             (file_path, line, package, import_style, alias_name, full_statement, resolved_path)
@@ -533,21 +456,14 @@ class NodeDatabaseMixin:
                 self.generic_batches["import_style_names"].append((file_path, line, imported_name))
 
     def add_import_style_name(self, file_path: str, line: int, imported_name: str):
-        """Add an import style name record directly to the batch.
-
-        Used by _store_import_style_names handler for flat junction array from JS.
-        """
+        """Add an import style name record directly to the batch."""
         if imported_name:
             self.generic_batches["import_style_names"].append((file_path, line, imported_name))
 
     def add_react_component_hook_flat(
         self, component_file: str, component_name: str, hook_name: str
     ):
-        """Add a react component hook from flat junction array.
-
-        Used by _store_react_component_hooks handler for flat array from JS.
-        Schema: react_component_hooks(component_file, component_name, hook_name)
-        """
+        """Add a react component hook from flat junction array."""
         if hook_name:
             self.generic_batches["react_component_hooks"].append(
                 (component_file, component_name, hook_name)
@@ -556,11 +472,7 @@ class NodeDatabaseMixin:
     def add_react_hook_dependency_flat(
         self, hook_file: str, hook_line: int, hook_component: str, dependency_name: str
     ):
-        """Add a react hook dependency from flat junction array.
-
-        Used by _store_react_hook_dependencies handler for flat array from JS.
-        Schema: react_hook_dependencies(hook_file, hook_line, hook_component, dependency_name)
-        """
+        """Add a react hook dependency from flat junction array."""
         if dependency_name:
             self.generic_batches["react_hook_dependencies"].append(
                 (hook_file, hook_line, hook_component, dependency_name)
@@ -575,19 +487,7 @@ class NodeDatabaseMixin:
         body_variable: str | None = None,
         function_name: str | None = None,
     ):
-        """Add a frontend API call record to the batch.
-
-        Tracks fetch() and axios calls from frontend code to backend APIs.
-        Used for cross-boundary taint flow analysis (frontend -> backend).
-
-        Args:
-            file: Frontend file making the API call
-            line: Line number of the call
-            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
-            url_literal: Static API path (e.g., '/api/users')
-            body_variable: Variable name sent as body (e.g., 'userData')
-            function_name: Function containing the API call
-        """
+        """Add a frontend API call record to the batch."""
         self.generic_batches["frontend_api_calls"].append(
             (file, line, method, url_literal, body_variable, function_name)
         )
@@ -614,14 +514,7 @@ class NodeDatabaseMixin:
     def add_framework_taint_pattern(
         self, framework_id: int, pattern: str, pattern_type: str, category: str | None = None
     ):
-        """Add framework taint pattern (source/sink) to batch.
-
-        Args:
-            framework_id: FK to frameworks.id
-            pattern: Pattern string (e.g., 'req.body', 'eval')
-            pattern_type: 'source' or 'sink'
-            category: Optional category (e.g., 'http_request', 'code_execution')
-        """
+        """Add framework taint pattern (source/sink) to batch."""
         self.generic_batches["framework_taint_patterns"].append(
             (framework_id, pattern, pattern_type, category)
         )
@@ -646,10 +539,7 @@ class NodeDatabaseMixin:
         param_name: str,
         param_type: str | None = None,
     ):
-        """Add a function parameter to the batch.
-
-        Schema: func_params(file, function_line, function_name, param_index, param_name, param_type)
-        """
+        """Add a function parameter to the batch."""
         self.generic_batches["func_params"].append(
             (file, function_line, function_name, param_index, param_name, param_type)
         )
@@ -663,10 +553,7 @@ class NodeDatabaseMixin:
         decorator_name: str,
         decorator_line: int | None = None,
     ):
-        """Add a function decorator to the batch.
-
-        Schema: func_decorators(file, function_line, function_name, decorator_index, decorator_name, decorator_line)
-        """
+        """Add a function decorator to the batch."""
         self.generic_batches["func_decorators"].append(
             (file, function_line, function_name, decorator_index, decorator_name, decorator_line)
         )
@@ -680,10 +567,7 @@ class NodeDatabaseMixin:
         arg_index: int,
         arg_value: str | None = None,
     ):
-        """Add a function decorator argument to the batch.
-
-        Schema: func_decorator_args(file, function_line, function_name, decorator_index, arg_index, arg_value)
-        """
+        """Add a function decorator argument to the batch."""
         self.generic_batches["func_decorator_args"].append(
             (file, function_line, function_name, decorator_index, arg_index, arg_value)
         )
@@ -697,10 +581,7 @@ class NodeDatabaseMixin:
         decorator_name: str,
         decorator_args: str | None = None,
     ):
-        """Add a function parameter decorator to the batch (NestJS @Body, @Param, etc).
-
-        Schema: func_param_decorators(file, function_line, function_name, param_index, decorator_name, decorator_args)
-        """
+        """Add a function parameter decorator to the batch (NestJS @Body, @Param, etc)."""
         self.generic_batches["func_param_decorators"].append(
             (file, function_line, function_name, param_index, decorator_name, decorator_args)
         )
@@ -714,10 +595,7 @@ class NodeDatabaseMixin:
         decorator_name: str,
         decorator_line: int | None = None,
     ):
-        """Add a class decorator to the batch.
-
-        Schema: class_decorators(file, class_line, class_name, decorator_index, decorator_name, decorator_line)
-        """
+        """Add a class decorator to the batch."""
         self.generic_batches["class_decorators"].append(
             (file, class_line, class_name, decorator_index, decorator_name, decorator_line)
         )
@@ -731,10 +609,7 @@ class NodeDatabaseMixin:
         arg_index: int,
         arg_value: str | None = None,
     ):
-        """Add a class decorator argument to the batch.
-
-        Schema: class_decorator_args(file, class_line, class_name, decorator_index, arg_index, arg_value)
-        """
+        """Add a class decorator argument to the batch."""
         self.generic_batches["class_decorator_args"].append(
             (file, class_line, class_name, decorator_index, arg_index, arg_value)
         )
@@ -742,10 +617,7 @@ class NodeDatabaseMixin:
     def add_assignment_source_var(
         self, file: str, line: int, target_var: str, source_var: str, var_index: int
     ):
-        """Add an assignment source variable to the batch.
-
-        Schema: assignment_source_vars(file, line, target_var, source_var, var_index)
-        """
+        """Add an assignment source variable to the batch."""
         self.generic_batches["assignment_source_vars"].append(
             (file, line, target_var, source_var, var_index)
         )
@@ -753,10 +625,7 @@ class NodeDatabaseMixin:
     def add_return_source_var(
         self, file: str, line: int, function_name: str, source_var: str, var_index: int
     ):
-        """Add a return source variable to the batch.
-
-        Schema: return_source_vars(file, line, function_name, source_var, var_index)
-        """
+        """Add a return source variable to the batch."""
         self.generic_batches["return_source_vars"].append(
             (file, line, function_name, source_var, var_index)
         )
@@ -771,10 +640,7 @@ class NodeDatabaseMixin:
         is_namespace: bool = False,
         is_named: bool = True,
     ):
-        """Add an import specifier to the batch.
-
-        Schema: import_specifiers(file, import_line, specifier_name, original_name, is_default, is_namespace, is_named)
-        """
+        """Add an import specifier to the batch."""
         self.generic_batches["import_specifiers"].append(
             (
                 file,
@@ -798,10 +664,7 @@ class NodeDatabaseMixin:
         is_unique: bool = False,
         default_value: str | None = None,
     ):
-        """Add a Sequelize model field to the batch.
-
-        Schema: sequelize_model_fields(file, model_name, field_name, data_type, is_primary_key, is_nullable, is_unique, default_value)
-        """
+        """Add a Sequelize model field to the batch."""
         self.generic_batches["sequelize_model_fields"].append(
             (
                 file,
@@ -823,11 +686,7 @@ class NodeDatabaseMixin:
         is_dev: bool = False,
         is_peer: bool = False,
     ):
-        """Add a package dependency to the batch.
-
-        Schema: package_dependencies(file_path, name, version_spec, is_dev, is_peer)
-        FK: package_configs.file_path (TEXT)
-        """
+        """Add a package dependency to the batch."""
         self.generic_batches["package_dependencies"].append(
             (file_path, name, version_spec, 1 if is_dev else 0, 1 if is_peer else 0)
         )
@@ -838,14 +697,8 @@ class NodeDatabaseMixin:
         script_name: str,
         script_command: str,
     ):
-        """Add a package script to the batch.
-
-        Schema: package_scripts(file_path, script_name, script_command)
-        FK: package_configs.file_path (TEXT)
-        """
-        self.generic_batches["package_scripts"].append(
-            (file_path, script_name, script_command)
-        )
+        """Add a package script to the batch."""
+        self.generic_batches["package_scripts"].append((file_path, script_name, script_command))
 
     def add_package_engine(
         self,
@@ -853,25 +706,13 @@ class NodeDatabaseMixin:
         engine_name: str,
         version_spec: str | None,
     ):
-        """Add a package engine requirement to the batch.
-
-        Schema: package_engines(file_path, engine_name, version_spec)
-        FK: package_configs.file_path (TEXT)
-        """
-        self.generic_batches["package_engines"].append(
-            (file_path, engine_name, version_spec)
-        )
+        """Add a package engine requirement to the batch."""
+        self.generic_batches["package_engines"].append((file_path, engine_name, version_spec))
 
     def add_package_workspace(
         self,
         file_path: str,
         workspace_path: str,
     ):
-        """Add a package workspace to the batch.
-
-        Schema: package_workspaces(file_path, workspace_path)
-        FK: package_configs.file_path (TEXT)
-        """
-        self.generic_batches["package_workspaces"].append(
-            (file_path, workspace_path)
-        )
+        """Add a package workspace to the batch."""
+        self.generic_batches["package_workspaces"].append((file_path, workspace_path))

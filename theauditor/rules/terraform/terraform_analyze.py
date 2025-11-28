@@ -1,14 +1,4 @@
-"""Terraform IaC Security Analyzer - database-first rule.
-
-Detects infrastructure security issues by querying Terraform extractor tables:
-- terraform_resources
-- terraform_variables
-- terraform_variable_values (.tfvars)
-- terraform_outputs
-
-The rule mirrors the legacy TerraformAnalyzer checks while exposing findings via
-StandardFinding so orchestrator and CLI can share a single source of truth.
-"""
+"""Terraform IaC Security Analyzer - database-first rule."""
 
 import json
 import logging

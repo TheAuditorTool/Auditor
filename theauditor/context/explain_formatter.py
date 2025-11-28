@@ -1,19 +1,4 @@
-"""Explain command output formatter.
-
-Formats comprehensive context output for the `aud explain` command.
-Supports text (human-readable) and JSON (AI-consumable) formats.
-
-NO EMOJIS: Windows Command Prompt uses CP1252 encoding which cannot
-handle emoji characters. All output uses plain ASCII only.
-
-Usage:
-    from theauditor.context.explain_formatter import ExplainFormatter
-    from theauditor.utils.code_snippets import CodeSnippetManager
-
-    snippet_manager = CodeSnippetManager(Path.cwd())
-    formatter = ExplainFormatter(snippet_manager, show_code=True)
-    output = formatter.format_file_explain(data)
-"""
+"""Explain command output formatter."""
 
 import json
 
@@ -21,42 +6,20 @@ from theauditor.utils.code_snippets import CodeSnippetManager
 
 
 class ExplainFormatter:
-    """Format explain output for text and JSON modes.
-
-    Output rules:
-    - NO EMOJIS (Windows CP1252 compatibility)
-    - Dynamic limit per section (passed from CLI)
-    - Line truncation at 120 chars
-    - Separator: 80x '='
-    """
+    """Format explain output for text and JSON modes."""
 
     SEPARATOR = "=" * 80
 
     def __init__(
         self, snippet_manager: CodeSnippetManager, show_code: bool = True, limit: int = 20
     ):
-        """Initialize formatter.
-
-        Args:
-            snippet_manager: CodeSnippetManager instance for reading snippets
-            show_code: If True, include code snippets in output
-            limit: Max items per section (from CLI --limit)
-        """
+        """Initialize formatter."""
         self.snippet_manager = snippet_manager
         self.show_code = show_code
         self.limit = limit
 
     def format_file_explain(self, data: dict) -> str:
-        """Format file explain output.
-
-        Args:
-            data: File context bundle from CodeQueryEngine.get_file_context_bundle()
-                  Contains: target, target_type, symbols, hooks, imports,
-                           importers, outgoing_calls, incoming_calls
-
-        Returns:
-            Formatted text output
-        """
+        """Format file explain output."""
         lines = []
         target = data.get("target", "(unknown)")
 
@@ -117,15 +80,7 @@ class ExplainFormatter:
         return "\n".join(lines)
 
     def format_symbol_explain(self, data: dict) -> str:
-        """Format symbol explain output.
-
-        Args:
-            data: Symbol context bundle from CodeQueryEngine.get_symbol_context_bundle()
-                  Contains: target, resolved_as, target_type, definition, callers, callees
-
-        Returns:
-            Formatted text output
-        """
+        """Format symbol explain output."""
         lines = []
         target = data.get("target", "(unknown)")
         resolved = data.get("resolved_as", [target])
@@ -178,14 +133,7 @@ class ExplainFormatter:
         return "\n".join(lines)
 
     def format_component_explain(self, data: dict) -> str:
-        """Format React/Vue component explain output.
-
-        Args:
-            data: Component data with hooks, children, props
-
-        Returns:
-            Formatted text output
-        """
+        """Format React/Vue component explain output."""
         lines = []
         target = data.get("target", data.get("name", "(unknown)"))
 
@@ -250,27 +198,11 @@ class ExplainFormatter:
         return "\n".join(lines)
 
     def format_json(self, data: dict) -> str:
-        """Format data as JSON for AI consumption.
-
-        Args:
-            data: Any explain data structure
-
-        Returns:
-            JSON string with 2-space indentation
-        """
+        """Format data as JSON for AI consumption."""
         return json.dumps(data, indent=2, default=str)
 
     def _format_section(self, title: str, items: list, format_fn) -> str:
-        """Format a section with limit and count.
-
-        Args:
-            title: Section title (e.g., "SYMBOLS DEFINED (5)")
-            items: List of items to format
-            format_fn: Function to format each item
-
-        Returns:
-            Formatted section string
-        """
+        """Format a section with limit and count."""
         lines = [f"{title}:"]
 
         if not items:
@@ -289,14 +221,7 @@ class ExplainFormatter:
         return "\n".join(lines)
 
     def _format_framework_section(self, framework_info: dict) -> str:
-        """Format framework-specific information section.
-
-        Args:
-            framework_info: Dict with framework-specific data
-
-        Returns:
-            Formatted section string
-        """
+        """Format framework-specific information section."""
         lines = []
         framework = framework_info.get("framework", "unknown")
         lines.append(f"FRAMEWORK INFO ({framework}):")

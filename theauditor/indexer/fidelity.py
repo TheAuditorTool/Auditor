@@ -1,17 +1,4 @@
-"""Data Fidelity Control System.
-
-Enforces the ZERO FALLBACK POLICY by reconciling extraction manifests
-against storage receipts. If data is extracted but not stored, this module
-triggers a loud crash to prevent silent data loss.
-
-ARCHITECTURE:
-    Extractor -> Manifest (what was found)
-    Storage   -> Receipt (what was saved)
-    Fidelity  -> Compare and CRASH if mismatch
-
-This system was added after discovering ~22MB of silent data loss when
-schema columns were invented without verifying actual extractor outputs.
-"""
+"""Data Fidelity Control System."""
 
 import logging
 
@@ -23,27 +10,7 @@ logger = logging.getLogger(__name__)
 def reconcile_fidelity(
     manifest: dict[str, int], receipt: dict[str, int], file_path: str, strict: bool = True
 ) -> dict[str, any]:
-    """Compare extraction manifest (what was found) vs storage receipt (what was saved).
-
-    This is the core enforcement mechanism for data fidelity. It detects:
-    1. CRITICAL: Data extracted but NOTHING stored (100% loss)
-    2. WARNING: Partial mismatch (some rows filtered/duplicated)
-
-    Args:
-        manifest: Dict {table_name: count} from the extractor.
-        receipt: Dict {table_name: count} from the storage layer.
-        file_path: The file being processed (for error reporting).
-        strict: If True, raises DataFidelityError on data loss.
-
-    Returns:
-        Dict containing:
-            - status: 'OK', 'WARNING', or 'FAILED'
-            - errors: List of critical errors (100% data loss)
-            - warnings: List of partial mismatches
-
-    Raises:
-        DataFidelityError: If strict=True and data loss is detected.
-    """
+    """Compare extraction manifest (what was found) vs storage receipt (what was saved)."""
 
     tables = {k for k in manifest if not k.startswith("_")}
     tables.update({k for k in receipt if not k.startswith("_")})

@@ -1,9 +1,3 @@
-/**
- * Security Extractors
- *
- * Extracts ORM queries, API endpoints, validation usage, SQL queries, CDK constructs, and frontend API calls.
- */
-
 import type {
   ORMQuery as IORMQuery,
   APIEndpoint as IAPIEndpoint,
@@ -18,40 +12,55 @@ import type {
   Assignment as IAssignment,
   Import as IImport,
   ImportSpecifier as IImportSpecifier,
-} from '../schema';
-
-// =============================================================================
-// EXTRACT ORM QUERIES
-// =============================================================================
+} from "../schema";
 
 const ORM_METHODS = new Set([
-  'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy', 'upsert',
-  'bulkCreate', 'count', 'max', 'min', 'sum', 'findMany', 'findUnique',
-  'findFirst', 'createMany', 'updateMany', 'deleteMany', 'aggregate', 'groupBy',
+  "findAll",
+  "findOne",
+  "findByPk",
+  "create",
+  "update",
+  "destroy",
+  "upsert",
+  "bulkCreate",
+  "count",
+  "max",
+  "min",
+  "sum",
+  "findMany",
+  "findUnique",
+  "findFirst",
+  "createMany",
+  "updateMany",
+  "deleteMany",
+  "aggregate",
+  "groupBy",
 ]);
 
-export function extractORMQueries(functionCallArgs: IFunctionCallArg[]): IORMQuery[] {
+export function extractORMQueries(
+  functionCallArgs: IFunctionCallArg[],
+): IORMQuery[] {
   const queries: IORMQuery[] = [];
 
   for (const call of functionCallArgs) {
     const method = call.callee_function
-      ? call.callee_function.split('.').pop() || ''
-      : '';
+      ? call.callee_function.split(".").pop() || ""
+      : "";
     if (!ORM_METHODS.has(method)) continue;
 
     const hasIncludes =
-      call.argument_expr && call.argument_expr.includes('include:');
+      call.argument_expr && call.argument_expr.includes("include:");
     const hasLimit = Boolean(
       call.argument_expr &&
-      (call.argument_expr.includes('limit:') ||
-        call.argument_expr.includes('take:'))
+      (call.argument_expr.includes("limit:") ||
+        call.argument_expr.includes("take:")),
     );
 
     queries.push({
       line: call.line,
-      query_type: call.callee_function || '',
-      model_name: call.callee_function?.split('.')[0] || null,
-      includes: hasIncludes ? 'has_includes' : null,
+      query_type: call.callee_function || "",
+      model_name: call.callee_function?.split(".")[0] || null,
+      includes: hasIncludes ? "has_includes" : null,
       has_limit: hasLimit,
       has_transaction: false,
     });
@@ -60,12 +69,15 @@ export function extractORMQueries(functionCallArgs: IFunctionCallArg[]): IORMQue
   return queries;
 }
 
-// =============================================================================
-// EXTRACT API ENDPOINTS
-// =============================================================================
-
 const HTTP_METHODS = new Set([
-  'get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'all',
+  "get",
+  "post",
+  "put",
+  "delete",
+  "patch",
+  "head",
+  "options",
+  "all",
 ]);
 
 interface ExtractAPIEndpointsResult {
@@ -74,7 +86,7 @@ interface ExtractAPIEndpointsResult {
 }
 
 export function extractAPIEndpoints(
-  functionCallArgs: IFunctionCallArg[]
+  functionCallArgs: IFunctionCallArg[],
 ): ExtractAPIEndpointsResult {
   const endpoints: IAPIEndpoint[] = [];
   const middlewareChains: IMiddlewareChain[] = [];
@@ -90,14 +102,14 @@ export function extractAPIEndpoints(
   > = {};
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
-    if (!callee.includes('.')) continue;
+    const callee = call.callee_function || "";
+    if (!callee.includes(".")) continue;
 
-    const parts = callee.split('.');
-    const receiver = parts.slice(0, -1).join('.').toLowerCase();
+    const parts = callee.split(".");
+    const receiver = parts.slice(0, -1).join(".").toLowerCase();
     const method = parts[parts.length - 1];
 
-    const ROUTER_PATTERNS = ['router', 'app', 'express', 'server', 'route'];
+    const ROUTER_PATTERNS = ["router", "app", "express", "server", "route"];
     const isRouter = ROUTER_PATTERNS.some((p) => receiver.includes(p));
 
     if (!isRouter || !HTTP_METHODS.has(method)) continue;
@@ -106,7 +118,7 @@ export function extractAPIEndpoints(
       callsByLine[call.line] = {
         method: method,
         callee: callee,
-        caller_function: call.caller_function || 'global',
+        caller_function: call.caller_function || "global",
         calls: [],
       };
     }
@@ -123,9 +135,9 @@ export function extractAPIEndpoints(
     if (!routeArg) continue;
 
     const route = routeArg.argument_expr;
-    if (!route || typeof route !== 'string') continue;
+    if (!route || typeof route !== "string") continue;
 
-    const cleanRoute = route.replace(/['"]/g, '').trim();
+    const cleanRoute = route.replace(/['"]/g, "").trim();
 
     endpoints.push({
       line: line,
@@ -139,8 +151,8 @@ export function extractAPIEndpoints(
       const call = calls[i];
       const isController = i === calls.length - 1;
       let handlerFunction: string | null = null;
-      const expr = call.argument_expr || '';
-      if (expr && !expr.includes('=>') && !expr.includes('function')) {
+      const expr = call.argument_expr || "";
+      if (expr && !expr.includes("=>") && !expr.includes("function")) {
         handlerFunction = expr;
       }
 
@@ -150,7 +162,7 @@ export function extractAPIEndpoints(
         route_method: method.toUpperCase(),
         execution_order: i - 1,
         handler_expr: expr,
-        handler_type: isController ? 'controller' : 'middleware',
+        handler_type: isController ? "controller" : "middleware",
         handler_function: handlerFunction,
       });
     }
@@ -159,29 +171,25 @@ export function extractAPIEndpoints(
   return { endpoints, middlewareChains };
 }
 
-// =============================================================================
-// VALIDATION FRAMEWORK DETECTION
-// =============================================================================
-
 interface ValidationFramework {
   name: string;
   importedNames: string[];
 }
 
 const VALIDATION_FRAMEWORKS: Record<string, string[]> = {
-  zod: ['z', 'zod', 'ZodSchema'],
-  joi: ['Joi', 'joi'],
-  yup: ['yup', 'Yup'],
-  ajv: ['Ajv', 'ajv'],
-  'class-validator': ['validate', 'validateSync', 'validateOrReject'],
-  'express-validator': ['validationResult', 'matchedData', 'checkSchema'],
+  zod: ["z", "zod", "ZodSchema"],
+  joi: ["Joi", "joi"],
+  yup: ["yup", "Yup"],
+  ajv: ["Ajv", "ajv"],
+  "class-validator": ["validate", "validateSync", "validateOrReject"],
+  "express-validator": ["validationResult", "matchedData", "checkSchema"],
 };
 
 function detectValidationFrameworks(imports: IImport[]): ValidationFramework[] {
   const detected: ValidationFramework[] = [];
 
   for (const imp of imports) {
-    const moduleName = imp.module || '';
+    const moduleName = imp.module || "";
     if (!moduleName) continue;
 
     for (const [framework, names] of Object.entries(VALIDATION_FRAMEWORKS)) {
@@ -195,43 +203,45 @@ function detectValidationFrameworks(imports: IImport[]): ValidationFramework[] {
   return detected;
 }
 
-// =============================================================================
-// EXTRACT VALIDATION FRAMEWORK USAGE
-// =============================================================================
-
 const VALIDATOR_METHODS = [
-  'parse', 'parseAsync', 'safeParse', 'safeParseAsync',
-  'validate', 'validateAsync', 'validateSync', 'isValid', 'isValidSync',
+  "parse",
+  "parseAsync",
+  "safeParse",
+  "safeParseAsync",
+  "validate",
+  "validateAsync",
+  "validateSync",
+  "isValid",
+  "isValidSync",
 ];
 
 function isValidatorMethod(callee: string): boolean {
-  const method = callee.split('.').pop() || '';
+  const method = callee.split(".").pop() || "";
   return VALIDATOR_METHODS.includes(method);
 }
 
 function looksLikeSchemaVariable(varName: string): boolean {
   const lower = varName.toLowerCase();
-  if (lower.endsWith('schema') || lower.endsWith('validator')) return true;
-  if (lower.includes('schema') || lower.includes('validator')) return true;
-  if (lower.startsWith('validate')) return true;
-  if (['schema', 'validator', 'validation'].includes(lower)) return true;
+  if (lower.endsWith("schema") || lower.endsWith("validator")) return true;
+  if (lower.includes("schema") || lower.includes("validator")) return true;
+  if (lower.startsWith("validate")) return true;
+  if (["schema", "validator", "validation"].includes(lower)) return true;
   return false;
 }
 
 export function extractValidationFrameworkUsage(
   functionCallArgs: IFunctionCallArg[],
   assignments: IAssignment[],
-  imports: IImport[]
+  imports: IImport[],
 ): IValidationCall[] {
   const validationCalls: IValidationCall[] = [];
 
   const frameworks = detectValidationFrameworks(imports);
   if (frameworks.length === 0) return validationCalls;
 
-  // Build schema variable map
   const schemaVars: Record<string, { framework: string }> = {};
   for (const assign of assignments) {
-    const source = assign.source_expr || '';
+    const source = assign.source_expr || "";
     for (const fw of frameworks) {
       for (const name of fw.importedNames) {
         if (source.includes(`${name}.`)) {
@@ -243,13 +253,12 @@ export function extractValidationFrameworkUsage(
   }
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
+    const callee = call.callee_function || "";
     if (!callee) continue;
 
     let isValidation = false;
-    let frameworkName = 'unknown';
+    let frameworkName = "unknown";
 
-    // Check if it's a direct framework call
     for (const fw of frameworks) {
       for (const name of fw.importedNames) {
         if (callee.startsWith(`${name}.`) && isValidatorMethod(callee)) {
@@ -261,15 +270,14 @@ export function extractValidationFrameworkUsage(
       if (isValidation) break;
     }
 
-    // Check if it's a schema variable call
-    if (!isValidation && callee.includes('.') && isValidatorMethod(callee)) {
-      const varName = callee.split('.')[0];
+    if (!isValidation && callee.includes(".") && isValidatorMethod(callee)) {
+      const varName = callee.split(".")[0];
       if (varName in schemaVars) {
         isValidation = true;
         frameworkName = schemaVars[varName].framework;
       } else if (looksLikeSchemaVariable(varName)) {
         isValidation = true;
-        frameworkName = frameworks[0]?.name || 'unknown';
+        frameworkName = frameworks[0]?.name || "unknown";
       }
     }
 
@@ -278,10 +286,10 @@ export function extractValidationFrameworkUsage(
         line: call.line,
         framework: frameworkName,
         function_name: callee,
-        method: callee.split('.').pop() || '',
-        variable_name: callee.includes('.') ? callee.split('.')[0] : null,
+        method: callee.split(".").pop() || "",
+        variable_name: callee.includes(".") ? callee.split(".")[0] : null,
         is_validator: isValidatorMethod(callee),
-        argument_expr: (call.argument_expr || '').substring(0, 200),
+        argument_expr: (call.argument_expr || "").substring(0, 200),
       });
     }
   }
@@ -289,28 +297,96 @@ export function extractValidationFrameworkUsage(
   return validationCalls;
 }
 
-// =============================================================================
-// EXTRACT SCHEMA DEFINITIONS
-// =============================================================================
-
 const SCHEMA_BUILDERS: Record<string, string[]> = {
-  zod: ['object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union',
-        'tuple', 'record', 'map', 'set', 'promise', 'function', 'lazy', 'literal',
-        'void', 'undefined', 'null', 'any', 'unknown', 'never', 'instanceof',
-        'discriminatedUnion', 'intersection', 'optional', 'nullable', 'coerce',
-        'nativeEnum', 'bigint', 'nan'],
-  joi: ['object', 'string', 'number', 'array', 'boolean', 'date', 'alternatives',
-        'any', 'binary', 'link', 'symbol', 'func'],
-  yup: ['object', 'string', 'number', 'array', 'boolean', 'date', 'mixed', 'ref', 'lazy'],
-  default: ['object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union',
-             'tuple', 'record', 'map', 'set', 'literal', 'any', 'unknown', 'alternatives',
-             'binary', 'link', 'symbol', 'func', 'mixed', 'ref', 'lazy'],
+  zod: [
+    "object",
+    "string",
+    "number",
+    "array",
+    "boolean",
+    "date",
+    "enum",
+    "union",
+    "tuple",
+    "record",
+    "map",
+    "set",
+    "promise",
+    "function",
+    "lazy",
+    "literal",
+    "void",
+    "undefined",
+    "null",
+    "any",
+    "unknown",
+    "never",
+    "instanceof",
+    "discriminatedUnion",
+    "intersection",
+    "optional",
+    "nullable",
+    "coerce",
+    "nativeEnum",
+    "bigint",
+    "nan",
+  ],
+  joi: [
+    "object",
+    "string",
+    "number",
+    "array",
+    "boolean",
+    "date",
+    "alternatives",
+    "any",
+    "binary",
+    "link",
+    "symbol",
+    "func",
+  ],
+  yup: [
+    "object",
+    "string",
+    "number",
+    "array",
+    "boolean",
+    "date",
+    "mixed",
+    "ref",
+    "lazy",
+  ],
+  default: [
+    "object",
+    "string",
+    "number",
+    "array",
+    "boolean",
+    "date",
+    "enum",
+    "union",
+    "tuple",
+    "record",
+    "map",
+    "set",
+    "literal",
+    "any",
+    "unknown",
+    "alternatives",
+    "binary",
+    "link",
+    "symbol",
+    "func",
+    "mixed",
+    "ref",
+    "lazy",
+  ],
 };
 
 export function extractSchemaDefinitions(
   functionCallArgs: IFunctionCallArg[],
   _assignments: IAssignment[],
-  imports: IImport[]
+  imports: IImport[],
 ): ISchemaDefinition[] {
   const schemaDefs: ISchemaDefinition[] = [];
 
@@ -319,15 +395,15 @@ export function extractSchemaDefinitions(
 
   const builderMethods = new Set<string>();
   for (const fw of frameworks) {
-    const methods = SCHEMA_BUILDERS[fw.name] || SCHEMA_BUILDERS['default'];
+    const methods = SCHEMA_BUILDERS[fw.name] || SCHEMA_BUILDERS["default"];
     methods.forEach((m) => builderMethods.add(m));
   }
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
+    const callee = call.callee_function || "";
     if (!callee) continue;
 
-    const method = callee.split('.').pop() || '';
+    const method = callee.split(".").pop() || "";
     if (!builderMethods.has(method)) continue;
 
     let matchedFramework: string | null = null;
@@ -348,7 +424,7 @@ export function extractSchemaDefinitions(
         method: method,
         variable_name: null,
         is_validator: false,
-        argument_expr: (call.argument_expr || '').substring(0, 200),
+        argument_expr: (call.argument_expr || "").substring(0, 200),
       });
     }
   }
@@ -356,13 +432,20 @@ export function extractSchemaDefinitions(
   return schemaDefs;
 }
 
-// =============================================================================
-// EXTRACT SQL QUERIES
-// =============================================================================
-
 const SQL_METHODS = new Set([
-  'execute', 'query', 'raw', 'exec', 'run', 'executeSql', 'executeQuery',
-  'execSQL', 'select', 'insert', 'update', 'delete', 'query_raw',
+  "execute",
+  "query",
+  "raw",
+  "exec",
+  "run",
+  "executeSql",
+  "executeQuery",
+  "execSQL",
+  "select",
+  "insert",
+  "update",
+  "delete",
+  "query_raw",
 ]);
 
 function resolveSQLLiteral(argExpr: string): string | null {
@@ -375,34 +458,40 @@ function resolveSQLLiteral(argExpr: string): string | null {
     return trimmed.slice(1, -1);
   }
 
-  if (trimmed.startsWith('`') && trimmed.endsWith('`')) {
-    if (trimmed.includes('${')) {
+  if (trimmed.startsWith("`") && trimmed.endsWith("`")) {
+    if (trimmed.includes("${")) {
       return null;
     }
     let unescaped = trimmed.slice(1, -1);
-    unescaped = unescaped.replace(/\\`/g, '`').replace(/\\\\/g, '\\');
+    unescaped = unescaped.replace(/\\`/g, "`").replace(/\\\\/g, "\\");
     return unescaped;
   }
 
   return null;
 }
 
-export function extractSQLQueries(functionCallArgs: IFunctionCallArg[]): ISQLQuery[] {
+export function extractSQLQueries(
+  functionCallArgs: IFunctionCallArg[],
+): ISQLQuery[] {
   const queries: ISQLQuery[] = [];
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
-    const methodName = callee.includes('.') ? callee.split('.').pop() || '' : callee;
+    const callee = call.callee_function || "";
+    const methodName = callee.includes(".")
+      ? callee.split(".").pop() || ""
+      : callee;
     if (!SQL_METHODS.has(methodName)) continue;
     if (call.argument_index !== 0) continue;
 
-    const argExpr = call.argument_expr || '';
+    const argExpr = call.argument_expr || "";
     if (!argExpr) continue;
 
     const upperArg = argExpr.toUpperCase();
-    if (!['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER'].some(
-      (kw) => upperArg.includes(kw)
-    )) {
+    if (
+      !["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"].some(
+        (kw) => upperArg.includes(kw),
+      )
+    ) {
       continue;
     }
 
@@ -419,10 +508,6 @@ export function extractSQLQueries(functionCallArgs: IFunctionCallArg[]): ISQLQue
   return queries;
 }
 
-// =============================================================================
-// EXTRACT CDK CONSTRUCTS
-// =============================================================================
-
 interface ExtractCDKResult {
   cdk_constructs: ICDKConstruct[];
   cdk_construct_properties: ICDKConstructProperty[];
@@ -430,10 +515,10 @@ interface ExtractCDKResult {
 
 function extractConstructName(
   call: IFunctionCallArg,
-  allCalls: IFunctionCallArg[]
+  allCalls: IFunctionCallArg[],
 ): string | null {
   const args = allCalls.filter(
-    (c) => c.line === call.line && c.callee_function === call.callee_function
+    (c) => c.line === call.line && c.callee_function === call.callee_function,
   );
 
   const idArg = args.find((a) => a.argument_index === 1);
@@ -452,16 +537,16 @@ function extractConstructName(
 
 function splitObjectPairs(content: string): string[] {
   const pairs: string[] = [];
-  let current = '';
+  let current = "";
   let depth = 0;
   let inString = false;
   let stringChar: string | null = null;
 
   for (let i = 0; i < content.length; i++) {
     const char = content[i];
-    const prevChar = i > 0 ? content[i - 1] : '';
+    const prevChar = i > 0 ? content[i - 1] : "";
 
-    if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+    if ((char === '"' || char === "'" || char === "`") && prevChar !== "\\") {
       if (!inString) {
         inString = true;
         stringChar = char;
@@ -472,16 +557,16 @@ function splitObjectPairs(content: string): string[] {
     }
 
     if (!inString) {
-      if (char === '{' || char === '[' || char === '(') {
+      if (char === "{" || char === "[" || char === "(") {
         depth++;
-      } else if (char === '}' || char === ']' || char === ')') {
+      } else if (char === "}" || char === "]" || char === ")") {
         depth--;
       }
     }
 
-    if (char === ',' && depth === 0 && !inString) {
+    if (char === "," && depth === 0 && !inString) {
       pairs.push(current.trim());
-      current = '';
+      current = "";
     } else {
       current += char;
     }
@@ -496,15 +581,16 @@ function splitObjectPairs(content: string): string[] {
 
 function extractConstructProperties(
   call: IFunctionCallArg,
-  allCalls: IFunctionCallArg[]
+  allCalls: IFunctionCallArg[],
 ): Array<{ name: string; value_expr: string; line: number }> {
-  const properties: Array<{ name: string; value_expr: string; line: number }> = [];
+  const properties: Array<{ name: string; value_expr: string; line: number }> =
+    [];
 
   const propsArg = allCalls.find(
     (c) =>
       c.line === call.line &&
       c.callee_function === call.callee_function &&
-      c.argument_index === 2
+      c.argument_index === 2,
   );
 
   if (!propsArg || !propsArg.argument_expr) return properties;
@@ -517,7 +603,7 @@ function extractConstructProperties(
   const pairs = splitObjectPairs(objContent);
 
   for (const pair of pairs) {
-    const colonIdx = pair.indexOf(':');
+    const colonIdx = pair.indexOf(":");
     if (colonIdx === -1) continue;
 
     const key = pair.substring(0, colonIdx).trim();
@@ -538,21 +624,20 @@ function extractConstructProperties(
 export function extractCDKConstructs(
   functionCallArgs: IFunctionCallArg[],
   imports: IImport[],
-  import_specifiers: IImportSpecifier[]
+  import_specifiers: IImportSpecifier[],
 ): ExtractCDKResult {
   const cdk_constructs: ICDKConstruct[] = [];
   const cdk_construct_properties: ICDKConstructProperty[] = [];
 
   const cdkImports = imports.filter((i) => {
-    const module = i.module || '';
-    return module && module.includes('aws-cdk-lib');
+    const module = i.module || "";
+    return module && module.includes("aws-cdk-lib");
   });
 
   if (cdkImports.length === 0) {
     return { cdk_constructs: [], cdk_construct_properties: [] };
   }
 
-  // Build specifier map
   const specifiersByLine = new Map<number, IImportSpecifier[]>();
   for (const spec of import_specifiers || []) {
     if (!specifiersByLine.has(spec.import_line)) {
@@ -561,11 +646,12 @@ export function extractCDKConstructs(
     specifiersByLine.get(spec.import_line)!.push(spec);
   }
 
-  // Build CDK aliases
   const cdkAliases: Record<string, string | null> = {};
   for (const imp of cdkImports) {
-    const module = imp.module || '';
-    const serviceName = module.includes('/') ? module.split('/').pop() || null : null;
+    const module = imp.module || "";
+    const serviceName = module.includes("/")
+      ? module.split("/").pop() || null
+      : null;
 
     const specifiers = specifiersByLine.get(imp.line) || [];
     for (const spec of specifiers) {
@@ -579,15 +665,15 @@ export function extractCDKConstructs(
   const processedConstructs = new Set<string>();
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
-    if (!callee.startsWith('new ')) continue;
+    const callee = call.callee_function || "";
+    if (!callee.startsWith("new ")) continue;
 
     const constructKey = `${call.line}::${callee}`;
     if (processedConstructs.has(constructKey)) continue;
     processedConstructs.add(constructKey);
 
-    const className = callee.replace(/^new\s+/, '');
-    const parts = className.split('.');
+    const className = callee.replace(/^new\s+/, "");
+    const parts = className.split(".");
 
     let matched = false;
     if (parts.length >= 2) {
@@ -642,23 +728,19 @@ export function extractCDKConstructs(
   return { cdk_constructs, cdk_construct_properties };
 }
 
-// =============================================================================
-// EXTRACT FRONTEND API CALLS
-// =============================================================================
-
 export function extractFrontendApiCalls(
   functionCallArgs: IFunctionCallArg[],
-  imports: IImport[]
+  imports: IImport[],
 ): IFrontendAPICall[] {
   const apiCalls: IFrontendAPICall[] = [];
 
-  const hasAxios = imports.some((i) => i.module === 'axios');
+  const hasAxios = imports.some((i) => i.module === "axios");
 
   function parseUrl(call: IFunctionCallArg): string | null {
     if (call.argument_index === 0 && call.argument_expr) {
-      const url = call.argument_expr.trim().replace(/['"`]/g, '');
-      if (url.startsWith('/')) {
-        return url.split('?')[0];
+      const url = call.argument_expr.trim().replace(/['"`]/g, "");
+      if (url.startsWith("/")) {
+        return url.split("?")[0];
       }
     }
     return null;
@@ -668,7 +750,7 @@ export function extractFrontendApiCalls(
     method: string;
     body_variable: string | null;
   } {
-    const options = { method: 'GET', body_variable: null as string | null };
+    const options = { method: "GET", body_variable: null as string | null };
     if (call.argument_index === 1 && call.argument_expr) {
       const expr = call.argument_expr;
       const methodMatch = expr.match(/method:\s*['"]([^'"]+)['"]/i);
@@ -678,7 +760,7 @@ export function extractFrontendApiCalls(
       const bodyMatch = expr.match(/body:\s*([^\s,{}]+)/i);
       if (bodyMatch) {
         let bodyVar = bodyMatch[1];
-        if (bodyVar.startsWith('JSON.stringify(')) {
+        if (bodyVar.startsWith("JSON.stringify(")) {
           bodyVar = bodyVar.substring(15, bodyVar.length - 1);
         }
         options.body_variable = bodyVar;
@@ -687,7 +769,6 @@ export function extractFrontendApiCalls(
     return options;
   }
 
-  // Group calls by line
   const callsByLine: Record<
     number,
     {
@@ -698,13 +779,13 @@ export function extractFrontendApiCalls(
   > = {};
 
   for (const call of functionCallArgs) {
-    const callee = call.callee_function || '';
+    const callee = call.callee_function || "";
     if (!callee) continue;
 
     if (!callsByLine[call.line]) {
       callsByLine[call.line] = {
         callee: callee,
-        caller: call.caller_function || 'global',
+        caller: call.caller_function || "global",
         args: [],
       };
     }
@@ -723,54 +804,68 @@ export function extractFrontendApiCalls(
     let method: string | null = null;
     let body_variable: string | null = null;
 
-    if (callee === 'fetch' && args[0]) {
+    if (callee === "fetch" && args[0]) {
       url = parseUrl(args[0]);
       if (!url) continue;
       const options = parseFetchOptions(args[1] || ({} as IFunctionCallArg));
       method = options.method;
       body_variable = options.body_variable;
-    } else if ((callee === 'axios.get' || callee === 'axios') && args[0]) {
+    } else if ((callee === "axios.get" || callee === "axios") && args[0]) {
       url = parseUrl(args[0]);
       if (!url) continue;
-      method = 'GET';
-    } else if (callee === 'axios.post' && args[0] && args[1]) {
+      method = "GET";
+    } else if (callee === "axios.post" && args[0] && args[1]) {
       url = parseUrl(args[0]);
       if (!url) continue;
-      method = 'POST';
+      method = "POST";
       body_variable = args[1].argument_expr || null;
-    } else if ((callee === 'axios.put' || callee === 'axios.patch') && args[0] && args[1]) {
+    } else if (
+      (callee === "axios.put" || callee === "axios.patch") &&
+      args[0] &&
+      args[1]
+    ) {
       url = parseUrl(args[0]);
       if (!url) continue;
-      method = callee === 'axios.put' ? 'PUT' : 'PATCH';
+      method = callee === "axios.put" ? "PUT" : "PATCH";
       body_variable = args[1].argument_expr || null;
-    } else if (callee === 'axios.delete' && args[0]) {
+    } else if (callee === "axios.delete" && args[0]) {
       url = parseUrl(args[0]);
       if (!url) continue;
-      method = 'DELETE';
+      method = "DELETE";
     } else if (callee.match(/\.(get|post|put|patch|delete)$/)) {
-      const prefix = callee.substring(0, callee.lastIndexOf('.'));
+      const prefix = callee.substring(0, callee.lastIndexOf("."));
       const httpMethod = callee
-        .substring(callee.lastIndexOf('.') + 1)
+        .substring(callee.lastIndexOf(".") + 1)
         .toUpperCase();
 
       const apiWrapperPrefixes = [
-        'api', 'apiService', 'service', 'http', 'httpClient', 'client',
-        'axios', 'instance', 'this.instance', 'this.api', 'this.http', 'request',
+        "api",
+        "apiService",
+        "service",
+        "http",
+        "httpClient",
+        "client",
+        "axios",
+        "instance",
+        "this.instance",
+        "this.api",
+        "this.http",
+        "request",
       ];
 
       const isLikelyApiWrapper = apiWrapperPrefixes.some(
         (p) =>
           prefix === p ||
-          prefix.endsWith('.' + p) ||
-          prefix.includes('api') ||
-          prefix.includes('service')
+          prefix.endsWith("." + p) ||
+          prefix.includes("api") ||
+          prefix.includes("service"),
       );
 
       if (isLikelyApiWrapper && args[0]) {
         url = parseUrl(args[0]);
         if (!url) continue;
         method = httpMethod;
-        if (['POST', 'PUT', 'PATCH'].includes(method) && args[1]) {
+        if (["POST", "PUT", "PATCH"].includes(method) && args[1]) {
           body_variable = args[1].argument_expr || null;
         }
       }

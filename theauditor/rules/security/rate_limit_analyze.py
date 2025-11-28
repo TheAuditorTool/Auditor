@@ -1,16 +1,4 @@
-"""Rate Limit Analyzer - Production-Ready Database-Driven Detection.
-
-Detects 15+ rate limiting misconfigurations and bypass techniques using pure SQL queries.
-Follows gold standard patterns (v1.1+ schema contract compliance).
-
-This implementation:
-- Uses frozensets for O(1) pattern matching (immutable, hashable)
-- Direct database queries (assumes all tables exist per schema contract)
-- Uses parameterized queries (no SQL injection)
-- Implements multi-layer detection patterns
-- Provides confidence scoring based on context
-- Maps findings to security regulations (OWASP, PCI-DSS, NIST)
-"""
+"""Rate Limit Analyzer - Production-Ready Database-Driven Detection."""
 
 import sqlite3
 
@@ -262,11 +250,7 @@ FRAMEWORK_PATTERNS = frozenset(
 
 
 def find_rate_limit_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect rate limiting misconfigurations using database queries.
-
-    Implements 15+ detection patterns for rate limiting issues including
-    middleware ordering, unprotected endpoints, bypassable keys, and more.
-    """
+    """Detect rate limiting misconfigurations using database queries."""
     findings = []
 
     if not context.db_path:

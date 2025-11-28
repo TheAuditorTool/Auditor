@@ -1,12 +1,4 @@
-"""Code snippet manager for reading source code lines with LRU caching.
-
-Provides language-agnostic source code extraction for the explain command.
-Reads files from disk on-demand with caching to avoid repeated file I/O.
-
-Usage:
-    manager = CodeSnippetManager(Path.cwd())
-    snippet = manager.get_snippet("src/auth.py", 42, expand_block=True)
-"""
+"""Code snippet manager for reading source code lines with LRU caching."""
 
 from collections import OrderedDict
 from pathlib import Path
@@ -17,17 +9,7 @@ logger = setup_logger(__name__)
 
 
 class CodeSnippetManager:
-    """Read source code lines with LRU caching and safety limits.
-
-    Language agnostic - works with Python, JavaScript, TypeScript, Rust, Go, Vue, etc.
-    Block expansion uses indentation-based heuristics that work across languages.
-
-    Safety limits:
-    - Max file size: 1MB (skip larger files)
-    - Max cache size: 20 files
-    - Max snippet lines: 15
-    - Max line length: 120 chars (truncate with ...)
-    """
+    """Read source code lines with LRU caching and safety limits."""
 
     MAX_FILE_SIZE = 1_000_000
     MAX_CACHE_SIZE = 20
@@ -35,25 +17,12 @@ class CodeSnippetManager:
     MAX_LINE_LENGTH = 120
 
     def __init__(self, root_dir: Path):
-        """Initialize snippet manager.
-
-        Args:
-            root_dir: Project root directory for resolving relative paths
-        """
+        """Initialize snippet manager."""
         self.root_dir = Path(root_dir)
         self._cache: OrderedDict[str, list[str]] = OrderedDict()
 
     def get_snippet(self, file_path: str, line: int, expand_block: bool = True) -> str:
-        """Get code snippet for a line with optional block expansion.
-
-        Args:
-            file_path: Relative path from root_dir
-            line: 1-indexed line number
-            expand_block: If True, expand to include full block (max 15 lines)
-
-        Returns:
-            Formatted snippet with line numbers, or error message string
-        """
+        """Get code snippet for a line with optional block expansion."""
         lines = self._get_file_lines(file_path)
 
         if lines is None:
@@ -77,16 +46,7 @@ class CodeSnippetManager:
         return self._format_snippet(lines, start_idx, end_idx)
 
     def get_lines(self, file_path: str, start_line: int, end_line: int) -> str:
-        """Get specific range of lines without block expansion.
-
-        Args:
-            file_path: Relative path from root_dir
-            start_line: 1-indexed start line
-            end_line: 1-indexed end line (inclusive)
-
-        Returns:
-            Formatted snippet with line numbers
-        """
+        """Get specific range of lines without block expansion."""
         lines = self._get_file_lines(file_path)
 
         if lines is None:
@@ -107,14 +67,7 @@ class CodeSnippetManager:
         return self._format_snippet(lines, start_idx, end_idx)
 
     def _get_file_lines(self, file_path: str) -> list[str] | None:
-        """Load file into cache, return lines or None on error.
-
-        Args:
-            file_path: Relative path from root_dir
-
-        Returns:
-            List of lines (with newlines stripped) or None on error
-        """
+        """Load file into cache, return lines or None on error."""
 
         cache_key = str(file_path).replace("\\", "/")
 
@@ -159,20 +112,7 @@ class CodeSnippetManager:
         return lines
 
     def _expand_block(self, lines: list[str], start_idx: int) -> int:
-        """Expand from start_idx to include indented block, max 15 lines.
-
-        Uses indentation-based heuristics that work across languages:
-        - Python: indentation after ':'
-        - JS/TS/Rust/Go: indentation after '{'
-        - Stops at closing braces or dedent
-
-        Args:
-            lines: List of file lines
-            start_idx: Starting line index (0-indexed)
-
-        Returns:
-            End index (0-indexed, inclusive)
-        """
+        """Expand from start_idx to include indented block, max 15 lines."""
         if start_idx >= len(lines):
             return start_idx
 
@@ -213,16 +153,7 @@ class CodeSnippetManager:
         return end_idx
 
     def _format_snippet(self, lines: list[str], start_idx: int, end_idx: int) -> str:
-        """Format lines with line numbers.
-
-        Args:
-            lines: List of file lines
-            start_idx: Start index (0-indexed)
-            end_idx: End index (0-indexed, inclusive)
-
-        Returns:
-            Formatted string with line numbers
-        """
+        """Format lines with line numbers."""
         result = []
 
         max_line_num = end_idx + 1
@@ -244,11 +175,7 @@ class CodeSnippetManager:
         self._cache.clear()
 
     def cache_stats(self) -> dict:
-        """Return cache statistics.
-
-        Returns:
-            Dict with cache info
-        """
+        """Return cache statistics."""
         return {
             "cached_files": len(self._cache),
             "max_size": self.MAX_CACHE_SIZE,

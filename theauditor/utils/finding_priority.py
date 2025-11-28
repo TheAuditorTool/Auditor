@@ -1,10 +1,4 @@
-"""Centralized finding prioritization for internal organization.
-
-This module provides consistent sorting of findings to ensure
-critical security issues appear before style warnings in reports.
-This is NOT severity mapping for tools, but internal organization
-for optimal AI context utilization.
-"""
+"""Centralized finding prioritization for internal organization."""
 
 PRIORITY_ORDER = {
     "critical": 0,
@@ -74,17 +68,7 @@ SEVERITY_MAPPINGS = {
 
 
 def normalize_severity(severity_value):
-    """Normalize severity from various formats to standard string.
-
-    Handles integers (Docker), floats (ML confidence), strings (ESLint),
-    and missing values (test failures).
-
-    Args:
-        severity_value: Can be int, float, string, or None
-
-    Returns:
-        Normalized severity string from PRIORITY_ORDER keys
-    """
+    """Normalize severity from various formats to standard string."""
     if severity_value is None:
         return "warning"
 
@@ -110,16 +94,7 @@ def normalize_severity(severity_value):
 
 
 def get_sort_key(finding):
-    """Generate sort key for a finding.
-
-    Multi-level sort: severity -> tool -> file -> line
-
-    Args:
-        finding: Dictionary with severity, tool, file, line fields
-
-    Returns:
-        Tuple for sorting (lower values = higher priority)
-    """
+    """Generate sort key for a finding."""
 
     normalized_severity = normalize_severity(finding.get("severity"))
 
@@ -134,18 +109,7 @@ def get_sort_key(finding):
 
 
 def sort_findings(findings):
-    """Sort findings by priority for optimal report organization.
-
-    Critical security issues will appear first, style issues last.
-    This ensures AI sees the most important issues within its
-    limited context window.
-
-    Args:
-        findings: List of finding dictionaries
-
-    Returns:
-        New sorted list (original unchanged)
-    """
+    """Sort findings by priority for optimal report organization."""
     if not findings:
         return findings
 

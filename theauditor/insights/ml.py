@@ -117,14 +117,7 @@ _SCHEMA_VALIDATED = False
 
 
 def validate_ml_schema():
-    """
-    Validate ML queries against schema contract.
-
-    This function ensures all database queries use valid column names
-    from the schema contract, preventing runtime errors if schema changes.
-
-    Called once at module initialization.
-    """
+    """Validate ML queries against schema contract."""
     global _SCHEMA_VALIDATED
     if _SCHEMA_VALIDATED:
         return
@@ -243,14 +236,7 @@ def extract_text_features(
 def load_journal_stats(
     history_dir: Path, window: int = 50, run_type: str = "full"
 ) -> dict[str, dict]:
-    """
-    Load and aggregate stats from all historical journal files.
-
-    Args:
-        history_dir: Base history directory
-        window: Number of recent entries to analyze per file
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load and aggregate stats from all historical journal files."""
     if not history_dir.exists():
         return {}
 
@@ -310,13 +296,7 @@ def load_journal_stats(
 
 
 def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load RCA failure stats from all historical RCA files.
-
-    Args:
-        history_dir: Base history directory
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load RCA failure stats from all historical RCA files."""
     if not history_dir.exists():
         return {}
 
@@ -358,13 +338,7 @@ def load_rca_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
 
 
 def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load AST proof stats from all historical AST files.
-
-    Args:
-        history_dir: Base history directory
-        run_type: Type of runs to load ("full", "diff", or "all")
-    """
+    """Load AST proof stats from all historical AST files."""
     if not history_dir.exists():
         return {}
 
@@ -406,11 +380,7 @@ def load_ast_stats(history_dir: Path, run_type: str = "full") -> dict[str, dict]
 
 
 def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract security pattern features from jwt_patterns and sql_queries tables.
-
-    Returns dict with keys: jwt_usage_count, sql_query_count, has_hardcoded_secret, has_weak_crypto
-    """
+    """Extract security pattern features from jwt_patterns and sql_queries tables."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -489,11 +459,7 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
 
 
 def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract taint flow features from findings_consolidated table.
-
-    Returns dict with keys: critical_findings, high_findings, medium_findings, unique_cwe_count
-    """
+    """Extract taint flow features from findings_consolidated table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -552,12 +518,7 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
 
 
 def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract TypeScript type annotation coverage from type_annotations table.
-
-    Returns dict with keys: type_annotation_count, any_type_count, unknown_type_count,
-                           generic_type_count, type_coverage_ratio
-    """
+    """Extract TypeScript type annotation coverage from type_annotations table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -607,11 +568,7 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
 
 
 def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract control flow complexity from cfg_blocks and cfg_edges tables.
-
-    Returns dict with keys: cfg_block_count, cfg_edge_count, cyclomatic_complexity
-    """
+    """Extract control flow complexity from cfg_blocks and cfg_edges tables."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -665,11 +622,7 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
 
 
 def load_historical_findings(history_dir: Path, run_type: str = "full") -> dict[str, dict]:
-    """
-    Load historical findings from findings_consolidated table in past runs.
-
-    Returns dict with keys: total_findings, critical_count, high_count, recurring_cwes
-    """
+    """Load historical findings from findings_consolidated table in past runs."""
     if not history_dir.exists():
         return {}
 
@@ -849,11 +802,7 @@ def load_git_churn(file_paths: list[str], window_days: int = 30) -> dict[str, in
 
 
 def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract semantic import features to understand file purpose.
-
-    Returns dict with keys: has_http_import, has_db_import, has_auth_import, has_test_import
-    """
+    """Extract semantic import features to understand file purpose."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -910,12 +859,7 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
 
 
 def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str, dict]:
-    """
-    Extract AST-based complexity metrics from the symbols table.
-
-    Returns dict with keys: function_count, class_count, call_count,
-                           try_except_count, async_def_count
-    """
+    """Extract AST-based complexity metrics from the symbols table."""
     if not Path(db_path).exists() or not file_paths:
         return {}
 
@@ -1235,10 +1179,7 @@ def train_models(
     seed: int = 13,
     sample_weight: np.ndarray = None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
-    """
-    Train the three models with optional sample weighting for human feedback
-    and probability calibration.
-    """
+    """Train the three models with optional sample weighting for human feedback"""
     if not ML_AVAILABLE:
         return None, None, None, None, None, None
 

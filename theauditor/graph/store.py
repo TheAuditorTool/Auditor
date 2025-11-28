@@ -12,12 +12,7 @@ class XGraphStore:
     """Store and query cross-project graphs in SQLite."""
 
     def __init__(self, db_path: str = "./.pf/graphs.db"):
-        """
-        Initialize store with database path.
-
-        Args:
-            db_path: Path to SQLite database
-        """
+        """Initialize store with database path."""
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
@@ -42,18 +37,7 @@ class XGraphStore:
         default_node_type: str = "node",
         default_edge_type: str = "edge",
     ) -> None:
-        """
-        Generic bulk saver using executemany for 10x performance.
-
-        Consolidates all save_*_graph methods into a single implementation.
-        Uses SQLite's executemany() to batch insert operations into one transaction.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges' keys
-            graph_type: Graph type identifier ('import', 'call', 'data_flow', custom)
-            default_node_type: Default type for nodes if not specified
-            default_edge_type: Default type for edges if not specified
-        """
+        """Generic bulk saver using executemany for 10x performance."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
             conn.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
@@ -116,68 +100,29 @@ class XGraphStore:
             conn.commit()
 
     def save_import_graph(self, graph: dict[str, Any]) -> None:
-        """
-        Save import graph to database.
-
-        Args:
-            graph: Import graph with nodes and edges
-        """
+        """Save import graph to database."""
         self._save_graph_bulk(
             graph, "import", default_node_type="module", default_edge_type="import"
         )
 
     def save_call_graph(self, graph: dict[str, Any]) -> None:
-        """
-        Save call graph to database.
-
-        Args:
-            graph: Call graph with nodes and edges
-        """
+        """Save call graph to database."""
         self._save_graph_bulk(graph, "call", default_node_type="function", default_edge_type="call")
 
     def save_data_flow_graph(self, graph: dict[str, Any]) -> None:
-        """
-        Save data flow graph to database.
-
-        Args:
-            graph: Data flow graph with nodes (variables, return values) and edges (assignments, returns)
-        """
+        """Save data flow graph to database."""
         self._save_graph_bulk(
             graph, "data_flow", default_node_type="variable", default_edge_type="assignment"
         )
 
     def save_custom_graph(self, graph: dict[str, Any], graph_type: str) -> None:
-        """Save custom graph type to database.
-
-        Generic method for saving any graph type beyond import/call/data_flow.
-        Enables extensibility for new graph types (e.g., terraform_provisioning).
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges' keys
-            graph_type: Custom type identifier (e.g., 'terraform_provisioning')
-
-        Example:
-            >>> store = XGraphStore()
-            >>> terraform_graph = {
-            ...     'nodes': [{'id': 'vpc', 'file': 'main.tf', ...}],
-            ...     'edges': [{'source': 'var.region', 'target': 'vpc', ...}]
-            ... }
-            >>> store.save_custom_graph(terraform_graph, 'terraform_provisioning')
-        """
+        """Save custom graph type to database."""
         self._save_graph_bulk(
             graph, graph_type, default_node_type="resource", default_edge_type="edge"
         )
 
     def _load_graph(self, graph_type: str) -> dict[str, Any]:
-        """
-        Generic graph loader for any graph type.
-
-        Args:
-            graph_type: Graph type identifier to load
-
-        Returns:
-            Graph dict with 'nodes' and 'edges' keys
-        """
+        """Generic graph loader for any graph type."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
@@ -211,37 +156,17 @@ class XGraphStore:
             return {"nodes": nodes, "edges": edges}
 
     def load_import_graph(self) -> dict[str, Any]:
-        """
-        Load import graph from database.
-
-        Returns:
-            Import graph dict
-        """
+        """Load import graph from database."""
         return self._load_graph("import")
 
     def load_call_graph(self) -> dict[str, Any]:
-        """
-        Load call graph from database.
-
-        Returns:
-            Call graph dict
-        """
+        """Load call graph from database."""
         return self._load_graph("call")
 
     def query_dependencies(
         self, node_id: str, direction: str = "both", graph_type: str = "import"
     ) -> dict[str, list[str]]:
-        """
-        Query dependencies of a node.
-
-        Args:
-            node_id: Node to query
-            direction: 'upstream', 'downstream', or 'both'
-            graph_type: 'import' or 'call'
-
-        Returns:
-            Dict with upstream and/or downstream dependencies
-        """
+        """Query dependencies of a node."""
         result = {}
 
         with sqlite3.connect(self.db_path) as conn:
@@ -266,16 +191,7 @@ class XGraphStore:
         return result
 
     def query_calls(self, node_id: str, direction: str = "both") -> dict[str, list[str]]:
-        """
-        Query function calls related to a node.
-
-        Args:
-            node_id: Node to query
-            direction: 'callers', 'callees', or 'both'
-
-        Returns:
-            Dict with callers and/or callees
-        """
+        """Query function calls related to a node."""
         result = {}
 
         with sqlite3.connect(self.db_path) as conn:
@@ -300,13 +216,7 @@ class XGraphStore:
         return result
 
     def save_analysis_result(self, analysis_type: str, result: dict[str, Any]) -> None:
-        """
-        Save analysis result to database.
-
-        Args:
-            analysis_type: Type of analysis (e.g., 'cycles', 'hotspots')
-            result: Analysis result dict
-        """
+        """Save analysis result to database."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -318,15 +228,7 @@ class XGraphStore:
             conn.commit()
 
     def get_latest_analysis(self, analysis_type: str) -> dict[str, Any] | None:
-        """
-        Get most recent analysis result of given type.
-
-        Args:
-            analysis_type: Type of analysis
-
-        Returns:
-            Analysis result dict or None if not found
-        """
+        """Get most recent analysis result of given type."""
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 """
@@ -343,12 +245,7 @@ class XGraphStore:
             return None
 
     def get_graph_stats(self) -> dict[str, Any]:
-        """
-        Get summary statistics about stored graphs.
-
-        Returns:
-            Dict with node and edge counts
-        """
+        """Get summary statistics about stored graphs."""
         with sqlite3.connect(self.db_path) as conn:
             stats = {
                 "import_nodes": conn.execute(
@@ -368,16 +265,7 @@ class XGraphStore:
             return stats
 
     def get_high_risk_nodes(self, threshold: float = 0.5, limit: int = 10) -> list[dict[str, Any]]:
-        """
-        Get nodes with high risk based on connectivity and churn.
-
-        Args:
-            threshold: Risk threshold (0-1)
-            limit: Maximum number of nodes to return
-
-        Returns:
-            List of high-risk nodes
-        """
+        """Get nodes with high risk based on connectivity and churn."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 

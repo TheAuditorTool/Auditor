@@ -1,8 +1,4 @@
-"""SQL-based WebSocket security analyzer.
-
-This module detects WebSocket security issues by querying the indexed database
-instead of traversing AST structures.
-"""
+"""SQL-based WebSocket security analyzer."""
 
 import sqlite3
 
@@ -142,21 +138,7 @@ SENSITIVE_PATTERNS = frozenset(
 
 
 def find_websocket_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """
-    Detect WebSocket security issues using SQL queries.
-
-    This function queries the indexed database to find:
-    - WebSocket connections without authentication
-    - Unvalidated message handling
-    - Missing rate limiting on WebSocket messages
-    - Broadcasting sensitive data to all clients
-
-    Args:
-        context: StandardRuleContext with database path
-
-    Returns:
-        List of StandardFinding objects
-    """
+    """Detect WebSocket security issues using SQL queries."""
     findings = []
 
     if not context.db_path:

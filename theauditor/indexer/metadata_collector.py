@@ -1,9 +1,4 @@
-"""Metadata collector for code churn and test coverage.
-
-This module collects temporal (git history) and quality (test coverage) metadata
-to provide additional factual dimensions for the FCE correlation engine.
-Maintains Truth Courier principles - reports only facts, no interpretation.
-"""
+"""Metadata collector for code churn and test coverage."""
 
 import json
 import subprocess
@@ -16,28 +11,11 @@ class MetadataCollector:
     """Collects temporal (churn) and quality (coverage) metadata as pure facts."""
 
     def __init__(self, root_path: str = "."):
-        """Initialize metadata collector.
-
-        Args:
-            root_path: Root directory of the project to analyze
-        """
+        """Initialize metadata collector."""
         self.root_path = Path(root_path).resolve()
 
     def collect_churn(self, days: int = 90, output_path: str | None = None) -> dict[str, Any]:
-        """Collect git churn metrics for all files.
-
-        Returns pure facts:
-        - commits_90d: Number of commits in last N days (mathematical count)
-        - days_since_modified: Days since last modification (mathematical difference)
-        - unique_authors: Number of distinct authors (mathematical count)
-
-        Args:
-            days: Number of days to analyze (default 90)
-            output_path: Optional path to save JSON output
-
-        Returns:
-            Dictionary with churn metrics per file
-        """
+        """Collect git churn metrics for all files."""
         cmd = [
             "git",
             "log",
@@ -157,19 +135,7 @@ class MetadataCollector:
     def collect_coverage(
         self, coverage_file: str | None = None, output_path: str | None = None
     ) -> dict[str, Any]:
-        """Parse Python or Node.js coverage reports into pure facts.
-
-        Detects format automatically:
-        - Python: coverage.json from coverage.py with 'files' key
-        - Node.js: coverage-final.json from Istanbul/nyc
-
-        Args:
-            coverage_file: Path to coverage file (auto-detects if not provided)
-            output_path: Optional path to save JSON output
-
-        Returns:
-            Dictionary with coverage facts per file
-        """
+        """Parse Python or Node.js coverage reports into pure facts."""
 
         if not coverage_file:
             candidates = [

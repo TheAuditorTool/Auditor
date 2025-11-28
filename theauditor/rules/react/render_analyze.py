@@ -1,10 +1,4 @@
-"""React Render Analyzer - Database-Driven Implementation.
-
-Detects React rendering performance issues and anti-patterns using data from
-react_components, function_call_args, and symbols tables.
-
-Focuses on render optimization and performance bottlenecks.
-"""
+"""React Render Analyzer - Database-Driven Implementation."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -97,21 +91,13 @@ class ReactRenderAnalyzer:
     """Analyzer for React rendering performance and optimization."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ReactRenderPatterns()
         self.findings = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of React rendering issues found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -503,16 +489,6 @@ class ReactRenderAnalyzer:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React rendering performance issues and anti-patterns.
-
-    Uses data from function_call_args and react tables to identify
-    rendering bottlenecks and optimization opportunities.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of React rendering issues found
-    """
+    """Detect React rendering performance issues and anti-patterns."""
     analyzer = ReactRenderAnalyzer(context)
     return analyzer.analyze()

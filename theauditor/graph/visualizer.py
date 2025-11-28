@@ -1,15 +1,4 @@
-"""Graph visualizer module - rich Graphviz visualization with visual intelligence.
-
-This module transforms raw graph data and analysis results into actionable
-visualizations using Graphviz DOT format with intelligent visual encoding.
-
-Visual encoding strategy:
-- Node color: Programming language
-- Node size: Importance/connectivity (in-degree)
-- Edge color: Red for cycles, gray for normal
-- Edge style: Import type (solid/dashed/dotted)
-- Node shape: Type (box=module, ellipse=function)
-"""
+"""Graph visualizer module - rich Graphviz visualization with visual intelligence."""
 
 from pathlib import Path
 from typing import Any
@@ -52,17 +41,7 @@ class GraphVisualizer:
         analysis: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> str:
-        """
-        Generate DOT format with visual intelligence encoding.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges'
-            analysis: Optional analysis results with cycles, hotspots, etc.
-            options: Optional visualization options
-
-        Returns:
-            DOT format string ready for Graphviz
-        """
+        """Generate DOT format with visual intelligence encoding."""
         options = options or {}
         analysis = analysis or {}
 
@@ -316,18 +295,7 @@ class GraphVisualizer:
         analysis: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> str:
-        """
-        Generate DOT format with architectural layers as subgraphs.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges'
-            layers: Dict mapping layer number to list of node IDs
-            analysis: Optional analysis results
-            options: Optional visualization options
-
-        Returns:
-            DOT format string with layer subgraphs
-        """
+        """Generate DOT format with architectural layers as subgraphs."""
         options = options or {}
         analysis = analysis or {}
 
@@ -433,17 +401,7 @@ class GraphVisualizer:
         impact: dict[str, Any],
         options: dict[str, Any] | None = None,
     ) -> str:
-        """
-        Generate DOT highlighting impact analysis results.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges'
-            impact: Impact analysis with targets, upstream, downstream
-            options: Optional visualization options
-
-        Returns:
-            DOT format string with impact highlighting
-        """
+        """Generate DOT highlighting impact analysis results."""
         options = options or {}
 
         targets = set(impact.get("targets", []))
@@ -591,17 +549,7 @@ class GraphVisualizer:
         cycles: list[dict[str, Any]],
         options: dict[str, Any] | None = None,
     ) -> str:
-        """
-        Generate DOT format showing only nodes and edges involved in cycles.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges'
-            cycles: List of cycle dicts with 'nodes' lists
-            options: Optional visualization options
-
-        Returns:
-            DOT format string with only cycle-related elements
-        """
+        """Generate DOT format showing only nodes and edges involved in cycles."""
         options = options or {}
 
         cycle_nodes = set()
@@ -694,18 +642,7 @@ class GraphVisualizer:
         options: dict[str, Any] | None = None,
         top_n: int = 10,
     ) -> str:
-        """
-        Generate DOT format showing only hotspot nodes and their connections.
-
-        Args:
-            graph: Graph dict with 'nodes' and 'edges'
-            hotspots: List of hotspot dicts with 'id' and metrics
-            options: Optional visualization options
-            top_n: Number of top hotspots to show (default: 10)
-
-        Returns:
-            DOT format string with only hotspot-related elements
-        """
+        """Generate DOT format showing only hotspot nodes and their connections."""
         options = options or {}
 
         top_hotspots = hotspots[:top_n]

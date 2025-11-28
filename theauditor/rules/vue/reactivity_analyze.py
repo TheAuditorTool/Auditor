@@ -1,15 +1,4 @@
-"""Vue.js reactivity and props mutation analyzer - Database-First Implementation.
-
-This module detects Vue-specific anti-patterns using database queries:
-1. Direct props mutation (violates one-way data flow)
-2. Non-reactive data initialization (shared state bug)
-
-Database-First Architecture (v1.1+):
-- vue_components table stores props_definition (from indexer)
-- assignments table tracks all variable assignments
-- Join tables to detect props mutations
-- NO manual AST traversal (indexer already extracted this data)
-"""
+"""Vue.js reactivity and props mutation analyzer - Database-First Implementation."""
 
 import json
 import sqlite3
@@ -42,20 +31,7 @@ NON_REACTIVE_INITIALIZERS = frozenset(
 
 
 def find_vue_reactivity_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """
-    Detect Vue.js reactivity and props mutation issues using database queries.
-
-    Database-First Approach:
-    - Query vue_components table for props definitions (indexer extracted this)
-    - Join with assignments table to find props mutations
-    - NO manual AST traversal (violates gold standard)
-
-    Args:
-        context: StandardRuleContext with database path
-
-    Returns:
-        List of Vue reactivity findings
-    """
+    """Detect Vue.js reactivity and props mutation issues using database queries."""
     findings = []
 
     if not context.db_path:
@@ -75,17 +51,7 @@ def find_vue_reactivity_issues(context: StandardRuleContext) -> list[StandardFin
 
 
 def _find_props_mutations(cursor) -> list[StandardFinding]:
-    """Find direct props mutations using database queries.
-
-    Schema contract guarantees:
-    - vue_components table exists with props_definition column
-    - assignments table exists with file, line, target_var columns
-
-    Strategy:
-    1. Query vue_components for files with props
-    2. Parse props_definition JSON to get prop names
-    3. Join with assignments to find mutations
-    """
+    """Find direct props mutations using database queries."""
     findings = []
 
     cursor.execute("""
@@ -161,16 +127,7 @@ def _find_props_mutations(cursor) -> list[StandardFinding]:
 
 
 def _find_non_reactive_data(cursor) -> list[StandardFinding]:
-    """Find non-reactive data initialization in Options API.
-
-    Strategy:
-    1. Query vue_components for Options API components (composition_api_used = 0)
-    2. Look for data() methods in symbols table
-    3. Check assignments within data() for object/array literals
-
-    Note: This detection is limited without full AST context.
-    We can detect obvious cases via assignments table.
-    """
+    """Find non-reactive data initialization in Options API."""
     findings = []
 
     cursor.execute("""
@@ -236,9 +193,5 @@ def _find_non_reactive_data(cursor) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_vue_reactivity_issues(context)

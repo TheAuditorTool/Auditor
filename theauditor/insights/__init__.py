@@ -1,18 +1,4 @@
-"""TheAuditor insights package - optional interpretive intelligence.
-
-This package contains all optional scoring, classification, and
-recommendation modules that add interpretation on top of facts.
-
-The insights package follows the Truth Courier principle - all modules
-here are OPTIONAL and add subjective analysis on top of objective facts.
-The core audit pipeline works without any of these modules.
-
-Modules:
-  - ml: Machine learning predictions and risk scoring
-  - graph: Architecture health metrics and recommendations
-  - semantic_context: User-defined business logic and semantic understanding
-  - impact_analyzer: Change blast radius and coupling analysis
-"""
+"""TheAuditor insights package - optional interpretive intelligence."""
 
 from theauditor.insights.graph import (
     GraphInsights,

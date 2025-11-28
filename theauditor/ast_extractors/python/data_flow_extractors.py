@@ -1,45 +1,4 @@
-"""Data flow extractors - I/O operations, parameter flows, closures, nonlocal.
-
-This module contains extraction logic for data flow patterns:
-- I/O operations (file, database, network, process, environment)
-- Parameter to return flow tracking
-- Closure variable captures
-- Nonlocal variable access
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'io_type', 'operation', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Causal Learning Purpose:
-========================
-These extractors enable hypothesis generation for DIEC tool:
-- "Function X writes to filesystem" → Test by mocking filesystem, verify write
-- "Function X returns transformed parameter Y" → Test with known input, verify output
-- "Function depends on outer variable Z" → Test closure behavior
-- "Nested function modifies outer variable" → Test nonlocal mutation
-
-Each extraction enables >3 hypothesis types per python_coverage.md requirements.
-Target >70% validation rate when hypotheses are tested experimentally.
-
-Week 2 Implementation (Priority 3 - Data Flow):
-=================================================
-Data flow is critical for taint analysis and security hypothesis generation.
-Understanding how data moves through code enables detection of injection vulnerabilities.
-
-Expected extraction from TheAuditor codebase:
-- ~2,000 I/O operations (file, db, network, process, env)
-- ~1,500 parameter return flows
-- ~300 closure captures
-- ~50 nonlocal accesses
-Total: ~3,850 data flow records
-"""
+"""Data flow extractors - I/O operations, parameter flows, closures, nonlocal."""
 
 import ast
 import logging
@@ -98,10 +57,7 @@ PROCESS_OPS = {
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -112,33 +68,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
-    """Extract all I/O operations that interact with external systems.
-
-    Detects:
-    - File operations: open(file, 'w'), Path.write_text(), file.read()
-    - Database operations: db.session.commit(), cursor.execute(), connection.commit()
-    - Network calls: requests.post(), urllib.request.urlopen(), httpx.get()
-    - Process spawning: subprocess.run(), os.system(), os.popen()
-    - Environment modifications: os.environ['KEY'] = value
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of I/O operation dicts:
-        {
-            'line': int,
-            'io_type': str,  # 'FILE_WRITE' | 'FILE_READ' | 'DB_COMMIT' | 'DB_QUERY' | 'NETWORK' | 'PROCESS' | 'ENV_MODIFY'
-            'operation': str,  # 'open' | 'requests.post' | 'subprocess.run' | etc.
-            'target': str | None,  # Filename, URL, command, etc. (if static)
-            'is_static': bool,  # True if target is statically known
-            'in_function': str,
-        }
-
-    Enables hypothesis: "Function X writes to filesystem"
-    Experiment design: Mock filesystem, call X, verify write occurred
-    """
+    """Extract all I/O operations that interact with external systems."""
     io_operations = []
 
     if not isinstance(context.tree, ast.AST):
@@ -308,32 +238,7 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
-    """Track how function parameters influence return values.
-
-    Detects:
-    - Direct returns: return param
-    - Transformed returns: return param * 2
-    - Conditional returns: return a if condition else b
-    - No data flow: return constant (no parameter reference)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of parameter flow dicts:
-        {
-            'line': int,
-            'function_name': str,
-            'parameter_name': str,  # Parameter referenced in return
-            'return_expr': str,  # Full return expression
-            'flow_type': str,  # 'direct' | 'transformed' | 'conditional' | 'none'
-            'is_async': bool,
-        }
-
-    Enables hypothesis: "Function X returns transformed parameter Y"
-    Experiment design: Call X with param=5, assert return value = 10 (if transform is *2)
-    """
+    """Track how function parameters influence return values."""
     param_flows = []
 
     if not isinstance(context.tree, ast.AST):
@@ -427,30 +332,7 @@ def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
-    """Identify variables captured from outer scope (closures).
-
-    Detects:
-    - Nested functions accessing outer variables
-    - Lambda functions capturing variables
-    - Variables from enclosing function scope
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of closure capture dicts:
-        {
-            'line': int,
-            'inner_function': str,  # Nested function name
-            'captured_variable': str,  # Variable from outer scope
-            'outer_function': str,  # Enclosing function name
-            'is_lambda': bool,  # True if inner function is lambda
-        }
-
-    Enables hypothesis: "Function X depends on outer variable Y"
-    Experiment design: Call X with different outer variable values, verify behavior changes
-    """
+    """Identify variables captured from outer scope (closures)."""
     closures = []
 
     if not isinstance(context.tree, ast.AST):
@@ -571,28 +453,7 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
-    """Extract nonlocal variable modifications.
-
-    Detects:
-    - nonlocal x; x = value (write)
-    - nonlocal x; ... usage of x (read)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of nonlocal access dicts:
-        {
-            'line': int,
-            'variable_name': str,  # Nonlocal variable name
-            'access_type': str,  # 'read' | 'write'
-            'in_function': str,  # Function containing nonlocal declaration
-        }
-
-    Enables hypothesis: "Nested function X modifies outer variable Y"
-    Experiment design: Call X, verify outer Y value changed
-    """
+    """Extract nonlocal variable modifications."""
     nonlocal_accesses = []
 
     if not isinstance(context.tree, ast.AST):
@@ -661,21 +522,7 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
-    """Extract function calls made under conditional execution (Week 2 Data Flow).
-
-    Tracks when functions are called under specific conditions - critical for
-    understanding conditional behavior dependencies in causal learning.
-
-    Detects:
-    - Functions called only within if/elif/else blocks
-    - Guard clauses (early returns based on validation)
-    - Exception-dependent code paths
-    - Nested conditional execution
-
-    Expected extraction from TheAuditor: ~400 conditional calls
-
-    Example hypothesis: "delete_all_users() is only called when user.is_admin is True"
-    """
+    """Extract function calls made under conditional execution (Week 2 Data Flow)."""
     if not context.tree:
         return []
 

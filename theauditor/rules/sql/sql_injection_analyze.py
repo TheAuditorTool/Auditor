@@ -1,13 +1,4 @@
-"""SQL Injection Detection.
-
-Detects SQL injection vulnerabilities from raw patterns captured
-during indexing.
-
-Schema-driven enforcement (v1.3+):
-- SQL queries table populated during indexing
-- No fallback regex patterns
-- No runtime file scanning
-"""
+"""SQL Injection Detection."""
 
 import re
 import sqlite3
@@ -18,10 +9,7 @@ from theauditor.rules.base import Severity, StandardFinding, StandardRuleContext
 
 
 def _regexp_adapter(expr: str, item: str) -> bool:
-    """Adapter to let SQLite use Python's regex engine.
-
-    Usage in SQL: WHERE column REGEXP 'pattern'
-    """
+    """Adapter to let SQLite use Python's regex engine."""
     if item is None:
         return False
     return re.search(expr, item, re.IGNORECASE) is not None
@@ -55,20 +43,7 @@ class SQLInjectionPatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Analyze codebase for SQL injection vulnerabilities.
-
-    Detects:
-    - Dynamic SQL query construction with string concatenation
-    - Template literal SQL queries with interpolation
-    - Raw SQL execution without parameterization
-    - User input directly in SQL queries
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of SQL injection findings
-    """
+    """Analyze codebase for SQL injection vulnerabilities."""
     findings = []
     patterns = SQLInjectionPatterns()
 
@@ -273,19 +248,7 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def check_dynamic_query_construction(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for dynamic SQL query construction patterns.
-
-    Specifically looks for:
-    - String concatenation to build SQL
-    - Format strings with SQL keywords
-    - Template literals with SQL content
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of findings for dynamic query construction
-    """
+    """Check for dynamic SQL query construction patterns."""
     findings = []
     patterns = SQLInjectionPatterns()
 
@@ -334,11 +297,7 @@ def check_dynamic_query_construction(context: StandardRuleContext) -> list[Stand
 
 
 def populate_taint(taint_registry):
-    """Register SQL injection sinks and sources for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance to populate
-    """
+    """Register SQL injection sinks and sources for taint analysis."""
 
     sql_sinks = [
         "execute",

@@ -1,23 +1,4 @@
-"""Detect severely outdated dependencies using existing version check data.
-
-This rule detects dependencies that are 2+ major versions behind latest by reading
-the deps_latest.json file created by 'aud deps --check-latest'.
-
-ARCHITECTURE NOTE: This is a HYBRID APPROACH (database + file I/O) by design:
-- Database-first: Validates packages against package_configs table
-- File I/O: Reads pre-computed version comparison data from .pf/raw/deps_latest.json
-- Rationale: Version checking requires network calls (npm/PyPI API), which are slow
-  and should only run on-demand via 'aud deps --check-latest', not every pattern scan
-
-Workflow Integration:
-1. User runs: aud deps --check-latest (creates .pf/raw/deps_latest.json)
-2. User runs: aud detect-patterns (this rule reads the JSON file)
-3. Rule reports packages that are severely outdated (2+ major versions behind)
-
-Database Tables Used:
-- package_configs: Current dependency versions (for validation)
-- Reads: .pf/raw/deps_latest.json (if it exists)
-"""
+"""Detect severely outdated dependencies using existing version check data."""
 
 import json
 import sqlite3
@@ -36,17 +17,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect severely outdated dependencies from deps_latest.json.
-
-    Reads version comparison data from .pf/raw/deps_latest.json (created by
-    'aud deps --check-latest') and reports packages that are 2+ major versions behind.
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of findings for severely outdated dependencies
-    """
+    """Detect severely outdated dependencies from deps_latest.json."""
     findings = []
 
     deps_latest_path = Path(".pf/raw/deps_latest.json")

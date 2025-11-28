@@ -1,87 +1,5 @@
 # ruff: noqa: N999 - UPPERCASE name is intentional for template visibility
-"""RULE TEMPLATE: JSX-Specific Rule (Requires Preserved JSX Pass).
-
-================================================================================
-RULE TEMPLATE DOCUMENTATION
-================================================================================
-
-⚠️ CRITICAL: FUNCTION NAMING REQUIREMENT
---------------------------------------------------------------------------------
-Your rule function MUST start with 'find_' prefix:
-  ✅ def find_jsx_injection(context: StandardRuleContext)
-  ✅ def find_react_xss(context: StandardRuleContext)
-  ❌ def analyze(context: StandardRuleContext)  # WRONG - Won't be discovered!
-  ❌ def detect_xss(context: StandardRuleContext)  # WRONG - Must start with find_
-
-The orchestrator ONLY discovers functions starting with 'find_'. Any other
-name will be silently ignored and your rule will never run.
---------------------------------------------------------------------------------
-
-⚠️ CRITICAL: StandardFinding PARAMETER NAMES
---------------------------------------------------------------------------------
-ALWAYS use these EXACT parameter names when creating findings:
-  ✅ file_path=     (NOT file=)
-  ✅ rule_name=     (NOT rule=)
-  ✅ cwe_id=        (NOT cwe=)
-  ✅ severity=Severity.CRITICAL (NOT severity='CRITICAL')
-
-Using wrong names will cause RUNTIME CRASHES. See examples at line 297+.
---------------------------------------------------------------------------------
-
-This template is for JSX-SPECIFIC RULES that analyze React/Vue components and
-require access to PRESERVED JSX syntax. These rules:
-
-✅ Run on: .jsx, .tsx, .vue files ONLY
-✅ Query: JSX-specific tables (symbols_jsx, function_call_args_jsx, etc.)
-✅ Use: Preserved JSX data (before transformation to React.createElement)
-❌ Skip: Backend .py, .js files (filtered by orchestrator)
-
-WHEN TO USE THIS TEMPLATE:
-- JSX element injection patterns (<{UserInput} />)
-- JSX attribute injection ({...userProps})
-- Component name security (dynamic component rendering)
-- JSX-specific XSS patterns (lost in transformation)
-- React/Vue component security patterns
-
-WHEN NOT TO USE THIS TEMPLATE:
-- React hooks analysis (useState/useEffect) → Use TEMPLATE_STANDARD_RULE.py
-  (Hooks work on TRANSFORMED data, available in standard tables)
-- Backend SQL injection → Use TEMPLATE_STANDARD_RULE.py
-- General XSS (dangerouslySetInnerHTML) → Use TEMPLATE_STANDARD_RULE.py
-  (Available in standard tables)
-
-================================================================================
-WHY PRESERVED JSX?
-================================================================================
-
-JSX transformation loses information:
-
-BEFORE (Preserved JSX):
-  const UserProfile = () => <div className={userClass}>{userName}</div>
-
-AFTER (Transformed):
-  const UserProfile = () => React.createElement('div', {className: userClass}, userName)
-
-Information LOST in transformation:
-- JSX tag syntax (< >)
-- Attribute vs children distinction
-- Self-closing tag detection
-- Spread operator context ({...props})
-
-Information PRESERVED in both:
-- Function calls (React.createElement)
-- Variable usage (userClass, userName)
-- Hook calls (useState, useEffect)
-
-RULE OF THUMB:
-- If you need to detect JSX SYNTAX → Use this template (requires_jsx_pass=True)
-- If you detect FUNCTION CALLS → Use standard template (requires_jsx_pass=False)
-
-================================================================================
-TEMPLATE BASED ON: react_xss_analyze.py (Production Rule)
-RULE METADATA: JSX-specific with framework detection
-================================================================================
-"""
+"""RULE TEMPLATE: JSX-Specific Rule (Requires Preserved JSX Pass)."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -101,11 +19,7 @@ METADATA = RuleMetadata(
 
 @dataclass(frozen=True)
 class JSXSecurityPatterns:
-    """Pattern definitions for JSX security analysis.
-
-    These patterns detect issues specific to JSX syntax that are lost
-    when JSX is transformed to React.createElement() calls.
-    """
+    """Pattern definitions for JSX security analysis."""
 
     DANGEROUS_PROPS: frozenset = frozenset(
         ["dangerouslySetInnerHTML", "href", "src", "formAction", "srcdoc"]
@@ -133,32 +47,7 @@ class JSXSecurityPatterns:
 
 
 def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect JSX-specific security issues using preserved JSX data.
-
-    CRITICAL: This rule queries JSX-SPECIFIC TABLES:
-    - symbols_jsx (NOT symbols)
-    - assignments_jsx (NOT assignments)
-    - function_call_args_jsx (NOT function_call_args)
-
-    Detection Strategy:
-    1. Verify this is a React/Vue app (check frameworks table)
-    2. Query symbols_jsx for JSX elements with dangerous patterns
-    3. Check assignments_jsx for user input flowing to JSX props
-    4. Validate against framework safe sinks
-
-    Database Tables Used:
-    - symbols_jsx: JSX elements in preserved syntax
-    - assignments_jsx: Variable assignments in JSX context
-    - function_call_args_jsx: Function calls within JSX
-    - react_components: Component metadata
-    - frameworks: Framework detection
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of JSX-specific security findings
-    """
+    """Detect JSX-specific security issues using preserved JSX data."""
     findings = []
 
     if not context.db_path:
@@ -185,11 +74,7 @@ def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFi
 
 
 def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
-    """Detect dynamic JSX element injection: <{UserComponent} />
-
-    This pattern is LOST in transformed AST (becomes createElement call).
-    Can only be detected in preserved JSX.
-    """
+    """Detect dynamic JSX element injection: <{UserComponent} />"""
     findings = []
     cursor = conn.cursor()
 
@@ -254,10 +139,7 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[St
 
 
 def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
-    """Detect JSX spread operator injection: <div {...userProps} />
-
-    Spread operator can inject arbitrary props including dangerous ones.
-    """
+    """Detect JSX spread operator injection: <div {...userProps} />"""
     findings = []
     cursor = conn.cursor()
 

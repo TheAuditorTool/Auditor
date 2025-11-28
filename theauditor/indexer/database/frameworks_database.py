@@ -1,16 +1,8 @@
-"""Framework-specific database operations.
-
-This module contains add_* methods for FRAMEWORKS_TABLES defined in schemas/frameworks_schema.py.
-Handles 5 framework tables including API endpoints, ORM relationships, and Prisma models.
-"""
+"""Framework-specific database operations."""
 
 
 class FrameworksDatabaseMixin:
-    """Mixin providing add_* methods for FRAMEWORKS_TABLES.
-
-    CRITICAL: This mixin assumes self.generic_batches exists (from BaseDatabaseManager).
-    DO NOT instantiate directly - only use as mixin for DatabaseManager.
-    """
+    """Mixin providing add_* methods for FRAMEWORKS_TABLES."""
 
     def add_endpoint(
         self,
@@ -23,14 +15,7 @@ class FrameworksDatabaseMixin:
         has_auth: bool = False,
         handler_function: str | None = None,
     ):
-        """Add an API endpoint record to the batch.
-
-        ARCHITECTURE: Normalized many-to-many relationship.
-        - Phase 1: Batch endpoint record (without controls column)
-        - Phase 2: Batch junction records for each control/middleware
-
-        NO FALLBACKS. If controls is malformed, hard fail.
-        """
+        """Add an API endpoint record to the batch."""
 
         self.generic_batches["api_endpoints"].append(
             (file_path, line, method, pattern, path, None, has_auth, handler_function)
@@ -55,18 +40,7 @@ class FrameworksDatabaseMixin:
         cascade_delete: bool = False,
         as_name: str | None = None,
     ):
-        """Add an ORM relationship record to the batch.
-
-        Args:
-            file: File containing the relationship definition
-            line: Line number of the relationship
-            source_model: Source model name (e.g., "User")
-            target_model: Target model name (e.g., "Account")
-            relationship_type: Type of relationship - "hasMany", "belongsTo", "hasOne", etc.
-            foreign_key: Foreign key column name (e.g., "account_id")
-            cascade_delete: Whether CASCADE delete is enabled
-            as_name: Association alias (e.g., "owner")
-        """
+        """Add an ORM relationship record to the batch."""
         self.generic_batches["orm_relationships"].append(
             (
                 file,
@@ -111,17 +85,7 @@ class FrameworksDatabaseMixin:
     def add_router_mount(
         self, file: str, line: int, mount_path_expr: str, router_variable: str, is_literal: bool
     ):
-        """Add a router mount record to the batch.
-
-        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
-
-        Args:
-            file: File containing the router.use() statement
-            line: Line number
-            mount_path_expr: Mount path expression ('/areas', 'API_PREFIX', or `${API_PREFIX}/auth`)
-            router_variable: Router variable name ('areaRoutes', 'protectedRouter')
-            is_literal: True if static string, False if identifier/template
-        """
+        """Add a router mount record to the batch."""
         self.generic_batches["router_mounts"].append(
             (file, line, mount_path_expr, router_variable, 1 if is_literal else 0)
         )

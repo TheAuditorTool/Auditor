@@ -1,16 +1,4 @@
-"""
-Planning and meta-system schema definitions.
-
-This module contains table schemas for TheAuditor's planning system:
-- Plans and tasks (aud planning commands)
-- Specs and verification
-- Code snapshots and diffs (change tracking)
-
-Design Philosophy:
-- Meta-system tables (not code analysis)
-- Planning workflow support
-- Change history tracking
-"""
+"""Planning and meta-system schema definitions."""
 
 from .utils import Column, ForeignKey, TableSchema
 

@@ -1,13 +1,4 @@
-"""Infrastructure storage handlers for IaC and GraphQL.
-
-This module contains handlers for infrastructure patterns:
-- Terraform: files, resources, variables, outputs
-- GraphQL: schemas, types, fields, resolvers
-
-Note: CDK constructs handler remains in core_storage.py (cross-language AWS detection)
-
-Handler Count: 11
-"""
+"""Infrastructure storage handlers for IaC and GraphQL."""
 
 import json
 
@@ -57,7 +48,6 @@ class InfrastructureStorage(BaseStorage):
             depends_on = resource.get("depends_on", [])
             sensitive_props = resource.get("sensitive_properties", [])
 
-            # Main table (NO JSON blobs - use junction tables)
             self.db_manager.add_terraform_resource(
                 resource_id=resource_id,
                 file_path=resource["file_path"],
@@ -68,7 +58,6 @@ class InfrastructureStorage(BaseStorage):
                 line=resource.get("line"),
             )
 
-            # Junction table: terraform_resource_properties
             for prop_name, prop_value in properties.items():
                 is_sensitive = prop_name in sensitive_props
                 self.db_manager.add_terraform_resource_property(
@@ -78,7 +67,6 @@ class InfrastructureStorage(BaseStorage):
                     is_sensitive=is_sensitive,
                 )
 
-            # Junction table: terraform_resource_deps
             for dep in depends_on:
                 self.db_manager.add_terraform_resource_dep(
                     resource_id=resource_id,
@@ -201,7 +189,6 @@ class InfrastructureStorage(BaseStorage):
             field_id = field.get("field_id")
             directives_json = field.get("directives_json")
 
-            # Main table (NO JSON blob - use junction table)
             self.db_manager.add_graphql_field(
                 type_id=field["type_id"],
                 field_name=field["field_name"],
@@ -212,7 +199,6 @@ class InfrastructureStorage(BaseStorage):
                 column=field.get("column"),
             )
 
-            # Junction table: graphql_field_directives
             if field_id and directives_json:
                 try:
                     directives = json.loads(directives_json)
@@ -238,7 +224,6 @@ class InfrastructureStorage(BaseStorage):
             arg_name = arg["arg_name"]
             directives_json = arg.get("directives_json")
 
-            # Main table (NO JSON blob - use junction table)
             self.db_manager.add_graphql_field_arg(
                 field_id=field_id,
                 arg_name=arg_name,
@@ -248,7 +233,6 @@ class InfrastructureStorage(BaseStorage):
                 is_nullable=arg.get("is_nullable", True),
             )
 
-            # Junction table: graphql_arg_directives
             if field_id and arg_name and directives_json:
                 try:
                     directives = json.loads(directives_json)

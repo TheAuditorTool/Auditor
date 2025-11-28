@@ -5,13 +5,7 @@ from pathlib import Path
 
 
 def ensure_mypy_config(pyproject_path: str) -> dict[str, str]:
-    """
-    Ensure minimal mypy config exists in pyproject.toml.
-
-    Returns:
-        {"status": "created"} if config was added
-        {"status": "exists"} if config already present
-    """
+    """Ensure minimal mypy config exists in pyproject.toml."""
     path = Path(pyproject_path)
 
     if not path.exists():

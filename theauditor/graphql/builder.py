@@ -1,12 +1,4 @@
-"""GraphQL Builder - Correlates SDL schemas with resolver implementations.
-
-This module implements the core correlation logic that maps:
-1. GraphQL SDL fields → Resolver functions (via symbols table)
-2. GraphQL arguments → Function parameters
-3. Field dependencies → Execution graph edges
-
-NO FALLBACKS. Hard fail if database is wrong.
-"""
+"""GraphQL Builder - Correlates SDL schemas with resolver implementations."""
 
 import json
 import logging
@@ -51,16 +43,7 @@ class ResolverCandidate:
 
 
 class GraphQLBuilder:
-    """Correlates GraphQL schemas with resolver implementations.
-
-    Architecture:
-    - Phase 1: Load SDL schemas/fields from graphql_* tables
-    - Phase 2: Load symbols table (all functions/methods)
-    - Phase 3: Correlate using naming conventions + framework patterns
-    - Phase 4: Build execution graph edges
-
-    NO FALLBACKS. Database must exist and be correct.
-    """
+    """Correlates GraphQL schemas with resolver implementations."""
 
     def __init__(self, db_path: Path, verbose: bool = False):
         """Initialize builder with database connection."""
@@ -87,11 +70,7 @@ class GraphQLBuilder:
         }
 
     def load_schemas(self) -> int:
-        """Load GraphQL schemas from graphql_schemas table.
-
-        Returns:
-            Number of schemas loaded
-        """
+        """Load GraphQL schemas from graphql_schemas table."""
         cursor = self.conn.cursor()
 
         cursor.execute("""
@@ -136,16 +115,7 @@ class GraphQLBuilder:
         return self.stats["schemas_loaded"]
 
     def load_resolver_candidates(self) -> int:
-        """Load potential resolver functions from symbols table.
-
-        Filters symbols to functions/methods that match resolver patterns:
-        - Names containing 'resolve', 'resolver', 'query', 'mutation'
-        - Class methods (potential Graphene/Strawberry patterns)
-        - Decorated functions (potential Ariadne/Apollo patterns)
-
-        Returns:
-            Number of resolver candidates found
-        """
+        """Load potential resolver functions from symbols table."""
         cursor = self.conn.cursor()
 
         cursor.execute("""
@@ -180,18 +150,7 @@ class GraphQLBuilder:
         return self.stats["resolvers_found"]
 
     def correlate_resolvers(self) -> int:
-        """Correlate GraphQL fields with resolver functions.
-
-        Matching strategies:
-        1. Graphene: resolve_<field> method name in ObjectType class
-        2. Ariadne: @query.field("name") → function name
-        3. Strawberry: @strawberry.field on method → method name = field name
-        4. Apollo: Query.<field> → <field>Resolver or resolve<Field> function
-        5. NestJS/TypeGraphQL: @Query() decorator with field name
-
-        Returns:
-            Number of resolver mappings created
-        """
+        """Correlate GraphQL fields with resolver functions."""
         conn = self.conn
         cursor = conn.cursor()
 
@@ -253,14 +212,7 @@ class GraphQLBuilder:
     def _find_matching_resolver(
         self, parent_type: GraphQLType, field: GraphQLField
     ) -> ResolverCandidate | None:
-        """Find resolver function matching a GraphQL field.
-
-        Matching rules (in priority order):
-        1. resolve_<field_name> method (Graphene pattern)
-        2. <field_name> function (direct naming)
-        3. <field_name>Resolver function (Apollo pattern)
-        4. resolve<FieldName> function (camelCase variant)
-        """
+        """Find resolver function matching a GraphQL field."""
         field_name = field.field_name
         field_name_lower = field_name.lower()
 
@@ -308,21 +260,13 @@ class GraphQLBuilder:
             return "unknown"
 
     def _generate_symbol_id(self, file_path: str, name: str, line: int) -> int:
-        """Generate synthetic symbol ID from path + name + line.
-
-        NOTE: symbols table has no symbol_id column (composite PK only).
-        We generate a stable synthetic ID for graphql_resolver_mappings.
-        """
+        """Generate synthetic symbol ID from path + name + line."""
 
         hash_input = f"{file_path}:{name}:{line}"
         return abs(hash(hash_input)) & 0x7FFFFFFF
 
     def _build_resolver_params(self, cursor):
-        """Build GraphQL argument to resolver parameter mappings.
-
-        Maps GraphQL field arguments to resolver function parameters for taint analysis.
-        Inserts into graphql_resolver_params table.
-        """
+        """Build GraphQL argument to resolver parameter mappings."""
         import json
 
         param_mappings = []
@@ -408,15 +352,7 @@ class GraphQLBuilder:
                 logger.info(f"Created {len(param_mappings)} parameter mappings")
 
     def build_execution_graph(self) -> int:
-        """Build execution graph edges from resolvers to downstream calls.
-
-        Creates two types of edges:
-        1. 'resolver': field → resolver function (from mappings)
-        2. 'downstream_call': resolver → functions it calls
-
-        Returns:
-            Number of edges created
-        """
+        """Build execution graph edges from resolvers to downstream calls."""
         cursor = self.conn.cursor()
 
         for mapping in self.mappings:
@@ -516,15 +452,7 @@ class GraphQLBuilder:
         print(f"Missing resolvers:   {self.stats['missing_resolvers']}")
 
     def export_courier_artifacts(self, output_dir: Path) -> tuple[Path, Path]:
-        """Export GraphQL data to courier-compliant JSON artifacts.
-
-        Exports two files:
-        1. graphql_schema.json: SDL types and fields with provenance
-        2. graphql_execution.json: Resolver mappings and execution edges
-
-        Returns:
-            Tuple of (schema_path, execution_path)
-        """
+        """Export GraphQL data to courier-compliant JSON artifacts."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 

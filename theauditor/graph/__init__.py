@@ -1,13 +1,4 @@
-"""Graph package - dependency and call graph functionality.
-
-Core modules (always available):
-- analyzer: Pure graph algorithms (cycles, paths, layers)
-- builder: Graph construction from source code
-- store: SQLite persistence
-
-Optional modules:
-- insights: Interpretive metrics (health scores, recommendations, hotspots)
-"""
+"""Graph package - dependency and call graph functionality."""
 
 from .analyzer import XGraphAnalyzer
 from .builder import Cycle, GraphEdge, GraphNode, Hotspot, ImpactAnalysis, XGraphBuilder

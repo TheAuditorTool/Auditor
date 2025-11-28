@@ -1,10 +1,4 @@
-"""Indexer workflow runner.
-
-This module provides the high-level workflow for running the indexing process.
-Replaces the legacy build_index() shim from indexer_compat.py.
-
-2025 Modern: Clean entry point for pipelines.py, no backward compat baggage.
-"""
+"""Indexer workflow runner."""
 
 import json
 import sqlite3
@@ -33,29 +27,7 @@ def run_repository_index(
     exclude_patterns: list[str] | None = None,
     print_stats: bool = False,
 ) -> dict[str, Any]:
-    """
-    Run the complete repository indexing workflow.
-
-    1. Walk files
-    2. Write manifest
-    3. Create/Migrate DB
-    4. Index content (AST + Extraction)
-
-    Args:
-        root_path: Root directory to index
-        manifest_path: Path to write manifest JSON (relative to root)
-        db_path: Path to SQLite database (relative to root)
-        dry_run: If True, only scan files without creating database
-        follow_symlinks: Whether to follow symbolic links
-        exclude_patterns: Patterns to exclude from indexing
-        print_stats: Whether to print statistics to stdout
-
-    Returns:
-        Dictionary with success status and statistics
-
-    Raises:
-        FileNotFoundError: If root_path does not exist
-    """
+    """Run the complete repository indexing workflow."""
     start_time = time.time()
     root = Path(root_path).resolve()
 

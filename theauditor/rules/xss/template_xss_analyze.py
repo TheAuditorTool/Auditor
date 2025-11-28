@@ -1,13 +1,4 @@
-"""Template Injection and XSS Detection.
-
-This module detects template injection vulnerabilities across various template engines.
-Covers both server-side and client-side template injection.
-
-REFACTORED (2025-11-22):
-- Constants moved to constants.py (Single Source of Truth)
-- Context manager + sqlite3.Row for name-based access
-- Memory proximity fix: Query render functions ONCE, not inside loop
-"""
+"""Template Injection and XSS Detection."""
 
 import sqlite3
 
@@ -30,13 +21,7 @@ METADATA = RuleMetadata(
 
 
 def find_template_injection(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect template injection and XSS vulnerabilities.
-
-    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
-
-    Returns:
-        List of template-related XSS findings
-    """
+    """Detect template injection and XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -401,13 +386,7 @@ def _check_custom_template_helpers(cursor: sqlite3.Cursor) -> list[StandardFindi
 
 
 def _check_server_side_template_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
-    r"""Check for server-side template injection (SSTI).
-
-    BUG FIXES (2025-10-17):
-    1. SQL LIKE wildcard escape: _ must be escaped as \_ to avoid matching any character
-    2. Context awareness: Only flag 'config.' when near template rendering functions
-    3. Deduplication: Use DISTINCT to avoid duplicate findings from duplicate DB rows
-    """
+    r"""Check for server-side template injection (SSTI).r"""
     findings = []
 
     dangerous_template_patterns = [
@@ -579,9 +558,5 @@ def _check_server_side_template_injection(cursor: sqlite3.Cursor) -> list[Standa
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_template_injection(context)

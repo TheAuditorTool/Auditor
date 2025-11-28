@@ -1,11 +1,4 @@
-"""Node Express Strategy - Handles Express middleware chains and controller resolution.
-
-This strategy builds edges for:
-1. Express middleware chains (validateBody -> authenticate -> controller)
-2. Controller implementation resolution (route handler -> actual controller method)
-
-Extracted from dfg_builder.py as part of Phase 3: Strategy Pattern refactoring.
-"""
+"""Node Express Strategy - Handles Express middleware chains and controller resolution."""
 
 import sqlite3
 from collections import defaultdict
@@ -20,29 +13,10 @@ from .base import GraphStrategy
 
 
 class NodeExpressStrategy(GraphStrategy):
-    """Strategy for building Node.js Express middleware and controller edges.
-
-    Handles:
-    - Middleware chain edges (req flows through middleware sequence)
-    - Controller implementation edges (route handler -> controller method)
-
-    Creates edges showing data flow through Express request handling pipeline.
-    """
+    """Strategy for building Node.js Express middleware and controller edges."""
 
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
-        """Build edges for Express middleware and controllers.
-
-        Combines results from:
-        - _build_middleware_edges()
-        - _build_controller_edges()
-
-        Args:
-            db_path: Path to repo_index.db
-            project_root: Project root for metadata
-
-        Returns:
-            Dict with merged nodes, edges, metadata
-        """
+        """Build edges for Express middleware and controllers."""
 
         middleware_result = self._build_middleware_edges(db_path, project_root)
         controller_result = self._build_controller_edges(db_path, project_root)
@@ -69,12 +43,7 @@ class NodeExpressStrategy(GraphStrategy):
         }
 
     def _build_middleware_edges(self, db_path: str, project_root: str) -> dict[str, Any]:
-        """Build edges connecting Express middleware chains.
-
-        Creates edges showing data flow through middleware execution order.
-        For a route with validateBody -> authenticate -> controller,
-        creates edges showing req.body flows through the chain.
-        """
+        """Build edges connecting Express middleware chains."""
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -183,11 +152,7 @@ class NodeExpressStrategy(GraphStrategy):
         }
 
     def _build_controller_edges(self, db_path: str, project_root: str) -> dict[str, Any]:
-        """Build edges connecting route handlers to controller implementations.
-
-        Bridges the gap between Express route handlers and their actual
-        controller method implementations.
-        """
+        """Build edges connecting route handlers to controller implementations."""
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()

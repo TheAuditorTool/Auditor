@@ -92,20 +92,7 @@ def _extract_pyproject_dependencies(pyproject_path: Path) -> list[str]:
 
 
 def _get_runtime_packages(pyproject_path: Path, package_names: list[str]) -> list[str]:
-    """
-    Extract specific package version specs from pyproject.toml optional dependencies.
-
-    Single source of truth for package versions - reads from pyproject.toml instead of hardcoding.
-    Searches both 'runtime' and 'dev' sections.
-
-    Args:
-        pyproject_path: Path to pyproject.toml
-        package_names: List of package names to extract (e.g., ['tree-sitter', 'ruff'])
-
-    Returns:
-        List of package specs in pip format (e.g., ['tree-sitter==0.25.2', 'ruff==0.14.5'])
-        Falls back to package names without versions if parsing fails.
-    """
+    """Extract specific package version specs from pyproject.toml optional dependencies."""
     try:
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
         project = data.get("project", {})
@@ -155,12 +142,7 @@ def find_theauditor_root() -> Path:
 
 
 def _inject_agents_md(target_dir: Path) -> None:
-    """
-    Inject TheAuditor agent trigger block into AGENTS.md and CLAUDE.md in target project root.
-
-    Creates files if they don't exist, or injects trigger block if not already present.
-    This tells AI assistants where to find specialized agent workflows.
-    """
+    """Inject TheAuditor agent trigger block into AGENTS.md and CLAUDE.md in target project root."""
     trigger_block = f"""{TRIGGER_START}
 # TheAuditor Agent System
 
@@ -204,12 +186,7 @@ For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
 
 
 def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
-    """
-    Get platform-specific paths for venv Python and aud executables.
-
-    Returns:
-        (python_exe, aud_exe) paths
-    """
+    """Get platform-specific paths for venv Python and aud executables."""
     if platform.system() == "Windows":
         python_exe = venv_path / "Scripts" / "python.exe"
         aud_exe = venv_path / "Scripts" / "aud.exe"
@@ -221,16 +198,7 @@ def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
 
 
 def create_venv(target_dir: Path, force: bool = False) -> Path:
-    """
-    Create a Python virtual environment at target_dir/.venv.
-
-    Args:
-        target_dir: Project root directory
-        force: If True, recreate even if exists
-
-    Returns:
-        Path to the created venv directory
-    """
+    """Create a Python virtual environment at target_dir/.venv."""
     venv_path = target_dir / ".auditor_venv"
 
     if venv_path.exists() and not force:
@@ -268,16 +236,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
 
 
 def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = None) -> bool:
-    """
-    Install TheAuditor in editable mode into the venv.
-
-    Args:
-        venv_path: Path to the virtual environment
-        theauditor_root: Path to TheAuditor source (auto-detected if None)
-
-    Returns:
-        True if installation succeeded
-    """
+    """Install TheAuditor in editable mode into the venv."""
     if theauditor_root is None:
         theauditor_root = find_theauditor_root()
 
@@ -423,21 +382,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
 
 
 def _self_update_package_json(package_json_path: Path) -> int:
-    """
-    Self-update package.json with latest versions from npm registry.
-
-    Uses the modern async batch engine from deps.py for efficient parallel fetching.
-
-    This function is called BEFORE npm install to ensure we always
-    get the latest versions of our tools, solving the paradox of
-    needing to update dependencies that are in excluded directories.
-
-    Args:
-        package_json_path: Path to the package.json file to update
-
-    Returns:
-        Number of packages updated
-    """
+    """Self-update package.json with latest versions from npm registry."""
     try:
         with open(package_json_path) as f:
             data = json.load(f)
@@ -515,18 +460,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
 
 
 def download_portable_node(sandbox_dir: Path) -> Path:
-    """
-    Download and extract portable Node.js runtime with integrity verification.
-
-    Args:
-        sandbox_dir: Directory to install Node.js into (.auditor_venv/.theauditor_tools)
-
-    Returns:
-        Path to node executable
-
-    Raises:
-        RuntimeError: If download fails or checksum doesn't match
-    """
+    """Download and extract portable Node.js runtime with integrity verification."""
     import hashlib
     import tarfile
     import urllib.error
@@ -652,26 +586,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
 
 
 def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
-    """
-    Download and install OSV-Scanner binary for vulnerability detection.
-
-    OSV-Scanner is Google's official tool for scanning dependencies against
-    the OSV (Open Source Vulnerabilities) database. It provides offline
-    scanning capabilities once the database is downloaded.
-
-    FACTS (from installation.md - DO NOT HALLUCINATE):
-    - Binary source: https://github.com/google/osv-scanner/releases
-    - File naming: osv-scanner_{version}_{platform}_{arch}
-    - Single executable, no dependencies required
-    - SLSA3 compliant with provenance verification
-    - Offline database: {local_db_dir}/osv-scanner/{ecosystem}/all.zip
-
-    Args:
-        sandbox_dir: Directory to install OSV-Scanner (.auditor_venv/.theauditor_tools)
-
-    Returns:
-        Path to osv-scanner executable, or None if installation failed
-    """
+    """Download and install OSV-Scanner binary for vulnerability detection."""
     import urllib.error
     import urllib.request
 
@@ -741,18 +656,15 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             lockfiles = {}
             target_dir = sandbox_dir.parent.parent
 
-            # Find npm lockfiles using glob (handles any project structure)
             npm_lockfile_names = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
             for name in npm_lockfile_names:
-                # Check root first
                 lock = target_dir / name
                 if lock.exists():
                     lockfiles["npm"] = lock
                     break
-                # Then search one level deep (covers monorepos)
+
                 found_locks = list(target_dir.glob(f"*/{name}"))
                 if found_locks:
-                    # Use first found, preferring shorter paths
                     found_locks.sort(key=lambda p: len(str(p)))
                     lockfiles["npm"] = found_locks[0]
                     break
@@ -764,15 +676,13 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
                         "    [INFO] package.json found but no package-lock.json (npm install not run) - skipping npm database"
                     )
 
-            # Find Python lockfiles using glob (handles any project structure)
             python_lockfile_names = ["requirements.txt", "Pipfile.lock", "poetry.lock"]
             for name in python_lockfile_names:
-                # Check root first
                 req = target_dir / name
                 if req.exists():
                     lockfiles["PyPI"] = req
                     break
-                # Then search one level deep (covers monorepos)
+
                 found_reqs = list(target_dir.glob(f"*/{name}"))
                 if found_reqs:
                     found_reqs.sort(key=lambda p: len(str(p)))
@@ -902,16 +812,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
 
 
 def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, bool]:
-    """
-    Complete venv setup: create and install TheAuditor + ALL linting tools.
-
-    Args:
-        target_dir: Project root directory
-        force: If True, recreate venv even if exists
-
-    Returns:
-        (venv_path, success) tuple
-    """
+    """Complete venv setup: create and install TheAuditor + ALL linting tools."""
     target_dir = Path(target_dir).resolve()
 
     if not target_dir.exists():

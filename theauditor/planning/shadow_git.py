@@ -1,17 +1,4 @@
-"""Shadow Git Manager.
-
-Manages an isolated, bare git repository in .pf/snapshots.git.
-Used for tracking incremental AI edits without polluting the user's
-actual git history.
-
-Architecture:
-    - Creates a BARE repository (no working tree, just object database)
-    - User's .git folder is NEVER touched
-    - All snapshots stored in .pf/snapshots.git
-    - Provides O(1) tree-based diffing via libgit2
-
-NO FALLBACKS. Hard failure if pygit2 operations fail.
-"""
+"""Shadow Git Manager."""
 
 import warnings
 from datetime import UTC, datetime
@@ -21,35 +8,15 @@ import pygit2
 
 
 class ShadowRepoManager:
-    """Manages shadow git repository for planning snapshots.
-
-    The shadow repo is a bare git repository that stores file states
-    without affecting the user's actual git history.
-
-    Attributes:
-        repo_path: Path to .pf/snapshots.git
-    """
+    """Manages shadow git repository for planning snapshots."""
 
     def __init__(self, pf_root: Path):
-        """Initialize or load the shadow repository.
-
-        Args:
-            pf_root: The .pf/ directory path
-
-        Raises:
-            pygit2.GitError: If repository initialization fails
-        """
+        """Initialize or load the shadow repository."""
         self.repo_path = pf_root / "snapshots.git"
         self._repo = self._init_or_load()
 
     def _init_or_load(self) -> pygit2.Repository:
-        """Initialize bare repo if missing, otherwise load it.
-
-        Returns:
-            pygit2.Repository instance
-
-        NO FALLBACKS. Raises on any error.
-        """
+        """Initialize bare repo if missing, otherwise load it."""
         if not self.repo_path.exists():
             return pygit2.init_repository(str(self.repo_path), bare=True)
         return pygit2.Repository(str(self.repo_path))
@@ -60,25 +27,7 @@ class ShadowRepoManager:
         file_paths: list[str],
         message: str,
     ) -> str:
-        """Read files from project_root and commit them to the shadow repo.
-
-        Args:
-            project_root: Root directory of the user's project
-            file_paths: List of relative file paths to snapshot
-            message: Commit message for the snapshot
-
-        Returns:
-            str: The SHA-1 hash of the new shadow commit
-
-        Raises:
-            pygit2.GitError: If git operations fail
-
-        Warns:
-            UserWarning: If any files in file_paths don't exist (skipped)
-
-        NO FALLBACKS. pygit2 errors cause hard failure.
-        Missing files are warned and skipped (may have been deleted).
-        """
+        """Read files from project_root and commit them to the shadow repo."""
 
         index = pygit2.Index()
 
@@ -118,18 +67,7 @@ class ShadowRepoManager:
         return str(commit_oid)
 
     def get_diff(self, old_sha: str | None, new_sha: str) -> str:
-        """Generate a unified diff between two shadow commits.
-
-        Args:
-            old_sha: SHA of older commit (None for first commit)
-            new_sha: SHA of newer commit
-
-        Returns:
-            str: Unified diff text
-
-        Raises:
-            KeyError: If SHA not found in repository
-        """
+        """Generate a unified diff between two shadow commits."""
         new_commit = self._repo.get(new_sha)
         new_tree = new_commit.tree
 
@@ -144,15 +82,7 @@ class ShadowRepoManager:
         return diff.patch or ""
 
     def get_file_at_snapshot(self, sha: str, file_path: str) -> bytes | None:
-        """Retrieve file content at a specific snapshot.
-
-        Args:
-            sha: Commit SHA
-            file_path: Relative path to file
-
-        Returns:
-            bytes: File content, or None if file doesn't exist at that snapshot
-        """
+        """Retrieve file content at a specific snapshot."""
         commit = self._repo.get(sha)
         tree = commit.tree
 
@@ -164,18 +94,7 @@ class ShadowRepoManager:
             return None
 
     def list_snapshots(self, limit: int = 100) -> list[dict]:
-        """List all snapshots in the shadow repository.
-
-        Args:
-            limit: Maximum number of snapshots to return
-
-        Returns:
-            List of dicts with snapshot metadata:
-                - sha: Commit SHA
-                - message: Commit message
-                - timestamp: ISO timestamp
-                - files: List of files in snapshot
-        """
+        """List all snapshots in the shadow repository."""
         if self._repo.is_empty:
             return []
 
@@ -198,19 +117,7 @@ class ShadowRepoManager:
         return snapshots
 
     def get_diff_stats(self, old_sha: str | None, new_sha: str) -> dict:
-        """Get diff statistics between two snapshots.
-
-        Args:
-            old_sha: SHA of older commit (None for first commit)
-            new_sha: SHA of newer commit
-
-        Returns:
-            dict with:
-                - files_changed: Number of files changed
-                - insertions: Lines added
-                - deletions: Lines removed
-                - files: List of changed file paths
-        """
+        """Get diff statistics between two snapshots."""
         new_commit = self._repo.get(new_sha)
         new_tree = new_commit.tree
 

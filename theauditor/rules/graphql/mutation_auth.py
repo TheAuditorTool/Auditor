@@ -1,8 +1,4 @@
-"""GraphQL Mutation Authentication Check - Database-First Approach.
-
-Detects mutations without authentication directives or resolver protections.
-Pure SQL queries - NO file I/O.
-"""
+"""GraphQL Mutation Authentication Check - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -55,16 +51,7 @@ class MutationAuthPatterns:
 
 
 def check_mutation_auth(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for mutations without authentication.
-
-    Strategy:
-    1. Find all Mutation type fields from graphql_fields
-    2. Check for @auth directives in directives_json
-    3. Check if resolver has authentication decorators
-    4. Report mutations without protection
-
-    NO FALLBACKS. Database must exist.
-    """
+    """Check for mutations without authentication."""
     if not context.db_path:
         return []
 

@@ -1,11 +1,4 @@
-"""Python dependency extraction for pyproject.toml and requirements.txt.
-
-Extracts Python package dependencies from:
-- pyproject.toml (using tomllib)
-- requirements.txt and requirements-*.txt files
-
-Stores in python_package_configs table for fast dependency checking.
-"""
+"""Python dependency extraction for pyproject.toml and requirements.txt."""
 
 import json
 import re
@@ -17,22 +10,7 @@ from . import BaseExtractor
 
 
 def _parse_dep_spec(spec: str) -> dict[str, str]:
-    """Parse a dependency specification into components.
-
-    Handles formats:
-    - package==1.0.0
-    - package>=1.0,<2.0
-    - package~=1.4.2
-    - package[extra1,extra2]==1.0
-    - git+https://github.com/user/repo.git
-    - -e git+https://github.com/user/repo.git#egg=package
-
-    Args:
-        spec: Dependency specification string
-
-    Returns:
-        Dict with name, version, extras, git_url
-    """
+    """Parse a dependency specification into components."""
     result = {"name": "", "version": "", "extras": [], "git_url": ""}
 
     if spec.startswith("-e "):
@@ -73,15 +51,7 @@ def _parse_dep_spec(spec: str) -> dict[str, str]:
 
 
 def _extract_from_requirements(content: str, file_path: str) -> dict[str, Any]:
-    """Extract dependencies from requirements.txt format.
-
-    Args:
-        content: File content
-        file_path: Path to requirements file
-
-    Returns:
-        Dict with file_path, file_type, dependencies
-    """
+    """Extract dependencies from requirements.txt format."""
     dependencies = []
 
     for line in content.splitlines():
@@ -112,15 +82,7 @@ def _extract_from_requirements(content: str, file_path: str) -> dict[str, Any]:
 
 
 def _extract_from_pyproject(content: str, file_path: str) -> dict[str, Any]:
-    """Extract dependencies from pyproject.toml.
-
-    Args:
-        content: File content
-        file_path: Path to pyproject.toml
-
-    Returns:
-        Dict with file_path, file_type, dependencies, optional_dependencies
-    """
+    """Extract dependencies from pyproject.toml."""
     try:
         data = tomllib.loads(content)
     except Exception:
@@ -175,17 +137,7 @@ def _extract_from_pyproject(content: str, file_path: str) -> dict[str, Any]:
 
 
 def extract_python_dependencies(file_path: str, content: str) -> dict[str, Any] | None:
-    """Extract Python dependencies from pyproject.toml or requirements.txt.
-
-    Main entry point for Python dependency extraction.
-
-    Args:
-        file_path: Path to dependency file
-        content: File content
-
-    Returns:
-        Dict with parsed dependencies or None if not a dependency file
-    """
+    """Extract Python dependencies from pyproject.toml or requirements.txt."""
     path = Path(file_path)
 
     if path.name == "pyproject.toml":
@@ -204,14 +156,7 @@ class PythonDepsExtractor(BaseExtractor):
         return [".toml", ".txt"]
 
     def should_extract(self, file_path: str) -> bool:
-        """Check if this extractor should handle the file.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            True if this is a Python dependency file
-        """
+        """Check if this extractor should handle the file."""
         path = Path(file_path)
         file_name = path.name
 
@@ -223,16 +168,7 @@ class PythonDepsExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract Python dependencies and store to database.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree (not used for deps)
-
-        Returns:
-            Dict with extracted dependency data
-        """
+        """Extract Python dependencies and store to database."""
         file_path = str(file_info["path"])
 
         deps_data = extract_python_dependencies(file_path, content)

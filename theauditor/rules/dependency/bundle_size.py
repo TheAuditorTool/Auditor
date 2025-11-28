@@ -1,22 +1,4 @@
-"""Detect inefficient imports that bloat frontend bundles (database-first).
-
-This rule detects when frontend code imports entire packages instead of specific modules,
-which can significantly increase bundle size. It uses the import_styles table.
-
-Detection Strategy:
-1. Query import_styles for frontend imports (React/Vue projects)
-2. Check for full-package imports of known large libraries
-3. Flag imports that should use selective/tree-shaken imports
-
-Common Issues:
-- import lodash from 'lodash' → Should use: import map from 'lodash/map'
-- import * as moment from 'moment' → Should use: import dayjs or date-fns
-- import { Button, Modal, Form, ... } from 'antd' → Should use sub-imports
-
-Database Tables Used:
-- import_styles: Import patterns and packages
-- package_configs: Installed dependencies
-"""
+"""Detect inefficient imports that bloat frontend bundles (database-first)."""
 
 import sqlite3
 
@@ -61,17 +43,7 @@ FULL_IMPORT_PATTERNS = frozenset(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect full-package imports of large libraries in frontend code.
-
-    Checks import_styles table for full imports of known large packages that
-    should use selective/tree-shaken imports to reduce bundle size.
-
-    Args:
-        context: Rule execution context
-
-    Returns:
-        List of findings for inefficient imports
-    """
+    """Detect full-package imports of large libraries in frontend code."""
     findings = []
 
     try:

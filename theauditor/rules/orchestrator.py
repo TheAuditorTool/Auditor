@@ -1,11 +1,4 @@
-"""Unified orchestrator for dynamic rule discovery and execution.
-
-This module provides a central orchestrator that:
-1. Dynamically discovers ALL rules in the /rules directory
-2. Analyzes their signatures to determine requirements
-3. Executes them with appropriate parameters
-4. Provides a unified interface for all detection systems
-"""
+"""Unified orchestrator for dynamic rule discovery and execution."""
 
 import importlib
 import inspect
@@ -61,12 +54,7 @@ class RulesOrchestrator:
     """Unified orchestrator for ALL rule execution."""
 
     def __init__(self, project_path: Path, db_path: Path = None):
-        """Initialize the orchestrator.
-
-        Args:
-            project_path: Root path of the project being analyzed
-            db_path: Optional path to the database (defaults to .pf/repo_index.db)
-        """
+        """Initialize the orchestrator."""
         self.project_path = Path(project_path)
         self.db_path = Path(db_path) if db_path else self.project_path / ".pf" / "repo_index.db"
         self._debug = os.environ.get("THEAUDITOR_DEBUG", "").lower() == "true"
@@ -103,11 +91,7 @@ class RulesOrchestrator:
                 )
 
     def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
-        """Dynamically discover ALL rules in /rules directory.
-
-        Returns:
-            Dictionary mapping category name to list of RuleInfo objects
-        """
+        """Dynamically discover ALL rules in /rules directory."""
         rules_by_category = {}
 
         import theauditor.rules as rules_package
@@ -179,18 +163,7 @@ class RulesOrchestrator:
     def _analyze_rule(
         self, name: str, func: Callable, module_obj: Any, module_name: str, category: str
     ) -> RuleInfo:
-        """Analyze a rule function to determine its requirements.
-
-        Args:
-            name: Function name
-            func: The function object
-            module_obj: Imported module containing the rule
-            module_name: Module name string
-            category: Category name
-
-        Returns:
-            RuleInfo object with metadata about the rule
-        """
+        """Analyze a rule function to determine its requirements."""
         sig = inspect.signature(func)
         params = list(sig.parameters.keys())
         metadata = getattr(module_obj, "METADATA", None)
@@ -277,14 +250,7 @@ class RulesOrchestrator:
         )
 
     def run_all_rules(self, context: RuleContext | None = None) -> list[dict[str, Any]]:
-        """Execute ALL discovered rules with appropriate parameters.
-
-        Args:
-            context: Optional context with file, AST, database info
-
-        Returns:
-            List of findings from all rules
-        """
+        """Execute ALL discovered rules with appropriate parameters."""
         if context is None:
             context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
@@ -336,15 +302,7 @@ class RulesOrchestrator:
         return all_findings
 
     def _should_run_rule_on_file(self, rule_module: Any, file_path: Path) -> bool:
-        """Check if a rule should run on a specific file based on its METADATA.
-
-        Args:
-            rule_module: The imported rule module
-            file_path: Path to the file being analyzed
-
-        Returns:
-            True if rule should run on this file, False otherwise
-        """
+        """Check if a rule should run on a specific file based on its METADATA."""
         if not hasattr(rule_module, "METADATA"):
             return True
 
@@ -368,14 +326,7 @@ class RulesOrchestrator:
         )
 
     def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
-        """Run rules applicable to a specific file, WITH METADATA FILTERING.
-
-        Args:
-            context: Context with file information
-
-        Returns:
-            List of findings for this file
-        """
+        """Run rules applicable to a specific file, WITH METADATA FILTERING."""
         findings = []
 
         file_to_check = context.file_path
@@ -414,14 +365,7 @@ class RulesOrchestrator:
         return findings
 
     def get_rules_by_type(self, rule_type: str) -> list[RuleInfo]:
-        """Get all rules of a specific type.
-
-        Args:
-            rule_type: Type of rules to retrieve (standalone, discovery, taint-dependent)
-
-        Returns:
-            List of RuleInfo objects matching the type
-        """
+        """Get all rules of a specific type."""
         rules_of_type = []
         for _category, rules in self.rules.items():
             for rule in rules:
@@ -430,14 +374,7 @@ class RulesOrchestrator:
         return rules_of_type
 
     def run_discovery_rules(self, registry) -> list[dict[str, Any]]:
-        """Run all discovery rules that populate the taint registry.
-
-        Args:
-            registry: TaintRegistry to populate with discovered patterns
-
-        Returns:
-            List of findings from discovery rules
-        """
+        """Run all discovery rules that populate the taint registry."""
         context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
         findings = []
@@ -464,11 +401,7 @@ class RulesOrchestrator:
         return findings
 
     def run_standalone_rules(self) -> list[dict[str, Any]]:
-        """Run all standalone rules that don't need taint data.
-
-        Returns:
-            List of findings from standalone rules
-        """
+        """Run all standalone rules that don't need taint data."""
         context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
         findings = []
@@ -488,14 +421,7 @@ class RulesOrchestrator:
         return findings
 
     def run_taint_dependent_rules(self, taint_checker) -> list[dict[str, Any]]:
-        """Run all rules that depend on taint analysis results.
-
-        Args:
-            taint_checker: Function to check if a variable is tainted
-
-        Returns:
-            List of findings from taint-dependent rules
-        """
+        """Run all rules that depend on taint analysis results."""
         context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
         findings = []
@@ -518,15 +444,7 @@ class RulesOrchestrator:
         return findings
 
     def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> dict[str, Any]:
-        """Build keyword arguments for a rule based on its requirements.
-
-        Args:
-            rule: RuleInfo object
-            context: RuleContext with available data
-
-        Returns:
-            Dictionary of keyword arguments for the rule
-        """
+        """Build keyword arguments for a rule based on its requirements."""
         kwargs = {}
 
         for param_name in rule.param_names:
@@ -549,11 +467,7 @@ class RulesOrchestrator:
         return kwargs
 
     def run_database_rules(self) -> list[dict[str, Any]]:
-        """Run rules that operate on the database.
-
-        Returns:
-            List of findings from database rules
-        """
+        """Run rules that operate on the database."""
         context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
         findings = []
@@ -575,17 +489,7 @@ class RulesOrchestrator:
         return findings
 
     def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> list[dict[str, Any]]:
-        """Execute a single rule with appropriate parameters.
-
-        Now handles both standardized and legacy rules (Phase 1 dual-mode).
-
-        Args:
-            rule: RuleInfo object describing the rule
-            context: RuleContext with available data
-
-        Returns:
-            List of findings from the rule
-        """
+        """Execute a single rule with appropriate parameters."""
 
         if rule.is_standardized and STANDARD_CONTRACTS_AVAILABLE:
             try:
@@ -678,11 +582,7 @@ class RulesOrchestrator:
             return []
 
     def get_rule_stats(self) -> dict[str, Any]:
-        """Get statistics about discovered rules.
-
-        Returns:
-            Dictionary with rule statistics
-        """
+        """Get statistics about discovered rules."""
         stats = {
             "total_rules": sum(len(rules) for rules in self.rules.values()),
             "categories": list(self.rules.keys()),
@@ -703,17 +603,7 @@ class RulesOrchestrator:
         return stats
 
     def _create_taint_checker(self, context: RuleContext):
-        """Check taint using REAL taint analysis results.
-
-        This provides rules with a way to check if variables are tainted
-        using the main taint analyzer's cached results.
-
-        Args:
-            context: The rule execution context
-
-        Returns:
-            A function that checks if a variable is tainted
-        """
+        """Check taint using REAL taint analysis results."""
 
         if not hasattr(self, "_taint_results"):
             from theauditor.taint import TaintRegistry, trace_taint
@@ -725,15 +615,7 @@ class RulesOrchestrator:
                 print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
 
         def is_tainted(var_name: str, line: int) -> bool:
-            """Check if variable is in any taint path.
-
-            Args:
-                var_name: Name of the variable to check
-                line: Line number where the check is happening
-
-            Returns:
-                True if the variable is tainted, False otherwise
-            """
+            """Check if variable is in any taint path."""
             for path in self._taint_results.get("taint_paths", []):
                 source = path.get("source", {})
                 if (
@@ -748,22 +630,7 @@ class RulesOrchestrator:
         return is_tainted
 
     def collect_rule_patterns(self, registry):
-        """Collect and register all taint patterns from rules that define them.
-
-        ARCHITECTURAL FIX: Framework-Aware Pattern Collection
-        This method now FILTERS rules by detected frameworks before registering patterns.
-        Only runs Python rules if Python frameworks detected (Flask, Django, etc.),
-        only runs JavaScript rules if JavaScript frameworks detected (Express, React, etc.).
-
-        This prevents registry pollution (Python patterns matching JavaScript code) and
-        ensures taint analysis only uses relevant patterns for the project's languages.
-
-        Args:
-            registry: TaintRegistry instance to populate with patterns
-
-        Returns:
-            The populated registry
-        """
+        """Collect and register all taint patterns from rules that define them."""
 
         detected_languages = set()
         if self.db_path.exists():
@@ -839,14 +706,7 @@ class RulesOrchestrator:
         return registry
 
     def _get_taint_tracer(self):
-        """Get cached taint analysis results for rules to query.
-
-        This provides rules with access to the main taint analyzer's
-        results WITH JavaScript pattern support.
-
-        Returns:
-            A function that returns relevant taint paths
-        """
+        """Get cached taint analysis results for rules to query."""
         if self._taint_trace_func is None:
             from theauditor.taint import TaintRegistry, trace_taint
 
@@ -863,17 +723,7 @@ class RulesOrchestrator:
                 source_line: int,
                 source_function: str = "unknown",
             ):
-                """Return cached taint paths relevant to location.
-
-                Args:
-                    source_var: The variable to trace
-                    source_file: File containing the variable
-                    source_line: Line where the variable is defined
-                    source_function: Function containing the variable (optional)
-
-                Returns:
-                    List of relevant taint paths from cached results
-                """
+                """Return cached taint paths relevant to location."""
                 relevant_paths = []
                 for path in self._taint_results.get("taint_paths", []):
                     source = path.get("source", {})
@@ -894,15 +744,7 @@ class RulesOrchestrator:
 
 
 def run_all_rules(project_path: str, db_path: str = None) -> list[dict[str, Any]]:
-    """Run all rules for a project.
-
-    Args:
-        project_path: Root path of the project
-        db_path: Optional database path (defaults to .pf/repo_index.db)
-
-    Returns:
-        List of all findings
-    """
+    """Run all rules for a project."""
     orchestrator = RulesOrchestrator(Path(project_path))
 
     context = RuleContext(

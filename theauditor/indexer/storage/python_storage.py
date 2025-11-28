@@ -1,24 +1,4 @@
-"""Python storage handlers for framework-specific patterns.
-
-This module contains handlers for Python frameworks and patterns:
-- ORM: sqlalchemy, django models, fields
-- HTTP: flask routes, django views
-- Validation: pydantic validators
-- Decorators: general Python decorators
-- Django: views, middleware
-- Consolidated tables: loops, branches, security, testing, etc.
-- Expression decomposition: comprehensions, control_statements
-
-HISTORY:
-- 2025-11-25: Reduced from 148 handlers to 7 (consolidate-python-orphan-tables)
-- 2025-11-25: Added 20 handlers for consolidated tables (wire-extractors-to-consolidated-schema)
-- 2025-11-26: Added 2 handlers for expression decomposition (Phase 2 Fidelity Control)
-
-Note: python_package_configs is stored via generic_batches in python_database.py,
-not here - that's why we have 7 original handlers for 8 Python tables.
-
-Handler Count: 29 (7 original + 20 consolidated + 2 decomposed)
-"""
+"""Python storage handlers for framework-specific patterns."""
 
 import json
 
@@ -182,10 +162,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_django_middleware"] += 1
 
     def _store_python_loops(self, file_path: str, python_loops: list, jsx_pass: bool):
-        """Store Python loops (for/while/async_for/complexity_analysis).
-
-        Uses two-discriminator pattern: loop_kind (table) + loop_type (extractor subtype).
-        """
+        """Store Python loops (for/while/async_for/complexity_analysis)."""
         for loop in python_loops:
             self.db_manager.add_python_loop(
                 file_path,
@@ -205,10 +182,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_loops"] += 1
 
     def _store_python_branches(self, file_path: str, python_branches: list, jsx_pass: bool):
-        """Store Python branches (if/match/raise/except/finally).
-
-        Uses two-discriminator pattern: branch_kind (table) + branch_type (extractor subtype).
-        """
+        """Store Python branches (if/match/raise/except/finally)."""
         for branch in python_branches:
             pattern_types = branch.get("pattern_types")
             if isinstance(pattern_types, list):
@@ -253,10 +227,7 @@ class PythonStorage(BaseStorage):
     def _store_python_functions_advanced(
         self, file_path: str, python_functions_advanced: list, jsx_pass: bool
     ):
-        """Store advanced Python function patterns (generator/async/lambda/context_manager/recursive/memoized).
-
-        Uses two-discriminator pattern: function_kind (table) + function_type (extractor subtype).
-        """
+        """Store advanced Python function patterns (generator/async/lambda/context_manager/recursive/memoized)."""
         for func in python_functions_advanced:
             parameters = func.get("parameters")
             if isinstance(parameters, list):
@@ -306,10 +277,7 @@ class PythonStorage(BaseStorage):
     def _store_python_io_operations(
         self, file_path: str, python_io_operations: list, jsx_pass: bool
     ):
-        """Store Python I/O operations (file/network/database/process/param_flow/closure/nonlocal/conditional).
-
-        Uses two-discriminator pattern: io_kind (table) + io_type (extractor subtype).
-        """
+        """Store Python I/O operations (file/network/database/process/param_flow/closure/nonlocal/conditional)."""
         for io_op in python_io_operations:
             self.db_manager.add_python_io_operation(
                 file_path,
@@ -333,10 +301,7 @@ class PythonStorage(BaseStorage):
     def _store_python_state_mutations(
         self, file_path: str, python_state_mutations: list, jsx_pass: bool
     ):
-        """Store Python state mutations (instance/class/global/argument/augmented).
-
-        Uses two-discriminator pattern: mutation_kind (table) + mutation_type (extractor subtype).
-        """
+        """Store Python state mutations (instance/class/global/argument/augmented)."""
         for mutation in python_state_mutations:
             self.db_manager.add_python_state_mutation(
                 file_path,
@@ -359,10 +324,7 @@ class PythonStorage(BaseStorage):
     def _store_python_class_features(
         self, file_path: str, python_class_features: list, jsx_pass: bool
     ):
-        """Store Python class features (metaclass/slots/abstract/dataclass/enum/etc).
-
-        Two-discriminator pattern: feature_kind (table discriminator) + feature_type (extractor subtype preserved)
-        """
+        """Store Python class features (metaclass/slots/abstract/dataclass/enum/etc)."""
         for feature in python_class_features:
             self.db_manager.add_python_class_feature(
                 file_path,
@@ -395,12 +357,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_class_features"] += 1
 
     def _store_python_protocols(self, file_path: str, python_protocols: list, jsx_pass: bool):
-        """Store Python protocol implementations with junction table for methods.
-
-        CRITICAL: Uses parent ID return pattern for junction table FK.
-        1. Insert parent -> get protocol_id
-        2. Insert each method into python_protocol_methods with protocol_id FK
-        """
+        """Store Python protocol implementations with junction table for methods."""
         for protocol in python_protocols:
             protocol_id = self.db_manager.add_python_protocol(
                 file_path,
@@ -457,10 +414,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_protocols"] += 1
 
     def _store_python_descriptors(self, file_path: str, python_descriptors: list, jsx_pass: bool):
-        """Store Python descriptors (property/cached_property/dynamic_attr/etc).
-
-        Two-discriminator pattern: descriptor_kind (table discriminator) + descriptor_type (extractor subtype preserved)
-        """
+        """Store Python descriptors (property/cached_property/dynamic_attr/etc)."""
         for desc in python_descriptors:
             self.db_manager.add_python_descriptor(
                 file_path,
@@ -488,12 +442,7 @@ class PythonStorage(BaseStorage):
     def _store_python_type_definitions(
         self, file_path: str, python_type_definitions: list, jsx_pass: bool
     ):
-        """Store Python type definitions with junction table for TypedDict fields.
-
-        CRITICAL: Uses parent ID return pattern for junction table FK.
-        1. Insert parent -> get typeddict_id
-        2. If type_kind='typed_dict', insert fields into python_typeddict_fields
-        """
+        """Store Python type definitions with junction table for TypedDict fields."""
         for typedef in python_type_definitions:
             type_params = typedef.get("type_params") or []
             if isinstance(type_params, str):
@@ -579,10 +528,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_type_definitions"] += 1
 
     def _store_python_literals(self, file_path: str, python_literals: list, jsx_pass: bool):
-        """Store Python Literal/Overload types.
-
-        Two-discriminator pattern: literal_kind (table discriminator) + literal_type (extractor subtype preserved)
-        """
+        """Store Python Literal/Overload types."""
         for lit in python_literals:
             literal_values = lit.get("literal_values") or lit.get("values") or []
             if isinstance(literal_values, str):
@@ -628,12 +574,7 @@ class PythonStorage(BaseStorage):
     def _store_python_security_findings(
         self, file_path: str, python_security_findings: list, jsx_pass: bool
     ):
-        """Store Python security findings (sql_injection/command_injection/etc).
-
-        Two-discriminator pattern:
-        - finding_kind: Table discriminator (auth/command_injection/crypto/dangerous_eval/jwt/password/path_traversal/sql_injection)
-        - finding_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python security findings (sql_injection/command_injection/etc)."""
         for finding in python_security_findings:
             finding_kind = finding.get("finding_kind") or finding.get("finding_type", "unknown")
             self.db_manager.add_python_security_finding(
@@ -655,12 +596,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_security_findings"] += 1
 
     def _store_python_test_cases(self, file_path: str, python_test_cases: list, jsx_pass: bool):
-        """Store Python test cases (unittest/pytest/assertion).
-
-        Two-discriminator pattern:
-        - test_kind: Table discriminator (unittest/assertion)
-        - test_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python test cases (unittest/pytest/assertion)."""
         for test in python_test_cases:
             test_kind = test.get("test_kind") or test.get("test_type", "unknown")
             self.db_manager.add_python_test_case(
@@ -681,14 +617,7 @@ class PythonStorage(BaseStorage):
     def _store_python_test_fixtures(
         self, file_path: str, python_test_fixtures: list, jsx_pass: bool
     ):
-        """Store Python test fixtures (fixture/parametrize/marker/mock/etc).
-
-        Two-discriminator pattern:
-        - fixture_kind: Table discriminator (fixture/parametrize/marker/mock/plugin_hook/hypothesis)
-        - fixture_type: Extractor's subtype (preserved from extractor)
-
-        Junction table: python_fixture_params for params array
-        """
+        """Store Python test fixtures (fixture/parametrize/marker/mock/etc)."""
         for fixture in python_test_fixtures:
             fixture_kind = fixture.get("fixture_kind") or fixture.get("fixture_type", "unknown")
 
@@ -725,14 +654,7 @@ class PythonStorage(BaseStorage):
     def _store_python_framework_config(
         self, file_path: str, python_framework_config: list, jsx_pass: bool
     ):
-        """Store Python framework configurations (flask/celery/django).
-
-        Two-discriminator pattern:
-        - config_kind: Table discriminator (app/extension/hook/error_handler/task/signal/admin/form/middleware/blueprint/resolver)
-        - config_type: Extractor's subtype (preserved from extractor)
-
-        Junction table: python_framework_methods for methods array
-        """
+        """Store Python framework configurations (flask/celery/django)."""
         for config in python_framework_config:
             config_kind = config.get("config_kind") or config.get("config_type", "unknown")
 
@@ -775,14 +697,7 @@ class PythonStorage(BaseStorage):
     def _store_python_validation_schemas(
         self, file_path: str, python_validation_schemas: list, jsx_pass: bool
     ):
-        """Store Python validation schemas (marshmallow/drf/wtforms).
-
-        Two-discriminator pattern:
-        - schema_kind: Table discriminator (schema/field/serializer/form)
-        - schema_type: Extractor's subtype (preserved from extractor)
-
-        Junction table: python_schema_validators for validators array
-        """
+        """Store Python validation schemas (marshmallow/drf/wtforms)."""
         for schema in python_validation_schemas:
             schema_kind = schema.get("schema_kind") or schema.get("schema_type", "unknown")
 
@@ -818,12 +733,7 @@ class PythonStorage(BaseStorage):
                         self.counts["python_schema_validators"] += 1
 
     def _store_python_operators(self, file_path: str, python_operators: list, jsx_pass: bool):
-        """Store Python operators (binary/unary/membership/chained/ternary/walrus/matmul).
-
-        Two-discriminator pattern:
-        - operator_kind: Table discriminator (binary/unary/membership/chained/ternary/walrus/matmul)
-        - operator_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python operators (binary/unary/membership/chained/ternary/walrus/matmul)."""
         for op in python_operators:
             operator_kind = op.get("operator_kind") or op.get("operator_type", "unknown")
             self.db_manager.add_python_operator(
@@ -845,12 +755,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_operators"] += 1
 
     def _store_python_collections(self, file_path: str, python_collections: list, jsx_pass: bool):
-        """Store Python collection operations (dict/list/set/string/builtin).
-
-        Two-discriminator pattern:
-        - collection_kind: Table discriminator (dict/list/set/string/builtin)
-        - collection_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python collection operations (dict/list/set/string/builtin)."""
         for coll in python_collections:
             collection_kind = coll.get("collection_kind") or coll.get("collection_type", "unknown")
             self.db_manager.add_python_collection(
@@ -871,12 +776,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_collections"] += 1
 
     def _store_python_stdlib_usage(self, file_path: str, python_stdlib_usage: list, jsx_pass: bool):
-        """Store Python stdlib usage (re/json/datetime/pathlib/logging/threading/etc).
-
-        Two-discriminator pattern:
-        - stdlib_kind: Table discriminator (re/json/pathlib/logging/threading/contextlib/etc)
-        - usage_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python stdlib usage (re/json/datetime/pathlib/logging/threading/etc)."""
         for usage in python_stdlib_usage:
             stdlib_kind = usage.get("stdlib_kind") or usage.get("module", "unknown")
             self.db_manager.add_python_stdlib_usage(
@@ -903,12 +803,7 @@ class PythonStorage(BaseStorage):
     def _store_python_imports_advanced(
         self, file_path: str, python_imports_advanced: list, jsx_pass: bool
     ):
-        """Store advanced Python import patterns (static/dynamic/namespace/module_attr/export).
-
-        Two-discriminator pattern:
-        - import_kind: Table discriminator (static/dynamic/namespace/module_attr/export)
-        - import_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store advanced Python import patterns (static/dynamic/namespace/module_attr/export)."""
         for imp in python_imports_advanced:
             import_kind = imp.get("import_kind") or imp.get("import_type", "unknown")
             self.db_manager.add_python_import_advanced(
@@ -934,12 +829,7 @@ class PythonStorage(BaseStorage):
             self.counts["python_imports_advanced"] += 1
 
     def _store_python_expressions(self, file_path: str, python_expressions: list, jsx_pass: bool):
-        """Store Python expression patterns (slice/tuple/unpack/none/truthiness/format/etc).
-
-        Two-discriminator pattern:
-        - expression_kind: Table discriminator (slice/tuple/unpack/none/truthiness/format/ellipsis/bytes/exec/yield/await/resource)
-        - expression_type: Extractor's subtype (preserved from extractor)
-        """
+        """Store Python expression patterns (slice/tuple/unpack/none/truthiness/format/etc)."""
         for expr in python_expressions:
             expression_kind = expr.get("expression_kind") or expr.get("expression_type", "unknown")
             self.db_manager.add_python_expression(
@@ -981,11 +871,7 @@ class PythonStorage(BaseStorage):
     def _store_python_comprehensions(
         self, file_path: str, python_comprehensions: list, jsx_pass: bool
     ):
-        """Store Python comprehensions (list/dict/set/generator).
-
-        Split from python_expressions to reduce NULL sparsity.
-        Uses two-discriminator pattern: comp_kind (table) + comp_type (extractor subtype).
-        """
+        """Store Python comprehensions (list/dict/set/generator)."""
         for comp in python_comprehensions:
             self.db_manager.add_python_comprehension(
                 file_path,
@@ -1007,11 +893,7 @@ class PythonStorage(BaseStorage):
     def _store_python_control_statements(
         self, file_path: str, python_control_statements: list, jsx_pass: bool
     ):
-        """Store Python control statements (break/continue/pass/assert/del/with).
-
-        Split from python_expressions to reduce NULL sparsity.
-        Uses two-discriminator pattern: statement_kind (table) + statement_type (extractor subtype).
-        """
+        """Store Python control statements (break/continue/pass/assert/del/with)."""
         for stmt in python_control_statements:
             self.db_manager.add_python_control_statement(
                 file_path,

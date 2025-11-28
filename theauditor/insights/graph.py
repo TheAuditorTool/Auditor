@@ -1,25 +1,11 @@
-"""Graph insights module - OPTIONAL interpretive analysis for dependency graphs.
-
-This module provides interpretive metrics like health scores, recommendations,
-and weighted rankings. It's completely optional and decoupled from core graph
-analysis - similar to how ml.py works.
-
-IMPORTANT: This module performs interpretation and scoring, which goes beyond
-pure data extraction. It's designed for teams that want actionable insights
-and are willing to accept some subjective analysis.
-"""
+"""Graph insights module - OPTIONAL interpretive analysis for dependency graphs."""
 
 from collections import defaultdict
 from typing import Any
 
 
 class GraphInsights:
-    """Optional graph interpretation and scoring.
-
-    This class provides subjective metrics and recommendations based on
-    graph topology. All methods here involve interpretation and scoring,
-    not just raw data extraction.
-    """
+    """Optional graph interpretation and scoring."""
 
     DEFAULT_WEIGHTS = {
         "in_degree": 0.3,
@@ -30,30 +16,13 @@ class GraphInsights:
     }
 
     def __init__(self, weights: dict[str, float] | None = None):
-        """
-        Initialize insights analyzer with optional weight configuration.
-
-        Args:
-            weights: Custom weights for hotspot scoring
-        """
+        """Initialize insights analyzer with optional weight configuration."""
         self.weights = weights or self.DEFAULT_WEIGHTS
 
     def rank_hotspots(
         self, import_graph: dict[str, Any], call_graph: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """
-        Rank nodes by their importance as hotspots using weighted scoring.
-
-        This is an INTERPRETIVE method that assigns subjective importance
-        scores based on configurable weights.
-
-        Args:
-            import_graph: Import/dependency graph
-            call_graph: Optional call graph for additional signals
-
-        Returns:
-            List of hotspot nodes sorted by interpreted score
-        """
+        """Rank nodes by their importance as hotspots using weighted scoring."""
 
         in_degree = defaultdict(int)
         out_degree = defaultdict(int)
@@ -104,18 +73,7 @@ class GraphInsights:
         return hotspots
 
     def _calculate_centrality(self, graph: dict[str, Any]) -> dict[str, float]:
-        """
-        Calculate centrality scores using PageRank-like algorithm.
-
-        This is an INTERPRETIVE scoring algorithm that assigns importance
-        based on graph topology.
-
-        Args:
-            graph: Graph with nodes and edges
-
-        Returns:
-            Dict mapping node IDs to centrality scores [0, 1]
-        """
+        """Calculate centrality scores using PageRank-like algorithm."""
 
         adj = defaultdict(list)
         nodes = set()
@@ -154,22 +112,7 @@ class GraphInsights:
         hotspots: list[dict] | None = None,
         layers: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
-        """
-        Calculate interpreted health metrics and grades.
-
-        This method provides SUBJECTIVE health scoring based on
-        architectural best practices. The scoring is opinionated
-        and may not apply to all codebases.
-
-        Args:
-            import_graph: Import/dependency graph
-            cycles: Pre-computed cycles (optional)
-            hotspots: Pre-computed hotspots (optional)
-            layers: Pre-computed layers (optional)
-
-        Returns:
-            Dict with health scores, grades, and metrics
-        """
+        """Calculate interpreted health metrics and grades."""
 
         nodes_count = len(import_graph.get("nodes", []))
         edges_count = len(import_graph.get("edges", []))
@@ -231,21 +174,7 @@ class GraphInsights:
         hotspots: list[dict] | None = None,
         layers: dict[str, list[str]] | None = None,
     ) -> list[str]:
-        """
-        Generate actionable recommendations based on graph analysis.
-
-        These are OPINIONATED suggestions based on common architectural
-        best practices. They may not apply to all projects.
-
-        Args:
-            import_graph: Import/dependency graph
-            cycles: Pre-computed cycles (optional)
-            hotspots: Pre-computed hotspots (optional)
-            layers: Pre-computed layers (optional)
-
-        Returns:
-            List of recommendation strings
-        """
+        """Generate actionable recommendations based on graph analysis."""
         recommendations = []
 
         nodes_count = len(import_graph.get("nodes", []))
@@ -282,22 +211,7 @@ class GraphInsights:
         cycles: list[dict] | None = None,
         hotspots: list[dict] | None = None,
     ) -> dict[str, Any]:
-        """
-        Generate comprehensive INTERPRETED summary of graph analysis.
-
-        This method combines objective metrics with subjective scoring
-        and recommendations. It's designed for teams that want actionable
-        insights beyond raw data.
-
-        Args:
-            import_graph: Import/dependency graph
-            call_graph: Optional call graph
-            cycles: Pre-computed cycles (optional)
-            hotspots: Pre-computed hotspots (optional)
-
-        Returns:
-            Summary dict with metrics, health scores, and recommendations
-        """
+        """Generate comprehensive INTERPRETED summary of graph analysis."""
         from theauditor.graph.analyzer import XGraphAnalyzer
 
         analyzer = XGraphAnalyzer()
@@ -356,18 +270,7 @@ class GraphInsights:
         return summary
 
     def interpret_graph_summary(self, graph_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Add interpretive labels to graph summary data.
-
-        This method adds subjective interpretations to raw graph statistics,
-        such as coupling levels and architectural insights.
-
-        Args:
-            graph_data: Raw graph summary from analyzer
-
-        Returns:
-            Enhanced summary with interpretive insights
-        """
+        """Add interpretive labels to graph summary data."""
 
         stats = graph_data.get("statistics", {})
         density = stats.get("graph_density", 0)
@@ -389,20 +292,7 @@ class GraphInsights:
         all_impacted: set[str],
         total_nodes: int,
     ) -> float:
-        """
-        Calculate interpreted impact ratio for change analysis.
-
-        This is a SUBJECTIVE metric that interprets the scope of impact
-        as a ratio of total system size.
-
-        Args:
-            targets: Original target nodes
-            all_impacted: All impacted nodes (targets + upstream + downstream)
-            total_nodes: Total number of nodes in graph
-
-        Returns:
-            Impact ratio [0, 1]
-        """
+        """Calculate interpreted impact ratio for change analysis."""
         if total_nodes == 0:
             return 0.0
 
@@ -415,13 +305,5 @@ def check_insights_available() -> bool:
 
 
 def create_insights(weights: dict[str, float] | None = None) -> GraphInsights:
-    """
-    Factory function to create GraphInsights instance.
-
-    Args:
-        weights: Optional custom weights for scoring
-
-    Returns:
-        GraphInsights instance
-    """
+    """Factory function to create GraphInsights instance."""
     return GraphInsights(weights)

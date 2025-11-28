@@ -1,17 +1,4 @@
-"""Detect excessive dependencies (dependency bloat).
-
-Too many dependencies increase security surface area, build times, and
-maintenance burden. This rule flags projects with excessive direct
-dependencies.
-
-Detection Strategy:
-1. Query package_configs and count dependencies
-2. Compare against DependencyThresholds from config.py
-3. Flag if counts exceed thresholds
-
-Database Tables Used:
-- package_configs: Dependency declarations
-"""
+"""Detect excessive dependencies (dependency bloat)."""
 
 import json
 import sqlite3
@@ -31,14 +18,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect excessive dependency counts in package files.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for dependency bloat
-    """
+    """Detect excessive dependency counts in package files."""
     findings = []
 
     if not context.db_path:

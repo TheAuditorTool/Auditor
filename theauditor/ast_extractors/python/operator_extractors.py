@@ -1,43 +1,4 @@
-"""Operator and expression extractors - All operator types and advanced expressions.
-
-This module contains extraction logic for operators and expressions:
-- All operator types (arithmetic, comparison, logical, bitwise, membership)
-- Chained comparisons (1 < x < 10)
-- Ternary expressions (x if y else z)
-- Walrus operators (:= assignments)
-- Matrix multiplication (@)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with pattern-specific keys
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-Week 2 Implementation (Python Coverage V2):
-============================================
-Implements 15 operator and expression patterns:
-- Binary operators: +, -, *, /, //, %, **, @
-- Comparison operators: <, >, <=, >=, ==, !=, is, is not
-- Logical operators: and, or, not
-- Bitwise operators: &, |, ^, ~, <<, >>
-- Membership tests: in, not in
-- Chained comparisons: 1 < x < 10
-- Ternary expressions: x if condition else y
-- Walrus operators: x := expression
-
-Expected extraction from TheAuditor codebase:
-- ~500 binary operators
-- ~300 comparison operators
-- ~200 logical operators
-- ~50 bitwise operators
-- ~100 membership tests
-- ~30 chained comparisons
-- ~50 ternary expressions
-- ~20 walrus operators
-Total: ~1,250 operator pattern records
-"""
+"""Operator and expression extractors - All operator types and advanced expressions."""
 
 import ast
 import logging
@@ -76,28 +37,7 @@ def _get_node_text(node: ast.AST) -> str:
 
 
 def extract_operators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract all operator usage (arithmetic, comparison, logical, bitwise).
-
-    Detects:
-    - Arithmetic: +, -, *, /, //, %, **
-    - Comparison: <, >, <=, >=, ==, !=
-    - Logical: and, or, not
-    - Bitwise: &, |, ^, ~, <<, >>
-    - Matrix multiplication: @
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of operator dicts:
-        {
-            'line': int,
-            'operator_type': str,  # 'arithmetic' | 'comparison' | 'logical' | 'bitwise' | 'unary'
-            'operator': str,  # The actual operator symbol
-            'in_function': str,
-        }
-    """
+    """Extract all operator usage (arithmetic, comparison, logical, bitwise)."""
     operators = []
 
     if not isinstance(context.tree, ast.AST):
@@ -149,25 +89,7 @@ def extract_operators(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_membership_tests(context: FileContext) -> list[dict[str, Any]]:
-    """Extract membership testing (in/not in) operations.
-
-    Detects:
-    - in operator: x in list
-    - not in operator: y not in dict
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of membership test dicts:
-        {
-            'line': int,
-            'operator': str,  # 'in' | 'not in'
-            'container_type': str,  # Inferred type if possible
-            'in_function': str,
-        }
-    """
+    """Extract membership testing (in/not in) operations."""
     membership_tests = []
 
     if not isinstance(context.tree, ast.AST):
@@ -190,25 +112,7 @@ def extract_membership_tests(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_chained_comparisons(context: FileContext) -> list[dict[str, Any]]:
-    """Extract chained comparison operations (1 < x < 10).
-
-    Detects:
-    - Chained comparisons: 1 < x < 10
-    - Multiple operators: a <= b <= c
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of chained comparison dicts:
-        {
-            'line': int,
-            'chain_length': int,  # Number of comparisons
-            'operators': List[str],  # List of operators in chain
-            'in_function': str,
-        }
-    """
+    """Extract chained comparison operations (1 < x < 10)."""
     chained_comparisons = []
 
     if not isinstance(context.tree, ast.AST):
@@ -241,23 +145,7 @@ def extract_chained_comparisons(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_ternary_expressions(context: FileContext) -> list[dict[str, Any]]:
-    """Extract ternary expressions (x if condition else y).
-
-    Detects:
-    - Conditional expressions: x if y else z
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of ternary expression dicts:
-        {
-            'line': int,
-            'has_complex_condition': bool,  # True if condition is not simple variable
-            'in_function': str,
-        }
-    """
+    """Extract ternary expressions (x if condition else y)."""
     ternary_expressions = []
 
     if not isinstance(context.tree, ast.AST):
@@ -279,25 +167,7 @@ def extract_ternary_expressions(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_walrus_operators(context: FileContext) -> list[dict[str, Any]]:
-    """Extract walrus operator usage (:= assignment expressions).
-
-    Detects:
-    - Assignment expressions: (x := value)
-    - Common in if statements: if (n := len(items)) > 0
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of walrus operator dicts:
-        {
-            'line': int,
-            'variable': str,  # Variable being assigned
-            'used_in': str,  # 'if' | 'while' | 'comprehension' | 'expression'
-            'in_function': str,
-        }
-    """
+    """Extract walrus operator usage (:= assignment expressions)."""
     walrus_operators = []
 
     if not isinstance(context.tree, ast.AST):
@@ -333,22 +203,7 @@ def extract_walrus_operators(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_matrix_multiplication(context: FileContext) -> list[dict[str, Any]]:
-    """Extract matrix multiplication operator (@) usage.
-
-    Detects:
-    - Matrix multiplication: A @ B
-
-    Args:
-        tree: AST tree dictionary
-        parser_self: Parser instance (unused)
-
-    Returns:
-        List of matrix multiplication dicts:
-        {
-            'line': int,
-            'in_function': str,
-        }
-    """
+    """Extract matrix multiplication operator (@) usage."""
     matrix_mult = []
 
     if not isinstance(context.tree, ast.AST):

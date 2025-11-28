@@ -1,17 +1,4 @@
-"""Detect unpinned dependency versions in production code.
-
-Unpinned versions (using ^, ~, *, etc.) can lead to non-reproducible builds
-and unexpected breaking changes. Production dependencies should use exact
-versions or lock files.
-
-Detection Strategy:
-1. Query package_configs for production dependencies
-2. Check versions for range prefixes (^, ~, >, etc.)
-3. Flag unpinned versions with appropriate severity
-
-Database Tables Used:
-- package_configs: Dependency version specifications
-"""
+"""Detect unpinned dependency versions in production code."""
 
 import json
 import sqlite3
@@ -31,14 +18,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect unpinned version ranges in production dependencies.
-
-    Args:
-        context: Rule execution context with db_path
-
-    Returns:
-        List of findings for unpinned versions
-    """
+    """Detect unpinned version ranges in production dependencies."""
     findings = []
 
     if not context.db_path:

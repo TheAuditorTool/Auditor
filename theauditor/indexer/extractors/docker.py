@@ -1,11 +1,4 @@
-"""Docker file extractor - Database-First Architecture.
-
-Extracts facts from Dockerfiles directly to database.
-NO security checks (that's what rules do).
-NO separate parser class (inline parsing).
-
-Follows gold standard: Facts only, direct DB writes, no intermediate dicts.
-"""
+"""Docker file extractor - Database-First Architecture."""
 
 from pathlib import Path
 from typing import Any
@@ -14,35 +7,14 @@ from . import BaseExtractor
 
 
 class DockerExtractor(BaseExtractor):
-    """Extractor for Dockerfile files.
-
-    Extracts FACTS ONLY:
-    - Base image
-    - Environment variables
-    - Build arguments
-    - User instruction
-    - Healthcheck presence
-    - Exposed ports
-
-    Security checks are performed by rules/deployment/docker_analyze.py.
-    """
+    """Extractor for Dockerfile files."""
 
     def supported_extensions(self) -> list[str]:
-        """Return list of file extensions this extractor supports.
-
-        Note: Dockerfiles don't have extensions, we match by filename.
-        """
+        """Return list of file extensions this extractor supports."""
         return []
 
     def should_extract(self, file_path: str) -> bool:
-        """Check if this extractor should handle the file.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            True if this is a Dockerfile
-        """
+        """Check if this extractor should handle the file."""
         file_name_lower = Path(file_path).name.lower()
         dockerfile_patterns = [
             "dockerfile",
@@ -56,19 +28,7 @@ class DockerExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract facts from Dockerfile directly to database.
-
-        Uses external dockerfile-parse library for parsing.
-        Extracts to docker_images table via self.db_manager.
-
-        Args:
-            file_info: File metadata dictionary
-            content: File content
-            tree: Optional pre-parsed AST tree (not used for Docker)
-
-        Returns:
-            Minimal dict for indexer compatibility
-        """
+        """Extract facts from Dockerfile directly to database."""
 
         try:
             from dockerfile_parse import DockerfileParser as DFParser
@@ -125,7 +85,6 @@ class DockerExtractor(BaseExtractor):
 
             file_path_str = str(file_info["path"])
 
-            # Parent table (metadata only - data goes to junction tables)
             self.db_manager.add_docker_image(
                 file_path=file_path_str,
                 base_image=base_image,
@@ -133,7 +92,6 @@ class DockerExtractor(BaseExtractor):
                 has_healthcheck=has_healthcheck,
             )
 
-            # Junction table: ports (deduplicate to avoid UNIQUE constraint violation)
             seen_ports: set[tuple[int, str]] = set()
             for port_str in exposed_ports:
                 port_str = str(port_str)
@@ -151,12 +109,11 @@ class DockerExtractor(BaseExtractor):
                             protocol=protocol,
                         )
                 except ValueError:
-                    pass  # Skip invalid port numbers
+                    pass
 
-            # Junction table: env vars
             for var_name, var_value in env_vars.items():
                 if var_name == "_DOCKER_USER":
-                    continue  # Skip internal marker
+                    continue
                 self.db_manager.add_dockerfile_env_var(
                     file_path=file_path_str,
                     var_name=var_name,
@@ -164,7 +121,6 @@ class DockerExtractor(BaseExtractor):
                     is_build_arg=False,
                 )
 
-            # Junction table: build args
             for arg_name, arg_value in build_args.items():
                 self.db_manager.add_dockerfile_env_var(
                     file_path=file_path_str,

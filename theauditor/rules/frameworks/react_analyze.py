@@ -1,14 +1,4 @@
-"""React Framework Security Analyzer - Database-First Approach.
-
-Analyzes React applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-"""
+"""React Framework Security Analyzer - Database-First Approach."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -113,26 +103,7 @@ class ReactPatterns:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React security vulnerabilities.
-
-    Analyzes database for:
-    - dangerouslySetInnerHTML usage without sanitization
-    - Exposed API keys in frontend code
-    - eval() with JSX content
-    - Unsafe target="_blank" links
-    - Direct innerHTML manipulation
-    - Hardcoded credentials
-    - Insecure client-side storage
-    - Missing input validation
-    - useEffect without cleanup
-    - Unprotected routes
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of StandardFinding objects for detected issues
-    """
+    """Detect React security vulnerabilities."""
     analyzer = ReactAnalyzer(context)
     return analyzer.analyze()
 
@@ -900,14 +871,7 @@ REACT_STORAGE_SINKS = frozenset(
 
 
 def register_taint_patterns(taint_registry):
-    """Register React-specific taint patterns.
-
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register React-specific taint patterns."""
 
     for pattern in REACT_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "javascript")

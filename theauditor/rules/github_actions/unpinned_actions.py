@@ -1,15 +1,4 @@
-"""GitHub Actions Unpinned Actions with Secrets Detection.
-
-Detects supply chain risk where third-party actions are pinned to mutable
-references (main, v1, develop) while having access to repository secrets.
-
-Attack Pattern:
-1. Action pinned to mutable ref like @main or @v1
-2. Step has access to secrets (via env, with, or secrets: inherit)
-3. Upstream maintainer compromise = instant secret theft
-
-CWE-829: Inclusion of Functionality from Untrusted Control Sphere
-"""
+"""GitHub Actions Unpinned Actions with Secrets Detection."""
 
 import json
 import logging
@@ -62,20 +51,7 @@ GITHUB_FIRST_PARTY: set[str] = {
 
 
 def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect unpinned third-party actions with secret access.
-
-    Detection Logic:
-    1. Find steps using third-party actions (not github first-party)
-    2. Check if action version is mutable (main, v1, etc.)
-    3. Check if step has access to secrets (env, with, job secrets)
-    4. Report high-severity finding for supply chain risk
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect unpinned third-party actions with secret access."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -134,18 +110,7 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[Stan
 def _check_secret_access(
     step_id: str, step_env: str, step_with: str, job_id: str, cursor
 ) -> list[str]:
-    """Check if step has access to secrets.
-
-    Args:
-        step_id: Step identifier
-        step_env: JSON string of step env vars
-        step_with: JSON string of step with args
-        job_id: Parent job identifier
-        cursor: Database cursor
-
-    Returns:
-        List of secret reference paths found (empty if no secrets)
-    """
+    """Check if step has access to secrets."""
     secret_refs = []
 
     if step_env:
@@ -190,19 +155,7 @@ def _build_unpinned_action_finding(
     uses_version: str,
     secret_refs: list[str],
 ) -> StandardFinding:
-    """Build finding for unpinned action vulnerability.
-
-    Args:
-        workflow_path: Path to workflow file
-        job_key: Job key
-        step_name: Step display name
-        uses_action: Action reference (org/repo)
-        uses_version: Mutable version tag
-        secret_refs: List of secret reference paths
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for unpinned action vulnerability."""
 
     is_external_org = "/" in uses_action and not uses_action.startswith("actions/")
     secret_count = len(secret_refs)

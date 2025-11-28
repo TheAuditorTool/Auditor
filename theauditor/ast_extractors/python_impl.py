@@ -1,24 +1,4 @@
-"""Python extraction delegation layer.
-
-This module acts as the central coordinator for all Python extraction,
-delegating to specialized extractors and merging their results.
-
-ARCHITECTURAL ROLE
-==================
-This is the SINGLE delegation point between:
-- python.py (the thin wrapper that builds FileContext)
-- ast_extractors/python/* (the specialized extractors)
-
-All extraction logic flows through this file, which:
-1. Receives a FileContext from python.py
-2. Delegates to all appropriate extractors
-3. Merges and returns the unified result
-
-This separation ensures:
-- python.py remains a thin wrapper (~150 lines)
-- Extraction logic is properly modularized
-- No duplicate extraction code
-"""
+"""Python extraction delegation layer."""
 
 from typing import Any
 
@@ -55,18 +35,7 @@ from theauditor.ast_extractors.python.utils.context import FileContext
 
 
 def extract_all_python_data(context: FileContext) -> dict[str, Any]:
-    """Extract all Python data by delegating to specialized extractors.
-
-    This is the main entry point for Python extraction. It coordinates
-    all specialized extractors and merges their results into a unified
-    dictionary that matches the database schema.
-
-    Args:
-        context: FileContext containing AST tree and optimized node index
-
-    Returns:
-        Dictionary containing all extracted data, organized by table name
-    """
+    """Extract all Python data by delegating to specialized extractors."""
 
     # print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
 

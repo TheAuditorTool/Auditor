@@ -1,13 +1,4 @@
-"""Model training, evaluation, and persistence.
-
-Handles:
-- Schema contract validation
-- ML availability checking
-- Feature matrix construction (50+ features)
-- Label vector construction (root cause, next edit, risk)
-- Model training (GradientBoosting + Ridge + Calibration)
-- Model persistence (save/load)
-"""
+"""Model training, evaluation, and persistence."""
 
 import json
 from collections import defaultdict
@@ -39,14 +30,7 @@ _SCHEMA_VALIDATED = False
 
 
 def validate_ml_schema():
-    """
-    Validate ML queries against schema contract.
-
-    This function ensures all database queries use valid column names
-    from the schema contract, preventing runtime errors if schema changes.
-
-    Called once at module initialization.
-    """
+    """Validate ML queries against schema contract."""
     global _SCHEMA_VALIDATED
     if _SCHEMA_VALIDATED:
         return
@@ -169,18 +153,7 @@ def build_feature_matrix(
     historical_data: dict,
     intelligent_features: dict = None,
 ) -> tuple[np.ndarray, dict[str, int]]:
-    """Build feature matrix for files.
-
-    Args:
-        file_paths: List of file paths to build features for
-        manifest_path: Path to manifest.json for file metadata
-        db_features: Combined database features from features.py
-        historical_data: Combined historical data from loaders.py
-        intelligent_features: Optional intelligent features from intelligence.py
-
-    Returns:
-        Tuple of (feature matrix, feature name map)
-    """
+    """Build feature matrix for files."""
     if not ML_AVAILABLE:
         return None, {}
 
@@ -390,10 +363,7 @@ def train_models(
     seed: int = 13,
     sample_weight: np.ndarray = None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
-    """
-    Train the three models with optional sample weighting for human feedback
-    and probability calibration.
-    """
+    """Train the three models with optional sample weighting for human feedback"""
     if not ML_AVAILABLE:
         return None, None, None, None, None, None
 

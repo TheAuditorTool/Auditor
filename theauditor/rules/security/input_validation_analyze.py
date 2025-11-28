@@ -1,15 +1,4 @@
-"""Input Validation Analyzer - Schema Contract Compliant Implementation.
-
-Detects input validation vulnerabilities including validation bypasses,
-type confusion, prototype pollution, and framework-specific issues using
-ONLY indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows v1.1+ schema contract compliance:
-- Frozensets for all patterns (O(1) lookups)
-- Direct database queries (assumes all tables exist per schema contract)
-- Uses parameterized queries (no SQL injection)
-- Proper confidence levels
-"""
+"""Input Validation Analyzer - Schema Contract Compliant Implementation."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -259,22 +248,14 @@ class InputValidationAnalyzer:
     """Analyzer for input validation vulnerabilities."""
 
     def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
+        """Initialize analyzer with database context."""
         self.context = context
         self.patterns = ValidationPatterns()
         self.findings = []
         self.seen_issues = set()
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of input validation vulnerabilities found
-        """
+        """Main analysis entry point."""
         if not self.context.db_path:
             return []
 
@@ -942,33 +923,13 @@ class InputValidationAnalyzer:
 
 
 def find_input_validation_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect input validation vulnerabilities.
-
-    Detects:
-    - Prototype pollution
-    - NoSQL injection
-    - Template injection
-    - Type confusion
-    - Validation bypasses
-    - Framework-specific issues
-    - ORM injection patterns
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of input validation vulnerabilities found
-    """
+    """Detect input validation vulnerabilities."""
     analyzer = InputValidationAnalyzer(context)
     return analyzer.analyze()
 
 
 def register_taint_patterns(taint_registry):
-    """Register input validation taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
-    """
+    """Register input validation taint patterns."""
     patterns = ValidationPatterns()
 
     for source in patterns.INPUT_SOURCES:

@@ -1,16 +1,4 @@
-"""GitHub Actions Excessive Permissions Detection.
-
-Detects overly permissive workflows that grant write access in untrusted contexts
-like pull_request_target or issue_comment triggers, allowing PRs to modify repo
-content, publish packages, or mint OIDC tokens.
-
-Attack Pattern:
-1. Workflow triggered by pull_request_target or issue_comment (untrusted)
-2. Job has write permissions (contents, packages, id-token)
-3. Attacker PR can push commits, publish packages, create releases, etc.
-
-CWE-269: Improper Privilege Management
-"""
+"""GitHub Actions Excessive Permissions Detection."""
 
 import json
 import logging
@@ -51,19 +39,7 @@ DANGEROUS_WRITE_PERMISSIONS: set[str] = {
 
 
 def find_excessive_pr_permissions(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect excessive write permissions in untrusted workflows.
-
-    Detection Logic:
-    1. Find workflows with untrusted triggers (pull_request_target, etc.)
-    2. Check jobs for dangerous write permissions
-    3. Report findings for each risky permission grant
-
-    Args:
-        context: Rule execution context with database path
-
-    Returns:
-        List of security findings
-    """
+    """Detect excessive write permissions in untrusted workflows."""
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -143,14 +119,7 @@ def find_excessive_pr_permissions(context: StandardRuleContext) -> list[Standard
 
 
 def _parse_permissions(permissions_json: str) -> dict:
-    """Parse permissions JSON string.
-
-    Args:
-        permissions_json: JSON string of permissions
-
-    Returns:
-        Dict of permission -> level, or empty dict if parse fails
-    """
+    """Parse permissions JSON string."""
     if not permissions_json:
         return {}
 
@@ -167,14 +136,7 @@ def _parse_permissions(permissions_json: str) -> dict:
 
 
 def _check_dangerous_permissions(permissions: dict) -> list[str]:
-    """Check for dangerous write permissions.
-
-    Args:
-        permissions: Dict of permission -> level
-
-    Returns:
-        List of dangerous permission names found
-    """
+    """Check for dangerous write permissions."""
     dangerous = []
 
     if permissions.get("__all__") == "write-all":
@@ -196,20 +158,7 @@ def _build_permission_finding(
     dangerous_perms: list[str],
     all_perms: dict,
 ) -> StandardFinding:
-    """Build finding for excessive permissions vulnerability.
-
-    Args:
-        workflow_path: Path to workflow file
-        workflow_name: Workflow display name
-        scope: 'workflow' or 'job'
-        job_key: Job key (if scope is job)
-        triggers: List of workflow triggers
-        dangerous_perms: List of dangerous permissions found
-        all_perms: All permissions dict
-
-    Returns:
-        StandardFinding object
-    """
+    """Build finding for excessive permissions vulnerability."""
 
     if "write-all" in dangerous_perms or "id-token" in dangerous_perms:
         severity = Severity.CRITICAL

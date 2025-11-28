@@ -1,41 +1,4 @@
-"""Performance pattern extractors - Loop complexity, resource usage, memoization.
-
-This module contains extraction logic for performance-related patterns:
-- Loop complexity (nested loops, growing operations)
-- Resource usage (large allocations, unclosed file handles)
-- Memoization patterns (@lru_cache, manual caching, missing opportunities)
-
-ARCHITECTURAL CONTRACT: File Path Responsibility
-=================================================
-All functions here:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'nesting_level', 'resource_type', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-This separation ensures single source of truth for file paths.
-
-Causal Learning Purpose:
-========================
-These extractors enable hypothesis generation for DIEC tool:
-- "Function X has O(n²) complexity due to nested loops" → Test performance scaling
-- "Function allocates large memory structures" → Measure memory usage
-- "Function would benefit from memoization" → Test with/without caching
-
-Each extraction enables >3 hypothesis types per python_coverage.md requirements.
-Target >70% validation rate when hypotheses are tested experimentally.
-
-Week 4 Implementation (Priority 7 - Performance):
-===================================================
-Performance characteristics can only be validated through measurement.
-
-Expected extraction from TheAuditor codebase:
-- ~250 loop complexity patterns
-- ~100 resource usage patterns
-- ~50 memoization patterns
-Total: ~400 performance indicator records
-"""
+"""Performance pattern extractors - Loop complexity, resource usage, memoization."""
 
 import ast
 import logging
@@ -50,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -64,32 +24,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
-    """Detect loop complexity patterns indicating algorithmic performance.
-
-    Detects:
-    - Nested loops (nesting level 2, 3, 4+)
-    - Growing operations in loops (append, extend, +=)
-    - Loop types (for, while, comprehensions)
-    - Estimated complexity (O(n), O(n²), O(n³))
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of loop complexity dicts:
-        {
-            'line': int,
-            'loop_type': str,  # 'for' | 'while' | 'comprehension'
-            'nesting_level': int,  # 1, 2, 3, 4+
-            'has_growing_operation': bool,  # True if contains append/extend/+=
-            'in_function': str,
-            'estimated_complexity': str,  # 'O(n)' | 'O(n^2)' | 'O(n^3)' | 'O(n^4+)'
-        }
-
-    Enables hypothesis: "Function X has O(n²) complexity"
-    Experiment design: Test with varying input sizes, measure execution time
-    """
+    """Detect loop complexity patterns indicating algorithmic performance."""
     loop_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -198,31 +133,7 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
-    """Detect resource usage patterns that may impact performance.
-
-    Detects:
-    - Large data structure allocations (list/dict/set with >1000 elements)
-    - File handles without context managers
-    - Database connections without cleanup
-    - Large string concatenations
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of resource usage dicts:
-        {
-            'line': int,
-            'resource_type': str,  # 'large_list' | 'large_dict' | 'file_handle' | 'db_connection' | 'string_concat'
-            'allocation_expr': str,  # Expression that allocates resource
-            'in_function': str,
-            'has_cleanup': bool,  # True if resource cleanup is present
-        }
-
-    Enables hypothesis: "Function X allocates large memory structures"
-    Experiment design: Measure memory usage before/after function call
-    """
+    """Detect resource usage patterns that may impact performance."""
     resource_patterns = []
 
     if not isinstance(context.tree, ast.AST):
@@ -288,32 +199,7 @@ def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
-    """Detect memoization patterns and missing opportunities.
-
-    Detects:
-    - @lru_cache decorator usage
-    - @cache decorator usage (Python 3.9+)
-    - Manual cache dictionaries (module-level _cache = {})
-    - Recursive functions without memoization (opportunity)
-
-    Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to parser instance (unused but follows pattern)
-
-    Returns:
-        List of memoization pattern dicts:
-        {
-            'line': int,
-            'function_name': str,
-            'has_memoization': bool,  # True if memoization present
-            'memoization_type': str,  # 'lru_cache' | 'cache' | 'manual' | 'none'
-            'is_recursive': bool,  # True if function is recursive
-            'cache_size': int | None,  # LRU cache size if specified
-        }
-
-    Enables hypothesis: "Function X would benefit from memoization"
-    Experiment design: Test performance with/without memoization, measure speedup
-    """
+    """Detect memoization patterns and missing opportunities."""
     memoization_patterns = []
 
     if not isinstance(context.tree, ast.AST):

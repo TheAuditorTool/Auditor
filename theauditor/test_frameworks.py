@@ -58,19 +58,7 @@ def _iter_matching_files(
 
 
 def detect_test_framework(root: str | Path) -> dict[str, Any]:
-    """Detect the test framework used in a project using unified registry approach.
-
-    Args:
-        root: Root directory of the project.
-
-    Returns:
-        Dictionary with framework info:
-        {
-            "name": str,  # pytest, jest, rspec, go, junit, etc.
-            "language": str,  # python, javascript, etc.
-            "cmd": str,  # Command to run tests
-        }
-    """
+    """Detect the test framework used in a project using unified registry approach."""
     root = Path(root)
     parser = ManifestParser()
 

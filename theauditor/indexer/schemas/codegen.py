@@ -1,27 +1,4 @@
-"""
-Schema-driven code generation for taint analysis.
-
-This module auto-generates TypedDicts, accessor classes, memory cache loaders,
-and validation decorators from the schema definitions. This eliminates the
-8-layer manual coding problem and enables schema changes to auto-propagate.
-
-Design:
-- Generate TypedDict classes for type safety
-- Generate accessor classes with get_all() and get_by_{indexed_column}()
-- Generate SchemaMemoryCache that loads ALL tables automatically
-- Generate validation decorators for runtime checks
-
-Usage:
-    from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
-
-    # Generate all code
-    SchemaCodeGenerator.generate_all()
-
-    # Or generate specific parts
-    typed_dicts = SchemaCodeGenerator.generate_typed_dicts()
-    accessors = SchemaCodeGenerator.generate_accessor_classes()
-    cache = SchemaCodeGenerator.generate_memory_cache()
-"""
+"""Schema-driven code generation for taint analysis."""
 
 import hashlib
 from pathlib import Path
@@ -34,15 +11,7 @@ class SchemaCodeGenerator:
 
     @staticmethod
     def get_schema_hash() -> str:
-        """Get a SHA256 hash of all schema files to detect changes.
-
-        This hash is used to verify that generated code is up-to-date
-        with the schema definitions. If schemas change but code isn't
-        regenerated, the hash mismatch will trigger auto-regeneration.
-
-        Returns:
-            SHA256 hash hex string of all schema file contents
-        """
+        """Get a SHA256 hash of all schema files to detect changes."""
         hasher = hashlib.sha256()
 
         schemas_dir = Path(__file__).parent
@@ -92,11 +61,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def generate_typed_dicts(cls) -> str:
-        """Generate TypedDict for each table.
-
-        Returns:
-            Python code string with all TypedDict definitions
-        """
+        """Generate TypedDict for each table."""
         code = []
         code.append("# Auto-generated TypedDict definitions from schema")
         code.append("from typing import TypedDict, Any")
@@ -119,11 +84,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def generate_accessor_classes(cls) -> str:
-        """Generate accessor class for each table.
-
-        Returns:
-            Python code string with all accessor classes
-        """
+        """Generate accessor class for each table."""
         code = []
         code.append("# Auto-generated accessor classes from schema")
         code.append("from typing import Any")
@@ -178,11 +139,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def generate_memory_cache(cls) -> str:
-        """Generate SchemaMemoryCache class.
-
-        Returns:
-            Python code string with memory cache implementation
-        """
+        """Generate SchemaMemoryCache class."""
         code = []
 
         schema_hash = cls.get_schema_hash()
@@ -270,11 +227,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def generate_validators(cls) -> str:
-        """Generate validation decorators for storage methods.
-
-        Returns:
-            Python code string with validation decorators
-        """
+        """Generate validation decorators for storage methods."""
         code = []
         code.append("# Auto-generated validators from schema")
         code.append("from typing import Any, Callable")
@@ -344,11 +297,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def generate_all(cls) -> dict[str, str]:
-        """Generate all code components.
-
-        Returns:
-            Dictionary mapping component name to generated code
-        """
+        """Generate all code components."""
         return {
             "typed_dicts": cls.generate_typed_dicts(),
             "accessors": cls.generate_accessor_classes(),
@@ -358,11 +307,7 @@ class SchemaCodeGenerator:
 
     @classmethod
     def write_generated_code(cls, output_dir: str = None) -> None:
-        """Write generated code to files.
-
-        Args:
-            output_dir: Directory to write files to (defaults to same dir as codegen.py)
-        """
+        """Write generated code to files."""
         output_dir = Path(__file__).parent if output_dir is None else Path(output_dir)
 
         output_dir.mkdir(parents=True, exist_ok=True)

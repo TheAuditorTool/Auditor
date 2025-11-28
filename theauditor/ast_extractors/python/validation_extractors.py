@@ -1,19 +1,4 @@
-"""Validation and serialization framework extractors.
-
-This module extracts input validation and data serialization patterns:
-- Pydantic: BaseModel validators (@validator, @root_validator)
-- Marshmallow: Schema definitions and field validations
-- Django REST Framework: Serializers and field definitions
-- WTForms: Form definitions and field validators
-
-ARCHITECTURAL CONTRACT:
-- RECEIVE: AST tree only (no file path context)
-- EXTRACT: Data with 'line' numbers and content
-- RETURN: List[Dict] with keys like 'line', 'model_name', 'field_name', etc.
-- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
-
-File path context is provided by the INDEXER layer when storing to database.
-"""
+"""Validation and serialization framework extractors."""
 
 import ast
 import logging
@@ -27,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
-    """Return string value for constant nodes.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -41,10 +23,7 @@ def _get_str_constant(node: ast.AST | None) -> str | None:
 
 
 def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
-    """Fetch keyword argument by name from AST call.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Fetch keyword argument by name from AST call."""
     for keyword in call.keywords:
         if keyword.arg == name:
             return keyword.value
@@ -52,10 +31,7 @@ def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
 
 
 def _extract_list_of_strings(node) -> str | None:
-    """Helper: Extract list/tuple of string constants as comma-separated string.
-
-    Internal helper - duplicated across framework extractor files for self-containment.
-    """
+    """Helper: Extract list/tuple of string constants as comma-separated string."""
     items = []
 
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -122,19 +98,7 @@ def extract_pydantic_validators(context: FileContext) -> list[dict]:
 
 
 def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Marshmallow schema definitions.
-
-    Detects:
-    - Schema class definitions (inherit from marshmallow.Schema or ma.Schema)
-    - Field count (validation surface area)
-    - Has nested schemas (ma.Nested references)
-    - Custom validators (@validates, @validates_schema decorators)
-
-    Security relevance:
-    - Schemas without validators = incomplete input validation
-    - Missing required fields = data integrity issues
-    - Nested schemas = complex validation chains (parity with Zod/Joi)
-    """
+    """Extract Marshmallow schema definitions."""
     schemas = []
     if not isinstance(context.tree, ast.AST):
         return schemas
@@ -194,19 +158,7 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_marshmallow_fields(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Marshmallow field definitions from schemas.
-
-    Detects:
-    - Field types (ma.String, ma.Integer, ma.Email, ma.Boolean, ma.Nested, etc.)
-    - required flag (required=True)
-    - allow_none flag (allow_none=True)
-    - Custom validators (validate= keyword)
-
-    Security relevance:
-    - Fields without required= validation = optional input bypass
-    - allow_none without validation = null pointer issues
-    - Missing validate= = incomplete validation (parity with Zod refinements)
-    """
+    """Extract Marshmallow field definitions from schemas."""
     fields = []
     if not isinstance(context.tree, ast.AST):
         return fields
@@ -288,20 +240,7 @@ def extract_marshmallow_fields(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django REST Framework serializer definitions.
-
-    Detects:
-    - Serializer class definitions (inherit from serializers.Serializer or serializers.ModelSerializer)
-    - Field count (validation surface area)
-    - ModelSerializer detection (has Meta.model)
-    - read_only_fields in Meta
-    - Custom validators (validate_<field> methods)
-
-    Security relevance:
-    - Serializers without validators = incomplete input validation
-    - Missing read_only_fields = mass assignment vulnerabilities
-    - ModelSerializer without field restrictions = over-exposure (parity with Express/Prisma)
-    """
+    """Extract Django REST Framework serializer definitions."""
     serializers_list = []
     if not isinstance(context.tree, ast.AST):
         return serializers_list
@@ -365,23 +304,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_drf_serializer_fields(context: FileContext) -> list[dict[str, Any]]:
-    """Extract Django REST Framework field definitions from serializers.
-
-    Detects:
-    - Field types (CharField, IntegerField, EmailField, SerializerMethodField, etc.)
-    - read_only flag (read_only=True)
-    - write_only flag (write_only=True)
-    - required flag (required=True/False)
-    - allow_null flag (allow_null=True)
-    - source parameter (source='other_field')
-    - Custom validators (validate_<field> methods)
-
-    Security relevance:
-    - Fields without read_only = mass assignment risk
-    - write_only without validation = incomplete input sanitization
-    - allow_null without validation = null pointer issues
-    - Missing required= = optional input bypass (parity with Joi.required())
-    """
+    """Extract Django REST Framework field definitions from serializers."""
     fields = []
     if not isinstance(context.tree, ast.AST):
         return fields
@@ -483,18 +406,7 @@ def extract_drf_serializer_fields(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
-    """Extract WTForms form definitions.
-
-    Detects:
-    - Form class definitions (inherit from Form or FlaskForm)
-    - Field count (validation surface area)
-    - Custom validators (validate_<field> methods)
-
-    Security relevance:
-    - Forms without validators = incomplete input validation
-    - Missing validators on sensitive fields = injection vulnerabilities
-    - Flask-WTF CSRF protection when using FlaskForm (parity with DRF)
-    """
+    """Extract WTForms form definitions."""
     forms_list = []
     if not isinstance(context.tree, ast.AST):
         return forms_list
@@ -559,18 +471,7 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
 
 
 def extract_wtforms_fields(context: FileContext) -> list[dict[str, Any]]:
-    """Extract WTForms field definitions from forms.
-
-    Detects:
-    - Field types (StringField, IntegerField, PasswordField, etc.)
-    - Has validators (validators=[...] keyword argument)
-    - Custom validators (validate_<field> methods)
-
-    Security relevance:
-    - Fields without validators = missing input validation
-    - PasswordField without validators = weak password policy
-    - Missing DataRequired = optional input bypass (parity with DRF required=True)
-    """
+    """Extract WTForms field definitions from forms."""
     fields = []
     if not isinstance(context.tree, ast.AST):
         return fields

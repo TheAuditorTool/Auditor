@@ -1,13 +1,4 @@
-"""Python ORM Strategy - Handles SQLAlchemy/Django ORM relationship expansion.
-
-This strategy builds edges for ORM relationships, enabling taint tracking
-through model relationships (e.g., User -> user.posts).
-
-Extracted from dfg_builder.py as part of Phase 3: Strategy Pattern refactoring.
-
-PythonOrmContext inlined from taint/orm_utils.py (2025-11-27) - graph layer
-now owns all ORM relationship logic. Taint layer is pure consumer of graph edges.
-"""
+"""Python ORM Strategy - Handles SQLAlchemy/Django ORM relationship expansion."""
 
 import sqlite3
 from collections.abc import Iterable
@@ -27,11 +18,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class PythonOrmContext:
-    """Lightweight view of Python ORM metadata for taint propagation.
-
-    Inlined from taint/orm_utils.py to keep graph logic self-contained.
-    The graph layer now owns all ORM relationship logic.
-    """
+    """Lightweight view of Python ORM metadata for taint propagation."""
 
     model_names: set[str] = field(default_factory=set)
     table_to_model: dict[str, str] = field(default_factory=dict)
@@ -327,26 +314,10 @@ class PythonOrmContext:
 
 
 class PythonOrmStrategy(GraphStrategy):
-    """Strategy for building Python ORM relationship edges.
-
-    Handles:
-    - SQLAlchemy relationships (relationship(), ForeignKey)
-    - Django ORM relationships (ForeignKey, ManyToManyField)
-
-    Creates edges from ORM model variables to their relationship attributes,
-    enabling taint tracking through model relationships.
-    """
+    """Strategy for building Python ORM relationship edges."""
 
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
-        """Build edges for Python ORM relationships.
-
-        Args:
-            db_path: Path to repo_index.db
-            project_root: Project root for metadata
-
-        Returns:
-            Dict with nodes, edges, metadata for ORM expansions
-        """
+        """Build edges for Python ORM relationships."""
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()

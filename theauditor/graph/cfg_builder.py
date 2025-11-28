@@ -1,12 +1,4 @@
-"""Control Flow Graph Builder - reads CFG data from database.
-
-This module builds control flow graphs from data stored in the database
-during the indexing phase. It provides analysis capabilities including:
-- Cyclomatic complexity calculation
-- Path analysis
-- Dead code detection
-- Loop detection
-"""
+"""Control Flow Graph Builder - reads CFG data from database."""
 
 import sqlite3
 from collections import defaultdict
@@ -14,41 +6,16 @@ from typing import Any
 
 
 class CFGBuilder:
-    """Build and analyze control flow graphs from database.
-
-    2025 MODERNIZATION: Batch loading architecture eliminates N+1 query problem.
-    - Old: 2,000 functions × 3 queries/function = 6,000 database queries
-    - New: 2 queries per file (regardless of function count)
-    """
+    """Build and analyze control flow graphs from database."""
 
     def __init__(self, db_path: str):
-        """Initialize CFG builder with database connection.
-
-        Args:
-            db_path: Path to the repo_index.db database
-        """
+        """Initialize CFG builder with database connection."""
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
 
     def load_file_cfgs(self, file_path: str) -> dict[str, dict[str, Any]]:
-        """Batch load ALL CFG data for a file with exactly 2 queries.
-
-        This is the 2025 batch processing pattern that eliminates N+1 queries.
-        Instead of querying each function separately (3 queries × N functions),
-        we load ALL functions in a file at once (2 queries total).
-
-        Args:
-            file_path: Path to the source file
-
-        Returns:
-            Dict mapping function_name to CFG dict {blocks, edges, metrics}
-
-        Performance:
-            - Old: N functions × 3 queries = 3N queries
-            - New: 2 queries (regardless of N)
-            - 100 functions: 300 queries → 2 queries (150x faster)
-        """
+        """Batch load ALL CFG data for a file with exactly 2 queries."""
         cursor = self.conn.cursor()
 
         blocks_by_func = defaultdict(list)
@@ -107,15 +74,7 @@ class CFGBuilder:
         return results
 
     def get_function_cfg(self, file_path: str, function_name: str) -> dict[str, Any]:
-        """Get control flow graph for a specific function.
-
-        Args:
-            file_path: Path to the source file
-            function_name: Name of the function
-
-        Returns:
-            CFG dictionary with blocks, edges, and metadata
-        """
+        """Get control flow graph for a specific function."""
         cursor = self.conn.cursor()
 
         cursor.execute(
@@ -187,14 +146,7 @@ class CFGBuilder:
         }
 
     def get_all_functions(self, file_path: str | None = None) -> list[dict[str, str]]:
-        """Get list of all functions with CFG data.
-
-        Args:
-            file_path: Optional filter by file path
-
-        Returns:
-            List of function metadata dictionaries
-        """
+        """Get list of all functions with CFG data."""
         cursor = self.conn.cursor()
 
         if file_path:
@@ -229,17 +181,7 @@ class CFGBuilder:
     def analyze_complexity(
         self, file_path: str | None = None, threshold: int = 10
     ) -> list[dict[str, Any]]:
-        """Find functions with high cyclomatic complexity.
-
-        [2025 BATCH PROCESSING] Uses load_file_cfgs to eliminate N+1 queries.
-
-        Args:
-            file_path: Optional filter by file path
-            threshold: Complexity threshold (default 10)
-
-        Returns:
-            List of complex functions with metrics
-        """
+        """Find functions with high cyclomatic complexity."""
         cursor = self.conn.cursor()
         complex_functions = []
 
@@ -277,16 +219,7 @@ class CFGBuilder:
         return complex_functions
 
     def find_dead_code(self, file_path: str | None = None) -> list[dict[str, Any]]:
-        """Find unreachable code blocks.
-
-        [2025 BATCH PROCESSING] Uses load_file_cfgs to eliminate N+1 queries.
-
-        Args:
-            file_path: Optional filter by file path
-
-        Returns:
-            List of unreachable blocks
-        """
+        """Find unreachable code blocks."""
         cursor = self.conn.cursor()
         dead_blocks = []
 
@@ -319,15 +252,7 @@ class CFGBuilder:
         return dead_blocks
 
     def _calculate_metrics(self, blocks: list[dict], edges: list[dict]) -> dict[str, Any]:
-        """Calculate CFG metrics.
-
-        Args:
-            blocks: List of CFG blocks
-            edges: List of CFG edges
-
-        Returns:
-            Dictionary of metrics
-        """
+        """Calculate CFG metrics."""
 
         cyclomatic = len(edges) - len(blocks) + 2
 
@@ -347,15 +272,7 @@ class CFGBuilder:
         }
 
     def _find_unreachable_blocks(self, blocks: list[dict], edges: list[dict]) -> set[int]:
-        """Find blocks that cannot be reached from entry.
-
-        Args:
-            blocks: List of CFG blocks
-            edges: List of CFG edges
-
-        Returns:
-            Set of unreachable block IDs
-        """
+        """Find blocks that cannot be reached from entry."""
 
         graph = defaultdict(list)
         for edge in edges:
@@ -380,15 +297,7 @@ class CFGBuilder:
         return unreachable
 
     def _calculate_max_nesting(self, blocks: list[dict], edges: list[dict]) -> int:
-        """Calculate maximum nesting depth in the CFG.
-
-        Args:
-            blocks: List of CFG blocks
-            edges: List of CFG edges
-
-        Returns:
-            Maximum nesting depth
-        """
+        """Calculate maximum nesting depth in the CFG."""
 
         graph = defaultdict(list)
         for edge in edges:
@@ -428,16 +337,7 @@ class CFGBuilder:
     def get_execution_paths(
         self, file_path: str, function_name: str, max_paths: int = 100
     ) -> list[list[int]]:
-        """Get all execution paths through a function.
-
-        Args:
-            file_path: Path to the source file
-            function_name: Name of the function
-            max_paths: Maximum number of paths to return
-
-        Returns:
-            List of paths (each path is a list of block IDs)
-        """
+        """Get all execution paths through a function."""
         cfg = self.get_function_cfg(file_path, function_name)
 
         graph = defaultdict(list)
@@ -468,15 +368,7 @@ class CFGBuilder:
         return paths
 
     def export_dot(self, file_path: str, function_name: str) -> str:
-        """Export CFG as Graphviz DOT format.
-
-        Args:
-            file_path: Path to the source file
-            function_name: Name of the function
-
-        Returns:
-            DOT format string
-        """
+        """Export CFG as Graphviz DOT format."""
         cfg = self.get_function_cfg(file_path, function_name)
 
         dot_lines = ["digraph CFG {"]

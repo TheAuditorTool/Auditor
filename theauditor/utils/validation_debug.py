@@ -1,17 +1,4 @@
-"""Debug logging for validation framework implementation.
-
-This module provides debug logging specifically for tracking validation framework
-detection, extraction, and taint analysis integration.
-
-Usage:
-    Set environment variable: THEAUDITOR_VALIDATION_DEBUG=1
-
-    from theauditor.utils.validation_debug import log_validation
-
-    log_validation("L1-DETECT", "Found zod in package.json", {"version": "4.1.11"})
-    log_validation("L2-EXTRACT", "Extracted parseAsync call", {"line": 19})
-    log_validation("L3-TAINT", "Checking sanitizer", {"source_line": 10, "sink_line": 60})
-"""
+"""Debug logging for validation framework implementation."""
 
 import json
 import os
@@ -21,20 +8,7 @@ VALIDATION_DEBUG = os.getenv("THEAUDITOR_VALIDATION_DEBUG", "0") == "1"
 
 
 def log_validation(layer: str, message: str, data: dict = None):
-    """Log validation framework detection/extraction/analysis.
-
-    Args:
-        layer: Layer identifier (L1-DETECT, L2-EXTRACT, L3-TAINT)
-        message: Human-readable log message
-        data: Optional dictionary of structured data to log
-
-    Example:
-        log_validation("L1-DETECT", "Found validation framework", {
-            "framework": "zod",
-            "version": "4.1.11",
-            "source": "backend/package.json"
-        })
-    """
+    """Log validation framework detection/extraction/analysis."""
     if not VALIDATION_DEBUG:
         return
 
@@ -49,9 +23,5 @@ def log_validation(layer: str, message: str, data: dict = None):
 
 
 def is_validation_debug_enabled() -> bool:
-    """Check if validation debug logging is enabled.
-
-    Returns:
-        True if THEAUDITOR_VALIDATION_DEBUG=1 is set
-    """
+    """Check if validation debug logging is enabled."""
     return VALIDATION_DEBUG

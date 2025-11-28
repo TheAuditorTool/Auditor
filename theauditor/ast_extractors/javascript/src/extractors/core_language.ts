@@ -1,16 +1,4 @@
-/**
- * Core Language Extractor
- *
- * Extracts functions, classes, class properties, and builds scope maps.
- *
- * CHANGES FROM LEGACY core_language.js:
- * - DELETED: serializeNodeForCFG (recursion bomb causing 512MB crash)
- * - REWRITTEN: extractClasses uses TypeChecker for semantic extraction
- *   - Returns extends[], implements[], properties[], methods[]
- * - CONVERTED: All functions to TypeScript with explicit types
- */
-
-import type * as ts from 'typescript';
+import type * as ts from "typescript";
 import type {
   Function as IFunction,
   Class as IClass,
@@ -23,19 +11,7 @@ import type {
   ClassDecorator as IClassDecorator,
   ClassDecoratorArg as IClassDecoratorArg,
   ClassProperty as IClassProperty,
-} from '../schema';
-
-// =============================================================================
-// serializeNodeForCFG - DELETED
-// =============================================================================
-// This function was a "Recursion Bomb" that walked the entire AST and built
-// a 5000-level deep JSON structure, causing 512MB crash on large files.
-// Python no longer needs raw AST tree - it receives flat extraction tables.
-// See spec2.md Section 1 for full rationale.
-
-// =============================================================================
-// EXTRACT FUNCTIONS
-// =============================================================================
+} from "../schema";
 
 interface ExtractFunctionsResult {
   functions: IFunction[];
@@ -48,8 +24,8 @@ interface ExtractFunctionsResult {
 export function extractFunctions(
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker | null,
-  ts: typeof import('typescript'),
-  filePath: string
+  ts: typeof import("typescript"),
+  filePath: string,
 ): ExtractFunctionsResult {
   const functions: IFunction[] = [];
   const func_params: IFuncParam[] = [];
@@ -62,9 +38,9 @@ export function extractFunctions(
     if (!node) return;
     const kind = ts.SyntaxKind[node.kind];
 
-    if (kind === 'ClassDeclaration') {
+    if (kind === "ClassDeclaration") {
       const classNode = node as ts.ClassDeclaration;
-      const className = classNode.name ? classNode.name.text : 'UnknownClass';
+      const className = classNode.name ? classNode.name.text : "UnknownClass";
       class_stack.push(className);
       ts.forEachChild(node, traverse);
       class_stack.pop();
@@ -72,9 +48,9 @@ export function extractFunctions(
     }
 
     let is_function_like = false;
-    let func_name = '';
+    let func_name = "";
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-      node.getStart(sourceFile)
+      node.getStart(sourceFile),
     );
     const func_line = line + 1;
     const func_entry: IFunction = {
@@ -82,89 +58,87 @@ export function extractFunctions(
       col: character,
       column: character,
       kind: kind,
-      name: '',
-      type: 'function',
+      name: "",
+      type: "function",
     };
 
-    if (kind === 'FunctionDeclaration') {
+    if (kind === "FunctionDeclaration") {
       const funcNode = node as ts.FunctionDeclaration;
       is_function_like = true;
-      func_name = funcNode.name ? funcNode.name.text : 'anonymous';
-    } else if (kind === 'MethodDeclaration') {
+      func_name = funcNode.name ? funcNode.name.text : "anonymous";
+    } else if (kind === "MethodDeclaration") {
       const methodNode = node as ts.MethodDeclaration;
       is_function_like = true;
       const method_name = methodNode.name
-        ? (methodNode.name as ts.Identifier).text || 'anonymous'
-        : 'anonymous';
+        ? (methodNode.name as ts.Identifier).text || "anonymous"
+        : "anonymous";
       func_name =
         class_stack.length > 0
-          ? class_stack[class_stack.length - 1] + '.' + method_name
+          ? class_stack[class_stack.length - 1] + "." + method_name
           : method_name;
-    } else if (kind === 'PropertyDeclaration') {
+    } else if (kind === "PropertyDeclaration") {
       const propNode = node as ts.PropertyDeclaration;
       if (propNode.initializer) {
         const init_kind = ts.SyntaxKind[propNode.initializer.kind];
         if (
-          init_kind === 'ArrowFunction' ||
-          init_kind === 'FunctionExpression' ||
-          init_kind === 'CallExpression'
+          init_kind === "ArrowFunction" ||
+          init_kind === "FunctionExpression" ||
+          init_kind === "CallExpression"
         ) {
           is_function_like = true;
           const prop_name = propNode.name
-            ? (propNode.name as ts.Identifier).text || 'anonymous'
-            : 'anonymous';
+            ? (propNode.name as ts.Identifier).text || "anonymous"
+            : "anonymous";
           func_name =
             class_stack.length > 0
-              ? class_stack[class_stack.length - 1] + '.' + prop_name
+              ? class_stack[class_stack.length - 1] + "." + prop_name
               : prop_name;
         }
       }
-    } else if (kind === 'Constructor') {
+    } else if (kind === "Constructor") {
       is_function_like = true;
       func_name =
         class_stack.length > 0
-          ? class_stack[class_stack.length - 1] + '.constructor'
-          : 'constructor';
-    } else if (kind === 'GetAccessor' || kind === 'SetAccessor') {
+          ? class_stack[class_stack.length - 1] + ".constructor"
+          : "constructor";
+    } else if (kind === "GetAccessor" || kind === "SetAccessor") {
       const accessorNode = node as ts.AccessorDeclaration;
       is_function_like = true;
       const accessor_name = accessorNode.name
-        ? (accessorNode.name as ts.Identifier).text || 'anonymous'
-        : 'anonymous';
-      const prefix = kind === 'GetAccessor' ? 'get ' : 'set ';
+        ? (accessorNode.name as ts.Identifier).text || "anonymous"
+        : "anonymous";
+      const prefix = kind === "GetAccessor" ? "get " : "set ";
       func_name =
         class_stack.length > 0
-          ? class_stack[class_stack.length - 1] + '.' + prefix + accessor_name
+          ? class_stack[class_stack.length - 1] + "." + prefix + accessor_name
           : prefix + accessor_name;
     }
 
-    if (is_function_like && func_name && func_name !== 'anonymous') {
+    if (is_function_like && func_name && func_name !== "anonymous") {
       func_entry.name = func_name;
 
-      // Extract parameters
       const funcLikeNode = node as ts.FunctionLikeDeclaration;
       if (funcLikeNode.parameters && Array.isArray(funcLikeNode.parameters)) {
         funcLikeNode.parameters.forEach((param, paramIndex) => {
-          let paramName = '';
+          let paramName = "";
           let paramType: string | null = null;
 
           if (param.type) {
             paramType = param.type.getText(sourceFile);
           }
 
-          // Handle parameter decorators
           const decorators = ts.canHaveDecorators(param)
             ? ts.getDecorators(param)
             : undefined;
           if (decorators && decorators.length > 0) {
             decorators.forEach((decorator) => {
-              let decoratorName = '';
+              let decoratorName = "";
               let decoratorArgs: string | null = null;
 
               if (decorator.expression) {
                 if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
                   const id = decorator.expression as ts.Identifier;
-                  decoratorName = id.text || id.escapedText?.toString() || '';
+                  decoratorName = id.text || id.escapedText?.toString() || "";
                 } else if (
                   decorator.expression.kind === ts.SyntaxKind.CallExpression
                 ) {
@@ -174,7 +148,7 @@ export function extractFunctions(
                     callExpr.expression.kind === ts.SyntaxKind.Identifier
                   ) {
                     const id = callExpr.expression as ts.Identifier;
-                    decoratorName = id.text || id.escapedText?.toString() || '';
+                    decoratorName = id.text || id.escapedText?.toString() || "";
                   }
                   if (callExpr.arguments && callExpr.arguments.length > 0) {
                     decoratorArgs = callExpr.arguments
@@ -182,9 +156,11 @@ export function extractFunctions(
                         if (arg.kind === ts.SyntaxKind.StringLiteral) {
                           return (arg as ts.StringLiteral).text;
                         }
-                        return arg.getText ? arg.getText(sourceFile) : '[complex]';
+                        return arg.getText
+                          ? arg.getText(sourceFile)
+                          : "[complex]";
                       })
-                      .join(', ');
+                      .join(", ");
                   }
                 }
               }
@@ -203,10 +179,10 @@ export function extractFunctions(
 
           if (param.name) {
             const nameKind = ts.SyntaxKind[param.name.kind];
-            if (nameKind === 'Identifier') {
+            if (nameKind === "Identifier") {
               const id = param.name as ts.Identifier;
-              paramName = id.text || id.escapedText?.toString() || '';
-            } else if (nameKind === 'ObjectBindingPattern') {
+              paramName = id.text || id.escapedText?.toString() || "";
+            } else if (nameKind === "ObjectBindingPattern") {
               const pattern = param.name as ts.ObjectBindingPattern;
               pattern.elements.forEach((element) => {
                 if (element.name && (element.name as ts.Identifier).text) {
@@ -220,7 +196,7 @@ export function extractFunctions(
                 }
               });
               return;
-            } else if (nameKind === 'ArrayBindingPattern') {
+            } else if (nameKind === "ArrayBindingPattern") {
               const pattern = param.name as ts.ArrayBindingPattern;
               pattern.elements.forEach((element) => {
                 if (
@@ -255,24 +231,23 @@ export function extractFunctions(
         });
       }
 
-      // Extract function decorators
       const decorators = ts.canHaveDecorators(node)
         ? ts.getDecorators(node)
         : undefined;
       if (decorators && decorators.length > 0) {
         decorators.forEach((decorator, decoratorIndex) => {
-          let decoratorName = '';
+          let decoratorName = "";
           let decoratorLine = func_line;
 
           const decPos = sourceFile.getLineAndCharacterOfPosition(
-            decorator.getStart(sourceFile)
+            decorator.getStart(sourceFile),
           );
           decoratorLine = decPos.line + 1;
 
           if (decorator.expression) {
             if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
               const id = decorator.expression as ts.Identifier;
-              decoratorName = id.text || id.escapedText?.toString() || '';
+              decoratorName = id.text || id.escapedText?.toString() || "";
             } else if (
               decorator.expression.kind === ts.SyntaxKind.CallExpression
             ) {
@@ -282,12 +257,12 @@ export function extractFunctions(
                 callExpr.expression.kind === ts.SyntaxKind.Identifier
               ) {
                 const id = callExpr.expression as ts.Identifier;
-                decoratorName = id.text || id.escapedText?.toString() || '';
+                decoratorName = id.text || id.escapedText?.toString() || "";
               }
 
               if (callExpr.arguments && callExpr.arguments.length > 0) {
                 callExpr.arguments.forEach((arg, argIndex) => {
-                  let argValue = '';
+                  let argValue = "";
                   if (arg.kind === ts.SyntaxKind.StringLiteral) {
                     argValue = (arg as ts.StringLiteral).text;
                   } else if (
@@ -295,7 +270,9 @@ export function extractFunctions(
                   ) {
                     argValue = arg.getText(sourceFile);
                   } else {
-                    argValue = arg.getText ? arg.getText(sourceFile) : '[complex]';
+                    argValue = arg.getText
+                      ? arg.getText(sourceFile)
+                      : "[complex]";
                   }
 
                   func_decorator_args.push({
@@ -322,7 +299,6 @@ export function extractFunctions(
         });
       }
 
-      // TypeChecker type analysis
       if (checker) {
         const nameNode = (node as ts.FunctionDeclaration).name || node;
         const symbol = checker.getSymbolAtLocation(nameNode);
@@ -338,7 +314,7 @@ export function extractFunctions(
               func_entry.is_unknown = true;
             }
             if (
-              typeof (type as any).isTypeParameter === 'function' &&
+              typeof (type as any).isTypeParameter === "function" &&
               (type as any).isTypeParameter()
             ) {
               func_entry.is_generic = true;
@@ -356,7 +332,7 @@ export function extractFunctions(
             if (baseTypes && baseTypes.length > 0) {
               func_entry.extends_type = baseTypes
                 .map((t: ts.Type) => checker.typeToString(t))
-                .join(', ');
+                .join(", ");
             }
           }
         }
@@ -372,7 +348,7 @@ export function extractFunctions(
 
   if (process.env.THEAUDITOR_DEBUG) {
     console.error(
-      `[DEBUG JS] extractFunctions: Extracted ${functions.length} functions, ${func_params.length} params, ${func_decorators.length} decorators`
+      `[DEBUG JS] extractFunctions: Extracted ${functions.length} functions, ${func_params.length} params, ${func_decorators.length} decorators`,
     );
   }
 
@@ -385,31 +361,18 @@ export function extractFunctions(
   };
 }
 
-// =============================================================================
-// EXTRACT CLASSES - REWRITTEN WITH TYPECHECKER (spec2.md Section 2)
-// =============================================================================
-
 interface ExtractClassesResult {
   classes: IClass[];
   class_decorators: IClassDecorator[];
   class_decorator_args: IClassDecoratorArg[];
 }
 
-/**
- * Extracts classes with SEMANTIC analysis using TypeChecker.
- *
- * NEW SEMANTIC FIELDS (from spec2.md Section 8):
- * - extends: string[] - Resolved base types via checker.getDeclaredTypeOfSymbol()
- * - implements: string[] - Interface contracts
- * - properties: { name, type, inherited }[] - All members including inherited
- * - methods: { name, signature, inherited }[] - All methods including inherited
- */
 export function extractClasses(
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker | null,
-  ts: typeof import('typescript'),
+  ts: typeof import("typescript"),
   filePath: string,
-  scopeMap: Map<number, string>
+  scopeMap: Map<number, string>,
 ): ExtractClassesResult {
   const classes: IClass[] = [];
   const class_decorators: IClassDecorator[] = [];
@@ -419,36 +382,36 @@ export function extractClasses(
     if (!node) return;
     const kind = ts.SyntaxKind[node.kind];
 
-    if (kind === 'ClassDeclaration' || kind === 'ClassExpression') {
+    if (kind === "ClassDeclaration" || kind === "ClassExpression") {
       const classNode = node as ts.ClassDeclaration | ts.ClassExpression;
       const { line, character } = sourceFile.getLineAndCharacterOfPosition(
-        node.getStart(sourceFile)
+        node.getStart(sourceFile),
       );
       const class_line = line + 1;
 
-      // Get class name (handle class expressions)
       let className = classNode.name
-        ? classNode.name.text || classNode.name.escapedText?.toString() || 'UnknownClass'
-        : 'UnknownClass';
+        ? classNode.name.text ||
+          classNode.name.escapedText?.toString() ||
+          "UnknownClass"
+        : "UnknownClass";
 
-      // For ClassExpression, try to get name from parent VariableDeclaration
-      if (className === 'UnknownClass' && classNode.parent) {
+      if (className === "UnknownClass" && classNode.parent) {
         const parentKind = ts.SyntaxKind[classNode.parent.kind];
-        if (parentKind === 'VariableDeclaration') {
+        if (parentKind === "VariableDeclaration") {
           const varDecl = classNode.parent as ts.VariableDeclaration;
           if (varDecl.name) {
             className =
               (varDecl.name as ts.Identifier).text ||
               (varDecl.name as ts.Identifier).escapedText?.toString() ||
-              'UnknownClass';
+              "UnknownClass";
           }
-        } else if (parentKind === 'ExportAssignment') {
-          className = 'DefaultExportClass';
+        } else if (parentKind === "ExportAssignment") {
+          className = "DefaultExportClass";
         }
       }
 
-      if (className === 'UnknownClass') {
-        className = 'AnonymousClass';
+      if (className === "UnknownClass") {
+        className = "AnonymousClass";
       }
 
       const classEntry: IClass = {
@@ -456,7 +419,7 @@ export function extractClasses(
         col: character,
         column: character,
         name: className,
-        type: 'class',
+        type: "class",
         kind: kind,
         extends: [],
         implements: [],
@@ -464,55 +427,48 @@ export function extractClasses(
         methods: [],
       };
 
-      // SEMANTIC EXTRACTION using TypeChecker (spec2.md Section 2)
       if (checker && classNode.name) {
-        // 1. Get the Symbol (The Identity)
         let symbol = checker.getSymbolAtLocation(classNode.name);
 
-        // Fallback for ClassExpression assigned to variable
         if (!symbol && ts.isVariableDeclaration(classNode.parent)) {
           symbol = checker.getSymbolAtLocation(
-            (classNode.parent as ts.VariableDeclaration).name
+            (classNode.parent as ts.VariableDeclaration).name,
           );
         }
 
         if (symbol) {
-          // Get type annotation
           const type = checker.getTypeOfSymbolAtLocation(symbol, node);
           if (type) {
             classEntry.type_annotation = checker.typeToString(type);
           }
 
-          // 2. Get the Instance Type (The Shape)
           const instanceType = checker.getDeclaredTypeOfSymbol(symbol);
 
-          // 3. Resolve Inheritance - THIS IS THE KEY DIFFERENCE
-          const baseTypes = instanceType.getBaseTypes ? instanceType.getBaseTypes() : [];
+          const baseTypes = instanceType.getBaseTypes
+            ? instanceType.getBaseTypes()
+            : [];
           if (baseTypes && baseTypes.length > 0) {
             classEntry.extends = baseTypes.map((t) => checker.typeToString(t));
-            // Also set legacy field for backward compatibility
             classEntry.extends_type = classEntry.extends[0] || null;
           }
 
-          // 4. Get ALL Properties (including inherited!)
-          const properties = instanceType.getProperties ? instanceType.getProperties() : [];
+          const properties = instanceType.getProperties
+            ? instanceType.getProperties()
+            : [];
 
           for (const prop of properties) {
             const propName = prop.getName();
-            if (propName.startsWith('__')) continue; // Skip internal
+            if (propName.startsWith("__")) continue;
 
             const propType = checker.getTypeOfSymbolAtLocation(prop, node);
             const propTypeString = checker.typeToString(propType);
 
-            // Check if method (has call signatures)
             const callSignatures = propType.getCallSignatures();
 
-            // Determine if inherited by checking if declaration is in this class
             let isInherited = true;
             const declarations = prop.getDeclarations();
             if (declarations && declarations.length > 0) {
               for (const decl of declarations) {
-                // Walk up to find parent class
                 let parent = decl.parent;
                 while (parent) {
                   if (parent === classNode) {
@@ -541,7 +497,6 @@ export function extractClasses(
           }
         }
       } else {
-        // Fallback to text-based extraction when no checker available
         if (classNode.heritageClauses) {
           for (const clause of classNode.heritageClauses) {
             if (
@@ -552,7 +507,9 @@ export function extractClasses(
               const extendsType = clause.types[0];
               const extendsText = extendsType.expression
                 ? (extendsType.expression as ts.Identifier).text ||
-                  (extendsType.expression as ts.Identifier).escapedText?.toString()
+                  (
+                    extendsType.expression as ts.Identifier
+                  ).escapedText?.toString()
                 : null;
               classEntry.extends_type = extendsText || null;
               if (extendsText) {
@@ -563,54 +520,51 @@ export function extractClasses(
         }
       }
 
-      // 5. Resolve implements (from syntax)
       if (classNode.heritageClauses) {
         for (const clause of classNode.heritageClauses) {
           if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
             classEntry.implements = clause.types.map((t) =>
-              t.expression.getText(sourceFile)
+              t.expression.getText(sourceFile),
             );
           }
         }
       }
 
-      // Extract type parameters
       if (classNode.typeParameters && classNode.typeParameters.length > 0) {
         classEntry.has_type_params = true;
         classEntry.type_params = classNode.typeParameters
           .map((tp) => {
             const paramName = tp.name
               ? tp.name.text || tp.name.escapedText?.toString()
-              : 'T';
+              : "T";
             if (tp.constraint) {
               const constraintText = tp.constraint.getText
                 ? tp.constraint.getText(sourceFile)
-                : '';
+                : "";
               return `${paramName} extends ${constraintText}`;
             }
-            return paramName || 'T';
+            return paramName || "T";
           })
-          .join(', ');
+          .join(", ");
       }
 
-      // Extract class decorators
       const decorators = ts.canHaveDecorators(node)
         ? ts.getDecorators(node)
         : undefined;
       if (decorators && decorators.length > 0) {
         decorators.forEach((decorator, decoratorIndex) => {
-          let decoratorName = '';
+          let decoratorName = "";
           let decoratorLine = class_line;
 
           const decPos = sourceFile.getLineAndCharacterOfPosition(
-            decorator.getStart(sourceFile)
+            decorator.getStart(sourceFile),
           );
           decoratorLine = decPos.line + 1;
 
           if (decorator.expression) {
             if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
               const id = decorator.expression as ts.Identifier;
-              decoratorName = id.text || id.escapedText?.toString() || '';
+              decoratorName = id.text || id.escapedText?.toString() || "";
             } else if (
               decorator.expression.kind === ts.SyntaxKind.CallExpression
             ) {
@@ -620,26 +574,28 @@ export function extractClasses(
                 callExpr.expression.kind === ts.SyntaxKind.Identifier
               ) {
                 const id = callExpr.expression as ts.Identifier;
-                decoratorName = id.text || id.escapedText?.toString() || '';
+                decoratorName = id.text || id.escapedText?.toString() || "";
               }
 
               if (callExpr.arguments && callExpr.arguments.length > 0) {
                 callExpr.arguments.forEach((arg, argIndex) => {
-                  let argValue = '';
+                  let argValue = "";
                   if (arg.kind === ts.SyntaxKind.StringLiteral) {
                     argValue = (arg as ts.StringLiteral).text;
                   } else if (arg.kind === ts.SyntaxKind.NumericLiteral) {
                     argValue = (arg as ts.NumericLiteral).text;
                   } else if (arg.kind === ts.SyntaxKind.TrueKeyword) {
-                    argValue = 'true';
+                    argValue = "true";
                   } else if (arg.kind === ts.SyntaxKind.FalseKeyword) {
-                    argValue = 'false';
+                    argValue = "false";
                   } else if (
                     arg.kind === ts.SyntaxKind.ObjectLiteralExpression
                   ) {
                     argValue = arg.getText(sourceFile);
                   } else {
-                    argValue = arg.getText ? arg.getText(sourceFile) : '[complex]';
+                    argValue = arg.getText
+                      ? arg.getText(sourceFile)
+                      : "[complex]";
                   }
 
                   class_decorator_args.push({
@@ -681,15 +637,11 @@ export function extractClasses(
   };
 }
 
-// =============================================================================
-// EXTRACT CLASS PROPERTIES
-// =============================================================================
-
 export function extractClassProperties(
   sourceFile: ts.SourceFile,
-  ts: typeof import('typescript'),
+  ts: typeof import("typescript"),
   filePath: string,
-  classes: IClass[]
+  classes: IClass[],
 ): IClassProperty[] {
   const properties: IClassProperty[] = [];
   let currentClass: string | null = null;
@@ -698,22 +650,24 @@ export function extractClassProperties(
     if (!node) return;
     const kind = ts.SyntaxKind[node.kind];
 
-    if (kind === 'ClassDeclaration' || kind === 'ClassExpression') {
+    if (kind === "ClassDeclaration" || kind === "ClassExpression") {
       const classNode = node as ts.ClassDeclaration | ts.ClassExpression;
       const previousClass = currentClass;
       currentClass = classNode.name
-        ? classNode.name.text || classNode.name.escapedText?.toString() || 'UnknownClass'
-        : 'UnknownClass';
+        ? classNode.name.text ||
+          classNode.name.escapedText?.toString() ||
+          "UnknownClass"
+        : "UnknownClass";
 
-      if (currentClass === 'UnknownClass' && classNode.parent) {
+      if (currentClass === "UnknownClass" && classNode.parent) {
         const parentKind = ts.SyntaxKind[classNode.parent.kind];
-        if (parentKind === 'VariableDeclaration') {
+        if (parentKind === "VariableDeclaration") {
           const varDecl = classNode.parent as ts.VariableDeclaration;
           if (varDecl.name) {
             currentClass =
               (varDecl.name as ts.Identifier).text ||
               (varDecl.name as ts.Identifier).escapedText?.toString() ||
-              'UnknownClass';
+              "UnknownClass";
           }
         }
       }
@@ -723,16 +677,16 @@ export function extractClassProperties(
       return;
     }
 
-    if (kind === 'PropertyDeclaration' && currentClass) {
+    if (kind === "PropertyDeclaration" && currentClass) {
       const propNode = node as ts.PropertyDeclaration;
       const { line } = sourceFile.getLineAndCharacterOfPosition(
-        node.getStart(sourceFile)
+        node.getStart(sourceFile),
       );
       const propertyName = propNode.name
         ? (propNode.name as ts.Identifier).text ||
           (propNode.name as ts.Identifier).escapedText?.toString() ||
-          ''
-        : '';
+          ""
+        : "";
 
       if (!propertyName) {
         ts.forEachChild(node, traverse);
@@ -765,15 +719,15 @@ export function extractClassProperties(
       if (modifiers) {
         for (const modifier of modifiers) {
           const modifierKind = ts.SyntaxKind[modifier.kind];
-          if (modifierKind === 'ReadonlyKeyword') {
+          if (modifierKind === "ReadonlyKeyword") {
             property.is_readonly = true;
-          } else if (modifierKind === 'PrivateKeyword') {
-            property.access_modifier = 'private';
-          } else if (modifierKind === 'ProtectedKeyword') {
-            property.access_modifier = 'protected';
-          } else if (modifierKind === 'PublicKeyword') {
-            property.access_modifier = 'public';
-          } else if (modifierKind === 'DeclareKeyword') {
+          } else if (modifierKind === "PrivateKeyword") {
+            property.access_modifier = "private";
+          } else if (modifierKind === "ProtectedKeyword") {
+            property.access_modifier = "protected";
+          } else if (modifierKind === "PublicKeyword") {
+            property.access_modifier = "public";
+          } else if (modifierKind === "DeclareKeyword") {
             property.has_declare = true;
           }
         }
@@ -795,10 +749,6 @@ export function extractClassProperties(
   return properties;
 }
 
-// =============================================================================
-// BUILD SCOPE MAP
-// =============================================================================
-
 interface FunctionRange {
   name: string;
   start: number;
@@ -808,7 +758,7 @@ interface FunctionRange {
 
 export function buildScopeMap(
   sourceFile: ts.SourceFile,
-  ts: typeof import('typescript')
+  ts: typeof import("typescript"),
 ): Map<number, string> {
   const functionRanges: FunctionRange[] = [];
   const classStack: string[] = [];
@@ -816,83 +766,89 @@ export function buildScopeMap(
   function getNameFromParent(
     node: ts.Node,
     parent: ts.Node | null,
-    ts: typeof import('typescript'),
-    classStack: string[]
+    ts: typeof import("typescript"),
+    classStack: string[],
   ): string {
-    if (!parent) return '<anonymous>';
+    if (!parent) return "<anonymous>";
 
     const parentKind = ts.SyntaxKind[parent.kind];
 
-    if (parentKind === 'VariableDeclaration') {
+    if (parentKind === "VariableDeclaration") {
       const varDecl = parent as ts.VariableDeclaration;
       if (varDecl.name) {
         const varName =
           (varDecl.name as ts.Identifier).text ||
           (varDecl.name as ts.Identifier).escapedText?.toString() ||
-          'anonymous';
+          "anonymous";
         return classStack.length > 0
-          ? classStack[classStack.length - 1] + '.' + varName
+          ? classStack[classStack.length - 1] + "." + varName
           : varName;
       }
     }
 
-    if (parentKind === 'PropertyAssignment') {
+    if (parentKind === "PropertyAssignment") {
       const propAssign = parent as ts.PropertyAssignment;
       if (propAssign.name) {
         const propName =
           (propAssign.name as ts.Identifier).text ||
           (propAssign.name as ts.Identifier).escapedText?.toString() ||
-          'anonymous';
+          "anonymous";
         return classStack.length > 0
-          ? classStack[classStack.length - 1] + '.' + propName
+          ? classStack[classStack.length - 1] + "." + propName
           : propName;
       }
     }
 
-    if (parentKind === 'ShorthandPropertyAssignment') {
+    if (parentKind === "ShorthandPropertyAssignment") {
       const shorthand = parent as ts.ShorthandPropertyAssignment;
       if (shorthand.name) {
         const propName =
-          shorthand.name.text || shorthand.name.escapedText?.toString() || 'anonymous';
+          shorthand.name.text ||
+          shorthand.name.escapedText?.toString() ||
+          "anonymous";
         return classStack.length > 0
-          ? classStack[classStack.length - 1] + '.' + propName
+          ? classStack[classStack.length - 1] + "." + propName
           : propName;
       }
     }
 
-    if (parentKind === 'BinaryExpression') {
+    if (parentKind === "BinaryExpression") {
       const binExpr = parent as ts.BinaryExpression;
       if (binExpr.left) {
-        const leftText = binExpr.left.getText ? binExpr.left.getText() : '';
+        const leftText = binExpr.left.getText ? binExpr.left.getText() : "";
         if (leftText) {
           return leftText;
         }
       }
     }
 
-    return '<anonymous>';
+    return "<anonymous>";
   }
 
   function collectFunctions(
     node: ts.Node,
     depth: number = 0,
-    parent: ts.Node | null = null
+    parent: ts.Node | null = null,
   ): void {
     if (depth > 100 || !node) return;
 
     const kind = ts.SyntaxKind[node.kind];
     let startLine = sourceFile.getLineAndCharacterOfPosition(
-      node.getStart(sourceFile)
+      node.getStart(sourceFile),
     ).line;
     let endLine = sourceFile.getLineAndCharacterOfPosition(node.end).line;
 
-    if (kind === 'ClassDeclaration') {
+    if (kind === "ClassDeclaration") {
       const classNode = node as ts.ClassDeclaration;
       const className = classNode.name
-        ? classNode.name.text || classNode.name.escapedText?.toString() || 'UnknownClass'
-        : 'UnknownClass';
+        ? classNode.name.text ||
+          classNode.name.escapedText?.toString() ||
+          "UnknownClass"
+        : "UnknownClass";
       classStack.push(className);
-      ts.forEachChild(node, (child) => collectFunctions(child, depth + 1, node));
+      ts.forEachChild(node, (child) =>
+        collectFunctions(child, depth + 1, node),
+      );
       classStack.pop();
       return;
     }
@@ -900,85 +856,89 @@ export function buildScopeMap(
     let funcName: string | null = null;
     let actualFunctionNode: ts.Node = node;
 
-    if (kind === 'FunctionDeclaration') {
+    if (kind === "FunctionDeclaration") {
       const funcNode = node as ts.FunctionDeclaration;
       funcName = funcNode.name
-        ? funcNode.name.text || funcNode.name.escapedText?.toString() || 'anonymous'
-        : 'anonymous';
-    } else if (kind === 'MethodDeclaration') {
+        ? funcNode.name.text ||
+          funcNode.name.escapedText?.toString() ||
+          "anonymous"
+        : "anonymous";
+    } else if (kind === "MethodDeclaration") {
       const methodNode = node as ts.MethodDeclaration;
       const methodName = methodNode.name
         ? (methodNode.name as ts.Identifier).text ||
           (methodNode.name as ts.Identifier).escapedText?.toString() ||
-          'anonymous'
-        : 'anonymous';
+          "anonymous"
+        : "anonymous";
       funcName =
         classStack.length > 0
-          ? classStack[classStack.length - 1] + '.' + methodName
+          ? classStack[classStack.length - 1] + "." + methodName
           : methodName;
-    } else if (kind === 'PropertyDeclaration') {
+    } else if (kind === "PropertyDeclaration") {
       const propNode = node as ts.PropertyDeclaration;
       if (propNode.initializer) {
         const initKind = ts.SyntaxKind[propNode.initializer.kind];
-        if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
+        if (initKind === "ArrowFunction" || initKind === "FunctionExpression") {
           const propName = propNode.name
             ? (propNode.name as ts.Identifier).text ||
               (propNode.name as ts.Identifier).escapedText?.toString() ||
-              'anonymous'
-            : 'anonymous';
+              "anonymous"
+            : "anonymous";
           funcName =
             classStack.length > 0
-              ? classStack[classStack.length - 1] + '.' + propName
+              ? classStack[classStack.length - 1] + "." + propName
               : propName;
-        } else if (initKind === 'CallExpression') {
+        } else if (initKind === "CallExpression") {
           const callExpr = propNode.initializer as ts.CallExpression;
           if (callExpr.arguments && callExpr.arguments.length > 0) {
             const firstArg = callExpr.arguments[0];
             const firstArgKind = ts.SyntaxKind[firstArg.kind];
             if (
-              firstArgKind === 'ArrowFunction' ||
-              firstArgKind === 'FunctionExpression'
+              firstArgKind === "ArrowFunction" ||
+              firstArgKind === "FunctionExpression"
             ) {
               const propName = propNode.name
                 ? (propNode.name as ts.Identifier).text ||
                   (propNode.name as ts.Identifier).escapedText?.toString() ||
-                  'anonymous'
-                : 'anonymous';
+                  "anonymous"
+                : "anonymous";
               funcName =
                 classStack.length > 0
-                  ? classStack[classStack.length - 1] + '.' + propName
+                  ? classStack[classStack.length - 1] + "." + propName
                   : propName;
               actualFunctionNode = firstArg;
               startLine = sourceFile.getLineAndCharacterOfPosition(
-                firstArg.getStart(sourceFile)
+                firstArg.getStart(sourceFile),
               ).line;
-              endLine = sourceFile.getLineAndCharacterOfPosition(firstArg.end).line;
+              endLine = sourceFile.getLineAndCharacterOfPosition(
+                firstArg.end,
+              ).line;
             }
           }
         }
       }
-    } else if (kind === 'Constructor') {
+    } else if (kind === "Constructor") {
       funcName =
         classStack.length > 0
-          ? classStack[classStack.length - 1] + '.constructor'
-          : 'constructor';
-    } else if (kind === 'GetAccessor' || kind === 'SetAccessor') {
+          ? classStack[classStack.length - 1] + ".constructor"
+          : "constructor";
+    } else if (kind === "GetAccessor" || kind === "SetAccessor") {
       const accessorNode = node as ts.AccessorDeclaration;
       const accessorName = accessorNode.name
         ? (accessorNode.name as ts.Identifier).text ||
           (accessorNode.name as ts.Identifier).escapedText?.toString() ||
-          'anonymous'
-        : 'anonymous';
-      const prefix = kind === 'GetAccessor' ? 'get ' : 'set ';
+          "anonymous"
+        : "anonymous";
+      const prefix = kind === "GetAccessor" ? "get " : "set ";
       funcName =
         classStack.length > 0
-          ? classStack[classStack.length - 1] + '.' + prefix + accessorName
+          ? classStack[classStack.length - 1] + "." + prefix + accessorName
           : prefix + accessorName;
-    } else if (kind === 'ArrowFunction' || kind === 'FunctionExpression') {
+    } else if (kind === "ArrowFunction" || kind === "FunctionExpression") {
       funcName = getNameFromParent(node, parent, ts, classStack);
     }
 
-    if (funcName && funcName !== 'anonymous' && funcName !== '<anonymous>') {
+    if (funcName && funcName !== "anonymous" && funcName !== "<anonymous>") {
       functionRanges.push({
         name: funcName,
         start: startLine + 1,
@@ -994,13 +954,11 @@ export function buildScopeMap(
 
   const scopeMap = new Map<number, string>();
 
-  // Sort by start line, then by depth (deepest first for same start line)
   functionRanges.sort((a, b) => {
     if (a.start !== b.start) return a.start - b.start;
     return b.depth - a.depth;
   });
 
-  // Build scope map - later entries override earlier for same line
   for (const func of functionRanges) {
     for (let line = func.start; line <= func.end; line++) {
       scopeMap.set(line, func.name);
@@ -1010,13 +968,9 @@ export function buildScopeMap(
   return scopeMap;
 }
 
-// =============================================================================
-// COUNT NODES
-// =============================================================================
-
 export function countNodes(
   node: ts.Node,
-  ts: typeof import('typescript')
+  ts: typeof import("typescript"),
 ): number {
   if (!node) return 0;
 

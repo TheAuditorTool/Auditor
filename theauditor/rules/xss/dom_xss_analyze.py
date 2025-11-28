@@ -1,8 +1,4 @@
-"""DOM-specific XSS Detection.
-
-This module detects DOM-based XSS vulnerabilities that occur in client-side JavaScript.
-These are particularly dangerous as they can bypass server-side protections.
-"""
+"""DOM-specific XSS Detection."""
 
 import sqlite3
 
@@ -130,11 +126,7 @@ EVAL_SINKS = frozenset(["eval", "setTimeout", "setInterval", "Function", "execSc
 
 
 def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect DOM-based XSS vulnerabilities.
-
-    Returns:
-        List of DOM XSS findings
-    """
+    """Detect DOM-based XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
@@ -158,14 +150,7 @@ def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
 
 
 def _check_direct_dom_flows(conn) -> list[StandardFinding]:
-    """Check for direct data flows from sources to sinks.
-
-    Modernization (2025-11-22):
-    - Performance: Filter for most common sinks in SQL (Pareto optimization: 80/20 rule)
-    - Memory safe: Stream results with cursor iteration instead of fetchall()
-    - Hybrid approach: SQL reduces millions→thousands, Python set ops reduce thousands→findings
-    - NOTE: NOT using _build_sql_filter (SQL injection risk, can't use indexes, false positives)
-    """
+    """Check for direct data flows from sources to sinks."""
     findings = []
     cursor = conn.cursor()
 
@@ -566,14 +551,7 @@ def _check_client_side_templates(conn) -> list[StandardFinding]:
 
 
 def _check_web_messaging(conn) -> list[StandardFinding]:
-    """Check for postMessage XSS vulnerabilities.
-
-    Modernization (2025-11-22):
-    - Performance: Push addEventListener + message filtering to SQL
-    - Reduced N+1: From 3 queries per addEventListener to 2 queries per addEventListener('message')
-    - Memory safe: Stream results with cursor iteration
-    - Note: Remaining N+1 is acceptable (checking origin validation per event listener)
-    """
+    """Check for postMessage XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
 
@@ -725,9 +703,5 @@ def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
+    """Orchestrator-compatible entry point."""
     return find_dom_xss(context)

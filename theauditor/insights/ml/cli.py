@@ -1,11 +1,4 @@
-"""Slim CLI orchestrator for ML training and inference.
-
-Delegates to specialized modules:
-- loaders.py: Historical data loading
-- features.py: Database feature extraction
-- intelligence.py: Smart parsing (journal + raw artifacts)
-- models.py: Model training/loading/saving
-"""
+"""Slim CLI orchestrator for ML training and inference."""
 
 import json
 from datetime import UTC, datetime
@@ -28,12 +21,7 @@ def learn(
     session_dir: str = None,
     graveyard_path: str = None,
 ) -> dict[str, Any]:
-    """Train ML models from artifacts.
-
-    Args:
-        session_dir: Optional path to Claude Code session logs (enables Tier 5 agent behavior features)
-        graveyard_path: Optional path to comment_graveyard.json (enables comment hallucination detection)
-    """
+    """Train ML models from artifacts."""
     if not models.check_ml_available():
         return {"success": False, "error": "ML not available"}
 

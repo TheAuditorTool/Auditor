@@ -6,18 +6,7 @@ from typing import Any
 
 
 def classify_risk(impact_list: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Classify dependencies into actionable risk buckets.
-
-    Organizes impact data into production code, tests, config files,
-    and external dependencies for smarter risk assessment.
-
-    Args:
-        impact_list: List of dependency dictionaries with 'file' keys
-
-    Returns:
-        Dictionary with 'breakdown' (categorized lists) and 'metrics' (counts)
-    """
+    """Classify dependencies into actionable risk buckets."""
     buckets: dict[str, list[dict[str, Any]]] = {
         "production": [],
         "tests": [],
@@ -60,24 +49,7 @@ def classify_risk(impact_list: list[dict[str, Any]]) -> dict[str, Any]:
 def analyze_impact(
     db_path: str, target_file: str, target_line: int, trace_to_backend: bool = False
 ) -> dict[str, Any]:
-    """
-    Analyze the impact of changing code at a specific file and line.
-
-    Traces both upstream dependencies (who calls this) and downstream
-    dependencies (what this calls) to understand the blast radius of changes.
-
-    Args:
-        db_path: Path to the SQLite database
-        target_file: Path to the file containing the target code
-        target_line: Line number of the target code
-
-    Returns:
-        Dictionary containing:
-        - target_symbol: Name and type of the symbol at target location
-        - upstream: List of symbols that call the target (callers)
-        - downstream: List of symbols called by the target (callees)
-        - impact_summary: Statistics about the blast radius
-    """
+    """Analyze the impact of changing code at a specific file and line."""
 
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
@@ -241,20 +213,7 @@ def analyze_impact(
 def find_upstream_dependencies(
     cursor: sqlite3.Cursor, target_file: str, target_name: str, target_type: str
 ) -> list[dict[str, Any]]:
-    """
-    Find all symbols that call the target symbol (upstream dependencies).
-
-    Optimized: Uses a single JOIN query instead of N+1 queries.
-
-    Args:
-        cursor: Database cursor
-        target_file: File containing the target symbol
-        target_name: Name of the target symbol
-        target_type: Type of the target symbol (function/class)
-
-    Returns:
-        List of upstream dependency dictionaries
-    """
+    """Find all symbols that call the target symbol (upstream dependencies)."""
 
     cursor.execute(
         """
@@ -303,20 +262,7 @@ def find_upstream_dependencies(
 def find_downstream_dependencies(
     cursor: sqlite3.Cursor, target_file: str, target_line: int, target_name: str
 ) -> list[dict[str, Any]]:
-    """
-    Find all symbols called by the target symbol (downstream dependencies).
-
-    Optimized: Uses batch WHERE IN query instead of N+1 queries.
-
-    Args:
-        cursor: Database cursor
-        target_file: File containing the target symbol
-        target_line: Line where target symbol is defined
-        target_name: Name of the target symbol
-
-    Returns:
-        List of downstream dependency dictionaries
-    """
+    """Find all symbols called by the target symbol (downstream dependencies)."""
 
     cursor.execute(
         """
@@ -413,19 +359,7 @@ def calculate_transitive_impact(
     max_depth: int = 2,
     visited: set[tuple[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    Calculate transitive dependencies up to max_depth.
-
-    Args:
-        cursor: Database cursor
-        direct_deps: Direct dependencies to expand
-        direction: "upstream" or "downstream"
-        max_depth: Maximum recursion depth
-        visited: Set of already visited (file, symbol) pairs
-
-    Returns:
-        List of transitive dependencies
-    """
+    """Calculate transitive dependencies up to max_depth."""
     if max_depth <= 0 or not direct_deps:
         return []
 
@@ -465,21 +399,7 @@ def calculate_transitive_impact(
 def trace_frontend_to_backend(
     cursor: sqlite3.Cursor, target_file: str, target_line: int
 ) -> dict[str, Any] | None:
-    """
-    Trace a frontend API call to its corresponding backend endpoint.
-
-    Uses function_call_args table to find axios/fetch calls instead of
-    parsing source code with regex. This follows the database-first
-    architecture principle.
-
-    Args:
-        cursor: Database cursor
-        target_file: Frontend file containing API call
-        target_line: Line number of the API call
-
-    Returns:
-        Dictionary with cross-stack trace information or None if not found
-    """
+    """Trace a frontend API call to its corresponding backend endpoint."""
     import re
 
     cursor.execute(
@@ -600,17 +520,7 @@ def trace_frontend_to_backend(
 
 
 def calculate_coupling_score(impact_data: dict[str, Any]) -> int:
-    """
-    Calculate a coupling score (0-100) based on impact metrics.
-
-    Higher score = more tightly coupled = higher risk.
-
-    Args:
-        impact_data: Results from analyze_impact
-
-    Returns:
-        Integer score 0-100
-    """
+    """Calculate a coupling score (0-100) based on impact metrics."""
     if impact_data.get("error"):
         return 0
 
@@ -629,20 +539,7 @@ def calculate_coupling_score(impact_data: dict[str, Any]) -> int:
 
 
 def format_planning_context(impact_data: dict[str, Any]) -> str:
-    """
-    Format impact analysis for planning agent consumption.
-
-    Outputs structured format with:
-    - Risk categories (production/tests/config/external)
-    - Coupling score
-    - Suggested phases for incremental changes
-
-    Args:
-        impact_data: Results from analyze_impact
-
-    Returns:
-        Planning-friendly formatted string
-    """
+    """Format impact analysis for planning agent consumption."""
     lines = []
 
     lines.append("=" * 60)
@@ -783,15 +680,7 @@ def format_planning_context(impact_data: dict[str, Any]) -> str:
 
 
 def format_impact_report(impact_data: dict[str, Any]) -> str:
-    """
-    Format impact analysis results into a human-readable report.
-
-    Args:
-        impact_data: Results from analyze_impact
-
-    Returns:
-        Formatted string report
-    """
+    """Format impact analysis results into a human-readable report."""
     lines = []
 
     lines.append("=" * 60)

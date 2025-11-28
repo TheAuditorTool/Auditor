@@ -1,17 +1,4 @@
-"""
-Infrastructure-as-Code schema definitions.
-
-This module contains table schemas specific to infrastructure tools:
-- Docker (containers, images, compose services)
-- NGINX (web server configuration)
-- Terraform (IaC resources, variables, outputs)
-- AWS CDK (Infrastructure as Code with Python/TypeScript)
-
-Design Philosophy:
-- Infrastructure-only tables
-- Multi-cloud support (AWS, Azure, GCP via Terraform)
-- Security-focused (public exposure, misconfigurations)
-"""
+"""Infrastructure-as-Code schema definitions."""
 
 from .utils import Column, ForeignKey, TableSchema
 
@@ -29,12 +16,11 @@ DOCKER_IMAGES = TableSchema(
 )
 
 
-# Junction tables for docker_images (replaces JSON blob columns)
 DOCKERFILE_PORTS = TableSchema(
     name="dockerfile_ports",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to docker_images.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("port", "INTEGER", nullable=False),
         Column("protocol", "TEXT", default="'tcp'"),
     ],
@@ -55,7 +41,7 @@ DOCKERFILE_ENV_VARS = TableSchema(
     name="dockerfile_env_vars",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK to docker_images.file_path
+        Column("file_path", "TEXT", nullable=False),
         Column("var_name", "TEXT", nullable=False),
         Column("var_value", "TEXT"),
         Column("is_build_arg", "BOOLEAN", default="0"),
@@ -96,13 +82,12 @@ COMPOSE_SERVICES = TableSchema(
 )
 
 
-# Junction tables for compose_services (replaces JSON blob columns)
 COMPOSE_SERVICE_PORTS = TableSchema(
     name="compose_service_ports",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK part 1
-        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("file_path", "TEXT", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
         Column("host_port", "INTEGER"),
         Column("container_port", "INTEGER", nullable=False),
         Column("protocol", "TEXT", default="'tcp'"),
@@ -124,8 +109,8 @@ COMPOSE_SERVICE_VOLUMES = TableSchema(
     name="compose_service_volumes",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK part 1
-        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("file_path", "TEXT", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
         Column("host_path", "TEXT"),
         Column("container_path", "TEXT", nullable=False),
         Column("mode", "TEXT", default="'rw'"),
@@ -147,8 +132,8 @@ COMPOSE_SERVICE_ENV = TableSchema(
     name="compose_service_env",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK part 1
-        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("file_path", "TEXT", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
         Column("var_name", "TEXT", nullable=False),
         Column("var_value", "TEXT"),
     ],
@@ -169,10 +154,10 @@ COMPOSE_SERVICE_CAPABILITIES = TableSchema(
     name="compose_service_capabilities",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK part 1
-        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("file_path", "TEXT", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
         Column("capability", "TEXT", nullable=False),
-        Column("is_add", "BOOLEAN", nullable=False),  # 1=cap_add, 0=cap_drop
+        Column("is_add", "BOOLEAN", nullable=False),
     ],
     indexes=[
         ("idx_compose_service_capabilities_fk", ["file_path", "service_name"]),
@@ -191,8 +176,8 @@ COMPOSE_SERVICE_DEPS = TableSchema(
     name="compose_service_deps",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("file_path", "TEXT", nullable=False),  # FK part 1
-        Column("service_name", "TEXT", nullable=False),  # FK part 2
+        Column("file_path", "TEXT", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
         Column("depends_on_service", "TEXT", nullable=False),
         Column("condition", "TEXT", default="'service_started'"),
     ],
@@ -270,12 +255,11 @@ TERRAFORM_RESOURCES = TableSchema(
 )
 
 
-# Junction tables for terraform_resources (replaces JSON blob columns)
 TERRAFORM_RESOURCE_PROPERTIES = TableSchema(
     name="terraform_resource_properties",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("resource_id", "TEXT", nullable=False),  # FK to terraform_resources.resource_id
+        Column("resource_id", "TEXT", nullable=False),
         Column("property_name", "TEXT", nullable=False),
         Column("property_value", "TEXT"),
         Column("is_sensitive", "BOOLEAN", default="0"),
@@ -298,7 +282,7 @@ TERRAFORM_RESOURCE_DEPS = TableSchema(
     name="terraform_resource_deps",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True),
-        Column("resource_id", "TEXT", nullable=False),  # FK to terraform_resources.resource_id
+        Column("resource_id", "TEXT", nullable=False),
         Column("depends_on_ref", "TEXT", nullable=False),
     ],
     indexes=[

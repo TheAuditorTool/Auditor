@@ -1,30 +1,13 @@
-"""Shared sanitizer detection utilities for taint analysis.
-
-This module provides a unified SanitizerRegistry class used by both
-IFDSTaintAnalyzer (backward) and FlowResolver (forward) to ensure
-consistent sanitizer detection logic across all taint analysis engines.
-
-NO FALLBACKS. NO EXCEPTIONS. Database-first architecture.
-"""
+"""Shared sanitizer detection utilities for taint analysis."""
 
 import sys
 
 
 class SanitizerRegistry:
-    """Registry for sanitizer patterns and validation frameworks.
-
-    Provides unified sanitizer detection logic for all taint engines.
-    Loads safe sinks and validation sanitizers from database once.
-    """
+    """Registry for sanitizer patterns and validation frameworks."""
 
     def __init__(self, repo_cursor, registry=None, debug=False):
-        """Initialize sanitizer registry with database cursor.
-
-        Args:
-            repo_cursor: Database cursor to repo_index.db
-            registry: Optional registry object for additional context
-            debug: Enable debug output
-        """
+        """Initialize sanitizer registry with database cursor."""
         self.repo_cursor = repo_cursor
         self.registry = registry
         self.debug = debug
@@ -39,14 +22,7 @@ class SanitizerRegistry:
         self._preload_call_args()
 
     def _load_safe_sinks(self):
-        """Load safe sink patterns from framework_safe_sinks table.
-
-        These are function name patterns that are known to sanitize data
-        (e.g., escape functions, parameterized query builders).
-
-        Schema: framework_safe_sinks(framework_id, sink_pattern, sink_type, is_safe, reason)
-        Note: Column is 'sink_pattern' NOT 'pattern' (fixed 2025-11-27)
-        """
+        """Load safe sink patterns from framework_safe_sinks table."""
         try:
             self.repo_cursor.execute("""
                 SELECT DISTINCT sink_pattern
@@ -69,11 +45,7 @@ class SanitizerRegistry:
                 print(f"[SanitizerRegistry] Failed to load safe sinks: {e}", file=sys.stderr)
 
     def _load_validation_sanitizers(self):
-        """Load validation framework sanitizers from database.
-
-        These are middleware/decorators that validate/sanitize input
-        (e.g., Zod schemas, Express validators, Pydantic models).
-        """
+        """Load validation framework sanitizers from database."""
         try:
             self.repo_cursor.execute("""
                 SELECT DISTINCT
@@ -108,11 +80,7 @@ class SanitizerRegistry:
                 )
 
     def _preload_call_args(self):
-        """Pre-load function_call_args into memory to eliminate DB queries in hot loop.
-
-        ARCHITECTURAL FIX: Converts O(paths × hops) SQL queries to O(1) hash lookups.
-        For 10k paths × 8 hops = 80k queries eliminated.
-        """
+        """Pre-load function_call_args into memory to eliminate DB queries in hot loop."""
         try:
             self.repo_cursor.execute("""
                 SELECT file, line, callee_function
@@ -136,14 +104,7 @@ class SanitizerRegistry:
                 print(f"[SanitizerRegistry] Failed to preload call args: {e}", file=sys.stderr)
 
     def _is_sanitizer(self, function_name: str) -> bool:
-        """Check if a function name matches any safe sink pattern.
-
-        Args:
-            function_name: Function name to check
-
-        Returns:
-            True if function matches a safe sink pattern
-        """
+        """Check if a function name matches any safe sink pattern."""
 
         if function_name in self.safe_sinks:
             return True
@@ -155,14 +116,7 @@ class SanitizerRegistry:
         return False
 
     def _get_language_for_file(self, file_path: str) -> str:
-        """Detect language from file extension.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            Language identifier ('python', 'javascript', 'rust', 'unknown')
-        """
+        """Detect language from file extension."""
         if not file_path:
             return "unknown"
 
@@ -176,16 +130,7 @@ class SanitizerRegistry:
         return "unknown"
 
     def _get_validation_patterns(self, file_path: str) -> list[str]:
-        """Get validation/sanitizer patterns for a file's language.
-
-        Uses TaintRegistry if available, falls back to default patterns.
-
-        Args:
-            file_path: Path to file for language detection
-
-        Returns:
-            List of sanitizer/validation patterns
-        """
+        """Get validation/sanitizer patterns for a file's language."""
         lang = self._get_language_for_file(file_path)
 
         if not self.registry:
@@ -197,23 +142,7 @@ class SanitizerRegistry:
         return self.registry.get_sanitizer_patterns(lang)
 
     def _path_goes_through_sanitizer(self, hop_chain: list[dict]) -> dict | None:
-        """Check if a taint path goes through any sanitizer.
-
-        This is the UNIFIED sanitizer detection logic used by both engines.
-        Combines the most comprehensive checks from both implementations.
-
-        Checks THREE types of sanitizers:
-        1. Validation patterns in node names (validateBody, validateParams, etc.)
-        2. Validation framework sanitizers (location-based: file:line match)
-        3. Safe sink patterns (name-based: function name pattern match)
-
-        Args:
-            hop_chain: List of hops/nodes in the taint path
-
-        Returns:
-            Dict with sanitizer metadata if path is sanitized, None if vulnerable
-            Format: {'file': str, 'line': int, 'method': str}
-        """
+        """Check if a taint path goes through any sanitizer."""
         if self.debug:
             print(
                 f"[SanitizerRegistry] Checking {len(hop_chain)} hops for sanitizers",
