@@ -465,6 +465,11 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
         self.db_manager.commit()
 
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6.10: Resolving import paths...", file=sys.stderr)
+        JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+        self.db_manager.commit()
+
         base_msg = (
             f"[Indexer] Indexed {self.counts['files']} files, "
             f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "

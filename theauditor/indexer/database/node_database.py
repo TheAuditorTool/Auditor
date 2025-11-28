@@ -527,18 +527,20 @@ class NodeDatabaseMixin:
         imported_names: list[str] | None = None,
         alias_name: str | None = None,
         full_statement: str | None = None,
+        resolved_path: str | None = None,
     ):
         """Add an import style record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
         - Phase 1: Batch import style record (without imported_names column)
         - Phase 2: Batch junction records for each imported name
+        - Phase 3 (post-indexing): resolved_path populated by resolve_import_paths()
 
         NO FALLBACKS. If imported_names is malformed, hard fail.
         """
 
         self.generic_batches["import_styles"].append(
-            (file_path, line, package, import_style, alias_name, full_statement)
+            (file_path, line, package, import_style, alias_name, full_statement, resolved_path)
         )
 
         if imported_names:

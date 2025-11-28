@@ -563,3 +563,204 @@ class JavaScriptResolversMixin:
                 )
 
         conn.close()
+
+    @staticmethod
+    def resolve_import_paths(db_path: str):
+        """Resolve import paths using indexed file data.
+
+        ARCHITECTURE: Post-indexing resolution using database queries (NO filesystem I/O).
+        Runs AFTER all files indexed. Queries `files` table for O(1) path lookups.
+
+        Resolution order:
+        1. Path alias expansion (@/, ~/)
+        2. Relative path resolution (./foo, ../bar)
+        3. Extension/index file variants
+
+        Note: node_modules (bare specifiers like 'lodash') are NOT resolved.
+
+        Args:
+            db_path: Path to repo_index.db database
+        """
+        debug = os.getenv("THEAUDITOR_DEBUG") == "1"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT path FROM files
+            WHERE ext IN ('.ts', '.tsx', '.js', '.jsx', '.vue', '.mjs', '.cjs')
+        """)
+        indexed_paths = {row[0] for row in cursor.fetchall()}
+
+        if debug:
+            print(f"[IMPORT RESOLUTION] Loaded {len(indexed_paths)} indexed JS/TS paths")
+
+        path_aliases = _load_path_aliases(cursor)
+
+        if debug:
+            print(f"[IMPORT RESOLUTION] Path aliases: {path_aliases}")
+
+        cursor.execute("""
+            SELECT rowid, file, package FROM import_styles
+            WHERE package LIKE './%'
+               OR package LIKE '../%'
+               OR package LIKE '@/%'
+               OR package LIKE '~/%'
+        """)
+        imports_to_resolve = cursor.fetchall()
+
+        if debug:
+            print(f"[IMPORT RESOLUTION] Found {len(imports_to_resolve)} imports to resolve")
+
+        resolved_count = 0
+        unresolved_count = 0
+
+        for rowid, from_file, import_path in imports_to_resolve:
+            resolved = _resolve_import(import_path, from_file, indexed_paths, path_aliases)
+            if resolved:
+                cursor.execute(
+                    "UPDATE import_styles SET resolved_path = ? WHERE rowid = ?",
+                    (resolved, rowid),
+                )
+                resolved_count += 1
+            else:
+                unresolved_count += 1
+
+        conn.commit()
+        conn.close()
+
+        if debug:
+            print(f"[IMPORT RESOLUTION] Resolved {resolved_count}/{len(imports_to_resolve)} imports")
+            print(f"[IMPORT RESOLUTION] Unresolved: {unresolved_count}")
+
+
+def _load_path_aliases(cursor) -> dict:
+    """Load path aliases from indexed file structure.
+
+    Detects common project structures (src/, app/) and sets up
+    conventional aliases (@/, ~/).
+
+    Args:
+        cursor: SQLite cursor
+
+    Returns:
+        Dict mapping alias prefixes to base paths
+    """
+    aliases = {}
+
+    cursor.execute("""
+        SELECT DISTINCT path FROM files
+        WHERE path LIKE '%/src/%'
+        LIMIT 1
+    """)
+    src_sample = cursor.fetchone()
+
+    if src_sample:
+        parts = src_sample[0].split("/")
+        if "src" in parts:
+            src_idx = parts.index("src")
+            base = "/".join(parts[: src_idx + 1])
+            aliases["@/"] = base + "/"
+            aliases["~/"] = base + "/"
+
+    return aliases
+
+
+def _resolve_import(
+    import_path: str,
+    from_file: str,
+    indexed_paths: set,
+    path_aliases: dict,
+) -> str | None:
+    """Resolve a single import path against indexed files.
+
+    Resolution order:
+    1. Path alias expansion (@/, ~/)
+    2. Relative path resolution (./foo, ../bar)
+    3. Extension/index file variants
+
+    Args:
+        import_path: The import path to resolve (e.g., './utils')
+        from_file: The file containing the import
+        indexed_paths: Set of all indexed file paths
+        path_aliases: Dict of alias -> base path mappings
+
+    Returns:
+        Resolved path if found, None otherwise
+    """
+    resolved_base = None
+
+    for alias, target in path_aliases.items():
+        if import_path.startswith(alias):
+            resolved_base = target + import_path[len(alias) :]
+            break
+
+    if not resolved_base and import_path.startswith("."):
+        from_dir = "/".join(from_file.split("/")[:-1])
+        if import_path.startswith("./"):
+            resolved_base = from_dir + "/" + import_path[2:]
+        elif import_path.startswith("../"):
+            resolved_base = _resolve_parent_path(from_dir, import_path)
+        else:
+            resolved_base = from_dir + "/" + import_path[1:]
+
+    if not resolved_base:
+        return None
+
+    resolved_base = _normalize_path(resolved_base)
+
+    extensions = [".ts", ".tsx", ".js", ".jsx", ".vue", ""]
+    index_files = ["index.ts", "index.tsx", "index.js", "index.jsx"]
+
+    for ext in extensions:
+        candidate = resolved_base + ext
+        if candidate in indexed_paths:
+            return candidate
+
+    for index in index_files:
+        candidate = resolved_base + "/" + index
+        if candidate in indexed_paths:
+            return candidate
+
+    return None
+
+
+def _resolve_parent_path(from_dir: str, import_path: str) -> str:
+    """Resolve parent path traversals (../).
+
+    Args:
+        from_dir: Directory containing the importing file
+        import_path: Import path starting with ../
+
+    Returns:
+        Resolved base path
+    """
+    parts = from_dir.split("/")
+    import_parts = import_path.split("/")
+
+    while import_parts and import_parts[0] == "..":
+        import_parts.pop(0)
+        if parts:
+            parts.pop()
+
+    return "/".join(parts + import_parts)
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize path by resolving . and .. segments.
+
+    Args:
+        path: Path with potential . and .. segments
+
+    Returns:
+        Normalized path
+    """
+    parts = path.split("/")
+    result = []
+    for part in parts:
+        if part == "..":
+            if result:
+                result.pop()
+        elif part and part != ".":
+            result.append(part)
+    return "/".join(result)

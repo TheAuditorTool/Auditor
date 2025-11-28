@@ -364,8 +364,9 @@ class TestSchemaContractIntegrity:
         """Verify global TABLES count was updated for new junction tables."""
         from theauditor.indexer.schema import TABLES
 
-        assert len(TABLES) == 154, (
-            f"Expected 154 total tables (146 + 8 junction), got {len(TABLES)}. "
+        # Updated 2025-11-28: 147 + 8 Node junction tables = 155
+        assert len(TABLES) == 155, (
+            f"Expected 155 total tables (147 + 8 junction), got {len(TABLES)}. "
             "Update schema.py assertion if intentionally changing table count."
         )
 
