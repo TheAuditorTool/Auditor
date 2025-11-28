@@ -43,7 +43,6 @@ def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Load hotspots from typed columns (no JSON parsing)
     cursor.execute("""
         SELECT file, graph_id, graph_in_degree, graph_out_degree,
                graph_total_connections, graph_centrality, graph_score
@@ -54,16 +53,15 @@ def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str
     for row in cursor.fetchall():
         file_path, graph_id, in_deg, out_deg, total_conn, centrality, score = row
         hotspot_files[file_path] = {
-            'id': graph_id or file_path,
-            'file': file_path,
-            'in_degree': in_deg or 0,
-            'out_degree': out_deg or 0,
-            'total_connections': total_conn or 0,
-            'centrality': centrality or 0.0,
-            'score': score or 0.0,
+            "id": graph_id or file_path,
+            "file": file_path,
+            "in_degree": in_deg or 0,
+            "out_degree": out_deg or 0,
+            "total_connections": total_conn or 0,
+            "centrality": centrality or 0.0,
+            "score": score or 0.0,
         }
 
-    # Load cycles from typed column (graph_cycle_nodes is comma-separated)
     cursor.execute("""
         SELECT DISTINCT graph_cycle_nodes
         FROM findings_consolidated
@@ -75,7 +73,7 @@ def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str
     for row in cursor.fetchall():
         cycle_nodes_str = row[0]
         if cycle_nodes_str:
-            cycle_nodes = [n.strip() for n in cycle_nodes_str.split(',') if n.strip()]
+            cycle_nodes = [n.strip() for n in cycle_nodes_str.split(",") if n.strip()]
             cycle_size = len(cycle_nodes)
 
             cycle_key = tuple(sorted(cycle_nodes))
@@ -114,30 +112,36 @@ def load_cfg_data_from_db(db_path: str) -> dict[str, Any]:
     """)
 
     for row in cursor.fetchall():
-        (file_path, function, complexity, block_count, edge_count,
-         has_loops, has_recursion, start_line, end_line, threshold) = row
-        function_name = function or 'unknown'
+        (
+            file_path,
+            function,
+            complexity,
+            block_count,
+            edge_count,
+            has_loops,
+            has_recursion,
+            start_line,
+            end_line,
+            threshold,
+        ) = row
+        function_name = function or "unknown"
         key = f"{file_path}:{function_name}"
         complex_functions[key] = {
-            'file': file_path,
-            'function': function_name,
-            'complexity': complexity or 0,
-            'block_count': block_count or 0,
-            'edge_count': edge_count or 0,
-            'has_loops': bool(has_loops),
-            'has_recursion': bool(has_recursion),
-            'start_line': start_line or 0,
-            'end_line': end_line or 0,
-            'threshold': threshold,
+            "file": file_path,
+            "function": function_name,
+            "complexity": complexity or 0,
+            "block_count": block_count or 0,
+            "edge_count": edge_count or 0,
+            "has_loops": bool(has_loops),
+            "has_recursion": bool(has_recursion),
+            "start_line": start_line or 0,
+            "end_line": end_line or 0,
+            "threshold": threshold,
         }
 
     conn.close()
 
     return complex_functions
-
-
-# DELETED: load_churn_data_from_db - tool 'churn-analysis' does not exist
-# DELETED: load_coverage_data_from_db - tool 'coverage-analysis' does not exist
 
 
 def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
@@ -170,7 +174,6 @@ def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Query taint_flows table directly (normalized structure)
     cursor.execute("""
         SELECT source_file, source_line, source_pattern,
                sink_file, sink_line, sink_pattern,
@@ -179,32 +182,42 @@ def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
     """)
 
     for row in cursor.fetchall():
-        (source_file, source_line, source_pattern,
-         sink_file, sink_line, sink_pattern,
-         vuln_type, path_length, hops, path_json) = row
+        (
+            source_file,
+            source_line,
+            source_pattern,
+            sink_file,
+            sink_line,
+            sink_pattern,
+            vuln_type,
+            path_length,
+            hops,
+            path_json,
+        ) = row
 
-        # Parse path_json for intermediate steps (only complex data left)
         path_steps = []
         if path_json:
             path_steps = json.loads(path_json)
 
-        taint_paths.append({
-            'source': {
-                'file': source_file,
-                'line': source_line,
-                'pattern': source_pattern,
-            },
-            'sink': {
-                'file': sink_file,
-                'line': sink_line,
-                'pattern': sink_pattern,
-            },
-            'vulnerability_type': vuln_type,
-            'path_length': path_length,
-            'hops': hops,
-            'path': path_steps,
-            'severity': 'high',  # All taint paths are high severity
-        })
+        taint_paths.append(
+            {
+                "source": {
+                    "file": source_file,
+                    "line": source_line,
+                    "pattern": source_pattern,
+                },
+                "sink": {
+                    "file": sink_file,
+                    "line": sink_line,
+                    "pattern": sink_pattern,
+                },
+                "vulnerability_type": vuln_type,
+                "path_length": path_length,
+                "hops": hops,
+                "path": path_steps,
+                "severity": "high",
+            }
+        )
 
     conn.close()
 
@@ -311,8 +324,6 @@ def load_graphql_findings_from_db(db_path: str) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Query GraphQL findings with JOINs to get schema_file and field_path
-    # Schema columns: finding_id, field_id, resolver_symbol_id, rule, severity, description, message, confidence, provenance
     cursor.execute("""
         SELECT
             fc.rule,
@@ -334,24 +345,35 @@ def load_graphql_findings_from_db(db_path: str) -> list[dict[str, Any]]:
     """)
 
     for row in cursor.fetchall():
-        rule, schema_path, field_path, line, severity, description, message, confidence, provenance = row
+        (
+            rule,
+            schema_path,
+            field_path,
+            line,
+            severity,
+            description,
+            message,
+            confidence,
+            provenance,
+        ) = row
 
-        # Use typed columns directly - no JSON parsing needed
-        description = description or message or f'GraphQL finding: {rule}'
-        confidence = confidence or 'medium'
+        description = description or message or f"GraphQL finding: {rule}"
+        confidence = confidence or "medium"
 
-        graphql_findings.append({
-            'finding_type': rule,
-            'schema_file': schema_path or '',
-            'field_path': field_path or rule,
-            'line': line or 0,
-            'severity': severity.lower() if severity else 'medium',
-            'confidence': confidence,
-            'description': description,
-            'metadata': {},  # No JSON blob - data is in typed columns
-            'category': 'graphql',
-            'provenance': provenance
-        })
+        graphql_findings.append(
+            {
+                "finding_type": rule,
+                "schema_file": schema_path or "",
+                "field_path": field_path or rule,
+                "line": line or 0,
+                "severity": severity.lower() if severity else "medium",
+                "confidence": confidence,
+                "description": description,
+                "metadata": {},
+                "category": "graphql",
+                "provenance": provenance,
+            }
+        )
 
     conn.close()
 
@@ -802,13 +824,9 @@ def run_fce(
     complex_functions = load_cfg_data_from_db(full_db_path)
     print(f"[FCE] Loaded from database: {len(complex_functions)} complex functions")
 
-    # Step B1.6: Load Metadata - Code Churn (Temporal Dimension)
-    # REMOVED: churn-analysis tool does not exist - churn data comes from graph-analysis
-    churn_files = {}  # No dedicated churn tool; graph-analysis handles churn metrics
+    churn_files = {}
 
-    # Step B1.7: Load Metadata - Test Coverage (Quality Dimension)
-    # REMOVED: coverage-analysis tool does not exist
-    coverage_files = {}  # No coverage tool implemented
+    coverage_files = {}
 
     taint_paths = load_taint_data_from_db(full_db_path)
     print(f"[FCE] Loaded from database: {len(taint_paths)} taint flow paths")

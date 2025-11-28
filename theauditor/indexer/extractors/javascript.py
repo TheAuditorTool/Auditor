@@ -24,8 +24,8 @@ from datetime import datetime
 from typing import Any
 
 from . import BaseExtractor
-from .sql import parse_sql_query
 from .javascript_resolvers import JavaScriptResolversMixin
+from .sql import parse_sql_query
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):

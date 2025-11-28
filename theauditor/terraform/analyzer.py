@@ -157,7 +157,6 @@ class TerraformAnalyzer:
                 ),
             )
 
-            # Write to findings_consolidated with typed tf_* columns (no JSON)
             cursor.execute(
                 """
                 INSERT INTO findings_consolidated
@@ -179,7 +178,6 @@ class TerraformAnalyzer:
                     finding.resource_id or "",
                     "",
                     timestamp,
-                    # Typed columns instead of JSON blob
                     finding.finding_id,
                     finding.resource_id,
                     finding.remediation,

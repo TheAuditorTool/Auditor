@@ -1565,8 +1565,6 @@ class JavaScriptExtractor(BaseExtractor):
             key = (file, line)
             line_to_module[key] = package
 
-        # Load assignments (maps variable names to their source expressions)
-        # This handles patterns like: const controller = new ExportController()
         cursor.execute("""
             SELECT file, target_var, source_expr
             FROM assignments
@@ -1574,15 +1572,16 @@ class JavaScriptExtractor(BaseExtractor):
         """)
         var_to_class = {}
         for file, target_var, source_expr in cursor.fetchall():
-            # Extract class name from "new ClassName()" or "new ClassName"
-            class_match = re.match(r'new\s+([A-Za-z0-9_]+)', source_expr)
+            class_match = re.match(r"new\s+([A-Za-z0-9_]+)", source_expr)
             if class_match:
                 class_name = class_match.group(1)
                 key = (file, target_var.lower())
                 var_to_class[key] = class_name
 
         if debug:
-            print(f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
+            print(
+                f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
+            )
 
         path_aliases = {}
 
@@ -1611,105 +1610,76 @@ class JavaScriptExtractor(BaseExtractor):
         unresolved_count = 0
 
         for rowid, route_file, handler_function in chains_to_resolve:
-            # Determine what to resolve based on pattern type
-            #
-            # Patterns:
-            #   handler(controller.list) -> resolve 'controller.list' (inner is Class.method)
-            #   requireAuth()            -> resolve 'requireAuth' (empty call)
-            #   validateParams(schema)   -> resolve 'validateParams' (arg is schema, not controller)
-            #   controller.list          -> resolve 'controller.list' (direct Class.method)
-            #   requireAuth              -> resolve 'requireAuth' (direct function ref)
-
             target_handler = handler_function
 
-            # Strip .bind() pattern FIRST (before wrapper detection)
-            # FIX 2025-11-27: controller.method.bind(controller) -> controller.method
-            # This is a JavaScript pattern to preserve 'this' context in callbacks
-            # Must happen BEFORE '(' check because .bind() contains parentheses
-            bind_match = re.match(r'^(.+)\.bind\s*\(', target_handler)
+            bind_match = re.match(r"^(.+)\.bind\s*\(", target_handler)
             if bind_match:
                 target_handler = bind_match.group(1)
 
-            if '(' in target_handler:
-                # Extract: functionName(args) -> functionName AND args
-                func_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', target_handler)
-                arg_match = re.search(r'\(\s*([a-zA-Z0-9_$.]+)', target_handler)
+            if "(" in target_handler:
+                func_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", target_handler)
+                arg_match = re.search(r"\(\s*([a-zA-Z0-9_$.]+)", target_handler)
 
                 func_name = func_match.group(1) if func_match else None
                 inner_arg = arg_match.group(1) if arg_match else None
 
-                # Type-safety wrappers that wrap controllers - extract inner
-                # handler(), fileHandler(), asyncHandler(), safeHandler(), catchErrors()
-                type_wrappers = {'handler', 'fileHandler', 'asyncHandler', 'safeHandler', 'catchErrors'}
+                type_wrappers = {
+                    "handler",
+                    "fileHandler",
+                    "asyncHandler",
+                    "safeHandler",
+                    "catchErrors",
+                }
 
-                if func_name in type_wrappers and inner_arg and '.' in inner_arg:
-                    # This is a type-safety wrapper around controller: handler(controller.method)
+                if func_name in type_wrappers and inner_arg and "." in inner_arg:
                     target_handler = inner_arg
                 elif func_name:
-                    # Middleware function call: requireAuth(), validateParams(schema)
-                    # Resolve the function itself, not the argument
                     target_handler = func_name
                 else:
-                    # Cannot parse - skip
                     unresolved_count += 1
                     continue
 
-            # Strip TypeScript non-null assertion operator if present
-            # FIX 2025-11-27 Option B: userId! -> userId for cleaner resolution
-            if target_handler.endswith('!'):
+            if target_handler.endswith("!"):
                 target_handler = target_handler[:-1]
 
-            # Determine lookup name based on pattern
             import_line = None
 
-            if '.' not in target_handler:
-                # Simple function import: requireAuth, validateParams, etc.
-                # Try to resolve directly as imported function
+            if "." not in target_handler:
                 lookup_name = target_handler
                 key = (route_file, lookup_name.lower())
                 import_line = specifier_to_line.get(key)
 
                 if not import_line:
-                    # Try exact case match
                     for (f, spec), line in specifier_to_line.items():
                         if f == route_file and spec.lower() == lookup_name.lower():
                             import_line = line
                             break
 
                 if not import_line:
-                    # Not an imported function - skip (local variable or unknown)
                     unresolved_count += 1
                     continue
             else:
-                # Class.method pattern: controller.list, AuthController.login
-                parts = target_handler.split('.')
+                parts = target_handler.split(".")
                 class_name = parts[0]
 
-                # Convert PascalCase to camelCase for import lookup
-                # AuthController -> authController
                 var_name = class_name[0].lower() + class_name[1:] if class_name else class_name
 
-                # Look up import
                 key = (route_file, var_name.lower())
                 import_line = specifier_to_line.get(key)
 
                 if not import_line:
-                    # Try exact case match
                     for (f, spec), line in specifier_to_line.items():
                         if f == route_file and spec.lower() == var_name.lower():
                             import_line = line
                             break
 
                 if not import_line:
-                    # Check if var_name is a class instantiation (e.g., const controller = new ExportController())
                     instantiation_key = (route_file, var_name.lower())
                     actual_class = var_to_class.get(instantiation_key)
                     if actual_class:
-                        # Look up the actual class name in import_specifiers
                         class_key = (route_file, actual_class.lower())
                         import_line = specifier_to_line.get(class_key)
                         if not import_line:
-                            # Try exact case match for class
                             for (f, spec), line in specifier_to_line.items():
                                 if f == route_file and spec.lower() == actual_class.lower():
                                     import_line = line
