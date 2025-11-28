@@ -94,6 +94,7 @@ export const ClassSchema = z.object({
 export const AssignmentSchema = z.object({
   file: z.string(),
   line: z.number(),
+  col: z.number().optional(),
   target_var: z.string(),
   source_expr: z.string(),
   in_function: z.string(),
@@ -109,6 +110,7 @@ export const AssignmentSchema = z.object({
 export const FunctionReturnSchema = z.object({
   file: z.string().optional(),
   line: z.number(),
+  col: z.number().optional(),
   function_name: z.string(),
   return_expr: z.string(),
   has_jsx: z.boolean(),

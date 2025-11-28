@@ -385,9 +385,10 @@ class CoreStorage(BaseStorage):
                 )
 
         # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
+        # NOTE: col is required to distinguish same-target assignments on same line (minified JS)
         seen = set()
         for assignment in assignments:
-            key = (file_path, assignment['line'], assignment['target_var'])
+            key = (file_path, assignment['line'], assignment.get('col', 0), assignment['target_var'])
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate assignment detected.\n"
@@ -449,6 +450,7 @@ class CoreStorage(BaseStorage):
                     assignment.get("source_vars", []),
                     assignment["in_function"],
                     assignment.get("property_path"),
+                    col=assignment.get("col", 0),
                 )
                 self.counts["assignments"] += 1
 
@@ -540,9 +542,10 @@ class CoreStorage(BaseStorage):
         """Store return statements."""
 
         # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
+        # NOTE: col is required to distinguish same-function returns on same line (minified JS)
         seen = set()
         for ret in returns:
-            key = (file_path, ret['line'], ret['function_name'])
+            key = (file_path, ret['line'], ret.get('col', 0), ret['function_name'])
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate function_return detected.\n"
@@ -596,6 +599,7 @@ class CoreStorage(BaseStorage):
                     ret["function_name"],
                     ret["return_expr"],
                     ret.get("return_vars", []),
+                    col=ret.get("col", 0),
                 )
                 self.counts["returns"] += 1
 
@@ -720,9 +724,10 @@ class CoreStorage(BaseStorage):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
 
         # ZERO FALLBACK POLICY: Duplicates indicate extractor bug - crash immediately
+        # NOTE: col is required to distinguish same-var accesses on same line (minified JS)
         seen = set()
         for usage in env_var_usage:
-            key = (file_path, usage['line'], usage['var_name'], usage['access_type'])
+            key = (file_path, usage['line'], usage.get('col', 0), usage['var_name'], usage['access_type'])
             if key in seen:
                 raise ValueError(
                     f"EXTRACTOR BUG: Duplicate env_var_usage detected.\n"
