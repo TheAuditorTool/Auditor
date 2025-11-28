@@ -1,129 +1,112 @@
-/**
- * Migration: Create users and roles tables
- * Tests: Base schema creation with relationships
- */
-
-'use strict';
+"use strict";
 
 module.exports = {
-  /**
-   * Apply migration
-   * Tests: Table creation with constraints and indexes
-   */
   async up(queryInterface, Sequelize) {
-    // Create roles table first (referenced by users)
-    await queryInterface.createTable('roles', {
+    await queryInterface.createTable("roles", {
       id: {
         type: Sequelize.INTEGER,
         primaryKey: true,
-        autoIncrement: true
+        autoIncrement: true,
       },
       name: {
         type: Sequelize.STRING(50),
         allowNull: false,
-        unique: true
+        unique: true,
       },
       permissions: {
         type: Sequelize.JSONB,
         defaultValue: {},
-        allowNull: false
+        allowNull: false,
       },
       description: {
         type: Sequelize.TEXT,
-        allowNull: true
+        allowNull: true,
       },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
       },
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
-      }
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
     });
 
-    // Create users table
-    await queryInterface.createTable('users', {
+    await queryInterface.createTable("users", {
       id: {
         type: Sequelize.INTEGER,
         primaryKey: true,
-        autoIncrement: true
+        autoIncrement: true,
       },
       username: {
         type: Sequelize.STRING(100),
         allowNull: false,
-        unique: true
+        unique: true,
       },
       email: {
         type: Sequelize.STRING(200),
         allowNull: false,
-        unique: true
+        unique: true,
       },
       password: {
         type: Sequelize.STRING(255),
-        allowNull: false
+        allowNull: false,
       },
       status: {
-        type: Sequelize.ENUM('active', 'inactive', 'suspended', 'deleted'),
-        defaultValue: 'active',
-        allowNull: false
+        type: Sequelize.ENUM("active", "inactive", "suspended", "deleted"),
+        defaultValue: "active",
+        allowNull: false,
       },
       lastLoginAt: {
         type: Sequelize.DATE,
-        allowNull: true
+        allowNull: true,
       },
       loginCount: {
         type: Sequelize.INTEGER,
         defaultValue: 0,
-        allowNull: false
+        allowNull: false,
       },
       firstName: {
         type: Sequelize.STRING(100),
-        allowNull: true
+        allowNull: true,
       },
       lastName: {
         type: Sequelize.STRING(100),
-        allowNull: true
+        allowNull: true,
       },
       roleId: {
         type: Sequelize.INTEGER,
         allowNull: true,
         references: {
-          model: 'roles',
-          key: 'id'
+          model: "roles",
+          key: "id",
         },
-        onDelete: 'SET NULL',
-        onUpdate: 'CASCADE'
+        onDelete: "SET NULL",
+        onUpdate: "CASCADE",
       },
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
       },
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
-      }
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
     });
 
-    // Add indexes for users
-    await queryInterface.addIndex('users', ['email']);
-    await queryInterface.addIndex('users', ['username']);
-    await queryInterface.addIndex('users', ['status']);
-    await queryInterface.addIndex('users', ['roleId']);
-    await queryInterface.addIndex('users', ['createdAt']);
+    await queryInterface.addIndex("users", ["email"]);
+    await queryInterface.addIndex("users", ["username"]);
+    await queryInterface.addIndex("users", ["status"]);
+    await queryInterface.addIndex("users", ["roleId"]);
+    await queryInterface.addIndex("users", ["createdAt"]);
   },
 
-  /**
-   * Rollback migration
-   * Tests: Clean table removal with dependency order
-   */
   async down(queryInterface, Sequelize) {
-    // Drop in reverse order (users first due to foreign key)
-    await queryInterface.dropTable('users');
-    await queryInterface.dropTable('roles');
-  }
+    await queryInterface.dropTable("users");
+    await queryInterface.dropTable("roles");
+  },
 };
