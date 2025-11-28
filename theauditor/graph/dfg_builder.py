@@ -23,11 +23,7 @@ import click
 from .strategies.interceptors import InterceptorStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
-
-# Strategy Pattern: Language-specific logic delegated to strategies
 from .strategies.python_orm import PythonOrmStrategy
-
-# Shared types (extracted to prevent circular imports with strategies)
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
@@ -49,9 +45,6 @@ class DFGBuilder:
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {db_path}")
 
-        # Strategy Pattern: Language-specific builders
-        # Add new strategies here when supporting new languages (Rust, Go, etc.)
-        # Order: ORM strategies first (build model edges), then middleware/interceptors
         self.strategies = [
             PythonOrmStrategy(),
             NodeOrmStrategy(),

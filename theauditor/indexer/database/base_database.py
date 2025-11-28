@@ -264,183 +264,129 @@ class BaseDatabaseManager:
 
         try:
             flush_order = [
-                # Core tables (no FK dependencies)
-                ('files', 'INSERT OR REPLACE'),  # Deduplication for symlinks
-                ('config_files', 'INSERT OR REPLACE'),  # Multiple passes may reprocess
-
-                # Planning tables (meta-system tables for aud planning commands)
-                # FK dependencies: plans → plan_specs → plan_tasks → code_snapshots → code_diffs
-                ('plans', 'INSERT'),
-                ('plan_specs', 'INSERT'),  # Depends on plans FK
-                ('plan_tasks', 'INSERT'),  # Depends on plans and plan_specs FK
-                ('code_snapshots', 'INSERT'),  # Depends on plans and plan_tasks FK
-                ('code_diffs', 'INSERT'),  # Depends on code_snapshots FK
-                ('refactor_candidates', 'INSERT'),  # Independent planning table
-                ('refactor_history', 'INSERT'),  # Independent planning table (aud refactor execution log)
-
-                # Code structure tables (depend on files)
-                ('refs', 'INSERT'),
-                ('symbols', 'INSERT'),
-                ('class_properties', 'INSERT'),  # TypeScript/JavaScript class property declarations
-                ('env_var_usage', 'INSERT'),  # Environment variable usage (process.env.X)
-                ('orm_relationships', 'INSERT'),  # ORM relationship declarations (hasMany, belongsTo, etc.)
-                ('sql_objects', 'INSERT'),
-                ('sql_queries', 'INSERT'),
-                ('orm_queries', 'INSERT'),
-                ('prisma_models', 'INSERT'),
-
-                # API endpoints (before junction table)
-                ('api_endpoints', 'INSERT'),
-                ('router_mounts', 'INSERT'),  # PHASE 6.7: Router mount points for full_path resolution
-                ('api_endpoint_controls', 'INSERT'),  # Junction table
-                ('express_middleware_chains', 'INSERT'),  # PHASE 5: Express middleware execution chains
-                # Python - Original 8 kept tables (from consolidate-python-orphan-tables)
-                ('python_orm_models', 'INSERT'),
-                ('python_orm_fields', 'INSERT'),
-                ('python_routes', 'INSERT'),
-                ('python_validators', 'INSERT'),
-                ('python_package_configs', 'INSERT'),
-                ('python_decorators', 'INSERT'),
-                ('python_django_views', 'INSERT'),
-                ('python_django_middleware', 'INSERT'),
-
-                # Python - 20 consolidated tables (wire-extractors-to-consolidated-schema)
-                # Group 1: Control & Data Flow
-                ('python_loops', 'INSERT'),
-                ('python_branches', 'INSERT'),
-                ('python_functions_advanced', 'INSERT'),
-                ('python_io_operations', 'INSERT'),
-                ('python_state_mutations', 'INSERT'),
-                # Group 2: Object-Oriented & Types
-                ('python_class_features', 'INSERT'),
-                ('python_protocols', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
-                ('python_descriptors', 'INSERT'),
-                ('python_type_definitions', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
-                ('python_literals', 'INSERT'),
-                # Group 6: Junction Tables (MUST be after parents)
-                ('python_protocol_methods', 'INSERT'),
-                ('python_typeddict_fields', 'INSERT'),
-                # Group 3: Security & Testing
-                ('python_security_findings', 'INSERT'),
-                ('python_test_cases', 'INSERT'),
-                ('python_test_fixtures', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
-                ('python_framework_config', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
-                ('python_validation_schemas', 'INSERT'),  # Note: Uses direct insert (returns ID for FK)
-                # Group 6 continued: Phase 5 Junction Tables (MUST be after parents)
-                ('python_fixture_params', 'INSERT'),
-                ('python_framework_methods', 'INSERT'),
-                ('python_schema_validators', 'INSERT'),
-                # Group 4: Low-Level & Misc
-                ('python_operators', 'INSERT'),
-                ('python_collections', 'INSERT'),
-                ('python_stdlib_usage', 'INSERT'),
-                ('python_imports_advanced', 'INSERT'),
-                ('python_expressions', 'INSERT'),
-                # Group 5: Expression Decomposition (Phase 2 Fidelity Control)
-                ('python_comprehensions', 'INSERT'),
-                ('python_control_statements', 'INSERT'),
-
-                # SQL query tables (before junction table)
-                ('sql_query_tables', 'INSERT'),  # Junction table
-
-                # JWT patterns (special flush method handles this)
-                # Skipped here - handled by _flush_jwt_patterns()
-
-                # Docker tables
-                ('docker_images', 'INSERT'),
-                ('compose_services', 'INSERT'),
-                ('nginx_configs', 'INSERT'),
-
-                # Terraform tables (Infrastructure as Code)
-                ('terraform_files', 'INSERT'),
-                ('terraform_resources', 'INSERT'),
-                ('terraform_variables', 'INSERT'),
-                ('terraform_variable_values', 'INSERT'),
-                ('terraform_outputs', 'INSERT'),
-                ('terraform_findings', 'INSERT'),
-
-                # AWS CDK tables (Infrastructure as Code)
-                ('cdk_constructs', 'INSERT'),
-                ('cdk_construct_properties', 'INSERT'),  # Depends on cdk_constructs FK
-                ('cdk_findings', 'INSERT'),
-
-                # GraphQL tables (Section 7: Taint & FCE Integration)
-                # FK dependencies: graphql_schemas → graphql_types → graphql_fields → graphql_field_args
-                ('graphql_schemas', 'INSERT'),
-                ('graphql_types', 'INSERT'),  # Depends on graphql_schemas FK
-                ('graphql_fields', 'INSERT'),  # Depends on graphql_types FK
-                ('graphql_field_args', 'INSERT'),  # Depends on graphql_fields FK
-                ('graphql_resolver_mappings', 'INSERT'),  # Depends on graphql_fields + symbols FK
-                ('graphql_resolver_params', 'INSERT'),  # Depends on graphql_resolver_mappings FK
-                ('graphql_execution_edges', 'INSERT'),  # Depends on graphql_fields + symbols FK
-                ('graphql_findings_cache', 'INSERT'),  # Independent (findings cache)
-
-                # GitHub Actions tables (CI/CD Security)
-                ('github_workflows', 'INSERT'),
-                ('github_jobs', 'INSERT'),  # Depends on github_workflows FK
-                ('github_job_dependencies', 'INSERT'),  # Junction table - depends on github_jobs FK
-                ('github_steps', 'INSERT'),  # Depends on github_jobs FK
-                ('github_step_outputs', 'INSERT'),  # Depends on github_steps FK
-                ('github_step_references', 'INSERT'),  # Depends on github_steps FK
-
-                # Data flow tables (before junction tables)
-                ('assignments', 'INSERT'),
-                ('assignment_sources', 'INSERT'),  # Junction table
-                ('function_call_args', 'INSERT'),
-                ('function_returns', 'INSERT'),
-                ('function_return_sources', 'INSERT'),  # Junction table
-
-                # CFG tables (special case - handled separately below)
-                # Skipped here - handled by CFG special case logic
-
-                # React tables (before junction tables)
-                ('react_components', 'INSERT'),
-                ('react_component_hooks', 'INSERT'),  # Junction table
-                ('react_hooks', 'INSERT'),
-                ('react_hook_dependencies', 'INSERT'),  # Junction table
-                ('variable_usage', 'INSERT'),
-                ('object_literals', 'INSERT'),
-
-                # JSX tables (dual-pass extraction uses OR REPLACE)
-                ('function_returns_jsx', 'INSERT OR REPLACE'),
-                ('function_return_sources_jsx', 'INSERT'),  # Junction table
-                ('symbols_jsx', 'INSERT OR REPLACE'),
-                ('assignments_jsx', 'INSERT OR REPLACE'),
-                ('assignment_sources_jsx', 'INSERT'),  # Junction table
-                ('function_call_args_jsx', 'INSERT OR REPLACE'),
-
-                # Vue tables
-                ('vue_components', 'INSERT'),
-                ('vue_hooks', 'INSERT'),
-                ('vue_directives', 'INSERT'),
-                ('vue_provide_inject', 'INSERT'),
-
-                # TypeScript tables
-                ('type_annotations', 'INSERT OR REPLACE'),
-
-                # Build analysis tables
-                ('package_configs', 'INSERT OR REPLACE'),
-                ('lock_analysis', 'INSERT OR REPLACE'),
-                ('import_styles', 'INSERT'),
-                ('import_style_names', 'INSERT'),  # Junction table
-
-                # Node.js Normalized Junction Tables (normalize-all-node-extractors)
-                # CRITICAL: Must be flushed BEFORE resolve_handler_file_paths() runs
-                ('func_params', 'INSERT'),
-                ('func_decorators', 'INSERT'),
-                ('func_decorator_args', 'INSERT'),
-                ('func_param_decorators', 'INSERT'),
-                ('class_decorators', 'INSERT'),
-                ('class_decorator_args', 'INSERT'),
-                ('assignment_source_vars', 'INSERT'),
-                ('return_source_vars', 'INSERT'),
-                ('import_specifiers', 'INSERT'),
-                ('sequelize_model_fields', 'INSERT'),
-
-                # Framework detection tables
-                ('frameworks', 'INSERT OR IGNORE'),  # Avoid duplicates from multiple scans
-                ('framework_safe_sinks', 'INSERT OR IGNORE'),
-                ('framework_taint_patterns', 'INSERT OR IGNORE'),  # Database-driven taint sources/sinks
+                ("files", "INSERT OR REPLACE"),
+                ("config_files", "INSERT OR REPLACE"),
+                ("plans", "INSERT"),
+                ("plan_specs", "INSERT"),
+                ("plan_tasks", "INSERT"),
+                ("code_snapshots", "INSERT"),
+                ("code_diffs", "INSERT"),
+                ("refactor_candidates", "INSERT"),
+                ("refactor_history", "INSERT"),
+                ("refs", "INSERT"),
+                ("symbols", "INSERT"),
+                ("class_properties", "INSERT"),
+                ("env_var_usage", "INSERT"),
+                ("orm_relationships", "INSERT"),
+                ("sql_objects", "INSERT"),
+                ("sql_queries", "INSERT"),
+                ("orm_queries", "INSERT"),
+                ("prisma_models", "INSERT"),
+                ("api_endpoints", "INSERT"),
+                ("router_mounts", "INSERT"),
+                ("api_endpoint_controls", "INSERT"),
+                ("express_middleware_chains", "INSERT"),
+                ("python_orm_models", "INSERT"),
+                ("python_orm_fields", "INSERT"),
+                ("python_routes", "INSERT"),
+                ("python_validators", "INSERT"),
+                ("python_package_configs", "INSERT"),
+                ("python_decorators", "INSERT"),
+                ("python_django_views", "INSERT"),
+                ("python_django_middleware", "INSERT"),
+                ("python_loops", "INSERT"),
+                ("python_branches", "INSERT"),
+                ("python_functions_advanced", "INSERT"),
+                ("python_io_operations", "INSERT"),
+                ("python_state_mutations", "INSERT"),
+                ("python_class_features", "INSERT"),
+                ("python_protocols", "INSERT"),
+                ("python_descriptors", "INSERT"),
+                ("python_type_definitions", "INSERT"),
+                ("python_literals", "INSERT"),
+                ("python_protocol_methods", "INSERT"),
+                ("python_typeddict_fields", "INSERT"),
+                ("python_security_findings", "INSERT"),
+                ("python_test_cases", "INSERT"),
+                ("python_test_fixtures", "INSERT"),
+                ("python_framework_config", "INSERT"),
+                ("python_validation_schemas", "INSERT"),
+                ("python_fixture_params", "INSERT"),
+                ("python_framework_methods", "INSERT"),
+                ("python_schema_validators", "INSERT"),
+                ("python_operators", "INSERT"),
+                ("python_collections", "INSERT"),
+                ("python_stdlib_usage", "INSERT"),
+                ("python_imports_advanced", "INSERT"),
+                ("python_expressions", "INSERT"),
+                ("python_comprehensions", "INSERT"),
+                ("python_control_statements", "INSERT"),
+                ("sql_query_tables", "INSERT"),
+                ("docker_images", "INSERT"),
+                ("compose_services", "INSERT"),
+                ("nginx_configs", "INSERT"),
+                ("terraform_files", "INSERT"),
+                ("terraform_resources", "INSERT"),
+                ("terraform_variables", "INSERT"),
+                ("terraform_variable_values", "INSERT"),
+                ("terraform_outputs", "INSERT"),
+                ("terraform_findings", "INSERT"),
+                ("cdk_constructs", "INSERT"),
+                ("cdk_construct_properties", "INSERT"),
+                ("cdk_findings", "INSERT"),
+                ("graphql_schemas", "INSERT"),
+                ("graphql_types", "INSERT"),
+                ("graphql_fields", "INSERT"),
+                ("graphql_field_args", "INSERT"),
+                ("graphql_resolver_mappings", "INSERT"),
+                ("graphql_resolver_params", "INSERT"),
+                ("graphql_execution_edges", "INSERT"),
+                ("graphql_findings_cache", "INSERT"),
+                ("github_workflows", "INSERT"),
+                ("github_jobs", "INSERT"),
+                ("github_job_dependencies", "INSERT"),
+                ("github_steps", "INSERT"),
+                ("github_step_outputs", "INSERT"),
+                ("github_step_references", "INSERT"),
+                ("assignments", "INSERT"),
+                ("assignment_sources", "INSERT"),
+                ("function_call_args", "INSERT"),
+                ("function_returns", "INSERT"),
+                ("function_return_sources", "INSERT"),
+                ("react_components", "INSERT"),
+                ("react_component_hooks", "INSERT"),
+                ("react_hooks", "INSERT"),
+                ("react_hook_dependencies", "INSERT"),
+                ("variable_usage", "INSERT"),
+                ("object_literals", "INSERT"),
+                ("function_returns_jsx", "INSERT OR REPLACE"),
+                ("function_return_sources_jsx", "INSERT"),
+                ("symbols_jsx", "INSERT OR REPLACE"),
+                ("assignments_jsx", "INSERT OR REPLACE"),
+                ("assignment_sources_jsx", "INSERT"),
+                ("function_call_args_jsx", "INSERT OR REPLACE"),
+                ("vue_components", "INSERT"),
+                ("vue_hooks", "INSERT"),
+                ("vue_directives", "INSERT"),
+                ("vue_provide_inject", "INSERT"),
+                ("type_annotations", "INSERT OR REPLACE"),
+                ("package_configs", "INSERT OR REPLACE"),
+                ("lock_analysis", "INSERT OR REPLACE"),
+                ("import_styles", "INSERT"),
+                ("import_style_names", "INSERT"),
+                ("func_params", "INSERT"),
+                ("func_decorators", "INSERT"),
+                ("func_decorator_args", "INSERT"),
+                ("func_param_decorators", "INSERT"),
+                ("class_decorators", "INSERT"),
+                ("class_decorator_args", "INSERT"),
+                ("assignment_source_vars", "INSERT"),
+                ("return_source_vars", "INSERT"),
+                ("import_specifiers", "INSERT"),
+                ("sequelize_model_fields", "INSERT"),
+                ("frameworks", "INSERT OR IGNORE"),
+                ("framework_safe_sinks", "INSERT OR IGNORE"),
+                ("framework_taint_patterns", "INSERT OR IGNORE"),
             ]
 
             self._flush_jwt_patterns()
@@ -712,17 +658,13 @@ class BaseDatabaseManager:
 
         cursor = self.conn.cursor()
 
-        # Normalize findings to standard format with typed columns
         normalized = []
         for f in findings:
-            # Extract structured data from additional_info
-            # ZERO FALLBACK: additional_info MUST be a dict, not a string
-            details = f.get('additional_info', {})
+            details = f.get("additional_info", {})
             if not isinstance(details, dict):
                 details = {}
 
-            # Handle different finding formats from various tools
-            rule_value = f.get('rule')
+            rule_value = f.get("rule")
             if not rule_value:
                 rule_value = f.get("pattern", f.get("pattern_name", f.get("code", "unknown-rule")))
             if isinstance(rule_value, str):
@@ -734,8 +676,6 @@ class BaseDatabaseManager:
             if not isinstance(file_path, str):
                 file_path = str(file_path or "")
 
-            # Initialize all 23 tool-specific columns to None
-            # CFG columns (9)
             cfg_function = None
             cfg_complexity = None
             cfg_block_count = None
@@ -745,7 +685,7 @@ class BaseDatabaseManager:
             cfg_start_line = None
             cfg_end_line = None
             cfg_threshold = None
-            # Graph columns (7)
+
             graph_id = None
             graph_in_degree = None
             graph_out_degree = None
@@ -753,98 +693,95 @@ class BaseDatabaseManager:
             graph_centrality = None
             graph_score = None
             graph_cycle_nodes = None
-            # Mypy columns (3)
+
             mypy_error_code = None
             mypy_severity_int = None
             mypy_column = None
-            # Terraform columns (4)
+
             tf_finding_id = None
             tf_resource_id = None
             tf_remediation = None
             tf_graph_context = None
 
-            # Map tool-specific data to typed columns
-            # Use finding's tool field if present (linters batch multiple tools together)
-            actual_tool = f.get('tool', tool_name)
-            if actual_tool == 'cfg-analysis':
-                cfg_function = details.get('function')
-                cfg_complexity = details.get('complexity')
-                cfg_block_count = details.get('block_count')
-                cfg_edge_count = details.get('edge_count')
-                cfg_has_loops = 1 if details.get('has_loops') else (0 if 'has_loops' in details else None)
-                cfg_has_recursion = 1 if details.get('has_recursion') else (0 if 'has_recursion' in details else None)
-                cfg_start_line = details.get('start_line')
-                cfg_end_line = details.get('end_line')
-                cfg_threshold = details.get('threshold')
+            actual_tool = f.get("tool", tool_name)
+            if actual_tool == "cfg-analysis":
+                cfg_function = details.get("function")
+                cfg_complexity = details.get("complexity")
+                cfg_block_count = details.get("block_count")
+                cfg_edge_count = details.get("edge_count")
+                cfg_has_loops = (
+                    1 if details.get("has_loops") else (0 if "has_loops" in details else None)
+                )
+                cfg_has_recursion = (
+                    1
+                    if details.get("has_recursion")
+                    else (0 if "has_recursion" in details else None)
+                )
+                cfg_start_line = details.get("start_line")
+                cfg_end_line = details.get("end_line")
+                cfg_threshold = details.get("threshold")
 
-            elif actual_tool == 'graph-analysis':
-                graph_id = details.get('id') or details.get('file')
-                graph_in_degree = details.get('in_degree')
-                graph_out_degree = details.get('out_degree')
-                graph_total_connections = details.get('total_connections')
-                graph_centrality = details.get('centrality')
-                graph_score = details.get('score')
-                cycle_nodes = details.get('cycle_nodes', [])
+            elif actual_tool == "graph-analysis":
+                graph_id = details.get("id") or details.get("file")
+                graph_in_degree = details.get("in_degree")
+                graph_out_degree = details.get("out_degree")
+                graph_total_connections = details.get("total_connections")
+                graph_centrality = details.get("centrality")
+                graph_score = details.get("score")
+                cycle_nodes = details.get("cycle_nodes", [])
                 if cycle_nodes and isinstance(cycle_nodes, list):
-                    graph_cycle_nodes = ','.join(str(n) for n in cycle_nodes)
+                    graph_cycle_nodes = ",".join(str(n) for n in cycle_nodes)
 
-            elif actual_tool == 'mypy':
-                # Field names match linters.py output: mypy_code, mypy_severity
-                mypy_error_code = details.get('mypy_code')
-                mypy_severity_int = details.get('mypy_severity')
-                mypy_column = f.get('column')  # From top-level, not details
+            elif actual_tool == "mypy":
+                mypy_error_code = details.get("mypy_code")
+                mypy_severity_int = details.get("mypy_severity")
+                mypy_column = f.get("column")
 
-            elif actual_tool == 'terraform':
-                tf_finding_id = details.get('finding_id')
-                tf_resource_id = details.get('resource_id')
-                tf_remediation = details.get('remediation')
-                tf_graph_context = details.get('graph_context_json')
+            elif actual_tool == "terraform":
+                tf_finding_id = details.get("finding_id")
+                tf_resource_id = details.get("resource_id")
+                tf_remediation = details.get("remediation")
+                tf_graph_context = details.get("graph_context_json")
 
-            # Taint: No mapping - complex data lives in taint_flows table
-            # The findings_consolidated row is just a marker/summary
-
-            normalized.append((
-                # Core columns (13)
-                file_path,
-                int(f.get('line', 0)),
-                f.get('column'),
-                rule_value,
-                f.get('tool', tool_name),
-                f.get('message', ''),
-                f.get('severity', 'medium'),
-                f.get('category'),
-                f.get('confidence'),
-                f.get('code_snippet'),
-                f.get('cwe'),
-                f.get('timestamp', datetime.now(UTC).isoformat()),
-                # CFG columns (9)
-                cfg_function,
-                cfg_complexity,
-                cfg_block_count,
-                cfg_edge_count,
-                cfg_has_loops,
-                cfg_has_recursion,
-                cfg_start_line,
-                cfg_end_line,
-                cfg_threshold,
-                # Graph columns (7)
-                graph_id,
-                graph_in_degree,
-                graph_out_degree,
-                graph_total_connections,
-                graph_centrality,
-                graph_score,
-                graph_cycle_nodes,
-                # Mypy columns (3)
-                mypy_error_code,
-                mypy_severity_int,
-                mypy_column,
-                # Terraform columns (4)
-                tf_finding_id,
-                tf_resource_id,
-                tf_remediation,
-                tf_graph_context,
-            ))
+            normalized.append(
+                (
+                    file_path,
+                    int(f.get("line", 0)),
+                    f.get("column"),
+                    rule_value,
+                    f.get("tool", tool_name),
+                    f.get("message", ""),
+                    f.get("severity", "medium"),
+                    f.get("category"),
+                    f.get("confidence"),
+                    f.get("code_snippet"),
+                    f.get("cwe"),
+                    f.get("timestamp", datetime.now(UTC).isoformat()),
+                    cfg_function,
+                    cfg_complexity,
+                    cfg_block_count,
+                    cfg_edge_count,
+                    cfg_has_loops,
+                    cfg_has_recursion,
+                    cfg_start_line,
+                    cfg_end_line,
+                    cfg_threshold,
+                    graph_id,
+                    graph_in_degree,
+                    graph_out_degree,
+                    graph_total_connections,
+                    graph_centrality,
+                    graph_score,
+                    graph_cycle_nodes,
+                    mypy_error_code,
+                    mypy_severity_int,
+                    mypy_column,
+                    tf_finding_id,
+                    tf_resource_id,
+                    tf_remediation,
+                    tf_graph_context,
+                )
+            )
 
         for i in range(0, len(normalized), self.batch_size):
             batch = normalized[i : i + self.batch_size]
@@ -863,7 +800,7 @@ class BaseDatabaseManager:
                            ?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?,
                            ?, ?, ?, ?)""",
-                batch
+                batch,
             )
 
         self.conn.commit()

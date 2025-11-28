@@ -387,24 +387,26 @@ def _extract_findings(cursor, severity_filter):
 
     findings = []
     for row in cursor.fetchall():
-        file, line, rule, tool, message, severity, category, confidence, \
-            snippet, cwe, timestamp = row
+        file, line, rule, tool, message, severity, category, confidence, snippet, cwe, timestamp = (
+            row
+        )
 
-        # Workflow findings don't use tool-specific columns
-        findings.append({
-            "file": file,
-            "line": line,
-            "rule": rule,
-            "tool": tool,
-            "message": message,
-            "severity": severity,
-            "category": category,
-            "confidence": confidence,
-            "code_snippet": snippet,
-            "cwe": cwe,
-            "timestamp": timestamp,
-            "details": {}  # No JSON parsing - workflow findings don't use details
-        })
+        findings.append(
+            {
+                "file": file,
+                "line": line,
+                "rule": rule,
+                "tool": tool,
+                "message": message,
+                "severity": severity,
+                "category": category,
+                "confidence": confidence,
+                "code_snippet": snippet,
+                "cwe": cwe,
+                "timestamp": timestamp,
+                "details": {},
+            }
+        )
 
     return findings
 

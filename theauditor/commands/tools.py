@@ -20,7 +20,7 @@ import click
 if TYPE_CHECKING:
     from typing import Literal
 
-# Tool definitions: (command, version_flag, description)
+
 PYTHON_TOOLS: dict[str, tuple[list[str], str]] = {
     "python": (["python", "--version"], "Python interpreter"),
     "ruff": (["ruff", "--version"], "Fast Python linter"),
@@ -79,12 +79,10 @@ def detect_version(cmd: list[str], timeout: int = 5) -> str | None:
         if not output:
             return None
 
-        # Extract version pattern (x.y.z or x.y)
         match = re.search(r"(\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?)", output)
         if match:
             return match.group(1)
 
-        # Fallback: find any version-like string
         for part in output.split():
             part = part.strip("(),v")
             if re.match(r"\d+\.\d+", part):
@@ -122,18 +120,18 @@ def detect_all_tools() -> dict[str, list[ToolStatus]]:
         "rust": [],
     }
 
-    # Python tools (always from system/venv)
     for name, (cmd, description) in PYTHON_TOOLS.items():
         version = detect_version(cmd)
-        results["python"].append(ToolStatus(
-            name=name,
-            version=version,
-            available=version is not None,
-            description=description,
-            source="system" if version else "missing",
-        ))
+        results["python"].append(
+            ToolStatus(
+                name=name,
+                version=version,
+                available=version is not None,
+                description=description,
+                source="system" if version else "missing",
+            )
+        )
 
-    # Node tools (prefer sandbox, fallback to system)
     node_exe, npx_exe = get_sandbox_paths()
     sandbox_base = Path(".auditor_venv/.theauditor_tools")
 
@@ -141,7 +139,6 @@ def detect_all_tools() -> dict[str, list[ToolStatus]]:
         version = None
         source: Literal["system", "sandbox", "missing"] = "missing"
 
-        # Try sandbox first
         if npx_exe and name not in ("node", "npm"):
             sandbox_cmd = [str(npx_exe), "--prefix", str(sandbox_base)] + cmd[1:]
             version = detect_version(sandbox_cmd)
@@ -153,30 +150,32 @@ def detect_all_tools() -> dict[str, list[ToolStatus]]:
             if version:
                 source = "sandbox"
 
-        # Fallback to system
         if not version:
             version = detect_version(cmd)
             if version:
                 source = "system"
 
-        results["node"].append(ToolStatus(
-            name=name,
-            version=version,
-            available=version is not None,
-            description=description,
-            source=source,
-        ))
+        results["node"].append(
+            ToolStatus(
+                name=name,
+                version=version,
+                available=version is not None,
+                description=description,
+                source=source,
+            )
+        )
 
-    # Rust tools
     for name, (cmd, description) in RUST_TOOLS.items():
         version = detect_version(cmd)
-        results["rust"].append(ToolStatus(
-            name=name,
-            version=version,
-            available=version is not None,
-            description=description,
-            source="system" if version else "missing",
-        ))
+        results["rust"].append(
+            ToolStatus(
+                name=name,
+                version=version,
+                available=version is not None,
+                description=description,
+                source="system" if version else "missing",
+            )
+        )
 
     return results
 
@@ -207,7 +206,12 @@ def tools(ctx: click.Context) -> None:
 
 @tools.command("list")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-@click.option("--category", type=click.Choice(["python", "node", "rust", "all"]), default="all", help="Filter by category")
+@click.option(
+    "--category",
+    type=click.Choice(["python", "node", "rust", "all"]),
+    default="all",
+    help="Filter by category",
+)
 def tools_list(as_json: bool, category: str) -> None:
     """Show all tools and their versions.
 
@@ -264,7 +268,6 @@ def tools_check(strict: bool, required: tuple[str, ...]) -> None:
     """
     all_tools = detect_all_tools()
 
-    # Default required tools
     core_required = {"python", "ruff", "node", "eslint"}
     if required:
         check_set = set(required)
@@ -273,7 +276,6 @@ def tools_check(strict: bool, required: tuple[str, ...]) -> None:
     else:
         check_set = core_required
 
-    # Flatten all tools
     all_statuses = {s.name: s for statuses in all_tools.values() for s in statuses}
 
     missing = []
@@ -307,7 +309,13 @@ def tools_check(strict: bool, required: tuple[str, ...]) -> None:
 
 @tools.command("report")
 @click.option("--out-dir", default=".pf/raw", type=click.Path(), help="Output directory")
-@click.option("--format", "fmt", type=click.Choice(["all", "json", "markdown"]), default="all", help="Output format")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["all", "json", "markdown"]),
+    default="all",
+    help="Output format",
+)
 def tools_report(out_dir: str, fmt: str) -> None:
     """Generate tool version report files.
 
@@ -325,7 +333,6 @@ def tools_report(out_dir: str, fmt: str) -> None:
     all_tools = detect_all_tools()
     timestamp = datetime.now(UTC).isoformat()
 
-    # Build JSON structure
     json_data = {
         "generated_at": timestamp,
         "tools": {},
@@ -340,14 +347,12 @@ def tools_report(out_dir: str, fmt: str) -> None:
                 "source": status.source,
             }
 
-    # Write JSON
     if fmt in ("all", "json"):
         json_path = out_path / "tools.json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, indent=2)
         click.echo(f"[OK] Written: {json_path}")
 
-    # Write Markdown
     if fmt in ("all", "markdown"):
         md_path = out_path / "TOOLS.md"
         with open(md_path, "w", encoding="utf-8") as f:
@@ -371,7 +376,6 @@ def tools_report(out_dir: str, fmt: str) -> None:
 
         click.echo(f"[OK] Written: {md_path}")
 
-    # Summary
     total = sum(len(s) for s in all_tools.values())
     available = sum(1 for statuses in all_tools.values() for s in statuses if s.available)
     click.echo(f"\nSummary: {available}/{total} tools available")

@@ -320,7 +320,9 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
                         args_expr = None
                         kwargs_expr = None
 
-                        for sched_key, sched_value in zip(value_node.keys, value_node.values, strict=True):
+                        for sched_key, sched_value in zip(
+                            value_node.keys, value_node.values, strict=True
+                        ):
                             if not isinstance(sched_key, ast.Constant):
                                 continue
 

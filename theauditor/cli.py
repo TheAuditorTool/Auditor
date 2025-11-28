@@ -12,8 +12,9 @@ from theauditor import __version__
 if platform.system() == "Windows":
     subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
     import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 
 class VerboseGroup(click.Group):
@@ -24,18 +25,18 @@ class VerboseGroup(click.Group):
         pass
 
     COMMAND_CATEGORIES = {
-        'PROJECT_SETUP': {
-            'title': 'PROJECT SETUP',
-            'description': 'Initial configuration and environment setup',
-            'commands': ['setup-ai', 'tools'],
-            'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
-            'command_meta': {
-                'setup-ai': {
-                    'run_when': 'Once per project, before first aud full',
+        "PROJECT_SETUP": {
+            "title": "PROJECT SETUP",
+            "description": "Initial configuration and environment setup",
+            "commands": ["setup-ai", "tools"],
+            "ai_context": "Run these FIRST in new projects. Creates .pf/ structure, installs tools.",
+            "command_meta": {
+                "setup-ai": {
+                    "run_when": "Once per project, before first aud full",
                 },
-                'tools': {
-                    'use_when': 'Verify tool installation, check versions',
-                    'gives': 'Tool availability status, version report',
+                "tools": {
+                    "use_when": "Verify tool installation, check versions",
+                    "gives": "Tool availability status, version report",
                 },
             },
         },
@@ -280,8 +281,6 @@ from theauditor.commands.full import full
 from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
 from theauditor.commands.impact import impact
-
-# Deprecated commands (hidden, redirect to 'aud full')
 from theauditor.commands.index import index
 from theauditor.commands.init import init
 from theauditor.commands.init_config import init_config
@@ -302,13 +301,10 @@ from theauditor.commands.structure import structure
 from theauditor.commands.summary import summary
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.terraform import terraform
-
-# Import additional migrated commands
 from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
 
-# Register deprecated commands as hidden
 init.hidden = True
 index.hidden = True
 cli.add_command(init)

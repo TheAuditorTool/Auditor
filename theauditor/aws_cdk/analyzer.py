@@ -124,9 +124,7 @@ class AWSCdkAnalyzer:
         cdk_findings: list[CdkFinding] = []
 
         for finding in standard_findings:
-            # CDK findings don't use tool-specific columns (ruff/eslint-based)
-            # Additional info comes from additional_info dict if provided by caller
-            additional = finding.get('additional_info') or {}
+            additional = finding.get("additional_info") or {}
 
             construct_id = additional.get("construct_id")
             remediation = additional.get("remediation", "")
@@ -209,27 +207,28 @@ class AWSCdkAnalyzer:
                     ),
                 )
 
-                # Write to findings_consolidated table (for FCE correlation)
-                # CDK findings don't use tool-specific columns (they're linter-based)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO findings_consolidated (
                         file, line, column, rule, tool, message,
                         severity, category, confidence, code_snippet, cwe, timestamp
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    finding.file_path,
-                    finding.line,
-                    0,  # column (CDK doesn't have column info)
-                    finding.finding_id,  # rule identifier (unique per finding type)
-                    'cdk',
-                    finding.title,
-                    finding.severity,
-                    finding.category,
-                    'high',  # confidence
-                    finding.description[:200] if finding.description else '',  # code_snippet
-                    None,  # CWE can be added later
-                    datetime.now().isoformat(),  # timestamp
-                ))
+                """,
+                    (
+                        finding.file_path,
+                        finding.line,
+                        0,
+                        finding.finding_id,
+                        "cdk",
+                        finding.title,
+                        finding.severity,
+                        finding.category,
+                        "high",
+                        finding.description[:200] if finding.description else "",
+                        None,
+                        datetime.now().isoformat(),
+                    ),
+                )
 
             conn.commit()
             logger.info(f"Wrote {len(findings)} CDK findings to database")

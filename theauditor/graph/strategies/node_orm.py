@@ -56,11 +56,7 @@ class NodeOrmStrategy(GraphStrategy):
             "edges_created": 0,
         }
 
-        # =================================================================
-        # SEQUELIZE ASSOCIATIONS
-        # =================================================================
         try:
-            # Check if table exists (strategy should not crash if missing)
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='sequelize_associations'"
             )
@@ -87,10 +83,8 @@ class NodeOrmStrategy(GraphStrategy):
                             target = row["target_model"]
                             foreign_key = row["foreign_key"]
 
-                            # Infer alias from association type if not provided
                             alias = self._infer_alias(assoc_type, target)
 
-                            # Source node: Model.alias (e.g., User.posts)
                             source_id = f"{file}::{model}::{alias}"
                             if source_id not in nodes:
                                 nodes[source_id] = DFGNode(
@@ -106,7 +100,6 @@ class NodeOrmStrategy(GraphStrategy):
                                     },
                                 )
 
-                            # Target node: Target model instance
                             target_id = f"{file}::{target}::instance"
                             if target_id not in nodes:
                                 nodes[target_id] = DFGNode(
@@ -118,7 +111,6 @@ class NodeOrmStrategy(GraphStrategy):
                                     metadata={"model": target},
                                 )
 
-                            # Create bidirectional edges for IFDS backward traversal
                             new_edges = create_bidirectional_edges(
                                 source=source_id,
                                 target=target_id,
@@ -136,20 +128,7 @@ class NodeOrmStrategy(GraphStrategy):
                             stats["edges_created"] += len(new_edges)
 
         except sqlite3.OperationalError:
-            # Table might not exist - that's fine, not all projects use Sequelize
             pass
-
-        # =================================================================
-        # TYPEORM ENTITIES (Future)
-        # =================================================================
-        # TODO: Add support for typeorm_entities table when it exists
-        # Schema would be similar: entity_name, relation_type, target_entity, etc.
-
-        # =================================================================
-        # PRISMA MODELS (Future)
-        # =================================================================
-        # TODO: Add support for prisma_models table when it exists
-        # Schema would include relation fields from Prisma schema
 
         conn.close()
 
@@ -176,7 +155,6 @@ class NodeOrmStrategy(GraphStrategy):
         lower = target_model.lower()
 
         if "Many" in assoc_type:
-            # Pluralize: Post -> posts, Category -> categories
             if lower.endswith("y"):
                 return lower[:-1] + "ies"
             elif lower.endswith("s"):
@@ -184,5 +162,4 @@ class NodeOrmStrategy(GraphStrategy):
             else:
                 return lower + "s"
         else:
-            # Singular: User -> user
             return lower

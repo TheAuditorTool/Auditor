@@ -25,10 +25,6 @@ if TYPE_CHECKING:
     from theauditor.taint.memory_cache import MemoryCache
 
 
-# =============================================================================
-# PythonOrmContext - Inlined from taint/orm_utils.py
-# =============================================================================
-
 @dataclass
 class PythonOrmContext:
     """Lightweight view of Python ORM metadata for taint propagation.
@@ -52,7 +48,9 @@ class PythonOrmContext:
         return cls(
             model_names=set(cache.python_model_names),
             table_to_model=dict(cache.python_table_to_model),
-            relationships={key: list(vals) for key, vals in cache.python_relationship_aliases.items()},
+            relationships={
+                key: list(vals) for key, vals in cache.python_relationship_aliases.items()
+            },
             fk_fields={key: list(vals) for key, vals in cache.python_fk_fields.items()},
             param_types=dict(cache.python_param_types),
             cache_assignments_lookup=cache.assignments_by_func,
@@ -73,9 +71,6 @@ class PythonOrmContext:
     def enabled(self) -> bool:
         return bool(self.model_names)
 
-    # ----------------------------
-    # Cache-backed helpers
-    # ----------------------------
     def get_model_for_variable(
         self,
         file_path: str,
@@ -129,9 +124,6 @@ class PythonOrmContext:
         """Return all known model names for pattern matching."""
         return list(self.model_names)
 
-    # ----------------------------
-    # Database loading helpers
-    # ----------------------------
     def _load_models(self) -> None:
         query = build_query("python_orm_models", ["model_name", "table_name"])
         self.cursor.execute(query)
@@ -144,10 +136,24 @@ class PythonOrmContext:
     def _load_relationships(self) -> None:
         query = build_query(
             "orm_relationships",
-            ["source_model", "target_model", "relationship_type", "as_name", "cascade_delete", "foreign_key"],
+            [
+                "source_model",
+                "target_model",
+                "relationship_type",
+                "as_name",
+                "cascade_delete",
+                "foreign_key",
+            ],
         )
         self.cursor.execute(query)
-        for source_model, target_model, rel_type, alias, cascade_delete, foreign_key in self.cursor.fetchall():
+        for (
+            source_model,
+            target_model,
+            rel_type,
+            alias,
+            cascade_delete,
+            foreign_key,
+        ) in self.cursor.fetchall():
             if not source_model:
                 continue
             entry = {
@@ -194,9 +200,6 @@ class PythonOrmContext:
                 if key not in self.param_types:
                     self.param_types[key] = annotation
 
-    # ----------------------------
-    # Helpers shared between paths
-    # ----------------------------
     def _build_function_candidates(self, function_names: Iterable[str]) -> list[str]:
         candidates: list[str] = []
         for func in function_names or []:
@@ -237,7 +240,9 @@ class PythonOrmContext:
             return None
         return func_name, param_name
 
-    def _generate_param_type_keys(self, file_path: str, func_name: str, param_name: str) -> list[tuple[str, str, str]]:
+    def _generate_param_type_keys(
+        self, file_path: str, func_name: str, param_name: str
+    ) -> list[tuple[str, str, str]]:
         keys = []
         for candidate in self._generate_function_name_candidates(func_name):
             keys.append((file_path, candidate, param_name))
@@ -247,9 +252,13 @@ class PythonOrmContext:
         if not annotation:
             return None
 
-        # Split on common delimiters (spaces, brackets, commas) to extract tokens
-        # NO REGEX - use simple string operations
-        annotation_clean = annotation.replace('[', ' ').replace(']', ' ').replace(',', ' ').replace('(', ' ').replace(')', ' ')
+        annotation_clean = (
+            annotation.replace("[", " ")
+            .replace("]", " ")
+            .replace(",", " ")
+            .replace("(", " ")
+            .replace(")", " ")
+        )
         tokens = [t.strip() for t in annotation_clean.split() if t.strip()]
 
         for token in tokens:
@@ -281,20 +290,16 @@ class PythonOrmContext:
         return None
 
     def _infer_model_from_assignment(self, source_expr: str) -> str | None:
-        # NO REGEX - use simple string operations to extract constructor call
         if not source_expr:
             return None
 
-        # Strip leading whitespace and find first opening paren
         expr = source_expr.strip()
-        if '(' not in expr:
+        if "(" not in expr:
             return None
 
-        # Extract token before first '('
-        candidate = expr.split('(')[0].strip()
+        candidate = expr.split("(")[0].strip()
 
-        # Validate it's an identifier (no special chars)
-        if not candidate or not (candidate[0].isalpha() or candidate[0] == '_'):
+        if not candidate or not (candidate[0].isalpha() or candidate[0] == "_"):
             return None
 
         if candidate in self.model_names:
@@ -319,12 +324,6 @@ class PythonOrmContext:
         ]
         self._assignment_cache[key] = rows
         return rows
-
-
-# =============================================================================
-# PythonOrmStrategy
-# =============================================================================
-
 
 
 class PythonOrmStrategy(GraphStrategy):

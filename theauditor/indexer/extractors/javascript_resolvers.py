@@ -2,10 +2,12 @@
 Resolution logic for JavaScript/TypeScript analysis.
 Contains post-processing methods that operate on the SQLite database.
 """
+
+import json
 import os
 import re
-import json
 import sqlite3
+
 
 class JavaScriptResolversMixin:
     """Mixin containing static database resolution methods."""
@@ -246,8 +248,6 @@ class JavaScriptResolversMixin:
             key = (file, line)
             line_to_module[key] = package
 
-        # Load assignments (maps variable names to their source expressions)
-        # This handles patterns like: const controller = new ExportController()
         cursor.execute("""
             SELECT file, target_var, source_expr
             FROM assignments
@@ -255,15 +255,16 @@ class JavaScriptResolversMixin:
         """)
         var_to_class = {}
         for file, target_var, source_expr in cursor.fetchall():
-            # Extract class name from "new ClassName()" or "new ClassName"
-            class_match = re.match(r'new\s+([A-Za-z0-9_]+)', source_expr)
+            class_match = re.match(r"new\s+([A-Za-z0-9_]+)", source_expr)
             if class_match:
                 class_name = class_match.group(1)
                 key = (file, target_var.lower())
                 var_to_class[key] = class_name
 
         if debug:
-            print(f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
+            print(
+                f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
+            )
 
         path_aliases = {}
 
@@ -292,37 +293,28 @@ class JavaScriptResolversMixin:
         unresolved_count = 0
 
         for rowid, route_file, handler_function in chains_to_resolve:
-            # Determine what to resolve based on pattern type
-            #
-            # Patterns:
-            #   handler(controller.list) -> resolve 'controller.list' (inner is Class.method)
-            #   requireAuth()            -> resolve 'requireAuth' (empty call)
-            #   validateParams(schema)   -> resolve 'validateParams' (arg is schema, not controller)
-            #   controller.list          -> resolve 'controller.list' (direct Class.method)
-            #   requireAuth              -> resolve 'requireAuth' (direct function ref)
-
             target_handler = handler_function
 
-            # Strip .bind() pattern FIRST (before wrapper detection)
-            # FIX 2025-11-27: controller.method.bind(controller) -> controller.method
-            # This is a JavaScript pattern to preserve 'this' context in callbacks
-            # Must happen BEFORE '(' check because .bind() contains parentheses
-            bind_match = re.match(r'^(.+)\.bind\s*\(', target_handler)
+            bind_match = re.match(r"^(.+)\.bind\s*\(", target_handler)
             if bind_match:
                 target_handler = bind_match.group(1)
 
-            if '(' in target_handler:
-                # Extract: functionName(args) -> functionName AND args
-                func_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', target_handler)
-                arg_match = re.search(r'\(\s*([a-zA-Z0-9_$.]+)', target_handler)
+            if "(" in target_handler:
+                func_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", target_handler)
+                arg_match = re.search(r"\(\s*([a-zA-Z0-9_$.]+)", target_handler)
 
                 func_name = func_match.group(1) if func_match else None
                 inner_arg = arg_match.group(1) if arg_match else None
 
-                # Type-safety wrappers that wrap controllers - extract inner
-                type_wrappers = {'handler', 'fileHandler', 'asyncHandler', 'safeHandler', 'catchErrors'}
+                type_wrappers = {
+                    "handler",
+                    "fileHandler",
+                    "asyncHandler",
+                    "safeHandler",
+                    "catchErrors",
+                }
 
-                if func_name in type_wrappers and inner_arg and '.' in inner_arg:
+                if func_name in type_wrappers and inner_arg and "." in inner_arg:
                     target_handler = inner_arg
                 elif func_name:
                     target_handler = func_name
@@ -330,14 +322,12 @@ class JavaScriptResolversMixin:
                     unresolved_count += 1
                     continue
 
-            # Strip TypeScript non-null assertion operator if present
-            # FIX 2025-11-27 Option B: userId! -> userId for cleaner resolution
-            if target_handler.endswith('!'):
+            if target_handler.endswith("!"):
                 target_handler = target_handler[:-1]
 
             import_line = None
 
-            if '.' not in target_handler:
+            if "." not in target_handler:
                 lookup_name = target_handler
                 key = (route_file, lookup_name.lower())
                 import_line = specifier_to_line.get(key)
@@ -352,7 +342,7 @@ class JavaScriptResolversMixin:
                     unresolved_count += 1
                     continue
             else:
-                parts = target_handler.split('.')
+                parts = target_handler.split(".")
                 class_name = parts[0]
                 var_name = class_name[0].lower() + class_name[1:] if class_name else class_name
 
