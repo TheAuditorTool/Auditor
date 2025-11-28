@@ -190,11 +190,11 @@ GRAPHQL_FINDINGS_CACHE = TableSchema(
         Column("field_id", "INTEGER", nullable=True),
         Column("resolver_symbol_id", "INTEGER", nullable=True),
         Column("rule", "TEXT", nullable=False),
-        Column("severity", "TEXT", nullable=False),  # 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
-        Column("description", "TEXT"),  # Finding description (normalized from details_json)
-        Column("message", "TEXT"),  # Finding message (normalized from details_json)
-        Column("confidence", "TEXT", default="'medium'"),  # Finding confidence level
-        Column("provenance", "TEXT", nullable=False),  # Source of finding (rule name + version)
+        Column("severity", "TEXT", nullable=False),
+        Column("description", "TEXT"),
+        Column("message", "TEXT"),
+        Column("confidence", "TEXT", default="'medium'"),
+        Column("provenance", "TEXT", nullable=False),
     ],
     indexes=[
         ("idx_graphql_findings_cache_field", ["field_id"]),

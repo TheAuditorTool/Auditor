@@ -47,7 +47,6 @@ class RustExtractor(BaseExtractor):
             return self._parser
 
         try:
-            # Use tree-sitter-language-pack (same as ast_parser.py for JS/TS/HCL)
             from tree_sitter_language_pack import get_parser
 
             self._parser = get_parser("rust")

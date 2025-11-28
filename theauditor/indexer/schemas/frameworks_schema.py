@@ -130,18 +130,15 @@ ROUTER_MOUNTS = TableSchema(
     ],
 )
 
-# ============================================================================
-# TAINT PATTERN TABLES - Database-driven source/sink patterns
-# ============================================================================
 
 FRAMEWORK_TAINT_PATTERNS = TableSchema(
     name="framework_taint_patterns",
     columns=[
         Column("id", "INTEGER", nullable=False, primary_key=True, autoincrement=True),
-        Column("framework_id", "INTEGER", nullable=False),  # FK to frameworks.id
-        Column("pattern", "TEXT", nullable=False),          # e.g. 'req.body', 'eval'
-        Column("pattern_type", "TEXT", nullable=False),     # 'source', 'sink'
-        Column("category", "TEXT"),                         # 'http_request', 'sql_injection', etc.
+        Column("framework_id", "INTEGER", nullable=False),
+        Column("pattern", "TEXT", nullable=False),
+        Column("pattern_type", "TEXT", nullable=False),
+        Column("category", "TEXT"),
     ],
     indexes=[
         ("idx_taint_patterns_fw", ["framework_id"]),
@@ -150,16 +147,11 @@ FRAMEWORK_TAINT_PATTERNS = TableSchema(
     ],
     foreign_keys=[
         ForeignKey(
-            local_columns=["framework_id"],
-            foreign_table="frameworks",
-            foreign_columns=["id"]
+            local_columns=["framework_id"], foreign_table="frameworks", foreign_columns=["id"]
         )
-    ]
+    ],
 )
 
-# ============================================================================
-# FRAMEWORKS TABLES REGISTRY
-# ============================================================================
 
 FRAMEWORKS_TABLES: dict[str, TableSchema] = {
     "orm_relationships": ORM_RELATIONSHIPS,

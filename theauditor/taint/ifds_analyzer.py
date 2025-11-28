@@ -41,7 +41,9 @@ class IFDSTaintAnalyzer:
     rebuilding data flow on every run.
     """
 
-    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None, registry=None, type_resolver=None):
+    def __init__(
+        self, repo_db_path: str, graph_db_path: str, cache=None, registry=None, type_resolver=None
+    ):
         """Initialize IFDS analyzer with database connections.
 
         Args:
@@ -401,11 +403,12 @@ class IFDSTaintAnalyzer:
 
         http_objects = {"req", "res", "request", "response"}
 
-        # If both are HTTP objects in controller files but different functions, they're different
-        if (ap1.base in http_objects and ap2.base in http_objects and
-            self._is_controller_file(ap1.file) and self._is_controller_file(ap2.file)):
-
-            # Different controller files = different HTTP requests
+        if (
+            ap1.base in http_objects
+            and ap2.base in http_objects
+            and self._is_controller_file(ap1.file)
+            and self._is_controller_file(ap2.file)
+        ):
             if ap1.file != ap2.file:
                 return False
 
@@ -416,17 +419,12 @@ class IFDSTaintAnalyzer:
             ):
                 return False
 
-        # ORM Model Type Aliasing (Polyglot)
-        # If both nodes represent the same ORM model type, allow weak aliasing
         if self.type_resolver and ap1.base == ap2.base:
-            # Build node IDs for type comparison
             ap1_node_id = f"{ap1.file}::{ap1.function}::{ap1.base}"
             ap2_node_id = f"{ap2.file}::{ap2.function}::{ap2.base}"
             if self.type_resolver.is_same_type(ap1_node_id, ap2_node_id):
                 return True
 
-        # For non-HTTP objects or same context, check variable match
-        # Exact match on base + fields
         if ap1.base == ap2.base and ap1.fields == ap2.fields:
             return True
 
@@ -523,7 +521,6 @@ class IFDSTaintAnalyzer:
 
         return path
 
-
     def _get_language_for_file(self, file_path: str) -> str:
         """Detect language from file extension.
 
@@ -534,16 +531,16 @@ class IFDSTaintAnalyzer:
             Language identifier ('python', 'javascript', 'rust', 'unknown')
         """
         if not file_path:
-            return 'unknown'
+            return "unknown"
 
         lower = file_path.lower()
-        if lower.endswith('.py'):
-            return 'python'
-        elif lower.endswith(('.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs')):
-            return 'javascript'
-        elif lower.endswith('.rs'):
-            return 'rust'
-        return 'unknown'
+        if lower.endswith(".py"):
+            return "python"
+        elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
+            return "javascript"
+        elif lower.endswith(".rs"):
+            return "rust"
+        return "unknown"
 
     def _is_controller_file(self, file_path: str) -> bool:
         """Check if file is a controller/route handler.
@@ -559,7 +556,7 @@ class IFDSTaintAnalyzer:
         Raises:
             ValueError: If type_resolver is not provided (ZERO FALLBACK POLICY)
         """
-        # ZERO FALLBACK POLICY - TypeResolver is MANDATORY
+
         if not self.type_resolver:
             raise ValueError(
                 "TypeResolver is MANDATORY for IFDSTaintAnalyzer._is_controller_file(). "
@@ -595,36 +592,33 @@ class IFDSTaintAnalyzer:
         function_name = parts[1]
         variable = parts[2]
 
-        # ZERO FALLBACK POLICY - Registry is MANDATORY
         if not self.registry:
             raise ValueError(
                 "TaintRegistry is MANDATORY for IFDSTaintAnalyzer._is_true_entry_point(). "
                 "NO FALLBACKS. Initialize IFDSTaintAnalyzer with registry parameter."
             )
 
-        # Get language-specific source patterns from registry
         lang = self._get_language_for_file(file_path)
         request_patterns = self.registry.get_source_patterns(lang)
 
-        # Check if this is request data from middleware/routes
         if any(pattern in variable for pattern in request_patterns):
-            # Verify it's in a route or middleware file
             if self._is_controller_file(file_path):
-                # Check if this function exists in express_middleware_chains
-                # Note: Middleware chains are stored with the routes file path, not the controller file path
-                # So we search across ALL files for the function name
-                self.repo_cursor.execute("""
+                self.repo_cursor.execute(
+                    """
                     SELECT COUNT(*)
                     FROM express_middleware_chains
                     WHERE (handler_function = ? OR handler_expr LIKE ?)
                 """,
-                (function_name, f"%{function_name}%"),
-            )
+                    (function_name, f"%{function_name}%"),
+                )
 
                 count = self.repo_cursor.fetchone()[0]
                 if count > 0:
                     if self.debug:
-                        print(f"[IFDS] TRUE ENTRY POINT (middleware chain): {node_id}", file=sys.stderr)
+                        print(
+                            f"[IFDS] TRUE ENTRY POINT (middleware chain): {node_id}",
+                            file=sys.stderr,
+                        )
                     return True
 
         if "process.env" in variable or "env." in variable:
