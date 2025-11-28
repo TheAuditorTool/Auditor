@@ -925,7 +925,7 @@ def run_fce(
                         module_path = (
                             str(Path(py_file).as_posix()).replace("/", ".").replace(".py", "")
                         )
-                        import_cmd = f'python3 -c "import {module_path}"'
+                        import_cmd = f'python -c "import {module_path}"'
                         comp_exit, comp_out, comp_err = run_tool(import_cmd, root_path, 10)
 
                         if comp_exit != 0:

@@ -116,15 +116,14 @@ The following items were verified as **FALSE** on 2025-11-28:
 
 ## Known Issues (Verified 2025-11-28)
 
-### Windows
-1. **Path handling**: Always use full Windows paths with drive letters
-
 ### Database
-2. **Foreign keys**: PRAGMA foreign_keys = 0 by design
-3. **TypeScript interfaces**: Intentionally excluded from extraction (0 tables)
+1. **Foreign keys disabled**: SQLite defaults to OFF, needs `PRAGMA foreign_keys = ON` added to base_database.py (see OpenSpec: refactor-extraction-zero-fallback-dedup)
 
-### Framework Extraction Gaps (Future Work)
-4. **Redux**: Not extracted - stores, actions, reducers, selectors
-5. **Webpack/Vite configs**: Not extracted - aliases, entry points, loaders
-6. **NestJS**: Not implemented (0 tables exist)
-7. **FastAPI dependencies**: Needs verification when FastAPI projects indexed
+### Extraction Bugs (Must Fix)
+2. **TypeScript interfaces**: BUG - `core_language.js:390` only extracts `ClassDeclaration`, never `InterfaceDeclaration`. Fix: add interface check, set `type: "interface"`. Also fix `typescript_impl_structure.py:848` (hardcodes "class") and `javascript.py:301` (overwrites type).
+
+### Extraction Gaps (Future Work)
+3. **Redux**: Not extracted - stores, actions, reducers, selectors
+4. **Webpack/Vite configs**: Not extracted - aliases, entry points, loaders
+5. **NestJS**: Not implemented (0 tables exist)
+6. **FastAPI dependencies**: Needs verification when FastAPI projects indexed

@@ -84,7 +84,7 @@ Implement schemas from design.md "Complete Zod Schema Definition" section:
 
 - [ ] 2.1.1 Implement `SymbolSchema` (columns: path, name, type, line, col, jsx_mode, extraction_pass)
 - [ ] 2.1.2 Implement `FunctionSchema` (columns: name, line, col, type, kind, return_type, extends_type)
-- [ ] 2.1.3 Implement `ClassSchema` (columns: name, line, col, type, kind, extends_type, has_type_params)
+- [ ] 2.1.3 Implement `ClassSchema` (**UPDATE per design.md:** add `extends[]`, `implements[]`, `properties[]`, `methods[]` - see `specs/indexer/spec2.md` Section 8 for exact output format)
 - [ ] 2.1.4 Implement `AssignmentSchema` (columns: file, line, target_var, source_expr, in_function, property_path)
 - [ ] 2.1.5 Implement `FunctionReturnSchema` (columns: file, line, function_name, return_expr, has_jsx, returns_component)
 - [ ] 2.1.6 Implement `FunctionCallArgSchema` (columns: file, line, caller_function, callee_function, argument_index, argument_expr, param_name)
@@ -111,7 +111,7 @@ Implement schemas from design.md "Complete Zod Schema Definition" section:
 - [ ] 2.3.7 Implement `BullMQQueueSchema`, `BullMQWorkerSchema`
 
 ### 2.4 Extraction Receipt Schema
-- [ ] 2.4.1 Implement `ExtractedDataSchema` containing all extraction types (see design.md for complete list)
+- [ ] 2.4.1 Implement `ExtractedDataSchema` containing all extraction types (**Ensure `calls` uses `CallSymbolSchema` with `name`, `original_text`, `defined_in` - NOT just `function_call_args` - see `specs/indexer/spec2.md` Section 8 for exact output format**)
 - [ ] 2.4.2 Implement `FileResultSchema` with success/error/extracted_data
 - [ ] 2.4.3 Implement `ExtractionReceiptSchema` as `z.record(z.string(), FileResultSchema)`
 - [ ] 2.4.4 Export all schemas from `src/schema.ts`
@@ -121,21 +121,30 @@ Implement schemas from design.md "Complete Zod Schema Definition" section:
 - [ ] 2.5.2 Verify all 50 Node.js tables have corresponding schema definitions
 - [ ] 2.5.3 Run contract test, fix any mismatches
 
-## 3. Extractor Conversion
+## 3. Extractor Conversion WITH Semantic Upgrades (from discussions.md)
 
 ### 3.1 Core Language Extractor
 Source: `theauditor/ast_extractors/javascript/core_language.js` (873 lines)
 
 - [ ] 3.1.1 Create `src/extractors/core_language.ts`
-- [ ] 3.1.2 Convert `serializeNodeForCFG` (line 1-72):
-  - Params: `(node: ts.Node, sourceFile: ts.SourceFile, ts: typeof import('typescript'))`
-  - Return: `SerializedNode | null`
+- [ ] 3.1.2 **DELETE `serializeNodeForCFG`** (line 1-72):
+  - **SPEC:** See `specs/indexer/spec2.md` Section 1 for BROKEN code and WHY
+  - **REASON:** Recursion bomb - walks entire AST, builds 5000-level deep JSON, causes 512MB crash
+  - **ACTION:** Remove function entirely, verify `batch_templates.js` sets `ast: null`
+  - **DO NOT** convert to TypeScript. **DO NOT** refactor. **DELETE ENTIRELY.**
 - [ ] 3.1.3 Convert `extractFunctions` (line 74-379):
   - Params: `(sourceFile: ts.SourceFile, ts: typeof import('typescript'), filePath: string, scopeMap: Map<number, string>)`
   - Return: `{ functions: IFunction[], func_params: IFuncParam[], func_decorators: IFuncDecorator[], func_decorator_args: IFuncDecoratorArg[], func_param_decorators: IFuncParamDecorator[] }`
-- [ ] 3.1.4 Convert `extractClasses` (line 381-616):
-  - Params: `(sourceFile: ts.SourceFile, ts: typeof import('typescript'), filePath: string, scopeMap: Map<number, string>)`
+- [ ] 3.1.4 **REWRITE `extractClasses`** (line 381-616) with TypeChecker:
+  - **SPEC:** See `specs/indexer/spec2.md` Section 2 for BROKEN vs CORRECT code
+  - **COPY** the CORRECT code from spec2.md Section 2 - do not improvise
+  - Params: `(sourceFile: ts.SourceFile, checker: ts.TypeChecker, ts: typeof import('typescript'), filePath: string, scopeMap: Map<number, string>)`
   - Return: `{ classes: IClass[], class_decorators: IClassDecorator[], class_decorator_args: IClassDecoratorArg[] }`
+  - **NEW OUTPUT FIELDS:**
+    - `extends: string[]` - Resolved base types via `instanceType.getBaseTypes()`
+    - `implements: string[]` - Interface contracts
+    - `properties: { name, type, inherited }[]` - All members including inherited
+    - `methods: { name, signature, inherited }[]` - All methods including inherited
 - [ ] 3.1.5 Convert `extractClassProperties` (line 618-709):
   - Params: `(sourceFile: ts.SourceFile, ts: typeof import('typescript'), filePath: string, classes: IClass[])`
   - Return: `IClassProperty[]`
@@ -152,9 +161,16 @@ Source: `theauditor/ast_extractors/javascript/core_language.js` (873 lines)
 Source: `theauditor/ast_extractors/javascript/data_flow.js` (~1100 lines)
 
 - [ ] 3.2.1 Create `src/extractors/data_flow.ts`
-- [ ] 3.2.2 Convert `extractCalls` (line 3-224):
-  - Params: `(sourceFile: ts.SourceFile, ts: typeof import('typescript'), filePath: string, functions: IFunction[], classes: IClass[], scopeMap: Map<number, string>)`
+- [ ] 3.2.2 **REWRITE `extractCalls`** (line 3-224) with TypeChecker:
+  - **SPEC:** See `specs/indexer/spec2.md` Section 3 for BROKEN vs CORRECT code
+  - **COPY** the CORRECT code from spec2.md Section 3 - do not improvise
+  - **FIXES:** Anonymous caller bug where `db.User.findAll()` couldn't be traced to actual model
+  - Params: `(sourceFile: ts.SourceFile, checker: ts.TypeChecker, ts: typeof import('typescript'), filePath: string, functions: IFunction[], classes: IClass[], scopeMap: Map<number, string>)`
   - Return: `ICallSymbol[]`
+  - **NEW OUTPUT FIELDS:**
+    - `name: string` - Resolved: "User.findAll" or "sequelize.Model.findAll"
+    - `original_text: string` - Raw: "db.users.findAll" (for debugging)
+    - `defined_in: string | null` - File path where function is defined
 - [ ] 3.2.3 Convert `extractAssignments` (line 226-452):
   - Params: `(sourceFile: ts.SourceFile, ts: typeof import('typescript'), filePath: string, scopeMap: Map<number, string>)`
   - Return: `{ assignments: IAssignment[], assignment_source_vars: IAssignmentSourceVar[] }`
@@ -292,8 +308,18 @@ Source: `theauditor/ast_extractors/javascript/angular_extractors.js`
 Source: `theauditor/ast_extractors/javascript/cfg_extractor.js`
 
 - [ ] 3.9.1 Create `src/extractors/cfg_extractor.ts`
-- [ ] 3.9.2 Convert `extractCFG`:
+- [ ] 3.9.2 **OPTIMIZE `extractCFG`** with performance fixes:
+  - **SPEC:** See `specs/indexer/spec2.md` Section 4 for BROKEN vs CORRECT code
+  - **COPY** the CORRECT code from spec2.md Section 4 - do not improvise
   - Return: `{ cfg_blocks: ICFGBlock[], cfg_edges: ICFGEdge[], cfg_block_statements: ICFGBlockStatement[] }`
+  - **OPTIMIZATION 1: Skip non-executable code** (~40% memory reduction on TypeScript projects)
+    - Skip `InterfaceDeclaration`, `TypeAliasDeclaration`, `ImportDeclaration`, `ModuleDeclaration`
+    - CFG only cares about executable code (functions, control flow)
+  - **OPTIMIZATION 2: Flatten JSX** (prevent stack overflow on deeply nested React)
+    - Only record root of JSX tree as single `jsx_root` statement
+    - Continue traversing to find embedded functions/expressions
+    - Do NOT create CFG blocks for every child `JsxText` or `JsxOpeningElement`
+  - **Keep** existing `depth > 500` guard for safety
 - [ ] 3.9.3 Add `export` keyword
 - [ ] 3.9.4 Run `npm run build` and `npm run typecheck` - fix any errors
 
@@ -387,6 +413,41 @@ def get_batch_helper(module_type: str = "esm") -> str:
 - [ ] 5.2.3 Compare extraction counts to baseline from step 0.8
 - [ ] 5.2.4 If counts differ, investigate and fix
 
+### 5.3 Python Zombie Cleanup
+File: `theauditor/ast_extractors/javascript.py`
+
+**SPEC:** See `specs/indexer/spec2.md` Section 5 for BROKEN vs CORRECT code
+**COPY** the CORRECT pattern from spec2.md Section 5 - do not improvise
+
+**RATIONALE:** Python layer has 600+ lines of "fallback" extraction that duplicates JS logic.
+Creates "Double Vision" - two extraction engines fighting each other.
+If JS extraction is missing data, fix JS, don't add Python workarounds.
+
+- [ ] 5.3.1 **DELETE** `_extract_sql_from_function_calls()` method (~100 lines)
+  - This is a zombie method - duplicates `extractSQLQueries` in JS
+- [ ] 5.3.2 **DELETE** `_extract_jwt_from_function_calls()` method (~80 lines)
+  - This is a zombie method - JWT patterns should come from JS
+- [ ] 5.3.3 **DELETE** `_extract_routes_from_ast()` method (~200 lines)
+  - This is a zombie method - duplicates `extractAPIEndpoints` in JS
+- [ ] 5.3.4 **DELETE** any `if not extracted_data: ... traverse AST` fallback blocks
+  - Search for patterns like `if not result.get("routes"):` followed by AST traversal
+- [ ] 5.3.5 **SIMPLIFY** `extract()` method to trust `extracted_data`:
+```python
+def extract(self, file_info, content, tree):
+    if isinstance(tree, dict) and "extracted_data" in tree:
+        data = tree["extracted_data"]
+        result["sql_queries"] = data.get("sql_queries", [])  # Trust JS!
+        result["routes"] = data.get("routes", [])            # Trust JS!
+        # NO FALLBACK. If data missing, bug is in JS.
+    return result
+```
+- [ ] 5.3.6 Run full `aud full --index` pipeline
+  - If anything missing, fix JS extraction in Phase 3, NOT Python
+- [ ] 5.3.7 Verify `javascript_resolvers.py` unchanged
+  - This is the cross-file linker layer - correct architecture, keep it
+
+**RULE:** If `javascript_resolvers.py` fails, fix the JS extraction that feeds it, not the resolver.
+
 ## 6. CI/CD Updates
 
 ### 6.1 Build Integration
@@ -434,10 +495,35 @@ After ALL tests pass:
 - [ ] 7.3.3 Update CLAUDE.md if needed (add note about npm build step)
 
 ## 8. Post-Implementation Audit
-- [ ] 8.1 Re-read all modified files to confirm correctness
-- [ ] 8.2 Run full test suite: `pytest tests/`
-- [ ] 8.3 Run smoke tests: `python scripts/cli_smoke_test.py`
-- [ ] 8.4 Run `aud full --offline` on test fixtures
-- [ ] 8.5 Verify extraction output matches expected format (compare JSON structure)
-- [ ] 8.6 Document any discrepancies found
-- [ ] 8.7 Create completion report per teamsop.md template C-4.20
+
+**SPEC:** See `specs/indexer/spec2.md` Section 9 (Mandatory Checklist) and Section 10 (Downstream Impact)
+
+### 8.1 Mandatory Checklist (from spec2.md Section 9)
+Before marking ANY task complete, verify ALL of these:
+
+- [ ] 8.1.1 `serializeNodeForCFG` is DELETED (not converted, DELETED)
+- [ ] 8.1.2 `extractClasses` uses `checker.getDeclaredTypeOfSymbol()`
+- [ ] 8.1.3 `extractClasses` returns `extends[]`, `implements[]`, `properties[]`, `methods[]`
+- [ ] 8.1.4 `extractCalls` uses `checker.getSymbolAtLocation()` and `checker.getFullyQualifiedName()`
+- [ ] 8.1.5 `extractCalls` returns `name`, `original_text`, `defined_in`
+- [ ] 8.1.6 CFG `visit()` skips InterfaceDeclaration, TypeAliasDeclaration, ImportDeclaration, ModuleDeclaration
+- [ ] 8.1.7 CFG JSX handling only creates ONE `jsx_root` statement per JSX tree
+- [ ] 8.1.8 `javascript.py` has NO `_extract_sql...`, `_extract_jwt...`, `_extract_routes...` methods
+- [ ] 8.1.9 `javascript.py` `extract()` has NO fallback blocks
+- [ ] 8.1.10 `javascript_resolvers.py` is UNCHANGED
+
+### 8.2 Downstream Impact Check (from spec2.md Section 10)
+After `extractCalls` returns semantic names, check these files for broken string matching:
+
+- [ ] 8.2.1 Check `sequelize_extractors.js` - update if matching on `callee_function`
+- [ ] 8.2.2 Check `security_extractors.js` - update if pattern matching for SQL/JWT
+- [ ] 8.2.3 Check `framework_extractors.js` - update if React/Vue component detection broken
+
+### 8.3 Standard Verification
+- [ ] 8.3.1 Re-read all modified files to confirm correctness
+- [ ] 8.3.2 Run full test suite: `pytest tests/`
+- [ ] 8.3.3 Run smoke tests: `python scripts/cli_smoke_test.py`
+- [ ] 8.3.4 Run `aud full --offline` on test fixtures
+- [ ] 8.3.5 Verify extraction output matches expected format (compare JSON structure)
+- [ ] 8.3.6 Document any discrepancies found
+- [ ] 8.3.7 Create completion report per teamsop.md template C-4.20
