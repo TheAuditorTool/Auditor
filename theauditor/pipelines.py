@@ -36,7 +36,6 @@ COMMAND_TIMEOUTS = {
     "taint-analyze": 1800,
     "taint": 1800,
     "fce": 900,
-    "report": 300,
 }
 
 
@@ -391,7 +390,6 @@ async def run_full_pipeline(
             ("taint-analyze", []),
             ("fce", []),
             ("session", ["analyze"]),
-            ("report", []),
         ]
 
         commands = []
@@ -475,8 +473,6 @@ async def run_full_pipeline(
                     description = f"{phase_num}. Factual correlation engine"
                 elif cmd_name == "session":
                     description = f"{phase_num}. Analyze AI agent sessions (Tier 5)"
-                elif cmd_name == "report":
-                    description = f"{phase_num}. Generate report"
                 else:
                     description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
 
@@ -577,7 +573,7 @@ async def run_full_pipeline(
                 if not offline:
                     track_c_commands.append((phase_name, cmd))
 
-            elif "fce" in cmd_str or "session" in cmd_str or "report" in cmd_str:
+            elif "fce" in cmd_str or "session" in cmd_str:
                 final_commands.append((phase_name, cmd))
             else:
                 final_commands.append((phase_name, cmd))
