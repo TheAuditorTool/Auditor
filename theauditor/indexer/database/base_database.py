@@ -55,6 +55,9 @@ class BaseDatabaseManager:
         self.conn = sqlite3.connect(db_path, timeout=60)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
+        # ZERO FALLBACK POLICY: Enable foreign key enforcement
+        # If this causes crashes, it exposes insertion order bugs
+        self.conn.execute("PRAGMA foreign_keys = ON")
 
         if batch_size <= 0:
             self.batch_size = DEFAULT_BATCH_SIZE
@@ -588,6 +591,32 @@ class BaseDatabaseManager:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
                     self.flush_generic_batch(table_name, insert_mode)
 
+        except sqlite3.IntegrityError as e:
+            # ZERO FALLBACK POLICY: Translate IntegrityError into actionable messages
+            error_msg = str(e)
+
+            if "UNIQUE constraint failed" in error_msg:
+                raise ValueError(
+                    f"DATABASE INTEGRITY ERROR: Duplicate row insertion attempted.\n"
+                    f"  Error: {error_msg}\n"
+                    f"  This indicates deduplication was not enforced in storage layer.\n"
+                    f"  Check core_storage.py tracking sets."
+                ) from e
+
+            if "FOREIGN KEY constraint failed" in error_msg:
+                raise ValueError(
+                    f"ORPHAN DATA ERROR: Attempted to insert record referencing missing parent.\n"
+                    f"  Error: {error_msg}\n"
+                    f"  Ensure parent tables (files, symbols) are inserted BEFORE children.\n"
+                    f"  Check flush_order in base_database.py."
+                ) from e
+
+            # Re-raise as RuntimeError for other integrity errors
+            if batch_idx is not None:
+                raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e
+            else:
+                raise RuntimeError(f"Batch insert failed: {e}") from e
+
         except sqlite3.Error as e:
             import os
             import sys
@@ -598,9 +627,6 @@ class BaseDatabaseManager:
                 for table_name, batch in self.generic_batches.items():
                     if batch:
                         print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
-
-            if "UNIQUE constraint failed" in str(e):
-                pass
 
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e
