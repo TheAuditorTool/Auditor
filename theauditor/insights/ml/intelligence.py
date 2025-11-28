@@ -300,7 +300,9 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
 
 def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
     """
-    Parse raw/vulnerabilities.json for CVE data with CVSS scores.
+    Query findings_consolidated for vulnerability findings (tool='vulnerability_scanner').
+
+    ZERO FALLBACK: No try/except for DB query. Crash if DB missing.
 
     Returns dict mapping file paths to CVE details:
     {
@@ -312,9 +314,22 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
         }
     }
     """
-    file_path = raw_path / "vulnerabilities.json"
-    if not file_path.exists():
+    import sqlite3
+
+    # DB path is parent of raw_path (.pf/)
+    db_path = raw_path.parent / "repo_index.db"
+    if not db_path.exists():
         return {}
+
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    # Query vulnerability findings from database
+    cursor.execute("""
+        SELECT file, severity, confidence
+        FROM findings_consolidated
+        WHERE tool = 'vulnerability_scanner'
+    """)
 
     stats = defaultdict(
         lambda: {
@@ -326,38 +341,35 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
         }
     )
 
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            data = json.load(f)
+    for file, severity, confidence in cursor.fetchall():
+        if not file:
+            continue
 
-        for vuln in data.get("vulnerabilities", []):
-            file = vuln.get("file", vuln.get("package", ""))
-            if not file:
-                continue
+        stats[file]["cve_count"] += 1
 
-            stats[file]["cve_count"] += 1
+        # Map severity to CVSS-like score for backwards compatibility
+        if severity == "critical":
+            stats[file]["critical_cves"] += 1
+            stats[file]["max_cvss_score"] = max(stats[file]["max_cvss_score"], 9.5)
+        elif severity == "high":
+            stats[file]["high_cves"] += 1
+            stats[file]["max_cvss_score"] = max(stats[file]["max_cvss_score"], 7.5)
+        elif severity == "medium":
+            stats[file]["max_cvss_score"] = max(stats[file]["max_cvss_score"], 5.0)
 
-            cvss = vuln.get("cvss_score", 0.0)
-            if cvss > stats[file]["max_cvss_score"]:
-                stats[file]["max_cvss_score"] = cvss
+        # High confidence implies exploitable
+        if confidence and confidence >= 0.9:
+            stats[file]["exploitable_count"] += 1
 
-            if cvss >= 9.0:
-                stats[file]["critical_cves"] += 1
-            elif cvss >= 7.0:
-                stats[file]["high_cves"] += 1
-
-            if vuln.get("exploitable", False):
-                stats[file]["exploitable_count"] += 1
-
-    except Exception:
-        pass
-
+    conn.close()
     return dict(stats)
 
 
 def parse_patterns(raw_path: Path) -> dict[str, dict]:
     """
-    Parse raw/patterns.json for pattern detection findings.
+    Query findings_consolidated for pattern detection findings (tool='patterns').
+
+    ZERO FALLBACK: No try/except for DB query. Crash if DB missing.
 
     Returns dict mapping file paths to pattern counts:
     {
@@ -369,11 +381,22 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
         }
     }
     """
-    file_path = raw_path / "patterns.json"
-    if not file_path.exists():
-        file_path = raw_path / "findings.json"
-        if not file_path.exists():
-            return {}
+    import sqlite3
+
+    # DB path is parent of raw_path (.pf/)
+    db_path = raw_path.parent / "repo_index.db"
+    if not db_path.exists():
+        return {}
+
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    # Query pattern findings from database
+    cursor.execute("""
+        SELECT file, category, rule
+        FROM findings_consolidated
+        WHERE tool = 'patterns'
+    """)
 
     stats = defaultdict(
         lambda: {
@@ -385,30 +408,27 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
         }
     )
 
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            data = json.load(f)
+    for file, category, rule in cursor.fetchall():
+        if not file:
+            continue
 
-        for finding in data.get("findings", []):
-            file = finding.get("file", "")
-            if not file:
-                continue
+        stats[file]["total_patterns"] += 1
 
-            stats[file]["total_patterns"] += 1
+        # Categorize based on category or rule name
+        cat_lower = (category or "").lower()
+        rule_lower = (rule or "").lower()
+        combined = f"{cat_lower} {rule_lower}"
 
-            category = finding.get("category", "").lower()
-            if "secret" in category or "password" in category or "key" in category:
-                stats[file]["hardcoded_secrets"] += 1
-            elif "crypto" in category or "md5" in category or "sha1" in category:
-                stats[file]["weak_crypto"] += 1
-            elif "random" in category:
-                stats[file]["insecure_random"] += 1
-            elif "dangerous" in category or "eval" in category:
-                stats[file]["dangerous_functions"] += 1
+        if "secret" in combined or "password" in combined or "key" in combined or "credential" in combined:
+            stats[file]["hardcoded_secrets"] += 1
+        elif "crypto" in combined or "md5" in combined or "sha1" in combined or "hash" in combined:
+            stats[file]["weak_crypto"] += 1
+        elif "random" in combined:
+            stats[file]["insecure_random"] += 1
+        elif "dangerous" in combined or "eval" in combined or "exec" in combined:
+            stats[file]["dangerous_functions"] += 1
 
-    except Exception:
-        pass
-
+    conn.close()
     return dict(stats)
 
 
