@@ -16,9 +16,8 @@ Per teamsop.md Section 1.3 (Prime Directive), all beliefs about the codebase mus
 
 **Verification**: CONFIRMED
 
-**Evidence** (schema.py:79-81):
+**Evidence** (schema.py:72-73):
 ```python
-# Verify table count at module load time
 assert len(TABLES) == 155, f"Schema contract violation: Expected 155 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 ```
@@ -33,21 +32,20 @@ print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 **Verification**: CONFIRMED
 
-**Evidence** (pipelines.py:305-306):
+**Evidence** (pipelines.py:352-353):
 ```python
 readthis_dir = Path(root) / ".pf" / "readthis"
 readthis_dir.mkdir(parents=True, exist_ok=True)
 ```
 
-**Additional Evidence** (pipelines.py:1547-1570):
+**Additional Evidence** (pipelines.py:1595-1617):
 ```python
-temp_dir = Path(root) / ".pf" / "temp"
 readthis_final = Path(root) / ".pf" / "readthis"
 readthis_final.mkdir(parents=True, exist_ok=True)
-# ... file moving logic ...
+# ... file moving logic (shutil.move for pipeline.log and allfiles.md) ...
 ```
 
-**Impact**: Directory created but not used. Tips still reference it (line 1526).
+**Impact**: Directory created but adds no value. Files moved there serve no purpose.
 
 ---
 
@@ -57,12 +55,12 @@ readthis_final.mkdir(parents=True, exist_ok=True)
 
 **Verification**: CONFIRMED
 
-**Evidence** (pipelines.py:234):
+**Evidence** (pipelines.py:237):
 ```python
 print(f"[{status}] {chain_name} ({elapsed:.1f}s)", file=sys.stderr)
 ```
 
-**Evidence** (events.py:90):
+**Evidence** (events.py:87-91):
 ```python
 def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
     if not self.quiet:
@@ -80,21 +78,18 @@ def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
 
 **Verification**: CONFIRMED
 
-**Evidence** (pipelines.py:960-1052, partial sample):
+**Evidence** (pipelines.py:1001-1100, partial sample):
 ```python
-print("[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
-# ...
-print("[TAINT] Initializing security analysis infrastructure...", file=sys.stderr)
-# ...
-print(f"[TAINT]   Found {len(infra_findings)} infrastructure issues", file=sys.stderr)
-# ...
-print("[TAINT] Discovering framework-specific patterns...", file=sys.stderr)
-# ...
-print(f"[TAINT]   Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources", file=sys.stderr)
-# ... (approximately 30 more print statements)
+# run_taint_sync() defined at line 1001
+print("[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)  # line 1009
+print("[TAINT] Initializing security analysis infrastructure...", file=sys.stderr)  # line 1017
+print(f"[TAINT]   Found {len(infra_findings)} infrastructure issues", file=sys.stderr)  # line 1032
+print("[TAINT] Discovering framework-specific patterns...", file=sys.stderr)  # line 1036
+print(f"[TAINT]   Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources", file=sys.stderr)  # line 1042
+# ... (~15 taint print statements total)
 ```
 
-**Impact**: Because `run_taint_sync()` runs via `asyncio.to_thread()` (line 1146), its stderr buffer flushes asynchronously. The main loop may print completion messages before taint output appears.
+**Impact**: Because `run_taint_sync()` runs via `asyncio.to_thread()` (line 1192), its stderr buffer flushes asynchronously. The main loop may print completion messages before taint output appears.
 
 ---
 
@@ -132,7 +127,7 @@ class ConsoleLogger:
 
 **Verification**: CONFIRMED
 
-**Evidence** (pipelines.py:187-190) in `run_chain_async`:
+**Evidence** (pipelines.py:189-192) in `run_chain_async`:
 ```python
 print(
     f"[STATUS] {chain_name}: Running: {description} [{completed_count}/{total_count}]",
@@ -140,7 +135,7 @@ print(
 )
 ```
 
-**Evidence** (pipelines.py:961-963) in `run_taint_sync`:
+**Evidence** (pipelines.py:1007-1010) in `run_taint_sync`:
 ```python
 print(
     "[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]",
@@ -186,17 +181,17 @@ class PipelineObserver(Protocol):
 **Evidence** (sample from pipelines.py):
 ```python
 # Direct prints (no observer):
-print("[INFO] Previous run archived successfully", file=sys.stderr)  # line 285
-print("[INFO] Journal writer initialized for ML training", file=sys.stderr)  # line 291
+print("[INFO] Previous run archived successfully", file=sys.stderr)  # line 332
+print("[INFO] Journal writer initialized for ML training", file=sys.stderr)  # line 337
 
 # Observer calls:
 if observer:
-    observer.on_stage_start("FOUNDATION - Sequential Execution", 1)  # line 567
+    observer.on_stage_start("FOUNDATION - Sequential Execution", 1)  # line ~614
 if observer:
-    observer.on_log(idx_msg)  # line 597
+    observer.on_log(idx_msg)  # line ~644
 ```
 
-**Count**: Approximately 100+ direct `print()` calls in `run_full_pipeline()` alongside ~50 observer calls.
+**Count**: 37 direct `print()` calls in pipelines.py (34 with file=sys.stderr).
 
 **Impact**: Half the output bypasses the observer pattern entirely.
 
@@ -206,9 +201,9 @@ if observer:
 
 | Expected | Actual | Impact |
 |----------|--------|--------|
-| `readthis` cleaned up per pipeline.md | Still created at line 305 | Zombie code |
+| `readthis` cleaned up per pipeline.md | Still created at lines 352-353, 1595-1617 | Zombie code |
 | Single output path | 4 paths (direct print, observer, chain print, taint print) | Interleaving |
-| Observer pattern complete | Only ~33% of output uses observer | Incomplete migration |
+| Observer pattern complete | Only ~50% of output uses observer | Incomplete migration |
 
 ---
 
@@ -231,10 +226,11 @@ if observer:
 
 All 8 hypotheses have been verified by reading the source code. The root causes identified in the proposal are accurate. Implementation can proceed with high confidence.
 
-**Key File Locations Verified**:
-- `theauditor/indexer/schema.py:81` - Schema print
-- `theauditor/pipelines.py:305-306` - readthis creation
-- `theauditor/pipelines.py:234` - Duplicate COMPLETED
-- `theauditor/pipelines.py:954-1142` - Taint stderr prints
-- `theauditor/events.py:43-93` - ConsoleLogger
-- `theauditor/events.py:11-40` - PipelineObserver protocol
+**Key File Locations Verified** (2025-11-28 re-verified):
+- `theauditor/indexer/schema.py:73` - Schema print
+- `theauditor/pipelines.py:352-353` - readthis creation
+- `theauditor/pipelines.py:1595-1617` - readthis file-moving
+- `theauditor/pipelines.py:237` - Duplicate COMPLETED print
+- `theauditor/pipelines.py:1001-1156` - Taint stderr prints (~15 statements)
+- `theauditor/events.py:43-93` - ConsoleLogger (to be deleted)
+- `theauditor/events.py:11-40` - PipelineObserver protocol (keep)
