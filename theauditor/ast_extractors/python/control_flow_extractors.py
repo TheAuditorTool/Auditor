@@ -33,15 +33,6 @@ def _calculate_nesting_level(node: ast.AST, parent_map: dict) -> int:
     return level
 
 
-def _build_parent_map(tree: ast.AST) -> dict:
-    """Build parent map for nesting level calculation."""
-    parent_map = {}
-    for parent in ast.walk(tree):
-        for child in ast.iter_child_nodes(parent):
-            parent_map[child] = parent
-    return parent_map
-
-
 def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
     """Extract for loop patterns with enumerate, zip, else clause detection."""
     for_loops = []
@@ -50,7 +41,7 @@ def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
         return for_loops
 
     function_ranges = context.function_ranges
-    parent_map = _build_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes(ast.For):
         loop_type = "plain"
@@ -97,7 +88,7 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
         return while_loops
 
     function_ranges = context.function_ranges
-    parent_map = _build_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes(ast.While):
         is_infinite = False
@@ -152,7 +143,7 @@ def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
         return if_statements
 
     function_ranges = context.function_ranges
-    parent_map = _build_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     processed = set()
 
@@ -249,7 +240,7 @@ def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
         return flow_control
 
     function_ranges = context.function_ranges
-    parent_map = _build_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes((ast.Break, ast.Continue, ast.Pass)):
         if isinstance(node, ast.Break):

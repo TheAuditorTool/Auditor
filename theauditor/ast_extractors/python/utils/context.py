@@ -15,6 +15,8 @@ class FileContext:
     file_path: str
 
     _index: NodeIndex = field(init=False)
+    _parent_map: dict[ast.AST, ast.AST] | None = field(init=False, default=None)
+    _all_nodes: list[ast.AST] | None = field(init=False, default=None)
 
     imports: dict[str, str] = field(default_factory=dict)
     function_ranges: list[tuple[str, int, int]] = field(default_factory=list)
@@ -34,8 +36,24 @@ class FileContext:
         return self._index.find_nodes(node_type)
 
     def walk_tree(self) -> list[ast.AST]:
-        """Get all nodes (fallback for complex patterns)."""
-        return list(ast.walk(self.tree))
+        """Get all nodes (cached - walks tree ONCE)."""
+        if self._all_nodes is None:
+            self._all_nodes = list(ast.walk(self.tree))
+        return self._all_nodes
+
+    @property
+    def parent_map(self) -> dict[ast.AST, ast.AST]:
+        """Lazy-built parent map (builds ONCE on first access)."""
+        if self._parent_map is None:
+            self._parent_map = {}
+            for parent in self.walk_tree():
+                for child in ast.iter_child_nodes(parent):
+                    self._parent_map[child] = parent
+        return self._parent_map
+
+    def get_parent(self, node: ast.AST) -> ast.AST | None:
+        """Get parent of a node."""
+        return self.parent_map.get(node)
 
     def resolve_symbol(self, name: str) -> str:
         """Resolve import alias to full module path."""
