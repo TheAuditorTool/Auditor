@@ -1,10 +1,5 @@
 """TheAuditor insights package - optional interpretive intelligence."""
 
-from theauditor.insights.graph import (
-    GraphInsights,
-    check_insights_available,
-    create_insights,
-)
 from theauditor.insights.impact_analyzer import (
     analyze_impact,
     calculate_transitive_impact,
@@ -59,9 +54,6 @@ __all__ = [
     "load_ast_complexity_metrics",
     "extract_text_features",
     "fowler_noll_hash",
-    "GraphInsights",
-    "check_insights_available",
-    "create_insights",
     "SemanticContext",
     "ContextPattern",
     "ClassificationResult",

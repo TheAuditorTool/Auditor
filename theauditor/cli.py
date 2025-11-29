@@ -169,7 +169,6 @@ from theauditor.commands.index import index
 from theauditor.commands.init import init
 from theauditor.commands.init_config import init_config
 from theauditor.commands.init_js import init_js
-from theauditor.commands.insights import insights_command
 from theauditor.commands.lint import lint
 from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
@@ -241,7 +240,6 @@ cli.add_command(refactor_command, name="refactor")
 cli.add_command(context_command, name="context")
 
 
-cli.add_command(insights_command, name="insights")
 cli.add_command(learn)
 cli.add_command(suggest)
 cli.add_command(learn_feedback)

@@ -280,12 +280,7 @@ def graph_build_dfg(root, db, repo_db):
 @click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
 @click.option("--max-depth", default=3, type=int, help="Max traversal depth for impact analysis")
 @click.option("--workset", help="Path to workset.json for change impact")
-@click.option(
-    "--no-insights",
-    is_flag=True,
-    help="Skip interpretive insights (health scores, recommendations)",
-)
-def graph_analyze(root, db, out, max_depth, workset, no_insights):
+def graph_analyze(root, db, out, max_depth, workset):
     """Analyze dependency graphs for architectural issues and change impact.
 
     Performs comprehensive graph analysis to detect circular dependencies,
@@ -317,28 +312,18 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
         - Calculates downstream dependencies (what this depends on)
         - Measures total blast radius
 
-      Health Metrics (unless --no-insights):
-        - Graph density (connectivity level)
-        - Fragility score (brittleness measure)
-        - Health grade (A-F overall assessment)
-
     EXAMPLES:
       aud graph analyze
       aud graph analyze --workset workset.json
-      aud graph analyze --no-insights --max-depth 5
+      aud graph analyze --max-depth 5
       aud graph analyze --out custom_analysis.json
 
     FLAG INTERACTIONS:
       --workset + --max-depth: Limits impact analysis to specific files and depth
-      --no-insights: Disables health scoring (faster, basic metrics only)
 
     TROUBLESHOOTING:
       No graphs found:
         Solution: Run 'aud graph build' first
-
-      High fragility score:
-        Cause: Many circular dependencies or high coupling
-        Solution: Review hotspots and refactor to reduce coupling
 
       Slow analysis (>30 seconds):
         Cause: Very large graph (>10K nodes)
@@ -346,15 +331,8 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
 
+    # NOTE: GraphInsights deleted - always use basic analysis
     insights = None
-    if not no_insights:
-        try:
-            from theauditor.graph.insights import GraphInsights
-
-            insights = GraphInsights()
-        except ImportError:
-            click.echo("Note: Insights module not available. Running basic analysis only.")
-            insights = None
 
     try:
         store = XGraphStore(db_path=db)
