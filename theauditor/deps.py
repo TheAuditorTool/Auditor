@@ -103,7 +103,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
 
 
 def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
-    """Read npm dependencies from package_configs table."""
+    """Read npm dependencies from normalized package_dependencies table."""
     import sqlite3
 
     conn = sqlite3.connect(db_path, timeout=60)
@@ -112,50 +112,29 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
     try:
         cursor.execute("""
-            SELECT file_path, package_name, version, dependencies, dev_dependencies
-            FROM package_configs
+            SELECT pd.file_path, pd.name, pd.version_spec, pd.is_dev, pd.is_peer
+            FROM package_dependencies pd
         """)
 
         deps = []
 
-        for file_path, _pkg_name, _pkg_version, deps_json, dev_deps_json in cursor.fetchall():
-            if not deps_json:
-                continue
+        for file_path, name, version_spec, is_dev, is_peer in cursor.fetchall():
+            workspace_package = file_path if file_path != "package.json" else None
 
-            try:
-                dependencies = json.loads(deps_json)
-                dev_dependencies = json.loads(dev_deps_json) if dev_deps_json else {}
-
-                workspace_package = file_path if file_path != "package.json" else None
-
-                for name, version in dependencies.items():
-                    dep_obj = {
-                        "name": name,
-                        "version": version,
-                        "manager": "npm",
-                        "files": [],
-                        "source": file_path,
-                    }
-                    if workspace_package:
-                        dep_obj["workspace_package"] = workspace_package
-                    deps.append(dep_obj)
-
-                for name, version in dev_dependencies.items():
-                    dep_obj = {
-                        "name": name,
-                        "version": version,
-                        "manager": "npm",
-                        "files": [],
-                        "source": file_path,
-                        "dev": True,
-                    }
-                    if workspace_package:
-                        dep_obj["workspace_package"] = workspace_package
-                    deps.append(dep_obj)
-
-            except json.JSONDecodeError as e:
-                print(f"WARNING: Corrupted JSON in database for {file_path}: {e}", file=sys.stderr)
-                continue
+            dep_obj = {
+                "name": name,
+                "version": version_spec or "*",
+                "manager": "npm",
+                "files": [],
+                "source": file_path,
+            }
+            if is_dev:
+                dep_obj["dev"] = True
+            if is_peer:
+                dep_obj["peer"] = True
+            if workspace_package:
+                dep_obj["workspace_package"] = workspace_package
+            deps.append(dep_obj)
 
         conn.close()
         return deps
@@ -165,7 +144,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
         if "no such table" in str(e):
             if debug:
-                print("Debug: package_configs table not found (run indexer first)")
+                print("Debug: package_dependencies table not found (run indexer first)")
             return []
 
         raise
