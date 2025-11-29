@@ -50,10 +50,10 @@ class PythonExtractor(BaseExtractor):
 
         result = extract_all_python_data(context)
 
-        if tree and isinstance(tree, dict):
-            resolved = self._resolve_imports(file_info, tree)
-            if resolved:
-                result["resolved_imports"] = resolved
+        # Use context's pre-indexed imports instead of walking tree again
+        resolved = self._resolve_imports_from_context(file_info, context)
+        if resolved:
+            result["resolved_imports"] = resolved
 
         return result
 
@@ -75,13 +75,11 @@ class PythonExtractor(BaseExtractor):
             "resolved_imports": {},
         }
 
-    def _resolve_imports(self, file_info: dict[str, Any], tree: dict[str, Any]) -> dict[str, str]:
-        """Resolve Python import targets to absolute module/file paths."""
+    def _resolve_imports_from_context(
+        self, file_info: dict[str, Any], context: Any
+    ) -> dict[str, str]:
+        """Resolve Python import targets using context's pre-indexed nodes (O(1))."""
         resolved: dict[str, str] = {}
-        actual_tree = tree.get("tree")
-
-        if not isinstance(actual_tree, ast.AST):
-            return resolved
 
         file_path = Path(file_info["path"])
         module_parts = list(file_path.with_suffix("").parts)
@@ -107,76 +105,51 @@ class PythonExtractor(BaseExtractor):
                 return None
             return module_parts_to_path(module_name.split("."))
 
-        for node in ast.walk(actual_tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    module_name = alias.name
-                    resolved_target = resolve_dotted(module_name) or module_name
+        # Use context.find_nodes() for O(1) lookup instead of ast.walk()
+        for node in context.find_nodes(ast.Import):
+            for alias in node.names:
+                module_name = alias.name
+                resolved_target = resolve_dotted(module_name) or module_name
 
-                    local_name = alias.asname or module_name.split(".")[-1]
+                local_name = alias.asname or module_name.split(".")[-1]
 
-                    resolved[module_name] = resolved_target
-                    resolved[local_name] = resolved_target
+                resolved[module_name] = resolved_target
+                resolved[local_name] = resolved_target
 
-            elif isinstance(node, ast.ImportFrom):
-                level = getattr(node, "level", 0) or 0
-                base_parts = package_parts.copy()
+        for node in context.find_nodes(ast.ImportFrom):
+            level = getattr(node, "level", 0) or 0
+            base_parts = package_parts.copy()
 
-                if level:
-                    base_parts = base_parts[:-level] if level <= len(base_parts) else []
+            if level:
+                base_parts = base_parts[:-level] if level <= len(base_parts) else []
 
-                module_name = node.module or ""
-                module_name_parts = module_name.split(".") if module_name else []
-                target_base = base_parts + module_name_parts
+            module_name = node.module or ""
+            module_name_parts = module_name.split(".") if module_name else []
+            target_base = base_parts + module_name_parts
 
-                module_key = ".".join(part for part in target_base if part)
-                module_path = module_parts_to_path(target_base)
-                if module_key:
-                    resolved[module_key] = module_path or module_key
+            module_key = ".".join(part for part in target_base if part)
+            module_path = module_parts_to_path(target_base)
+            if module_key:
+                resolved[module_key] = module_path or module_key
+            elif module_path:
+                resolved[module_path] = module_path
+
+            for alias in node.names:
+                imported_name = alias.name
+                local_name = alias.asname or imported_name
+
+                full_parts = target_base + [imported_name]
+                symbol_path = module_parts_to_path(full_parts)
+
+                if symbol_path:
+                    resolved_value = symbol_path
                 elif module_path:
-                    resolved[module_path] = module_path
+                    resolved_value = module_path
+                elif module_key:
+                    resolved_value = f"{module_key}.{imported_name}"
+                else:
+                    resolved_value = local_name
 
-                for alias in node.names:
-                    imported_name = alias.name
-                    local_name = alias.asname or imported_name
-
-                    full_parts = target_base + [imported_name]
-                    symbol_path = module_parts_to_path(full_parts)
-
-                    if symbol_path:
-                        resolved_value = symbol_path
-                    elif module_path:
-                        resolved_value = module_path
-                    elif module_key:
-                        resolved_value = f"{module_key}.{imported_name}"
-                    else:
-                        resolved_value = local_name
-
-                    resolved[local_name] = resolved_value
+                resolved[local_name] = resolved_value
 
         return resolved
-
-    def _extract_imports_ast(self, tree: dict[str, Any]) -> list[tuple]:
-        """Extract imports from Python AST."""
-        imports = []
-
-        if not tree or not isinstance(tree, dict):
-            return imports
-
-        actual_tree = tree.get("tree")
-
-        import os
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(
-                f"[DEBUG]   _extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}"
-            )
-            if isinstance(tree, dict) and "tree" in tree:
-                print(
-                    f"[DEBUG]   actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}"
-                )
-
-        if not actual_tree or not isinstance(actual_tree, ast.Module):
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print("[DEBUG]   Returning empty - actual_tree check failed")
-            return imports

@@ -6,15 +6,6 @@ from typing import Any
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
-def _get_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
-    """Build a map from each node to its parent node."""
-    parent_map = {}
-    for parent in ast.walk(tree):
-        for child in ast.iter_child_nodes(parent):
-            parent_map[child] = parent
-    return parent_map
-
-
 def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
     """Get the name of the enclosing function or 'global'."""
     current = node
@@ -31,7 +22,7 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = _get_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes(ast.Call):
         if (
@@ -209,7 +200,7 @@ def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = _get_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.walk_tree():
         if isinstance(node, ast.Constant) and node.value is ...:
@@ -242,7 +233,7 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = _get_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
@@ -299,7 +290,7 @@ def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = _get_parent_map(context.tree)
+    parent_map = context.parent_map  # Use cached parent_map from context
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
