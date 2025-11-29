@@ -289,7 +289,7 @@ export function extractValidationFrameworkUsage(
         method: callee.split(".").pop() || "",
         variable_name: callee.includes(".") ? callee.split(".")[0] : null,
         is_validator: isValidatorMethod(callee),
-        argument_expr: (call.argument_expr || "").substring(0, 200),
+        argument_expr: (call.argument_expr || "").substring(0, 2000),
       });
     }
   }
@@ -424,7 +424,7 @@ export function extractSchemaDefinitions(
         method: method,
         variable_name: null,
         is_validator: false,
-        argument_expr: (call.argument_expr || "").substring(0, 200),
+        argument_expr: (call.argument_expr || "").substring(0, 2000),
       });
     }
   }

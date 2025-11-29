@@ -736,7 +736,7 @@ export function extractClassProperties(
       if (propNode.initializer) {
         property.initializer = propNode.initializer
           .getText(sourceFile)
-          .substring(0, 500);
+          .substring(0, 5000);
       }
 
       properties.push(property);

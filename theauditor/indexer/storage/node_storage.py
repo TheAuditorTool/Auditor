@@ -43,8 +43,9 @@ class NodeStorage(BaseStorage):
             "func_param_decorators": self._store_func_param_decorators,
             "class_decorators": self._store_class_decorators,
             "class_decorator_args": self._store_class_decorator_args,
-            "assignment_source_vars": self._store_assignment_source_vars,
-            "return_source_vars": self._store_return_source_vars,
+            # NOTE: assignment_source_vars and return_source_vars handlers REMOVED
+            # These tables are never queried - data is already in assignment_sources
+            # and function_return_sources via Core storage nested source_vars
             "import_specifiers": self._store_import_specifiers,
             "import_style_names": self._store_import_style_names,
             "sequelize_model_fields": self._store_sequelize_model_fields,
@@ -492,31 +493,9 @@ class NodeStorage(BaseStorage):
             )
             self.counts["class_decorator_args"] = self.counts.get("class_decorator_args", 0) + 1
 
-    def _store_assignment_source_vars(
-        self, file_path: str, assignment_source_vars: list, jsx_pass: bool
-    ):
-        """Store assignment source variables from flat junction array."""
-        for var in assignment_source_vars:
-            self.db_manager.add_assignment_source_var(
-                file_path,
-                var.get("line", 0),
-                var.get("target_var", ""),
-                var.get("source_var", ""),
-                var.get("var_index", 0),
-            )
-            self.counts["assignment_source_vars"] = self.counts.get("assignment_source_vars", 0) + 1
-
-    def _store_return_source_vars(self, file_path: str, return_source_vars: list, jsx_pass: bool):
-        """Store return source variables from flat junction array."""
-        for var in return_source_vars:
-            self.db_manager.add_return_source_var(
-                file_path,
-                var.get("line", 0),
-                var.get("function_name", ""),
-                var.get("source_var", ""),
-                var.get("var_index", 0),
-            )
-            self.counts["return_source_vars"] = self.counts.get("return_source_vars", 0) + 1
+    # NOTE: _store_assignment_source_vars and _store_return_source_vars DELETED
+    # These wrote to tables that are NEVER queried. Data already exists in
+    # assignment_sources and function_return_sources via Core storage.
 
     def _store_import_specifiers(self, file_path: str, import_specifiers: list, jsx_pass: bool):
         """Store import specifiers from flat junction array."""
