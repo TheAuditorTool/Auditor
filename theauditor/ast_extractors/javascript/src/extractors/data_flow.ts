@@ -88,6 +88,15 @@ export function extractCalls(
           symbol = checker.getSymbolAtLocation(callExpr.expression.name);
         }
 
+        // Follow alias to original definition (fixes 77.5% broken resolution)
+        if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) {
+          try {
+            symbol = checker.getAliasedSymbol(symbol);
+          } catch {
+            // getAliasedSymbol can throw if symbol is unresolved
+          }
+        }
+
         if (symbol) {
           resolvedName = checker.getFullyQualifiedName(symbol);
 
@@ -112,7 +121,7 @@ export function extractCalls(
       }
 
       const args = callExpr.arguments.map((arg) =>
-        arg.getText(sourceFile).substring(0, 500),
+        arg.getText(sourceFile).substring(0, 5000),
       );
 
       const callerFunction = scopeMap.get(line + 1) || "<module>";
@@ -320,7 +329,7 @@ export function extractAssignments(
             assignments.push({
               file: filePath,
               target_var: targetVar,
-              source_expr: initializer.getText(sourceFile).substring(0, 500),
+              source_expr: initializer.getText(sourceFile).substring(0, 5000),
               line: line + 1,
               col: character,
               in_function: inFunction,
@@ -331,7 +340,7 @@ export function extractAssignments(
           const pattern = name as ts.ObjectBindingPattern;
           const sourceExprText = initializer
             .getText(sourceFile)
-            .substring(0, 500);
+            .substring(0, 5000);
           const sourceVars = extractVarsFromNode(initializer, sourceFile, ts);
 
           pattern.elements.forEach((elem) => {
@@ -369,7 +378,7 @@ export function extractAssignments(
           const pattern = name as ts.ArrayBindingPattern;
           const sourceExprText = initializer
             .getText(sourceFile)
-            .substring(0, 500);
+            .substring(0, 5000);
           const sourceVars = extractVarsFromNode(initializer, sourceFile, ts);
 
           pattern.elements.forEach((elem) => {
@@ -421,7 +430,7 @@ export function extractAssignments(
 
         if (left && right) {
           const targetVar = left.getText(sourceFile);
-          const sourceExpr = right.getText(sourceFile).substring(0, 500);
+          const sourceExpr = right.getText(sourceFile).substring(0, 5000);
           const sourceVars = extractVarsFromNode(right, sourceFile, ts);
 
           sourceVars.forEach((sourceVar, varIndex) => {
@@ -548,7 +557,15 @@ export function extractFunctionCallArgs(
       let calleeFilePath: string | null = null;
       if (checker && callExpr.expression) {
         try {
-          const symbol = checker.getSymbolAtLocation(callExpr.expression);
+          let symbol = checker.getSymbolAtLocation(callExpr.expression);
+          // Follow alias to original definition (fixes 77.5% broken resolution)
+          if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) {
+            try {
+              symbol = checker.getAliasedSymbol(symbol);
+            } catch {
+              // getAliasedSymbol can throw if symbol is unresolved
+            }
+          }
           if (symbol && symbol.declarations && symbol.declarations.length > 0) {
             const decl = symbol.declarations[0];
             const calleeSource = decl.getSourceFile();
@@ -579,7 +596,7 @@ export function extractFunctionCallArgs(
         } else {
           args.forEach((arg, i) => {
             const paramName = i < params.length ? params[i].name : "arg" + i;
-            const argExpr = arg.getText(sourceFile).substring(0, 500);
+            const argExpr = arg.getText(sourceFile).substring(0, 5000);
 
             calls.push({
               line: line + 1,
@@ -631,7 +648,7 @@ export function extractFunctionCallArgs(
         } else {
           args.forEach((arg, i) => {
             const paramName = i < params.length ? params[i].name : "arg" + i;
-            const argExpr = arg.getText(sourceFile).substring(0, 500);
+            const argExpr = arg.getText(sourceFile).substring(0, 5000);
 
             calls.push({
               line: line + 1,

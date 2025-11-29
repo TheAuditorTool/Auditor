@@ -227,27 +227,8 @@ class JavaScriptResolversMixin:
                 f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
             )
 
-        path_aliases = {}
-
-        cursor.execute("""
-            SELECT DISTINCT path FROM symbols WHERE path LIKE '%/src/%' LIMIT 1
-        """)
-        sample_path = cursor.fetchone()
-        if sample_path:
-            parts = sample_path[0].split("/")
-            if "src" in parts:
-                src_idx = parts.index("src")
-                base_path = "/".join(parts[: src_idx + 1])
-
-                path_aliases["@controllers"] = f"{base_path}/controllers"
-                path_aliases["@middleware"] = f"{base_path}/middleware"
-                path_aliases["@services"] = f"{base_path}/services"
-                path_aliases["@validations"] = f"{base_path}/validations"
-                path_aliases["@utils"] = f"{base_path}/utils"
-                path_aliases["@config"] = f"{base_path}/config"
-
-        if debug:
-            print(f"[HANDLER FILE RESOLUTION] Path aliases: {path_aliases}")
+        # NOTE: Path aliases removed - TypeScript resolver now handles tsconfig paths
+        # via getAliasedSymbol(). No Python guessing needed.
 
         updates = []
         resolved_count = 0
@@ -261,23 +242,12 @@ class JavaScriptResolversMixin:
                 target_handler = bind_match.group(1)
 
             if "(" in target_handler:
+                # NOTE: Hardcoded type_wrappers list removed - TypeScript resolver
+                # now handles wrapper functions via getAliasedSymbol()
                 func_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", target_handler)
-                arg_match = re.search(r"\(\s*([a-zA-Z0-9_$.]+)", target_handler)
-
                 func_name = func_match.group(1) if func_match else None
-                inner_arg = arg_match.group(1) if arg_match else None
 
-                type_wrappers = {
-                    "handler",
-                    "fileHandler",
-                    "asyncHandler",
-                    "safeHandler",
-                    "catchErrors",
-                }
-
-                if func_name in type_wrappers and inner_arg and "." in inner_arg:
-                    target_handler = inner_arg
-                elif func_name:
+                if func_name:
                     target_handler = func_name
                 else:
                     unresolved_count += 1
@@ -339,12 +309,8 @@ class JavaScriptResolversMixin:
 
             resolved_path = None
 
-            for alias, target in path_aliases.items():
-                if module_path.startswith(alias):
-                    resolved_path = module_path.replace(alias, target)
-                    break
-
-            if not resolved_path and module_path.startswith("."):
+            # NOTE: path_aliases loop removed - TypeScript resolver handles tsconfig paths
+            if module_path.startswith("."):
                 route_dir = "/".join(route_file.split("/")[:-1])
                 if module_path.startswith("./"):
                     resolved_path = f"{route_dir}/{module_path[2:]}"
