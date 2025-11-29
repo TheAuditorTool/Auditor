@@ -410,17 +410,21 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
         extra_opt = f"--basetemp={pytest_temp_str}"
         env["PYTEST_ADDOPTS"] = f"{existing_opts} {extra_opt}".strip()
 
+    # Windows needs shell=True for npm/gradle/etc (they're .cmd files)
+    use_shell = os.name == "nt" and tool_name in ("npm", "npx", "gradle", "mvn")
+
     with (
         open(stdout_path, "w", encoding="utf-8") as out_tmp,
         open(stderr_path, "w", encoding="utf-8") as err_tmp,
     ):
         process = subprocess.Popen(
-            cmd_args,
+            command if use_shell else cmd_args,
             cwd=root_path,
             stdout=out_tmp,
             stderr=err_tmp,
             text=True,
             env=env,
+            shell=use_shell,
         )
 
     try:
