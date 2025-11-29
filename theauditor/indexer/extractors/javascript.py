@@ -29,7 +29,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             "function_calls": [],
             "returns": [],
             "variable_usage": [],
-            "cfg": [],
             "frontend_api_calls": [],
             "sql_queries": [],
             "jwt_patterns": [],
@@ -68,6 +67,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             "vue_component_emits": [],
             "vue_component_setup_returns": [],
             "express_middleware_chains": [],
+            "graphql_resolver_params": [],
+            "assignment_source_vars": [],
+            "return_source_vars": [],
             "func_params": [],
             "func_decorators": [],
             "func_decorator_args": [],
@@ -105,12 +107,10 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "returns",
                     "object_literals",
                     "variable_usage",
-                    "cfg",
                     "class_properties",
                     "env_var_usage",
                     "orm_relationships",
                     "routes",
-                    "frontend_api_calls",
                 ]:
                     if key in extracted_data:
                         result[key] = extracted_data[key]
@@ -163,6 +163,10 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "cfg_blocks": "cfg_blocks",
                     "cfg_edges": "cfg_edges",
                     "cfg_block_statements": "cfg_block_statements",
+                    "graphql_resolver_params": "graphql_resolver_params",
+                    "assignment_source_vars": "assignment_source_vars",
+                    "return_source_vars": "return_source_vars",
+                    "frontend_api_calls": "frontend_api_calls",
                 }
 
                 for js_key, python_key in key_mappings.items():
@@ -318,9 +322,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 if di_injections:
                     result["di_injections"].extend(di_injections)
 
-                frontend_api_calls = extracted_data.get("frontend_api_calls", [])
-                if frontend_api_calls:
-                    result["frontend_api_calls"] = frontend_api_calls
+                # NOTE: frontend_api_calls is handled via key_mappings above
 
         tree_type = tree.get("type") if isinstance(tree, dict) else None
 

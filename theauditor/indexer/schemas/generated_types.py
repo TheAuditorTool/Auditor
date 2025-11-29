@@ -456,6 +456,7 @@ class FindingsConsolidatedRow(TypedDict):
     tf_resource_id: str | None
     tf_remediation: str | None
     tf_graph_context: str | None
+    details_json: str | None
 
 class FrameworkSafeSinksRow(TypedDict):
     """Row type for framework_safe_sinks table."""

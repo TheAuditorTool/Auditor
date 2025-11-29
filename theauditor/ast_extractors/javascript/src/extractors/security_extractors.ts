@@ -142,7 +142,7 @@ export function extractAPIEndpoints(
     endpoints.push({
       line: line,
       method: method.toUpperCase(),
-      route: cleanRoute,
+      pattern: cleanRoute,
       handler_function: caller_function,
       requires_auth: false,
     });
@@ -733,13 +733,38 @@ export function extractFrontendApiCalls(
   imports: IImport[],
 ): IFrontendAPICall[] {
   const apiCalls: IFrontendAPICall[] = [];
+  const debug = process.env.THEAUDITOR_DEBUG === "1";
 
-  const hasAxios = imports.some((i) => i.module === "axios");
+  // Top-level debug to confirm function is called
+  if (debug) {
+    console.error(
+      `[API_DEBUG] extractFrontendApiCalls called with ${functionCallArgs.length} function call args`,
+    );
+    // Show some axios-like calls
+    const axiosCalls = functionCallArgs.filter(
+      (c) => c.callee_function && c.callee_function.includes("axios"),
+    );
+    console.error(`[API_DEBUG] Found ${axiosCalls.length} axios-related calls`);
+    axiosCalls.slice(0, 5).forEach((c) =>
+      console.error(
+        `[API_DEBUG]   - ${c.callee_function} @ line ${c.line}, arg_idx=${c.argument_index}, expr=${c.argument_expr?.substring(0, 50)}`,
+      ),
+    );
+  }
 
   function parseUrl(call: IFunctionCallArg): string | null {
     if (call.argument_index === 0 && call.argument_expr) {
-      const url = call.argument_expr.trim().replace(/['"`]/g, "");
-      if (url.startsWith("/")) {
+      let url = call.argument_expr.trim();
+      // Strip surrounding quotes/backticks
+      if (
+        (url.startsWith("'") && url.endsWith("'")) ||
+        (url.startsWith('"') && url.endsWith('"')) ||
+        (url.startsWith("`") && url.endsWith("`"))
+      ) {
+        url = url.slice(1, -1);
+      }
+      // Accept any non-empty URL - don't require leading slash
+      if (url.length > 0) {
         return url.split("?")[0];
       }
     }
@@ -806,31 +831,66 @@ export function extractFrontendApiCalls(
 
     if (callee === "fetch" && args[0]) {
       url = parseUrl(args[0]);
-      if (!url) continue;
+      if (!url) {
+        if (debug)
+          console.error(
+            `[API_DEBUG] Line ${line}: fetch rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+          );
+        continue;
+      }
       const options = parseFetchOptions(args[1] || ({} as IFunctionCallArg));
       method = options.method;
       body_variable = options.body_variable;
     } else if ((callee === "axios.get" || callee === "axios") && args[0]) {
       url = parseUrl(args[0]);
-      if (!url) continue;
+      if (!url) {
+        if (debug)
+          console.error(
+            `[API_DEBUG] Line ${line}: axios.get rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+          );
+        continue;
+      }
       method = "GET";
-    } else if (callee === "axios.post" && args[0] && args[1]) {
+    } else if (callee === "axios.post" && args[0]) {
+      // FIX: args[1] is optional - POST can be called without body
       url = parseUrl(args[0]);
-      if (!url) continue;
+      if (!url) {
+        if (debug)
+          console.error(
+            `[API_DEBUG] Line ${line}: axios.post rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+          );
+        continue;
+      }
       method = "POST";
-      body_variable = args[1].argument_expr || null;
+      if (args[1]) {
+        body_variable = args[1].argument_expr || null;
+      }
     } else if (
       (callee === "axios.put" || callee === "axios.patch") &&
-      args[0] &&
-      args[1]
+      args[0]
+      // FIX: args[1] is optional - PUT/PATCH can be called without body
     ) {
       url = parseUrl(args[0]);
-      if (!url) continue;
+      if (!url) {
+        if (debug)
+          console.error(
+            `[API_DEBUG] Line ${line}: axios.put/patch rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+          );
+        continue;
+      }
       method = callee === "axios.put" ? "PUT" : "PATCH";
-      body_variable = args[1].argument_expr || null;
+      if (args[1]) {
+        body_variable = args[1].argument_expr || null;
+      }
     } else if (callee === "axios.delete" && args[0]) {
       url = parseUrl(args[0]);
-      if (!url) continue;
+      if (!url) {
+        if (debug)
+          console.error(
+            `[API_DEBUG] Line ${line}: axios.delete rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+          );
+        continue;
+      }
       method = "DELETE";
     } else if (callee.match(/\.(get|post|put|patch|delete)$/)) {
       const prefix = callee.substring(0, callee.lastIndexOf("."));
@@ -863,23 +923,44 @@ export function extractFrontendApiCalls(
 
       if (isLikelyApiWrapper && args[0]) {
         url = parseUrl(args[0]);
-        if (!url) continue;
+        if (!url) {
+          if (debug)
+            console.error(
+              `[API_DEBUG] Line ${line}: wrapper ${callee} rejected - parseUrl failed for: ${args[0]?.argument_expr}`,
+            );
+          continue;
+        }
         method = httpMethod;
         if (["POST", "PUT", "PATCH"].includes(method) && args[1]) {
           body_variable = args[1].argument_expr || null;
         }
+      } else if (debug) {
+        console.error(
+          `[API_DEBUG] Line ${line}: callee ${callee} prefix "${prefix}" not in wrapper list`,
+        );
       }
     }
 
     if (url && method) {
+      if (debug)
+        console.error(
+          `[API_DEBUG] Line ${line}: CAPTURED ${method} ${url} (client: ${callee})`,
+        );
       apiCalls.push({
         line: line,
         method: method,
         url_literal: url,
         body_variable: body_variable,
         function_name: callData.caller,
+        client_library: callee.split(".")[0] || "fetch",
       });
     }
+  }
+
+  if (debug) {
+    console.error(
+      `[API_DEBUG] extractFrontendApiCalls returning ${apiCalls.length} calls`,
+    );
   }
 
   return apiCalls;

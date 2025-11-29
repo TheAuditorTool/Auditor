@@ -496,6 +496,7 @@ FINDINGS_CONSOLIDATED = TableSchema(
         Column("tf_resource_id", "TEXT"),
         Column("tf_remediation", "TEXT"),
         Column("tf_graph_context", "TEXT"),
+        Column("details_json", "TEXT"),
     ],
     indexes=[
         ("idx_findings_file_line", ["file", "line"]),

@@ -324,6 +324,7 @@ export function extractAssignments(
               line: line + 1,
               col: character,
               in_function: inFunction,
+              source_vars: sourceVars,
             });
           }
         } else if (name.kind === ts.SyntaxKind.ObjectBindingPattern) {
@@ -360,6 +361,7 @@ export function extractAssignments(
                 line: line + 1,
                 col: character,
                 in_function: inFunction,
+                source_vars: sourceVars,
               });
             }
           });
@@ -397,6 +399,7 @@ export function extractAssignments(
                 line: line + 1,
                 col: character,
                 in_function: inFunction,
+                source_vars: sourceVars,
               });
             }
           });
@@ -438,6 +441,7 @@ export function extractAssignments(
             line: line + 1,
             col: character,
             in_function: inFunction,
+            source_vars: sourceVars,
           });
         }
       }
@@ -753,6 +757,7 @@ export function extractReturns(
       let returnExpr = "";
       let hasJsx = false;
       let returnsComponent = false;
+      let returnVars: string[] = [];
 
       if (expression) {
         returnExpr = expression.getText(sourceFile).substring(0, 1000);
@@ -761,7 +766,7 @@ export function extractReturns(
         hasJsx = jsxDetection.hasJsx;
         returnsComponent = jsxDetection.isComponent;
 
-        const returnVars = extractVarsFromNode(expression, sourceFile, ts);
+        returnVars = extractVarsFromNode(expression, sourceFile, ts);
         returnVars.forEach((sourceVar, varIndex) => {
           return_source_vars.push({
             file: filePath,
@@ -780,6 +785,7 @@ export function extractReturns(
         return_expr: returnExpr,
         has_jsx: hasJsx,
         returns_component: returnsComponent,
+        return_vars: returnVars,
         return_index: currentCount + 1,
       });
     }

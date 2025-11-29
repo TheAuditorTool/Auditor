@@ -47,6 +47,9 @@ class DataStorer:
             "function_calls",
             "returns",
             "cfg",
+            "cfg_blocks",
+            "cfg_edges",
+            "cfg_block_statements",
             "assignment_source_vars",
             "return_source_vars",
         }

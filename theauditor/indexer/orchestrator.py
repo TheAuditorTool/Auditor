@@ -19,6 +19,7 @@ from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
+from .js_build_guard import JavaScriptBuildGuard, get_js_project_path
 from .storage import DataStorer
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,14 @@ class IndexerOrchestrator:
             except Exception as e:
                 print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
+
+        # JavaScript extractor build guard - same pattern as schema check
+        # NO FALLBACKS - if build fails, it fails loud
+        js_guard = JavaScriptBuildGuard(get_js_project_path())
+        if js_guard.ensure_up_to_date():
+            # Rebuild was triggered - exit so fresh code gets loaded on next run
+            print("[JS GUARD] Extractor rebuilt. Please re-run the indexing command", file=sys.stderr)
+            sys.exit(ExitCodes.SCHEMA_STALE)  # Reuse exit code - same concept
 
         self.frameworks = self._detect_frameworks_inline()
 
