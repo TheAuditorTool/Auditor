@@ -480,17 +480,14 @@ class JavaScriptResolversMixin:
         if debug:
             print(f"[IMPORT RESOLUTION] Loaded {len(indexed_paths)} indexed JS/TS paths")
 
-        path_aliases = _load_path_aliases(cursor)
+        # NOTE: _load_path_aliases() deleted - TypeScript resolver handles tsconfig paths
+        # via getAliasedSymbol(). Python guessing @/ and ~/ aliases is harmful.
 
-        if debug:
-            print(f"[IMPORT RESOLUTION] Path aliases: {path_aliases}")
-
+        # NOTE: @/% and ~/% removed - TypeScript handles tsconfig path aliases
         cursor.execute("""
             SELECT rowid, file, package FROM import_styles
             WHERE package LIKE './%'
                OR package LIKE '../%'
-               OR package LIKE '@/%'
-               OR package LIKE '~/%'
         """)
         imports_to_resolve = cursor.fetchall()
 
@@ -501,7 +498,7 @@ class JavaScriptResolversMixin:
         unresolved_count = 0
 
         for rowid, from_file, import_path in imports_to_resolve:
-            resolved = _resolve_import(import_path, from_file, indexed_paths, path_aliases)
+            resolved = _resolve_import(import_path, from_file, indexed_paths)
             if resolved:
                 cursor.execute(
                     "UPDATE import_styles SET resolved_path = ? WHERE rowid = ?",
@@ -521,43 +518,19 @@ class JavaScriptResolversMixin:
             print(f"[IMPORT RESOLUTION] Unresolved: {unresolved_count}")
 
 
-def _load_path_aliases(cursor) -> dict:
-    """Load path aliases from indexed file structure."""
-    aliases = {}
-
-    cursor.execute("""
-        SELECT DISTINCT path FROM files
-        WHERE path LIKE '%/src/%'
-        LIMIT 1
-    """)
-    src_sample = cursor.fetchone()
-
-    if src_sample:
-        parts = src_sample[0].split("/")
-        if "src" in parts:
-            src_idx = parts.index("src")
-            base = "/".join(parts[: src_idx + 1])
-            aliases["@/"] = base + "/"
-            aliases["~/"] = base + "/"
-
-    return aliases
-
-
 def _resolve_import(
     import_path: str,
     from_file: str,
     indexed_paths: set,
-    path_aliases: dict,
 ) -> str | None:
-    """Resolve a single import path against indexed files."""
+    """Resolve a single import path against indexed files.
+
+    NOTE: Path alias resolution (@/, ~/) removed - TypeScript handles this
+    via getAliasedSymbol(). Only relative paths are resolved here.
+    """
     resolved_base = None
 
-    for alias, target in path_aliases.items():
-        if import_path.startswith(alias):
-            resolved_base = target + import_path[len(alias) :]
-            break
-
-    if not resolved_base and import_path.startswith("."):
+    if import_path.startswith("."):
         from_dir = "/".join(from_file.split("/")[:-1])
         if import_path.startswith("./"):
             resolved_base = from_dir + "/" + import_path[2:]

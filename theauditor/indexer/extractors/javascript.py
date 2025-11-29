@@ -438,59 +438,13 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         # in framework_extractors.ts and security_extractors.ts respectively.
         # Do NOT re-extract here - that causes duplicates and data corruption.
 
-        if not result.get("variable_usage"):
-            for assign in result.get("assignments", []):
-                result["variable_usage"].append(
-                    {
-                        "line": assign.get("line", 0),
-                        "variable_name": assign.get("target_var", ""),
-                        "usage_type": "write",
-                        "in_component": assign.get("in_function", "global"),
-                        "in_hook": "",
-                        "scope_level": 0 if assign.get("in_function") == "global" else 1,
-                    }
-                )
+        # NOTE: variable_usage fallback synthesis DELETED - synthesizing usage from
+        # assignments creates "ghost edges" in the graph. If TypeScript didn't see
+        # a usage, Python inferring one is noise. Trust the TS extractor.
 
-                for var in assign.get("source_vars", []):
-                    result["variable_usage"].append(
-                        {
-                            "line": assign.get("line", 0),
-                            "variable_name": var,
-                            "usage_type": "read",
-                            "in_component": assign.get("in_function", "global"),
-                            "in_hook": "",
-                            "scope_level": 0 if assign.get("in_function") == "global" else 1,
-                        }
-                    )
-
-            for call in result.get("function_calls", []):
-                if call.get("callee_function"):
-                    result["variable_usage"].append(
-                        {
-                            "line": call.get("line", 0),
-                            "variable_name": call.get("callee_function"),
-                            "usage_type": "call",
-                            "in_component": call.get("caller_function", "global"),
-                            "in_hook": "",
-                            "scope_level": 0 if call.get("caller_function") == "global" else 1,
-                        }
-                    )
-
-        for import_entry in result.get("imports", []):
-            imp_path = None
-
-            if isinstance(import_entry, (tuple, list)):
-                if len(import_entry) >= 2:
-                    imp_path = import_entry[1]
-            elif isinstance(import_entry, dict):
-                imp_path = import_entry.get("module") or import_entry.get("value")
-
-            if not imp_path:
-                continue
-
-            module_name = imp_path.split("/")[-1].replace(".js", "").replace(".ts", "")
-            if module_name:
-                result["resolved_imports"][module_name] = imp_path
+        # NOTE: resolved_imports overwrite loop DELETED - TypeScript provides high-fidelity
+        # resolved_imports via key_mappings (line 131). Python's dumb string splitting
+        # (utils -> ./utils) actively degrades data quality by overwriting TS resolution.
 
         manifest = {}
         total_items = 0
