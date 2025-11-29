@@ -5,21 +5,6 @@ from .builder import Cycle, GraphEdge, GraphNode, Hotspot, ImpactAnalysis, XGrap
 from .store import XGraphStore
 from .visualizer import GraphVisualizer
 
-try:
-    from .insights import GraphInsights, check_insights_available, create_insights
-
-    INSIGHTS_AVAILABLE = True
-except ImportError:
-    INSIGHTS_AVAILABLE = False
-    GraphInsights = None
-
-    def check_insights_available():
-        return False
-
-    def create_insights(weights=None):
-        return None
-
-
 __all__ = [
     "XGraphBuilder",
     "XGraphAnalyzer",
@@ -30,8 +15,4 @@ __all__ = [
     "Cycle",
     "Hotspot",
     "ImpactAnalysis",
-    "GraphInsights",
-    "INSIGHTS_AVAILABLE",
-    "check_insights_available",
-    "create_insights",
 ]
