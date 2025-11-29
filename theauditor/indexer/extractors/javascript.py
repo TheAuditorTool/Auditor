@@ -74,8 +74,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             "func_param_decorators": [],
             "class_decorators": [],
             "class_decorator_args": [],
-            "assignment_source_vars": [],
-            "return_source_vars": [],
             "import_specifiers": [],
             "import_style_names": [],
             "sequelize_model_fields": [],
@@ -111,6 +109,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "class_properties",
                     "env_var_usage",
                     "orm_relationships",
+                    "routes",
+                    "frontend_api_calls",
                 ]:
                     if key in extracted_data:
                         result[key] = extracted_data[key]
@@ -141,7 +141,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "vue_component_emits": "vue_component_emits",
                     "vue_component_setup_returns": "vue_component_setup_returns",
                     "orm_queries": "orm_queries",
-                    "api_endpoints": "routes",
                     "express_middleware_chains": "express_middleware_chains",
                     "validation_framework_usage": "validation_framework_usage",
                     "cdk_constructs": "cdk_constructs",
@@ -157,8 +156,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "func_param_decorators": "func_param_decorators",
                     "class_decorators": "class_decorators",
                     "class_decorator_args": "class_decorator_args",
-                    "assignment_source_vars": "assignment_source_vars",
-                    "return_source_vars": "return_source_vars",
                     "import_specifiers": "import_specifiers",
                     "import_style_names": "import_style_names",
                     "sequelize_model_fields": "sequelize_model_fields",
@@ -332,16 +329,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             if not isinstance(actual_tree, dict):
                 actual_tree = tree
             imports_data = actual_tree.get("imports", [])
-        elif tree_type == "tree_sitter":
-            actual_tree = tree
-            if self.ast_parser:
-                from theauditor.ast_extractors import treesitter_impl
-
-                imports_data = treesitter_impl.extract_treesitter_imports(
-                    tree, self.ast_parser, "javascript"
-                )
-            else:
-                imports_data = []
         else:
             actual_tree = tree
             imports_data = tree.get("imports", []) if isinstance(tree, dict) else []
