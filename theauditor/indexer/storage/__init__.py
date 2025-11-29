@@ -50,8 +50,8 @@ class DataStorer:
             "cfg_blocks",
             "cfg_edges",
             "cfg_block_statements",
-            "assignment_source_vars",
-            "return_source_vars",
+            # NOTE: assignment_source_vars and return_source_vars REMOVED
+            # These tables are never queried - data exists in Core storage
         }
 
         receipt = {}
