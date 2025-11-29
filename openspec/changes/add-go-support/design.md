@@ -20,17 +20,41 @@ Go presents unique characteristics vs Python/JS:
 
 **Non-Goals:**
 - Type inference (leave that to the Go compiler)
-- Generic type parameter tracking (Go 1.18+ generics are complex)
 - CGO/FFI analysis (C interop is edge case)
 - Build tag/constraint analysis (too fragile)
 - Assembly files (.s)
+
+**CRITICAL: Generics (Go 1.18+) ARE a goal.** The tree-sitter-go grammar MUST support Go 1.18+ syntax or parsing will fail completely on `func[T any]`. Store syntactic type parameter info even if we don't resolve them.
 
 ## Implementation Reference Points
 
 These are the exact files to use as templates. Read these BEFORE implementing.
 
+### Architecture Overview
+
+```
+ast_parser.py                      ← Add tree-sitter-go here
+       │
+       ▼ Returns type="tree_sitter" with parsed tree
+       │
+indexer/extractors/go.py           ← NEW: Thin wrapper (like terraform.py)
+       │
+       ▼ Calls extraction functions
+       │
+ast_extractors/go_impl.py          ← NEW: Tree-sitter queries (like hcl_impl.py)
+```
+
+**Key insight**: Go follows the HCL/Terraform pattern, NOT Python or JS/TS.
+- Python uses built-in `ast` module (no tree-sitter)
+- JS/TS uses external Node.js semantic parser (no tree-sitter)
+- HCL uses tree-sitter directly → **Go will do the same**
+
+### Reference Files
+
 | Component | Reference File | What to Copy |
 |-----------|----------------|--------------|
+| **AST Extraction (tree-sitter)** | `ast_extractors/hcl_impl.py` | Tree-sitter node traversal pattern |
+| **Extractor wrapper** | `indexer/extractors/terraform.py` | Calls *_impl.py, handles tree dict |
 | Schema pattern | `indexer/schemas/python_schema.py:1-95` | TableSchema with Column, indexes |
 | Database mixin | `indexer/database/python_database.py:6-60` | add_* methods using generic_batches |
 | Mixin registration | `indexer/database/__init__.py:17-27` | Add GoDatabaseMixin to class composition |
@@ -40,6 +64,8 @@ These are the exact files to use as templates. Read these BEFORE implementing.
 | Extractor auto-discovery | `indexer/extractors/__init__.py:86-118` | Just create file, auto-registers |
 | AST parser init | `ast_parser.py:52-103` | Add Go to _init_tree_sitter_parsers |
 | Extension mapping | `ast_parser.py:240-253` | Add .go to ext_map |
+
+**DO NOT reference**: `treesitter_impl.py` (deleted - was dead code)
 
 ## Decisions
 
@@ -337,6 +363,74 @@ GO_CONSTANTS = TableSchema(
     ],
 )
 
+GO_VARIABLES = TableSchema(
+    name="go_variables",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("type", "TEXT"),
+        Column("initial_value", "TEXT"),
+        Column("is_exported", "BOOLEAN", default="0"),
+        Column("is_package_level", "BOOLEAN", default="0"),  # Critical for race detection
+    ],
+    primary_key=["file", "name", "line"],
+    indexes=[
+        ("idx_go_variables_file", ["file"]),
+        ("idx_go_variables_name", ["name"]),
+        ("idx_go_variables_package_level", ["is_package_level"]),  # For security queries
+    ],
+)
+
+GO_TYPE_PARAMS = TableSchema(
+    name="go_type_params",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("parent_name", "TEXT", nullable=False),  # Function or type name
+        Column("parent_kind", "TEXT", nullable=False),  # "function" or "type"
+        Column("param_index", "INTEGER", nullable=False),
+        Column("param_name", "TEXT", nullable=False),
+        Column("constraint", "TEXT"),  # "any", "comparable", interface name, etc.
+    ],
+    primary_key=["file", "parent_name", "param_index"],
+    indexes=[
+        ("idx_go_type_params_parent", ["parent_name"]),
+    ],
+)
+
+GO_CAPTURED_VARS = TableSchema(
+    name="go_captured_vars",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),  # Line of the goroutine spawn
+        Column("goroutine_id", "INTEGER", nullable=False),  # Links to go_goroutines rowid
+        Column("var_name", "TEXT", nullable=False),
+        Column("var_type", "TEXT"),
+        Column("is_loop_var", "BOOLEAN", default="0"),  # Critical for race detection
+    ],
+    indexes=[
+        ("idx_go_captured_vars_file", ["file"]),
+        ("idx_go_captured_vars_goroutine", ["goroutine_id"]),
+    ],
+)
+
+GO_MIDDLEWARE = TableSchema(
+    name="go_middleware",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("framework", "TEXT", nullable=False),
+        Column("router_var", "TEXT"),  # e.g., "router", "r", "app"
+        Column("middleware_func", "TEXT", nullable=False),  # The handler/middleware name
+        Column("is_global", "BOOLEAN", default="0"),  # Applied to all routes vs specific
+    ],
+    indexes=[
+        ("idx_go_middleware_file", ["file"]),
+        ("idx_go_middleware_framework", ["framework"]),
+    ],
+)
+
 # Export all tables
 GO_TABLES = {
     "go_packages": GO_PACKAGES,
@@ -357,10 +451,14 @@ GO_TABLES = {
     "go_type_assertions": GO_TYPE_ASSERTIONS,
     "go_routes": GO_ROUTES,
     "go_constants": GO_CONSTANTS,
+    "go_variables": GO_VARIABLES,
+    "go_type_params": GO_TYPE_PARAMS,
+    "go_captured_vars": GO_CAPTURED_VARS,
+    "go_middleware": GO_MIDDLEWARE,
 }
 ```
 
-**Total: 18 tables** (16 core + go_routes + go_constants)
+**Total: 22 tables** (18 original + go_variables + go_type_params + go_captured_vars + go_middleware)
 
 ### Decision 2: Tree-sitter-go node types reference
 
@@ -405,9 +503,16 @@ def extract_go_functions(tree, content: bytes, file_path: str) -> list[dict]:
     return functions
 ```
 
-### Decision 3: Extraction architecture - tree-sitter single-pass
+### Decision 3: Extraction architecture - tree-sitter single-pass (HCL pattern)
 
 **Choice:** Use tree-sitter-go for AST extraction, single pass returning structured dict.
+
+**Architecture follows HCL/Terraform pattern:**
+- `ast_parser.py` → Parses .go files with tree-sitter-go, returns `type="tree_sitter"`
+- `indexer/extractors/go.py` → Thin wrapper like `terraform.py`, calls go_impl functions
+- `ast_extractors/go_impl.py` → Tree-sitter queries like `hcl_impl.py`
+
+**NOT like Python** (which uses built-in ast module) or **JS/TS** (which uses Node.js semantic parser).
 
 **AST Parser Integration Required** - tree-sitter-go is available in the package but NOT wired up:
 
@@ -573,14 +678,107 @@ class DataStorer:
 | Crypto misuse | Wrong random source | `math/rand` in crypto context |
 | Error ignoring | Blank identifier | `_ = someFunc()` where returns error |
 
+### Decision 9: Vendor directory exclusion
+
+**Choice:** Explicitly ignore `vendor/` directories during file walking.
+
+**Rationale:** Go projects often vendor dependencies into `vendor/`. Indexing these would:
+- Bloat database 10x-50x
+- Duplicate symbols making search noisy
+- Slow indexing significantly
+
+**Implementation:**
+```python
+# In file walker / indexer
+EXCLUDED_DIRS = {"vendor", "node_modules", ".git", "__pycache__"}
+if any(excluded in path.parts for excluded in EXCLUDED_DIRS):
+    continue
+```
+
+### Decision 10: net/http standard library detection
+
+**Choice:** Include `net/http` in framework detection alongside Gin/Echo/Fiber.
+
+**Rationale:** `net/http` is used FAR more in Go than raw `http` in Node.js. Many production Go microservices use ONLY the standard library. Missing this would be a major gap.
+
+**Detection patterns:**
+```python
+"net_http": {
+    "language": "go",
+    "detection_sources": {"imports": "exact_match"},
+    "import_patterns": ["net/http"],
+    "api_patterns": ["http.HandleFunc", "http.Handle", "http.ListenAndServe"],
+}
+```
+
+### Decision 11: Captured variables in goroutines
+
+**Choice:** Track variables captured by anonymous goroutine closures.
+
+**Rationale:** This is the #1 source of data races in Go. When `go func() { use(x) }()` captures `x` from outer scope, and especially if `x` is a loop variable (pre-Go 1.22), race conditions occur.
+
+**Implementation:**
+1. When extracting `go func() {...}()` (anonymous goroutine)
+2. Parse the closure body for identifier references
+3. Check if identifiers are defined outside the closure
+4. Store in `go_captured_vars` with `is_loop_var` flag
+
+### Decision 12: Middleware detection
+
+**Choice:** Detect `.Use()` calls on router variables to track middleware chains.
+
+**Rationale:** Security auditing needs to know what middleware protects routes (auth, logging, CORS). `router.Use(AuthMiddleware)` applies to all subsequent routes.
+
+**Detection pattern:**
+- Gin: `r.Use(middleware)`
+- Echo: `e.Use(middleware)`
+- Chi: `r.Use(middleware)`
+- Fiber: `app.Use(middleware)`
+
+### Decision 13: Embedded struct field promotion
+
+**Choice:** Store `is_embedded=1` in `go_struct_fields` but handle promotion in query layer.
+
+**Rationale:** If Struct A embeds Struct B, A implicitly has all B's methods. This is a query-time concern:
+```sql
+-- Find all methods available on struct (including promoted)
+WITH RECURSIVE embedded AS (
+    SELECT struct_name, field_name, field_type, is_embedded
+    FROM go_struct_fields WHERE struct_name = 'A'
+    UNION ALL
+    SELECT gsf.struct_name, gsf.field_name, gsf.field_type, gsf.is_embedded
+    FROM go_struct_fields gsf
+    JOIN embedded e ON gsf.struct_name = e.field_type AND e.is_embedded = 1
+)
+SELECT * FROM go_methods WHERE receiver_type IN (SELECT field_type FROM embedded WHERE is_embedded = 1);
+```
+
+### Decision 14: Package aggregation from files
+
+**Choice:** Store `file` in `go_packages` but note multiple files form a package.
+
+**Rationale:** Go packages are directories, not files. Multiple files in same directory declare same package (except `_test`).
+
+**Query pattern:**
+```sql
+-- Aggregate files by package
+SELECT name, GROUP_CONCAT(file) as files
+FROM go_packages
+GROUP BY name;
+```
+
+**Validation rule:** All non-test files in same directory MUST have same package name.
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
 |------|------------|
 | Interface satisfaction detection incomplete | Document limitation, store signatures for manual join |
-| Generic types (Go 1.18+) complex | Store syntactic info only, don't resolve type params |
 | CGO analysis missing | Document as non-goal, rare in target codebases |
-| Race detection limited without runtime | Track goroutine spawn + shared var access patterns |
+| Race detection limited without runtime | Track goroutine spawn + shared var access + captured vars |
+| Generics parsing failure | CRITICAL: Verify tree-sitter-go version supports Go 1.18+ |
+| Vendor bloat | Exclude vendor/ directories in file walker |
+| Missing net/http routes | Add standard library detection in Phase 3 |
 
 ## Migration Plan
 

@@ -9,7 +9,7 @@
 - [ ] 1.1.1 Create `theauditor/indexer/schemas/bash_schema.py` with 8 TableSchema definitions
 - [ ] 1.1.2 Add `from .bash_schema import BASH_TABLES` to `theauditor/indexer/schema.py:5-11`
 - [ ] 1.1.3 Add `**BASH_TABLES` to TABLES dict in `theauditor/indexer/schema.py:15-24`
-- [ ] 1.1.4 Update table count assertion in `theauditor/indexer/schema.py:27` (170 -> 178)
+- [ ] 1.1.4 Update table count assertion in `theauditor/indexer/schema.py:27` (168 -> 176)
 - [ ] 1.1.5 Verify tables created on fresh `aud full --index`
 
 ### 1.2 File Detection
@@ -46,6 +46,8 @@
 - [ ] 1.6.3 Track variable expansion via expansion/simple_expansion nodes
 - [ ] 1.6.4 Track quote context via string/raw_string parent nodes
 - [ ] 1.6.5 Track containing function via scope_stack
+- [ ] 1.6.6 **DRAGON: Wrapper unwrapping** - For sudo/time/nice/xargs/nohup, extract the WRAPPED command as primary. In `sudo rm $file`, the dangerous command is `rm`, not `sudo`. Add `wrapped_command` field or unwrap logic.
+- [ ] 1.6.7 **DRAGON: Flag normalization** - Normalize `ls -la` vs `ls -l -a` during extraction. Split combined short flags so queries like "who uses `ls -a`" work consistently.
 
 ### 1.7 Storage Layer
 - [ ] 1.7.1 Create `theauditor/indexer/storage/bash_storage.py` extending BaseStorage
@@ -81,7 +83,7 @@
 - [ ] 2.2.1 Extract command substitution (tree-sitter: command_substitution `$(...)`)
 - [ ] 2.2.2 Extract backtick substitution (tree-sitter: command_substitution with backtick)
 - [ ] 2.2.3 Track assignment target via parent variable_assignment node
-- [ ] 2.2.4 Handle nested substitutions via recursive walk
+- [ ] 2.2.4 **DRAGON: Nested expansion recursion** - Handle `${VAR:-$(cat file | grep "stuff")}`. If an argument contains a `command_substitution` node, recursively trigger command extractor for inner content and link back. The extraction walker MUST handle arbitrary recursion depth.
 
 ### 2.3 Redirection Extraction
 - [ ] 2.3.1 Extract output redirections (tree-sitter: file_redirect with `>` or `>>`)
@@ -89,6 +91,7 @@
 - [ ] 2.3.3 Extract stderr redirections (tree-sitter: file_redirect with fd_number)
 - [ ] 2.3.4 Extract here documents (tree-sitter: heredoc_redirect)
 - [ ] 2.3.5 Extract here strings (tree-sitter: herestring_redirect)
+- [ ] 2.3.6 **DRAGON: Heredoc quoting** - Check if heredoc delimiter is quoted (`<<'EOF'` vs `<<EOF`). Unquoted delimiters mean variables ARE expanded inside the heredoc body. If unquoted, scan heredoc body for variable expansions just like double-quoted strings.
 
 ### 2.4 Control Flow
 - [ ] 2.4.1 Extract if statements (tree-sitter: if_statement)
@@ -118,6 +121,7 @@
 - [ ] 3.3.3 Detect unquoted variable in test expressions ([[ ]] without quotes)
 - [ ] 3.3.4 Whitelist arithmetic contexts ($(())) as safe
 - [ ] 3.3.5 Handle quote nesting via quote_type column
+- [ ] 3.3.6 **DRAGON: IFS manipulation** - Detect `IFS=` assignments. IFS redefinition can bypass unquoted variable checks by altering word splitting behavior. Flag any script that redefines IFS as requiring manual review.
 
 ### 3.4 Dangerous Pattern Rules
 - [ ] 3.4.1 Detect curl/wget piped to bash: join bash_pipes on pipeline_id
@@ -146,6 +150,10 @@
 - [ ] 4.2.3 Unit tests for quoting analysis
 - [ ] 4.2.4 Unit tests for each security rule in tests/rules/test_bash_rules.py
 - [ ] 4.2.5 Integration test with complex real-world script
+- [ ] 4.2.6 Test case for wrapper unwrapping (sudo/time/xargs)
+- [ ] 4.2.7 Test case for nested expansion recursion
+- [ ] 4.2.8 Test case for heredoc variable expansion (quoted vs unquoted delimiter)
+- [ ] 4.2.9 Test case for IFS manipulation detection
 
 ### 4.3 Documentation
 - [ ] 4.3.1 Update indexer spec via OpenSpec archive

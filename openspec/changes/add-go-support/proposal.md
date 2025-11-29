@@ -12,22 +12,33 @@ The ROI is high: large target market, low implementation complexity.
 
 ## What Changes
 
+**Phase 0: CRITICAL Pre-Implementation Verification**
+- Verify tree-sitter-go grammar supports Go 1.18+ generics (BLOCKING - parser will crash on `func[T any]` if grammar too old)
+- Add `vendor/` to excluded directories (Go projects vendor dependencies, indexing bloats DB 10x-50x)
+
 **Phase 1: Foundation (Schema + Core Extraction)**
-- Create 18 `go_*` schema tables following the normalized pattern (see design.md for full definitions)
+- Create 22 `go_*` schema tables following the normalized pattern (see design.md for full definitions):
+  - 18 original tables + go_variables + go_type_params + go_captured_vars + go_middleware
 - Wire tree-sitter-go into ast_parser.py (available in package, needs initialization)
 - Implement extraction for core constructs: packages, imports, structs, interfaces, functions, methods
+- **NEW**: Extract package-level variables (critical for race detection: `is_package_level=1`)
+- **NEW**: Extract generic type parameters (`func[T any]`, `type Stack[T comparable]`)
 - Wire extraction output to storage layer via go_storage.py
 - Integrate into indexer pipeline
 
 **Phase 2: Concurrency & Error Handling**
 - Goroutine tracking (`go` statements)
+- **NEW**: Captured variable tracking in goroutines (stores in go_captured_vars)
+  - Detect loop variable capture (is_loop_var=1) - #1 source of data races
 - Channel declarations and operations (send/receive)
 - Defer statement tracking
 - Error return pattern analysis
 - Panic/recover detection
 
 **Phase 3: Framework Detection**
+- **NEW**: net/http standard library detection (more common than frameworks in Go!)
 - Gin, Echo, Fiber, Chi web frameworks
+- **NEW**: Middleware detection (.Use() calls) - critical for security auditing
 - GORM, sqlx, ent ORM patterns
 - gRPC service definitions
 - Cobra CLI patterns
@@ -37,7 +48,10 @@ The ROI is high: large target market, low implementation complexity.
 - Command injection via os/exec
 - Template injection (html/template, text/template)
 - Insecure crypto usage
-- Race condition patterns (shared state without sync)
+- Race condition patterns:
+  - **NEW**: Captured loop variable detection (go_captured_vars WHERE is_loop_var=1)
+  - Package-level variable access from goroutines (go_variables WHERE is_package_level=1)
+  - Shared state without sync primitives
 
 ## Impact
 
@@ -47,24 +61,32 @@ The ROI is high: large target market, low implementation complexity.
   - `theauditor/ast_parser.py:240-253` - Add .go to extension mapping
   - `theauditor/indexer/extractors/go.py` - NEW (auto-registers via discovery)
   - `theauditor/ast_extractors/go_impl.py` - NEW
-  - `theauditor/indexer/schemas/go_schema.py` - NEW (18 TableSchema definitions)
+  - `theauditor/indexer/schemas/go_schema.py` - NEW (22 TableSchema definitions)
   - `theauditor/indexer/storage/go_storage.py` - NEW
   - `theauditor/indexer/storage/__init__.py:20-30` - Add GoStorage to DataStorer
   - `theauditor/indexer/database/go_database.py` - NEW (GoDatabaseMixin)
   - `theauditor/indexer/database/__init__.py:17-27` - Add mixin to DatabaseManager
   - `theauditor/rules/go_security.py` - NEW
   - `theauditor/linters/go_lint.py` - NEW (staticcheck/golangci-lint wrapper)
+  - File walker exclusions - Add `vendor/` to excluded directories
 - Breaking changes: None (new capability)
 - Dependencies:
-  - tree-sitter-go: Available in tree-sitter-language-pack (verified), but NOT yet wired in ast_parser.py - Task 1.0.1 adds initialization
+  - **CRITICAL**: tree-sitter-go grammar MUST support Go 1.18+ generics
+    - Task 0.0.1 verifies this BEFORE any implementation
+    - If grammar too old, parser crashes on `func[T any]`
+  - tree-sitter-go: Available in tree-sitter-language-pack, but NOT yet wired in ast_parser.py
   - OSV scanning: Already works via go.mod parsing
 
 ## Implementation Reference Points
 
 Read these files BEFORE starting implementation:
 
+**Go follows the HCL/Terraform pattern** (tree-sitter based), NOT Python (built-in ast) or JS/TS (Node.js semantic parser).
+
 | Component | Reference File | What to Copy |
 |-----------|----------------|--------------|
+| **AST Extraction** | `ast_extractors/hcl_impl.py` | Tree-sitter query pattern for go_impl.py |
+| **Extractor wrapper** | `indexer/extractors/terraform.py` | Thin wrapper pattern for go.py |
 | Schema pattern | `indexer/schemas/python_schema.py:1-95` | TableSchema with Column, indexes |
 | Database mixin | `indexer/database/python_database.py:6-60` | add_* methods using generic_batches |
 | Mixin registration | `indexer/database/__init__.py:17-27` | Add GoDatabaseMixin to class composition |
