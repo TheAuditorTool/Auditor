@@ -181,15 +181,50 @@ RUST_UNSAFE_BLOCKS = TableSchema(
 | Integer overflow | Unchecked arithmetic on user input, `as` casts |
 | Memory issues | `std::mem::transmute`, `std::ptr::`, Box::leak |
 | Crypto misuse | Custom crypto, weak RNG, hardcoded keys |
+| Drop trait risks | Manual `impl Drop` (double-free, memory leak source) |
+| Linker safety | `#[no_mangle]` bypassing namespace safety |
+| Blocking in async | `std::fs`, `std::thread::sleep`, `std::sync::Mutex` in async context |
+
+## Critical Gaps & Mitigations (Auditor Review)
+
+### A. The Resolution Problem (Phase 1/2)
+**Risk:** String matching for `target_type` fails cross-file resolution.
+- *Scenario:* File 1 has `use my_crate::User; impl User { ... }`. File 2 has `struct User;`.
+- *Problem:* Indexer might not link `User` in File 1 to `User` in File 2.
+
+**Mitigation:** Implement lightweight Use Resolver in Phase 1.5:
+- Build per-file alias map during use extraction
+- When storing types, resolve aliases to canonical paths
+- If `use std::fs::File as F`, store both `F` and `std::fs::File`
+
+### B. The Macro Blindspot (Phase 2)
+**Risk:** "Macro expansion" is a non-goal, but security rules miss content inside macros.
+- *Scenario:* `my_custom_sql_macro!("SELECT * FROM users")` - extractor sees macro call, not string literal.
+
+**Mitigation:** Token Capture strategy:
+- Extract string literals found inside macro invocation arguments (tree-sitter node children)
+- Store in `args_sample` column for security scanning
+- Enables detection of hardcoded secrets/SQL in macros
+
+### C. Workspace/Monorepo Support (Phase 0/1)
+**Risk:** Rust projects are often workspaces with multiple `Cargo.toml` files.
+- *Problem:* Scanning all `.rs` files loses context of which crate a file belongs to.
+
+**Mitigation:** Parse Cargo.toml for crate boundaries:
+- Task 1.4.6: Parse [package] and [workspace] sections
+- Link files to owning crate via `rust_crates` table
+- Essential for `aud context` to distinguish library vs binary code
 
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
 |------|------------|
-| Macro expansion invisible | Document limitation, track macro call sites |
-| Generic type resolution incomplete | Store syntactic info, note limitation |
+| Macro expansion invisible | Token Capture strategy extracts string literals from macro args |
+| Generic type resolution incomplete | Store syntactic info + trait bounds, note limitation |
 | Large crates slow to parse | tree-sitter is fast, same as Python/JS |
 | Framework detection false positives | Require multiple signals (import + usage) |
+| Cross-file type resolution | Lightweight Use Resolver with alias mapping |
+| Workspace boundary confusion | Parse Cargo.toml for crate membership |
 
 ## Migration Plan
 

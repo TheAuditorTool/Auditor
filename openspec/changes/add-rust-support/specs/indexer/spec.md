@@ -115,3 +115,46 @@ The indexer SHALL detect security-relevant patterns in Rust code.
 #### Scenario: Integer overflow risk detection
 - **WHEN** code contains unchecked arithmetic on external input
 - **THEN** the indexer SHALL flag the operation as a potential overflow risk
+
+#### Scenario: Drop trait risk detection
+- **WHEN** code contains manual `impl Drop` implementation
+- **THEN** the indexer SHALL flag it as "review required" (double-free/memory leak risk)
+
+#### Scenario: Linker safety detection
+- **WHEN** a function has `#[no_mangle]` attribute
+- **THEN** the indexer SHALL flag it as exposed to linker (bypasses namespace safety)
+
+#### Scenario: Blocking in async detection
+- **WHEN** code uses std::fs, std::thread::sleep, or std::sync::Mutex inside async fn/block
+- **THEN** the indexer SHALL flag it as potential async performance issue
+
+### Requirement: Workspace/Monorepo Support
+The indexer SHALL handle Rust workspaces with multiple crates.
+
+#### Scenario: Cargo.toml parsing
+- **WHEN** a Rust project contains Cargo.toml files
+- **THEN** the indexer SHALL parse [package] and [workspace] sections
+- **AND** link .rs files to their owning crate via rust_crates table
+
+#### Scenario: Crate boundary awareness
+- **WHEN** querying symbols via `aud context`
+- **THEN** the indexer SHALL be able to distinguish library vs binary code
+
+### Requirement: Use Resolution
+The indexer SHALL resolve type aliases for cross-file querying.
+
+#### Scenario: Alias resolution
+- **WHEN** a file contains `use std::fs::File as F`
+- **THEN** the indexer SHALL store both `F` and `std::fs::File` for querying
+
+#### Scenario: Impl target resolution
+- **WHEN** storing impl block target_type
+- **THEN** the indexer SHALL apply use resolution to canonicalize type names
+
+### Requirement: Macro Token Capture
+The indexer SHALL extract string literals from macro invocation arguments.
+
+#### Scenario: Macro args extraction
+- **WHEN** a macro invocation contains string literals
+- **THEN** the indexer SHALL capture first ~100 chars in args_sample column
+- **AND** security rules can scan for hardcoded secrets/SQL patterns

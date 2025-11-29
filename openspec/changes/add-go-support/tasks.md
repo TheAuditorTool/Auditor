@@ -1,6 +1,36 @@
+## 0. CRITICAL: Pre-Implementation Verification
+
+### 0.0 Tree-sitter-go Version Check (BLOCKING)
+- [ ] 0.0.1 **CRITICAL**: Verify tree-sitter-go grammar supports Go 1.18+ generics:
+  ```bash
+  .venv/Scripts/python.exe -c "
+  from tree_sitter_language_pack import get_parser
+  p = get_parser('go')
+  # Test generic function - WILL CRASH if grammar too old
+  code = b'func Map[T any](s []T, f func(T) T) []T { return nil }'
+  tree = p.parse(code)
+  print('Generic function parsed:', 'ERROR' not in tree.root_node.sexp())
+  # Test generic type
+  code2 = b'type Stack[T any] struct { items []T }'
+  tree2 = p.parse(code2)
+  print('Generic type parsed:', 'ERROR' not in tree2.root_node.sexp())
+  "
+  ```
+- [ ] 0.0.2 If grammar fails: Update tree-sitter-language-pack or pin tree-sitter-go version
+- [ ] 0.0.3 Document tree-sitter-go version in requirements/dependencies
+
 ## 1. Phase 1: Foundation (Schema + Core Extraction)
 
-### 1.0 AST Parser Integration (PREREQUISITE)
+### 1.0 File Walker Configuration (PREREQUISITE)
+- [ ] 1.0.0 Add `vendor/` to excluded directories in file walker:
+  - Find where EXCLUDED_DIRS is defined (likely near node_modules, .git exclusions)
+  - Add "vendor" to the set
+  - Rationale: Go projects vendor dependencies, indexing them bloats DB 10x-50x
+  ```python
+  EXCLUDED_DIRS = {"vendor", "node_modules", ".git", "__pycache__", ".venv"}
+  ```
+
+### 1.0.5 AST Parser Integration (PREREQUISITE)
 - [ ] 1.0.1 Add Go parser to `ast_parser.py:52-103` (_init_tree_sitter_parsers)
   ```python
   try:
@@ -26,8 +56,13 @@
   ```
 
 ### 1.1 Schema Creation
-- [ ] 1.1.1 Create `theauditor/indexer/schemas/go_schema.py` with 18 TableSchema definitions (copy from design.md Decision 1)
-- [ ] 1.1.2 Add `GO_TABLES` dict export at bottom of go_schema.py
+- [ ] 1.1.1 Create `theauditor/indexer/schemas/go_schema.py` with 22 TableSchema definitions (copy from design.md Decision 1):
+  - Core: go_packages, go_imports, go_structs, go_struct_fields, go_interfaces, go_interface_methods
+  - Functions: go_functions, go_methods, go_func_params, go_func_returns
+  - Concurrency: go_goroutines, go_channels, go_channel_ops, go_defer_statements
+  - Analysis: go_error_returns, go_type_assertions, go_routes, go_constants
+  - **NEW**: go_variables, go_type_params, go_captured_vars, go_middleware
+- [ ] 1.1.2 Add `GO_TABLES` dict export at bottom of go_schema.py (22 tables total)
 - [ ] 1.1.3 Import GO_TABLES in `indexer/schemas/__init__.py` (if exists) or in base_database.py
 - [ ] 1.1.4 Add go tables to schema initialization - find where PYTHON_TABLES/NODE_TABLES are registered and add GO_TABLES
 - [ ] 1.1.5 Verify tables created: `aud full --index` then check sqlite for go_* tables
@@ -45,11 +80,16 @@
 - [ ] 1.2.10 Implement `add_go_func_param(file_path, func_name, func_line, param_index, param_name, param_type, is_variadic)`
 - [ ] 1.2.11 Implement `add_go_func_return(file_path, func_name, func_line, return_index, return_name, return_type)`
 - [ ] 1.2.12 Implement `add_go_constant(file_path, line, name, value, type, is_exported)`
-- [ ] 1.2.13 Add `from .go_database import GoDatabaseMixin` to `indexer/database/__init__.py`
-- [ ] 1.2.14 Add `GoDatabaseMixin` to DatabaseManager class inheritance list at `indexer/database/__init__.py:17-27`
+- [ ] 1.2.13 Implement `add_go_variable(file_path, line, name, type, initial_value, is_exported, is_package_level)`
+- [ ] 1.2.14 Implement `add_go_type_param(file_path, line, parent_name, parent_kind, param_index, param_name, constraint)`
+- [ ] 1.2.15 Implement `add_go_captured_var(file_path, line, goroutine_id, var_name, var_type, is_loop_var)`
+- [ ] 1.2.16 Implement `add_go_middleware(file_path, line, framework, router_var, middleware_func, is_global)`
+- [ ] 1.2.17 Add `from .go_database import GoDatabaseMixin` to `indexer/database/__init__.py`
+- [ ] 1.2.18 Add `GoDatabaseMixin` to DatabaseManager class inheritance list at `indexer/database/__init__.py:17-27`
 
 ### 1.3 Core Extraction - AST Implementation
-- [ ] 1.3.1 Create `theauditor/ast_extractors/go_impl.py`
+**Reference**: `ast_extractors/hcl_impl.py` - Follow this pattern for tree-sitter queries
+- [ ] 1.3.1 Create `theauditor/ast_extractors/go_impl.py` (follow `hcl_impl.py` pattern)
 - [ ] 1.3.2 Implement `extract_go_packages(tree, content, file_path)` - query `package_clause` nodes
 - [ ] 1.3.3 Implement `extract_go_imports(tree, content, file_path)` - query `import_declaration` > `import_spec`
 - [ ] 1.3.4 Implement `extract_go_structs(tree, content, file_path)` - query `type_declaration` > `struct_type`
@@ -61,12 +101,22 @@
 - [ ] 1.3.10 Implement `extract_go_calls(tree, content, file_path)` - query `call_expression`
 - [ ] 1.3.11 Implement `extract_go_assignments(tree, content, file_path)` - query `short_var_declaration`, `assignment_statement`
 - [ ] 1.3.12 Implement `extract_go_constants(tree, content, file_path)` - query `const_declaration`
+- [ ] 1.3.13 Implement `extract_go_variables(tree, content, file_path)` - query `var_declaration` for package-level vars
+  - Set `is_package_level=True` if var is at module scope (no containing function)
+  - CRITICAL for race condition detection: security rules query `is_package_level=1`
+- [ ] 1.3.14 Implement `extract_go_type_params(tree, content, file_path)` - query `type_parameter_list`
+  - Handle generic functions: `func Map[T any](...)`
+  - Handle generic types: `type Stack[T comparable] struct`
+  - Extract constraint (any, comparable, interface name)
 
 ### 1.4 Extractor Class
+**Reference**: `indexer/extractors/terraform.py` - Follow this pattern for extractor wrapper
 - [ ] 1.4.1 Create `theauditor/indexer/extractors/go.py` with GoExtractor(BaseExtractor)
+  - Follow `terraform.py` pattern: check tree type, call go_impl functions
 - [ ] 1.4.2 Implement `supported_extensions()` returning `[".go"]`
 - [ ] 1.4.3 Implement `extract()` method that:
-  - Calls all go_impl extraction functions
+  - Verify `tree.get("type") == "tree_sitter"` (like terraform.py:35)
+  - Import and call `go_impl` extraction functions
   - Returns dict with keys matching storage handler expectations (go_packages, go_imports, etc.)
 - [ ] 1.4.4 Note: Extractor auto-registers via `indexer/extractors/__init__.py:86-118` discovery - no manual registration needed
 
@@ -84,33 +134,50 @@
 - [ ] 1.5.11 Implement `_store_go_func_params(file_path, data, jsx_pass)`
 - [ ] 1.5.12 Implement `_store_go_func_returns(file_path, data, jsx_pass)`
 - [ ] 1.5.13 Implement `_store_go_constants(file_path, data, jsx_pass)`
-- [ ] 1.5.14 Add `from .go_storage import GoStorage` to `indexer/storage/__init__.py`
-- [ ] 1.5.15 Add `self.go = GoStorage(db_manager, counts)` to DataStorer.__init__
-- [ ] 1.5.16 Add `**self.go.handlers` to DataStorer.handlers dict
+- [ ] 1.5.14 Implement `_store_go_variables(file_path, data, jsx_pass)`
+- [ ] 1.5.15 Implement `_store_go_type_params(file_path, data, jsx_pass)`
+- [ ] 1.5.16 Add `from .go_storage import GoStorage` to `indexer/storage/__init__.py`
+- [ ] 1.5.17 Add `self.go = GoStorage(db_manager, counts)` to DataStorer.__init__
+- [ ] 1.5.18 Add `**self.go.handlers` to DataStorer.handlers dict
 
 ### 1.6 Phase 1 Verification
-- [ ] 1.6.1 Create sample Go file for testing:
+- [ ] 1.6.1 Create sample Go file for testing (must include generics and package-level var):
   ```go
   package main
   import "fmt"
+
+  var GlobalCounter int  // Package-level var - critical for race detection
+
   type User struct { Name string `json:"name"` }
   func (u *User) Greet() string { return "Hello " + u.Name }
+
+  // Generic function - MUST parse without error
+  func Map[T any](s []T, f func(T) T) []T {
+      result := make([]T, len(s))
+      for i, v := range s { result[i] = f(v) }
+      return result
+  }
+
   func main() { fmt.Println("test") }
   ```
 - [ ] 1.6.2 Run `aud full --index` on directory with sample file
-- [ ] 1.6.3 Verify go_* tables populated:
+- [ ] 1.6.3 Verify go_* tables populated (including new tables):
   ```bash
   .venv/Scripts/python.exe -c "
   import sqlite3
   conn = sqlite3.connect('.pf/repo_index.db')
-  for t in ['go_packages','go_imports','go_structs','go_struct_fields','go_functions','go_methods']:
+  tables = ['go_packages','go_imports','go_structs','go_struct_fields',
+            'go_functions','go_methods','go_variables','go_type_params']
+  for t in tables:
       c = conn.cursor()
       c.execute(f'SELECT COUNT(*) FROM {t}')
       print(f'{t}: {c.fetchone()[0]}')
   "
   ```
-- [ ] 1.6.4 Test `aud context query --symbol main` returns Go function
-- [ ] 1.6.5 Verify no regression on Python/JS extraction (run on mixed project)
+- [ ] 1.6.4 Verify go_variables has GlobalCounter with is_package_level=1
+- [ ] 1.6.5 Verify go_type_params has T from Map function with constraint='any'
+- [ ] 1.6.6 Test `aud context query --symbol main` returns Go function
+- [ ] 1.6.7 Verify no regression on Python/JS extraction (run on mixed project)
 
 ## 2. Phase 2: Concurrency & Error Handling
 
@@ -121,6 +188,20 @@
 - [ ] 2.1.4 Set is_anonymous=True for `go func() {...}()` patterns
 - [ ] 2.1.5 Add `add_go_goroutine(file_path, line, containing_func, spawned_expr, is_anonymous)` to go_database.py
 - [ ] 2.1.6 Add `_store_go_goroutines()` to go_storage.py
+
+### 2.1.5 Captured Variables in Goroutines (CRITICAL for race detection)
+- [ ] 2.1.7 Implement `extract_go_captured_vars(tree, content, file_path, goroutine_node)`:
+  - Parse anonymous function body for identifier references
+  - Check if identifiers are defined outside closure scope
+  - Detect loop variables (for/range containing the goroutine spawn)
+  - Set `is_loop_var=True` for variables from enclosing for/range loops
+- [ ] 2.1.8 Add `_store_go_captured_vars()` to go_storage.py
+- [ ] 2.1.9 Test with known race pattern:
+  ```go
+  for _, v := range items {
+      go func() { process(v) }()  // v is captured, is_loop_var=True
+  }
+  ```
 
 ### 2.2 Channel Operations
 - [ ] 2.2.1 Implement `extract_go_channels(tree, content, file_path)` - detect `make(chan T)` patterns
@@ -157,14 +238,35 @@
   },
   ```
 - [ ] 3.1.2 Add Echo, Fiber, Chi with same pattern
-- [ ] 3.1.3 Update FrameworkDetector to check go_imports table for import paths
+- [ ] 3.1.3 **CRITICAL**: Add net/http standard library detection:
+  ```python
+  "net_http": {
+      "language": "go",
+      "detection_sources": {"imports": "exact_match"},
+      "import_patterns": ["net/http"],
+      "api_patterns": ["http.HandleFunc", "http.Handle", "http.ListenAndServe"],
+  },
+  ```
+- [ ] 3.1.4 Update FrameworkDetector to check go_imports table for import paths
 
 ### 3.2 Route Extraction
 - [ ] 3.2.1 Implement `extract_go_routes(tree, content, file_path)` - detect `r.GET("/path", handler)` patterns
 - [ ] 3.2.2 Support Gin pattern: method call on router variable with HTTP method name
 - [ ] 3.2.3 Support Echo pattern: same but e.GET, e.POST
 - [ ] 3.2.4 Support Fiber pattern: app.Get, app.Post
-- [ ] 3.2.5 Store in go_routes table (framework, method, path, handler_func)
+- [ ] 3.2.5 Support net/http pattern: `http.HandleFunc("/path", handler)`
+- [ ] 3.2.6 Store in go_routes table (framework, method, path, handler_func)
+
+### 3.2.5 Middleware Detection
+- [ ] 3.2.7 Implement `extract_go_middleware(tree, content, file_path)`:
+  - Detect `.Use()` calls on router variables
+  - Gin: `r.Use(middleware)`
+  - Echo: `e.Use(middleware)`
+  - Chi: `r.Use(middleware)`
+  - Fiber: `app.Use(middleware)`
+- [ ] 3.2.8 Determine if middleware is global (applied before routes) or group-specific
+- [ ] 3.2.9 Add `_store_go_middleware()` to go_storage.py
+- [ ] 3.2.10 Link middleware to routes for security auditing (which routes have auth?)
 
 ### 3.3 ORM Detection
 - [ ] 3.3.1 Detect GORM via import `gorm.io/gorm`
@@ -192,9 +294,14 @@
 - [ ] 4.2.4 Detect `InsecureSkipVerify: true` in TLS configs
 
 ### 4.3 Concurrency Issues
-- [ ] 4.3.1 Flag goroutines accessing package-level variables without sync primitives
+- [ ] 4.3.1 Flag goroutines accessing package-level variables without sync primitives:
+  - Query: JOIN go_goroutines with go_variables WHERE is_package_level=1
+  - Check for sync.Mutex usage in same function
 - [ ] 4.3.2 Detect shared map access from multiple goroutines (race condition)
 - [ ] 4.3.3 Flag missing mutex around shared state modifications
+- [ ] 4.3.4 **CRITICAL**: Flag captured loop variables in goroutines (pre-Go 1.22):
+  - Query: go_captured_vars WHERE is_loop_var=1
+  - High confidence race condition pattern
 
 ### 4.4 Error Handling Issues
 - [ ] 4.4.1 Detect ignored errors: `_ = someFunc()` where someFunc returns error
