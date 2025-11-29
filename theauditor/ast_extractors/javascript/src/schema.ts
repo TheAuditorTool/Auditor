@@ -61,6 +61,7 @@ export const AssignmentSchema = z.object({
   target_var: z.string(),
   source_expr: z.string(),
   in_function: z.string(),
+  source_vars: z.array(z.string()).optional(),
   property_path: z.string().nullable().optional(),
   jsx_mode: z.string().nullable().optional(),
   extraction_pass: z.number().nullable().optional(),
@@ -74,6 +75,7 @@ export const FunctionReturnSchema = z.object({
   return_expr: z.string(),
   has_jsx: z.boolean(),
   returns_component: z.boolean(),
+  return_vars: z.array(z.string()).optional(),
   cleanup_operations: z.string().nullable().optional(),
   return_index: z.number().optional(),
   jsx_mode: z.string().nullable().optional(),
@@ -422,6 +424,7 @@ export const APIEndpointSchema = z.object({
   method: z.string(),
   path: z.string().optional(),
   route: z.string().optional(),
+  pattern: z.string().optional(),
   handler_function: z.string().nullable(),
   requires_auth: z.boolean().optional(),
 });
