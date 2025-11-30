@@ -210,14 +210,13 @@ class ASTParser:
 
             if language == "python":
                 decoded = content.decode("utf-8", errors="ignore")
-                python_ast = self._parse_python_cached(content_hash, decoded)
-                if python_ast:
-                    return {
-                        "type": "python_ast",
-                        "tree": python_ast,
-                        "language": language,
-                        "content": decoded,
-                    }
+                python_ast = self._parse_python_cached(content_hash, decoded, str(file_path))
+                return {
+                    "type": "python_ast",
+                    "tree": python_ast,
+                    "language": language,
+                    "content": decoded,
+                }
 
             if language in self.parsers:
                 parser = self.parsers[language]
@@ -230,11 +229,22 @@ class ASTParser:
                         "content": content.decode("utf-8", errors="ignore"),
                     }
 
+            # Unknown language - return None (not an error, just unsupported)
             return None
 
+        except RuntimeError:
+            # Re-raise RuntimeError (our explicit failures) without wrapping
+            raise
         except Exception as e:
-            print(f"Warning: Failed to parse {file_path}: {e}")
-            return None
+            # For JS/TS files, any failure is fatal - no silent data loss
+            if language in ["javascript", "typescript"]:
+                raise RuntimeError(
+                    f"FATAL: Failed to parse {file_path}: {e}\n"
+                    f"JavaScript/TypeScript files REQUIRE successful parsing.\n"
+                    f"NO FALLBACKS ALLOWED - fix the error or exclude the file."
+                ) from e
+            # For other languages, also fail loud
+            raise RuntimeError(f"FATAL: Failed to parse {file_path}: {e}") from e
 
     def _detect_language(self, file_path: Path) -> str:
         """Detect language from file extension."""
@@ -252,17 +262,23 @@ class ASTParser:
         }
         return ext_map.get(file_path.suffix.lower(), "")
 
-    def _parse_python_builtin(self, content: str) -> ast.AST | None:
-        """Parse Python code using built-in ast module."""
+    def _parse_python_builtin(self, content: str, file_path: str = "unknown") -> ast.AST:
+        """Parse Python code using built-in ast module.
+
+        NO FALLBACKS: SyntaxError is fatal - file must be valid Python.
+        """
         try:
             return ast.parse(content)
-        except SyntaxError:
-            return None
+        except SyntaxError as e:
+            raise RuntimeError(
+                f"FATAL: Python syntax error in {file_path}\n"
+                f"Error: {e}\n"
+                f"NO FALLBACKS ALLOWED - fix the syntax error or exclude the file."
+            ) from e
 
-    @lru_cache(maxsize=10000)
-    def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
-        """Parse Python code with caching based on content hash."""
-        return self._parse_python_builtin(content)
+    def _parse_python_cached(self, content_hash: str, content: str, file_path: str = "unknown") -> ast.AST:
+        """Parse Python code (caching removed - error messages need file context)."""
+        return self._parse_python_builtin(content, file_path)
 
     @lru_cache(maxsize=10000)
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
@@ -344,21 +360,25 @@ class ASTParser:
                 os.unlink(tmp_path)
 
         if language == "python":
-            python_ast = self._parse_python_cached(content_hash, content)
-            if python_ast:
-                return {
-                    "type": "python_ast",
-                    "tree": python_ast,
-                    "language": language,
-                    "content": content,
-                }
+            python_ast = self._parse_python_cached(content_hash, content, filepath)
+            return {
+                "type": "python_ast",
+                "tree": python_ast,
+                "language": language,
+                "content": content,
+            }
 
+        # Unknown language - return None (not an error, just unsupported)
         return None
 
     def parse_files_batch(
         self, file_paths: list[Path], root_path: str = None, jsx_mode: str = "transformed"
     ) -> dict[str, Any]:
-        """Parse multiple files into ASTs in batch for performance."""
+        """Parse multiple files into ASTs in batch for performance.
+
+        NO FALLBACKS: If batch processing fails for JS/TS files, we fail loud.
+        Individual file failures are also fatal - no silent data loss.
+        """
         results = {}
 
         js_ts_files = []
@@ -374,97 +394,83 @@ class ASTParser:
             else:
                 other_files.append(file_path)
 
-        project_type = self._detect_project_type()
-        if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
-            try:
-                js_ts_paths = []
-                tsconfig_map: dict[str, str] = {}
-                for f in js_ts_files:
-                    normalized_path = str(f).replace("\\", "/")
-                    js_ts_paths.append(normalized_path)
-                    tsconfig_for_file = self._find_tsconfig_for_file(f, root_path)
-                    if tsconfig_for_file:
-                        tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
-
-                batch_results = get_semantic_ast_batch(
-                    js_ts_paths,
-                    project_root=root_path,
-                    jsx_mode=jsx_mode,
-                    tsconfig_map=tsconfig_map,
+        # Process JS/TS files with batch semantic parser
+        if js_ts_files:
+            if not get_semantic_ast_batch:
+                raise RuntimeError(
+                    "FATAL: JavaScript/TypeScript files found but semantic parser not available.\n"
+                    "Run: aud setup-ai --target .\n"
+                    "NO FALLBACKS ALLOWED - semantic parser is required."
                 )
 
-                for file_path in js_ts_files:
-                    file_str = str(file_path).replace("\\", "/")
-                    if file_str in batch_results:
-                        semantic_result = batch_results[file_str]
+            js_ts_paths = []
+            tsconfig_map: dict[str, str] = {}
+            for f in js_ts_files:
+                normalized_path = str(f).replace("\\", "/")
+                js_ts_paths.append(normalized_path)
+                tsconfig_for_file = self._find_tsconfig_for_file(f, root_path)
+                if tsconfig_for_file:
+                    tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
-                        if os.environ.get("THEAUDITOR_DEBUG"):
-                            cfg_count = len(
-                                semantic_result.get("extracted_data", {}).get("cfg", [])
-                            )
-                            print(
-                                f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
-                            )
+            # Batch process - NO try/except wrapper, let errors propagate
+            batch_results = get_semantic_ast_batch(
+                js_ts_paths,
+                project_root=root_path,
+                jsx_mode=jsx_mode,
+                tsconfig_map=tsconfig_map,
+            )
 
-                        if semantic_result.get("success"):
-                            try:
-                                with open(file_path, "rb") as f:
-                                    content = f.read()
-
-                                results[str(file_path).replace("\\", "/")] = {
-                                    "type": "semantic_ast",
-                                    "tree": semantic_result,
-                                    "language": self._detect_language(file_path),
-                                    "content": content.decode("utf-8", errors="ignore"),
-                                    "has_types": semantic_result.get("hasTypes", False),
-                                    "diagnostics": semantic_result.get("diagnostics", []),
-                                    "symbols": semantic_result.get("symbols", []),
-                                }
-                            except Exception as e:
-                                print(
-                                    f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing"
-                                )
-
-                                individual_result = self.parse_file(
-                                    file_path, root_path=root_path, jsx_mode=jsx_mode
-                                )
-                                results[str(file_path).replace("\\", "/")] = individual_result
-                        else:
-                            print(
-                                f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing"
-                            )
-
-                            individual_result = self.parse_file(
-                                file_path, root_path=root_path, jsx_mode=jsx_mode
-                            )
-                            results[str(file_path).replace("\\", "/")] = individual_result
-                    else:
-                        print(
-                            f"Warning: No batch result for {file_path}, falling back to individual parsing"
-                        )
-                        individual_result = self.parse_file(
-                            file_path, root_path=root_path, jsx_mode=jsx_mode
-                        )
-                        results[str(file_path).replace("\\", "/")] = individual_result
-
-            except Exception as e:
-                print(f"Warning: Batch processing failed for JS/TS files: {e}")
-
-                for file_path in js_ts_files:
-                    results[str(file_path).replace("\\", "/")] = self.parse_file(
-                        file_path, root_path=root_path, jsx_mode=jsx_mode
-                    )
-        else:
+            # Process each file result - NO FALLBACKS
             for file_path in js_ts_files:
-                results[str(file_path).replace("\\", "/")] = self.parse_file(
-                    file_path, root_path=root_path, jsx_mode=jsx_mode
-                )
+                file_str = str(file_path).replace("\\", "/")
 
+                # File MUST be in batch results
+                if file_str not in batch_results:
+                    raise RuntimeError(
+                        f"FATAL: Batch processor did not return result for {file_path}\n"
+                        f"This indicates a bug in the semantic parser.\n"
+                        f"NO FALLBACKS ALLOWED - fix the parser or exclude the file."
+                    )
+
+                semantic_result = batch_results[file_str]
+
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    cfg_count = len(
+                        semantic_result.get("extracted_data", {}).get("cfg", [])
+                    )
+                    print(
+                        f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
+                    )
+
+                # Parsing MUST succeed
+                if not semantic_result.get("success"):
+                    raise RuntimeError(
+                        f"FATAL: Semantic parser failed for {file_path}\n"
+                        f"Error: {semantic_result.get('error', 'Unknown error')}\n"
+                        f"NO FALLBACKS ALLOWED - fix the error or exclude the file."
+                    )
+
+                # Read file content - failure is fatal
+                with open(file_path, "rb") as f:
+                    content = f.read()
+
+                results[file_str] = {
+                    "type": "semantic_ast",
+                    "tree": semantic_result,
+                    "language": self._detect_language(file_path),
+                    "content": content.decode("utf-8", errors="ignore"),
+                    "has_types": semantic_result.get("hasTypes", False),
+                    "diagnostics": semantic_result.get("diagnostics", []),
+                    "symbols": semantic_result.get("symbols", []),
+                }
+
+        # Process Python files individually (parse_file handles errors)
         for file_path in python_files:
             results[str(file_path).replace("\\", "/")] = self.parse_file(
                 file_path, root_path=root_path, jsx_mode=jsx_mode
             )
 
+        # Process other files individually (parse_file handles errors)
         for file_path in other_files:
             results[str(file_path).replace("\\", "/")] = self.parse_file(
                 file_path, root_path=root_path, jsx_mode=jsx_mode
