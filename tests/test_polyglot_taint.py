@@ -15,11 +15,11 @@ from pathlib import Path
 
 import pytest
 
-# Import TheAuditor components
+
 from theauditor.indexer import run_repository_index
 from theauditor.taint.core import TaintRegistry, trace_taint
 
-# Path to the polyglot test fixture
+
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "polyglot_taint"
 
 
@@ -29,21 +29,15 @@ class TestPolyglotTaintDetection:
     @pytest.fixture(scope="class")
     def indexed_fixture(self, tmp_path_factory):
         """Index the polyglot fixture and return database paths."""
-        # Create temp directory for database
+
         temp_dir = tmp_path_factory.mktemp("polyglot_taint_test")
         db_path = temp_dir / "repo_index.db"
         graph_path = temp_dir / "graphs.db"
 
-        # Copy fixture to temp location (avoid polluting fixture dir)
         fixture_copy = temp_dir / "fixture"
         shutil.copytree(FIXTURE_DIR, fixture_copy)
 
-        # Run indexer on fixture using proper runner function
-        # This handles schema creation automatically
-        run_repository_index(
-            root_path=str(fixture_copy),
-            db_path=str(db_path)
-        )
+        run_repository_index(root_path=str(fixture_copy), db_path=str(db_path))
 
         return {
             "db_path": str(db_path),
@@ -66,7 +60,6 @@ class TestPolyglotTaintDetection:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check function_call_args for request data access
         cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
@@ -78,7 +71,6 @@ class TestPolyglotTaintDetection:
         js_sources = cursor.fetchall()
         conn.close()
 
-        # Should find at least one JS source pattern
         assert len(js_sources) >= 0, "Expected JavaScript source patterns in function_call_args"
 
     def test_python_sources_detected(self, indexed_fixture):
@@ -87,7 +79,6 @@ class TestPolyglotTaintDetection:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check function_call_args for Flask request data access
         cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
@@ -99,7 +90,6 @@ class TestPolyglotTaintDetection:
         py_sources = cursor.fetchall()
         conn.close()
 
-        # Should find at least one Python source pattern
         assert len(py_sources) >= 0, "Expected Python source patterns in function_call_args"
 
     def test_rust_sources_detected(self, indexed_fixture):
@@ -108,8 +98,6 @@ class TestPolyglotTaintDetection:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check symbols for Rust web extractors
-        # Schema: symbols(path, name, type, line, col, end_line, type_annotation, parameters, is_typed)
         cursor.execute("""
             SELECT path, line, name, type
             FROM symbols
@@ -119,8 +107,6 @@ class TestPolyglotTaintDetection:
         rust_sources = cursor.fetchall()
         conn.close()
 
-        # Rust parsing may be limited (tree-sitter-rust not installed)
-        # This test documents current behavior
         assert rust_sources is not None, "Query should complete without error"
 
     def test_javascript_sinks_detected(self, indexed_fixture):
@@ -129,7 +115,6 @@ class TestPolyglotTaintDetection:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check for eval calls in JS file
         cursor.execute("""
             SELECT file, line, callee_function
             FROM function_call_args
@@ -139,7 +124,6 @@ class TestPolyglotTaintDetection:
         js_sinks = cursor.fetchall()
         conn.close()
 
-        # Should find eval sink
         assert len(js_sinks) >= 0, "Expected eval sink in express_app.js"
 
     def test_python_sinks_detected(self, indexed_fixture):
@@ -148,7 +132,6 @@ class TestPolyglotTaintDetection:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check for dangerous function calls in Python file
         cursor.execute("""
             SELECT file, line, callee_function
             FROM function_call_args
@@ -158,22 +141,18 @@ class TestPolyglotTaintDetection:
         py_sinks = cursor.fetchall()
         conn.close()
 
-        # Should find at least one Python sink
         assert len(py_sinks) >= 0, "Expected Python sinks (exec/eval/system) in flask_app.py"
 
     def test_taint_registry_patterns(self):
         """Verify TaintRegistry provides language-specific patterns."""
         registry = TaintRegistry()
 
-        # Register some patterns for testing
-        # Signature: register_source(pattern, category, language)
         registry.register_source("req.body", "http", "javascript")
         registry.register_source("request.args", "http", "python")
-        # Signature: register_sink(pattern, category, language)
+
         registry.register_sink("eval", "code_execution", "javascript")
         registry.register_sink("exec", "code_execution", "python")
 
-        # Test retrieval
         js_sources = registry.get_source_patterns("javascript")
         py_sources = registry.get_source_patterns("python")
         js_sinks = registry.get_sink_patterns("javascript")
@@ -188,7 +167,6 @@ class TestPolyglotTaintDetection:
         """Verify registry methods return empty list for unknown languages (no crash)."""
         registry = TaintRegistry()
 
-        # Unknown language should return empty, not crash
         unknown_sources = registry.get_source_patterns("cobol")
         unknown_sinks = registry.get_sink_patterns("cobol")
         unknown_sanitizers = registry.get_sanitizer_patterns("cobol")
@@ -203,12 +181,11 @@ class TestTaintRegistryDatabaseLoading:
 
     def test_load_from_empty_database(self, tmp_path):
         """Test that loading from empty tables doesn't crash."""
-        # Create minimal database with required tables
+
         db_path = tmp_path / "test.db"
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
 
-        # Create minimal schema
         cursor.execute("""
             CREATE TABLE frameworks (
                 id INTEGER PRIMARY KEY,
@@ -237,14 +214,12 @@ class TestTaintRegistryDatabaseLoading:
         """)
         conn.commit()
 
-        # Load from empty tables - should not crash
         registry = TaintRegistry()
         cursor = conn.cursor()
         registry.load_from_database(cursor)
 
         conn.close()
 
-        # Verify registry still works
         assert registry.get_sanitizer_patterns("javascript") == []
 
     def test_load_safe_sinks(self, tmp_path):
@@ -253,7 +228,6 @@ class TestTaintRegistryDatabaseLoading:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
 
-        # Create tables with data
         cursor.execute("""
             CREATE TABLE frameworks (
                 id INTEGER PRIMARY KEY,
@@ -273,8 +247,12 @@ class TestTaintRegistryDatabaseLoading:
                 reason TEXT
             )
         """)
-        cursor.execute("INSERT INTO framework_safe_sinks VALUES (1, 'escape', 'xss', 1, 'HTML escaping')")
-        cursor.execute("INSERT INTO framework_safe_sinks VALUES (2, 'markupsafe.escape', 'xss', 1, 'Jinja2 escaping')")
+        cursor.execute(
+            "INSERT INTO framework_safe_sinks VALUES (1, 'escape', 'xss', 1, 'HTML escaping')"
+        )
+        cursor.execute(
+            "INSERT INTO framework_safe_sinks VALUES (2, 'markupsafe.escape', 'xss', 1, 'Jinja2 escaping')"
+        )
 
         cursor.execute("""
             CREATE TABLE validation_framework_usage (
@@ -288,19 +266,19 @@ class TestTaintRegistryDatabaseLoading:
         """)
         conn.commit()
 
-        # Load into registry
         registry = TaintRegistry()
         cursor = conn.cursor()
         registry.load_from_database(cursor)
 
         conn.close()
 
-        # Verify patterns loaded
         js_sanitizers = registry.get_sanitizer_patterns("javascript")
         py_sanitizers = registry.get_sanitizer_patterns("python")
 
         assert "escape" in js_sanitizers, "JavaScript sanitizers should include 'escape'"
-        assert "markupsafe.escape" in py_sanitizers, "Python sanitizers should include 'markupsafe.escape'"
+        assert "markupsafe.escape" in py_sanitizers, (
+            "Python sanitizers should include 'markupsafe.escape'"
+        )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 """Audit log model linked to users for relationship parity checks."""
 
-
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String

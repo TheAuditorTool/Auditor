@@ -17,10 +17,9 @@ class GraphDatabaseCache:
     Only known_files is loaded eagerly (small set, needed for O(1) file_exists).
     """
 
-    # Cache sizes tuned for typical usage patterns
-    IMPORTS_CACHE_SIZE = 2000  # Most graphs touch <2000 unique files
+    IMPORTS_CACHE_SIZE = 2000
     EXPORTS_CACHE_SIZE = 2000
-    RESOLVE_CACHE_SIZE = 5000  # Path resolution called frequently
+    RESOLVE_CACHE_SIZE = 5000
 
     def __init__(self, db_path: Path):
         """Initialize cache - only loads file list, imports/exports are lazy."""
@@ -62,12 +61,15 @@ class GraphDatabaseCache:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT kind, value, line
             FROM refs
             WHERE src = ?
               AND kind IN ('import', 'require', 'from', 'import_type', 'export', 'dynamic_import')
-        """, (normalized,))
+        """,
+            (normalized,),
+        )
 
         results = tuple(
             {
@@ -93,12 +95,15 @@ class GraphDatabaseCache:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT name, type, line
             FROM symbols
             WHERE path = ?
               AND type IN ('function', 'class')
-        """, (normalized,))
+        """,
+            (normalized,),
+        )
 
         results = tuple(
             {

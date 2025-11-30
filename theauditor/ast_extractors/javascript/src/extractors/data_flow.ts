@@ -88,13 +88,10 @@ export function extractCalls(
           symbol = checker.getSymbolAtLocation(callExpr.expression.name);
         }
 
-        // Follow alias to original definition (fixes 77.5% broken resolution)
-        if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) {
+        if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
           try {
             symbol = checker.getAliasedSymbol(symbol);
-          } catch {
-            // getAliasedSymbol can throw if symbol is unresolved
-          }
+          } catch {}
         }
 
         if (symbol) {
@@ -558,13 +555,10 @@ export function extractFunctionCallArgs(
       if (checker && callExpr.expression) {
         try {
           let symbol = checker.getSymbolAtLocation(callExpr.expression);
-          // Follow alias to original definition (fixes 77.5% broken resolution)
-          if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) {
+          if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
             try {
               symbol = checker.getAliasedSymbol(symbol);
-            } catch {
-              // getAliasedSymbol can throw if symbol is unresolved
-            }
+            } catch {}
           }
           if (symbol && symbol.declarations && symbol.declarations.length > 0) {
             const decl = symbol.declarations[0];

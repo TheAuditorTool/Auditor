@@ -331,7 +331,6 @@ def graph_analyze(root, db, out, max_depth, workset):
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
 
-    # NOTE: GraphInsights deleted - always use basic analysis
     insights = None
 
     try:

@@ -8,7 +8,7 @@ from theauditor.utils.code_snippets import CodeSnippetManager
 @pytest.fixture
 def snippet_manager(tmp_path):
     """Create snippet manager with test files."""
-    # Create test Python file
+
     test_py = tmp_path / "test.py"
     test_py.write_text("""def foo():
     x = 1
@@ -21,7 +21,6 @@ class Bar:
         pass
 """)
 
-    # Create test TypeScript file
     test_ts = tmp_path / "test.ts"
     test_ts.write_text("""function greet(name: string): string {
     return `Hello, ${name}`;
@@ -72,30 +71,27 @@ def test_line_out_of_range(snippet_manager):
 
 def test_cache_reuse(snippet_manager, tmp_path):
     """Test that cache is used for subsequent accesses."""
-    # Access same file twice
+
     snippet_manager.get_snippet("test.py", 1)
     snippet_manager.get_snippet("test.py", 2)
-    # Should only have one entry in cache
+
     assert len(snippet_manager._cache) == 1
 
 
 def test_cache_eviction(tmp_path):
     """Test LRU cache eviction when capacity exceeded."""
     manager = CodeSnippetManager(tmp_path)
-    manager.MAX_CACHE_SIZE = 2  # Override for test
+    manager.MAX_CACHE_SIZE = 2
 
-    # Create 3 files
     for i in range(3):
         (tmp_path / f"file{i}.py").write_text(f"# File {i}")
 
-    # Access all 3 files
     manager.get_snippet("file0.py", 1)
     manager.get_snippet("file1.py", 1)
     manager.get_snippet("file2.py", 1)
 
-    # Only 2 should be in cache (oldest evicted)
     assert len(manager._cache) == 2
-    assert "file0.py" not in manager._cache  # Oldest evicted
+    assert "file0.py" not in manager._cache
 
 
 def test_get_lines_range(snippet_manager):
@@ -111,8 +107,8 @@ def test_cache_stats(snippet_manager):
     snippet_manager.get_snippet("test.py", 1)
     stats = snippet_manager.cache_stats()
 
-    assert stats['cached_files'] == 1
-    assert "test.py" in stats['files']
+    assert stats["cached_files"] == 1
+    assert "test.py" in stats["files"]
 
 
 def test_clear_cache(snippet_manager):

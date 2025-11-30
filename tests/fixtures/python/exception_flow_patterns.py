@@ -14,21 +14,22 @@ Expected extractions:
 """
 
 
-# ============================================================================
-# PATTERN 1: Exception Raises
-# ============================================================================
-
 class ValidationError(Exception):
     """Custom exception for testing."""
+
     pass
 
 
 def validate_age(age):
     """Test basic raise with message."""
     if age < 0:
-        raise ValueError("Age cannot be negative")  # Expected: exception_type='ValueError', message='Age cannot be negative'
+        raise ValueError(
+            "Age cannot be negative"
+        )  # Expected: exception_type='ValueError', message='Age cannot be negative'
     if age > 150:
-        raise ValueError("Age too high")  # Expected: exception_type='ValueError', message='Age too high'
+        raise ValueError(
+            "Age too high"
+        )  # Expected: exception_type='ValueError', message='Age too high'
     return age
 
 
@@ -44,7 +45,7 @@ def process_data(data):
     try:
         transform(data)
     except KeyError as e:
-        raise ValueError("Invalid data format") from e  # Expected: from_exception='e'
+        raise ValueError("Invalid data format") from e
 
 
 def re_raise_example():
@@ -66,16 +67,12 @@ def conditional_raise(value):
         raise RuntimeError("Special value")
 
 
-# ============================================================================
-# PATTERN 2: Exception Catches
-# ============================================================================
-
 def return_none_strategy(x):
     """Test 'return_none' handling strategy."""
     try:
         return 1 / x
     except ZeroDivisionError:
-        return None  # Expected: handling_strategy='return_none'
+        return None
 
 
 def re_raise_strategy(data):
@@ -83,7 +80,7 @@ def re_raise_strategy(data):
     try:
         process(data)
     except ValueError:
-        raise  # Expected: handling_strategy='re_raise'
+        raise
 
 
 def log_and_continue_strategy(file_path):
@@ -92,7 +89,7 @@ def log_and_continue_strategy(file_path):
         open_file(file_path)
     except FileNotFoundError:
         print("File not found")
-        pass  # Expected: handling_strategy='log_and_continue'
+        pass
 
 
 def convert_to_other_strategy(value):
@@ -100,14 +97,14 @@ def convert_to_other_strategy(value):
     try:
         return int(value)
     except ValueError:
-        raise TypeError("Invalid type")  # Expected: handling_strategy='convert_to_other'
+        raise TypeError("Invalid type")
 
 
 def multiple_exception_types(data):
     """Test catching multiple exception types."""
     try:
         process(data)
-    except (ValueError, TypeError):  # Expected: exception_types='ValueError,TypeError'
+    except (ValueError, TypeError):
         return None
 
 
@@ -123,13 +120,9 @@ def exception_with_variable(data):
     """Test exception with variable binding."""
     try:
         validate(data)
-    except ValueError as e:  # Expected: variable_name='e'
+    except ValueError as e:
         print(str(e))
 
-
-# ============================================================================
-# PATTERN 3: Finally Blocks
-# ============================================================================
 
 def cleanup_lock():
     """Test finally with cleanup call."""
@@ -137,7 +130,7 @@ def cleanup_lock():
     try:
         perform_operation()
     finally:
-        lock.release()  # Expected: cleanup_calls='lock.release', has_cleanup=True
+        lock.release()
 
 
 def cleanup_multiple():
@@ -147,7 +140,7 @@ def cleanup_multiple():
     try:
         process(file)
     finally:
-        file.close()  # Expected: cleanup_calls='file.close,lock.release', has_cleanup=True
+        file.close()
         lock.release()
 
 
@@ -156,7 +149,7 @@ def finally_no_cleanup():
     try:
         operation()
     finally:
-        pass  # Expected: cleanup_calls=None, has_cleanup=False
+        pass
 
 
 def finally_with_assignment():
@@ -164,12 +157,8 @@ def finally_with_assignment():
     try:
         compute()
     finally:
-        cleanup_resources()  # Expected: cleanup_calls='cleanup_resources', has_cleanup=True
+        cleanup_resources()
 
-
-# ============================================================================
-# PATTERN 4: Context Managers
-# ============================================================================
 
 def file_context_manager():
     """Test file context manager."""
@@ -181,6 +170,7 @@ def file_context_manager():
 def lock_context_manager():
     """Test lock context manager."""
     import threading
+
     lock = threading.Lock()
     with lock:  # Expected: resource_type='lock', variable_name=None, is_async=False
         critical_section()
@@ -188,77 +178,72 @@ def lock_context_manager():
 
 def database_context_manager():
     """Test database context manager."""
-    with db.session() as session:  # Expected: resource_type='database', variable_name='session', is_async=False
+    with (
+        db.session() as session
+    ):  # Expected: resource_type='database', variable_name='session', is_async=False
         session.query(User).all()
 
 
 async def async_context_manager():
     """Test async context manager."""
-    async with aiohttp.ClientSession() as session:  # Expected: resource_type='network', variable_name='session', is_async=True
+    async with (
+        aiohttp.ClientSession() as session
+    ):  # Expected: resource_type='network', variable_name='session', is_async=True
         await session.get("https://api.example.com")
 
 
 def multiple_context_managers():
     """Test multiple context managers."""
-    with open("input.txt") as f_in, open("output.txt", "w") as f_out:  # Expected: 2 records
+    with open("input.txt") as f_in, open("output.txt", "w") as f_out:
         data = f_in.read()
         f_out.write(data)
 
 
 def nested_context_managers():
     """Test nested context managers."""
-    with lock1:  # Expected: context_expr='lock1'
-        with lock2:  # Expected: context_expr='lock2'
+    with lock1:
+        with lock2:
             critical_operation()
 
 
-# ============================================================================
-# COMBINED PATTERNS (Complex Real-World Example)
-# ============================================================================
-
 def complex_exception_handling(file_path):
     """Test all patterns together."""
-    # Context manager
+
     try:
-        with open(file_path) as f:  # Context manager
+        with open(file_path) as f:
             data = f.read()
 
             if not data:
-                raise ValueError("Empty file")  # Exception raise
+                raise ValueError("Empty file")
 
             return process(data)
 
-    except FileNotFoundError as e:  # Exception catch with variable
+    except FileNotFoundError as e:
         print(f"File not found: {e}")
-        return None  # return_none strategy
+        return None
 
-    except ValueError:  # Exception catch without variable
-        raise  # re_raise strategy
+    except ValueError:
+        raise
 
     finally:
-        cleanup_temp_files()  # Finally block with cleanup
+        cleanup_temp_files()
 
 
 def transaction_pattern():
     """Test database transaction pattern."""
     try:
-        with db.transaction() as tx:  # Context manager (database)
+        with db.transaction() as tx:
             tx.execute("INSERT INTO users ...")
 
             if error_condition:
-                raise RuntimeError("Transaction failed")  # Exception raise
+                raise RuntimeError("Transaction failed")
 
     except RuntimeError:
-        # Error already logged by context manager
-        pass  # pass strategy
+        pass
 
     finally:
-        close_connection()  # Finally cleanup
+        close_connection()
 
-
-# ============================================================================
-# EDGE CASES
-# ============================================================================
 
 def empty_try_except():
     """Test empty try/except (valid Python)."""
@@ -272,7 +257,7 @@ def multiple_except_handlers():
     """Test multiple except clauses for same try."""
     try:
         operation()
-    except ValueError:  # Expected: 3 separate catch records
+    except ValueError:
         handle_value_error()
     except TypeError:
         handle_type_error()
@@ -282,10 +267,9 @@ def multiple_except_handlers():
 
 def raise_in_function_call():
     """Test raise inside function call (still detected)."""
-    # Note: Cannot use raise in lambda (SyntaxError), so this is a placeholder
+
     pass
 
 
-# Standalone raises (global scope) - should be detected with in_function='global'
 if __name__ == "__main__":
     raise NotImplementedError("This script should not be run directly")

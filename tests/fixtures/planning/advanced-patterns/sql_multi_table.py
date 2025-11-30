@@ -11,11 +11,11 @@ def get_user_order_summary(user_id):
     Query touches 3 tables: users, orders, order_items
     Should create 3 rows in sql_query_tables.
     """
-    conn = sqlite3.connect('app.db')
+    conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
 
-    # This query references 3 tables
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT u.username, u.email,
                o.id as order_id, o.total,
                oi.product_name, oi.quantity, oi.price
@@ -23,7 +23,9 @@ def get_user_order_summary(user_id):
         JOIN orders o ON u.id = o.user_id
         JOIN order_items oi ON o.id = oi.order_id
         WHERE u.id = ?
-    """, (user_id,))
+    """,
+        (user_id,),
+    )
 
     return cursor.fetchall()
 
@@ -33,16 +35,19 @@ def get_payment_with_user(payment_id):
     Query touches 2 tables: payments, users
     Should create 2 rows in sql_query_tables.
     """
-    conn = sqlite3.connect('app.db')
+    conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT p.amount, p.status,
                u.username, u.email
         FROM payments p
         JOIN users u ON p.user_id = u.id
         WHERE p.id = ?
-    """, (payment_id,))
+    """,
+        (payment_id,),
+    )
 
     return cursor.fetchone()
 
@@ -53,7 +58,7 @@ def admin_dashboard_stats():
     Should create 4 rows in sql_query_tables.
     Taint risk: All 4 tables contain sensitive data.
     """
-    conn = sqlite3.connect('app.db')
+    conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
 
     cursor.execute("""

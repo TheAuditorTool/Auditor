@@ -170,8 +170,6 @@ function addStatement(
       block_id: ctx.currentBlockId,
       statement_type: statementType,
       line: line,
-      // EXTRACTION FIX: Increased from 200 to 1000 chars.
-      // 200 was too short for complex conditionals, losing analysis context.
       text: truncateText(text, 1000),
     });
   }
@@ -186,7 +184,6 @@ function getNodeText(node: ts.Node, sourceFile: ts.SourceFile): string {
   if (isJsxNode(node)) {
     return flattenJsx(node, sourceFile);
   }
-  // EXTRACTION FIX: Increased from 200 to 1000 chars.
   return truncateText(node.getText(sourceFile), 1000);
 }
 

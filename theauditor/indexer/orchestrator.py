@@ -312,13 +312,12 @@ class IndexerOrchestrator:
                 print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
-        # JavaScript extractor build guard - same pattern as schema check
-        # NO FALLBACKS - if build fails, it fails loud
         js_guard = JavaScriptBuildGuard(get_js_project_path())
         if js_guard.ensure_up_to_date():
-            # Rebuild was triggered - exit so fresh code gets loaded on next run
-            print("[JS GUARD] Extractor rebuilt. Please re-run the indexing command", file=sys.stderr)
-            sys.exit(ExitCodes.SCHEMA_STALE)  # Reuse exit code - same concept
+            print(
+                "[JS GUARD] Extractor rebuilt. Please re-run the indexing command", file=sys.stderr
+            )
+            sys.exit(ExitCodes.SCHEMA_STALE)
 
         self.frameworks = self._detect_frameworks_inline()
 
@@ -363,8 +362,6 @@ class IndexerOrchestrator:
 
             self._process_file(file_info, js_ts_cache)
 
-            # Phase 0.1: Release AST from cache immediately after processing
-            # This allows GC to reclaim memory incrementally instead of holding all ASTs
             file_path = self.root_path / file_info["path"]
             file_str = str(file_path).replace("\\", "/")
             if file_str in js_ts_cache:
@@ -585,26 +582,23 @@ class IndexerOrchestrator:
                 if not extractor:
                     continue
 
-                # Phase 0.6: Partial success mode - extract what we can from failed parses
                 if isinstance(tree, dict) and tree.get("success") is False:
-                    # Check if we have partial extracted_data despite parse failure
                     partial_data = tree.get("extracted_data")
                     if not partial_data:
-                        # Check nested structure
-                        actual_tree = tree.get("tree") if tree.get("type") == "semantic_ast" else tree
+                        actual_tree = (
+                            tree.get("tree") if tree.get("type") == "semantic_ast" else tree
+                        )
                         if isinstance(actual_tree, dict):
                             partial_data = actual_tree.get("extracted_data")
 
                     if partial_data and isinstance(partial_data, dict):
-                        # Partial success: we have some extracted data
                         print(
                             f"[Indexer] JavaScript PARTIAL extraction for {file_path}: "
                             f"{tree.get('error')} - processing {len(partial_data)} data keys",
                             file=sys.stderr,
                         )
-                        # Continue with extraction using partial data
+
                     else:
-                        # Total failure: no extractable data
                         print(
                             f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}",
                             file=sys.stderr,
@@ -627,7 +621,6 @@ class IndexerOrchestrator:
                 jsx_counts["calls"] += len(extracted.get("function_calls", []))
                 jsx_counts["returns"] += len(extracted.get("returns", []))
 
-                # Phase 0.1: Release JSX AST from cache immediately after processing
                 if file_str in jsx_cache:
                     del jsx_cache[file_str]
 

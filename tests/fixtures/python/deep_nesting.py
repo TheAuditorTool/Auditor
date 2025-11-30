@@ -14,15 +14,13 @@ Validates that symbol extraction correctly handles:
 - Method inheritance visibility
 """
 
-# ==============================================================================
-# Deep Inheritance Chains (3+ levels)
-# ==============================================================================
 
 class BaseModel:
     """
     Root class of inheritance hierarchy.
     Tests: Base class extraction with no parent.
     """
+
     id = None
 
     def save(self):
@@ -44,6 +42,7 @@ class TimestampedModel(BaseModel):
     Level 1 inheritance: Extends BaseModel.
     Tests: Parent-child relationship resolution.
     """
+
     created_at = None
     updated_at = None
 
@@ -62,6 +61,7 @@ class SoftDeletableModel(TimestampedModel):
     Level 2 inheritance: Extends TimestampedModel (which extends BaseModel).
     Tests: Parent-of-parent resolution (BaseModel -> TimestampedModel -> SoftDeletableModel).
     """
+
     deleted_at = None
     is_deleted = False
 
@@ -87,6 +87,7 @@ class User(SoftDeletableModel):
     Level 3 inheritance: 3 levels deep (BaseModel -> TimestampedModel -> SoftDeletableModel -> User).
     Tests: Deep inheritance chain resolution - User inherits methods from all ancestors.
     """
+
     username = None
     email = None
     password_hash = None
@@ -112,15 +113,12 @@ class User(SoftDeletableModel):
         return self.username
 
 
-# ==============================================================================
-# Even Deeper Inheritance (4+ levels)
-# ==============================================================================
-
 class AdminUser(User):
     """
     Level 4 inheritance: 4 levels deep.
     Tests: Extreme depth - AdminUser inherits from 4 ancestors.
     """
+
     admin_level = None
     permissions = []
 
@@ -145,6 +143,7 @@ class SuperAdminUser(AdminUser):
     Level 5 inheritance: 5 levels deep!
     Tests: EXTREME depth - SuperAdminUser inherits from 5 ancestors.
     """
+
     can_delete_users = True
 
     def save(self):
@@ -157,10 +156,6 @@ class SuperAdminUser(AdminUser):
         if self.can_delete_users:
             user.soft_delete()
 
-
-# ==============================================================================
-# Multiple Inheritance (Diamond Problem)
-# ==============================================================================
 
 class Loggable:
     """Mixin for logging functionality."""
@@ -187,6 +182,7 @@ class AuditableModel(BaseModel, Loggable, Cacheable):
     Multiple inheritance: Inherits from BaseModel + 2 mixins.
     Tests: Multiple parent resolution (Diamond problem handling).
     """
+
     audit_log = []
 
     def save(self):
@@ -201,6 +197,7 @@ class AuditedUser(AuditableModel, TimestampedModel):
     Diamond inheritance: Both parents inherit from BaseModel.
     Tests: MRO (Method Resolution Order) - which parent's methods are called first.
     """
+
     username = None
 
     def save(self):
@@ -211,15 +208,12 @@ class AuditedUser(AuditableModel, TimestampedModel):
         return result
 
 
-# ==============================================================================
-# Deeply Nested Classes (3+ levels)
-# ==============================================================================
-
 class OuterClass:
     """
     Outer class - Level 0.
     Tests: Root of nested class hierarchy.
     """
+
     outer_attribute = "outer"
 
     def outer_method(self):
@@ -232,6 +226,7 @@ class OuterClass:
         Tests: First level of nesting.
         Symbol path should be: OuterClass.MiddleClass
         """
+
         middle_attribute = "middle"
 
         def middle_method(self):
@@ -244,6 +239,7 @@ class OuterClass:
             Tests: Second level of nesting.
             Symbol path should be: OuterClass.MiddleClass.InnerClass
             """
+
             inner_attribute = "inner"
 
             def inner_method(self):
@@ -256,6 +252,7 @@ class OuterClass:
                 Tests: THIRD level of nesting (children-of-children resolution).
                 Symbol path should be: OuterClass.MiddleClass.InnerClass.DeepNested
                 """
+
                 deep_attribute = "deep"
 
                 def deep_method(self):
@@ -264,27 +261,25 @@ class OuterClass:
 
                 def access_ancestors(self):
                     """Access attributes from ancestor nested classes."""
-                    # This tests that nested class can reference outer classes
+
                     outer = OuterClass()
                     middle = OuterClass.MiddleClass()
                     inner = OuterClass.MiddleClass.InnerClass()
                     return (outer, middle, inner)
 
 
-# ==============================================================================
-# Nested Classes With Inheritance
-# ==============================================================================
-
 class Container:
     """Container class with nested hierarchy."""
 
     class BaseHandler:
         """Nested base class."""
+
         def handle(self):
             return "base handling"
 
     class MiddleHandler(BaseHandler):
         """Nested class inheriting from nested parent."""
+
         def handle(self):
             return f"{super().handle()} + middle"
 
@@ -293,16 +288,14 @@ class Container:
         Nested class with 2-level inheritance (within nested hierarchy).
         Tests: Inheritance within nested classes.
         """
+
         def handle(self):
             return f"{super().handle()} + advanced"
 
 
-# ==============================================================================
-# Generic Base Classes
-# ==============================================================================
-
 class Repository:
     """Generic repository base."""
+
     model_class = None
 
     def find_by_id(self, id):
@@ -316,6 +309,7 @@ class Repository:
 
 class UserRepository(Repository):
     """User repository extending generic base."""
+
     model_class = User
 
     def find_by_username(self, username):
@@ -328,16 +322,13 @@ class AdminUserRepository(UserRepository):
     Admin user repository - 2 levels of inheritance.
     Tests: Repository pattern inheritance.
     """
+
     model_class = AdminUser
 
     def find_admins_with_level(self, level):
         """Admin-specific query."""
         return f"Finding admins with level {level}"
 
-
-# ==============================================================================
-# Abstract Method Patterns
-# ==============================================================================
 
 class AbstractService:
     """Abstract service base."""
@@ -390,16 +381,12 @@ class EnhancedUserService(UserService):
         return f"{base_result} with enhancements"
 
 
-# ==============================================================================
-# Metaclass Inheritance
-# ==============================================================================
-
 class ModelMeta(type):
     """Metaclass for models."""
 
     def __new__(cls, name, bases, attrs):
         """Customize class creation."""
-        attrs['_meta'] = {'class_name': name}
+        attrs["_meta"] = {"class_name": name}
         return super().__new__(cls, name, bases, attrs)
 
 
@@ -416,6 +403,7 @@ class MetaUser(MetaModel):
     User model with metaclass inheritance.
     Tests: Metaclass inheritance extraction.
     """
+
     username = None
 
     def get_info(self):

@@ -13,7 +13,4 @@ Circular dependency structure:
 - utils.py imports controllers (4-way chain)
 """
 
-# Note: We don't import anything here to avoid triggering circular imports at package level
-# Each module handles its own imports with appropriate guards
-
 __all__ = ["models", "services", "controllers", "utils"]

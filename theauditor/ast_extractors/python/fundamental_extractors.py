@@ -204,7 +204,7 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
         return lambda_functions
 
     function_ranges = context.function_ranges
-    all_nodes = context.walk_tree()  # Use cached walk_tree() from context
+    all_nodes = context.walk_tree()
 
     for node in all_nodes:
         if not isinstance(node, ast.Lambda):

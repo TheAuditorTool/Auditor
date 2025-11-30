@@ -22,7 +22,7 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes(ast.Call):
         if (
@@ -200,7 +200,7 @@ def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.walk_tree():
         if isinstance(node, ast.Constant) and node.value is ...:
@@ -233,7 +233,7 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
@@ -290,7 +290,7 @@ def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
     if not context.tree:
         return results
 
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):

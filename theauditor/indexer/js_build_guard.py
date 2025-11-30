@@ -46,18 +46,12 @@ class JavaScriptBuildGuard:
         """
         hasher = hashlib.sha256()
 
-        # Explicit list of files to watch (like codegen.py lines 19-31)
-        # NO directory walking with existence checks
         watch_files = [
-            # Config files
             self.js_project_path / "package.json",
             self.js_project_path / "tsconfig.json",
-            # Main entry points
             self.js_project_path / "src" / "main.ts",
             self.js_project_path / "src" / "schema.ts",
-            # Type definitions
             self.js_project_path / "src" / "types" / "index.ts",
-            # Extractors - explicit list
             self.js_project_path / "src" / "extractors" / "angular_extractors.ts",
             self.js_project_path / "src" / "extractors" / "bullmq_extractors.ts",
             self.js_project_path / "src" / "extractors" / "cfg_extractor.ts",
@@ -69,11 +63,9 @@ class JavaScriptBuildGuard:
             self.js_project_path / "src" / "extractors" / "sequelize_extractors.ts",
         ]
 
-        # Sort for deterministic ordering (like codegen.py line 33)
         for file_path in sorted(watch_files):
-            # Hash filename (structure changes matter)
             hasher.update(file_path.name.encode())
-            # Hash content - file MUST exist, no fallback
+
             hasher.update(file_path.read_bytes())
 
         return hasher.hexdigest()
@@ -95,11 +87,8 @@ class JavaScriptBuildGuard:
         """
         print("[JS GUARD] TypeScript sources changed. Rebuilding extractor...", file=sys.stderr)
 
-        # Windows vs Unix npm command
         npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
 
-        # Run build - NO pre-checks, NO fallbacks
-        # encoding="utf-8" required: npm outputs UTF-8, Windows defaults to cp1252
         result = subprocess.run(
             [npm_cmd, "run", "build"],
             cwd=str(self.js_project_path),
@@ -113,7 +102,6 @@ class JavaScriptBuildGuard:
             print(f"[JS GUARD] STDERR:\n{result.stderr}", file=sys.stderr)
             print(f"[JS GUARD] STDOUT:\n{result.stdout}", file=sys.stderr)
 
-            # Check if it's a node_modules issue and give clear instruction
             if "Cannot find module" in result.stderr or "node_modules" in result.stderr:
                 print(
                     "[JS GUARD] HINT: Run 'npm install' in theauditor/ast_extractors/javascript",
@@ -139,17 +127,15 @@ class JavaScriptBuildGuard:
             RuntimeError: If build fails
             FileNotFoundError: If source files missing
         """
-        # 1. Calculate current source hash - will raise if files missing
+
         current_hash = self.get_source_hash()
 
-        # 2. Check if artifact exists
         if not self.artifact_file.exists():
             print("[JS GUARD] Extractor artifact missing. Building...", file=sys.stderr)
             self.rebuild()
             self.signature_file.write_text(current_hash)
             return True
 
-        # 3. Check hash match
         stored_hash = self.get_stored_signature()
 
         if current_hash != stored_hash:
@@ -172,6 +158,5 @@ class JavaScriptBuildGuard:
 
 def get_js_project_path() -> Path:
     """Get the absolute path to the JavaScript extractor project."""
-    # This file is at: theauditor/indexer/js_build_guard.py
-    # JS project is at: theauditor/ast_extractors/javascript
+
     return (Path(__file__).parent.parent / "ast_extractors" / "javascript").resolve()

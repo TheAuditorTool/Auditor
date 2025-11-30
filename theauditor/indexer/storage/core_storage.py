@@ -208,7 +208,6 @@ class CoreStorage(BaseStorage):
         """
         skipped_count = 0
         for idx, symbol in enumerate(symbols):
-            # Validate symbol structure - log and skip bad ones instead of crashing
             if not isinstance(symbol, dict):
                 logger.warning(
                     f"EXTRACTOR BUG: Symbol at index {idx} must be dict, got {type(symbol).__name__}. "
@@ -276,7 +275,6 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["symbols"] += 1
 
-        # Log summary if any symbols were skipped
         if skipped_count > 0:
             logger.warning(
                 f"Skipped {skipped_count}/{len(symbols)} malformed symbols in {file_path}"
@@ -383,7 +381,6 @@ class CoreStorage(BaseStorage):
         skipped_count = 0
 
         for idx, assignment in enumerate(assignments):
-            # Validate assignment structure - log and skip bad ones instead of crashing
             if not isinstance(assignment, dict):
                 logger.warning(
                     f"EXTRACTOR BUG: Assignment at index {idx} must be dict, got {type(assignment).__name__}. "
@@ -392,7 +389,6 @@ class CoreStorage(BaseStorage):
                 skipped_count += 1
                 continue
 
-            # Check for duplicates - log and skip instead of crashing
             line_val = assignment.get("line", 0)
             target_var = assignment.get("target_var", "")
             key = (file_path, line_val, assignment.get("col", 0), target_var)
@@ -462,7 +458,6 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["assignments"] += 1
 
-        # Log summary if any assignments were skipped
         if skipped_count > 0:
             logger.warning(
                 f"Skipped {skipped_count}/{len(assignments)} malformed assignments in {file_path}"
@@ -477,7 +472,6 @@ class CoreStorage(BaseStorage):
         skipped_count = 0
 
         for idx, call in enumerate(function_calls):
-            # Validate call structure
             if not isinstance(call, dict):
                 logger.warning(
                     f"EXTRACTOR BUG: Call at index {idx} must be dict, got {type(call).__name__}. "
@@ -488,7 +482,11 @@ class CoreStorage(BaseStorage):
 
             callee = call.get("callee_function", "")
 
-            if not jsx_pass and callee and ("jwt" in callee.lower() or "jsonwebtoken" in callee.lower()):
+            if (
+                not jsx_pass
+                and callee
+                and ("jwt" in callee.lower() or "jsonwebtoken" in callee.lower())
+            ):
                 if ".sign" in callee:
                     if call.get("argument_index") == 1:
                         arg_expr = call.get("argument_expr", "")
@@ -574,7 +572,6 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["function_calls"] += 1
 
-        # Log summary if any calls were skipped
         if skipped_count > 0:
             logger.warning(
                 f"Skipped {skipped_count}/{len(function_calls)} malformed function calls in {file_path}"
@@ -590,7 +587,6 @@ class CoreStorage(BaseStorage):
         skipped_count = 0
 
         for idx, ret in enumerate(returns):
-            # Validate return structure
             if not isinstance(ret, dict):
                 logger.warning(
                     f"EXTRACTOR BUG: Return at index {idx} must be dict, got {type(ret).__name__}. "
@@ -602,7 +598,6 @@ class CoreStorage(BaseStorage):
             line_val = ret.get("line", 0)
             func_name = ret.get("function_name", "")
 
-            # Check for duplicates - log and skip instead of crashing
             key = (file_path, line_val, ret.get("col", 0), func_name)
             if key in seen:
                 logger.warning(
@@ -661,7 +656,6 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["returns"] += 1
 
-        # Log summary if any returns were skipped
         if skipped_count > 0:
             logger.warning(
                 f"Skipped {skipped_count}/{len(returns)} malformed returns in {file_path}"
@@ -795,7 +789,6 @@ class CoreStorage(BaseStorage):
         skipped_count = 0
 
         for idx, usage in enumerate(env_var_usage):
-            # Validate usage structure
             if not isinstance(usage, dict):
                 logger.warning(
                     f"EXTRACTOR BUG: env_var_usage at index {idx} must be dict, got {type(usage).__name__}. "
@@ -830,7 +823,6 @@ class CoreStorage(BaseStorage):
                 self.counts["env_var_usage"] = 0
             self.counts["env_var_usage"] += 1
 
-        # Log summary if any env_var usages were skipped
         if skipped_count > 0:
             logger.warning(
                 f"Skipped {skipped_count}/{len(env_var_usage)} malformed env_var_usage in {file_path}"

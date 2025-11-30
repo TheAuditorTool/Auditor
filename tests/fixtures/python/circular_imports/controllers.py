@@ -10,8 +10,6 @@ Tests extraction when:
 Validates that import resolution handles complex circular dependency graphs.
 """
 
-
-# Import from both modules that have circular dependency with each other
 from models import Comment, Post, User
 from services import CommentService, PostService, UserService
 
@@ -27,7 +25,7 @@ class UserController:
         Get user by ID.
         Tests: Method returning circularly imported model.
         """
-        # Would fetch from database
+
         user = User(user_id=user_id, username="user", email="user@example.com")
         return user
 
@@ -38,7 +36,6 @@ class UserController:
         """
         user = User(user_id=0, username=username, email=email)
 
-        # Get service for the user (circular: User → UserService)
         user.get_service()
 
         return user
@@ -61,16 +58,13 @@ class UserController:
         """
         user = self.get_user(user_id)
         if user:
-            # Get user's posts
             service = UserService(user)
             posts = service.get_user_posts()
 
-            # Delete each post (involves PostService, CommentService)
             for post in posts:
                 post_controller = PostController()
                 post_controller.delete_post(post.post_id)
 
-            # Delete user
             return True
         return False
 
@@ -83,26 +77,15 @@ class PostController:
 
     def get_post(self, post_id: int) -> Post | None:
         """Get post by ID."""
-        return Post(
-            post_id=post_id,
-            author_id=1,
-            title="Sample Post",
-            content="Content"
-        )
+        return Post(post_id=post_id, author_id=1, title="Sample Post", content="Content")
 
     def create_post(self, author_id: int, title: str, content: str) -> Post:
         """
         Create new post.
         Tests: Method creating Post model (circular import).
         """
-        post = Post(
-            post_id=0,
-            author_id=author_id,
-            title=title,
-            content=content
-        )
+        post = Post(post_id=0, author_id=author_id, title=title, content=content)
 
-        # Get author user (circular: Post → User via author)
         post.get_author()
 
         return post
@@ -127,11 +110,8 @@ class PostController:
         """
         post = self.get_post(post_id)
         if post:
-            # Delete comments first
             comment_service = CommentService(post_id)
             comment_service.get_comments()
-
-            # Would delete each comment
 
             return True
         return False
@@ -145,12 +125,7 @@ class CommentController:
 
     def create_comment(self, post_id: int, author_id: int, text: str) -> Comment:
         """Create comment."""
-        return Comment(
-            comment_id=0,
-            post_id=post_id,
-            author_id=author_id,
-            text=text
-        )
+        return Comment(comment_id=0, post_id=post_id, author_id=author_id, text=text)
 
     def get_comment_author(self, comment: Comment) -> User | None:
         """

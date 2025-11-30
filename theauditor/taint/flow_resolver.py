@@ -21,9 +21,8 @@ USERCODE_MAX_VISITS = 10
 class FlowResolver:
     """Resolves ALL control flows in codebase to populate resolved_flow_audit table."""
 
-    # Phase 0.3: LRU cache sizes for lazy graph loading
-    SUCCESSORS_CACHE_SIZE = 10_000  # Most traversals touch <10k unique nodes
-    EDGE_TYPE_CACHE_SIZE = 20_000   # Edge types queried frequently during path recording
+    SUCCESSORS_CACHE_SIZE = 10_000
+    EDGE_TYPE_CACHE_SIZE = 20_000
 
     def __init__(self, repo_db: str, graph_db: str, registry=None):
         """Initialize the flow resolver with database connections."""
@@ -40,10 +39,6 @@ class FlowResolver:
         self.max_flows_per_entry = 1_000
 
         self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=registry)
-
-        # Phase 0.3: Removed eager loading of adjacency_list and edge_types
-        # Now using lazy @lru_cache decorated methods for on-demand queries
-        # Memory: O(cache_size) instead of O(all_edges)
 
         self.best_paths_cache: dict[tuple, int] = {}
 
@@ -452,10 +447,13 @@ class FlowResolver:
         Returns tuple for lru_cache hashability.
         """
         cursor = self.graph_conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT target FROM edges
             WHERE source = ? AND graph_type = 'data_flow'
-        """, (node_id,))
+        """,
+            (node_id,),
+        )
 
         return tuple(row[0] for row in cursor.fetchall())
 
@@ -537,8 +535,6 @@ class FlowResolver:
 
         source_line = 0
 
-        # Query assignment_source_vars (RHS of assignments) not assignments.target_var (LHS)
-        # Source patterns like req.body, useAuth are SOURCE expressions, not target variables
         repo_cursor.execute(
             """
             SELECT MIN(line) FROM assignment_source_vars
@@ -553,10 +549,6 @@ class FlowResolver:
         sink_line = 0
         sink_function = sink_parts[1] if len(sink_parts) > 1 else "global"
 
-        # Query function_call_args and function_call_args_jsx for sink line
-        # Sink patterns can be in:
-        # - argument_expr (the pattern is passed as an argument)
-        # - callee_function (the pattern IS the function being called, e.g. useState, setX)
         repo_cursor.execute(
             """
             SELECT MIN(line) FROM (
@@ -570,8 +562,16 @@ class FlowResolver:
             )
         """,
             (
-                sink_file, f"%{sink_pattern}%", f"%{sink_pattern}%", sink_function, sink_function,
-                sink_file, f"%{sink_pattern}%", f"%{sink_pattern}%", sink_function, sink_function,
+                sink_file,
+                f"%{sink_pattern}%",
+                f"%{sink_pattern}%",
+                sink_function,
+                sink_function,
+                sink_file,
+                f"%{sink_pattern}%",
+                f"%{sink_pattern}%",
+                sink_function,
+                sink_function,
             ),
         )
         result = repo_cursor.fetchone()
@@ -588,7 +588,6 @@ class FlowResolver:
             }
             hop_chain.append(hop)
 
-        # TAINT FIX T4: Dynamic vulnerability classification instead of hardcoded "unknown"
         vuln_type = self._determine_vuln_type(sink_pattern, source_pattern)
 
         cursor.execute(
@@ -639,83 +638,156 @@ class FlowResolver:
         lower_sink = sink_pattern.lower()
         lower_source = (source_pattern or "").lower()
 
-        # XSS patterns - DOM manipulation and HTML output
         xss_patterns = [
-            "innerhtml", "outerhtml", "dangerouslysetinnerhtml", "insertadjacenthtml",
-            "document.write", "document.writeln", "res.send", "res.render", "res.write",
-            "response.write", "response.send", "sethtml", "v-html", "ng-bind-html",
-            "__html", "createelement", "appendchild", "insertbefore",
+            "innerhtml",
+            "outerhtml",
+            "dangerouslysetinnerhtml",
+            "insertadjacenthtml",
+            "document.write",
+            "document.writeln",
+            "res.send",
+            "res.render",
+            "res.write",
+            "response.write",
+            "response.send",
+            "sethtml",
+            "v-html",
+            "ng-bind-html",
+            "__html",
+            "createelement",
+            "appendchild",
+            "insertbefore",
         ]
         if any(p in lower_sink for p in xss_patterns):
             return "Cross-Site Scripting (XSS)"
 
-        # SQL Injection patterns
         sql_patterns = [
-            "query", "execute", "exec", "raw", "sequelize.query", "knex.raw",
-            "prisma.$queryraw", "prisma.$executeraw", "cursor.execute", "conn.execute",
-            "db.query", "pool.query", "client.query", "sql", "rawquery",
+            "query",
+            "execute",
+            "exec",
+            "raw",
+            "sequelize.query",
+            "knex.raw",
+            "prisma.$queryraw",
+            "prisma.$executeraw",
+            "cursor.execute",
+            "conn.execute",
+            "db.query",
+            "pool.query",
+            "client.query",
+            "sql",
+            "rawquery",
         ]
         if any(p in lower_sink for p in sql_patterns):
             return "SQL Injection"
 
-        # Command Injection patterns
         cmd_patterns = [
-            "exec", "execsync", "spawn", "spawnsync", "child_process",
-            "shellexecute", "popen", "system", "subprocess", "os.system",
-            "os.popen", "subprocess.run", "subprocess.call", "subprocess.popen",
-            "eval", "function(", "new function",
+            "exec",
+            "execsync",
+            "spawn",
+            "spawnsync",
+            "child_process",
+            "shellexecute",
+            "popen",
+            "system",
+            "subprocess",
+            "os.system",
+            "os.popen",
+            "subprocess.run",
+            "subprocess.call",
+            "subprocess.popen",
+            "eval",
+            "function(",
+            "new function",
         ]
         if any(p in lower_sink for p in cmd_patterns):
-            # Distinguish eval from exec
             if "eval" in lower_sink or "function(" in lower_sink:
                 return "Code Injection"
             return "Command Injection"
 
-        # Path Traversal patterns
         path_patterns = [
-            "readfile", "writefile", "readfilesync", "writefilesync",
-            "createreadstream", "createwritestream", "fs.read", "fs.write",
-            "open(", "path.join", "path.resolve", "sendfile", "download",
-            "unlink", "rmdir", "mkdir", "rename", "copy", "move",
+            "readfile",
+            "writefile",
+            "readfilesync",
+            "writefilesync",
+            "createreadstream",
+            "createwritestream",
+            "fs.read",
+            "fs.write",
+            "open(",
+            "path.join",
+            "path.resolve",
+            "sendfile",
+            "download",
+            "unlink",
+            "rmdir",
+            "mkdir",
+            "rename",
+            "copy",
+            "move",
         ]
         if any(p in lower_sink for p in path_patterns):
             return "Path Traversal"
 
-        # SSRF patterns
         ssrf_patterns = [
-            "fetch", "axios", "request", "http.get", "http.request",
-            "https.get", "https.request", "urllib", "requests.get",
-            "requests.post", "curl", "httpx",
+            "fetch",
+            "axios",
+            "request",
+            "http.get",
+            "http.request",
+            "https.get",
+            "https.request",
+            "urllib",
+            "requests.get",
+            "requests.post",
+            "curl",
+            "httpx",
         ]
         if any(p in lower_sink for p in ssrf_patterns):
             return "Server-Side Request Forgery (SSRF)"
 
-        # Prototype Pollution (JS-specific)
         proto_patterns = [
-            "__proto__", "constructor.prototype", "object.assign", "merge(",
-            "extend(", "deepmerge", "lodash.merge", "$.extend",
+            "__proto__",
+            "constructor.prototype",
+            "object.assign",
+            "merge(",
+            "extend(",
+            "deepmerge",
+            "lodash.merge",
+            "$.extend",
         ]
         if any(p in lower_sink for p in proto_patterns):
             return "Prototype Pollution"
 
-        # Log Injection
         log_patterns = [
-            "console.log", "console.error", "console.warn", "logger.",
-            "logging.", "log.info", "log.error", "log.debug",
+            "console.log",
+            "console.error",
+            "console.warn",
+            "logger.",
+            "logging.",
+            "log.info",
+            "log.error",
+            "log.debug",
         ]
         if any(p in lower_sink for p in log_patterns):
             return "Log Injection"
 
-        # Redirect / Open Redirect
         redirect_patterns = [
-            "redirect", "location.href", "location.assign", "location.replace",
-            "res.redirect", "window.location",
+            "redirect",
+            "location.href",
+            "location.assign",
+            "location.replace",
+            "res.redirect",
+            "window.location",
         ]
         if any(p in lower_sink for p in redirect_patterns):
             return "Open Redirect"
 
-        # Default - check source pattern for hints
-        if "req.body" in lower_source or "req.params" in lower_source or "req.query" in lower_source:
+        if (
+            "req.body" in lower_source
+            or "req.params" in lower_source
+            or "req.query" in lower_source
+        ):
             return "Unvalidated Input"
         if "user" in lower_source or "input" in lower_source:
             return "Unvalidated Input"
@@ -733,11 +805,14 @@ class FlowResolver:
     def _get_edge_type_cached(self, from_node: str, to_node: str) -> str:
         """Internal cached query for edge type."""
         cursor = self.graph_conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT type FROM edges
             WHERE source = ? AND target = ? AND graph_type = 'data_flow'
             LIMIT 1
-        """, (from_node, to_node))
+        """,
+            (from_node, to_node),
+        )
 
         row = cursor.fetchone()
         return row[0] if row and row[0] else "unknown"

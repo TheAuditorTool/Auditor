@@ -1,6 +1,5 @@
 """Typed configuration module to feed import resolution and annotations."""
 
-
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final

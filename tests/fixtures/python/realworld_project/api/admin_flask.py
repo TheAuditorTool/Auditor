@@ -1,6 +1,5 @@
 """Flask blueprint to mirror admin-style routes."""
 
-
 from collections.abc import Callable
 from functools import wraps
 from typing import Any

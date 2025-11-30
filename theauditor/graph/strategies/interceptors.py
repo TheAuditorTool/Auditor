@@ -63,14 +63,11 @@ class InterceptorStrategy:
         if not cursor.fetchone():
             return
 
-        # GRAPH FIX G2: Preload import_styles for exact controller resolution
-        # Without this, LIKE %.methodName matches multiple controllers
         import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
         cursor.execute("SELECT file, package, alias_name FROM import_styles")
         for row in cursor.fetchall():
             import_styles_map[row["file"]][row["alias_name"]] = row["package"]
 
-        # GRAPH FIX G2: Preload symbols by name for exact lookup
         symbols_by_name: dict[str, list[dict]] = defaultdict(list)
         cursor.execute("""
             SELECT path, name, type
@@ -78,11 +75,13 @@ class InterceptorStrategy:
             WHERE type IN ('function', 'class')
         """)
         for row in cursor.fetchall():
-            symbols_by_name[row["name"]].append({
-                "path": row["path"],
-                "name": row["name"],
-                "type": row["type"],
-            })
+            symbols_by_name[row["name"]].append(
+                {
+                    "path": row["path"],
+                    "name": row["name"],
+                    "type": row["type"],
+                }
+            )
 
         cursor.execute("""
             SELECT
@@ -129,7 +128,6 @@ class InterceptorStrategy:
                 raw_expr = item["handler_expr"] or "unknown"
                 clean_func = raw_expr.split("(")[0].strip()
 
-                # GRAPH FIX G2: Keep both object name and method name for exact resolution
                 object_name = None
                 method_name = clean_func
                 if "." in clean_func:
@@ -381,11 +379,11 @@ class InterceptorStrategy:
         1. Look up where the object was imported from
         2. Find the method in THAT specific file only
         """
-        # If no object name, try direct method lookup
+
         if not object_name:
             if method_name in symbols_by_name:
                 candidates = symbols_by_name[method_name]
-                # Prefer controller paths
+
                 for sym in candidates:
                     if "controller" in sym["path"].lower():
                         return (sym["name"], sym["path"])
@@ -393,12 +391,10 @@ class InterceptorStrategy:
                     return (candidates[0]["name"], candidates[0]["path"])
             return (method_name, None)
 
-        # Step 1: Find import package for the object
         file_imports = import_styles_map.get(route_file, {})
         import_package = file_imports.get(object_name)
 
         if not import_package:
-            # Object not imported - try direct method lookup with preference
             if method_name in symbols_by_name:
                 candidates = symbols_by_name[method_name]
                 for sym in candidates:
@@ -408,27 +404,24 @@ class InterceptorStrategy:
                     return (candidates[0]["name"], candidates[0]["path"])
             return (method_name, None)
 
-        # Step 2: Look for method in symbols - prefer matches from import path
         full_method_name = f"{object_name}.{method_name}"
 
-        # Try full qualified name first
         if full_method_name in symbols_by_name:
             candidates = symbols_by_name[full_method_name]
-            # Prefer candidate whose path matches the import package
+
             for sym in candidates:
                 if import_package in sym["path"]:
                     return (sym["name"], sym["path"])
             if candidates:
                 return (candidates[0]["name"], candidates[0]["path"])
 
-        # Try just method name with path filtering
         if method_name in symbols_by_name:
             candidates = symbols_by_name[method_name]
-            # EXACT match: only candidates from the imported package path
+
             for sym in candidates:
                 if import_package in sym["path"]:
                     return (f"{object_name}.{method_name}", sym["path"])
-            # No exact path match - prefer controllers
+
             for sym in candidates:
                 if "controller" in sym["path"].lower():
                     return (sym["name"], sym["path"])

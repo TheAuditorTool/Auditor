@@ -41,7 +41,7 @@ def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
         return for_loops
 
     function_ranges = context.function_ranges
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes(ast.For):
         loop_type = "plain"
@@ -88,7 +88,7 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
         return while_loops
 
     function_ranges = context.function_ranges
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes(ast.While):
         is_infinite = False
@@ -143,7 +143,7 @@ def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
         return if_statements
 
     function_ranges = context.function_ranges
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     processed = set()
 
@@ -240,7 +240,7 @@ def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
         return flow_control
 
     function_ranges = context.function_ranges
-    parent_map = context.parent_map  # Use cached parent_map from context
+    parent_map = context.parent_map
 
     for node in context.find_nodes((ast.Break, ast.Continue, ast.Pass)):
         if isinstance(node, ast.Break):

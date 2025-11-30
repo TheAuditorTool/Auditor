@@ -227,9 +227,6 @@ class JavaScriptResolversMixin:
                 f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
             )
 
-        # NOTE: Path aliases removed - TypeScript resolver now handles tsconfig paths
-        # via getAliasedSymbol(). No Python guessing needed.
-
         updates = []
         resolved_count = 0
         unresolved_count = 0
@@ -242,8 +239,6 @@ class JavaScriptResolversMixin:
                 target_handler = bind_match.group(1)
 
             if "(" in target_handler:
-                # NOTE: Hardcoded type_wrappers list removed - TypeScript resolver
-                # now handles wrapper functions via getAliasedSymbol()
                 func_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", target_handler)
                 func_name = func_match.group(1) if func_match else None
 
@@ -309,7 +304,6 @@ class JavaScriptResolversMixin:
 
             resolved_path = None
 
-            # NOTE: path_aliases loop removed - TypeScript resolver handles tsconfig paths
             if module_path.startswith("."):
                 route_dir = "/".join(route_file.split("/")[:-1])
                 if module_path.startswith("./"):
@@ -480,10 +474,6 @@ class JavaScriptResolversMixin:
         if debug:
             print(f"[IMPORT RESOLUTION] Loaded {len(indexed_paths)} indexed JS/TS paths")
 
-        # NOTE: _load_path_aliases() deleted - TypeScript resolver handles tsconfig paths
-        # via getAliasedSymbol(). Python guessing @/ and ~/ aliases is harmful.
-
-        # NOTE: @/% and ~/% removed - TypeScript handles tsconfig path aliases
         cursor.execute("""
             SELECT rowid, file, package FROM import_styles
             WHERE package LIKE './%'

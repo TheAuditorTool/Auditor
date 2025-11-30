@@ -1091,7 +1091,7 @@ async def run_full_pipeline(
                         for line in result.stdout.strip().split("\n")[:10]:
                             renderer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
-                    # Log stderr on failure to expose error messages
+
                     if not result.success and result.stderr:
                         for line in result.stderr.strip().split("\n")[:10]:
                             renderer.on_log(f"  [ERROR] {line}", is_error=True)

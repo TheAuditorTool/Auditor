@@ -59,7 +59,6 @@ def create_bidirectional_graph_edges(
 
     edges = []
 
-    # Forward edge
     forward = GraphEdge(
         source=source,
         target=target,
@@ -70,7 +69,6 @@ def create_bidirectional_graph_edges(
     )
     edges.append(forward)
 
-    # Reverse edge for backward traversal
     reverse_meta = metadata.copy()
     reverse_meta["is_reverse"] = True
     reverse_meta["original_type"] = edge_type
@@ -523,7 +521,7 @@ class XGraphBuilder:
                         "resolved": resolved_norm or raw_value,
                         "resolved_exists": resolved_exists,
                     }
-                    # GRAPH FIX G3: Create bidirectional edges for IFDS traversal
+
                     new_edges = create_bidirectional_graph_edges(
                         source=module_node.id,
                         target=target_id,
@@ -804,7 +802,6 @@ class XGraphBuilder:
                     if target_module:
                         edge_metadata["callee_module"] = target_module
 
-                    # GRAPH FIX G3: Create bidirectional edges for IFDS traversal
                     new_edges = create_bidirectional_graph_edges(
                         source=caller_node.id,
                         target=callee_node.id,

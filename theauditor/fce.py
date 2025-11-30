@@ -410,7 +410,6 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
         extra_opt = f"--basetemp={pytest_temp_str}"
         env["PYTEST_ADDOPTS"] = f"{existing_opts} {extra_opt}".strip()
 
-    # Windows needs shell=True for npm/gradle/etc (they're .cmd files)
     use_shell = os.name == "nt" and tool_name in ("npm", "npx", "gradle", "mvn")
 
     with (

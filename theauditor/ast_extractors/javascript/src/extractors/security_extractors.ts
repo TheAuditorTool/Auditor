@@ -109,11 +109,20 @@ export function extractAPIEndpoints(
     const receiver = parts.slice(0, -1).join(".").toLowerCase();
     const method = parts[parts.length - 1];
 
-    // EXTRACTION FIX: Expanded to detect routes from modern Node.js frameworks.
-    // Previously only Express patterns; missed Fastify, Koa, Hapi, NestJS, Hono, etc.
     const ROUTER_PATTERNS = [
-      "router", "app", "express", "server", "route",
-      "fastify", "koa", "hapi", "nest", "hono", "elysia", "oak", "polka"
+      "router",
+      "app",
+      "express",
+      "server",
+      "route",
+      "fastify",
+      "koa",
+      "hapi",
+      "nest",
+      "hono",
+      "elysia",
+      "oak",
+      "polka",
     ];
     const isRouter = ROUTER_PATTERNS.some((p) => receiver.includes(p));
 
@@ -491,30 +500,35 @@ export function extractSQLQueries(
     const argExpr = call.argument_expr || "";
     if (!argExpr) continue;
 
-    // EXTRACTION FIX EXT-002: Capture SQL queries even when passed as variables
-    // Previously skipped if resolveSQLLiteral returned null (variable case)
-    // Now we capture these as "dynamic_sql" for taint analysis to track
-
     const upperArg = argExpr.toUpperCase();
-    const hasSQLKeyword = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"].some(
-      (kw) => upperArg.includes(kw),
-    );
+    const hasSQLKeyword = [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "CREATE",
+      "DROP",
+      "ALTER",
+    ].some((kw) => upperArg.includes(kw));
 
     const queryText = resolveSQLLiteral(argExpr);
 
-    // If it's a string literal with SQL keywords, use the resolved text
     if (queryText && hasSQLKeyword) {
       queries.push({
         line: call.line,
         query_text: queryText.substring(0, 1000),
         function_name: call.caller_function || null,
       });
-    }
-    // If it's a variable or template with interpolation, still capture it
-    // This catches patterns like: db.query(sqlVar) or db.query(`SELECT * FROM ${table}`)
-    else if (!queryText && argExpr.trim()) {
-      // Check if the method name strongly suggests SQL execution
-      const strongSQLMethods = ["query", "execute", "exec", "raw", "executeSql", "executeQuery", "query_raw"];
+    } else if (!queryText && argExpr.trim()) {
+      const strongSQLMethods = [
+        "query",
+        "execute",
+        "exec",
+        "raw",
+        "executeSql",
+        "executeQuery",
+        "query_raw",
+      ];
       if (strongSQLMethods.includes(methodName)) {
         queries.push({
           line: call.line,
@@ -755,27 +769,26 @@ export function extractFrontendApiCalls(
   const apiCalls: IFrontendAPICall[] = [];
   const debug = process.env.THEAUDITOR_DEBUG === "1";
 
-  // Top-level debug to confirm function is called
   if (debug) {
     console.error(
       `[API_DEBUG] extractFrontendApiCalls called with ${functionCallArgs.length} function call args`,
     );
-    // Show some axios-like calls
     const axiosCalls = functionCallArgs.filter(
       (c) => c.callee_function && c.callee_function.includes("axios"),
     );
     console.error(`[API_DEBUG] Found ${axiosCalls.length} axios-related calls`);
-    axiosCalls.slice(0, 5).forEach((c) =>
-      console.error(
-        `[API_DEBUG]   - ${c.callee_function} @ line ${c.line}, arg_idx=${c.argument_index}, expr=${c.argument_expr?.substring(0, 50)}`,
-      ),
-    );
+    axiosCalls
+      .slice(0, 5)
+      .forEach((c) =>
+        console.error(
+          `[API_DEBUG]   - ${c.callee_function} @ line ${c.line}, arg_idx=${c.argument_index}, expr=${c.argument_expr?.substring(0, 50)}`,
+        ),
+      );
   }
 
   function parseUrl(call: IFunctionCallArg): string | null {
     if (call.argument_index === 0 && call.argument_expr) {
       let url = call.argument_expr.trim();
-      // Strip surrounding quotes/backticks
       if (
         (url.startsWith("'") && url.endsWith("'")) ||
         (url.startsWith('"') && url.endsWith('"')) ||
@@ -783,7 +796,6 @@ export function extractFrontendApiCalls(
       ) {
         url = url.slice(1, -1);
       }
-      // Accept any non-empty URL - don't require leading slash
       if (url.length > 0) {
         return url.split("?")[0];
       }
@@ -872,7 +884,6 @@ export function extractFrontendApiCalls(
       }
       method = "GET";
     } else if (callee === "axios.post" && args[0]) {
-      // FIX: args[1] is optional - POST can be called without body
       url = parseUrl(args[0]);
       if (!url) {
         if (debug)
@@ -888,7 +899,6 @@ export function extractFrontendApiCalls(
     } else if (
       (callee === "axios.put" || callee === "axios.patch") &&
       args[0]
-      // FIX: args[1] is optional - PUT/PATCH can be called without body
     ) {
       url = parseUrl(args[0]);
       if (!url) {

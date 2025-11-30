@@ -224,17 +224,11 @@ class NodeExpressStrategy(GraphStrategy):
                 stats["failed_resolutions"] += 1
                 continue
 
-            # GRAPH FIX G5: Handle method chaining (e.g., services.users.update)
-            # For chained methods, try multiple resolution strategies:
-            # 1. Full method name (users.update)
-            # 2. Last segment only (update) filtered by import path
-            # 3. Full chain as symbol name (services.users.update)
             symbol_result = None
 
-            # Strategy 1: Try method_name as-is (handles Class.method patterns)
             if method_name in symbols_by_name:
                 candidates = symbols_by_name[method_name]
-                # Prefer candidates matching the import path
+
                 for sym in candidates:
                     if import_package and import_package in sym["path"]:
                         symbol_result = sym
@@ -247,27 +241,24 @@ class NodeExpressStrategy(GraphStrategy):
                 if not symbol_result and candidates:
                     symbol_result = candidates[0]
 
-            # Strategy 2: For chained methods (users.update), try just the last segment
             if not symbol_result and "." in method_name:
                 final_method = method_name.rsplit(".", 1)[-1]
                 if final_method in symbols_by_name:
                     candidates = symbols_by_name[final_method]
-                    # MUST filter by import path to avoid false matches
+
                     for sym in candidates:
                         if import_package and import_package in sym["path"]:
                             symbol_result = sym
                             break
-                    # Also try partial path matches (services/users -> update)
+
                     if not symbol_result:
                         chain_parts = method_name.split(".")
                         for sym in candidates:
-                            # Check if path contains the chain segments
                             path_lower = sym["path"].lower()
                             if all(part.lower() in path_lower for part in chain_parts[:-1]):
                                 symbol_result = sym
                                 break
 
-            # Strategy 3: Try full qualified name
             if not symbol_result:
                 full_name = f"{object_name}.{method_name}"
                 if full_name in symbols_by_name:
@@ -276,11 +267,8 @@ class NodeExpressStrategy(GraphStrategy):
                         symbol_result = candidates[0]
 
             if not symbol_result:
-                # PHASE 1 FIX: Create ghost node instead of silently dropping.
-                # Graph should show unresolved references so analysis can flag them.
                 stats["failed_resolutions"] += 1
 
-                # Create ghost node for unresolved controller
                 ghost_id = f"UNRESOLVED::{object_name}.{method_name}"
                 if ghost_id not in nodes:
                     nodes[ghost_id] = DFGNode(
@@ -296,7 +284,6 @@ class NodeExpressStrategy(GraphStrategy):
                         },
                     )
 
-                # Still create edges to the ghost node
                 for suffix in ["req", "req.body", "req.params", "req.query", "res"]:
                     source_id = f"{route_file}::{handler_expr}::{suffix}"
                     if source_id not in nodes:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 CLI Smoke Test Suite for TheAuditor
 ====================================
@@ -41,15 +40,16 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-# Add project root to path for imports
+
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Optional rich support for prettier output
+
 try:
     from rich.console import Console
     from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
     from rich.table import Table
+
     RICH_AVAILABLE = True
     console = Console()
 except ImportError:
@@ -59,6 +59,7 @@ except ImportError:
 
 class TestStatus(str, Enum):
     """Test result status."""
+
     PASS = "PASS"
     FAIL = "FAIL"
     SKIP = "SKIP"
@@ -68,6 +69,7 @@ class TestStatus(str, Enum):
 
 class FailureCategory(str, Enum):
     """Categorize failures for better debugging."""
+
     NONE = "none"
     IMPORT_ERROR = "import_error"
     MISSING_REQUIRED_ARG = "missing_required_arg"
@@ -82,8 +84,9 @@ class FailureCategory(str, Enum):
 @dataclass
 class CommandParam:
     """Represents a Click command parameter."""
+
     name: str
-    param_type: str  # "Option" or "Argument"
+    param_type: str
     required: bool
     is_flag: bool
     default: Any
@@ -94,8 +97,9 @@ class CommandParam:
 @dataclass
 class CommandInfo:
     """Full information about a CLI command."""
-    full_name: str  # e.g., "aud graph build"
-    name: str  # e.g., "build"
+
+    full_name: str
+    name: str
     is_group: bool
     parent: str | None
     params: list[CommandParam] = field(default_factory=list)
@@ -107,6 +111,7 @@ class CommandInfo:
 @dataclass
 class TestResult:
     """Result of a single test."""
+
     status: TestStatus
     exit_code: int | None
     duration_ms: float
@@ -119,6 +124,7 @@ class TestResult:
 @dataclass
 class CommandTestResults:
     """All test results for a single command."""
+
     command: str
     command_info: CommandInfo
     help_test: TestResult | None = None
@@ -130,6 +136,7 @@ class CommandTestResults:
 @dataclass
 class TestSuiteResults:
     """Complete test suite results."""
+
     timestamp: str
     duration_seconds: float
     total_commands: int
@@ -146,20 +153,12 @@ class TestSuiteResults:
 class CLISmokeTest:
     """Main CLI smoke test runner."""
 
-    # Fixtures file path (external YAML/JSON)
     FIXTURES_FILE = PROJECT_ROOT / "scripts" / "smoke_fixtures.json"
 
-    # Commands to skip entirely (known broken, deprecated, or dangerous)
-    SKIP_COMMANDS: set[str] = {
-        # Add commands that should be skipped
-    }
+    SKIP_COMMANDS: set[str] = {}
 
-    # Commands that are expected to fail without args (not a bug)
-    EXPECTED_NO_ARGS_FAIL: set[str] = {
-        # Commands that legitimately require arguments
-    }
+    EXPECTED_NO_ARGS_FAIL: set[str] = {}
 
-    # Timeout settings (seconds)
     HELP_TIMEOUT = 10
     NO_ARGS_TIMEOUT = 30
     FIXTURE_TIMEOUT = 60
@@ -181,14 +180,11 @@ class CLISmokeTest:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.use_subprocess = use_subprocess
 
-        # Load external fixtures
         self.test_fixtures = self._load_fixtures()
 
-        # Results storage
         self.commands: list[CommandInfo] = []
         self.results: list[CommandTestResults] = []
 
-        # Click imports (lazy loaded)
         self._cli = None
         self._runner = None
 
@@ -198,7 +194,6 @@ class CLISmokeTest:
             with open(self.FIXTURES_FILE) as f:
                 return json.load(f)
 
-        # Default fixtures if file doesn't exist
         return {
             "aud query": ["--symbol", "main"],
             "aud explain": ["theauditor/cli.py"],
@@ -217,6 +212,7 @@ class CLISmokeTest:
             from click.testing import CliRunner
 
             from theauditor.cli import cli
+
             self._cli = cli
             self._runner = CliRunner()
         return self._cli, self._runner
@@ -253,6 +249,7 @@ class CLISmokeTest:
         """Enumerate all commands in the CLI using Click introspection."""
         try:
             import click
+
             cli, _ = self._get_cli()
         except ImportError as e:
             self.log(f"Failed to import CLI: {e}", "FAIL")
@@ -266,18 +263,21 @@ class CLISmokeTest:
                 cmd = group.commands[name]
                 full_name = f"{prefix} {name}"
 
-                # Extract parameters
                 params = []
                 for param in getattr(cmd, "params", []):
-                    params.append(CommandParam(
-                        name=param.name,
-                        param_type=type(param).__name__,
-                        required=getattr(param, "required", False),
-                        is_flag=getattr(param, "is_flag", False),
-                        default=getattr(param, "default", None),
-                        help_text=getattr(param, "help", None),
-                        choices=list(param.type.choices) if hasattr(param, "type") and hasattr(param.type, "choices") else None,
-                    ))
+                    params.append(
+                        CommandParam(
+                            name=param.name,
+                            param_type=type(param).__name__,
+                            required=getattr(param, "required", False),
+                            is_flag=getattr(param, "is_flag", False),
+                            default=getattr(param, "default", None),
+                            help_text=getattr(param, "help", None),
+                            choices=list(param.type.choices)
+                            if hasattr(param, "type") and hasattr(param.type, "choices")
+                            else None,
+                        )
+                    )
 
                 if isinstance(cmd, click.Group):
                     info = CommandInfo(
@@ -307,7 +307,9 @@ class CLISmokeTest:
         walk_commands(cli)
         return commands
 
-    def categorize_failure(self, stderr: str | None, stdout: str | None, exit_code: int | None) -> tuple[FailureCategory, str | None]:
+    def categorize_failure(
+        self, stderr: str | None, stdout: str | None, exit_code: int | None
+    ) -> tuple[FailureCategory, str | None]:
         """Analyze output to categorize the failure type."""
         combined = f"{stderr or ''} {stdout or ''}".lower()
 
@@ -318,7 +320,9 @@ class CLISmokeTest:
             match = re.search(r"(?:import|module).*?['\"]([^'\"]+)['\"]", combined, re.I)
             return FailureCategory.IMPORT_ERROR, match.group(1) if match else "unknown module"
 
-        if "missing" in combined and ("argument" in combined or "option" in combined or "required" in combined):
+        if "missing" in combined and (
+            "argument" in combined or "option" in combined or "required" in combined
+        ):
             return FailureCategory.MISSING_REQUIRED_ARG, "required argument not provided"
 
         if "database" in combined or "repo_index.db" in combined or "no such table" in combined:
@@ -351,7 +355,12 @@ class CLISmokeTest:
             stderr = None
             if result.exception and not isinstance(result.exception, SystemExit):
                 import traceback
-                stderr = "".join(traceback.format_exception(type(result.exception), result.exception, result.exception.__traceback__))[:1000]
+
+                stderr = "".join(
+                    traceback.format_exception(
+                        type(result.exception), result.exception, result.exception.__traceback__
+                    )
+                )[:1000]
 
             status = TestStatus.PASS if result.exit_code == 0 else TestStatus.FAIL
             category, error_msg = self.categorize_failure(stderr, stdout, result.exit_code)
@@ -377,21 +386,20 @@ class CLISmokeTest:
                 error_message=str(e),
             )
 
-    def run_with_subprocess(self, cmd: str, timeout: int, temp_dir: Path | None = None) -> TestResult:
+    def run_with_subprocess(
+        self, cmd: str, timeout: int, temp_dir: Path | None = None
+    ) -> TestResult:
         """Run command using subprocess (for integration tests with isolation)."""
         start = time.perf_counter()
 
-        # Set up isolated environment
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         cwd = str(PROJECT_ROOT)
 
-        # If temp_dir provided, use it for DB isolation
         if temp_dir:
             env["AUD_TEST_ISOLATION"] = str(temp_dir)
-            # Copy minimal config if needed
+
             pf_dir = PROJECT_ROOT / ".pf"
             if pf_dir.exists():
-                # Only copy config files, not the large databases
                 temp_pf = temp_dir / ".pf"
                 temp_pf.mkdir(exist_ok=True)
                 for config_file in pf_dir.glob("*.json"):
@@ -459,37 +467,33 @@ class CLISmokeTest:
 
         start_time = time.perf_counter()
 
-        # Skip if in skip list
         if cmd_info.full_name in self.SKIP_COMMANDS:
             self.log(f"SKIP {cmd_info.full_name} (in skip list)", "SKIP")
             return results
 
-        # Skip groups (we test their subcommands)
         if cmd_info.is_group:
             return results
 
-        # Convert "aud foo bar" to ["foo", "bar"] for CliRunner
-        args = cmd_info.full_name.split()[1:]  # Remove "aud" prefix
+        args = cmd_info.full_name.split()[1:]
 
-        # Test 1: --help (use CliRunner - fast)
         self.log(f"Testing {cmd_info.full_name} --help", "INFO")
         results.help_test = self.run_with_cli_runner(args + ["--help"], self.HELP_TIMEOUT)
 
         if results.help_test.status == TestStatus.PASS:
             self.log(f"  --help: PASS ({results.help_test.duration_ms:.0f}ms)", "PASS")
         else:
-            self.log(f"  --help: {results.help_test.status} - {results.help_test.failure_category}", "FAIL")
+            self.log(
+                f"  --help: {results.help_test.status} - {results.help_test.failure_category}",
+                "FAIL",
+            )
 
-        # Quick mode stops here
         if self.quick_mode:
             results.total_duration_ms = (time.perf_counter() - start_time) * 1000
             return results
 
-        # Test 2: No args invocation (use CliRunner)
         self.log(f"Testing {cmd_info.full_name} (no args)", "INFO")
         results.no_args_test = self.run_with_cli_runner(args, self.NO_ARGS_TIMEOUT)
 
-        # Check if this command is expected to fail without args
         expected_fail = cmd_info.full_name in self.EXPECTED_NO_ARGS_FAIL
         has_required = any(p.required and p.param_type == "Argument" for p in cmd_info.params)
 
@@ -498,16 +502,17 @@ class CLISmokeTest:
         elif has_required or expected_fail:
             self.log("  no-args: EXPECTED FAIL (requires args)", "WARN")
         else:
-            self.log(f"  no-args: {results.no_args_test.status} - {results.no_args_test.failure_category}", "FAIL")
+            self.log(
+                f"  no-args: {results.no_args_test.status} - {results.no_args_test.failure_category}",
+                "FAIL",
+            )
 
-        # Test 3: Fixture tests (use subprocess with isolation for integration tests)
         fixtures = self.test_fixtures.get(cmd_info.full_name)
         if fixtures:
             if isinstance(fixtures, list):
                 fixtures = {"default": fixtures}
 
             for fixture_name, fixture_args in fixtures.items():
-                # Create isolated temp directory for this test
                 with tempfile.TemporaryDirectory(prefix=f"aud_test_{cmd_info.name}_") as temp_dir:
                     args_str = " ".join(fixture_args)
                     full_cmd = f"{cmd_info.full_name} {args_str}"
@@ -516,23 +521,24 @@ class CLISmokeTest:
 
                     if self.use_subprocess:
                         fixture_result = self.run_with_subprocess(
-                            full_cmd,
-                            self.FIXTURE_TIMEOUT,
-                            temp_dir=Path(temp_dir)
+                            full_cmd, self.FIXTURE_TIMEOUT, temp_dir=Path(temp_dir)
                         )
                     else:
-                        # Use CliRunner for fixture tests too (faster)
                         fixture_result = self.run_with_cli_runner(
-                            args + fixture_args,
-                            self.FIXTURE_TIMEOUT
+                            args + fixture_args, self.FIXTURE_TIMEOUT
                         )
 
                     results.fixture_tests[fixture_name] = fixture_result
 
                     if fixture_result.status == TestStatus.PASS:
-                        self.log(f"  [{fixture_name}]: PASS ({fixture_result.duration_ms:.0f}ms)", "PASS")
+                        self.log(
+                            f"  [{fixture_name}]: PASS ({fixture_result.duration_ms:.0f}ms)", "PASS"
+                        )
                     else:
-                        self.log(f"  [{fixture_name}]: {fixture_result.status} - {fixture_result.error_message}", "FAIL")
+                        self.log(
+                            f"  [{fixture_name}]: {fixture_result.status} - {fixture_result.error_message}",
+                            "FAIL",
+                        )
 
         results.total_duration_ms = (time.perf_counter() - start_time) * 1000
         return results
@@ -545,7 +551,6 @@ class CLISmokeTest:
         self.log("TheAuditor CLI Smoke Test Suite", "HEAD")
         self.log("=" * 60, "HEAD")
 
-        # Enumerate commands
         self.log("\nEnumerating CLI commands...", "INFO")
         self.commands = self.enumerate_commands()
 
@@ -559,11 +564,13 @@ class CLISmokeTest:
                 tests_run=0,
             )
 
-        # Apply filter if specified
         if self.filter_pattern:
             pattern = re.compile(self.filter_pattern, re.I)
             self.commands = [c for c in self.commands if pattern.search(c.full_name)]
-            self.log(f"Filtered to {len(self.commands)} commands matching '{self.filter_pattern}'", "INFO")
+            self.log(
+                f"Filtered to {len(self.commands)} commands matching '{self.filter_pattern}'",
+                "INFO",
+            )
 
         total_groups = sum(1 for c in self.commands if c.is_group)
         total_commands = len(self.commands) - total_groups
@@ -571,14 +578,14 @@ class CLISmokeTest:
         self.log(f"Found {total_commands} commands in {total_groups} groups", "INFO")
         self.log(f"Mode: {'quick (--help only)' if self.quick_mode else 'full'}", "INFO")
         self.log(f"Workers: {self.parallel_workers}", "INFO")
-        self.log(f"Runner: {'subprocess' if self.use_subprocess else 'CliRunner (in-process)'}", "INFO")
+        self.log(
+            f"Runner: {'subprocess' if self.use_subprocess else 'CliRunner (in-process)'}", "INFO"
+        )
         self.log("", "INFO")
 
-        # Run tests
         leaf_commands = [c for c in self.commands if not c.is_group]
 
         if RICH_AVAILABLE and console and not self.verbose:
-            # Use rich progress bar
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -589,8 +596,12 @@ class CLISmokeTest:
                 task = progress.add_task("Testing commands...", total=len(leaf_commands))
 
                 if self.parallel_workers > 1:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers) as executor:
-                        futures = {executor.submit(self.test_command, cmd): cmd for cmd in leaf_commands}
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=self.parallel_workers
+                    ) as executor:
+                        futures = {
+                            executor.submit(self.test_command, cmd): cmd for cmd in leaf_commands
+                        }
                         for future in concurrent.futures.as_completed(futures):
                             try:
                                 result = future.result()
@@ -605,10 +616,13 @@ class CLISmokeTest:
                         self.results.append(result)
                         progress.advance(task)
         else:
-            # Standard execution without rich
             if self.parallel_workers > 1:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers) as executor:
-                    futures = {executor.submit(self.test_command, cmd): cmd for cmd in leaf_commands}
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=self.parallel_workers
+                ) as executor:
+                    futures = {
+                        executor.submit(self.test_command, cmd): cmd for cmd in leaf_commands
+                    }
                     for future in concurrent.futures.as_completed(futures):
                         try:
                             result = future.result()
@@ -621,12 +635,10 @@ class CLISmokeTest:
                     result = self.test_command(cmd)
                     self.results.append(result)
 
-        # Add group results (empty, just for completeness)
         for cmd in self.commands:
             if cmd.is_group:
                 self.results.append(CommandTestResults(command=cmd.full_name, command_info=cmd))
 
-        # Calculate summary
         duration_seconds = time.perf_counter() - start_time
 
         summary = {
@@ -654,26 +666,32 @@ class CLISmokeTest:
                     summary["help_pass"] += 1
                 elif r.help_test.status == TestStatus.TIMEOUT:
                     summary["help_timeout"] += 1
-                    failures.append({
-                        "command": r.command,
-                        "test": "help",
-                        "status": r.help_test.status.value,
-                        "category": r.help_test.failure_category.value,
-                        "error": r.help_test.error_message,
-                    })
+                    failures.append(
+                        {
+                            "command": r.command,
+                            "test": "help",
+                            "status": r.help_test.status.value,
+                            "category": r.help_test.failure_category.value,
+                            "error": r.help_test.error_message,
+                        }
+                    )
                 else:
                     summary["help_fail"] += 1
-                    failures.append({
-                        "command": r.command,
-                        "test": "help",
-                        "status": r.help_test.status.value,
-                        "category": r.help_test.failure_category.value,
-                        "error": r.help_test.error_message,
-                    })
+                    failures.append(
+                        {
+                            "command": r.command,
+                            "test": "help",
+                            "status": r.help_test.status.value,
+                            "category": r.help_test.failure_category.value,
+                            "error": r.help_test.error_message,
+                        }
+                    )
 
             if r.no_args_test:
                 tests_run += 1
-                has_required = any(p.required and p.param_type == "Argument" for p in r.command_info.params)
+                has_required = any(
+                    p.required and p.param_type == "Argument" for p in r.command_info.params
+                )
 
                 if r.no_args_test.status == TestStatus.PASS:
                     summary["no_args_pass"] += 1
@@ -684,13 +702,15 @@ class CLISmokeTest:
                 else:
                     summary["no_args_fail"] += 1
                     if r.no_args_test.failure_category != FailureCategory.MISSING_REQUIRED_ARG:
-                        failures.append({
-                            "command": r.command,
-                            "test": "no_args",
-                            "status": r.no_args_test.status.value,
-                            "category": r.no_args_test.failure_category.value,
-                            "error": r.no_args_test.error_message,
-                        })
+                        failures.append(
+                            {
+                                "command": r.command,
+                                "test": "no_args",
+                                "status": r.no_args_test.status.value,
+                                "category": r.no_args_test.failure_category.value,
+                                "error": r.no_args_test.error_message,
+                            }
+                        )
 
             for fixture_name, fixture_result in r.fixture_tests.items():
                 tests_run += 1
@@ -698,15 +718,16 @@ class CLISmokeTest:
                     summary["fixture_pass"] += 1
                 else:
                     summary["fixture_fail"] += 1
-                    failures.append({
-                        "command": r.command,
-                        "test": f"fixture:{fixture_name}",
-                        "status": fixture_result.status.value,
-                        "category": fixture_result.failure_category.value,
-                        "error": fixture_result.error_message,
-                    })
+                    failures.append(
+                        {
+                            "command": r.command,
+                            "test": f"fixture:{fixture_name}",
+                            "status": fixture_result.status.value,
+                            "category": fixture_result.failure_category.value,
+                            "error": fixture_result.error_message,
+                        }
+                    )
 
-        # Build results
         suite_results = TestSuiteResults(
             timestamp=datetime.now(UTC).isoformat(),
             duration_seconds=duration_seconds,
@@ -729,6 +750,7 @@ class CLISmokeTest:
 
     def _result_to_dict(self, result: CommandTestResults) -> dict:
         """Convert CommandTestResults to a JSON-serializable dict."""
+
         def test_to_dict(t: TestResult | None) -> dict | None:
             if t is None:
                 return None
@@ -785,21 +807,25 @@ class CLISmokeTest:
             prev_help = prev.get("help_test", {})
 
             if prev_help.get("status") == "PASS" and curr_help.get("status") != "PASS":
-                regressions.append({
-                    "command": cmd,
-                    "test": "help",
-                    "previous": "PASS",
-                    "current": curr_help.get("status"),
-                    "error": curr_help.get("error_message"),
-                })
+                regressions.append(
+                    {
+                        "command": cmd,
+                        "test": "help",
+                        "previous": "PASS",
+                        "current": curr_help.get("status"),
+                        "error": curr_help.get("error_message"),
+                    }
+                )
 
             if prev_help.get("status") != "PASS" and curr_help.get("status") == "PASS":
-                improvements.append({
-                    "command": cmd,
-                    "test": "help",
-                    "previous": prev_help.get("status"),
-                    "current": "PASS",
-                })
+                improvements.append(
+                    {
+                        "command": cmd,
+                        "test": "help",
+                        "previous": prev_help.get("status"),
+                        "current": "PASS",
+                    }
+                )
 
         return regressions, improvements
 
@@ -856,14 +882,28 @@ class CLISmokeTest:
             else:
                 command = cmd_result.command
                 is_group = cmd_result.command_info.is_group
-                help_test = self._result_to_dict(cmd_result).get("help_test") if cmd_result.help_test else None
-                no_args_test = self._result_to_dict(cmd_result).get("no_args_test") if cmd_result.no_args_test else None
-                fixture_tests = {k: self._result_to_dict(CommandTestResults(command="", command_info=cmd_result.command_info, fixture_tests={k: v}))["fixture_tests"][k] for k, v in cmd_result.fixture_tests.items()}
+                help_test = (
+                    self._result_to_dict(cmd_result).get("help_test")
+                    if cmd_result.help_test
+                    else None
+                )
+                no_args_test = (
+                    self._result_to_dict(cmd_result).get("no_args_test")
+                    if cmd_result.no_args_test
+                    else None
+                )
+                fixture_tests = {
+                    k: self._result_to_dict(
+                        CommandTestResults(
+                            command="", command_info=cmd_result.command_info, fixture_tests={k: v}
+                        )
+                    )["fixture_tests"][k]
+                    for k, v in cmd_result.fixture_tests.items()
+                }
 
             if is_group:
                 continue
 
-            # Help test case
             if help_test:
                 testcase = ET.SubElement(testsuite, "testcase")
                 testcase.set("name", f"{command} --help")
@@ -877,19 +917,20 @@ class CLISmokeTest:
                     if help_test.get("stderr"):
                         failure.text = help_test["stderr"]
 
-            # No-args test case
             if no_args_test:
                 testcase = ET.SubElement(testsuite, "testcase")
                 testcase.set("name", f"{command} (no args)")
                 testcase.set("classname", "cli.no_args")
                 testcase.set("time", f"{no_args_test.get('duration_ms', 0) / 1000:.3f}")
 
-                if no_args_test.get("status") not in ("PASS",) and no_args_test.get("failure_category") != "missing_required_arg":
+                if (
+                    no_args_test.get("status") not in ("PASS",)
+                    and no_args_test.get("failure_category") != "missing_required_arg"
+                ):
                     failure = ET.SubElement(testcase, "failure")
                     failure.set("type", no_args_test.get("failure_category", "unknown"))
                     failure.set("message", no_args_test.get("error_message") or "unknown error")
 
-            # Fixture test cases
             for fixture_name, fixture_result in fixture_tests.items():
                 testcase = ET.SubElement(testsuite, "testcase")
                 testcase.set("name", f"{command} [{fixture_name}]")
@@ -927,7 +968,6 @@ class CLISmokeTest:
 
             console.print(table)
 
-            # Help tests table
             help_table = Table(title="--help Tests", show_header=True)
             help_table.add_column("Status")
             help_table.add_column("Count", justify="right")
@@ -942,7 +982,9 @@ class CLISmokeTest:
                 noargs_table.add_column("Count", justify="right")
                 noargs_table.add_row("[green]PASS[/green]", str(s.get("no_args_pass", 0)))
                 noargs_table.add_row("[red]FAIL[/red]", str(s.get("no_args_fail", 0)))
-                noargs_table.add_row("[yellow]EXPECTED FAIL[/yellow]", str(s.get("no_args_expected_fail", 0)))
+                noargs_table.add_row(
+                    "[yellow]EXPECTED FAIL[/yellow]", str(s.get("no_args_expected_fail", 0))
+                )
                 console.print(noargs_table)
 
             if results.failures:
@@ -962,7 +1004,9 @@ class CLISmokeTest:
             if results.improvements:
                 console.print("\n[bold green]IMPROVEMENTS:[/bold green]")
                 for i in results.improvements:
-                    console.print(f"  [green]{i['command']}[/green]: {i['previous']} -> {i['current']}")
+                    console.print(
+                        f"  [green]{i['command']}[/green]: {i['previous']} -> {i['current']}"
+                    )
 
         else:
             print("\n" + "=" * 60)
@@ -992,7 +1036,6 @@ class CLISmokeTest:
                     print(f"    Category: {f['category']}")
                     print(f"    Error: {f['error']}")
 
-        # Final verdict
         total_failures = s.get("help_fail", 0) + s.get("help_timeout", 0)
         print("\n" + "=" * 60)
         if total_failures == 0:
@@ -1044,7 +1087,7 @@ Examples:
   python scripts/cli_smoke_test.py --filter "graph"  # Only test graph commands
   python scripts/cli_smoke_test.py --quick           # Only --help tests
   python scripts/cli_smoke_test.py --list            # Just list commands
-        """
+        """,
     )
 
     parser.add_argument("--parallel", "-p", type=int, default=1, help="Number of parallel workers")
@@ -1054,7 +1097,9 @@ Examples:
     parser.add_argument("--compare", "-c", action="store_true", help="Compare with previous run")
     parser.add_argument("--list", "-l", action="store_true", help="Just list all commands")
     parser.add_argument("--output-dir", "-o", type=Path, help="Output directory for results")
-    parser.add_argument("--subprocess", action="store_true", help="Use subprocess instead of CliRunner")
+    parser.add_argument(
+        "--subprocess", action="store_true", help="Use subprocess instead of CliRunner"
+    )
 
     args = parser.parse_args()
 
@@ -1078,7 +1123,6 @@ Examples:
         results.regressions = regressions
         results.improvements = improvements
 
-    # Save results
     json_path = runner.save_results(results)
     junit_path = runner.save_junit_xml(results)
 
