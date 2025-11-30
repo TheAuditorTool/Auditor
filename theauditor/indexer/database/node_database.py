@@ -109,8 +109,8 @@ class NodeDatabaseMixin:
 
         deps_array_json = json.dumps(dependency_array) if dependency_array is not None else None
 
-        if callback_body and len(callback_body) > 500:
-            callback_body = callback_body[:497] + "..."
+        # PHASE 1 FIX: Removed 500-char truncation that was silently discarding
+        # React hook callback logic. Storage is cheap; incomplete data breaks analysis.
         self.generic_batches["react_hooks"].append(
             (
                 file_path,
