@@ -3,10 +3,13 @@
 import os
 from typing import Any
 
+from .bash_storage import BashStorage
 from .core_storage import CoreStorage
+from .go_storage import GoStorage
 from .infrastructure_storage import InfrastructureStorage
 from .node_storage import NodeStorage
 from .python_storage import PythonStorage
+from .rust_storage import RustStorage
 
 
 class DataStorer:
@@ -20,12 +23,18 @@ class DataStorer:
         self.core = CoreStorage(db_manager, counts)
         self.python = PythonStorage(db_manager, counts)
         self.node = NodeStorage(db_manager, counts)
+        self.go = GoStorage(db_manager, counts)
+        self.rust = RustStorage(db_manager, counts)
+        self.bash = BashStorage(db_manager, counts)
         self.infrastructure = InfrastructureStorage(db_manager, counts)
 
         self.handlers = {
             **self.core.handlers,
             **self.python.handlers,
             **self.node.handlers,
+            **self.go.handlers,
+            **self.rust.handlers,
+            **self.bash.handlers,
             **self.infrastructure.handlers,
         }
 
@@ -39,6 +48,9 @@ class DataStorer:
         self.core._current_extracted = extracted
         self.python._current_extracted = extracted
         self.node._current_extracted = extracted
+        self.go._current_extracted = extracted
+        self.rust._current_extracted = extracted
+        self.bash._current_extracted = extracted
         self.infrastructure._current_extracted = extracted
 
         jsx_only_types = {

@@ -8,10 +8,17 @@ from typing import Any
 
 import click
 
+from .strategies.bash_pipes import BashPipeStrategy
+from .strategies.go_http import GoHttpStrategy
+from .strategies.go_orm import GoOrmStrategy
 from .strategies.interceptors import InterceptorStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
 from .strategies.python_orm import PythonOrmStrategy
+from .strategies.rust_async import RustAsyncStrategy
+from .strategies.rust_ffi import RustFFIStrategy
+from .strategies.rust_traits import RustTraitStrategy
+from .strategies.rust_unsafe import RustUnsafeStrategy
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
@@ -28,7 +35,15 @@ class DFGBuilder:
             PythonOrmStrategy(),
             NodeOrmStrategy(),
             NodeExpressStrategy(),
+            GoHttpStrategy(),
+            GoOrmStrategy(),
             InterceptorStrategy(),
+            BashPipeStrategy(),
+            # Rust strategies
+            RustTraitStrategy(),
+            RustUnsafeStrategy(),
+            RustFFIStrategy(),
+            RustAsyncStrategy(),
         ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
