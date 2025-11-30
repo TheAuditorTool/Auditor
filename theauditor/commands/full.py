@@ -168,7 +168,15 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         console.print("Some analysis phases could not complete successfully.")
         exit_code = ExitCodes.TASK_INCOMPLETE
 
-    if critical > 0:
+    if result["failed_phases"] > 0:
+        # Pipeline failed - show FAILED status, NOT clean
+        print_status_panel(
+            "INCOMPLETE",
+            f"Pipeline failed with {result['failed_phases']} phase(s) not completing.",
+            "Fix pipeline errors and re-run. Results are partial.",
+            level="high",
+        )
+    elif critical > 0:
         print_status_panel(
             "CRITICAL",
             f"Audit complete. Found {critical} critical vulnerabilities.",
