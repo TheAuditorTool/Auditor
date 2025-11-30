@@ -97,6 +97,8 @@ class FlowResolver:
             return "python"
         elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
             return "javascript"
+        elif lower.endswith(".go"):
+            return "go"
         elif lower.endswith(".rs"):
             return "rust"
         return "unknown"
