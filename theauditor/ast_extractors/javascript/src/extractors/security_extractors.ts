@@ -774,9 +774,52 @@ export function extractCDKConstructs(
 export function extractFrontendApiCalls(
   functionCallArgs: IFunctionCallArg[],
   imports: IImport[],
+  import_specifiers: IImportSpecifier[] = [],
 ): IFrontendAPICall[] {
   const apiCalls: IFrontendAPICall[] = [];
   const debug = process.env.THEAUDITOR_DEBUG === "1";
+
+  // Build alias map: local name -> module path
+  // e.g., import http from 'axios' -> aliasToModule['http'] = 'axios'
+  const aliasToModule = new Map<string, string>();
+  const HTTP_LIBRARIES = new Set(["axios", "node-fetch", "got", "ky", "superagent", "request"]);
+
+  // Map import lines to modules
+  const lineToModule = new Map<number, string>();
+  for (const imp of imports) {
+    if (imp.module) {
+      lineToModule.set(imp.line, imp.module);
+    }
+  }
+
+  // Build alias map from specifiers
+  for (const spec of import_specifiers) {
+    const modulePath = lineToModule.get(spec.import_line);
+    if (modulePath) {
+      // Extract base module name (e.g., 'axios' from 'axios' or '@scope/axios')
+      const baseName = modulePath.split("/").pop()?.replace(/^@.*\//, "") || modulePath;
+      if (HTTP_LIBRARIES.has(baseName) || baseName === "axios") {
+        aliasToModule.set(spec.specifier_name, baseName);
+        if (debug) {
+          console.error(`[API_DEBUG] Alias mapping: ${spec.specifier_name} -> ${baseName}`);
+        }
+      }
+    }
+  }
+
+  // Helper to resolve callee to canonical form (e.g., "http.get" -> "axios.get")
+  function resolveCallee(callee: string): string {
+    const parts = callee.split(".");
+    if (parts.length >= 1) {
+      const prefix = parts[0];
+      const resolvedModule = aliasToModule.get(prefix);
+      if (resolvedModule) {
+        parts[0] = resolvedModule;
+        return parts.join(".");
+      }
+    }
+    return callee;
+  }
 
   if (debug) {
     console.error(
@@ -863,7 +906,8 @@ export function extractFrontendApiCalls(
   for (const lineStr in callsByLine) {
     const line = parseInt(lineStr);
     const callData = callsByLine[line];
-    const callee = callData.callee;
+    // Resolve aliased imports (e.g., "http.get" -> "axios.get" if http is imported from axios)
+    const callee = resolveCallee(callData.callee);
     const args = callData.args;
 
     let url: string | null = null;
