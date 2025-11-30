@@ -99,11 +99,13 @@ class JavaScriptBuildGuard:
         npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
 
         # Run build - NO pre-checks, NO fallbacks
+        # encoding="utf-8" required: npm outputs UTF-8, Windows defaults to cp1252
         result = subprocess.run(
             [npm_cmd, "run", "build"],
             cwd=str(self.js_project_path),
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         if result.returncode != 0:
