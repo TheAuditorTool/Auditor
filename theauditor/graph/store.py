@@ -36,11 +36,43 @@ class XGraphStore:
         graph_type: str,
         default_node_type: str = "node",
         default_edge_type: str = "edge",
+        file_path: str | None = None,
     ) -> None:
-        """Generic bulk saver using executemany for 10x performance."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
-            conn.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
+        """Generic bulk saver using executemany for 10x performance.
+
+        Phase 0.4: Added file_path parameter for incremental updates.
+        Phase 0.5: Added explicit transaction with rollback on failure.
+
+        Args:
+            graph: Dict with 'nodes' and 'edges' lists
+            graph_type: Type of graph ('import', 'call', 'data_flow', etc.)
+            default_node_type: Default type for nodes without explicit type
+            default_edge_type: Default type for edges without explicit type
+            file_path: If provided, only delete/update nodes/edges for this file.
+                      If None, full rebuild (deletes all nodes/edges of graph_type).
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            # Phase 0.5: Explicit transaction for atomicity
+            cursor.execute("BEGIN TRANSACTION")
+
+            # Phase 0.4: Scoped or full delete
+            if file_path:
+                # Incremental: Only delete nodes/edges for THIS file
+                cursor.execute(
+                    "DELETE FROM nodes WHERE graph_type = ? AND file = ?",
+                    (graph_type, file_path)
+                )
+                cursor.execute(
+                    "DELETE FROM edges WHERE graph_type = ? AND file = ?",
+                    (graph_type, file_path)
+                )
+            else:
+                # Full rebuild: Delete all nodes/edges of this graph type
+                cursor.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
+                cursor.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
 
             nodes_data = []
             for node in graph.get("nodes", []):
@@ -78,7 +110,7 @@ class XGraphStore:
                 )
 
             if nodes_data:
-                conn.executemany(
+                cursor.executemany(
                     """
                     INSERT OR REPLACE INTO nodes
                     (id, file, lang, loc, churn, type, graph_type, metadata)
@@ -88,7 +120,7 @@ class XGraphStore:
                 )
 
             if edges_data:
-                conn.executemany(
+                cursor.executemany(
                     """
                     INSERT OR IGNORE INTO edges
                     (source, target, type, file, line, graph_type, metadata)
@@ -97,7 +129,16 @@ class XGraphStore:
                     edges_data,
                 )
 
+            # Phase 0.5: Commit only if ALL operations succeed
             conn.commit()
+
+        except Exception as e:
+            # Phase 0.5: Rollback on ANY failure - prevents partial corruption
+            conn.rollback()
+            raise RuntimeError(f"Graph save failed for {graph_type}: {e}") from e
+
+        finally:
+            conn.close()
 
     def save_import_graph(self, graph: dict[str, Any]) -> None:
         """Save import graph to database."""
