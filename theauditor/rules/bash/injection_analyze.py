@@ -52,28 +52,17 @@ class BashInjectionAnalyzer:
         if not self.context.db_path:
             return []
 
-        try:
-            conn = sqlite3.connect(self.context.db_path)
-            conn.row_factory = sqlite3.Row
-            self.cursor = conn.cursor()
+        conn = sqlite3.connect(self.context.db_path)
+        conn.row_factory = sqlite3.Row
+        self.cursor = conn.cursor()
 
-            # Check if bash tables exist
-            self.cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='bash_commands'"
-            )
-            if not self.cursor.fetchone():
-                conn.close()
-                return []
+        self._check_eval_injection()
+        self._check_variable_as_command()
+        self._check_xargs_injection()
+        self._check_backtick_injection()
+        self._check_source_injection()
 
-            self._check_eval_injection()
-            self._check_variable_as_command()
-            self._check_xargs_injection()
-            self._check_backtick_injection()
-            self._check_source_injection()
-
-            conn.close()
-        except sqlite3.OperationalError:
-            return []
+        conn.close()
 
         return self.findings
 

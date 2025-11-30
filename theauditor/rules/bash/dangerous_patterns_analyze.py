@@ -47,34 +47,23 @@ class BashDangerousPatternsAnalyzer:
         if not self.context.db_path:
             return []
 
-        try:
-            conn = sqlite3.connect(self.context.db_path)
-            conn.row_factory = sqlite3.Row
-            self.cursor = conn.cursor()
+        conn = sqlite3.connect(self.context.db_path)
+        conn.row_factory = sqlite3.Row
+        self.cursor = conn.cursor()
 
-            # Check if bash tables exist
-            self.cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='bash_commands'"
-            )
-            if not self.cursor.fetchone():
-                conn.close()
-                return []
+        self._check_curl_pipe_bash()
+        self._check_hardcoded_credentials()
+        self._check_unsafe_temp_files()
+        self._check_missing_safety_flags()
+        self._check_sudo_abuse()
+        self._check_chmod_777()
+        self._check_weak_crypto()
+        self._check_path_manipulation()
+        self._check_ifs_manipulation()  # Task 3.3.6 DRAGON
+        self._check_relative_command_paths()  # Task 3.5.1
+        self._check_security_sensitive_commands()  # Task 3.5.3
 
-            self._check_curl_pipe_bash()
-            self._check_hardcoded_credentials()
-            self._check_unsafe_temp_files()
-            self._check_missing_safety_flags()
-            self._check_sudo_abuse()
-            self._check_chmod_777()
-            self._check_weak_crypto()
-            self._check_path_manipulation()
-            self._check_ifs_manipulation()  # Task 3.3.6 DRAGON
-            self._check_relative_command_paths()  # Task 3.5.1
-            self._check_security_sensitive_commands()  # Task 3.5.3
-
-            conn.close()
-        except sqlite3.OperationalError:
-            return []
+        conn.close()
 
         return self.findings
 
