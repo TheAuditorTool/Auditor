@@ -14,15 +14,49 @@ from theauditor.indexer.schema import build_query
 
 
 class TaintRegistry:
-    """Lightweight pattern accumulator for taint sources, sinks, and sanitizers."""
+    """Single Source of Truth for taint patterns with O(1) metadata lookup.
+
+    Replaces hardcoded pattern lists in discovery.py and taint_path.py with
+    database-driven lookups that compute vulnerability types at registration time.
+    """
+
+    # Category to vulnerability type mapping - SINGLE SOURCE OF TRUTH
+    # Moved from taint_path.py determine_vulnerability_type() hardcoding
+    CATEGORY_TO_VULN_TYPE: dict[str, str] = {
+        "xss": "Cross-Site Scripting (XSS)",
+        "sql": "SQL Injection",
+        "nosql": "NoSQL Injection",
+        "command": "Command Injection",
+        "code_injection": "Code Injection",
+        "path": "Path Traversal",
+        "ldap": "LDAP Injection",
+        "ssrf": "Server-Side Request Forgery (SSRF)",
+        "proto": "Prototype Pollution",
+        "log": "Log Injection",
+        "redirect": "Open Redirect",
+        "crypto": "Weak Cryptography",
+        "http_request": "Unvalidated Input",
+        "user_input": "Unvalidated Input",
+        "orm": "ORM Injection",
+        "template": "Template Injection",
+        "deserialization": "Insecure Deserialization",
+        "xxe": "XML External Entity (XXE)",
+        "unknown": "Data Exposure",
+    }
 
     def __init__(self):
+        # Legacy structure (kept to avoid breaking everything at once)
         self.sources: dict[str, dict[str, list[str]]] = {}
         self.sinks: dict[str, dict[str, list[str]]] = {}
         self.sanitizers: dict[str, list[str]] = {}
 
+        # NEW: Fast O(1) lookups for metadata
+        # Keys are patterns (e.g., "dangerouslySetInnerHTML", "innerHTML")
+        self.sink_metadata: dict[str, dict[str, Any]] = {}
+        self.source_metadata: dict[str, dict[str, Any]] = {}
+
     def register_source(self, pattern: str, category: str, language: str):
-        """Register a taint source pattern for a specific language."""
+        """Register a taint source pattern with metadata for O(1) lookup."""
         if language not in self.sources:
             self.sources[language] = {}
         if category not in self.sources[language]:
@@ -30,14 +64,31 @@ class TaintRegistry:
         if pattern not in self.sources[language][category]:
             self.sources[language][category].append(pattern)
 
+        # Store metadata for O(1) retrieval
+        self.source_metadata[pattern] = {
+            "category": category,
+            "language": language,
+            "vulnerability_type": "Unvalidated Input",
+        }
+
     def register_sink(self, pattern: str, category: str, language: str):
-        """Register a taint sink pattern for a specific language."""
+        """Register a taint sink and pre-calculate its vulnerability type."""
         if language not in self.sinks:
             self.sinks[language] = {}
         if category not in self.sinks[language]:
             self.sinks[language][category] = []
         if pattern not in self.sinks[language][category]:
             self.sinks[language][category].append(pattern)
+
+        # Vulnerability type from category. NO FALLBACKS. NO PATTERN GUESSING.
+        vuln_type = self.CATEGORY_TO_VULN_TYPE.get(category, "Data Exposure")
+
+        self.sink_metadata[pattern] = {
+            "category": category,
+            "language": language,
+            "vulnerability_type": vuln_type,
+            "risk": self._estimate_risk(category),
+        }
 
     def register_sanitizer(self, pattern: str, language: str = None):
         """Register a sanitizer pattern, optionally language-specific."""
@@ -64,6 +115,46 @@ class TaintRegistry:
     def get_sinks_for_language(self, language: str) -> dict[str, list[str]]:
         """Get all sink patterns for a specific language."""
         return self.sinks.get(language, {})
+
+    def get_sink_info(self, pattern: str) -> dict[str, Any]:
+        """Get all known metadata for a sink pattern.
+
+        Used by discovery.py and taint_path.py to stop guessing types.
+        Returns default metadata if pattern not registered.
+        """
+        return self.sink_metadata.get(
+            pattern,
+            {
+                "vulnerability_type": "Data Exposure",
+                "risk": "medium",
+                "category": "unknown",
+                "language": "unknown",
+            },
+        )
+
+    def get_vulnerability_type(self, pattern: str) -> str:
+        """Get just the vulnerability type string for a pattern.
+
+        Convenience method for quick lookups.
+        """
+        return self.get_sink_info(pattern)["vulnerability_type"]
+
+    def get_vulnerability_type_by_category(self, category: str) -> str:
+        """Get vulnerability type from category name.
+
+        Used when we have category but not pattern (e.g., in discovery).
+        """
+        return self.CATEGORY_TO_VULN_TYPE.get(category, "Data Exposure")
+
+    def _estimate_risk(self, category: str) -> str:
+        """Internal risk estimator based on category."""
+        if category in ("command", "code_injection", "sql", "deserialization"):
+            return "critical"
+        if category in ("xss", "path", "ssrf", "xxe", "template"):
+            return "high"
+        if category in ("nosql", "ldap", "orm", "redirect"):
+            return "medium"
+        return "low"
 
     def get_stats(self) -> dict[str, int]:
         """Get registry statistics for debugging."""
@@ -464,11 +555,8 @@ def trace_taint(
 
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
 
-        from .schema_cache_adapter import SchemaMemoryCacheAdapter
-
         print("[TAINT] Creating SchemaMemoryCache (mandatory for discovery)", file=sys.stderr)
-        schema_cache = SchemaMemoryCache(db_path)
-        cache = SchemaMemoryCacheAdapter(schema_cache)
+        cache = SchemaMemoryCache(db_path)
         print(
             f"[TAINT] SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB",
             file=sys.stderr,
@@ -482,7 +570,7 @@ def trace_taint(
         from .discovery import TaintDiscovery
 
         print("[TAINT] Using database-driven discovery", file=sys.stderr)
-        discovery = TaintDiscovery(cache)
+        discovery = TaintDiscovery(cache, registry=registry)
 
         print("[TAINT] Discovering sanitizers from framework tables", file=sys.stderr)
         sanitizers = discovery.discover_sanitizers()

@@ -1,7 +1,10 @@
 """Database-driven source and sink discovery."""
 
 import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .core import TaintRegistry
 
 
 def _matches_file_io_pattern(func_name: str, patterns: list[str]) -> bool:
@@ -20,11 +23,16 @@ def _matches_file_io_pattern(func_name: str, patterns: list[str]) -> bool:
 
 
 class TaintDiscovery:
-    """Database-driven discovery of taint sources and sinks."""
+    """Database-driven discovery of taint sources and sinks.
 
-    def __init__(self, cache):
-        """Initialize with a cache (either old MemoryCache or SchemaMemoryCache)."""
+    Uses TaintRegistry for vulnerability type classification instead of
+    hardcoding pattern lists.
+    """
+
+    def __init__(self, cache, registry: "TaintRegistry | None" = None):
+        """Initialize with cache and optional registry for vuln type lookup."""
         self.cache = cache
+        self.registry = registry
 
     def discover_sources(
         self, sources_dict: dict[str, list[str]] | None = None
@@ -168,6 +176,7 @@ class TaintDiscovery:
                         "pattern": pattern,
                         "category": "sql",
                         "risk": risk,
+                        "vulnerability_type": self._get_vulnerability_type("sql", pattern),
                         "is_parameterized": query.get("is_parameterized", False),
                         "metadata": query,
                     }
@@ -226,6 +235,7 @@ class TaintDiscovery:
                         "pattern": pattern,
                         "category": "sql",
                         "risk": risk,
+                        "vulnerability_type": self._get_vulnerability_type("sql", func_name),
                         "is_parameterized": False,
                         "has_interpolation": has_interpolation,
                         "metadata": call,
@@ -321,6 +331,7 @@ class TaintDiscovery:
                         "pattern": pattern,
                         "category": "orm",
                         "risk": risk,
+                        "vulnerability_type": self._get_vulnerability_type("orm", func_name),
                         "is_parameterized": not has_interpolation,
                         "has_interpolation": has_interpolation,
                         "metadata": call,
@@ -339,6 +350,7 @@ class TaintDiscovery:
                     "pattern": query.get("operation", ""),
                     "category": "nosql",
                     "risk": "medium",
+                    "vulnerability_type": self._get_vulnerability_type("nosql"),
                     "metadata": query,
                 }
             )
@@ -356,6 +368,7 @@ class TaintDiscovery:
                         "pattern": func_name,
                         "category": "command",
                         "risk": "critical",
+                        "vulnerability_type": self._get_vulnerability_type("command", func_name),
                         "metadata": call,
                     }
                 )
@@ -371,6 +384,7 @@ class TaintDiscovery:
                         "pattern": "dangerouslySetInnerHTML",
                         "category": "xss",
                         "risk": "high",
+                        "vulnerability_type": self._get_vulnerability_type("xss", "dangerouslySetInnerHTML"),
                         "metadata": hook,
                     }
                 )
@@ -387,6 +401,7 @@ class TaintDiscovery:
                         "pattern": target,
                         "category": "xss",
                         "risk": "high",
+                        "vulnerability_type": self._get_vulnerability_type("xss", target),
                         "metadata": assignment,
                     }
                 )
@@ -409,6 +424,7 @@ class TaintDiscovery:
                         "pattern": func_name,
                         "category": "xss",
                         "risk": risk,
+                        "vulnerability_type": self._get_vulnerability_type("xss", func_name),
                         "has_interpolation": has_interpolation,
                         "metadata": call,
                     }
@@ -431,6 +447,7 @@ class TaintDiscovery:
                             "pattern": func_name,
                             "category": "path",
                             "risk": "medium",
+                            "vulnerability_type": self._get_vulnerability_type("path", func_name),
                             "metadata": call,
                         }
                     )
@@ -450,6 +467,7 @@ class TaintDiscovery:
                         "pattern": func_name,
                         "category": "ldap",
                         "risk": "medium",
+                        "vulnerability_type": self._get_vulnerability_type("ldap", func_name),
                         "metadata": call,
                     }
                 )
@@ -469,6 +487,19 @@ class TaintDiscovery:
             return "low"
 
         return "medium"
+
+    def _get_vulnerability_type(self, category: str, pattern: str = "") -> str:
+        """Get vulnerability type from registry. NO FALLBACKS."""
+        if not self.registry:
+            raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
+
+        # Pattern lookup first, then category
+        if pattern:
+            info = self.registry.get_sink_info(pattern)
+            if info.get("category") != "unknown":
+                return info["vulnerability_type"]
+
+        return self.registry.get_vulnerability_type_by_category(category)
 
     def filter_framework_safe_sinks(self, sinks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter out sinks that are automatically safe due to framework protections."""

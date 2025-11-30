@@ -7,9 +7,6 @@ from functools import lru_cache
 
 from theauditor.utils.logger import setup_logger
 
-from .sanitizer_util import SanitizerRegistry
-from .taint_path import determine_vulnerability_type
-
 logger = setup_logger(__name__)
 
 
@@ -39,7 +36,11 @@ class FlowResolver:
         self.max_flows = 100_000
         self.max_flows_per_entry = 1_000
 
-        self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=registry)
+        # Sanitizer data for path checking
+        self._safe_sinks: set[str] = set()
+        self._validation_sanitizers: list[dict] = []
+        self._call_args_cache: dict[tuple, list[str]] = {}
+        self._load_sanitizer_data()
 
         self.best_paths_cache: dict[tuple, int] = {}
 
@@ -461,7 +462,7 @@ class FlowResolver:
     def _classify_flow(self, path: list[str]) -> tuple[str, dict | None]:
         """Classify a flow path based on sanitization."""
 
-        sanitizer_meta = self.sanitizer_registry._path_goes_through_sanitizer(path)
+        sanitizer_meta = self._path_goes_through_sanitizer(path)
 
         if sanitizer_meta:
             return ("SANITIZED", sanitizer_meta)
@@ -536,6 +537,7 @@ class FlowResolver:
 
         source_line = 0
 
+        # Try assignment_source_vars first (most specific)
         repo_cursor.execute(
             """
             SELECT MIN(line) FROM assignment_source_vars
@@ -546,6 +548,32 @@ class FlowResolver:
         result = repo_cursor.fetchone()
         if result and result[0]:
             source_line = result[0]
+
+        # Fallback to func_params (for req, res, ctx parameters)
+        if source_line == 0:
+            repo_cursor.execute(
+                """
+                SELECT MIN(line) FROM func_params
+                WHERE file = ? AND param_name = ?
+            """,
+                (source_file, source_pattern.split(".")[0]),
+            )
+            result = repo_cursor.fetchone()
+            if result and result[0]:
+                source_line = result[0]
+
+        # Fallback to variable_usage (general usage)
+        if source_line == 0:
+            repo_cursor.execute(
+                """
+                SELECT MIN(line) FROM variable_usage
+                WHERE file = ? AND variable_name = ?
+            """,
+                (source_file, source_pattern),
+            )
+            result = repo_cursor.fetchone()
+            if result and result[0]:
+                source_line = result[0]
 
         sink_line = 0
         sink_function = sink_parts[1] if len(sink_parts) > 1 else "global"
@@ -589,7 +617,10 @@ class FlowResolver:
             }
             hop_chain.append(hop)
 
-        vuln_type = determine_vulnerability_type(sink_pattern, source_pattern)
+        # Get vulnerability type from registry. NO FALLBACKS.
+        if not self.registry:
+            raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
+        vuln_type = self.registry.get_sink_info(sink_pattern)["vulnerability_type"]
 
         cursor.execute(
             """
@@ -676,6 +707,113 @@ class FlowResolver:
             return None
 
         return arg_expr
+
+    def _load_sanitizer_data(self):
+        """Load sanitizer data from database for path checking."""
+        # Load safe sinks
+        self.repo_cursor.execute("""
+            SELECT DISTINCT sink_pattern
+            FROM framework_safe_sinks
+            WHERE is_safe = 1
+        """)
+        for row in self.repo_cursor.fetchall():
+            pattern = row["sink_pattern"]
+            if pattern:
+                self._safe_sinks.add(pattern)
+
+        # Load validation sanitizers
+        self.repo_cursor.execute("""
+            SELECT DISTINCT
+                file_path as file, line, framework, is_validator, variable_name as schema_name
+            FROM validation_framework_usage
+            WHERE framework IN ('zod', 'joi', 'yup', 'express-validator')
+        """)
+        for row in self.repo_cursor.fetchall():
+            self._validation_sanitizers.append({
+                "file": row["file"],
+                "line": row["line"],
+                "framework": row["framework"],
+                "schema": row["schema_name"],
+            })
+
+        # Pre-load function calls for O(1) lookup
+        self.repo_cursor.execute("""
+            SELECT file, line, callee_function
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+        """)
+        for row in self.repo_cursor.fetchall():
+            key = (row["file"], row["line"])
+            if key not in self._call_args_cache:
+                self._call_args_cache[key] = []
+            self._call_args_cache[key].append(row["callee_function"])
+
+        self.repo_cursor.execute("""
+            SELECT path as file, line, name as callee_function
+            FROM symbols
+            WHERE type = 'call' AND name IS NOT NULL
+        """)
+        for row in self.repo_cursor.fetchall():
+            key = (row["file"], row["line"])
+            callee = row["callee_function"]
+            if key not in self._call_args_cache:
+                self._call_args_cache[key] = []
+            if callee not in self._call_args_cache[key]:
+                self._call_args_cache[key].append(callee)
+
+        logger.info(
+            f"Loaded {len(self._safe_sinks)} safe sinks, "
+            f"{len(self._validation_sanitizers)} validators, "
+            f"{len(self._call_args_cache)} call locations"
+        )
+
+    def _get_language_for_file(self, file_path: str) -> str:
+        """Detect language from file extension."""
+        if not file_path:
+            return "unknown"
+        lower = file_path.lower()
+        if lower.endswith(".py"):
+            return "python"
+        elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
+            return "javascript"
+        elif lower.endswith(".rs"):
+            return "rust"
+        return "unknown"
+
+    def _is_sanitizer(self, function_name: str) -> bool:
+        """Check if function is a sanitizer. Uses registry if available."""
+        if self.registry and self.registry.is_sanitizer(function_name):
+            return True
+        if function_name in self._safe_sinks:
+            return True
+        for safe_sink in self._safe_sinks:
+            if safe_sink in function_name or function_name in safe_sink:
+                return True
+        return False
+
+    def _path_goes_through_sanitizer(self, path: list) -> dict | None:
+        """Check if a taint path goes through any sanitizer."""
+        if not self.registry:
+            raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
+
+        for node in path:
+            if isinstance(node, str):
+                parts = node.split("::")
+                hop_file = parts[0] if parts else None
+                hop_line = 0
+                func = parts[1] if len(parts) > 1 else ""
+
+                if hop_file and func:
+                    lang = self._get_language_for_file(hop_file)
+                    validation_patterns = self.registry.get_sanitizer_patterns(lang)
+                    for pattern in validation_patterns:
+                        if pattern in func:
+                            return {"file": hop_file, "line": 0, "method": func}
+
+                    if self._is_sanitizer(func):
+                        return {"file": hop_file, "line": 0, "method": func}
+
+        return None
 
     def close(self):
         """Clean up database connections."""

@@ -6,7 +6,6 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from .access_path import AccessPath
-from .sanitizer_util import SanitizerRegistry
 
 if TYPE_CHECKING:
     from .taint_path import TaintPath
@@ -48,9 +47,11 @@ class IFDSTaintAnalyzer:
             print(f"[IFDS] Database: {repo_db_path}", file=sys.stderr)
             print("[IFDS] ========================================", file=sys.stderr)
 
-        self.sanitizer_registry = SanitizerRegistry(
-            self.repo_cursor, self.registry, debug=self.debug
-        )
+        # Pre-load sanitizer data for path checking
+        self._safe_sinks: set[str] = set()
+        self._validation_sanitizers: list[dict] = []
+        self._call_args_cache: dict[tuple, list[str]] = {}
+        self._load_sanitizer_data()
 
     def analyze_sink_to_sources(
         self, sink: dict, sources: list[dict], max_depth: int = 10
@@ -136,7 +137,7 @@ class IFDSTaintAnalyzer:
 
             if depth >= max_depth:
                 if current_matched_source:
-                    sanitizer_meta = self.sanitizer_registry._path_goes_through_sanitizer(hop_chain)
+                    sanitizer_meta = self._path_goes_through_sanitizer(hop_chain)
 
                     if sanitizer_meta:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
@@ -166,7 +167,7 @@ class IFDSTaintAnalyzer:
 
             if not predecessors:
                 if current_matched_source:
-                    sanitizer_meta = self.sanitizer_registry._path_goes_through_sanitizer(hop_chain)
+                    sanitizer_meta = self._path_goes_through_sanitizer(hop_chain)
 
                     if sanitizer_meta:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
@@ -464,6 +465,135 @@ class IFDSTaintAnalyzer:
             return True
 
         return False
+
+    def _load_sanitizer_data(self):
+        """Load sanitizer data from database for path checking."""
+        # Load safe sinks
+        self.repo_cursor.execute("""
+            SELECT DISTINCT sink_pattern
+            FROM framework_safe_sinks
+            WHERE is_safe = 1
+        """)
+        for row in self.repo_cursor.fetchall():
+            pattern = row["sink_pattern"]
+            if pattern:
+                self._safe_sinks.add(pattern)
+
+        # Load validation sanitizers
+        self.repo_cursor.execute("""
+            SELECT DISTINCT
+                file_path as file, line, framework, is_validator, variable_name as schema_name
+            FROM validation_framework_usage
+            WHERE framework IN ('zod', 'joi', 'yup', 'express-validator')
+        """)
+        for row in self.repo_cursor.fetchall():
+            self._validation_sanitizers.append({
+                "file": row["file"],
+                "line": row["line"],
+                "framework": row["framework"],
+                "schema": row["schema_name"],
+            })
+
+        # Pre-load function calls for O(1) lookup
+        self.repo_cursor.execute("""
+            SELECT file, line, callee_function
+            FROM function_call_args
+            WHERE callee_function IS NOT NULL
+        """)
+        for row in self.repo_cursor.fetchall():
+            key = (row["file"], row["line"])
+            if key not in self._call_args_cache:
+                self._call_args_cache[key] = []
+            self._call_args_cache[key].append(row["callee_function"])
+
+        self.repo_cursor.execute("""
+            SELECT path as file, line, name as callee_function
+            FROM symbols
+            WHERE type = 'call' AND name IS NOT NULL
+        """)
+        for row in self.repo_cursor.fetchall():
+            key = (row["file"], row["line"])
+            callee = row["callee_function"]
+            if key not in self._call_args_cache:
+                self._call_args_cache[key] = []
+            if callee not in self._call_args_cache[key]:
+                self._call_args_cache[key].append(callee)
+
+        if self.debug:
+            print(
+                f"[IFDS] Loaded {len(self._safe_sinks)} safe sinks, "
+                f"{len(self._validation_sanitizers)} validators, "
+                f"{len(self._call_args_cache)} call locations",
+                file=sys.stderr,
+            )
+
+    def _is_sanitizer(self, function_name: str) -> bool:
+        """Check if function is a sanitizer. Uses registry if available."""
+        if self.registry and self.registry.is_sanitizer(function_name):
+            return True
+        if function_name in self._safe_sinks:
+            return True
+        for safe_sink in self._safe_sinks:
+            if safe_sink in function_name or function_name in safe_sink:
+                return True
+        return False
+
+    def _path_goes_through_sanitizer(self, hop_chain: list[dict]) -> dict | None:
+        """Check if a taint path goes through any sanitizer."""
+        if not self.registry:
+            raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
+
+        for i, hop in enumerate(hop_chain):
+            if isinstance(hop, dict):
+                hop_file = hop.get("from_file") or hop.get("to_file")
+                hop_line = hop.get("line", 0)
+                node_str = (
+                    hop.get("from") or hop.get("to") or
+                    hop.get("from_node") or hop.get("to_node") or ""
+                )
+            else:
+                node_str = hop
+                parts = node_str.split("::")
+                hop_file = parts[0] if parts else None
+                hop_line = 0
+                if len(parts) > 1:
+                    func = parts[1]
+                    lang = self._get_language_for_file(hop_file)
+                    validation_patterns = self.registry.get_sanitizer_patterns(lang)
+                    for pattern in validation_patterns:
+                        if pattern in func:
+                            return {"file": hop_file, "line": 0, "method": func}
+
+            if not hop_file:
+                continue
+
+            # Check node string against validation patterns
+            if node_str:
+                lang = self._get_language_for_file(hop_file)
+                validation_patterns = self.registry.get_sanitizer_patterns(lang)
+                for pattern in validation_patterns:
+                    if pattern in node_str:
+                        return {"file": hop_file, "line": hop_line, "method": pattern}
+
+            # Check validation sanitizers by proximity
+            if hop_line > 0:
+                for san in self._validation_sanitizers:
+                    if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and \
+                            abs(san["line"] - hop_line) <= 10:
+                        return {
+                            "file": hop_file,
+                            "line": hop_line,
+                            "method": f"{san['framework']}:{san.get('schema', 'validation')}",
+                        }
+
+            # Check function calls at this location
+            if hop_line > 0:
+                callees = self._call_args_cache.get((hop_file, hop_line), [])
+                for callee in callees:
+                    if self._is_sanitizer(callee):
+                        return {"file": hop_file, "line": hop_line, "method": callee}
+
+        return None
 
     def close(self):
         """Close database connections."""
