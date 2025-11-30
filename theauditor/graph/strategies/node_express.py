@@ -15,6 +15,24 @@ from .base import GraphStrategy
 class NodeExpressStrategy(GraphStrategy):
     """Strategy for building Node.js Express middleware and controller edges."""
 
+    def _path_matches(self, import_package: str, symbol_path: str) -> bool:
+        """Check if import package matches symbol path.
+
+        GRAPH FIX G9: Normalize BOTH paths and compare base names.
+        ONE code path - no fallbacks.
+        """
+        if not import_package or not symbol_path:
+            return False
+
+        # Normalize both to base filename without extension
+        import_base = import_package.replace("\\", "/").split("/")[-1]
+        import_base = import_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").lower()
+
+        sym_base = symbol_path.replace("\\", "/").split("/")[-1]
+        sym_base = sym_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").replace(".py", "").lower()
+
+        return import_base == sym_base
+
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges for Express middleware and controllers."""
 
@@ -230,7 +248,7 @@ class NodeExpressStrategy(GraphStrategy):
                 candidates = symbols_by_name[method_name]
 
                 for sym in candidates:
-                    if import_package and import_package in sym["path"]:
+                    if self._path_matches(import_package, sym["path"]):
                         symbol_result = sym
                         break
                 if not symbol_result:
@@ -247,7 +265,7 @@ class NodeExpressStrategy(GraphStrategy):
                     candidates = symbols_by_name[final_method]
 
                     for sym in candidates:
-                        if import_package and import_package in sym["path"]:
+                        if self._path_matches(import_package, sym["path"]):
                             symbol_result = sym
                             break
 
@@ -269,11 +287,13 @@ class NodeExpressStrategy(GraphStrategy):
             if not symbol_result:
                 stats["failed_resolutions"] += 1
 
-                ghost_id = f"UNRESOLVED::{object_name}.{method_name}"
+                # GRAPH FIX G6: Add file prefix to ghost IDs for proper cleanup.
+                # Without file prefix, store.py cannot delete ghosts on re-index.
+                ghost_id = f"{route_file}::UNRESOLVED::{object_name}.{method_name}"
                 if ghost_id not in nodes:
                     nodes[ghost_id] = DFGNode(
                         id=ghost_id,
-                        file="UNRESOLVED",
+                        file=route_file,  # GRAPH FIX G6: Use actual file for cleanup
                         variable_name=f"{object_name}.{method_name}",
                         scope="UNRESOLVED",
                         type="ghost",

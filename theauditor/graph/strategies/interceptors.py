@@ -320,6 +320,21 @@ class InterceptorStrategy:
         if not views:
             return
 
+        # GRAPH FIX G8: Hub node pattern to prevent M x V edge explosion.
+        # 20 middlewares x 500 views = 10,000 edges creates unusable hairball.
+        # Hub pattern: M + V edges (520) instead of M x V (10,000).
+        hub_node_id = "Django::Router::Dispatch"
+        if hub_node_id not in nodes:
+            nodes[hub_node_id] = DFGNode(
+                id=hub_node_id,
+                file="django.urls",
+                variable_name="request",
+                scope="Router::Dispatch",
+                type="router_hub",
+                metadata={"is_hub": True, "framework": "django"},
+            )
+
+        # Connect middlewares TO hub (M edges)
         for mw in middlewares:
             mw_file = mw["file"]
             mw_class = mw["middleware_class_name"]
@@ -335,33 +350,65 @@ class InterceptorStrategy:
                     metadata={"middleware_class": mw_class},
                 )
 
-            for view in views:
-                view_file = view["file"]
-                view_name = view["view_name"]
-                view_node_id = f"{view_file}::{view_name}::request"
+            new_edges = create_bidirectional_edges(
+                source=mw_node_id,
+                target=hub_node_id,
+                edge_type="django_middleware_to_router",
+                file=mw_file,
+                line=0,
+                expression=f"settings.MIDDLEWARE: {mw_class}",
+                function="dispatch",
+                metadata={"middleware": mw_class},
+            )
+            edges.extend(new_edges)
+            stats["django_middleware_edges_created"] += len(new_edges)
 
-                if view_node_id not in nodes:
-                    nodes[view_node_id] = DFGNode(
-                        id=view_node_id,
-                        file=view_file,
-                        variable_name="request",
-                        scope=view_name,
-                        type="view_entry",
-                        metadata={"view_name": view_name},
-                    )
+        # Connect hub TO views (V edges)
+        for view in views:
+            view_file = view["file"]
+            view_name = view["view_name"]
+            view_node_id = f"{view_file}::{view_name}::request"
 
-                new_edges = create_bidirectional_edges(
-                    source=mw_node_id,
-                    target=view_node_id,
-                    edge_type="django_middleware_flow",
-                    file=mw_file,
-                    line=0,
-                    expression=f"settings.MIDDLEWARE: {mw_class}",
-                    function=view_name,
-                    metadata={"middleware": mw_class, "view": view_name},
+            if view_node_id not in nodes:
+                nodes[view_node_id] = DFGNode(
+                    id=view_node_id,
+                    file=view_file,
+                    variable_name="request",
+                    scope=view_name,
+                    type="view_entry",
+                    metadata={"view_name": view_name},
                 )
-                edges.extend(new_edges)
-                stats["django_middleware_edges_created"] += len(new_edges)
+
+            new_edges = create_bidirectional_edges(
+                source=hub_node_id,
+                target=view_node_id,
+                edge_type="django_router_to_view",
+                file=view_file,
+                line=0,
+                expression=f"urlpatterns -> {view_name}",
+                function=view_name,
+                metadata={"view": view_name},
+            )
+            edges.extend(new_edges)
+            stats["django_middleware_edges_created"] += len(new_edges)
+
+    def _path_matches(self, import_package: str, symbol_path: str) -> bool:
+        """Check if import package matches symbol path.
+
+        GRAPH FIX G9: Normalize BOTH paths and compare base names.
+        ONE code path - no fallbacks.
+        """
+        if not import_package or not symbol_path:
+            return False
+
+        # Normalize both to base filename without extension
+        import_base = import_package.replace("\\", "/").split("/")[-1]
+        import_base = import_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").lower()
+
+        sym_base = symbol_path.replace("\\", "/").split("/")[-1]
+        sym_base = sym_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").replace(".py", "").lower()
+
+        return import_base == sym_base
 
     def _resolve_controller_info(
         self,
@@ -410,7 +457,7 @@ class InterceptorStrategy:
             candidates = symbols_by_name[full_method_name]
 
             for sym in candidates:
-                if import_package in sym["path"]:
+                if self._path_matches(import_package, sym["path"]):
                     return (sym["name"], sym["path"])
             if candidates:
                 return (candidates[0]["name"], candidates[0]["path"])
@@ -419,7 +466,7 @@ class InterceptorStrategy:
             candidates = symbols_by_name[method_name]
 
             for sym in candidates:
-                if import_package in sym["path"]:
+                if self._path_matches(import_package, sym["path"]):
                     return (f"{object_name}.{method_name}", sym["path"])
 
             for sym in candidates:

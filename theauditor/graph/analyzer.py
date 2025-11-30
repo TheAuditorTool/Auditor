@@ -31,10 +31,17 @@ class XGraphAnalyzer:
         self._cached = True
 
     def detect_cycles(self, graph: dict[str, Any]) -> list[dict[str, Any]]:
-        """Detect cycles using ITERATIVE DFS (stack-based)."""
+        """Detect cycles using ITERATIVE DFS (stack-based).
+
+        GRAPH FIX G3: Filter out _reverse edges to prevent false cycle detection.
+        Bidirectional edges (A->B, B->A_reverse) would otherwise report every
+        import as a 2-node cycle.
+        """
 
         adj = defaultdict(list)
         for edge in graph.get("edges", []):
+            if edge.get("type", "").endswith("_reverse"):
+                continue
             adj[edge["source"]].append(edge["target"])
 
         visited = set()
