@@ -1,0 +1,112 @@
+# Test Fixture Specification: bash-deploy-toolkit
+# A realistic DevOps deployment toolkit for testing bash security rules
+
+name: bash-deploy-toolkit
+language: bash
+description: |
+  A collection of bash scripts simulating a real-world server deployment toolkit.
+  Contains common DevOps patterns and intentionally includes security vulnerabilities
+  that are commonly found in production deployment scripts.
+
+files:
+  - deploy.sh          # Main deployment orchestration
+  - lib/common.sh      # Shared utility functions
+  - lib/database.sh    # Database operations
+  - scripts/backup.sh  # Backup automation
+  - scripts/healthcheck.sh  # Service monitoring
+  - scripts/rollback.sh     # Rollback functionality
+  - config/deploy.conf # Configuration (contains secrets)
+
+expected_findings:
+  critical:
+    - rule: bash-curl-pipe-bash
+      file: lib/common.sh
+      description: "curl piped to sudo bash for installing tools"
+      line_hint: "curl -sL ... | sudo bash"
+
+  high:
+    - rule: bash-hardcoded-credential
+      file: config/deploy.conf
+      description: "Hardcoded database password"
+      pattern: "DB_PASSWORD=..."
+
+    - rule: bash-hardcoded-credential
+      file: config/deploy.conf
+      description: "Hardcoded AWS credentials"
+      pattern: "AWS_SECRET_KEY=..."
+
+    - rule: bash-sudo-variable
+      file: deploy.sh
+      description: "sudo with variable in systemctl commands"
+
+    - rule: bash-sudo-variable
+      file: scripts/rollback.sh
+      description: "sudo with variable service name"
+
+  medium:
+    - rule: bash-unsafe-temp
+      file: lib/common.sh
+      description: "Predictable temp directory creation"
+      pattern: "/tmp/${prefix}_$$"
+
+    - rule: bash-unquoted-expansion
+      file: lib/common.sh
+      description: "Unquoted variable in command check"
+      pattern: "command -v $cmd"
+
+    - rule: bash-relative-sensitive-cmd
+      file: lib/common.sh
+      description: "rm without absolute path"
+
+    - rule: bash-relative-sensitive-cmd
+      file: scripts/backup.sh
+      description: "chmod/rm without absolute path"
+
+  low:
+    - rule: bash-missing-set-e
+      files: [deploy.sh, scripts/backup.sh, scripts/healthcheck.sh, scripts/rollback.sh]
+      description: "Scripts lack 'set -e' for error handling"
+
+    - rule: bash-missing-set-u
+      files: [deploy.sh, scripts/backup.sh, scripts/healthcheck.sh, scripts/rollback.sh]
+      description: "Scripts lack 'set -u' for undefined variable protection"
+
+    - rule: bash-path-modification
+      file: lib/common.sh
+      description: "PATH manipulation in install functions"
+
+features_tested:
+  extraction:
+    - function_definitions (bash and posix style)
+    - variable_assignments (global, local, export)
+    - source_statements (cross-file includes)
+    - command_invocations (with wrapper unwrapping)
+    - pipe_chains (multi-command pipelines)
+    - subshell_captures (command substitution)
+    - redirections (file, heredoc)
+    - control_flow (if/case/for/while)
+
+  security_rules:
+    - command_injection (eval, variable-as-command)
+    - unquoted_variables (word splitting risks)
+    - dangerous_patterns (curl|bash, hardcoded secrets)
+    - path_safety (relative paths, PATH manipulation)
+    - privilege_escalation (sudo with variables)
+    - temp_file_safety (predictable paths)
+
+  graph_strategies:
+    - pipe_flow_edges (command chaining)
+    - source_include_edges (file sourcing)
+    - subshell_capture_edges (variable capture)
+
+realistic_patterns:
+  - Multi-file project with shared libraries
+  - Configuration management with sourcing
+  - Database operations with credentials
+  - Remote execution via SSH
+  - Service management (systemctl/service)
+  - Backup and restore workflows
+  - Health monitoring with thresholds
+  - Notification integration (Slack)
+  - Lock files for concurrency control
+  - Log rotation and cleanup

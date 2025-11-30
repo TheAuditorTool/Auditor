@@ -178,3 +178,36 @@ Security patterns are detected during extraction and stored as findings. Pattern
 - **WHEN** code runs sudo with variable command or arguments
 - **THEN** the indexer SHALL flag it as potential privilege escalation risk
 - **AND** detection SHALL query bash_commands WHERE command_name='sudo' with variable expansion in args
+
+### Requirement: Database flush_order Integration
+The base database manager SHALL include Bash tables in batch flush operations.
+
+> **Cross-reference**: See `design.md` Decision 17 for ordering rationale.
+
+#### Scenario: flush_order list inclusion
+- **WHEN** the database manager's `flush_batch()` method executes
+- **THEN** all 8 bash_* tables SHALL be included in the flush_order list
+- **AND** location SHALL be `theauditor/indexer/database/base_database.py:193-332`
+
+#### Scenario: Bash table ordering
+- **WHEN** Bash tables are flushed
+- **THEN** the order SHALL respect dependencies:
+  1. `bash_functions` - no dependencies
+  2. `bash_variables` - no dependencies
+  3. `bash_sources` - no dependencies
+  4. `bash_commands` - no dependencies
+  5. `bash_command_args` - depends on bash_commands (file + command_line FK)
+  6. `bash_pipes` - no dependencies
+  7. `bash_subshells` - no dependencies
+  8. `bash_redirections` - no dependencies
+- **AND** all bash_* tables SHALL appear after `python_control_statements`
+- **AND** all bash_* tables SHALL appear before `sql_query_tables`
+
+### Requirement: Schema Table Count Assertion
+The schema module SHALL maintain correct table count assertion.
+
+#### Scenario: Table count update
+- **WHEN** Bash tables are added to the schema
+- **THEN** the assertion in `theauditor/indexer/schema.py:27` SHALL be updated
+- **AND** the count SHALL change from 170 to 178 (adding 8 new tables)
+- **AND** if the assertion fails, schema initialization SHALL fail loudly
