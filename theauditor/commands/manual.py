@@ -776,6 +776,150 @@ GETTING HELP:
     aud <command> --help     - Command-specific help
 """,
     },
+    "rust": {
+        "title": "Rust Language Support",
+        "summary": "Rust-specific analysis including modules, impl blocks, traits, and unsafe code",
+        "explanation": """
+TheAuditor provides comprehensive Rust support with 20 dedicated tables for
+extracting and analyzing Rust codebases. This includes module resolution,
+trait implementations, unsafe code detection, and lifetime analysis.
+
+RUST TABLES (20 total):
+
+  Core Tables:
+    rust_modules              - Crate and module definitions
+    rust_use_statements       - Use imports with resolution
+    rust_structs              - Struct definitions with generics
+    rust_enums                - Enum types and variants
+    rust_traits               - Trait definitions
+
+  Implementation:
+    rust_impl_blocks          - impl blocks (inherent + trait)
+    rust_impl_functions       - Functions within impl blocks
+    rust_trait_methods        - Trait method signatures
+    rust_struct_fields        - Struct field definitions
+    rust_enum_variants        - Enum variant definitions
+
+  Functions & Macros:
+    rust_functions            - Standalone functions
+    rust_macros               - Macro definitions (macro_rules!)
+    rust_macro_invocations    - Macro usage sites
+
+  Safety & Lifetimes:
+    rust_unsafe_blocks        - Unsafe blocks with operation catalog
+    rust_lifetimes            - Lifetime parameters
+    rust_type_aliases         - Type alias definitions
+
+  Cargo Integration:
+    rust_crate_dependencies   - Cargo.toml dependencies
+    rust_crate_features       - Feature flags
+
+  Analysis Metadata:
+    rust_call_graph           - Function call relationships
+
+MODULE RESOLUTION:
+TheAuditor resolves Rust's complex module system automatically:
+
+  - crate::     -> Absolute path from crate root
+  - super::     -> Parent module
+  - self::      -> Current module
+  - use aliases -> Imported names to canonical paths
+
+  Example resolution:
+    use std::collections::HashMap;
+    // HashMap -> std::collections::HashMap
+
+    use crate::models::User as U;
+    // U -> crate::models::User
+
+UNSAFE CODE ANALYSIS:
+The rust_unsafe_blocks table catalogs unsafe operations:
+
+  Operation Types:
+    - ptr_deref:     Raw pointer dereferences (*ptr)
+    - unsafe_call:   Calls to unsafe functions (transmute, from_raw)
+    - ptr_cast:      Pointer casts (as_ptr, as_mut_ptr)
+    - static_access: Mutable static variable access
+
+  Query unsafe code:
+    SELECT file, line, operations_json
+    FROM rust_unsafe_blocks
+    WHERE operations_json LIKE '%ptr_deref%'
+
+EXAMPLE QUERIES (Python):
+
+    import sqlite3
+    conn = sqlite3.connect('.pf/repo_index.db')
+    cursor = conn.cursor()
+
+    # Find all trait implementations
+    cursor.execute('''
+        SELECT file, target_type_raw, trait_name, target_type_resolved
+        FROM rust_impl_blocks
+        WHERE trait_name IS NOT NULL
+        ORDER BY trait_name
+    ''')
+
+    # Find all public functions
+    cursor.execute('''
+        SELECT name, file, line, is_async
+        FROM rust_functions
+        WHERE visibility = 'pub'
+    ''')
+
+    # Find unsafe blocks with pointer dereferences
+    cursor.execute('''
+        SELECT file, line, operations_json
+        FROM rust_unsafe_blocks
+        WHERE operations_json LIKE '%ptr_deref%'
+    ''')
+
+    # Trace module imports
+    cursor.execute('''
+        SELECT file_path, import_path, local_name, canonical_path
+        FROM rust_use_statements
+        WHERE local_name IS NOT NULL
+        ORDER BY file_path
+    ''')
+
+    # Find all async functions
+    cursor.execute('''
+        SELECT name, file, line, return_type
+        FROM rust_functions
+        WHERE is_async = 1
+    ''')
+
+    conn.close()
+
+USE THE COMMANDS:
+    aud full --index              # Index Rust files (*.rs)
+    aud query --file src/main.rs  # Query specific file
+    aud graph build               # Build call graph including Rust
+
+SUPPORTED FEATURES:
+    - Async functions (async fn)
+    - Generic parameters (<T: Trait>)
+    - Lifetime parameters ('a, 'static)
+    - Visibility modifiers (pub, pub(crate))
+    - Attribute macros (#[derive], #[test])
+    - Macro rules (macro_rules!)
+    - Associated types and constants
+    - Extern blocks (extern "C")
+
+CARGO INTEGRATION:
+TheAuditor parses Cargo.toml for dependency analysis:
+
+    SELECT crate_name, version, is_dev, is_optional
+    FROM rust_crate_dependencies
+    WHERE is_dev = 0
+
+CROSS-LANGUAGE ANALYSIS:
+Rust modules integrate with TheAuditor's full-stack analysis:
+    - Import graph includes Rust use statements
+    - Call graph connects Rust functions
+    - Security patterns detect unsafe code misuse
+""",
+    },
     "architecture": {
         "title": "System Architecture",
         "summary": "How TheAuditor's analysis pipeline and query engine work",
@@ -873,8 +1017,8 @@ def manual(concept, list_concepts):
     """Interactive documentation for TheAuditor concepts, terminology, and security analysis techniques.
 
     Built-in reference system that explains security concepts, analysis methodologies, and tool-specific
-    terminology through detailed, example-rich explanations optimized for learning. Covers 9 core topics
-    from taint analysis to pipeline architecture, each with practical examples and related commands.
+    terminology through detailed, example-rich explanations optimized for learning. Covers 10 core topics
+    from taint analysis to Rust language support, each with practical examples and related commands.
 
     AI ASSISTANT CONTEXT:
       Purpose: Provide interactive documentation for TheAuditor concepts
@@ -884,7 +1028,7 @@ def manual(concept, list_concepts):
       Integration: Referenced throughout other command help texts
       Performance: Instant (no I/O, pure string formatting)
 
-    AVAILABLE CONCEPTS (9 topics):
+    AVAILABLE CONCEPTS (10 topics):
       taint:
         - Data flow tracking from untrusted sources to dangerous sinks
         - Detects SQL injection, XSS, command injection
@@ -929,6 +1073,11 @@ def manual(concept, list_concepts):
         - ML-powered risk prediction
         - Historical learning from audit runs
         - Root cause vs symptom classification
+
+      rust:
+        - Rust language analysis (20 tables)
+        - Module resolution (crate::, super::, use aliases)
+        - Unsafe code detection and operation cataloging
 
     HOW IT WORKS (Documentation Lookup):
       1. Concept Validation:

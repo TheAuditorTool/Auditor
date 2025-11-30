@@ -95,6 +95,42 @@ class ASTParser:
                     "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
                 )
 
+            try:
+                go_lang = get_language("go")
+                go_parser = get_parser("go")
+                self.parsers["go"] = go_parser
+                self.languages["go"] = go_lang
+            except Exception as e:
+                print(f"[INFO] Go tree-sitter not available: {e}")
+                print(
+                    "[INFO] Go analysis requires the tree-sitter Go grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
+                )
+
+            try:
+                rust_lang = get_language("rust")
+                rust_parser = get_parser("rust")
+                self.parsers["rust"] = rust_parser
+                self.languages["rust"] = rust_lang
+            except Exception as e:
+                print(f"[INFO] Rust tree-sitter not available: {e}")
+                print(
+                    "[INFO] Rust analysis requires the tree-sitter Rust grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
+                )
+
+            try:
+                bash_lang = get_language("bash")
+                bash_parser = get_parser("bash")
+                self.parsers["bash"] = bash_parser
+                self.languages["bash"] = bash_lang
+            except Exception as e:
+                print(f"[INFO] Bash tree-sitter not available: {e}")
+                print(
+                    "[INFO] Bash analysis requires the tree-sitter Bash grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
+                )
+
         except ImportError as e:
             print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
             print("This means tree-sitter AST analysis cannot work properly.")
@@ -249,6 +285,10 @@ class ASTParser:
             ".vue": "javascript",
             ".tf": "hcl",
             ".tfvars": "hcl",
+            ".go": "go",
+            ".rs": "rust",
+            ".sh": "bash",
+            ".bash": "bash",
         }
         return ext_map.get(file_path.suffix.lower(), "")
 

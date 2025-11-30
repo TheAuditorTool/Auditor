@@ -129,6 +129,85 @@ class AssignmentsJsxRow(TypedDict):
     jsx_mode: str
     extraction_pass: int | None
 
+class BashCommandArgsRow(TypedDict):
+    """Row type for bash_command_args table."""
+    file: str
+    command_line: int
+    command_pipeline_position: int | None
+    arg_index: int
+    arg_value: str
+    is_quoted: int
+    quote_type: str
+    has_expansion: int
+    expansion_vars: str | None
+    normalized_flags: str | None
+
+class BashCommandsRow(TypedDict):
+    """Row type for bash_commands table."""
+    file: str
+    line: int
+    command_name: str
+    pipeline_position: int | None
+    containing_function: str | None
+    wrapped_command: str | None
+
+class BashFunctionsRow(TypedDict):
+    """Row type for bash_functions table."""
+    file: str
+    line: int
+    end_line: int
+    name: str
+    style: str
+    body_start_line: int | None
+    body_end_line: int | None
+
+class BashPipesRow(TypedDict):
+    """Row type for bash_pipes table."""
+    file: str
+    line: int
+    pipeline_id: int
+    position: int
+    command_text: str
+    containing_function: str | None
+
+class BashRedirectionsRow(TypedDict):
+    """Row type for bash_redirections table."""
+    file: str
+    line: int
+    direction: str
+    target: str
+    fd_number: int | None
+    containing_function: str | None
+
+class BashSourcesRow(TypedDict):
+    """Row type for bash_sources table."""
+    file: str
+    line: int
+    sourced_path: str
+    syntax: str
+    has_variable_expansion: int
+    containing_function: str | None
+
+class BashSubshellsRow(TypedDict):
+    """Row type for bash_subshells table."""
+    file: str
+    line: int
+    col: int
+    syntax: str
+    command_text: str
+    capture_target: str | None
+    containing_function: str | None
+
+class BashVariablesRow(TypedDict):
+    """Row type for bash_variables table."""
+    file: str
+    line: int
+    name: str
+    scope: str
+    readonly: int
+    value_expr: str | None
+    containing_function: str | None
+
 class BullmqQueuesRow(TypedDict):
     """Row type for bullmq_queues table."""
     file: str
@@ -652,6 +731,199 @@ class GithubWorkflowsRow(TypedDict):
     permissions: str | None
     concurrency: str | None
     env: str | None
+
+class GoCapturedVarsRow(TypedDict):
+    """Row type for go_captured_vars table."""
+    file: str
+    line: int
+    goroutine_id: int
+    var_name: str
+    var_type: str | None
+    is_loop_var: bool | None
+
+class GoChannelOpsRow(TypedDict):
+    """Row type for go_channel_ops table."""
+    file: str
+    line: int
+    channel_name: str | None
+    operation: str
+    containing_func: str | None
+
+class GoChannelsRow(TypedDict):
+    """Row type for go_channels table."""
+    file: str
+    line: int
+    name: str
+    element_type: str | None
+    direction: str | None
+    buffer_size: int | None
+
+class GoConstantsRow(TypedDict):
+    """Row type for go_constants table."""
+    file: str
+    line: int
+    name: str
+    value: str | None
+    type: str | None
+    is_exported: bool | None
+
+class GoDeferStatementsRow(TypedDict):
+    """Row type for go_defer_statements table."""
+    file: str
+    line: int
+    containing_func: str | None
+    deferred_expr: str
+
+class GoErrorReturnsRow(TypedDict):
+    """Row type for go_error_returns table."""
+    file: str
+    line: int
+    func_name: str
+    returns_error: bool | None
+
+class GoFuncParamsRow(TypedDict):
+    """Row type for go_func_params table."""
+    file: str
+    func_name: str
+    func_line: int
+    param_index: int
+    param_name: str | None
+    param_type: str
+    is_variadic: bool | None
+
+class GoFuncReturnsRow(TypedDict):
+    """Row type for go_func_returns table."""
+    file: str
+    func_name: str
+    func_line: int
+    return_index: int
+    return_name: str | None
+    return_type: str
+
+class GoFunctionsRow(TypedDict):
+    """Row type for go_functions table."""
+    file: str
+    line: int
+    name: str
+    signature: str | None
+    is_exported: bool | None
+    is_async: bool | None
+    doc_comment: str | None
+
+class GoGoroutinesRow(TypedDict):
+    """Row type for go_goroutines table."""
+    file: str
+    line: int
+    containing_func: str | None
+    spawned_expr: str
+    is_anonymous: bool | None
+
+class GoImportsRow(TypedDict):
+    """Row type for go_imports table."""
+    file: str
+    line: int
+    path: str
+    alias: str | None
+    is_dot_import: bool | None
+
+class GoInterfaceMethodsRow(TypedDict):
+    """Row type for go_interface_methods table."""
+    file: str
+    interface_name: str
+    method_name: str
+    signature: str
+
+class GoInterfacesRow(TypedDict):
+    """Row type for go_interfaces table."""
+    file: str
+    line: int
+    name: str
+    is_exported: bool | None
+    doc_comment: str | None
+
+class GoMethodsRow(TypedDict):
+    """Row type for go_methods table."""
+    file: str
+    line: int
+    receiver_type: str
+    receiver_name: str | None
+    is_pointer_receiver: bool | None
+    name: str
+    signature: str | None
+    is_exported: bool | None
+
+class GoMiddlewareRow(TypedDict):
+    """Row type for go_middleware table."""
+    file: str
+    line: int
+    framework: str
+    router_var: str | None
+    middleware_func: str
+    is_global: bool | None
+
+class GoPackagesRow(TypedDict):
+    """Row type for go_packages table."""
+    file: str
+    line: int
+    name: str
+    import_path: str | None
+
+class GoRoutesRow(TypedDict):
+    """Row type for go_routes table."""
+    file: str
+    line: int
+    framework: str
+    method: str | None
+    path: str | None
+    handler_func: str | None
+
+class GoStructFieldsRow(TypedDict):
+    """Row type for go_struct_fields table."""
+    file: str
+    struct_name: str
+    field_name: str
+    field_type: str
+    tag: str | None
+    is_embedded: bool | None
+    is_exported: bool | None
+
+class GoStructsRow(TypedDict):
+    """Row type for go_structs table."""
+    file: str
+    line: int
+    name: str
+    is_exported: bool | None
+    doc_comment: str | None
+
+class GoTypeAssertionsRow(TypedDict):
+    """Row type for go_type_assertions table."""
+    file: str
+    line: int
+    expr: str
+    asserted_type: str
+    is_type_switch: bool | None
+    containing_func: str | None
+
+class GoTypeParamsRow(TypedDict):
+    """Row type for go_type_params table."""
+    file: str
+    line: int
+    parent_name: str
+    parent_kind: str
+    param_index: int
+    param_name: str
+    constraint: str | None
+
+class GoVariablesRow(TypedDict):
+    """Row type for go_variables table."""
+    file: str
+    line: int
+    name: str
+    type: str | None
+    initial_value: str | None
+    is_exported: bool | None
+    is_package_level: bool | None
+    containing_func: str | None
 
 class GraphqlArgDirectivesRow(TypedDict):
     """Row type for graphql_arg_directives table."""
@@ -1592,6 +1864,204 @@ class RouterMountsRow(TypedDict):
     mount_path_expr: str
     router_variable: str
     is_literal: bool | None
+
+class RustAsyncFunctionsRow(TypedDict):
+    """Row type for rust_async_functions table."""
+    file_path: str
+    line: int
+    function_name: str
+    return_type: str | None
+    has_await: bool | None
+    await_count: int | None
+
+class RustAwaitPointsRow(TypedDict):
+    """Row type for rust_await_points table."""
+    file_path: str
+    line: int
+    containing_function: str | None
+    awaited_expression: str | None
+
+class RustEnumVariantsRow(TypedDict):
+    """Row type for rust_enum_variants table."""
+    file_path: str
+    enum_line: int
+    variant_index: int
+    variant_name: str
+    variant_kind: str | None
+    fields_json: str | None
+    discriminant: str | None
+
+class RustEnumsRow(TypedDict):
+    """Row type for rust_enums table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    derives_json: str | None
+
+class RustExternBlocksRow(TypedDict):
+    """Row type for rust_extern_blocks table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    abi: str | None
+
+class RustExternFunctionsRow(TypedDict):
+    """Row type for rust_extern_functions table."""
+    file_path: str
+    line: int
+    name: str
+    abi: str | None
+    return_type: str | None
+    params_json: str | None
+    is_variadic: bool | None
+
+class RustFunctionsRow(TypedDict):
+    """Row type for rust_functions table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    is_async: bool | None
+    is_unsafe: bool | None
+    is_const: bool | None
+    is_extern: bool | None
+    abi: str | None
+    return_type: str | None
+    params_json: str | None
+    generics: str | None
+    where_clause: str | None
+
+class RustGenericsRow(TypedDict):
+    """Row type for rust_generics table."""
+    file_path: str
+    parent_line: int
+    parent_type: str
+    param_name: str
+    param_kind: str | None
+    bounds: str | None
+    default_value: str | None
+
+class RustImplBlocksRow(TypedDict):
+    """Row type for rust_impl_blocks table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    target_type_raw: str
+    target_type_resolved: str | None
+    trait_name: str | None
+    trait_resolved: str | None
+    generics: str | None
+    where_clause: str | None
+    is_unsafe: bool | None
+
+class RustLifetimesRow(TypedDict):
+    """Row type for rust_lifetimes table."""
+    file_path: str
+    parent_line: int
+    lifetime_name: str
+    is_static: bool | None
+
+class RustMacroInvocationsRow(TypedDict):
+    """Row type for rust_macro_invocations table."""
+    file_path: str
+    line: int
+    macro_name: str
+    containing_function: str | None
+    args_sample: str | None
+
+class RustMacrosRow(TypedDict):
+    """Row type for rust_macros table."""
+    file_path: str
+    line: int
+    name: str
+    macro_type: str | None
+    visibility: str | None
+
+class RustModulesRow(TypedDict):
+    """Row type for rust_modules table."""
+    file_path: str
+    module_name: str
+    line: int
+    visibility: str | None
+    is_inline: bool | None
+    parent_module: str | None
+
+class RustStructFieldsRow(TypedDict):
+    """Row type for rust_struct_fields table."""
+    file_path: str
+    struct_line: int
+    field_index: int
+    field_name: str | None
+    field_type: str
+    visibility: str | None
+    is_pub: bool | None
+
+class RustStructsRow(TypedDict):
+    """Row type for rust_structs table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    is_tuple_struct: bool | None
+    is_unit_struct: bool | None
+    derives_json: str | None
+
+class RustTraitMethodsRow(TypedDict):
+    """Row type for rust_trait_methods table."""
+    file_path: str
+    trait_line: int
+    method_line: int
+    method_name: str
+    return_type: str | None
+    params_json: str | None
+    has_default: bool | None
+    is_async: bool | None
+
+class RustTraitsRow(TypedDict):
+    """Row type for rust_traits table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    supertraits: str | None
+    is_unsafe: bool | None
+    is_auto: bool | None
+
+class RustUnsafeBlocksRow(TypedDict):
+    """Row type for rust_unsafe_blocks table."""
+    file_path: str
+    line_start: int
+    line_end: int | None
+    containing_function: str | None
+    reason: str | None
+    safety_comment: str | None
+    has_safety_comment: bool | None
+    operations_json: str | None
+
+class RustUnsafeTraitsRow(TypedDict):
+    """Row type for rust_unsafe_traits table."""
+    file_path: str
+    line: int
+    trait_name: str
+    impl_type: str | None
+
+class RustUseStatementsRow(TypedDict):
+    """Row type for rust_use_statements table."""
+    file_path: str
+    line: int
+    import_path: str
+    local_name: str | None
+    canonical_path: str | None
+    is_glob: bool | None
+    visibility: str | None
 
 class SequelizeAssociationsRow(TypedDict):
     """Row type for sequelize_associations table."""

@@ -4,13 +4,16 @@ import sqlite3
 from collections import defaultdict
 
 from .base_database import BaseDatabaseManager
+from .bash_database import BashDatabaseMixin
 from .core_database import CoreDatabaseMixin
 from .frameworks_database import FrameworksDatabaseMixin
+from .go_database import GoDatabaseMixin
 from .graphql_database import GraphQLDatabaseMixin
 from .infrastructure_database import InfrastructureDatabaseMixin
 from .node_database import NodeDatabaseMixin
 from .planning_database import PlanningDatabaseMixin
 from .python_database import PythonDatabaseMixin
+from .rust_database import RustDatabaseMixin
 from .security_database import SecurityDatabaseMixin
 
 
@@ -19,6 +22,9 @@ class DatabaseManager(
     CoreDatabaseMixin,
     PythonDatabaseMixin,
     NodeDatabaseMixin,
+    RustDatabaseMixin,
+    GoDatabaseMixin,
+    BashDatabaseMixin,
     InfrastructureDatabaseMixin,
     SecurityDatabaseMixin,
     FrameworksDatabaseMixin,
