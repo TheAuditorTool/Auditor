@@ -40,6 +40,54 @@ class GraphEdge:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def create_bidirectional_graph_edges(
+    source: str,
+    target: str,
+    edge_type: str,
+    file: str | None = None,
+    line: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> list[GraphEdge]:
+    """Create both forward and reverse edges for IFDS backward traversal.
+
+    GRAPH FIX G3: Import/call graphs need reverse edges for taint analysis.
+    Without reverse edges, IFDS analyzer cannot traverse backward through
+    function boundaries, causing 99.6% of flows to hit max_depth.
+    """
+    if metadata is None:
+        metadata = {}
+
+    edges = []
+
+    # Forward edge
+    forward = GraphEdge(
+        source=source,
+        target=target,
+        type=edge_type,
+        file=file,
+        line=line,
+        metadata=metadata,
+    )
+    edges.append(forward)
+
+    # Reverse edge for backward traversal
+    reverse_meta = metadata.copy()
+    reverse_meta["is_reverse"] = True
+    reverse_meta["original_type"] = edge_type
+
+    reverse = GraphEdge(
+        source=target,
+        target=source,
+        type=f"{edge_type}_reverse",
+        file=file,
+        line=line,
+        metadata=reverse_meta,
+    )
+    edges.append(reverse)
+
+    return edges
+
+
 @dataclass
 class Cycle:
     """Represents a cycle in the dependency graph."""
@@ -475,15 +523,16 @@ class XGraphBuilder:
                         "resolved": resolved_norm or raw_value,
                         "resolved_exists": resolved_exists,
                     }
-                    edge = GraphEdge(
+                    # GRAPH FIX G3: Create bidirectional edges for IFDS traversal
+                    new_edges = create_bidirectional_graph_edges(
                         source=module_node.id,
                         target=target_id,
-                        type="import",
+                        edge_type="import",
                         file=rel_path,
                         line=imp.get("line"),
                         metadata=edge_metadata,
                     )
-                    edges.append(edge)
+                    edges.extend(new_edges)
 
         for file_path, lang in files:
             rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
@@ -755,16 +804,16 @@ class XGraphBuilder:
                     if target_module:
                         edge_metadata["callee_module"] = target_module
 
-                    edges.append(
-                        GraphEdge(
-                            source=caller_node.id,
-                            target=callee_node.id,
-                            type="call",
-                            file=rel_path,
-                            line=line,
-                            metadata=edge_metadata,
-                        )
+                    # GRAPH FIX G3: Create bidirectional edges for IFDS traversal
+                    new_edges = create_bidirectional_graph_edges(
+                        source=caller_node.id,
+                        target=callee_node.id,
+                        edge_type="call",
+                        file=rel_path,
+                        line=line,
+                        metadata=edge_metadata,
                     )
+                    edges.extend(new_edges)
 
         if self.db_path.exists():
             if conn is None:

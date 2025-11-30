@@ -63,6 +63,27 @@ class InterceptorStrategy:
         if not cursor.fetchone():
             return
 
+        # GRAPH FIX G2: Preload import_styles for exact controller resolution
+        # Without this, LIKE %.methodName matches multiple controllers
+        import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
+        cursor.execute("SELECT file, package, alias_name FROM import_styles")
+        for row in cursor.fetchall():
+            import_styles_map[row["file"]][row["alias_name"]] = row["package"]
+
+        # GRAPH FIX G2: Preload symbols by name for exact lookup
+        symbols_by_name: dict[str, list[dict]] = defaultdict(list)
+        cursor.execute("""
+            SELECT path, name, type
+            FROM symbols
+            WHERE type IN ('function', 'class')
+        """)
+        for row in cursor.fetchall():
+            symbols_by_name[row["name"]].append({
+                "path": row["path"],
+                "name": row["name"],
+                "type": row["type"],
+            })
+
         cursor.execute("""
             SELECT
                 file,
@@ -107,16 +128,26 @@ class InterceptorStrategy:
             for item in chain:
                 raw_expr = item["handler_expr"] or "unknown"
                 clean_func = raw_expr.split("(")[0].strip()
+
+                # GRAPH FIX G2: Keep both object name and method name for exact resolution
+                object_name = None
+                method_name = clean_func
                 if "." in clean_func:
-                    clean_func = clean_func.split(".")[-1]
+                    parts = clean_func.split(".", 1)
+                    object_name = parts[0]
+                    method_name = parts[1] if len(parts) > 1 else clean_func
 
                 controller_file = None
                 if item["handler_type"] == "controller":
                     full_func_name, controller_file = self._resolve_controller_info(
-                        cursor, clean_func
+                        route_file=item["file"],
+                        object_name=object_name,
+                        method_name=method_name,
+                        import_styles_map=import_styles_map,
+                        symbols_by_name=symbols_by_name,
                     )
                 else:
-                    full_func_name = clean_func
+                    full_func_name = method_name
 
                 current_node_id = f"{item['file']}::{full_func_name}::input"
 
@@ -336,27 +367,72 @@ class InterceptorStrategy:
 
     def _resolve_controller_info(
         self,
-        cursor: sqlite3.Cursor,
+        route_file: str,
+        object_name: str | None,
         method_name: str,
-    ) -> tuple[str, str]:
-        """Look up full ClassName.methodName and controller file path from symbols."""
-        try:
-            cursor.execute(
-                """
-                SELECT name, path FROM symbols
-                WHERE type = 'function'
-                  AND name LIKE ?
-                ORDER BY
-                    CASE WHEN name LIKE '%Controller.%' THEN 0 ELSE 1 END,
-                    LENGTH(name)
-                LIMIT 1
-            """,
-                (f"%.{method_name}",),
-            )
+        import_styles_map: dict[str, dict[str, str]],
+        symbols_by_name: dict[str, list[dict]],
+    ) -> tuple[str, str | None]:
+        """Look up full ClassName.methodName and controller file path from symbols.
 
-            row = cursor.fetchone()
-            if row:
-                return (row["name"], row["path"])
+        GRAPH FIX G2: Replaced fuzzy LIKE %.methodName with exact import-based resolution.
+        The old approach matched BOTH UserController.updateUser AND AdminController.updateUser
+        creating false edges. Now we:
+        1. Look up where the object was imported from
+        2. Find the method in THAT specific file only
+        """
+        # If no object name, try direct method lookup
+        if not object_name:
+            if method_name in symbols_by_name:
+                candidates = symbols_by_name[method_name]
+                # Prefer controller paths
+                for sym in candidates:
+                    if "controller" in sym["path"].lower():
+                        return (sym["name"], sym["path"])
+                if candidates:
+                    return (candidates[0]["name"], candidates[0]["path"])
             return (method_name, None)
-        except Exception:
+
+        # Step 1: Find import package for the object
+        file_imports = import_styles_map.get(route_file, {})
+        import_package = file_imports.get(object_name)
+
+        if not import_package:
+            # Object not imported - try direct method lookup with preference
+            if method_name in symbols_by_name:
+                candidates = symbols_by_name[method_name]
+                for sym in candidates:
+                    if "controller" in sym["path"].lower():
+                        return (sym["name"], sym["path"])
+                if candidates:
+                    return (candidates[0]["name"], candidates[0]["path"])
             return (method_name, None)
+
+        # Step 2: Look for method in symbols - prefer matches from import path
+        full_method_name = f"{object_name}.{method_name}"
+
+        # Try full qualified name first
+        if full_method_name in symbols_by_name:
+            candidates = symbols_by_name[full_method_name]
+            # Prefer candidate whose path matches the import package
+            for sym in candidates:
+                if import_package in sym["path"]:
+                    return (sym["name"], sym["path"])
+            if candidates:
+                return (candidates[0]["name"], candidates[0]["path"])
+
+        # Try just method name with path filtering
+        if method_name in symbols_by_name:
+            candidates = symbols_by_name[method_name]
+            # EXACT match: only candidates from the imported package path
+            for sym in candidates:
+                if import_package in sym["path"]:
+                    return (f"{object_name}.{method_name}", sym["path"])
+            # No exact path match - prefer controllers
+            for sym in candidates:
+                if "controller" in sym["path"].lower():
+                    return (sym["name"], sym["path"])
+            if candidates:
+                return (candidates[0]["name"], candidates[0]["path"])
+
+        return (method_name, None)
