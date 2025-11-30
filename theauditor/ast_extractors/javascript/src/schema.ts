@@ -548,6 +548,7 @@ export const ImportStyleSchema = z.object({
   import_style: z.string().optional(),
   alias_name: z.string().nullable().optional(),
   full_statement: z.string().optional(),
+  resolved_path: z.string().nullable().optional(),
   style: z.string().optional(),
   count: z.number().optional(),
 });

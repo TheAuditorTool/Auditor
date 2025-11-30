@@ -20,6 +20,7 @@ class GraphDatabaseCache:
     IMPORTS_CACHE_SIZE = 2000
     EXPORTS_CACHE_SIZE = 2000
     RESOLVE_CACHE_SIZE = 5000
+    RESOLVED_IMPORTS_CACHE_SIZE = 2000
 
     def __init__(self, db_path: Path):
         """Initialize cache - only loads file list, imports/exports are lazy."""
@@ -78,6 +79,35 @@ class GraphDatabaseCache:
                 "line": row["line"],
             }
             for row in cursor.fetchall()
+        )
+
+        conn.close()
+        return results
+
+    @lru_cache(maxsize=RESOLVED_IMPORTS_CACHE_SIZE)
+    def get_resolved_imports(self, file_path: str) -> frozenset[str]:
+        """Get pre-resolved import paths for a file from import_styles table.
+
+        Returns frozenset of resolved paths (hashable for lru_cache).
+        Only returns imports where resolved_path IS NOT NULL.
+        """
+        normalized = self._normalize_path(file_path)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT resolved_path
+            FROM import_styles
+            WHERE file = ?
+              AND resolved_path IS NOT NULL
+        """,
+            (normalized,),
+        )
+
+        results = frozenset(
+            self._normalize_path(row[0]) for row in cursor.fetchall()
         )
 
         conn.close()
@@ -149,6 +179,7 @@ class GraphDatabaseCache:
         imports_info = self.get_imports.cache_info()
         exports_info = self.get_exports.cache_info()
         resolve_info = self.resolve_filename.cache_info()
+        resolved_imports_info = self.get_resolved_imports.cache_info()
 
         return {
             "files": len(self.known_files),
@@ -160,6 +191,8 @@ class GraphDatabaseCache:
             "exports_cache_size": exports_info.currsize,
             "resolve_cache_hits": resolve_info.hits,
             "resolve_cache_misses": resolve_info.misses,
+            "resolved_imports_cache_hits": resolved_imports_info.hits,
+            "resolved_imports_cache_misses": resolved_imports_info.misses,
         }
 
     def clear_caches(self):
@@ -167,3 +200,4 @@ class GraphDatabaseCache:
         self.get_imports.cache_clear()
         self.get_exports.cache_clear()
         self.resolve_filename.cache_clear()
+        self.get_resolved_imports.cache_clear()

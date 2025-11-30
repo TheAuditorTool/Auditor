@@ -22,6 +22,7 @@ class CoreDatabaseMixin:
         end_line: int | None = None,
         type_annotation: str | None = None,
         parameters: str | None = None,
+        is_typed: bool | None = None,
     ):
         """Add a symbol record to the batch."""
         import os
@@ -40,7 +41,7 @@ class CoreDatabaseMixin:
             if parameters and os.getenv("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] add_symbol: {name} ({symbol_type}) has parameters: {parameters}")
         self.generic_batches["symbols"].append(
-            (path, name, symbol_type, line, col, end_line, type_annotation, parameters)
+            (path, name, symbol_type, line, col, end_line, type_annotation, parameters, is_typed)
         )
 
     def add_assignment(
