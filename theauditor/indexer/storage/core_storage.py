@@ -366,7 +366,11 @@ class CoreStorage(BaseStorage):
             self.db_manager.flush_generic_batch("validation_framework_usage")
 
     def _store_assignments(self, file_path: str, assignments: list, jsx_pass: bool):
-        """Store data flow information for taint analysis."""
+        """Store data flow information for taint analysis.
+
+        TAINT FIX T3: Convert raises to logger.warning + continue.
+        One bad assignment should not crash entire file's storage. Log and skip.
+        """
         if assignments:
             logger.info(f"[DEBUG] Found {len(assignments)} assignments in {file_path}")
             if assignments:
@@ -376,51 +380,62 @@ class CoreStorage(BaseStorage):
                 )
 
         seen = set()
-        for assignment in assignments:
-            key = (
-                file_path,
-                assignment["line"],
-                assignment.get("col", 0),
-                assignment["target_var"],
-            )
-            if key in seen:
-                raise ValueError(
-                    f"EXTRACTOR BUG: Duplicate assignment detected.\n"
-                    f"  File: {file_path}\n"
-                    f"  Identity: {key}\n"
-                    f"  Fix extractor logic to visit nodes only once.\n"
-                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+        skipped_count = 0
+
+        for idx, assignment in enumerate(assignments):
+            # Validate assignment structure - log and skip bad ones instead of crashing
+            if not isinstance(assignment, dict):
+                logger.warning(
+                    f"EXTRACTOR BUG: Assignment at index {idx} must be dict, got {type(assignment).__name__}. "
+                    f"File: {file_path}. Skipping."
                 )
+                skipped_count += 1
+                continue
+
+            # Check for duplicates - log and skip instead of crashing
+            line_val = assignment.get("line", 0)
+            target_var = assignment.get("target_var", "")
+            key = (file_path, line_val, assignment.get("col", 0), target_var)
+            if key in seen:
+                logger.warning(
+                    f"EXTRACTOR BUG: Duplicate assignment detected. "
+                    f"File: {file_path}, Key: {key}. Skipping duplicate."
+                )
+                skipped_count += 1
+                continue
             seen.add(key)
 
-        for assignment in assignments:
-            if not isinstance(assignment.get("line"), int) or assignment["line"] < 1:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Assignment.line must be int >= 1.\n"
-                    f"  File: {file_path}\n"
-                    f"  Got: {repr(assignment.get('line'))}"
+            if not isinstance(line_val, int) or line_val < 1:
+                logger.warning(
+                    f"EXTRACTOR BUG: Assignment.line must be int >= 1. "
+                    f"File: {file_path}, Got: {repr(line_val)}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
-            if not isinstance(assignment.get("target_var"), str) or not assignment["target_var"]:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Assignment.target_var must be non-empty str.\n"
-                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
-                    f"  Got: {repr(assignment.get('target_var'))}"
+            if not isinstance(target_var, str) or not target_var:
+                logger.warning(
+                    f"EXTRACTOR BUG: Assignment.target_var must be non-empty str. "
+                    f"File: {file_path}, Line: {line_val}, Got: {repr(target_var)}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(assignment.get("source_expr"), str):
-                raise TypeError(
-                    f"EXTRACTOR BUG: Assignment.source_expr must be str.\n"
-                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
-                    f"  Got: {repr(assignment.get('source_expr'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Assignment.source_expr must be str. "
+                    f"File: {file_path}, Line: {line_val}, Got: {repr(assignment.get('source_expr'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(assignment.get("in_function"), str):
-                raise TypeError(
-                    f"EXTRACTOR BUG: Assignment.in_function must be str.\n"
-                    f"  File: {file_path}, Line: {assignment.get('line')}\n"
-                    f"  Got: {repr(assignment.get('in_function'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Assignment.in_function must be str. "
+                    f"File: {file_path}, Line: {line_val}, Got: {repr(assignment.get('in_function'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if jsx_pass:
                 self.db_manager.add_assignment_jsx(
@@ -447,12 +462,33 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["assignments"] += 1
 
-    def _store_function_calls(self, file_path: str, function_calls: list, jsx_pass: bool):
-        """Store function calls."""
-        for call in function_calls:
-            callee = call["callee_function"]
+        # Log summary if any assignments were skipped
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count}/{len(assignments)} malformed assignments in {file_path}"
+            )
 
-            if not jsx_pass and ("jwt" in callee.lower() or "jsonwebtoken" in callee.lower()):
+    def _store_function_calls(self, file_path: str, function_calls: list, jsx_pass: bool):
+        """Store function calls.
+
+        TAINT FIX T3: Convert raises to logger.warning + continue.
+        One bad call should not crash entire file's storage. Log and skip.
+        """
+        skipped_count = 0
+
+        for idx, call in enumerate(function_calls):
+            # Validate call structure
+            if not isinstance(call, dict):
+                logger.warning(
+                    f"EXTRACTOR BUG: Call at index {idx} must be dict, got {type(call).__name__}. "
+                    f"File: {file_path}. Skipping."
+                )
+                skipped_count += 1
+                continue
+
+            callee = call.get("callee_function", "")
+
+            if not jsx_pass and callee and ("jwt" in callee.lower() or "jsonwebtoken" in callee.lower()):
                 if ".sign" in callee:
                     if call.get("argument_index") == 1:
                         arg_expr = call.get("argument_expr", "")
@@ -484,39 +520,47 @@ class CoreStorage(BaseStorage):
             else:
                 callee_file_path = call.get("callee_file_path")
                 param_name = call.get("param_name", "")
+                line_val = call.get("line", 0)
 
                 if isinstance(callee_file_path, dict):
-                    raise TypeError(
-                        f"EXTRACTION BUG: callee_file_path must be str or None, got dict in {file_path}:{call['line']}. "
-                        f"Value: {callee_file_path}. Fix TypeScript extractor (typescript_impl.py)."
+                    logger.warning(
+                        f"EXTRACTOR BUG: callee_file_path must be str or None, got dict. "
+                        f"File: {file_path}, Line: {line_val}. Skipping."
                     )
+                    skipped_count += 1
+                    continue
 
                 if isinstance(param_name, dict):
-                    raise TypeError(
-                        f"EXTRACTION BUG: param_name must be str, got dict in {file_path}:{call['line']}. "
-                        f"Callee: {call['callee_function']}. Value: {param_name}. Fix extraction layer."
+                    logger.warning(
+                        f"EXTRACTOR BUG: param_name must be str, got dict. "
+                        f"File: {file_path}, Line: {line_val}, Callee: {callee}. Skipping."
                     )
+                    skipped_count += 1
+                    continue
 
-                if not isinstance(call.get("line"), int) or call["line"] < 1:
-                    raise TypeError(
-                        f"EXTRACTOR BUG: Call.line must be int >= 1.\n"
-                        f"  File: {file_path}\n"
-                        f"  Got: {repr(call.get('line'))}"
+                if not isinstance(line_val, int) or line_val < 1:
+                    logger.warning(
+                        f"EXTRACTOR BUG: Call.line must be int >= 1. "
+                        f"File: {file_path}, Got: {repr(line_val)}. Skipping."
                     )
+                    skipped_count += 1
+                    continue
 
                 if not isinstance(call.get("caller_function"), str):
-                    raise TypeError(
-                        f"EXTRACTOR BUG: Call.caller_function must be str.\n"
-                        f"  File: {file_path}, Line: {call.get('line')}\n"
-                        f"  Got: {repr(call.get('caller_function'))}"
+                    logger.warning(
+                        f"EXTRACTOR BUG: Call.caller_function must be str. "
+                        f"File: {file_path}, Line: {line_val}, Got: {repr(call.get('caller_function'))}. Skipping."
                     )
+                    skipped_count += 1
+                    continue
 
-                if not isinstance(call.get("callee_function"), str) or not call["callee_function"]:
-                    raise TypeError(
-                        f"EXTRACTOR BUG: Call.callee_function must be non-empty str.\n"
-                        f"  File: {file_path}, Line: {call.get('line')}\n"
-                        f"  Got: {repr(call.get('callee_function'))}"
+                if not isinstance(callee, str) or not callee:
+                    logger.warning(
+                        f"EXTRACTOR BUG: Call.callee_function must be non-empty str. "
+                        f"File: {file_path}, Line: {line_val}, Got: {repr(callee)}. Skipping."
                     )
+                    skipped_count += 1
+                    continue
 
                 self.db_manager.add_function_call_arg(
                     file_path,
@@ -530,43 +574,68 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts["function_calls"] += 1
 
-    def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
-        """Store return statements."""
+        # Log summary if any calls were skipped
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count}/{len(function_calls)} malformed function calls in {file_path}"
+            )
 
+    def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
+        """Store return statements.
+
+        TAINT FIX T3: Convert raises to logger.warning + continue.
+        One bad return should not crash entire file's storage. Log and skip.
+        """
         seen = set()
-        for ret in returns:
-            key = (file_path, ret["line"], ret.get("col", 0), ret["function_name"])
-            if key in seen:
-                raise ValueError(
-                    f"EXTRACTOR BUG: Duplicate function_return detected.\n"
-                    f"  File: {file_path}\n"
-                    f"  Identity: {key}\n"
-                    f"  Fix extractor logic to visit nodes only once.\n"
-                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+        skipped_count = 0
+
+        for idx, ret in enumerate(returns):
+            # Validate return structure
+            if not isinstance(ret, dict):
+                logger.warning(
+                    f"EXTRACTOR BUG: Return at index {idx} must be dict, got {type(ret).__name__}. "
+                    f"File: {file_path}. Skipping."
                 )
+                skipped_count += 1
+                continue
+
+            line_val = ret.get("line", 0)
+            func_name = ret.get("function_name", "")
+
+            # Check for duplicates - log and skip instead of crashing
+            key = (file_path, line_val, ret.get("col", 0), func_name)
+            if key in seen:
+                logger.warning(
+                    f"EXTRACTOR BUG: Duplicate function_return detected. "
+                    f"File: {file_path}, Key: {key}. Skipping duplicate."
+                )
+                skipped_count += 1
+                continue
             seen.add(key)
 
-        for ret in returns:
-            if not isinstance(ret.get("line"), int) or ret["line"] < 1:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Return.line must be int >= 1.\n"
-                    f"  File: {file_path}\n"
-                    f"  Got: {repr(ret.get('line'))}"
+            if not isinstance(line_val, int) or line_val < 1:
+                logger.warning(
+                    f"EXTRACTOR BUG: Return.line must be int >= 1. "
+                    f"File: {file_path}, Got: {repr(line_val)}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
-            if not isinstance(ret.get("function_name"), str):
-                raise TypeError(
-                    f"EXTRACTOR BUG: Return.function_name must be str.\n"
-                    f"  File: {file_path}, Line: {ret.get('line')}\n"
-                    f"  Got: {repr(ret.get('function_name'))}"
+            if not isinstance(func_name, str):
+                logger.warning(
+                    f"EXTRACTOR BUG: Return.function_name must be str. "
+                    f"File: {file_path}, Line: {line_val}, Got: {repr(func_name)}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(ret.get("return_expr"), str):
-                raise TypeError(
-                    f"EXTRACTOR BUG: Return.return_expr must be str.\n"
-                    f"  File: {file_path}, Line: {ret.get('line')}\n"
-                    f"  Got: {repr(ret.get('return_expr'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Return.return_expr must be str. "
+                    f"File: {file_path}, Line: {line_val}, Got: {repr(ret.get('return_expr'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if jsx_pass:
                 self.db_manager.add_function_return_jsx(
@@ -591,6 +660,12 @@ class CoreStorage(BaseStorage):
                     col=ret.get("col", 0),
                 )
                 self.counts["returns"] += 1
+
+        # Log summary if any returns were skipped
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count}/{len(returns)} malformed returns in {file_path}"
+            )
 
     def _store_cfg(self, file_path: str, cfg: list, jsx_pass: bool):
         """Store control flow graph data to main or _jsx tables."""
@@ -708,30 +783,41 @@ class CoreStorage(BaseStorage):
             self.counts["class_properties"] += 1
 
     def _store_env_var_usage(self, file_path: str, env_var_usage: list, jsx_pass: bool):
-        """Store environment variable usage (process.env.X)."""
+        """Store environment variable usage (process.env.X).
+
+        TAINT FIX T3: Convert raises to logger.warning + continue.
+        One bad env_var usage should not crash entire file's storage. Log and skip.
+        """
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
 
         seen = set()
-        for usage in env_var_usage:
-            key = (
-                file_path,
-                usage["line"],
-                usage.get("col", 0),
-                usage["var_name"],
-                usage["access_type"],
-            )
-            if key in seen:
-                raise ValueError(
-                    f"EXTRACTOR BUG: Duplicate env_var_usage detected.\n"
-                    f"  File: {file_path}\n"
-                    f"  Identity: {key}\n"
-                    f"  Fix extractor logic to visit nodes only once.\n"
-                    f"  Reference: typescript_impl.py:535-545 for visited_nodes pattern."
+        skipped_count = 0
+
+        for idx, usage in enumerate(env_var_usage):
+            # Validate usage structure
+            if not isinstance(usage, dict):
+                logger.warning(
+                    f"EXTRACTOR BUG: env_var_usage at index {idx} must be dict, got {type(usage).__name__}. "
+                    f"File: {file_path}. Skipping."
                 )
+                skipped_count += 1
+                continue
+
+            line_val = usage.get("line", 0)
+            var_name = usage.get("var_name", "")
+            access_type = usage.get("access_type", "")
+
+            key = (file_path, line_val, usage.get("col", 0), var_name, access_type)
+            if key in seen:
+                logger.warning(
+                    f"EXTRACTOR BUG: Duplicate env_var_usage detected. "
+                    f"File: {file_path}, Key: {key}. Skipping duplicate."
+                )
+                skipped_count += 1
+                continue
             seen.add(key)
 
-        for usage in env_var_usage:
             self.db_manager.add_env_var_usage(
                 file_path,
                 usage["line"],
@@ -743,6 +829,12 @@ class CoreStorage(BaseStorage):
             if "env_var_usage" not in self.counts:
                 self.counts["env_var_usage"] = 0
             self.counts["env_var_usage"] += 1
+
+        # Log summary if any env_var usages were skipped
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count}/{len(env_var_usage)} malformed env_var_usage in {file_path}"
+            )
 
     def _store_orm_relationships(self, file_path: str, orm_relationships: list, jsx_pass: bool):
         """Store ORM relationship declarations (hasMany, belongsTo, etc.)."""
