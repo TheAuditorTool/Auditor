@@ -109,7 +109,12 @@ export function extractAPIEndpoints(
     const receiver = parts.slice(0, -1).join(".").toLowerCase();
     const method = parts[parts.length - 1];
 
-    const ROUTER_PATTERNS = ["router", "app", "express", "server", "route"];
+    // EXTRACTION FIX: Expanded to detect routes from modern Node.js frameworks.
+    // Previously only Express patterns; missed Fastify, Koa, Hapi, NestJS, Hono, etc.
+    const ROUTER_PATTERNS = [
+      "router", "app", "express", "server", "route",
+      "fastify", "koa", "hapi", "nest", "hono", "elysia", "oak", "polka"
+    ];
     const isRouter = ROUTER_PATTERNS.some((p) => receiver.includes(p));
 
     if (!isRouter || !HTTP_METHODS.has(method)) continue;
