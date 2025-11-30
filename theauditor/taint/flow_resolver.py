@@ -542,13 +542,27 @@ class FlowResolver:
 
         sink_line = 0
         sink_function = sink_parts[1] if len(sink_parts) > 1 else "global"
+
+        # Query function_call_args and function_call_args_jsx for sink line
+        # Sink patterns can be in:
+        # - argument_expr (the pattern is passed as an argument)
+        # - callee_function (the pattern IS the function being called, e.g. useState, setX)
         repo_cursor.execute(
             """
-            SELECT MIN(line) FROM function_call_args
-            WHERE file = ? AND argument_expr LIKE ?
-              AND (caller_function = ? OR (caller_function IS NULL AND ? = 'global'))
+            SELECT MIN(line) FROM (
+                SELECT line FROM function_call_args
+                WHERE file = ? AND (argument_expr LIKE ? OR callee_function LIKE ?)
+                  AND (caller_function = ? OR (caller_function IS NULL AND ? = 'global'))
+                UNION ALL
+                SELECT line FROM function_call_args_jsx
+                WHERE file = ? AND (argument_expr LIKE ? OR callee_function LIKE ?)
+                  AND (caller_function = ? OR (caller_function IS NULL AND ? = 'global'))
+            )
         """,
-            (sink_file, f"%{sink_pattern}%", sink_function, sink_function),
+            (
+                sink_file, f"%{sink_pattern}%", f"%{sink_pattern}%", sink_function, sink_function,
+                sink_file, f"%{sink_pattern}%", f"%{sink_pattern}%", sink_function, sink_function,
+            ),
         )
         result = repo_cursor.fetchone()
         if result and result[0]:
