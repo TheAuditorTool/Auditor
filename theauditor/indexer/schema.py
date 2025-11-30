@@ -24,7 +24,171 @@ TABLES: dict[str, TableSchema] = {
 }
 
 
-assert len(TABLES) == 170, f"Schema contract violation: Expected 170 tables, got {len(TABLES)}"
+# Tables that are flushed during indexing - MUST exist in TABLES
+# This is the authoritative list - base_database.py imports this
+FLUSH_ORDER: list[tuple[str, str]] = [
+    ("files", "INSERT OR REPLACE"),
+    ("config_files", "INSERT OR REPLACE"),
+    ("plans", "INSERT"),
+    ("plan_specs", "INSERT"),
+    ("plan_tasks", "INSERT"),
+    ("code_snapshots", "INSERT"),
+    ("code_diffs", "INSERT"),
+    ("refactor_candidates", "INSERT"),
+    ("refactor_history", "INSERT"),
+    ("refs", "INSERT"),
+    ("symbols", "INSERT"),
+    ("class_properties", "INSERT"),
+    ("env_var_usage", "INSERT"),
+    ("orm_relationships", "INSERT"),
+    ("sql_objects", "INSERT"),
+    ("sql_queries", "INSERT"),
+    ("orm_queries", "INSERT"),
+    ("prisma_models", "INSERT"),
+    ("api_endpoints", "INSERT"),
+    ("router_mounts", "INSERT"),
+    ("api_endpoint_controls", "INSERT"),
+    ("express_middleware_chains", "INSERT"),
+    ("python_orm_models", "INSERT"),
+    ("python_orm_fields", "INSERT"),
+    ("python_routes", "INSERT"),
+    ("python_validators", "INSERT"),
+    ("python_package_configs", "INSERT"),
+    ("python_decorators", "INSERT"),
+    ("python_django_views", "INSERT"),
+    ("python_django_middleware", "INSERT"),
+    ("python_loops", "INSERT"),
+    ("python_branches", "INSERT"),
+    ("python_functions_advanced", "INSERT"),
+    ("python_io_operations", "INSERT"),
+    ("python_state_mutations", "INSERT"),
+    ("python_class_features", "INSERT"),
+    ("python_protocols", "INSERT"),
+    ("python_descriptors", "INSERT"),
+    ("python_type_definitions", "INSERT"),
+    ("python_literals", "INSERT"),
+    ("python_protocol_methods", "INSERT"),
+    ("python_typeddict_fields", "INSERT"),
+    ("python_security_findings", "INSERT"),
+    ("python_test_cases", "INSERT"),
+    ("python_test_fixtures", "INSERT"),
+    ("python_framework_config", "INSERT"),
+    ("python_validation_schemas", "INSERT"),
+    ("python_fixture_params", "INSERT"),
+    ("python_framework_methods", "INSERT"),
+    ("python_schema_validators", "INSERT"),
+    ("python_operators", "INSERT"),
+    ("python_collections", "INSERT"),
+    ("python_stdlib_usage", "INSERT"),
+    ("python_imports_advanced", "INSERT"),
+    ("python_expressions", "INSERT"),
+    ("python_comprehensions", "INSERT"),
+    ("python_control_statements", "INSERT"),
+    ("sql_query_tables", "INSERT"),
+    ("docker_images", "INSERT"),
+    ("dockerfile_ports", "INSERT"),
+    ("dockerfile_env_vars", "INSERT"),
+    ("compose_services", "INSERT"),
+    ("compose_service_ports", "INSERT"),
+    ("compose_service_volumes", "INSERT"),
+    ("compose_service_env", "INSERT"),
+    ("compose_service_capabilities", "INSERT"),
+    ("compose_service_deps", "INSERT"),
+    ("nginx_configs", "INSERT"),
+    ("terraform_files", "INSERT"),
+    ("terraform_resources", "INSERT"),
+    ("terraform_resource_properties", "INSERT"),
+    ("terraform_resource_deps", "INSERT"),
+    ("terraform_variables", "INSERT"),
+    ("terraform_variable_values", "INSERT"),
+    ("terraform_outputs", "INSERT"),
+    ("terraform_findings", "INSERT"),
+    ("cdk_constructs", "INSERT"),
+    ("cdk_construct_properties", "INSERT"),
+    ("cdk_findings", "INSERT"),
+    ("graphql_schemas", "INSERT"),
+    ("graphql_types", "INSERT"),
+    ("graphql_fields", "INSERT"),
+    ("graphql_field_directives", "INSERT"),
+    ("graphql_field_args", "INSERT"),
+    ("graphql_arg_directives", "INSERT"),
+    ("graphql_resolver_mappings", "INSERT"),
+    ("graphql_resolver_params", "INSERT"),
+    ("graphql_execution_edges", "INSERT"),
+    ("graphql_findings_cache", "INSERT"),
+    ("github_workflows", "INSERT"),
+    ("github_jobs", "INSERT"),
+    ("github_job_dependencies", "INSERT"),
+    ("github_steps", "INSERT"),
+    ("github_step_outputs", "INSERT"),
+    ("github_step_references", "INSERT"),
+    ("assignments", "INSERT"),
+    ("assignment_sources", "INSERT"),
+    ("function_call_args", "INSERT"),
+    ("function_returns", "INSERT"),
+    ("function_return_sources", "INSERT"),
+    ("react_components", "INSERT"),
+    ("react_component_hooks", "INSERT"),
+    ("react_hooks", "INSERT"),
+    ("react_hook_dependencies", "INSERT"),
+    ("variable_usage", "INSERT"),
+    ("object_literals", "INSERT"),
+    ("function_returns_jsx", "INSERT OR REPLACE"),
+    ("function_return_sources_jsx", "INSERT"),
+    ("symbols_jsx", "INSERT OR REPLACE"),
+    ("assignments_jsx", "INSERT OR REPLACE"),
+    ("assignment_sources_jsx", "INSERT"),
+    ("function_call_args_jsx", "INSERT OR REPLACE"),
+    ("vue_components", "INSERT"),
+    ("vue_hooks", "INSERT"),
+    ("vue_directives", "INSERT"),
+    ("vue_provide_inject", "INSERT"),
+    ("type_annotations", "INSERT OR REPLACE"),
+    ("package_configs", "INSERT OR REPLACE"),
+    ("package_dependencies", "INSERT"),
+    ("package_scripts", "INSERT"),
+    ("package_engines", "INSERT"),
+    ("package_workspaces", "INSERT"),
+    ("lock_analysis", "INSERT OR REPLACE"),
+    ("import_styles", "INSERT"),
+    ("import_style_names", "INSERT"),
+    ("func_params", "INSERT"),
+    ("func_decorators", "INSERT"),
+    ("func_decorator_args", "INSERT"),
+    ("func_param_decorators", "INSERT"),
+    ("class_decorators", "INSERT"),
+    ("class_decorator_args", "INSERT"),
+    ("assignment_source_vars", "INSERT"),
+    ("return_source_vars", "INSERT"),
+    ("import_specifiers", "INSERT"),
+    ("sequelize_model_fields", "INSERT"),
+    ("frameworks", "INSERT OR IGNORE"),
+    ("framework_safe_sinks", "INSERT OR IGNORE"),
+    ("framework_taint_patterns", "INSERT OR IGNORE"),
+]
+
+
+def validate_schema_contract() -> list[str]:
+    """Validate schema contract - all flush_order tables must exist in TABLES.
+
+    Returns list of errors. Empty list means valid.
+    """
+    errors = []
+
+    # Check all flush_order tables have schemas
+    for table_name, _ in FLUSH_ORDER:
+        if table_name not in TABLES:
+            errors.append(f"FLUSH_ORDER table '{table_name}' missing from TABLES schema")
+
+    return errors
+
+
+# Run validation on import - raises if broken
+_contract_errors = validate_schema_contract()
+if _contract_errors:
+    raise RuntimeError(
+        f"Schema contract violation:\n" + "\n".join(f"  - {e}" for e in _contract_errors)
+    )
 
 
 FILES = TABLES["files"]

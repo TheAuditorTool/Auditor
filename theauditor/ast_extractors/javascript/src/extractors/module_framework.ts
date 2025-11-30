@@ -665,6 +665,7 @@ export function extractImportStyles(
         import_style: import_style,
         alias_name: alias_name,
         full_statement: fullStatement.substring(0, 200),
+        resolved_path: null,
       });
     }
   }

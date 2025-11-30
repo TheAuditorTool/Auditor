@@ -289,6 +289,7 @@ class NodeStorage(BaseStorage):
                 import_style.get("imported_names"),
                 import_style.get("alias_name"),
                 import_style.get("full_statement"),
+                import_style.get("resolved_path"),
             )
             if "import_styles" not in self.counts:
                 self.counts["import_styles"] = 0

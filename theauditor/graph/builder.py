@@ -674,26 +674,19 @@ class XGraphBuilder:
             nodes[node_id] = node
             return node
 
-        print("[Graph Builder] Pre-resolving imports for all files...")
+        print("[Graph Builder] Loading pre-resolved imports from import_styles.resolved_path...")
         file_imports_resolved: dict[str, set[str]] = {}
 
         with click.progressbar(
             files,
-            label="Resolving imports",
+            label="Loading resolved imports",
             show_pos=True,
             show_percent=True,
             item_show_func=lambda x: str(x[0].name) if x else None,
         ) as bar:
             for file_path, lang in bar:
                 rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
-                file_imports = self.extract_imports_from_db(rel_path)
-                resolved_imports = set()
-                for imp in file_imports:
-                    raw_import = imp.get("value")
-                    if raw_import:
-                        resolved = self.resolve_import_path(raw_import, file_path, lang)
-                        if resolved:
-                            resolved_imports.add(resolved.replace("\\", "/"))
+                resolved_imports = set(self.db_cache.get_resolved_imports(rel_path))
                 file_imports_resolved[rel_path] = resolved_imports
 
         with click.progressbar(
