@@ -617,9 +617,44 @@ export function extractImportStyles(
   imports: IImport[],
   import_specifiers: IImportSpecifier[],
   filePath: string,
+  program: ts.Program | null,
+  sourceFile: ts.SourceFile | null,
+  tsLib: typeof ts,
+  projectRoot: string,
 ): { import_styles: IImportStyle[]; import_style_names: IImportStyleName[] } {
   const import_styles: IImportStyle[] = [];
   const import_style_names: IImportStyleName[] = [];
+
+  // Helper to resolve module path using TypeScript compiler
+  const resolveModulePath = (modulePath: string): string | null => {
+    if (!program || !sourceFile) return null;
+
+    // Use ts.resolveModuleName for proper module resolution
+    const compilerOptions = program.getCompilerOptions();
+    const result = tsLib.resolveModuleName(
+      modulePath,
+      sourceFile.fileName,
+      compilerOptions,
+      tsLib.sys,
+    );
+    if (result.resolvedModule?.resolvedFileName) {
+      let resolved = result.resolvedModule.resolvedFileName;
+      // Normalize to forward slashes and make relative to project root
+      resolved = resolved.replace(/\\/g, "/");
+      if (projectRoot) {
+        const normalizedRoot = projectRoot.replace(/\\/g, "/");
+        if (resolved.startsWith(normalizedRoot)) {
+          resolved = resolved.slice(normalizedRoot.length);
+          if (resolved.startsWith("/")) {
+            resolved = resolved.slice(1);
+          }
+        }
+      }
+      return resolved;
+    }
+
+    return null;
+  };
 
   for (const imp of imports) {
     const target = imp.module;
@@ -665,7 +700,7 @@ export function extractImportStyles(
         import_style: import_style,
         alias_name: alias_name,
         full_statement: fullStatement.substring(0, 200),
-        resolved_path: null,
+        resolved_path: resolveModulePath(target),
       });
     }
   }
@@ -685,13 +720,18 @@ export function extractRefs(
     if (!modulePath) continue;
     lineToModule.set(imp.line, modulePath);
 
-    const moduleName =
-      modulePath
-        .split("/")
-        .pop()
-        ?.replace(/\.(js|ts|jsx|tsx)$/, "") || "";
-    if (moduleName) {
-      resolved[moduleName] = modulePath;
+    // Use full path as key to avoid collisions (e.g., utils/index.ts vs auth/index.ts)
+    // Also add short name for backward compatibility, but full path takes precedence
+    const parts = modulePath.split("/");
+    const fileName = parts.pop()?.replace(/\.(js|ts|jsx|tsx)$/, "") || "";
+    if (fileName) {
+      // If it's index.ts, use parent/index as key to avoid collision
+      if (fileName === "index" && parts.length > 0) {
+        const parent = parts[parts.length - 1];
+        resolved[`${parent}/${fileName}`] = modulePath;
+      }
+      // Always add the simple name (may be overwritten, that's ok for non-index files)
+      resolved[fileName] = modulePath;
     }
   }
 

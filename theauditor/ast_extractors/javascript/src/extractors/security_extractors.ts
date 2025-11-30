@@ -495,7 +495,6 @@ export function extractSQLQueries(
       ? callee.split(".").pop() || ""
       : callee;
     if (!SQL_METHODS.has(methodName)) continue;
-    if (call.argument_index !== 0) continue;
 
     const argExpr = call.argument_expr || "";
     if (!argExpr) continue;
@@ -510,6 +509,16 @@ export function extractSQLQueries(
       "DROP",
       "ALTER",
     ].some((kw) => upperArg.includes(kw));
+
+    // Check argument index: allow index 0 always, index 1 only if it has SQL keywords
+    // This handles both db.query(sql) and db.query(options, sql) patterns
+    if (call.argument_index !== 0) {
+      if (call.argument_index === 1 && hasSQLKeyword) {
+        // Allow index 1 if it looks like SQL
+      } else {
+        continue;
+      }
+    }
 
     const queryText = resolveSQLLiteral(argExpr);
 

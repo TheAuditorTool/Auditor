@@ -663,6 +663,10 @@ async function main(): Promise<void> {
             imports,
             import_specifiers,
             filePath,
+            program,
+            sourceFile,
+            ts,
+            resolvedProjectRoot,
           );
           const importStyles = importStyleData.import_styles;
           const import_style_names = importStyleData.import_style_names;
