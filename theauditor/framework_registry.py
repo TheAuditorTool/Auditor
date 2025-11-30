@@ -803,4 +803,25 @@ FRAMEWORK_REGISTRY = {
         "directory_markers": ["tests/"],
         "content_patterns": ["#[test]", "#[cfg(test)]"],
     },
+    # Bash/Shell patterns
+    "bash": {
+        "language": "bash",
+        "detection_sources": {},
+        "file_markers": ["*.sh", "*.bash"],
+        "shebang_patterns": ["#!/bin/bash", "#!/usr/bin/env bash", "#!/bin/sh"],
+    },
+    "shellcheck": {
+        "language": "bash",
+        "category": "lint",
+        "command": "shellcheck",
+        "file_patterns": ["*.sh", "*.bash"],
+        "config_files": [".shellcheckrc"],
+    },
+    "bats": {
+        "language": "bash",
+        "category": "test",
+        "command": "bats",
+        "file_patterns": ["*.bats", "test/*.bats"],
+        "directory_markers": ["test/"],
+    },
 }

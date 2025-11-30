@@ -433,6 +433,8 @@ class FrameworkDetector:
             ".java": "java",
             ".rb": "ruby",
             ".php": "php",
+            ".sh": "bash",
+            ".bash": "bash",
         }
 
         for ext, language in lang_extensions.items():
