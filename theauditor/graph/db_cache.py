@@ -2,11 +2,14 @@
 
 Phase 0.2: Converted from eager loading (500k+ rows at startup) to on-demand
 queries with bounded LRU cache. Memory usage drops from O(all_imports) to O(cache_size).
+
+GRAPH FIX G7: Use MappingProxyType for immutable cached dicts.
 """
 
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 
@@ -51,10 +54,11 @@ class GraphDatabaseCache:
         print(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
 
     @lru_cache(maxsize=IMPORTS_CACHE_SIZE)
-    def get_imports(self, file_path: str) -> tuple[dict[str, Any], ...]:
+    def get_imports(self, file_path: str) -> tuple[MappingProxyType, ...]:
         """Get all imports for a file (lazy query with LRU cache).
 
-        Returns tuple instead of list for hashability (lru_cache requirement).
+        Returns tuple of immutable MappingProxyType instead of mutable dicts.
+        GRAPH FIX G7: Prevents cache corruption from consumer modifications.
         """
         normalized = self._normalize_path(file_path)
 
@@ -73,11 +77,13 @@ class GraphDatabaseCache:
         )
 
         results = tuple(
-            {
-                "kind": row["kind"],
-                "value": row["value"],
-                "line": row["line"],
-            }
+            MappingProxyType(
+                {
+                    "kind": row["kind"],
+                    "value": row["value"],
+                    "line": row["line"],
+                }
+            )
             for row in cursor.fetchall()
         )
 
@@ -114,10 +120,11 @@ class GraphDatabaseCache:
         return results
 
     @lru_cache(maxsize=EXPORTS_CACHE_SIZE)
-    def get_exports(self, file_path: str) -> tuple[dict[str, Any], ...]:
+    def get_exports(self, file_path: str) -> tuple[MappingProxyType, ...]:
         """Get all exports for a file (lazy query with LRU cache).
 
-        Returns tuple instead of list for hashability (lru_cache requirement).
+        Returns tuple of immutable MappingProxyType instead of mutable dicts.
+        GRAPH FIX G7: Prevents cache corruption from consumer modifications.
         """
         normalized = self._normalize_path(file_path)
 
@@ -136,11 +143,13 @@ class GraphDatabaseCache:
         )
 
         results = tuple(
-            {
-                "name": row["name"],
-                "symbol_type": row["type"],
-                "line": row["line"],
-            }
+            MappingProxyType(
+                {
+                    "name": row["name"],
+                    "symbol_type": row["type"],
+                    "line": row["line"],
+                }
+            )
             for row in cursor.fetchall()
         )
 

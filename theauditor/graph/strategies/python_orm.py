@@ -358,17 +358,24 @@ class PythonOrmStrategy(GraphStrategy):
             model_patterns.add(f"current_{model_lower}")
             model_patterns.add(f"new_{model_lower}")
 
-        placeholders = ",".join("?" * len(model_patterns))
-        cursor.execute(
-            f"""
-            SELECT file, target_var, in_function
-            FROM assignments
-            WHERE target_var IN ({placeholders})
-        """,
-            list(model_patterns),
-        )
+        # GRAPH FIX G5: Chunk queries to avoid SQLite 999 variable limit.
+        # Large codebases with 250+ models would exceed limit and crash.
+        patterns_list = list(model_patterns)
+        potential_models = []
+        chunk_size = 900
 
-        potential_models = cursor.fetchall()
+        for i in range(0, len(patterns_list), chunk_size):
+            chunk = patterns_list[i : i + chunk_size]
+            placeholders = ",".join("?" * len(chunk))
+            cursor.execute(
+                f"""
+                SELECT file, target_var, in_function
+                FROM assignments
+                WHERE target_var IN ({placeholders})
+            """,
+                chunk,
+            )
+            potential_models.extend(cursor.fetchall())
         print(
             f"[PythonOrmStrategy] Found {len(potential_models)} potential ORM variable assignments"
         )

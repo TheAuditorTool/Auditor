@@ -55,7 +55,9 @@ class XGraphStore:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("BEGIN TRANSACTION")
+            # GRAPH FIX G4: Removed explicit BEGIN TRANSACTION.
+            # Python sqlite3 manages transactions automatically (isolation_level default).
+            # Explicit BEGIN causes OperationalError when nested.
 
             if file_path:
                 cursor.execute(
