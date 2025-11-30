@@ -1058,7 +1058,8 @@ export function extractVariableUsage(
 
   const assignmentContext = new Map<string, string>();
   assignments.forEach((assign) => {
-    const key = assign.line + "|" + assign.target_var;
+    // Include column to avoid same-line collisions (e.g., const a=1, b=2)
+    const key = assign.line + "|" + (assign.col || 0) + "|" + assign.target_var;
     assignmentContext.set(key, assign.in_function);
   });
 
@@ -1074,8 +1075,14 @@ export function extractVariableUsage(
   });
 
   assignment_source_vars.forEach((srcVar) => {
-    const contextKey = srcVar.line + "|" + srcVar.target_var;
-    const inFunction = assignmentContext.get(contextKey) || "global";
+    // Try to find matching assignment context - source vars don't have col, so try all columns
+    let inFunction = "global";
+    for (const [key, fn] of assignmentContext.entries()) {
+      if (key.endsWith("|" + srcVar.target_var) && key.startsWith(srcVar.line + "|")) {
+        inFunction = fn;
+        break;
+      }
+    }
     usage.push({
       line: srcVar.line,
       variable_name: srcVar.source_var,

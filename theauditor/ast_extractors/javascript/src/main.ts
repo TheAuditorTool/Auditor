@@ -715,6 +715,7 @@ async function main(): Promise<void> {
           const frontendApiCalls = sec.extractFrontendApiCalls(
             functionCallArgs,
             imports,
+            import_specifiers,
           );
 
           const sequelizeData = seq.extractSequelizeModels(

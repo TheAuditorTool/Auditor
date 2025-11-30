@@ -1,10 +1,13 @@
 """JavaScript/TypeScript extractor."""
 
+import logging
 import os
 from datetime import datetime
 from typing import Any
 
 from . import BaseExtractor
+
+logger = logging.getLogger(__name__)
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
 
@@ -176,7 +179,13 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 if "sql_queries" in extracted_data:
                     parsed_queries = []
                     for query in extracted_data["sql_queries"]:
-                        parsed = parse_sql_query(query["query_text"])
+                        try:
+                            parsed = parse_sql_query(query["query_text"])
+                        except Exception as e:
+                            logger.warning(
+                                f"SQL parse error in {file_info['path']} line {query.get('line', '?')}: {e}"
+                            )
+                            continue
                         if not parsed:
                             continue
 

@@ -19,6 +19,9 @@ interface CFGBuildContext {
   functionId: string;
   blockCounter: number;
   currentBlockId: string | null;
+  // Stack of finally block IDs for nested try statements
+  // When return/throw occurs inside try, we need to route through finally
+  finallyStack: string[];
 }
 
 const SKIP_NODE_KINDS = new Set([
@@ -51,6 +54,7 @@ export function extractCFG(
       functionId,
       blockCounter: 0,
       currentBlockId: null,
+      finallyStack: [],
     };
 
     const entryBlockId = createBlock(ctx, "entry", func.line, func.line);
@@ -196,15 +200,52 @@ function isJsxNode(node: ts.Node): boolean {
   );
 }
 
+// Security-relevant JSX props that should be captured in CFG
+const DANGEROUS_JSX_PROPS = new Set([
+  "dangerouslySetInnerHTML",
+  "href",
+  "src",
+  "action",
+  "formAction",
+  "onClick",
+  "onSubmit",
+  "onLoad",
+  "onError",
+]);
+
+function extractDangerousProps(
+  attrs: ts.JsxAttributes,
+  sourceFile: ts.SourceFile,
+): string {
+  const dangerous: string[] = [];
+  for (const prop of attrs.properties) {
+    if (ts.isJsxAttribute(prop) && prop.name) {
+      const propName = prop.name.getText(sourceFile);
+      if (DANGEROUS_JSX_PROPS.has(propName)) {
+        const value = prop.initializer
+          ? prop.initializer.getText(sourceFile).substring(0, 100)
+          : "true";
+        dangerous.push(`${propName}=${value}`);
+      }
+    }
+  }
+  return dangerous.length > 0 ? ` ${dangerous.join(" ")}` : "";
+}
+
 function flattenJsx(node: ts.Node, sourceFile: ts.SourceFile): string {
   if (ts.isJsxElement(node)) {
     const tagName = node.openingElement.tagName.getText(sourceFile);
+    const dangerousProps = extractDangerousProps(
+      node.openingElement.attributes,
+      sourceFile,
+    );
     const childCount = node.children.length;
-    return `<${tagName}>[${childCount} children]</${tagName}>`;
+    return `<${tagName}${dangerousProps}>[${childCount} children]</${tagName}>`;
   }
   if (ts.isJsxSelfClosingElement(node)) {
     const tagName = node.tagName.getText(sourceFile);
-    return `<${tagName} />`;
+    const dangerousProps = extractDangerousProps(node.attributes, sourceFile);
+    return `<${tagName}${dangerousProps} />`;
   }
   if (ts.isJsxFragment(node)) {
     return `<>[${node.children.length} children]</>`;
@@ -258,9 +299,19 @@ function processStatement(
     processTryStatement(node, sourceFile, ctx);
   } else if (ts.isReturnStatement(node)) {
     addStatement(ctx, "return", line, getNodeText(node, sourceFile));
+    // If we're in a try block with finally, route through finally first
+    if (ctx.finallyStack.length > 0 && ctx.currentBlockId) {
+      const finallyBlockId = ctx.finallyStack[ctx.finallyStack.length - 1];
+      addEdge(ctx, ctx.currentBlockId, finallyBlockId, "return_through_finally", null);
+    }
     ctx.currentBlockId = null;
   } else if (ts.isThrowStatement(node)) {
     addStatement(ctx, "throw", line, getNodeText(node, sourceFile));
+    // If we're in a try block with finally, route through finally first
+    if (ctx.finallyStack.length > 0 && ctx.currentBlockId) {
+      const finallyBlockId = ctx.finallyStack[ctx.finallyStack.length - 1];
+      addEdge(ctx, ctx.currentBlockId, finallyBlockId, "throw_through_finally", null);
+    }
     ctx.currentBlockId = null;
   } else if (ts.isBreakStatement(node)) {
     addStatement(ctx, "break", line, getNodeText(node, sourceFile));
@@ -515,6 +566,17 @@ function processTryStatement(
 
   addStatement(ctx, "try", line, "try");
 
+  // If there's a finally block, create it upfront and push to stack
+  // This allows return/throw in try/catch to know where to route
+  let finallyBlockId: string | null = null;
+  if (node.finallyBlock) {
+    const finallyLine =
+      sourceFile.getLineAndCharacterOfPosition(node.finallyBlock.getStart())
+        .line + 1;
+    finallyBlockId = createBlock(ctx, "finally", finallyLine, null);
+    ctx.finallyStack.push(finallyBlockId);
+  }
+
   const tryBlockId = createBlock(ctx, "try", line, null);
   if (ctx.currentBlockId) {
     addEdge(ctx, ctx.currentBlockId, tryBlockId, "fallthrough", null);
@@ -546,16 +608,14 @@ function processTryStatement(
     }
   }
 
-  if (node.finallyBlock) {
-    const finallyLine =
-      sourceFile.getLineAndCharacterOfPosition(node.finallyBlock.getStart())
-        .line + 1;
-    const finallyBlockId = createBlock(ctx, "finally", finallyLine, null);
+  if (finallyBlockId) {
+    // Pop from stack before processing finally (so return in finally doesn't loop)
+    ctx.finallyStack.pop();
 
     addEdge(ctx, exitBlockId, finallyBlockId, "finally", null);
 
     ctx.currentBlockId = finallyBlockId;
-    processBlock(node.finallyBlock, sourceFile, ctx);
+    processBlock(node.finallyBlock!, sourceFile, ctx);
 
     const afterFinallyExitId = createBlock(ctx, "finally_exit", null, null);
     if (ctx.currentBlockId) {
