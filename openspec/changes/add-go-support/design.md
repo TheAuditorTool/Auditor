@@ -16,6 +16,7 @@ Go presents unique characteristics vs Python/JS:
 - Go-specific constructs (interfaces, goroutines, channels, defer, error returns)
 - Framework detection for major web frameworks (Gin, Echo, Fiber, Chi)
 - Security rules targeting Go-specific vulnerabilities
+- **Graph strategies for HTTP/ORM data flow** *(See specs/graph/spec.md)*
 - Data stored in normalized tables, queryable via existing `aud context` commands
 
 **Non-Goals:**
@@ -33,21 +34,69 @@ These are the exact files to use as templates. Read these BEFORE implementing.
 ### Architecture Overview
 
 ```
-ast_parser.py                      ← Add tree-sitter-go here
-       │
-       ▼ Returns type="tree_sitter" with parsed tree
-       │
-indexer/extractors/go.py           ← NEW: Thin wrapper (like terraform.py)
-       │
-       ▼ Calls extraction functions
-       │
-ast_extractors/go_impl.py          ← NEW: Tree-sitter queries (like hcl_impl.py)
+EXTRACTION PIPELINE (specs/indexer/spec.md)
+============================================
+ast_parser.py                      <-- Add tree-sitter-go here
+       |
+       v Returns type="tree_sitter" with parsed tree
+       |
+indexer/extractors/go.py           <-- NEW: Thin wrapper (like terraform.py)
+       |
+       v Calls extraction functions
+       |
+ast_extractors/go_impl.py          <-- NEW: Tree-sitter queries (like hcl_impl.py)
+       |
+       v Returns dict of extracted data
+       |
+indexer/storage/go_storage.py      <-- NEW: GoStorage handlers
+       |
+       v Calls db_manager.add_go_* methods
+       |
+indexer/database/go_database.py    <-- NEW: GoDatabaseMixin
+       |
+       v Batch insert into normalized tables
+       |
+go_* tables in repo_index.db
+
+
+GRAPH STRATEGIES PIPELINE (specs/graph/spec.md) **<-- CRITICAL: WAS MISSING**
+================================================
+repo_index.db (go_* tables)
+       |
+       v Reads normalized data
+       |
+graph/strategies/go_http.py        <-- NEW: HTTP handler data flow
+graph/strategies/go_orm.py         <-- NEW: GORM/sqlx relationship expansion
+       |
+       v Produces DFG nodes/edges
+       |
+graph/dfg_builder.py               <-- Add Go strategies to self.strategies list
+       |
+       v Stores in graphs.db
+       |
+graphs.db
+
+
+RULES PIPELINE (specs/rules/spec.md - TBD)
+==========================================
+repo_index.db (go_* tables)
+       |
+       v Reads normalized data
+       |
+rules/go/                          <-- NEW: Go-specific rule directory
+  injection_analyze.py             <-- SQL/command injection
+  crypto_analyze.py                <-- Crypto misuse
+  concurrency_analyze.py           <-- Race condition patterns
+       |
+       v Produces findings
+       |
+findings_consolidated table
 ```
 
 **Key insight**: Go follows the HCL/Terraform pattern, NOT Python or JS/TS.
 - Python uses built-in `ast` module (no tree-sitter)
 - JS/TS uses external Node.js semantic parser (no tree-sitter)
-- HCL uses tree-sitter directly → **Go will do the same**
+- HCL uses tree-sitter directly -> **Go will do the same**
 
 ### Reference Files
 
@@ -64,12 +113,19 @@ ast_extractors/go_impl.py          ← NEW: Tree-sitter queries (like hcl_impl.p
 | Extractor auto-discovery | `indexer/extractors/__init__.py:86-118` | Just create file, auto-registers |
 | AST parser init | `ast_parser.py:52-103` | Add Go to _init_tree_sitter_parsers |
 | Extension mapping | `ast_parser.py:240-253` | Add .go to ext_map |
+| **Graph ORM strategy** | `graph/strategies/python_orm.py` | ORM context + relationship expansion |
+| **Graph HTTP strategy** | `graph/strategies/node_express.py` | Middleware chain + controller flow |
+| **DFG registration** | `graph/dfg_builder.py:27-32` | Add strategies to self.strategies list |
+| **Rules structure** | `rules/python/` | Language-specific rule directory pattern |
+| **Rules base** | `rules/python/python_injection_analyze.py` | Analyzer pattern |
 
 **DO NOT reference**: `treesitter_impl.py` (deleted - was dead code)
 
 ## Decisions
 
-### Decision 1: Schema design - 18 normalized tables
+### Decision 1: Schema design - 22 normalized tables
+
+*(See specs/indexer/spec.md: Go Schema Definitions)*
 
 Full TableSchema definitions for `indexer/schemas/go_schema.py`:
 
@@ -263,7 +319,7 @@ GO_CHANNELS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("name", "TEXT", nullable=False),
         Column("element_type", "TEXT"),
-        Column("direction", "TEXT"),  -- "send", "receive", "bidirectional"
+        Column("direction", "TEXT"),  # "send", "receive", "bidirectional"
         Column("buffer_size", "INTEGER"),
     ],
     indexes=[
@@ -278,7 +334,7 @@ GO_CHANNEL_OPS = TableSchema(
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("channel_name", "TEXT"),
-        Column("operation", "TEXT", nullable=False),  -- "send" or "receive"
+        Column("operation", "TEXT", nullable=False),  # "send" or "receive"
         Column("containing_func", "TEXT"),
     ],
     indexes=[
@@ -462,6 +518,8 @@ GO_TABLES = {
 
 ### Decision 2: Tree-sitter-go node types reference
 
+*(See specs/indexer/spec.md: Tree-sitter Node Mapping)*
+
 Verified via `tree-sitter-language-pack`. These are the exact node types to query:
 
 | Go Construct | Tree-sitter Node Type | Child Nodes |
@@ -481,172 +539,30 @@ Verified via `tree-sitter-language-pack`. These are the exact node types to quer
 | Type assertion | `type_assertion_expression` | expression, `.(`, `type_identifier`, `)` |
 | Type switch | `type_switch_statement` | `type_switch_guard`, `type_case_clause` |
 
-**Extraction pattern** (from `ast_extractors/go_impl.py`):
-```python
-def extract_go_functions(tree, content: bytes, file_path: str) -> list[dict]:
-    """Extract function declarations from Go AST."""
-    functions = []
-
-    # Query for function_declaration nodes
-    query = tree.language.query("""
-        (function_declaration
-            name: (identifier) @name
-            parameters: (parameter_list) @params
-            result: (_)? @returns
-            body: (block) @body
-        ) @func
-    """)
-
-    for match in query.matches(tree.root_node):
-        # Extract from captures...
-
-    return functions
-```
-
 ### Decision 3: Extraction architecture - tree-sitter single-pass (HCL pattern)
+
+*(See specs/indexer/spec.md: Go Extractor Architecture)*
 
 **Choice:** Use tree-sitter-go for AST extraction, single pass returning structured dict.
 
 **Architecture follows HCL/Terraform pattern:**
-- `ast_parser.py` → Parses .go files with tree-sitter-go, returns `type="tree_sitter"`
-- `indexer/extractors/go.py` → Thin wrapper like `terraform.py`, calls go_impl functions
-- `ast_extractors/go_impl.py` → Tree-sitter queries like `hcl_impl.py`
+- `ast_parser.py` -> Parses .go files with tree-sitter-go, returns `type="tree_sitter"`
+- `indexer/extractors/go.py` -> Thin wrapper like `terraform.py`, calls go_impl functions
+- `ast_extractors/go_impl.py` -> Tree-sitter queries like `hcl_impl.py`
 
 **NOT like Python** (which uses built-in ast module) or **JS/TS** (which uses Node.js semantic parser).
 
-**AST Parser Integration Required** - tree-sitter-go is available in the package but NOT wired up:
-
-```python
-# Add to ast_parser.py:52-103 (_init_tree_sitter_parsers method):
-try:
-    go_lang = get_language("go")
-    go_parser = get_parser("go")
-    self.parsers["go"] = go_parser
-    self.languages["go"] = go_lang
-except Exception as e:
-    print(f"[INFO] Go tree-sitter not available: {e}")
-
-# Add to ast_parser.py:240-253 (_detect_language method):
-ext_map = {
-    # ... existing entries ...
-    ".go": "go",
-}
-```
-
-**Extractor output format** (matches storage handler expectations):
-```python
-def extract(self, file_info, content, tree) -> dict:
-    return {
-        "go_packages": [...],      # List[dict] with file, line, name, import_path
-        "go_imports": [...],       # List[dict] with file, line, path, alias, is_dot_import
-        "go_structs": [...],       # List[dict] with file, line, name, is_exported
-        "go_struct_fields": [...], # List[dict] with file, struct_name, field_name, field_type, tag
-        "go_interfaces": [...],
-        "go_interface_methods": [...],
-        "go_functions": [...],
-        "go_methods": [...],
-        "go_func_params": [...],
-        "go_func_returns": [...],
-        "go_goroutines": [...],
-        "go_channels": [...],
-        "go_channel_ops": [...],
-        "go_defer_statements": [...],
-        "go_error_returns": [...],
-        "go_type_assertions": [...],
-        "go_constants": [...],
-    }
-```
-
 ### Decision 4: Database mixin pattern
 
-Follow `indexer/database/python_database.py` pattern exactly:
+*(See specs/indexer/spec.md: Database Mixin Implementation)*
 
-```python
-# indexer/database/go_database.py
-"""Go-specific database operations."""
-
-class GoDatabaseMixin:
-    """Mixin providing add_* methods for GO_TABLES."""
-
-    def add_go_package(self, file_path: str, line: int, name: str, import_path: str | None):
-        """Add a Go package declaration to the batch."""
-        self.generic_batches["go_packages"].append((file_path, line, name, import_path))
-
-    def add_go_import(self, file_path: str, line: int, path: str, alias: str | None, is_dot: bool):
-        """Add a Go import statement to the batch."""
-        self.generic_batches["go_imports"].append(
-            (file_path, line, path, alias, 1 if is_dot else 0)
-        )
-
-    # ... one method per table, following exact column order from schema
-```
-
-**Registration** - Add to `indexer/database/__init__.py:17-27`:
-```python
-from .go_database import GoDatabaseMixin
-
-class DatabaseManager(
-    BaseDatabaseManager,
-    CoreDatabaseMixin,
-    PythonDatabaseMixin,
-    NodeDatabaseMixin,
-    GoDatabaseMixin,  # <-- ADD HERE
-    # ...
-):
-```
+Follow `indexer/database/python_database.py` pattern exactly.
 
 ### Decision 5: Storage handler pattern
 
-Follow `indexer/storage/python_storage.py` pattern:
+*(See specs/indexer/spec.md: Storage Handler Implementation)*
 
-```python
-# indexer/storage/go_storage.py
-"""Go-specific storage handlers."""
-
-class GoStorage:
-    """Storage handlers for Go extraction data."""
-
-    def __init__(self, db_manager, counts: dict[str, int]):
-        self.db = db_manager
-        self.counts = counts
-        self._current_extracted = None
-
-        self.handlers = {
-            "go_packages": self._store_go_packages,
-            "go_imports": self._store_go_imports,
-            "go_structs": self._store_go_structs,
-            "go_struct_fields": self._store_go_struct_fields,
-            # ... one handler per extraction key
-        }
-
-    def _store_go_packages(self, file_path: str, data: list, jsx_pass: bool = False):
-        for pkg in data:
-            self.db.add_go_package(
-                file_path=file_path,
-                line=pkg["line"],
-                name=pkg["name"],
-                import_path=pkg.get("import_path"),
-            )
-        self.counts["go_packages"] = self.counts.get("go_packages", 0) + len(data)
-```
-
-**Wiring** - Add to `indexer/storage/__init__.py:20-30`:
-```python
-from .go_storage import GoStorage
-
-class DataStorer:
-    def __init__(self, db_manager, counts):
-        # ...
-        self.go = GoStorage(db_manager, counts)  # <-- ADD
-
-        self.handlers = {
-            **self.core.handlers,
-            **self.python.handlers,
-            **self.node.handlers,
-            **self.go.handlers,  # <-- ADD
-            **self.infrastructure.handlers,
-        }
-```
+Follow `indexer/storage/python_storage.py` pattern exactly.
 
 ### Decision 6: Interface satisfaction detection
 
@@ -656,8 +572,11 @@ class DataStorer:
 
 ### Decision 7: Framework detection patterns
 
+*(See specs/indexer/spec.md: Framework Detection)*
+
 | Framework | Import Path | API Patterns |
 |-----------|-------------|--------------|
+| net/http | `net/http` | `http.HandleFunc`, `http.Handle`, `http.ListenAndServe` |
 | Gin | `github.com/gin-gonic/gin` | `gin.Default()`, `r.GET()`, `r.POST()` |
 | Echo | `github.com/labstack/echo/v4` | `echo.New()`, `e.GET()`, `e.POST()` |
 | Fiber | `github.com/gofiber/fiber/v2` | `fiber.New()`, `app.Get()`, `app.Post()` |
@@ -668,6 +587,8 @@ class DataStorer:
 | Cobra | `github.com/spf13/cobra` | `&cobra.Command{}`, `cmd.Execute()` |
 
 ### Decision 8: Security rule categories
+
+*(See specs/rules/spec.md - TBD)*
 
 | Category | Detection Pattern | Sink Functions |
 |----------|-------------------|----------------|
@@ -680,94 +601,169 @@ class DataStorer:
 
 ### Decision 9: Vendor directory exclusion
 
+*(See specs/indexer/spec.md: File Walker Configuration)*
+
 **Choice:** Explicitly ignore `vendor/` directories during file walking.
 
-**Rationale:** Go projects often vendor dependencies into `vendor/`. Indexing these would:
-- Bloat database 10x-50x
-- Duplicate symbols making search noisy
-- Slow indexing significantly
-
-**Implementation:**
-```python
-# In file walker / indexer
-EXCLUDED_DIRS = {"vendor", "node_modules", ".git", "__pycache__"}
-if any(excluded in path.parts for excluded in EXCLUDED_DIRS):
-    continue
-```
+**Implementation location:** `theauditor/indexer/config.py:23-53` - Add to SKIP_DIRS set.
 
 ### Decision 10: net/http standard library detection
 
 **Choice:** Include `net/http` in framework detection alongside Gin/Echo/Fiber.
 
-**Rationale:** `net/http` is used FAR more in Go than raw `http` in Node.js. Many production Go microservices use ONLY the standard library. Missing this would be a major gap.
-
-**Detection patterns:**
-```python
-"net_http": {
-    "language": "go",
-    "detection_sources": {"imports": "exact_match"},
-    "import_patterns": ["net/http"],
-    "api_patterns": ["http.HandleFunc", "http.Handle", "http.ListenAndServe"],
-}
-```
+**Rationale:** `net/http` is used FAR more in Go than raw `http` in Node.js. Many production Go microservices use ONLY the standard library.
 
 ### Decision 11: Captured variables in goroutines
 
 **Choice:** Track variables captured by anonymous goroutine closures.
 
-**Rationale:** This is the #1 source of data races in Go. When `go func() { use(x) }()` captures `x` from outer scope, and especially if `x` is a loop variable (pre-Go 1.22), race conditions occur.
-
-**Implementation:**
-1. When extracting `go func() {...}()` (anonymous goroutine)
-2. Parse the closure body for identifier references
-3. Check if identifiers are defined outside the closure
-4. Store in `go_captured_vars` with `is_loop_var` flag
+**Rationale:** This is the #1 source of data races in Go.
 
 ### Decision 12: Middleware detection
 
 **Choice:** Detect `.Use()` calls on router variables to track middleware chains.
 
-**Rationale:** Security auditing needs to know what middleware protects routes (auth, logging, CORS). `router.Use(AuthMiddleware)` applies to all subsequent routes.
-
-**Detection pattern:**
-- Gin: `r.Use(middleware)`
-- Echo: `e.Use(middleware)`
-- Chi: `r.Use(middleware)`
-- Fiber: `app.Use(middleware)`
-
 ### Decision 13: Embedded struct field promotion
 
 **Choice:** Store `is_embedded=1` in `go_struct_fields` but handle promotion in query layer.
-
-**Rationale:** If Struct A embeds Struct B, A implicitly has all B's methods. This is a query-time concern:
-```sql
--- Find all methods available on struct (including promoted)
-WITH RECURSIVE embedded AS (
-    SELECT struct_name, field_name, field_type, is_embedded
-    FROM go_struct_fields WHERE struct_name = 'A'
-    UNION ALL
-    SELECT gsf.struct_name, gsf.field_name, gsf.field_type, gsf.is_embedded
-    FROM go_struct_fields gsf
-    JOIN embedded e ON gsf.struct_name = e.field_type AND e.is_embedded = 1
-)
-SELECT * FROM go_methods WHERE receiver_type IN (SELECT field_type FROM embedded WHERE is_embedded = 1);
-```
 
 ### Decision 14: Package aggregation from files
 
 **Choice:** Store `file` in `go_packages` but note multiple files form a package.
 
-**Rationale:** Go packages are directories, not files. Multiple files in same directory declare same package (except `_test`).
+### Decision 15: Graph Strategies for Data Flow Analysis **<-- CRITICAL ADDITION**
 
-**Query pattern:**
-```sql
--- Aggregate files by package
-SELECT name, GROUP_CONCAT(file) as files
-FROM go_packages
-GROUP BY name;
+*(See specs/graph/spec.md)*
+
+**Choice:** Create two Go-specific graph strategies following the existing pattern.
+
+**Rationale:** Graph strategies enable cross-function data flow analysis. Without them, taint analysis cannot track data through HTTP handlers or ORM operations.
+
+**Implementation:**
+
+```python
+# graph/strategies/go_http.py
+"""Go HTTP Strategy - Handles net/http and framework middleware chains."""
+
+from .base import GraphStrategy
+from ..types import DFGEdge, DFGNode, create_bidirectional_edges
+
+class GoHttpStrategy(GraphStrategy):
+    """Strategy for building Go HTTP handler data flow edges."""
+
+    def build(self, db_path: str, project_root: str) -> dict[str, Any]:
+        """Build edges for Go HTTP handlers and middleware."""
+        # 1. Load go_routes and go_middleware from database
+        # 2. Build middleware chain edges (similar to node_express.py)
+        # 3. Build handler parameter edges (req -> handler params)
+        # 4. Return nodes and edges
 ```
 
-**Validation rule:** All non-test files in same directory MUST have same package name.
+```python
+# graph/strategies/go_orm.py
+"""Go ORM Strategy - Handles GORM/sqlx relationship expansion."""
+
+from .base import GraphStrategy
+
+class GoOrmStrategy(GraphStrategy):
+    """Strategy for building Go ORM relationship edges."""
+
+    def build(self, db_path: str, project_root: str) -> dict[str, Any]:
+        """Build edges for Go ORM relationships."""
+        # 1. Load go_structs with `gorm` or `db` tags
+        # 2. Parse relationship tags (belongs_to, has_many, etc.)
+        # 3. Build relationship edges between models
+        # 4. Return nodes and edges
+```
+
+**Registration in `graph/dfg_builder.py:27-32`:**
+```python
+from .strategies.go_http import GoHttpStrategy
+from .strategies.go_orm import GoOrmStrategy
+
+self.strategies = [
+    PythonOrmStrategy(),
+    NodeOrmStrategy(),
+    NodeExpressStrategy(),
+    GoHttpStrategy(),      # <-- ADD
+    GoOrmStrategy(),       # <-- ADD
+    InterceptorStrategy(),
+]
+```
+
+### Decision 16: Rules Directory Structure **<-- CRITICAL ADDITION**
+
+*(See specs/rules/spec.md - TBD)*
+
+**Choice:** Create `rules/go/` directory following the existing Python/Node pattern.
+
+**Implementation:**
+
+```
+theauditor/rules/go/
+    __init__.py
+    injection_analyze.py      # SQL/command injection (copy from python_injection_analyze.py)
+    crypto_analyze.py         # Crypto misuse (copy from python_crypto_analyze.py)
+    concurrency_analyze.py    # Go-specific: race conditions, channel misuse
+    error_handling_analyze.py # Go-specific: error ignoring patterns
+```
+
+**Rule registration:** Rules are auto-discovered by `RulesOrchestrator` via directory scan. Just creating the files in `rules/go/` registers them.
+
+### Decision 17: Framework Registry Integration **<-- CRITICAL ADDITION**
+
+**Choice:** Add Go frameworks to `theauditor/framework_registry.py`.
+
+**Implementation:**
+```python
+FRAMEWORK_REGISTRY = {
+    # ... existing entries ...
+
+    # Go Frameworks
+    "net_http": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["net/http"],
+        "file_markers": [],
+    },
+    "gin": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["github.com/gin-gonic/gin"],
+        "file_markers": [],
+    },
+    "echo": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["github.com/labstack/echo"],
+        "file_markers": [],
+    },
+    "fiber": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["github.com/gofiber/fiber"],
+        "file_markers": [],
+    },
+    "chi": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["github.com/go-chi/chi"],
+        "file_markers": [],
+    },
+    "gorm": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["gorm.io/gorm"],
+        "file_markers": [],
+    },
+    "cobra": {
+        "language": "go",
+        "detection_sources": {"imports": "exact_match"},
+        "import_patterns": ["github.com/spf13/cobra"],
+        "file_markers": [],
+    },
+}
+```
 
 ## Risks / Trade-offs
 
@@ -779,12 +775,24 @@ GROUP BY name;
 | Generics parsing failure | CRITICAL: Verify tree-sitter-go version supports Go 1.18+ |
 | Vendor bloat | Exclude vendor/ directories in file walker |
 | Missing net/http routes | Add standard library detection in Phase 3 |
+| **Graph strategies not built** | **CRITICAL: Must implement go_http.py and go_orm.py** |
+| **Rules not discoverable** | **CRITICAL: Must create rules/go/ directory** |
 
 ## Migration Plan
 
 1. **Phase 1** (Foundation): Schema + AST parser + extraction + storage - delivers queryable data
 2. **Phase 2** (Concurrency): Goroutines, channels, defer - enables concurrency analysis
-3. **Phase 3** (Frameworks): Detection patterns - enables route/handler analysis
-4. **Phase 4** (Security): Taint rules - enables vulnerability detection
+3. **Phase 3** (Frameworks + Graph): Detection patterns + **graph strategies** - enables route/handler/taint analysis
+4. **Phase 4** (Security): Rules in `rules/go/` - enables vulnerability detection
 
 Each phase is independently valuable. Phase 1 alone makes Go codebases queryable.
+
+## Spec References
+
+All implementation details are documented in specs:
+
+| Spec | Contents | Status |
+|------|----------|--------|
+| `specs/indexer/spec.md` | Schema, extraction, storage, database | EXISTS |
+| `specs/graph/spec.md` | Graph strategies (go_http.py, go_orm.py) | **NEW - TO CREATE** |
+| `specs/rules/spec.md` | Security rules (rules/go/) | **NEW - TO CREATE** |
