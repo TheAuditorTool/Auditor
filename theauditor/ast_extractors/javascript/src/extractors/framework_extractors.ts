@@ -41,28 +41,11 @@ export function extractReactComponents(
   const react_components: IReactComponent[] = [];
   const react_component_hooks: IReactComponentHook[] = [];
 
-  const isBackendPath =
-    filePath &&
-    (filePath.includes("backend/") ||
-      filePath.includes("backend\\") ||
-      filePath.includes("server/") ||
-      filePath.includes("server\\") ||
-      filePath.includes("/api/") ||
-      filePath.includes("\\api\\") ||
-      filePath.includes("controllers/") ||
-      filePath.includes("controllers\\") ||
-      filePath.includes("services/") ||
-      filePath.includes("services\\") ||
-      filePath.includes("middleware/") ||
-      filePath.includes("middleware\\") ||
-      filePath.includes("models/") ||
-      filePath.includes("models\\") ||
-      filePath.includes("routes/") ||
-      filePath.includes("routes\\"));
-
-  if (isBackendPath) {
-    return { react_components, react_component_hooks };
-  }
+  // EXTRACTION FIX: Removed aggressive backend path skip (Option A).
+  // The backend skip was silencing files in shared component libraries
+  // (e.g., packages/ui/, src/components/ outside frontend/).
+  // Let the isFrontendPath content-based detection handle filtering instead.
+  // Worst case: backend file returns empty array (cheap, semantically correct).
 
   const isFrontendPath =
     filePath &&
