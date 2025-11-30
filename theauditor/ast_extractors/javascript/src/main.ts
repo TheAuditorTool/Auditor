@@ -78,8 +78,12 @@ function sanitizeVirtualPaths(
         if (match) {
           const scopeId = match[1];
           const original = virtualToOriginalMap.get(scopeId);
+          if (!original) {
+            console.error(`[SANITIZE ERROR] Virtual path ${value} has no mapping for scopeId ${scopeId}`);
+          }
           sanitized[key] = original || value;
         } else {
+          console.error(`[SANITIZE ERROR] Virtual path ${value} does not match expected pattern`);
           sanitized[key] = value;
         }
       } else {

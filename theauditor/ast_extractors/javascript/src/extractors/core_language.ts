@@ -56,7 +56,6 @@ export function extractFunctions(
     const func_entry: IFunction = {
       line: func_line,
       col: character,
-      column: character,
       kind: kind,
       name: "",
       type: "function",
@@ -417,7 +416,6 @@ export function extractClasses(
       const classEntry: IClass = {
         line: class_line,
         col: character,
-        column: character,
         name: className,
         type: "class",
         kind: kind,
