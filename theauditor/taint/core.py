@@ -131,6 +131,18 @@ class TaintRegistry:
 
     def _load_validation_sanitizers(self, cursor: sqlite3.Cursor) -> None:
         """Load validation patterns from validation_framework_usage table."""
+        # Map validation frameworks to their languages
+        framework_languages = {
+            "zod": "javascript",
+            "joi": "javascript",
+            "yup": "javascript",
+            "express-validator": "javascript",
+            "ajv": "javascript",
+            "class-validator": "javascript",
+            "validator": "rust",
+            "pydantic": "python",
+        }
+
         query = """
             SELECT DISTINCT framework, method, variable_name
             FROM validation_framework_usage
@@ -142,14 +154,17 @@ class TaintRegistry:
             method = row[1]
             var_name = row[2]
 
+            # Use framework-specific language, default to javascript for unknown
+            lang = framework_languages.get(framework, "javascript")
+
             if method:
-                self.register_sanitizer(method, "javascript")
+                self.register_sanitizer(method, lang)
 
             if var_name and method:
-                self.register_sanitizer(f"{var_name}.{method}", "javascript")
+                self.register_sanitizer(f"{var_name}.{method}", lang)
 
             if framework and method:
-                self.register_sanitizer(f"{framework}.{method}", "javascript")
+                self.register_sanitizer(f"{framework}.{method}", lang)
 
     def get_source_patterns(self, language: str) -> list[str]:
         """Get flattened list of source patterns for a language."""

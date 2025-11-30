@@ -242,6 +242,11 @@ class TaintDiscovery:
         for row in cursor2.fetchall():
             model_names.add(row["model_name"])
 
+        # Rust structs can act as ORM models (diesel, sqlx, sea-orm)
+        cursor2.execute("SELECT name FROM rust_structs")
+        for row in cursor2.fetchall():
+            model_names.add(row["name"])
+
         orm_patterns = [
             ".findOne",
             ".findAll",
