@@ -569,6 +569,10 @@ class NodeStorage(BaseStorage):
         Processes cfg_blocks, cfg_edges, and cfg_block_statements together.
         The TS extractor outputs flat arrays with string IDs like "block_0".
         This handler builds the ID mapping and stores to database.
+
+        PHASE 1 FIX: Use None as sentinel instead of -1.
+        add_cfg_block() returns negative temp_ids (-1, -2, etc.), so using -1 as
+        "not found" sentinel caused the first block's edges/statements to be dropped.
         """
         if not cfg_blocks:
             return
@@ -623,10 +627,11 @@ class NodeStorage(BaseStorage):
                 edge_file_path = file_path
                 function_name = function_id
 
-            source_id = block_id_map.get((function_id, from_block), -1)
-            target_id = block_id_map.get((function_id, to_block), -1)
+            # PHASE 1 FIX: Use None as sentinel, not -1 (which is a valid temp_id)
+            source_id = block_id_map.get((function_id, from_block))
+            target_id = block_id_map.get((function_id, to_block))
 
-            if source_id == -1 or target_id == -1:
+            if source_id is None or target_id is None:
                 continue
 
             if jsx_pass:
@@ -643,8 +648,9 @@ class NodeStorage(BaseStorage):
             function_id = stmt.get("function_id", "")
             block_id = stmt.get("block_id", "")
 
-            real_block_id = block_id_map.get((function_id, block_id), -1)
-            if real_block_id == -1:
+            # PHASE 1 FIX: Use None as sentinel, not -1 (which is a valid temp_id)
+            real_block_id = block_id_map.get((function_id, block_id))
+            if real_block_id is None:
                 continue
 
             if jsx_pass:

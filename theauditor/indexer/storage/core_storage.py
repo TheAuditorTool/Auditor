@@ -201,42 +201,53 @@ class CoreStorage(BaseStorage):
             )
 
     def _store_symbols(self, file_path: str, symbols: list, jsx_pass: bool):
-        """Store symbols."""
+        """Store symbols.
+
+        PHASE 1 FIX: Convert TypeError raises to logger.warning + continue.
+        One bad symbol should not crash entire file's storage. Log and skip.
+        """
+        skipped_count = 0
         for idx, symbol in enumerate(symbols):
+            # Validate symbol structure - log and skip bad ones instead of crashing
             if not isinstance(symbol, dict):
-                raise TypeError(
-                    f"EXTRACTOR BUG: Symbol at index {idx} must be dict, got {type(symbol).__name__}.\n"
-                    f"  File: {file_path}\n"
-                    f"  Fix extractor to return List[Dict]."
+                logger.warning(
+                    f"EXTRACTOR BUG: Symbol at index {idx} must be dict, got {type(symbol).__name__}. "
+                    f"File: {file_path}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(symbol.get("name"), str) or not symbol["name"]:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Symbol.name must be non-empty str.\n"
-                    f"  File: {file_path}, Index: {idx}\n"
-                    f"  Got: {repr(symbol.get('name'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Symbol.name must be non-empty str. "
+                    f"File: {file_path}, Index: {idx}, Got: {repr(symbol.get('name'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(symbol.get("type"), str) or not symbol["type"]:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Symbol.type must be non-empty str.\n"
-                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
-                    f"  Got: {repr(symbol.get('type'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Symbol.type must be non-empty str. "
+                    f"File: {file_path}, Symbol: {symbol.get('name')}, Got: {repr(symbol.get('type'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(symbol.get("line"), int) or symbol["line"] < 1:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Symbol.line must be int >= 1.\n"
-                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
-                    f"  Got: {repr(symbol.get('line'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Symbol.line must be int >= 1. "
+                    f"File: {file_path}, Symbol: {symbol.get('name')}, Got: {repr(symbol.get('line'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if not isinstance(symbol.get("col"), int) or symbol["col"] < 0:
-                raise TypeError(
-                    f"EXTRACTOR BUG: Symbol.col must be int >= 0.\n"
-                    f"  File: {file_path}, Symbol: {symbol.get('name')}\n"
-                    f"  Got: {repr(symbol.get('col'))}"
+                logger.warning(
+                    f"EXTRACTOR BUG: Symbol.col must be int >= 0. "
+                    f"File: {file_path}, Symbol: {symbol.get('name')}, Got: {repr(symbol.get('col'))}. Skipping."
                 )
+                skipped_count += 1
+                continue
 
             if jsx_pass:
                 self.db_manager.add_symbol_jsx(
@@ -264,6 +275,12 @@ class CoreStorage(BaseStorage):
                     parameters_json,
                 )
                 self.counts["symbols"] += 1
+
+        # Log summary if any symbols were skipped
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count}/{len(symbols)} malformed symbols in {file_path}"
+            )
 
     def _store_type_annotations(self, file_path: str, type_annotations: list, jsx_pass: bool):
         """Store TypeScript type annotations."""

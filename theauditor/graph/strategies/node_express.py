@@ -242,7 +242,67 @@ class NodeExpressStrategy(GraphStrategy):
                         symbol_result = candidates[0]
 
             if not symbol_result:
+                # PHASE 1 FIX: Create ghost node instead of silently dropping.
+                # Graph should show unresolved references so analysis can flag them.
                 stats["failed_resolutions"] += 1
+
+                # Create ghost node for unresolved controller
+                ghost_id = f"UNRESOLVED::{object_name}.{method_name}"
+                if ghost_id not in nodes:
+                    nodes[ghost_id] = DFGNode(
+                        id=ghost_id,
+                        file="UNRESOLVED",
+                        variable_name=f"{object_name}.{method_name}",
+                        scope="UNRESOLVED",
+                        type="ghost",
+                        metadata={
+                            "reason": "symbol_resolution_failed",
+                            "import_package": import_package,
+                            "route_file": route_file,
+                        },
+                    )
+
+                # Still create edges to the ghost node
+                for suffix in ["req", "req.body", "req.params", "req.query", "res"]:
+                    source_id = f"{route_file}::{handler_expr}::{suffix}"
+                    if source_id not in nodes:
+                        nodes[source_id] = DFGNode(
+                            id=source_id,
+                            file=route_file,
+                            variable_name=suffix,
+                            scope=handler_expr,
+                            type="parameter",
+                            metadata={"handler": True},
+                        )
+
+                    target_id = f"{ghost_id}::{suffix}"
+                    if target_id not in nodes:
+                        nodes[target_id] = DFGNode(
+                            id=target_id,
+                            file="UNRESOLVED",
+                            variable_name=suffix,
+                            scope=f"{object_name}.{method_name}",
+                            type="ghost_parameter",
+                            metadata={"ghost": True},
+                        )
+
+                    new_edges = create_bidirectional_edges(
+                        source=source_id,
+                        target=target_id,
+                        edge_type="controller_unresolved",
+                        file=route_file,
+                        line=0,
+                        expression=f"{handler_expr} -> UNRESOLVED:{object_name}.{method_name}",
+                        function=handler_expr,
+                        metadata={
+                            "route_path": handler["route_path"],
+                            "route_method": handler["route_method"],
+                            "ghost": True,
+                        },
+                    )
+                    edges.extend(new_edges)
+                    stats["edges_created"] += len(new_edges)
+
                 continue
 
             resolved_path = symbol_result["path"]

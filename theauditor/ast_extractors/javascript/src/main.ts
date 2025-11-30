@@ -750,7 +750,9 @@ async function main(): Promise<void> {
 
           results[fileInfo.original] = {
             success: true,
-            fileName: fileInfo.absolute,
+            // PHASE 1 FIX: Use original path, not absolute/virtual path.
+            // For Vue SFCs, fileInfo.absolute is /virtual_vue/xxx.ts which breaks downstream.
+            fileName: fileInfo.original,
             languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
             ast: null,
             diagnostics: diagnostics,
