@@ -527,14 +527,14 @@ class FlowResolver:
 
         source_line = 0
 
-        source_function = source_parts[1] if len(source_parts) > 1 else "global"
+        # Query assignment_source_vars (RHS of assignments) not assignments.target_var (LHS)
+        # Source patterns like req.body, useAuth are SOURCE expressions, not target variables
         repo_cursor.execute(
             """
-            SELECT MIN(line) FROM assignments
-            WHERE file = ? AND target_var = ?
-              AND (in_function = ? OR (in_function IS NULL AND ? = 'global'))
+            SELECT MIN(line) FROM assignment_source_vars
+            WHERE file = ? AND source_var = ?
         """,
-            (source_file, source_pattern, source_function, source_function),
+            (source_file, source_pattern),
         )
         result = repo_cursor.fetchone()
         if result and result[0]:
