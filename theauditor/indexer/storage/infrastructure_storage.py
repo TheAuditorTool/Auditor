@@ -258,12 +258,12 @@ class InfrastructureStorage(BaseStorage):
         """Store GraphQL resolver mapping records."""
         for mapping in graphql_resolver_mappings:
             self.db_manager.add_graphql_resolver_mapping(
-                field_id=mapping["field_id"],
-                resolver_symbol_id=mapping["resolver_symbol_id"],
-                resolver_path=mapping["resolver_path"],
-                resolver_line=mapping["resolver_line"],
-                resolver_language=mapping["resolver_language"],
-                binding_style=mapping["binding_style"],
+                field_id=mapping.get("field_id", 0),
+                resolver_symbol_id=mapping.get("resolver_symbol_id", 0),
+                resolver_path=mapping.get("resolver_path", ""),
+                resolver_line=mapping.get("resolver_line", 0),
+                resolver_language=mapping.get("resolver_language", ""),
+                binding_style=mapping.get("binding_style", ""),
                 resolver_export=mapping.get("resolver_export"),
             )
             if "graphql_resolver_mappings" not in self.counts:
@@ -276,10 +276,10 @@ class InfrastructureStorage(BaseStorage):
         """Store GraphQL resolver parameter mapping records."""
         for param in graphql_resolver_params:
             self.db_manager.add_graphql_resolver_param(
-                resolver_symbol_id=param["resolver_symbol_id"],
-                arg_name=param["arg_name"],
-                param_name=param["param_name"],
-                param_index=param["param_index"],
+                resolver_symbol_id=param.get("resolver_symbol_id", 0),
+                arg_name=param.get("arg_name", ""),
+                param_name=param.get("param_name", ""),
+                param_index=param.get("param_index", 0),
                 is_kwargs=param.get("is_kwargs", False),
                 is_list_input=param.get("is_list_input", False),
             )
