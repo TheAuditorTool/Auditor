@@ -90,14 +90,16 @@ def extract_rust_modules(root_node: Any, file_path: str) -> list[dict]:
             name_node = _get_child_by_type(node, "identifier")
             decl_list = _get_child_by_type(node, "declaration_list")
 
-            modules.append({
-                "file_path": file_path,
-                "module_name": _get_text(name_node) if name_node else "",
-                "line": node.start_point[0] + 1,
-                "visibility": _extract_visibility(node),
-                "is_inline": decl_list is not None,
-                "parent_module": parent_module,
-            })
+            modules.append(
+                {
+                    "file_path": file_path,
+                    "module_name": _get_text(name_node) if name_node else "",
+                    "line": node.start_point[0] + 1,
+                    "visibility": _extract_visibility(node),
+                    "is_inline": decl_list is not None,
+                    "parent_module": parent_module,
+                }
+            )
 
             if decl_list:
                 new_parent = _get_text(name_node) if name_node else None
@@ -126,23 +128,19 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
     """
     uses = []
 
-    def _expand_grouped_import(
-        import_path: str, line: int, visibility: str
-    ) -> list[dict]:
+    def _expand_grouped_import(import_path: str, line: int, visibility: str) -> list[dict]:
         """Expand grouped imports like std::sync::{Arc, Mutex} into separate entries."""
-        # Find the grouped portion: everything after ::{ and before }
+
         if "::{" not in import_path or "}" not in import_path:
             return []
 
         brace_start = import_path.index("::{")
         base_path = import_path[:brace_start]
 
-        # Extract items between { and }
-        items_start = brace_start + 3  # len("::{")
+        items_start = brace_start + 3
         items_end = import_path.rindex("}")
         items_str = import_path[items_start:items_end]
 
-        # Split by comma, handling nested braces
         items = []
         current_item = ""
         brace_depth = 0
@@ -160,18 +158,16 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
                 current_item = ""
             else:
                 current_item += char
-        # Don't forget the last item
+
         if current_item.strip():
             items.append(current_item.strip())
 
         result = []
         for item in items:
-            # Handle self keyword: use std::sync::{self, Arc} -> std::sync
             if item == "self":
                 local_name = base_path.split("::")[-1] if "::" in base_path else base_path
                 canonical = base_path
             else:
-                # Handle aliased imports: Arc as MyArc
                 if " as " in item:
                     original, alias = item.split(" as ", 1)
                     local_name = alias.strip()
@@ -180,15 +176,17 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
                     local_name = item
                     canonical = f"{base_path}::{item}"
 
-            result.append({
-                "file_path": file_path,
-                "line": line,
-                "import_path": import_path,  # Keep original for traceability
-                "local_name": local_name,
-                "canonical_path": canonical,
-                "is_glob": False,
-                "visibility": visibility,
-            })
+            result.append(
+                {
+                    "file_path": file_path,
+                    "line": line,
+                    "import_path": import_path,
+                    "local_name": local_name,
+                    "canonical_path": canonical,
+                    "is_glob": False,
+                    "visibility": visibility,
+                }
+            )
 
         return result
 
@@ -205,26 +203,26 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
             visibility = _extract_visibility(node)
             is_glob = "*" in import_path
 
-            # Handle grouped imports: use std::sync::{Arc, Mutex};
             if "::{" in import_path and "}" in import_path:
                 expanded = _expand_grouped_import(import_path, line, visibility)
                 uses.extend(expanded)
             else:
-                # Simple import
                 local_name = None
                 if "::" in import_path and not is_glob:
                     parts = import_path.split("::")
                     local_name = parts[-1].strip()
 
-                uses.append({
-                    "file_path": file_path,
-                    "line": line,
-                    "import_path": import_path,
-                    "local_name": local_name,
-                    "canonical_path": import_path,
-                    "is_glob": is_glob,
-                    "visibility": visibility,
-                })
+                uses.append(
+                    {
+                        "file_path": file_path,
+                        "line": line,
+                        "import_path": import_path,
+                        "local_name": local_name,
+                        "canonical_path": import_path,
+                        "is_glob": is_glob,
+                        "visibility": visibility,
+                    }
+                )
 
         for child in node.children:
             visit(child)
@@ -264,22 +262,24 @@ def extract_rust_functions(root_node: Any, file_path: str) -> list[dict]:
                 abi_node = _get_child_by_type(extern_modifier, "string_literal")
                 abi = _get_text(abi_node).strip('"') if abi_node else "C"
 
-            functions.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1 if block_node else node.start_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "visibility": _extract_visibility(node),
-                "is_async": _has_modifier(node, "async"),
-                "is_unsafe": _has_modifier(node, "unsafe"),
-                "is_const": _has_modifier(node, "const"),
-                "is_extern": extern_modifier is not None,
-                "abi": abi,
-                "return_type": return_type,
-                "params_json": _get_text(params_node) if params_node else None,
-                "generics": _extract_generics(node),
-                "where_clause": _extract_where_clause(node),
-            })
+            functions.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1 if block_node else node.start_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "visibility": _extract_visibility(node),
+                    "is_async": _has_modifier(node, "async"),
+                    "is_unsafe": _has_modifier(node, "unsafe"),
+                    "is_const": _has_modifier(node, "const"),
+                    "is_extern": extern_modifier is not None,
+                    "abi": abi,
+                    "return_type": return_type,
+                    "params_json": _get_text(params_node) if params_node else None,
+                    "generics": _extract_generics(node),
+                    "where_clause": _extract_where_clause(node),
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -309,17 +309,19 @@ def extract_rust_structs(root_node: Any, file_path: str) -> list[dict]:
             is_tuple = tuple_fields is not None
             is_unit = field_list is None and tuple_fields is None
 
-            structs.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "visibility": _extract_visibility(node),
-                "generics": _extract_generics(node),
-                "is_tuple_struct": is_tuple,
-                "is_unit_struct": is_unit,
-                "derives_json": None,
-            })
+            structs.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "visibility": _extract_visibility(node),
+                    "generics": _extract_generics(node),
+                    "is_tuple_struct": is_tuple,
+                    "is_unit_struct": is_unit,
+                    "derives_json": None,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -344,15 +346,17 @@ def extract_rust_enums(root_node: Any, file_path: str) -> list[dict]:
         if node.type == "enum_item":
             name_node = _get_child_by_type(node, "type_identifier")
 
-            enums.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "visibility": _extract_visibility(node),
-                "generics": _extract_generics(node),
-                "derives_json": None,
-            })
+            enums.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "visibility": _extract_visibility(node),
+                    "generics": _extract_generics(node),
+                    "derives_json": None,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -386,7 +390,6 @@ def extract_rust_traits(root_node: Any, file_path: str) -> list[dict]:
             supertraits = None
             trait_bounds = _get_child_by_type(node, "trait_bounds")
             if trait_bounds:
-                # trait_bounds includes the `:` prefix, strip it
                 supertraits = _get_text(trait_bounds).lstrip(": ").strip()
 
             is_auto = False
@@ -395,17 +398,19 @@ def extract_rust_traits(root_node: Any, file_path: str) -> list[dict]:
                     is_auto = True
                     break
 
-            traits.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "visibility": _extract_visibility(node),
-                "generics": _extract_generics(node),
-                "supertraits": supertraits,
-                "is_unsafe": is_unsafe,
-                "is_auto": is_auto,
-            })
+            traits.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "visibility": _extract_visibility(node),
+                    "generics": _extract_generics(node),
+                    "supertraits": supertraits,
+                    "is_unsafe": is_unsafe,
+                    "is_auto": is_auto,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -459,29 +464,26 @@ def extract_rust_impl_blocks(root_node: Any, file_path: str) -> list[dict]:
                 elif generic_types:
                     target_type = _get_text(generic_types[0])
 
-            impls.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
-                "target_type_raw": target_type or "",
-                "target_type_resolved": None,
-                "trait_name": trait_name,
-                "trait_resolved": None,
-                "generics": _extract_generics(node),
-                "where_clause": _extract_where_clause(node),
-                "is_unsafe": is_unsafe,
-            })
+            impls.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "target_type_raw": target_type or "",
+                    "target_type_resolved": None,
+                    "trait_name": trait_name,
+                    "trait_resolved": None,
+                    "generics": _extract_generics(node),
+                    "where_clause": _extract_where_clause(node),
+                    "is_unsafe": is_unsafe,
+                }
+            )
 
         for child in node.children:
             visit(child)
 
     visit(root_node)
     return impls
-
-
-# =============================================================================
-# Phase 2: Advanced Extraction Functions
-# =============================================================================
 
 
 def extract_rust_struct_fields(root_node: Any, file_path: str) -> list[dict]:
@@ -495,7 +497,6 @@ def extract_rust_struct_fields(root_node: Any, file_path: str) -> list[dict]:
             tuple_fields = _get_child_by_type(node, "ordered_field_declaration_list")
 
             if field_list:
-                # Named struct fields
                 field_idx = 0
                 for child in field_list.children:
                     if child.type == "field_declaration":
@@ -506,19 +507,20 @@ def extract_rust_struct_fields(root_node: Any, file_path: str) -> list[dict]:
                                 type_node = c
                                 break
                         vis = _extract_visibility(child)
-                        fields.append({
-                            "file_path": file_path,
-                            "struct_line": struct_line,
-                            "field_index": field_idx,
-                            "field_name": _get_text(name_node) if name_node else None,
-                            "field_type": _get_text(type_node) if type_node else "",
-                            "visibility": vis,
-                            "is_pub": vis.startswith("pub"),
-                        })
+                        fields.append(
+                            {
+                                "file_path": file_path,
+                                "struct_line": struct_line,
+                                "field_index": field_idx,
+                                "field_name": _get_text(name_node) if name_node else None,
+                                "field_type": _get_text(type_node) if type_node else "",
+                                "visibility": vis,
+                                "is_pub": vis.startswith("pub"),
+                            }
+                        )
                         field_idx += 1
 
             elif tuple_fields:
-                # Tuple struct fields
                 field_idx = 0
                 for child in tuple_fields.children:
                     if child.type not in ["(", ")", ","]:
@@ -527,15 +529,17 @@ def extract_rust_struct_fields(root_node: Any, file_path: str) -> list[dict]:
                         if child.type == "visibility_modifier":
                             vis = _get_text(child)
                             continue
-                        fields.append({
-                            "file_path": file_path,
-                            "struct_line": struct_line,
-                            "field_index": field_idx,
-                            "field_name": None,
-                            "field_type": _get_text(type_node),
-                            "visibility": vis,
-                            "is_pub": vis.startswith("pub"),
-                        })
+                        fields.append(
+                            {
+                                "file_path": file_path,
+                                "struct_line": struct_line,
+                                "field_index": field_idx,
+                                "field_name": None,
+                                "field_type": _get_text(type_node),
+                                "visibility": vis,
+                                "is_pub": vis.startswith("pub"),
+                            }
+                        )
                         field_idx += 1
 
         for child in node.children:
@@ -563,7 +567,6 @@ def extract_rust_enum_variants(root_node: Any, file_path: str) -> list[dict]:
                         struct_fields = _get_child_by_type(child, "field_declaration_list")
                         discriminant = None
 
-                        # Check for discriminant (= value)
                         for i, c in enumerate(child.children):
                             if c.type == "=":
                                 if i + 1 < len(child.children):
@@ -578,15 +581,17 @@ def extract_rust_enum_variants(root_node: Any, file_path: str) -> list[dict]:
                             kind = "struct"
                             fields_json = _get_text(struct_fields)
 
-                        variants.append({
-                            "file_path": file_path,
-                            "enum_line": enum_line,
-                            "variant_index": variant_idx,
-                            "variant_name": _get_text(name_node) if name_node else "",
-                            "variant_kind": kind,
-                            "fields_json": fields_json,
-                            "discriminant": discriminant,
-                        })
+                        variants.append(
+                            {
+                                "file_path": file_path,
+                                "enum_line": enum_line,
+                                "variant_index": variant_idx,
+                                "variant_name": _get_text(name_node) if name_node else "",
+                                "variant_kind": kind,
+                                "fields_json": fields_json,
+                                "discriminant": discriminant,
+                            }
+                        )
                         variant_idx += 1
 
         for child in node.children:
@@ -610,7 +615,7 @@ def extract_rust_trait_methods(root_node: Any, file_path: str) -> list[dict]:
                     if child.type == "function_signature_item" or child.type == "function_item":
                         name_node = _get_child_by_type(child, "identifier")
                         params_node = _get_child_by_type(child, "parameters")
-                        has_default = child.type == "function_item"  # Has body
+                        has_default = child.type == "function_item"
 
                         return_type = None
                         for i, c in enumerate(child.children):
@@ -618,18 +623,24 @@ def extract_rust_trait_methods(root_node: Any, file_path: str) -> list[dict]:
                                 if i + 1 < len(child.children):
                                     return_type = _get_text(child.children[i + 1])
 
-                        is_async = _has_modifier(child, "async") if child.type == "function_item" else False
+                        is_async = (
+                            _has_modifier(child, "async")
+                            if child.type == "function_item"
+                            else False
+                        )
 
-                        methods.append({
-                            "file_path": file_path,
-                            "trait_line": trait_line,
-                            "method_line": child.start_point[0] + 1,
-                            "method_name": _get_text(name_node) if name_node else "",
-                            "return_type": return_type,
-                            "params_json": _get_text(params_node) if params_node else None,
-                            "has_default": has_default,
-                            "is_async": is_async,
-                        })
+                        methods.append(
+                            {
+                                "file_path": file_path,
+                                "trait_line": trait_line,
+                                "method_line": child.start_point[0] + 1,
+                                "method_name": _get_text(name_node) if name_node else "",
+                                "return_type": return_type,
+                                "params_json": _get_text(params_node) if params_node else None,
+                                "has_default": has_default,
+                                "is_async": is_async,
+                            }
+                        )
 
         for child in node.children:
             visit(child)
@@ -645,13 +656,15 @@ def extract_rust_macros(root_node: Any, file_path: str) -> list[dict]:
     def visit(node: Any) -> None:
         if node.type == "macro_definition":
             name_node = _get_child_by_type(node, "identifier")
-            macros.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "macro_type": "macro_rules",
-                "visibility": _extract_visibility(node),
-            })
+            macros.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "macro_type": "macro_rules",
+                    "visibility": _extract_visibility(node),
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -684,20 +697,21 @@ def extract_rust_macro_invocations(root_node: Any, file_path: str) -> list[dict]
                     name_node = child
                     break
 
-            # Extract args sample
             args_sample = None
             token_tree = _get_child_by_type(node, "token_tree")
             if token_tree:
                 args_text = _get_text(token_tree)
                 args_sample = args_text[:200] if args_text else None
 
-            invocations.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "macro_name": _get_text(name_node) if name_node else "",
-                "containing_function": current_function[0],
-                "args_sample": args_sample,
-            })
+            invocations.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "macro_name": _get_text(name_node) if name_node else "",
+                    "containing_function": current_function[0],
+                    "args_sample": args_sample,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -732,14 +746,16 @@ def extract_rust_async_functions(root_node: Any, file_path: str) -> list[dict]:
 
             await_count = count_awaits(block_node) if block_node else 0
 
-            async_funcs.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "function_name": _get_text(name_node) if name_node else "",
-                "return_type": return_type,
-                "has_await": await_count > 0,
-                "await_count": await_count,
-            })
+            async_funcs.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "function_name": _get_text(name_node) if name_node else "",
+                    "return_type": return_type,
+                    "has_await": await_count > 0,
+                    "await_count": await_count,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -772,12 +788,14 @@ def extract_rust_await_points(root_node: Any, file_path: str) -> list[dict]:
                     awaited_expr = _get_text(child)
                     break
 
-            awaits.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "containing_function": current_function[0],
-                "awaited_expression": awaited_expr[:200] if awaited_expr else None,
-            })
+            awaits.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "containing_function": current_function[0],
+                    "awaited_expression": awaited_expr[:200] if awaited_expr else None,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -795,7 +813,7 @@ def extract_rust_unsafe_blocks(root_node: Any, file_path: str) -> list[dict]:
 
     def get_preceding_comment(node: Any) -> str | None:
         """Get SAFETY comment from preceding sibling or line."""
-        # Check previous sibling
+
         if hasattr(node, "prev_sibling") and node.prev_sibling:
             sibling = node.prev_sibling
             if sibling.type == "line_comment":
@@ -817,57 +835,70 @@ def extract_rust_unsafe_blocks(root_node: Any, file_path: str) -> list[dict]:
         operations = []
 
         def scan_operations(node: Any) -> None:
-            # Raw pointer dereference: unary_expression with *
             if node.type == "unary_expression":
                 op = _get_child_by_type(node, "*")
                 if op:
-                    operations.append({
-                        "type": "ptr_deref",
-                        "line": node.start_point[0] + 1,
-                        "text": _get_text(node)[:50],
-                    })
+                    operations.append(
+                        {
+                            "type": "ptr_deref",
+                            "line": node.start_point[0] + 1,
+                            "text": _get_text(node)[:50],
+                        }
+                    )
 
-            # Function calls - check for known unsafe patterns
             if node.type == "call_expression":
                 func_node = node.children[0] if node.children else None
                 func_name = _get_text(func_node) if func_node else ""
 
-                # Known unsafe std functions
                 unsafe_patterns = [
-                    "transmute", "transmute_copy", "zeroed", "uninitialized",
-                    "from_raw", "into_raw", "as_ptr", "as_mut_ptr",
-                    "read", "write", "copy", "copy_nonoverlapping",
-                    "offset", "add", "sub",  # pointer arithmetic
+                    "transmute",
+                    "transmute_copy",
+                    "zeroed",
+                    "uninitialized",
+                    "from_raw",
+                    "into_raw",
+                    "as_ptr",
+                    "as_mut_ptr",
+                    "read",
+                    "write",
+                    "copy",
+                    "copy_nonoverlapping",
+                    "offset",
+                    "add",
+                    "sub",
                 ]
                 for pattern in unsafe_patterns:
                     if pattern in func_name:
-                        operations.append({
-                            "type": "unsafe_call",
-                            "line": node.start_point[0] + 1,
-                            "function": func_name[:100],
-                        })
+                        operations.append(
+                            {
+                                "type": "unsafe_call",
+                                "line": node.start_point[0] + 1,
+                                "function": func_name[:100],
+                            }
+                        )
                         break
 
-            # Method calls on raw pointers
             if node.type == "field_expression":
                 text = _get_text(node)
                 if ".as_ptr()" in text or ".as_mut_ptr()" in text:
-                    operations.append({
-                        "type": "ptr_cast",
-                        "line": node.start_point[0] + 1,
-                        "text": text[:50],
-                    })
+                    operations.append(
+                        {
+                            "type": "ptr_cast",
+                            "line": node.start_point[0] + 1,
+                            "text": text[:50],
+                        }
+                    )
 
-            # Static mut access
             if node.type == "identifier":
-                # Check if accessing a static mut (heuristic: SCREAMING_CASE)
                 name = _get_text(node)
                 if name.isupper() and len(name) > 1:
-                    operations.append({
-                        "type": "static_access",
-                        "line": node.start_point[0] + 1,
-                        "name": name,
-                    })
+                    operations.append(
+                        {
+                            "type": "static_access",
+                            "line": node.start_point[0] + 1,
+                            "name": name,
+                        }
+                    )
 
             for child in node.children:
                 scan_operations(child)
@@ -893,20 +924,21 @@ def extract_rust_unsafe_blocks(root_node: Any, file_path: str) -> list[dict]:
             safety_comment = get_preceding_comment(node)
             block_node = _get_child_by_type(node, "block")
 
-            # Catalog operations inside the unsafe block
             operations = catalog_unsafe_operations(block_node)
             operations_json = json.dumps(operations) if operations else None
 
-            blocks.append({
-                "file_path": file_path,
-                "line_start": node.start_point[0] + 1,
-                "line_end": node.end_point[0] + 1,
-                "containing_function": current_function[0],
-                "reason": None,
-                "safety_comment": safety_comment,
-                "has_safety_comment": safety_comment is not None,
-                "operations_json": operations_json,
-            })
+            blocks.append(
+                {
+                    "file_path": file_path,
+                    "line_start": node.start_point[0] + 1,
+                    "line_end": node.end_point[0] + 1,
+                    "containing_function": current_function[0],
+                    "reason": None,
+                    "safety_comment": safety_comment,
+                    "has_safety_comment": safety_comment is not None,
+                    "operations_json": operations_json,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -944,12 +976,14 @@ def extract_rust_unsafe_traits(root_node: Any, file_path: str) -> list[dict]:
                     if len(type_nodes) >= 2:
                         impl_type = _get_text(type_nodes[1])
 
-                    unsafe_traits.append({
-                        "file_path": file_path,
-                        "line": node.start_point[0] + 1,
-                        "trait_name": trait_name or "",
-                        "impl_type": impl_type,
-                    })
+                    unsafe_traits.append(
+                        {
+                            "file_path": file_path,
+                            "line": node.start_point[0] + 1,
+                            "trait_name": trait_name or "",
+                            "impl_type": impl_type,
+                        }
+                    )
 
         for child in node.children:
             visit(child)
@@ -971,12 +1005,14 @@ def extract_rust_extern_blocks(root_node: Any, file_path: str) -> list[dict]:
                 if abi_node:
                     abi = _get_text(abi_node).strip('"')
 
-            blocks.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "end_line": node.end_point[0] + 1,
-                "abi": abi,
-            })
+            blocks.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "abi": abi,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -1015,21 +1051,22 @@ def extract_rust_extern_functions(root_node: Any, file_path: str) -> list[dict]:
                         return_type = _get_text(node.children[i + 1])
                     break
 
-            # Check for variadic
             is_variadic = False
             if params_node:
                 params_text = _get_text(params_node)
                 is_variadic = "..." in params_text
 
-            funcs.append({
-                "file_path": file_path,
-                "line": node.start_point[0] + 1,
-                "name": _get_text(name_node) if name_node else "",
-                "abi": current_abi,
-                "return_type": return_type,
-                "params_json": _get_text(params_node) if params_node else None,
-                "is_variadic": is_variadic,
-            })
+            funcs.append(
+                {
+                    "file_path": file_path,
+                    "line": node.start_point[0] + 1,
+                    "name": _get_text(name_node) if name_node else "",
+                    "abi": current_abi,
+                    "return_type": return_type,
+                    "params_json": _get_text(params_node) if params_node else None,
+                    "is_variadic": is_variadic,
+                }
+            )
 
         for child in node.children:
             visit(child, current_abi)
@@ -1048,43 +1085,48 @@ def extract_rust_generics(root_node: Any, file_path: str) -> list[dict]:
             return
 
         for child in type_params.children:
-            # type_parameter: simple type like T, or constrained like T: Clone
             if child.type == "type_parameter":
                 name_node = _get_child_by_type(child, "type_identifier")
                 bounds_node = _get_child_by_type(child, "trait_bounds")
-                generics.append({
-                    "file_path": file_path,
-                    "parent_line": parent_line,
-                    "parent_type": parent_type,
-                    "param_name": _get_text(name_node) if name_node else "",
-                    "param_kind": "type",
-                    "bounds": _get_text(bounds_node).lstrip(": ") if bounds_node else None,
-                    "default_value": None,
-                })
-            # lifetime_parameter: 'a, 'b, etc.
+                generics.append(
+                    {
+                        "file_path": file_path,
+                        "parent_line": parent_line,
+                        "parent_type": parent_type,
+                        "param_name": _get_text(name_node) if name_node else "",
+                        "param_kind": "type",
+                        "bounds": _get_text(bounds_node).lstrip(": ") if bounds_node else None,
+                        "default_value": None,
+                    }
+                )
+
             elif child.type == "lifetime_parameter":
                 lt_node = _get_child_by_type(child, "lifetime")
-                generics.append({
-                    "file_path": file_path,
-                    "parent_line": parent_line,
-                    "parent_type": parent_type,
-                    "param_name": _get_text(lt_node) if lt_node else "",
-                    "param_kind": "lifetime",
-                    "bounds": None,
-                    "default_value": None,
-                })
-            # const_parameter: const N: usize
+                generics.append(
+                    {
+                        "file_path": file_path,
+                        "parent_line": parent_line,
+                        "parent_type": parent_type,
+                        "param_name": _get_text(lt_node) if lt_node else "",
+                        "param_kind": "lifetime",
+                        "bounds": None,
+                        "default_value": None,
+                    }
+                )
+
             elif child.type == "const_parameter":
                 name_node = _get_child_by_type(child, "identifier")
-                generics.append({
-                    "file_path": file_path,
-                    "parent_line": parent_line,
-                    "parent_type": parent_type,
-                    "param_name": _get_text(name_node) if name_node else "",
-                    "param_kind": "const",
-                    "bounds": None,
-                    "default_value": None,
-                })
+                generics.append(
+                    {
+                        "file_path": file_path,
+                        "parent_line": parent_line,
+                        "parent_type": parent_type,
+                        "param_name": _get_text(name_node) if name_node else "",
+                        "param_kind": "const",
+                        "bounds": None,
+                        "default_value": None,
+                    }
+                )
 
     def visit(node: Any) -> None:
         if node.type == "struct_item":
@@ -1116,19 +1158,20 @@ def extract_rust_lifetimes(root_node: Any, file_path: str) -> list[dict]:
             return
 
         for child in type_params.children:
-            # lifetime_parameter node contains the lifetime
             if child.type == "lifetime_parameter":
                 lt_node = _get_child_by_type(child, "lifetime")
                 name = _get_text(lt_node) if lt_node else ""
                 key = (file_path, parent_line, name)
                 if key not in seen:
                     seen.add(key)
-                    lifetimes.append({
-                        "file_path": file_path,
-                        "parent_line": parent_line,
-                        "lifetime_name": name,
-                        "is_static": name == "'static",
-                    })
+                    lifetimes.append(
+                        {
+                            "file_path": file_path,
+                            "parent_line": parent_line,
+                            "lifetime_name": name,
+                            "is_static": name == "'static",
+                        }
+                    )
 
     def visit(node: Any) -> None:
         if node.type in ["struct_item", "enum_item", "function_item", "trait_item", "impl_item"]:

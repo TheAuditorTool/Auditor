@@ -19,7 +19,6 @@ from theauditor.indexer.schema import TABLES
 from theauditor.ast_extractors import rust_impl as rust_core
 
 
-# All 20 expected Rust tables
 EXPECTED_RUST_TABLES = [
     "rust_modules",
     "rust_use_statements",
@@ -89,7 +88,6 @@ class TestRustExtractionIntegration:
         tree = parse_rust(rust_parser, content)
         root = tree.root_node
 
-        # Extract all data types
         results = {}
 
         results["rust_modules"] = rust_core.extract_rust_modules(root, str(rust_file))
@@ -102,18 +100,23 @@ class TestRustExtractionIntegration:
         results["rust_generics"] = rust_core.extract_rust_generics(root, str(rust_file))
         results["rust_lifetimes"] = rust_core.extract_rust_lifetimes(root, str(rust_file))
         results["rust_macros"] = rust_core.extract_rust_macros(root, str(rust_file))
-        results["rust_macro_invocations"] = rust_core.extract_rust_macro_invocations(root, str(rust_file))
-        results["rust_async_functions"] = rust_core.extract_rust_async_functions(root, str(rust_file))
+        results["rust_macro_invocations"] = rust_core.extract_rust_macro_invocations(
+            root, str(rust_file)
+        )
+        results["rust_async_functions"] = rust_core.extract_rust_async_functions(
+            root, str(rust_file)
+        )
         results["rust_await_points"] = rust_core.extract_rust_await_points(root, str(rust_file))
         results["rust_unsafe_blocks"] = rust_core.extract_rust_unsafe_blocks(root, str(rust_file))
         results["rust_unsafe_traits"] = rust_core.extract_rust_unsafe_traits(root, str(rust_file))
         results["rust_struct_fields"] = rust_core.extract_rust_struct_fields(root, str(rust_file))
         results["rust_enum_variants"] = rust_core.extract_rust_enum_variants(root, str(rust_file))
         results["rust_trait_methods"] = rust_core.extract_rust_trait_methods(root, str(rust_file))
-        results["rust_extern_functions"] = rust_core.extract_rust_extern_functions(root, str(rust_file))
+        results["rust_extern_functions"] = rust_core.extract_rust_extern_functions(
+            root, str(rust_file)
+        )
         results["rust_extern_blocks"] = rust_core.extract_rust_extern_blocks(root, str(rust_file))
 
-        # Verify we got data for key tables (based on lib.rs fixture content)
         assert len(results["rust_modules"]) >= 2, "Should extract modules"
         assert len(results["rust_use_statements"]) >= 3, "Should extract use statements"
         assert len(results["rust_structs"]) >= 3, "Should extract structs"
@@ -137,7 +140,6 @@ class TestRustExtractionIntegration:
 
         struct_fields = rust_core.extract_rust_struct_fields(root, str(rust_file))
 
-        # Verify MyStruct fields are extracted
         field_names = {f.get("field_name") for f in struct_fields}
         assert "field1" in field_names, "Should extract field1 from MyStruct"
         assert "field2" in field_names, "Should extract field2 from MyStruct"
@@ -155,7 +157,6 @@ class TestRustExtractionIntegration:
 
         trait_methods = rust_core.extract_rust_trait_methods(root, str(rust_file))
 
-        # Verify trait methods are extracted
         method_names = {m.get("method_name") for m in trait_methods}
         assert "process" in method_names, "Should extract process() from Processor trait"
 
@@ -173,11 +174,9 @@ class TestRustExtractionIntegration:
 
         assert len(unsafe_blocks) >= 1, "Should find unsafe blocks"
 
-        # Check if SAFETY comment detection works
         blocks_with_safety = [b for b in unsafe_blocks if b.get("has_safety_comment")]
         blocks_without_safety = [b for b in unsafe_blocks if not b.get("has_safety_comment")]
 
-        # lib.rs has one with SAFETY comment, one without
         assert len(blocks_with_safety) >= 1 or len(blocks_without_safety) >= 1, (
             "Should detect unsafe blocks"
         )
@@ -194,7 +193,6 @@ class TestRustExtractionIntegration:
 
         macro_invocations = rust_core.extract_rust_macro_invocations(root, str(rust_file))
 
-        # Verify macro invocations are captured
         macro_names = {m.get("macro_name") for m in macro_invocations}
         assert "println" in macro_names, "Should extract println! macro"
         assert "vec" in macro_names, "Should extract vec! macro"
@@ -211,7 +209,6 @@ class TestRustExtractionIntegration:
 
         generics = rust_core.extract_rust_generics(root, str(rust_file))
 
-        # Verify generic parameters are extracted
         param_names = {g.get("param_name") for g in generics}
         assert "T" in param_names, "Should extract T generic parameter"
 
@@ -227,7 +224,6 @@ class TestRustExtractionIntegration:
 
         lifetimes = rust_core.extract_rust_lifetimes(root, str(rust_file))
 
-        # Verify lifetime parameters are extracted
         lifetime_names = {l.get("lifetime_name") for l in lifetimes}
         assert "'a" in lifetime_names, "Should extract 'a lifetime"
 
@@ -358,17 +354,16 @@ class TestRustGraphStrategiesIntegration:
         from unittest.mock import patch
         from theauditor.graph.dfg_builder import DFGBuilder
 
-        # Mock path exists to avoid FileNotFoundError
-        with patch.object(DFGBuilder, '__init__', lambda self, db_path: None):
+        with patch.object(DFGBuilder, "__init__", lambda self, db_path: None):
             builder = DFGBuilder.__new__(DFGBuilder)
-            # Manually set strategies as __init__ is mocked
+
             from theauditor.graph.strategies.rust_traits import RustTraitStrategy
             from theauditor.graph.strategies.rust_unsafe import RustUnsafeStrategy
             from theauditor.graph.strategies.rust_ffi import RustFFIStrategy
             from theauditor.graph.strategies.rust_async import RustAsyncStrategy
 
-            # Just verify the imports work and strategies are in dfg_builder.py
             import theauditor.graph.dfg_builder as dfg_module
+
             source_code = open(dfg_module.__file__).read()
 
             assert "RustTraitStrategy" in source_code
@@ -383,6 +378,7 @@ class TestRustStorageIntegration:
     def test_storage_importable(self):
         """Verify RustStorage is importable."""
         from theauditor.indexer.storage.rust_storage import RustStorage
+
         assert RustStorage is not None
 
     def test_storage_has_handlers(self):
@@ -396,7 +392,6 @@ class TestRustStorageIntegration:
         assert hasattr(storage, "handlers")
         assert len(storage.handlers) == 20, "Should have 20 handlers"
 
-        # Check for all handlers
         for table_name in EXPECTED_RUST_TABLES:
             assert table_name in storage.handlers, f"Missing handler: {table_name}"
 
@@ -441,6 +436,5 @@ class TestRustExtractorIntegration:
 
         result = extractor.extract(file_info, content, tree_dict)
 
-        # Verify all 20 table keys are present
         for table_name in EXPECTED_RUST_TABLES:
             assert table_name in result, f"Missing key in extract result: {table_name}"

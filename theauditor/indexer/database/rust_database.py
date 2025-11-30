@@ -4,9 +4,6 @@
 class RustDatabaseMixin:
     """Mixin providing add_* methods for RUST_TABLES."""
 
-    # =========================================================================
-    # METHOD 1: add_rust_module
-    # =========================================================================
     def add_rust_module(
         self,
         file_path: str,
@@ -28,9 +25,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 2: add_rust_use_statement
-    # =========================================================================
     def add_rust_use_statement(
         self,
         file_path: str,
@@ -54,9 +48,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 3: add_rust_function
-    # =========================================================================
     def add_rust_function(
         self,
         file_path: str,
@@ -94,9 +85,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 4: add_rust_struct
-    # =========================================================================
     def add_rust_struct(
         self,
         file_path: str,
@@ -124,9 +112,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 5: add_rust_enum
-    # =========================================================================
     def add_rust_enum(
         self,
         file_path: str,
@@ -150,9 +135,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 6: add_rust_trait
-    # =========================================================================
     def add_rust_trait(
         self,
         file_path: str,
@@ -180,9 +162,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 7: add_rust_impl_block
-    # =========================================================================
     def add_rust_impl_block(
         self,
         file_path: str,
@@ -212,11 +191,6 @@ class RustDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # PHASE 2 METHODS
-    # =========================================================================
-
-    # METHOD 8: add_rust_generic
     def add_rust_generic(
         self,
         file_path: str,
@@ -232,7 +206,6 @@ class RustDatabaseMixin:
             (file_path, parent_line, parent_type, param_name, param_kind, bounds, default_value)
         )
 
-    # METHOD 9: add_rust_lifetime
     def add_rust_lifetime(
         self,
         file_path: str,
@@ -245,7 +218,6 @@ class RustDatabaseMixin:
             (file_path, parent_line, lifetime_name, 1 if is_static else 0)
         )
 
-    # METHOD 10: add_rust_macro
     def add_rust_macro(
         self,
         file_path: str,
@@ -255,11 +227,8 @@ class RustDatabaseMixin:
         visibility: str | None,
     ) -> None:
         """Add a Rust macro definition to the batch."""
-        self.generic_batches["rust_macros"].append(
-            (file_path, line, name, macro_type, visibility)
-        )
+        self.generic_batches["rust_macros"].append((file_path, line, name, macro_type, visibility))
 
-    # METHOD 11: add_rust_macro_invocation
     def add_rust_macro_invocation(
         self,
         file_path: str,
@@ -273,7 +242,6 @@ class RustDatabaseMixin:
             (file_path, line, macro_name, containing_function, args_sample)
         )
 
-    # METHOD 12: add_rust_async_function
     def add_rust_async_function(
         self,
         file_path: str,
@@ -288,7 +256,6 @@ class RustDatabaseMixin:
             (file_path, line, function_name, return_type, 1 if has_await else 0, await_count)
         )
 
-    # METHOD 13: add_rust_await_point
     def add_rust_await_point(
         self,
         file_path: str,
@@ -301,7 +268,6 @@ class RustDatabaseMixin:
             (file_path, line, containing_function, awaited_expression)
         )
 
-    # METHOD 14: add_rust_unsafe_block
     def add_rust_unsafe_block(
         self,
         file_path: str,
@@ -316,12 +282,17 @@ class RustDatabaseMixin:
         """Add a Rust unsafe block to the batch."""
         self.generic_batches["rust_unsafe_blocks"].append(
             (
-                file_path, line_start, line_end, containing_function,
-                reason, safety_comment, 1 if has_safety_comment else 0, operations_json
+                file_path,
+                line_start,
+                line_end,
+                containing_function,
+                reason,
+                safety_comment,
+                1 if has_safety_comment else 0,
+                operations_json,
             )
         )
 
-    # METHOD 15: add_rust_unsafe_trait
     def add_rust_unsafe_trait(
         self,
         file_path: str,
@@ -330,11 +301,8 @@ class RustDatabaseMixin:
         impl_type: str | None,
     ) -> None:
         """Add a Rust unsafe trait implementation to the batch."""
-        self.generic_batches["rust_unsafe_traits"].append(
-            (file_path, line, trait_name, impl_type)
-        )
+        self.generic_batches["rust_unsafe_traits"].append((file_path, line, trait_name, impl_type))
 
-    # METHOD 16: add_rust_struct_field
     def add_rust_struct_field(
         self,
         file_path: str,
@@ -347,10 +315,17 @@ class RustDatabaseMixin:
     ) -> None:
         """Add a Rust struct field to the batch."""
         self.generic_batches["rust_struct_fields"].append(
-            (file_path, struct_line, field_index, field_name, field_type, visibility, 1 if is_pub else 0)
+            (
+                file_path,
+                struct_line,
+                field_index,
+                field_name,
+                field_type,
+                visibility,
+                1 if is_pub else 0,
+            )
         )
 
-    # METHOD 17: add_rust_enum_variant
     def add_rust_enum_variant(
         self,
         file_path: str,
@@ -363,10 +338,17 @@ class RustDatabaseMixin:
     ) -> None:
         """Add a Rust enum variant to the batch."""
         self.generic_batches["rust_enum_variants"].append(
-            (file_path, enum_line, variant_index, variant_name, variant_kind, fields_json, discriminant)
+            (
+                file_path,
+                enum_line,
+                variant_index,
+                variant_name,
+                variant_kind,
+                fields_json,
+                discriminant,
+            )
         )
 
-    # METHOD 18: add_rust_trait_method
     def add_rust_trait_method(
         self,
         file_path: str,
@@ -381,12 +363,17 @@ class RustDatabaseMixin:
         """Add a Rust trait method to the batch."""
         self.generic_batches["rust_trait_methods"].append(
             (
-                file_path, trait_line, method_line, method_name,
-                return_type, params_json, 1 if has_default else 0, 1 if is_async else 0
+                file_path,
+                trait_line,
+                method_line,
+                method_name,
+                return_type,
+                params_json,
+                1 if has_default else 0,
+                1 if is_async else 0,
             )
         )
 
-    # METHOD 19: add_rust_extern_function
     def add_rust_extern_function(
         self,
         file_path: str,
@@ -402,7 +389,6 @@ class RustDatabaseMixin:
             (file_path, line, name, abi, return_type, params_json, 1 if is_variadic else 0)
         )
 
-    # METHOD 20: add_rust_extern_block
     def add_rust_extern_block(
         self,
         file_path: str,
@@ -411,6 +397,4 @@ class RustDatabaseMixin:
         abi: str,
     ) -> None:
         """Add a Rust extern block to the batch."""
-        self.generic_batches["rust_extern_blocks"].append(
-            (file_path, line, end_line, abi)
-        )
+        self.generic_batches["rust_extern_blocks"].append((file_path, line, end_line, abi))

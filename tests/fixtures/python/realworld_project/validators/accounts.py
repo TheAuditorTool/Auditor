@@ -1,6 +1,5 @@
 """Pydantic models that exercise field and root validators."""
 
-
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, root_validator, validator

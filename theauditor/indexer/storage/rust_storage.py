@@ -10,7 +10,6 @@ class RustStorage(BaseStorage):
         super().__init__(db_manager, counts)
 
         self.handlers = {
-            # Phase 1: Core tables
             "rust_modules": self._store_rust_modules,
             "rust_use_statements": self._store_rust_use_statements,
             "rust_functions": self._store_rust_functions,
@@ -18,7 +17,6 @@ class RustStorage(BaseStorage):
             "rust_enums": self._store_rust_enums,
             "rust_traits": self._store_rust_traits,
             "rust_impl_blocks": self._store_rust_impl_blocks,
-            # Phase 2: Advanced tables
             "rust_generics": self._store_rust_generics,
             "rust_lifetimes": self._store_rust_lifetimes,
             "rust_macros": self._store_rust_macros,
@@ -34,12 +32,7 @@ class RustStorage(BaseStorage):
             "rust_extern_blocks": self._store_rust_extern_blocks,
         }
 
-    # =========================================================================
-    # HANDLER 1: rust_modules
-    # =========================================================================
-    def _store_rust_modules(
-        self, file_path: str, rust_modules: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_modules(self, file_path: str, rust_modules: list, jsx_pass: bool) -> None:
         """Store Rust module declarations."""
         for mod in rust_modules:
             self.db_manager.add_rust_module(
@@ -54,9 +47,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_modules"] = 0
             self.counts["rust_modules"] += 1
 
-    # =========================================================================
-    # HANDLER 2: rust_use_statements
-    # =========================================================================
     def _store_rust_use_statements(
         self, file_path: str, rust_use_statements: list, jsx_pass: bool
     ) -> None:
@@ -75,12 +65,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_use_statements"] = 0
             self.counts["rust_use_statements"] += 1
 
-    # =========================================================================
-    # HANDLER 3: rust_functions
-    # =========================================================================
-    def _store_rust_functions(
-        self, file_path: str, rust_functions: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_functions(self, file_path: str, rust_functions: list, jsx_pass: bool) -> None:
         """Store Rust function definitions."""
         for func in rust_functions:
             self.db_manager.add_rust_function(
@@ -103,12 +88,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_functions"] = 0
             self.counts["rust_functions"] += 1
 
-    # =========================================================================
-    # HANDLER 4: rust_structs
-    # =========================================================================
-    def _store_rust_structs(
-        self, file_path: str, rust_structs: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_structs(self, file_path: str, rust_structs: list, jsx_pass: bool) -> None:
         """Store Rust struct definitions."""
         for struct in rust_structs:
             self.db_manager.add_rust_struct(
@@ -126,12 +106,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_structs"] = 0
             self.counts["rust_structs"] += 1
 
-    # =========================================================================
-    # HANDLER 5: rust_enums
-    # =========================================================================
-    def _store_rust_enums(
-        self, file_path: str, rust_enums: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_enums(self, file_path: str, rust_enums: list, jsx_pass: bool) -> None:
         """Store Rust enum definitions."""
         for enum in rust_enums:
             self.db_manager.add_rust_enum(
@@ -147,12 +122,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_enums"] = 0
             self.counts["rust_enums"] += 1
 
-    # =========================================================================
-    # HANDLER 6: rust_traits
-    # =========================================================================
-    def _store_rust_traits(
-        self, file_path: str, rust_traits: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_traits(self, file_path: str, rust_traits: list, jsx_pass: bool) -> None:
         """Store Rust trait definitions."""
         for trait in rust_traits:
             self.db_manager.add_rust_trait(
@@ -170,9 +140,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_traits"] = 0
             self.counts["rust_traits"] += 1
 
-    # =========================================================================
-    # HANDLER 7: rust_impl_blocks
-    # =========================================================================
     def _store_rust_impl_blocks(
         self, file_path: str, rust_impl_blocks: list, jsx_pass: bool
     ) -> None:
@@ -194,14 +161,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_impl_blocks"] = 0
             self.counts["rust_impl_blocks"] += 1
 
-    # =========================================================================
-    # PHASE 2 HANDLERS
-    # =========================================================================
-
-    # HANDLER 8: rust_generics
-    def _store_rust_generics(
-        self, file_path: str, rust_generics: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_generics(self, file_path: str, rust_generics: list, jsx_pass: bool) -> None:
         """Store Rust generic parameters."""
         for gen in rust_generics:
             self.db_manager.add_rust_generic(
@@ -217,10 +177,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_generics"] = 0
             self.counts["rust_generics"] += 1
 
-    # HANDLER 9: rust_lifetimes
-    def _store_rust_lifetimes(
-        self, file_path: str, rust_lifetimes: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_lifetimes(self, file_path: str, rust_lifetimes: list, jsx_pass: bool) -> None:
         """Store Rust lifetime parameters."""
         for lt in rust_lifetimes:
             self.db_manager.add_rust_lifetime(
@@ -233,10 +190,7 @@ class RustStorage(BaseStorage):
                 self.counts["rust_lifetimes"] = 0
             self.counts["rust_lifetimes"] += 1
 
-    # HANDLER 10: rust_macros
-    def _store_rust_macros(
-        self, file_path: str, rust_macros: list, jsx_pass: bool
-    ) -> None:
+    def _store_rust_macros(self, file_path: str, rust_macros: list, jsx_pass: bool) -> None:
         """Store Rust macro definitions."""
         for macro in rust_macros:
             self.db_manager.add_rust_macro(
@@ -250,7 +204,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_macros"] = 0
             self.counts["rust_macros"] += 1
 
-    # HANDLER 11: rust_macro_invocations
     def _store_rust_macro_invocations(
         self, file_path: str, rust_macro_invocations: list, jsx_pass: bool
     ) -> None:
@@ -267,7 +220,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_macro_invocations"] = 0
             self.counts["rust_macro_invocations"] += 1
 
-    # HANDLER 12: rust_async_functions
     def _store_rust_async_functions(
         self, file_path: str, rust_async_functions: list, jsx_pass: bool
     ) -> None:
@@ -285,7 +237,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_async_functions"] = 0
             self.counts["rust_async_functions"] += 1
 
-    # HANDLER 13: rust_await_points
     def _store_rust_await_points(
         self, file_path: str, rust_await_points: list, jsx_pass: bool
     ) -> None:
@@ -301,7 +252,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_await_points"] = 0
             self.counts["rust_await_points"] += 1
 
-    # HANDLER 14: rust_unsafe_blocks
     def _store_rust_unsafe_blocks(
         self, file_path: str, rust_unsafe_blocks: list, jsx_pass: bool
     ) -> None:
@@ -321,7 +271,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_unsafe_blocks"] = 0
             self.counts["rust_unsafe_blocks"] += 1
 
-    # HANDLER 15: rust_unsafe_traits
     def _store_rust_unsafe_traits(
         self, file_path: str, rust_unsafe_traits: list, jsx_pass: bool
     ) -> None:
@@ -337,7 +286,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_unsafe_traits"] = 0
             self.counts["rust_unsafe_traits"] += 1
 
-    # HANDLER 16: rust_struct_fields
     def _store_rust_struct_fields(
         self, file_path: str, rust_struct_fields: list, jsx_pass: bool
     ) -> None:
@@ -356,7 +304,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_struct_fields"] = 0
             self.counts["rust_struct_fields"] += 1
 
-    # HANDLER 17: rust_enum_variants
     def _store_rust_enum_variants(
         self, file_path: str, rust_enum_variants: list, jsx_pass: bool
     ) -> None:
@@ -375,7 +322,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_enum_variants"] = 0
             self.counts["rust_enum_variants"] += 1
 
-    # HANDLER 18: rust_trait_methods
     def _store_rust_trait_methods(
         self, file_path: str, rust_trait_methods: list, jsx_pass: bool
     ) -> None:
@@ -395,7 +341,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_trait_methods"] = 0
             self.counts["rust_trait_methods"] += 1
 
-    # HANDLER 19: rust_extern_functions
     def _store_rust_extern_functions(
         self, file_path: str, rust_extern_functions: list, jsx_pass: bool
     ) -> None:
@@ -414,7 +359,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_extern_functions"] = 0
             self.counts["rust_extern_functions"] += 1
 
-    # HANDLER 20: rust_extern_blocks
     def _store_rust_extern_blocks(
         self, file_path: str, rust_extern_blocks: list, jsx_pass: bool
     ) -> None:

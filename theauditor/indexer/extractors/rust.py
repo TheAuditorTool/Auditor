@@ -48,7 +48,6 @@ class RustExtractor(BaseExtractor):
         root = ts_tree.root_node
 
         result = {
-            # Phase 1: Core tables
             "rust_modules": rust_core.extract_rust_modules(root, file_path),
             "rust_use_statements": rust_core.extract_rust_use_statements(root, file_path),
             "rust_functions": rust_core.extract_rust_functions(root, file_path),
@@ -56,7 +55,6 @@ class RustExtractor(BaseExtractor):
             "rust_enums": rust_core.extract_rust_enums(root, file_path),
             "rust_traits": rust_core.extract_rust_traits(root, file_path),
             "rust_impl_blocks": rust_core.extract_rust_impl_blocks(root, file_path),
-            # Phase 2: Advanced tables
             "rust_generics": rust_core.extract_rust_generics(root, file_path),
             "rust_lifetimes": rust_core.extract_rust_lifetimes(root, file_path),
             "rust_macros": rust_core.extract_rust_macros(root, file_path),

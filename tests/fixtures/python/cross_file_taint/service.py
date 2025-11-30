@@ -20,7 +20,7 @@ class SearchService:
         Expected flow:
           query (tainted) → self.db.execute_search(query) → [cross-file to database.py]
         """
-        # Propagate tainted data to database layer
+
         results = self.db.execute_search(query)
         return results
 
@@ -31,7 +31,7 @@ class SearchService:
         Expected flow:
           user_id (tainted) → self.db.get_user(user_id) → [cross-file to database.py]
         """
-        # Propagate tainted data to database layer
+
         user = self.db.get_user(user_id)
         return user
 
@@ -42,7 +42,7 @@ class SearchService:
         Expected flow:
           filter_expression (tainted) → self.db.dynamic_query(filter_expression) → [cross-file to database.py]
         """
-        # Propagate tainted data to database layer
+
         records = self.db.dynamic_query(filter_expression)
         return records
 
@@ -53,6 +53,6 @@ class SearchService:
         Expected flow:
           items (tainted) → self.db.batch_insert(items) → [cross-file to database.py]
         """
-        # Batch processing that propagates taint
+
         for item in items:
             self.db.batch_insert(item)

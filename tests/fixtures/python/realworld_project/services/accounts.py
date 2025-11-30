@@ -1,6 +1,5 @@
 """Business logic that coordinates repositories, validators, and email service."""
 
-
 from collections.abc import Iterable
 
 from ..config.settings import DEFAULT_EMAIL_SETTINGS
@@ -23,10 +22,14 @@ class AccountService:
     def register_account(self, payload: AccountPayload) -> User:
         """Create an account, profile, audit entry, and welcome notification."""
 
-        user = self.repository.create_account(email=payload.email, organization_id=payload.organization_id)
+        user = self.repository.create_account(
+            email=payload.email, organization_id=payload.organization_id
+        )
         profile = Profile(user_id=user.id, timezone=payload.timezone, title=payload.title)
         self.repository.save_profile(user.id, profile)
-        self.repository.log_event(AuditLog(actor_id=user.id, event_type="account.created", context=payload.email))
+        self.repository.log_event(
+            AuditLog(actor_id=user.id, event_type="account.created", context=payload.email)
+        )
         self.email_service.enqueue_welcome(payload.email)
         return user
 

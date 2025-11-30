@@ -6,13 +6,12 @@ import subprocess
 import sys
 
 import click
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 from theauditor import __version__
-
 
 if platform.system() == "Windows":
     subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
@@ -99,7 +98,7 @@ class RichGroup(click.Group):
             if not name.startswith("_") and not getattr(cmd, "hidden", False)
         }
 
-        for cat_id, cat_data in self.COMMAND_CATEGORIES.items():
+        for _cat_id, cat_data in self.COMMAND_CATEGORIES.items():
             table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
             table.add_column("Command", style="bold white", width=20)
             table.add_column("Description", style="dim")
@@ -187,7 +186,6 @@ from theauditor.commands.terraform import terraform
 from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
-
 
 init.hidden = True
 index.hidden = True

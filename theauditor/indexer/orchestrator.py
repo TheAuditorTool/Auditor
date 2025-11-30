@@ -417,11 +417,11 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
         self.db_manager.commit()
 
-        # Rust module resolution (if Rust files were indexed)
         if self.counts.get("rust_use_statements", 0) > 0:
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print("[INDEXER] PHASE 7: Resolving Rust module paths...", file=sys.stderr)
             from theauditor.rust_resolver import resolve_rust_modules
+
             resolve_rust_modules(self.db_manager.db_path)
             self.db_manager.commit()
 

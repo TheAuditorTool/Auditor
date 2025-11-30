@@ -26,7 +26,6 @@ class GoExtractor(BaseExtractor):
         """Extract all relevant information from a Go file."""
         file_path = file_info["path"]
 
-        # Skip test files - they contain test-specific patterns that aren't production code
         if file_path.endswith("_test.go"):
             return {}
 
@@ -41,7 +40,6 @@ class GoExtractor(BaseExtractor):
 
         ts_tree = tree["tree"]
 
-        # Extract all Go constructs
         package = go_impl.extract_go_package(ts_tree, content, file_path)
         imports = go_impl.extract_go_imports(ts_tree, content, file_path)
         structs = go_impl.extract_go_structs(ts_tree, content, file_path)
@@ -62,14 +60,10 @@ class GoExtractor(BaseExtractor):
         type_assertions = go_impl.extract_go_type_assertions(ts_tree, content, file_path)
         error_returns = go_impl.extract_go_error_returns(ts_tree, content, file_path)
 
-        # Detect routes from imports (framework detection)
         routes = self._detect_routes(imports, ts_tree, content, file_path)
         middleware = self._detect_middleware(imports, ts_tree, content, file_path)
 
-        # Extract captured variables in goroutine closures (CRITICAL for race detection)
-        captured_vars = go_impl.extract_go_captured_vars(
-            ts_tree, content, file_path, goroutines
-        )
+        captured_vars = go_impl.extract_go_captured_vars(ts_tree, content, file_path, goroutines)
 
         result = {
             "go_packages": [package] if package else [],
@@ -96,7 +90,6 @@ class GoExtractor(BaseExtractor):
             "go_captured_vars": captured_vars,
         }
 
-        # Log extraction summary
         total_items = sum(len(v) for v in result.values() if isinstance(v, list))
         loop_var_captures = sum(1 for cv in captured_vars if cv.get("is_loop_var"))
         logger.debug(
@@ -118,13 +111,10 @@ class GoExtractor(BaseExtractor):
         if not framework:
             return routes
 
-        # Look for route patterns in the code
         route_patterns = self._get_framework_route_patterns(framework)
 
         for pattern in route_patterns:
-            routes.extend(
-                self._find_route_calls(tree, content, file_path, framework, pattern)
-            )
+            routes.extend(self._find_route_calls(tree, content, file_path, framework, pattern))
 
         return routes
 
@@ -170,12 +160,10 @@ class GoExtractor(BaseExtractor):
 
         def visit(node: Any):
             if node.type == "call_expression":
-                # Check if this is a method call like r.GET("/path", handler)
                 func_node = node.children[0] if node.children else None
                 if func_node and func_node.type == "selector_expression":
                     selector_text = func_node.text.decode("utf-8", errors="ignore")
                     if selector_text.endswith(f".{method}"):
-                        # Extract arguments
                         args = None
                         for child in node.children:
                             if child.type == "argument_list":
@@ -183,25 +171,32 @@ class GoExtractor(BaseExtractor):
                                 break
 
                         if args and args.children:
-                            # First arg is usually the path
                             path = None
                             handler = None
-                            for i, arg in enumerate(args.children):
+                            for arg in args.children:
                                 if arg.type == "interpreted_string_literal":
                                     path = arg.text.decode("utf-8", errors="ignore").strip('"')
-                                elif arg.type in ("identifier", "selector_expression", "func_literal"):
-                                    if path is not None:  # Path already found, this is handler
+                                elif arg.type in (
+                                    "identifier",
+                                    "selector_expression",
+                                    "func_literal",
+                                ):
+                                    if path is not None:
                                         handler = arg.text.decode("utf-8", errors="ignore")[:100]
 
                             if path:
-                                routes.append({
-                                    "file_path": file_path,
-                                    "line": node.start_point[0] + 1,
-                                    "framework": framework,
-                                    "method": method.upper() if method not in ("HandleFunc", "Handle") else "GET",
-                                    "path": path,
-                                    "handler_func": handler,
-                                })
+                                routes.append(
+                                    {
+                                        "file_path": file_path,
+                                        "line": node.start_point[0] + 1,
+                                        "framework": framework,
+                                        "method": method.upper()
+                                        if method not in ("HandleFunc", "Handle")
+                                        else "GET",
+                                        "path": path,
+                                        "handler_func": handler,
+                                    }
+                                )
 
             for child in node.children:
                 visit(child)
@@ -235,8 +230,13 @@ class GoExtractor(BaseExtractor):
             "echo": ["Use", "Pre", "Group"],
             "fiber": ["Use", "Group"],
             "chi": ["Use", "With", "Group"],
-            "net_http": [],  # net/http doesn't have built-in middleware pattern
-            "grpc": ["UnaryInterceptor", "StreamInterceptor", "ChainUnaryInterceptor", "ChainStreamInterceptor"],
+            "net_http": [],
+            "grpc": [
+                "UnaryInterceptor",
+                "StreamInterceptor",
+                "ChainUnaryInterceptor",
+                "ChainStreamInterceptor",
+            ],
         }
         return patterns.get(framework, [])
 
@@ -252,28 +252,34 @@ class GoExtractor(BaseExtractor):
                 if func_node and func_node.type == "selector_expression":
                     selector_text = func_node.text.decode("utf-8", errors="ignore")
                     if selector_text.endswith(f".{method}"):
-                        # Extract router variable name
                         parts = selector_text.split(".")
                         router_var = parts[0] if parts else None
 
-                        # Extract middleware function name from args
                         middleware_func = None
                         for child in node.children:
                             if child.type == "argument_list":
                                 for arg in child.children:
-                                    if arg.type in ("identifier", "selector_expression", "call_expression"):
-                                        middleware_func = arg.text.decode("utf-8", errors="ignore")[:100]
+                                    if arg.type in (
+                                        "identifier",
+                                        "selector_expression",
+                                        "call_expression",
+                                    ):
+                                        middleware_func = arg.text.decode("utf-8", errors="ignore")[
+                                            :100
+                                        ]
                                         break
 
                         if middleware_func:
-                            middleware.append({
-                                "file_path": file_path,
-                                "line": node.start_point[0] + 1,
-                                "framework": framework,
-                                "router_var": router_var,
-                                "middleware_func": middleware_func,
-                                "is_global": method == "Use",  # Use() typically applies globally
-                            })
+                            middleware.append(
+                                {
+                                    "file_path": file_path,
+                                    "line": node.start_point[0] + 1,
+                                    "framework": framework,
+                                    "router_var": router_var,
+                                    "middleware_func": middleware_func,
+                                    "is_global": method == "Use",
+                                }
+                            )
 
             for child in node.children:
                 visit(child)

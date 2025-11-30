@@ -661,6 +661,8 @@ class NodeStorage(BaseStorage):
         """No-op handler for cfg_edges. Actual storage is done by _store_cfg_flat."""
         pass
 
-    def _noop_cfg_block_statements(self, file_path: str, cfg_block_statements: list, jsx_pass: bool):
+    def _noop_cfg_block_statements(
+        self, file_path: str, cfg_block_statements: list, jsx_pass: bool
+    ):
         """No-op handler for cfg_block_statements. Actual storage is done by _store_cfg_flat."""
         pass

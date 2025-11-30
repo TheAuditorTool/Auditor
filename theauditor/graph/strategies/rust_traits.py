@@ -34,7 +34,6 @@ class RustTraitStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Check if rust_impl_blocks table exists
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_impl_blocks'
@@ -47,11 +46,8 @@ class RustTraitStrategy(GraphStrategy):
                 "metadata": {"graph_type": "rust_traits", "stats": stats},
             }
 
-        # Build implements_trait edges: impl block -> trait definition
-        impl_result = self._build_implements_trait_edges(cursor, nodes, edges, stats)
-
-        # Build trait_method_impl edges: impl method -> trait method signature
-        method_result = self._build_trait_method_edges(cursor, nodes, edges, stats)
+        self._build_implements_trait_edges(cursor, nodes, edges, stats)
+        self._build_trait_method_edges(cursor, nodes, edges, stats)
 
         conn.close()
 
@@ -75,7 +71,7 @@ class RustTraitStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges from impl blocks to trait definitions."""
-        # Query trait impls (where trait_name is not null)
+
         cursor.execute("""
             SELECT
                 rib.file_path as impl_file,
@@ -92,7 +88,6 @@ class RustTraitStrategy(GraphStrategy):
 
         impl_blocks = cursor.fetchall()
 
-        # Pre-load trait definitions for resolution
         cursor.execute("""
             SELECT file_path, line, name, supertraits, is_unsafe
             FROM rust_traits
@@ -116,7 +111,6 @@ class RustTraitStrategy(GraphStrategy):
             trait_name = impl_block["trait_name"]
             is_unsafe = impl_block["is_unsafe"]
 
-            # Create impl block node
             impl_id = f"{impl_file}:{impl_line}::impl_{target_type}"
             if impl_id not in nodes:
                 nodes[impl_id] = DFGNode(
@@ -132,7 +126,6 @@ class RustTraitStrategy(GraphStrategy):
                     },
                 )
 
-            # Try to resolve trait to its definition
             trait_info = trait_lookup.get(trait_name)
             if trait_info:
                 trait_file = trait_info["file_path"]
@@ -152,7 +145,6 @@ class RustTraitStrategy(GraphStrategy):
                         },
                     )
 
-                # Create implements_trait edge
                 new_edges = create_bidirectional_edges(
                     source=impl_id,
                     target=trait_id,
@@ -178,7 +170,7 @@ class RustTraitStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges from impl methods to trait method signatures."""
-        # Check if rust_trait_methods table exists
+
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_trait_methods'
@@ -186,7 +178,6 @@ class RustTraitStrategy(GraphStrategy):
         if not cursor.fetchone():
             return
 
-        # Query trait methods
         cursor.execute("""
             SELECT
                 rtm.file_path as trait_file,
@@ -203,7 +194,6 @@ class RustTraitStrategy(GraphStrategy):
 
         trait_methods = cursor.fetchall()
 
-        # Build lookup: (trait_name, method_name) -> trait method info
         trait_method_lookup: dict[tuple[str, str], dict] = {}
         for row in trait_methods:
             key = (row["trait_name"], row["method_name"])
@@ -216,7 +206,6 @@ class RustTraitStrategy(GraphStrategy):
                 "has_default": row["has_default"],
             }
 
-        # Query functions inside impl blocks that implement traits
         cursor.execute("""
             SELECT
                 rf.file_path,
@@ -243,14 +232,12 @@ class RustTraitStrategy(GraphStrategy):
             fn_line = impl_fn["fn_line"]
             target_type = impl_fn["target_type_raw"]
 
-            # Look up corresponding trait method
             trait_method = trait_method_lookup.get((trait_name, fn_name))
             if not trait_method:
                 continue
 
             stats["method_impls"] += 1
 
-            # Create impl method node
             impl_method_id = f"{fn_file}:{fn_line}::{fn_name}"
             if impl_method_id not in nodes:
                 nodes[impl_method_id] = DFGNode(
@@ -265,7 +252,6 @@ class RustTraitStrategy(GraphStrategy):
                     },
                 )
 
-            # Create trait method node
             trait_method_id = (
                 f"{trait_method['file_path']}:{trait_method['method_line']}::{fn_name}"
             )
@@ -283,7 +269,6 @@ class RustTraitStrategy(GraphStrategy):
                     },
                 )
 
-            # Create trait_method_impl edge
             new_edges = create_bidirectional_edges(
                 source=impl_method_id,
                 target=trait_method_id,

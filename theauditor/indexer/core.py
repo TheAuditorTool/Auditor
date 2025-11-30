@@ -44,7 +44,6 @@ def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
     return lines
 
 
-# Bash shebangs to detect for extensionless scripts
 BASH_SHEBANGS = (
     "#!/bin/bash",
     "#!/usr/bin/env bash",
@@ -181,11 +180,10 @@ class FileWalker:
                 "first_lines": first_lines,
             }
 
-            # Shebang detection for extensionless files or .sh/.bash
             if not file.suffix or file.suffix in (".sh", ".bash"):
                 if first_lines and _detect_bash_shebang(first_lines[0]):
                     file_info["detected_language"] = "bash"
-                    # Set virtual extension for routing if extensionless
+
                     if not file.suffix:
                         file_info["ext"] = ".sh"
 
@@ -202,7 +200,7 @@ class FileWalker:
         if self.exclude_patterns:
             for pattern in self.exclude_patterns:
                 if pattern.endswith("/**"):
-                    self.skip_dirs.add(pattern.rstrip("/**"))
+                    self.skip_dirs.add(pattern.removesuffix("/**"))
                 elif pattern.endswith("/"):
                     self.skip_dirs.add(pattern.rstrip("/"))
                 elif "/" in pattern and "*" not in pattern:

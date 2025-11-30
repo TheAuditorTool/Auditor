@@ -39,7 +39,6 @@ class DFGBuilder:
             GoOrmStrategy(),
             InterceptorStrategy(),
             BashPipeStrategy(),
-            # Rust strategies
             RustTraitStrategy(),
             RustUnsafeStrategy(),
             RustFFIStrategy(),

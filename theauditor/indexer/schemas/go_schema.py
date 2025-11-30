@@ -187,7 +187,7 @@ GO_CHANNELS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("name", "TEXT", nullable=False),
         Column("element_type", "TEXT"),
-        Column("direction", "TEXT"),  # "send", "receive", "bidirectional"
+        Column("direction", "TEXT"),
         Column("buffer_size", "INTEGER"),
     ],
     indexes=[
@@ -202,7 +202,7 @@ GO_CHANNEL_OPS = TableSchema(
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("channel_name", "TEXT"),
-        Column("operation", "TEXT", nullable=False),  # "send" or "receive"
+        Column("operation", "TEXT", nullable=False),
         Column("containing_func", "TEXT"),
     ],
     indexes=[
@@ -296,15 +296,15 @@ GO_VARIABLES = TableSchema(
         Column("type", "TEXT"),
         Column("initial_value", "TEXT"),
         Column("is_exported", "BOOLEAN", default="0"),
-        Column("is_package_level", "BOOLEAN", default="0"),  # Critical for race detection
-        Column("containing_func", "TEXT"),  # NULL for package-level, func name for local
+        Column("is_package_level", "BOOLEAN", default="0"),
+        Column("containing_func", "TEXT"),
     ],
     primary_key=["file", "name", "line"],
     indexes=[
         ("idx_go_variables_file", ["file"]),
         ("idx_go_variables_name", ["name"]),
-        ("idx_go_variables_package_level", ["is_package_level"]),  # For security queries
-        ("idx_go_variables_containing_func", ["containing_func"]),  # For local var lookup
+        ("idx_go_variables_package_level", ["is_package_level"]),
+        ("idx_go_variables_containing_func", ["containing_func"]),
     ],
 )
 
@@ -313,11 +313,11 @@ GO_TYPE_PARAMS = TableSchema(
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("parent_name", "TEXT", nullable=False),  # Function or type name
-        Column("parent_kind", "TEXT", nullable=False),  # "function" or "type"
+        Column("parent_name", "TEXT", nullable=False),
+        Column("parent_kind", "TEXT", nullable=False),
         Column("param_index", "INTEGER", nullable=False),
         Column("param_name", "TEXT", nullable=False),
-        Column("constraint", "TEXT"),  # "any", "comparable", interface name, etc.
+        Column("constraint", "TEXT"),
     ],
     primary_key=["file", "parent_name", "param_index"],
     indexes=[
@@ -329,11 +329,11 @@ GO_CAPTURED_VARS = TableSchema(
     name="go_captured_vars",
     columns=[
         Column("file", "TEXT", nullable=False),
-        Column("line", "INTEGER", nullable=False),  # Line of the goroutine spawn
-        Column("goroutine_id", "INTEGER", nullable=False),  # Links to go_goroutines rowid
+        Column("line", "INTEGER", nullable=False),
+        Column("goroutine_id", "INTEGER", nullable=False),
         Column("var_name", "TEXT", nullable=False),
         Column("var_type", "TEXT"),
-        Column("is_loop_var", "BOOLEAN", default="0"),  # Critical for race detection
+        Column("is_loop_var", "BOOLEAN", default="0"),
     ],
     indexes=[
         ("idx_go_captured_vars_file", ["file"]),
@@ -347,9 +347,9 @@ GO_MIDDLEWARE = TableSchema(
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("framework", "TEXT", nullable=False),
-        Column("router_var", "TEXT"),  # e.g., "router", "r", "app"
-        Column("middleware_func", "TEXT", nullable=False),  # The handler/middleware name
-        Column("is_global", "BOOLEAN", default="0"),  # Applied to all routes vs specific
+        Column("router_var", "TEXT"),
+        Column("middleware_func", "TEXT", nullable=False),
+        Column("is_global", "BOOLEAN", default="0"),
     ],
     indexes=[
         ("idx_go_middleware_file", ["file"]),
@@ -357,7 +357,7 @@ GO_MIDDLEWARE = TableSchema(
     ],
 )
 
-# Export all tables
+
 GO_TABLES = {
     "go_packages": GO_PACKAGES,
     "go_imports": GO_IMPORTS,

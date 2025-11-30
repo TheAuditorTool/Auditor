@@ -12,7 +12,7 @@ import sys
 import sqlite3
 import tempfile
 
-# Add project root to path
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from theauditor.indexer.extractors.javascript_resolvers import JavaScriptResolversMixin
@@ -24,7 +24,6 @@ def create_test_database():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Create files table
     cursor.execute("""
         CREATE TABLE files (
             path TEXT PRIMARY KEY,
@@ -34,7 +33,6 @@ def create_test_database():
         )
     """)
 
-    # Create import_styles table with resolved_path column
     cursor.execute("""
         CREATE TABLE import_styles (
             file TEXT NOT NULL,
@@ -47,7 +45,6 @@ def create_test_database():
         )
     """)
 
-    # Insert sample files (simulating indexed JS/TS/Vue files)
     sample_files = [
         ("src/utils.ts", ".ts", 1000, 1700000000.0),
         ("src/helpers/format.ts", ".ts", 500, 1700000000.0),
@@ -59,31 +56,36 @@ def create_test_database():
         ("lib/shared.js", ".js", 400, 1700000000.0),
     ]
     cursor.executemany(
-        "INSERT INTO files (path, ext, size, mtime) VALUES (?, ?, ?, ?)",
-        sample_files
+        "INSERT INTO files (path, ext, size, mtime) VALUES (?, ?, ?, ?)", sample_files
     )
 
-    # Insert sample imports to resolve
     sample_imports = [
-        # Relative imports
         ("src/components/Button.vue", 1, "./Card", "named", None, "import { Card } from './Card'"),
-        ("src/components/Button.vue", 2, "../utils", "named", None, "import { formatDate } from '../utils'"),
-        ("src/components/Button.vue", 3, "../api", "named", None, "import { api } from '../api'"),  # Should resolve to index.ts
+        (
+            "src/components/Button.vue",
+            2,
+            "../utils",
+            "named",
+            None,
+            "import { formatDate } from '../utils'",
+        ),
+        ("src/components/Button.vue", 3, "../api", "named", None, "import { api } from '../api'"),
         ("src/api/client.ts", 1, "./index", "named", None, "import { config } from './index'"),
         ("src/index.ts", 1, "./utils", "default", None, "import utils from './utils'"),
-
-        # Parent traversal
-        ("src/components/Button.vue", 4, "../../lib/shared", "named", None, "import { shared } from '../../lib/shared'"),
-
-        # Should NOT resolve (bare specifier)
+        (
+            "src/components/Button.vue",
+            4,
+            "../../lib/shared",
+            "named",
+            None,
+            "import { shared } from '../../lib/shared'",
+        ),
         ("src/index.ts", 2, "lodash", "named", None, "import { debounce } from 'lodash'"),
-
-        # Should NOT resolve (file doesn't exist)
         ("src/index.ts", 3, "./nonexistent", "named", None, "import { x } from './nonexistent'"),
     ]
     cursor.executemany(
         "INSERT INTO import_styles (file, line, package, import_style, alias_name, full_statement) VALUES (?, ?, ?, ?, ?, ?)",
-        sample_imports
+        sample_imports,
     )
 
     conn.commit()
@@ -95,13 +97,10 @@ def verify_resolution(db_path):
     """Run resolver and verify results."""
     print("\n=== Running resolve_import_paths() ===\n")
 
-    # Enable debug output
     os.environ["THEAUDITOR_DEBUG"] = "1"
 
-    # Run the resolver
     JavaScriptResolversMixin.resolve_import_paths(db_path)
 
-    # Check results
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -127,8 +126,8 @@ def verify_resolution(db_path):
         ("src/components/Button.vue", 4, "../../lib/shared"): "lib/shared.js",
         ("src/api/client.ts", 1, "./index"): "src/api/index.ts",
         ("src/index.ts", 1, "./utils"): "src/utils.ts",
-        ("src/index.ts", 2, "lodash"): None,  # Bare specifier - should not resolve
-        ("src/index.ts", 3, "./nonexistent"): None,  # File doesn't exist
+        ("src/index.ts", 2, "lodash"): None,
+        ("src/index.ts", 3, "./nonexistent"): None,
     }
 
     for file, line, package, resolved in results:
@@ -202,18 +201,14 @@ def main():
     print("vue-inmemory-module-resolution Verification")
     print("=" * 60)
 
-    # Verify schema
     schema_ok = verify_schema()
 
-    # Verify database method
     method_ok = verify_database_method()
 
-    # Create test database and run resolution
     db_path = create_test_database()
     try:
         resolution_ok = verify_resolution(db_path)
     finally:
-        # Cleanup
         if os.path.exists(db_path):
             os.remove(db_path)
 

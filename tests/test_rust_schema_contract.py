@@ -16,9 +16,7 @@ from theauditor.indexer.schema import TABLES
 from theauditor.indexer.schemas.rust_schema import RUST_TABLES
 
 
-# Expected Rust tables from the spec
 EXPECTED_RUST_TABLES = {
-    # Phase 1 - Core tables (7)
     "rust_modules",
     "rust_use_statements",
     "rust_functions",
@@ -26,7 +24,6 @@ EXPECTED_RUST_TABLES = {
     "rust_enums",
     "rust_traits",
     "rust_impl_blocks",
-    # Phase 2 - Advanced tables (13)
     "rust_generics",
     "rust_lifetimes",
     "rust_macros",
@@ -49,8 +46,7 @@ class TestRustSchemaContract:
     def test_rust_tables_count(self):
         """Verify expected number of Rust tables."""
         assert len(RUST_TABLES) == 20, (
-            f"Expected 20 Rust tables, got {len(RUST_TABLES)}. "
-            f"Tables: {sorted(RUST_TABLES.keys())}"
+            f"Expected 20 Rust tables, got {len(RUST_TABLES)}. Tables: {sorted(RUST_TABLES.keys())}"
         )
 
     def test_all_expected_tables_exist(self):
@@ -123,10 +119,7 @@ class TestRustTableStructure:
         """Verify rust_functions has required columns."""
         table = RUST_TABLES["rust_functions"]
         column_names = {col.name for col in table.columns}
-        required = {
-            "file_path", "line", "name", "visibility",
-            "is_async", "is_unsafe", "is_const"
-        }
+        required = {"file_path", "line", "name", "visibility", "is_async", "is_unsafe", "is_const"}
         assert required.issubset(column_names), (
             f"rust_functions missing columns: {required - column_names}"
         )
@@ -162,10 +155,7 @@ class TestRustTableStructure:
         """Verify rust_impl_blocks has required columns."""
         table = RUST_TABLES["rust_impl_blocks"]
         column_names = {col.name for col in table.columns}
-        required = {
-            "file_path", "line", "target_type_raw",
-            "trait_name", "is_unsafe"
-        }
+        required = {"file_path", "line", "target_type_raw", "trait_name", "is_unsafe"}
         assert required.issubset(column_names), (
             f"rust_impl_blocks missing columns: {required - column_names}"
         )
@@ -175,8 +165,11 @@ class TestRustTableStructure:
         table = RUST_TABLES["rust_unsafe_blocks"]
         column_names = {col.name for col in table.columns}
         required = {
-            "file_path", "line_start", "containing_function",
-            "safety_comment", "has_safety_comment"
+            "file_path",
+            "line_start",
+            "containing_function",
+            "safety_comment",
+            "has_safety_comment",
         }
         assert required.issubset(column_names), (
             f"rust_unsafe_blocks missing columns: {required - column_names}"
@@ -225,6 +218,7 @@ class TestRustExtractor:
     def test_rust_extractor_importable(self):
         """Verify RustExtractor is importable."""
         from theauditor.indexer.extractors.rust import RustExtractor
+
         assert RustExtractor is not None
 
     def test_rust_extractor_supports_rs_extension(self):
@@ -242,6 +236,7 @@ class TestRustStorage:
     def test_rust_storage_importable(self):
         """Verify RustStorage is importable."""
         from theauditor.indexer.storage.rust_storage import RustStorage
+
         assert RustStorage is not None
 
     def test_rust_storage_has_handlers(self):
@@ -255,9 +250,7 @@ class TestRustStorage:
         storage = RustStorage(mock_db, mock_counts)
         assert hasattr(storage, "handlers")
         assert isinstance(storage.handlers, dict)
-        assert len(storage.handlers) == 20, (
-            f"Expected 20 handlers, got {len(storage.handlers)}"
-        )
+        assert len(storage.handlers) == 20, f"Expected 20 handlers, got {len(storage.handlers)}"
 
     def test_rust_storage_handler_names_match_tables(self):
         """Verify RustStorage handler names match table names."""
@@ -283,6 +276,7 @@ class TestRustASTExtractors:
     def test_rust_core_importable(self):
         """Verify rust_impl.py module is importable."""
         from theauditor.ast_extractors import rust_impl
+
         assert rust_impl is not None
 
     def test_extraction_functions_exist(self):
@@ -323,21 +317,25 @@ class TestRustGraphStrategies:
     def test_rust_trait_strategy_importable(self):
         """Verify RustTraitStrategy is importable."""
         from theauditor.graph.strategies.rust_traits import RustTraitStrategy
+
         assert RustTraitStrategy is not None
 
     def test_rust_unsafe_strategy_importable(self):
         """Verify RustUnsafeStrategy is importable."""
         from theauditor.graph.strategies.rust_unsafe import RustUnsafeStrategy
+
         assert RustUnsafeStrategy is not None
 
     def test_rust_ffi_strategy_importable(self):
         """Verify RustFFIStrategy is importable."""
         from theauditor.graph.strategies.rust_ffi import RustFFIStrategy
+
         assert RustFFIStrategy is not None
 
     def test_rust_async_strategy_importable(self):
         """Verify RustAsyncStrategy is importable."""
         from theauditor.graph.strategies.rust_async import RustAsyncStrategy
+
         assert RustAsyncStrategy is not None
 
     def test_strategies_have_build_method(self):
@@ -348,8 +346,10 @@ class TestRustGraphStrategies:
         from theauditor.graph.strategies.rust_async import RustAsyncStrategy
 
         for strategy_class in [
-            RustTraitStrategy, RustUnsafeStrategy,
-            RustFFIStrategy, RustAsyncStrategy
+            RustTraitStrategy,
+            RustUnsafeStrategy,
+            RustFFIStrategy,
+            RustAsyncStrategy,
         ]:
             assert hasattr(strategy_class, "build"), (
                 f"{strategy_class.__name__} missing build() method"
@@ -362,29 +362,35 @@ class TestRustSecurityRules:
     def test_rust_rules_package_importable(self):
         """Verify rust rules package is importable."""
         from theauditor.rules import rust
+
         assert rust is not None
 
     def test_find_unsafe_issues_exists(self):
         """Verify find_unsafe_issues function exists."""
         from theauditor.rules.rust import find_unsafe_issues
+
         assert callable(find_unsafe_issues)
 
     def test_find_ffi_boundary_issues_exists(self):
         """Verify find_ffi_boundary_issues function exists."""
         from theauditor.rules.rust import find_ffi_boundary_issues
+
         assert callable(find_ffi_boundary_issues)
 
     def test_find_panic_paths_exists(self):
         """Verify find_panic_paths function exists."""
         from theauditor.rules.rust import find_panic_paths
+
         assert callable(find_panic_paths)
 
     def test_find_memory_safety_issues_exists(self):
         """Verify find_memory_safety_issues function exists."""
         from theauditor.rules.rust import find_memory_safety_issues
+
         assert callable(find_memory_safety_issues)
 
     def test_find_integer_safety_issues_exists(self):
         """Verify find_integer_safety_issues function exists."""
         from theauditor.rules.rust import find_integer_safety_issues
+
         assert callable(find_integer_safety_issues)

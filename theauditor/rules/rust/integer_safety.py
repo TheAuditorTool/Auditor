@@ -31,7 +31,6 @@ METADATA = RuleMetadata(
 )
 
 
-# Dangerous numeric patterns in macro args
 DANGEROUS_CAST_PATTERNS = [
     " as u8",
     " as i8",
@@ -43,7 +42,7 @@ DANGEROUS_CAST_PATTERNS = [
     " as isize",
 ]
 
-# High-risk contexts where integer overflow is critical
+
 HIGH_RISK_FUNCTIONS = [
     "transfer",
     "withdraw",
@@ -58,7 +57,7 @@ HIGH_RISK_FUNCTIONS = [
     "burn",
 ]
 
-# Safe wrapping imports indicate awareness
+
 WRAPPING_IMPORTS = [
     "std::num::Wrapping",
     "num::Wrapping",
@@ -84,7 +83,6 @@ class IntegerSafetyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check if Rust tables exist
             self.cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_functions'
@@ -114,7 +112,6 @@ class IntegerSafetyAnalyzer:
             line = row["line"]
             fn_name = row["name"].lower()
 
-            # Check if function name suggests financial/critical operation
             for risk_pattern in HIGH_RISK_FUNCTIONS:
                 if risk_pattern in fn_name:
                     self.findings.append(
@@ -157,7 +154,6 @@ class IntegerSafetyAnalyzer:
             args = row["args_sample"] or ""
             containing_fn = row["containing_function"] or "unknown"
 
-            # Check for truncating casts in macro args
             for cast_pattern in DANGEROUS_CAST_PATTERNS:
                 if cast_pattern in args:
                     self.findings.append(
@@ -190,11 +186,10 @@ class IntegerSafetyAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
-            # This is actually good - just note it as info
             self.findings.append(
                 StandardFinding(
                     rule_name="rust-wrapping-arithmetic-used",
-                    message=f"Explicit wrapping/saturating arithmetic imported",
+                    message="Explicit wrapping/saturating arithmetic imported",
                     file_path=row["file_path"],
                     line=row["line"],
                     severity=Severity.INFO,
@@ -214,5 +209,4 @@ def find_integer_safety_issues(context: StandardRuleContext) -> list[StandardFin
     return analyzer.analyze()
 
 
-# Alias for backwards compatibility
 analyze = find_integer_safety_issues

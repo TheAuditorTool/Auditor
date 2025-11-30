@@ -20,10 +20,7 @@ class AuthService:
     def __init__(self):
         self.auth0_domain = os.getenv("AUTH0_DOMAIN")
         self.client_id = os.getenv("AUTH0_CLIENT_ID")
-        self.client = Auth0Client(
-            domain=self.auth0_domain,
-            client_id=self.client_id
-        )
+        self.client = Auth0Client(domain=self.auth0_domain, client_id=self.client_id)
 
     def login(self, username, password):
         """Login using Auth0."""
@@ -40,20 +37,14 @@ class AuthService:
         Returns:
             Token payload with user info
         """
-        # TAINT FLOW: Token validation via validators module
+
         payload = validate_auth0_token(token)
 
-        # Extract user ID
         user_id = extract_user_id(payload)
 
-        # TAINT FLOW: User lookup with raw SQL
         user_info = self._get_user_from_database(user_id)
 
-        return {
-            "payload": payload,
-            "user": user_info,
-            "permissions": extract_permissions(payload)
-        }
+        return {"payload": payload, "user": user_info, "permissions": extract_permissions(payload)}
 
     def _get_user_from_database(self, user_id):
         """
@@ -65,27 +56,24 @@ class AuthService:
         Returns:
             User dict
         """
-        db_path = os.getenv('DATABASE_PATH', 'users.db')
+        db_path = os.getenv("DATABASE_PATH", "users.db")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Raw SQL query (tests sql_queries table)
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, email, role, created_at
             FROM users
             WHERE auth0_user_id = ?
-        """, (user_id,))
+        """,
+            (user_id,),
+        )
 
         result = cursor.fetchone()
         conn.close()
 
         if result:
-            return {
-                'id': result[0],
-                'email': result[1],
-                'role': result[2],
-                'created_at': result[3]
-            }
+            return {"id": result[0], "email": result[1], "role": result[2], "created_at": result[3]}
 
         return None
 
@@ -94,5 +82,4 @@ class AuthService:
         return self.client.get_user(user_id)
 
 
-# Global auth instance
 auth = AuthService()

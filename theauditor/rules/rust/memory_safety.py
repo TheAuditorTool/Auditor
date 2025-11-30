@@ -31,7 +31,6 @@ METADATA = RuleMetadata(
 )
 
 
-# Dangerous memory functions
 DANGEROUS_IMPORTS = {
     "std::mem::transmute": {
         "severity": "critical",
@@ -95,7 +94,7 @@ DANGEROUS_IMPORTS = {
     },
 }
 
-# Dangerous method patterns to look for in function calls
+
 DANGEROUS_METHODS = {
     "leak": {
         "severity": "medium",
@@ -143,7 +142,6 @@ class MemorySafetyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check if Rust tables exist
             self.cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_use_statements'
@@ -172,9 +170,10 @@ class MemorySafetyAnalyzer:
             import_path = row["import_path"] or ""
             local_name = row["local_name"]
 
-            # Check against dangerous imports
             for dangerous_path, info in DANGEROUS_IMPORTS.items():
-                if dangerous_path in import_path or import_path.endswith(dangerous_path.split("::")[-1]):
+                if dangerous_path in import_path or import_path.endswith(
+                    dangerous_path.split("::")[-1]
+                ):
                     severity_map = {
                         "critical": Severity.CRITICAL,
                         "high": Severity.HIGH,
@@ -224,7 +223,6 @@ class MemorySafetyAnalyzer:
             containing_fn = row["containing_function"] or "unknown"
             operations = row["operations_json"] or ""
 
-            # Check for dangerous operations in the operations list
             for method, info in DANGEROUS_METHODS.items():
                 if method in operations.lower():
                     severity_map = {
@@ -260,5 +258,4 @@ def find_memory_safety_issues(context: StandardRuleContext) -> list[StandardFind
     return analyzer.analyze()
 
 
-# Alias for backwards compatibility
 analyze = find_memory_safety_issues

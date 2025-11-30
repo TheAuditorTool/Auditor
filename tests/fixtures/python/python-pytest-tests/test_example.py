@@ -8,20 +8,20 @@ import pytest
 @pytest.fixture
 def sample_data():
     """Basic function-scoped fixture."""
-    return {'key': 'value', 'count': 42}
+    return {"key": "value", "count": 42}
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def database_connection():
     """Module-scoped database fixture."""
-    # Setup
-    conn = {'connected': True}
+
+    conn = {"connected": True}
     yield conn
-    # Teardown
-    conn['connected'] = False
+
+    conn["connected"] = False
 
 
-@pytest.fixture(scope='session', autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def configure_test_environment():
     """Session-scoped autouse fixture."""
     print("Setting up test environment")
@@ -29,39 +29,44 @@ def configure_test_environment():
     print("Tearing down test environment")
 
 
-@pytest.fixture(scope='class')
+@pytest.fixture(scope="class")
 def class_fixture():
     """Class-scoped fixture."""
     return "class_data"
 
 
-# Parametrized tests
-@pytest.mark.parametrize("input,expected", [
-    (1, 2),
-    (2, 4),
-    (3, 6),
-    (4, 8),
-])
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        (1, 2),
+        (2, 4),
+        (3, 6),
+        (4, 8),
+    ],
+)
 def test_double(input, expected):
     """Test with parametrize."""
     assert input * 2 == expected
 
 
-@pytest.mark.parametrize("x,y,result", [
-    (1, 1, 2),
-    (2, 3, 5),
-    (-1, 1, 0),
-])
+@pytest.mark.parametrize(
+    "x,y,result",
+    [
+        (1, 1, 2),
+        (2, 3, 5),
+        (-1, 1, 0),
+    ],
+)
 def test_addition(x, y, result):
     """Test addition with parametrize."""
     assert x + y == result
 
 
-# Marked tests
 @pytest.mark.slow
 def test_slow_operation():
     """Test marked as slow."""
     import time
+
     time.sleep(0.1)
     assert True
 
@@ -91,12 +96,11 @@ def test_integration_slow():
     assert True
 
 
-# Test using fixtures
 def test_with_fixture(sample_data):
     """Test using a fixture."""
-    assert sample_data['count'] == 42
+    assert sample_data["count"] == 42
 
 
 def test_with_database(database_connection):
     """Test using database fixture."""
-    assert database_connection['connected'] is True
+    assert database_connection["connected"] is True

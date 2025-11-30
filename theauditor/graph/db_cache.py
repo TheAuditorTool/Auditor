@@ -55,8 +55,9 @@ class GraphDatabaseCache:
                 }
             )
 
-        # Load Rust imports from rust_use_statements table
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_use_statements'")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='rust_use_statements'"
+        )
         if cursor.fetchone():
             cursor.execute("""
                 SELECT file_path, import_path, local_name, line, is_glob
@@ -77,7 +78,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Go imports from go_imports table
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_imports'")
         if cursor.fetchone():
             cursor.execute("""
@@ -116,8 +116,9 @@ class GraphDatabaseCache:
                 }
             )
 
-        # Load Rust exports from rust_functions table
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_functions'")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='rust_functions'"
+        )
         if cursor.fetchone():
             cursor.execute("""
                 SELECT file_path, name, line, visibility
@@ -137,7 +138,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Rust struct exports
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_structs'")
         if cursor.fetchone():
             cursor.execute("""
@@ -158,7 +158,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Rust trait exports
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_traits'")
         if cursor.fetchone():
             cursor.execute("""
@@ -179,7 +178,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Go exports from go_functions table
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_functions'")
         if cursor.fetchone():
             cursor.execute("""
@@ -200,7 +198,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Go struct exports
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_structs'")
         if cursor.fetchone():
             cursor.execute("""
@@ -221,7 +218,6 @@ class GraphDatabaseCache:
                     }
                 )
 
-        # Load Go interface exports
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_interfaces'")
         if cursor.fetchone():
             cursor.execute("""
@@ -285,7 +281,6 @@ class GraphDatabaseCache:
             if candidate in self.known_files:
                 return candidate
 
-        # Rust module resolution: foo/mod.rs
         candidate = f"{clean}/mod.rs"
         if candidate in self.known_files:
             return candidate

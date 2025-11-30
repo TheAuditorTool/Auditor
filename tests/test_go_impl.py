@@ -30,7 +30,7 @@ class TestGoPackageExtraction:
 
     def test_extract_package(self, go_parser):
         """Test basic package extraction."""
-        code = '''package main'''
+        code = """package main"""
         tree = parse_go(go_parser, code)
 
         result = go_impl.extract_go_package(tree, code, "test.go")
@@ -42,8 +42,8 @@ class TestGoPackageExtraction:
 
     def test_extract_package_with_comment(self, go_parser):
         """Test package with preceding comment."""
-        code = '''// Package sample provides sample functionality.
-package sample'''
+        code = """// Package sample provides sample functionality.
+package sample"""
         tree = parse_go(go_parser, code)
 
         result = go_impl.extract_go_package(tree, code, "test.go")
@@ -71,12 +71,12 @@ import "fmt"'''
 
     def test_extract_grouped_imports(self, go_parser):
         """Test grouped import extraction."""
-        code = '''package main
+        code = """package main
 import (
     "fmt"
     "os"
     "strings"
-)'''
+)"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_imports(tree, code, "test.go")
@@ -87,18 +87,16 @@ import (
 
     def test_extract_aliased_import(self, go_parser):
         """Test aliased import extraction."""
-        code = '''package main
+        code = """package main
 import (
     mydb "database/sql"
-)'''
+)"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_imports(tree, code, "test.go")
 
         assert len(results) == 1
         assert results[0]["path"] == "database/sql"
-        # Note: Alias detection depends on tree-sitter-go node structure
-        # The alias may be captured or None depending on grammar version
 
     def test_extract_dot_import(self, go_parser):
         """Test dot import extraction."""
@@ -118,11 +116,11 @@ class TestGoStructExtraction:
 
     def test_extract_simple_struct(self, go_parser):
         """Test simple struct extraction."""
-        code = '''package main
+        code = """package main
 type User struct {
     Name string
     Age  int
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_structs(tree, code, "test.go")
@@ -133,10 +131,10 @@ type User struct {
 
     def test_extract_unexported_struct(self, go_parser):
         """Test unexported struct extraction."""
-        code = '''package main
+        code = """package main
 type internalData struct {
     value int
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_structs(tree, code, "test.go")
@@ -151,12 +149,12 @@ class TestGoStructFieldExtraction:
 
     def test_extract_struct_fields(self, go_parser):
         """Test struct field extraction."""
-        code = '''package main
+        code = """package main
 type User struct {
     Name  string
     Email string
     Age   int
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_struct_fields(tree, code, "test.go")
@@ -167,11 +165,11 @@ type User struct {
 
     def test_extract_struct_fields_with_tags(self, go_parser):
         """Test struct field extraction with tags."""
-        code = '''package main
+        code = """package main
 type User struct {
     Name  string `json:"name" gorm:"column:name"`
     Email string `json:"email"`
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_struct_fields(tree, code, "test.go")
@@ -183,11 +181,11 @@ type User struct {
 
     def test_extract_embedded_field(self, go_parser):
         """Test embedded field extraction."""
-        code = '''package main
+        code = """package main
 type User struct {
     Base
     Name string
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_struct_fields(tree, code, "test.go")
@@ -202,10 +200,10 @@ class TestGoInterfaceExtraction:
 
     def test_extract_interface(self, go_parser):
         """Test interface extraction."""
-        code = '''package main
+        code = """package main
 type Reader interface {
     Read(p []byte) (n int, err error)
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_interfaces(tree, code, "test.go")
@@ -216,11 +214,11 @@ type Reader interface {
 
     def test_extract_interface_methods(self, go_parser):
         """Test interface method extraction."""
-        code = '''package main
+        code = """package main
 type ReadWriter interface {
     Read(p []byte) (n int, err error)
     Write(p []byte) (n int, err error)
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_interface_methods(tree, code, "test.go")
@@ -235,11 +233,11 @@ class TestGoFunctionExtraction:
 
     def test_extract_function(self, go_parser):
         """Test function extraction."""
-        code = '''package main
+        code = """package main
 
 func Hello(name string) string {
     return "Hello, " + name
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_functions(tree, code, "test.go")
@@ -250,11 +248,11 @@ func Hello(name string) string {
 
     def test_extract_unexported_function(self, go_parser):
         """Test unexported function extraction."""
-        code = '''package main
+        code = """package main
 
 func helper() int {
     return 42
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_functions(tree, code, "test.go")
@@ -269,13 +267,13 @@ class TestGoMethodExtraction:
 
     def test_extract_value_receiver_method(self, go_parser):
         """Test value receiver method extraction."""
-        code = '''package main
+        code = """package main
 
 type User struct { Name string }
 
 func (u User) GetName() string {
     return u.Name
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_methods(tree, code, "test.go")
@@ -287,13 +285,13 @@ func (u User) GetName() string {
 
     def test_extract_pointer_receiver_method(self, go_parser):
         """Test pointer receiver method extraction."""
-        code = '''package main
+        code = """package main
 
 type User struct { Name string }
 
 func (u *User) SetName(name string) {
     u.Name = name
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_methods(tree, code, "test.go")
@@ -309,9 +307,9 @@ class TestGoFuncParamsExtraction:
 
     def test_extract_func_params(self, go_parser):
         """Test function parameter extraction."""
-        code = '''package main
+        code = """package main
 
-func Process(name string, count int, verbose bool) {}'''
+func Process(name string, count int, verbose bool) {}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_func_params(tree, code, "test.go")
@@ -322,16 +320,16 @@ func Process(name string, count int, verbose bool) {}'''
 
     def test_extract_variadic_param(self, go_parser):
         """Test variadic parameter extraction."""
-        code = '''package main
+        code = """package main
 
-func Printf(format string, args ...interface{}) {}'''
+func Printf(format string, args ...interface{}) {}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_func_params(tree, code, "test.go")
 
         variadic_params = [p for p in results if p["is_variadic"]]
-        # Note: variadic detection might need adjustment
-        assert len(results) >= 1  # At least format param
+
+        assert len(results) >= 1
 
 
 class TestGoGoroutineExtraction:
@@ -339,11 +337,11 @@ class TestGoGoroutineExtraction:
 
     def test_extract_named_goroutine(self, go_parser):
         """Test named function goroutine extraction."""
-        code = '''package main
+        code = """package main
 
 func Start() {
     go process()
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_goroutines(tree, code, "test.go")
@@ -354,13 +352,13 @@ func Start() {
 
     def test_extract_anonymous_goroutine(self, go_parser):
         """Test anonymous function goroutine extraction."""
-        code = '''package main
+        code = """package main
 
 func Start() {
     go func() {
         doWork()
     }()
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_goroutines(tree, code, "test.go")
@@ -374,7 +372,7 @@ class TestGoCapturedVarsExtraction:
 
     def test_captured_loop_variable(self, go_parser):
         """Test captured loop variable detection - the #1 Go race condition."""
-        code = '''package main
+        code = """package main
 
 func Process() {
     items := []string{"a", "b", "c"}
@@ -383,26 +381,23 @@ func Process() {
             print(i, v)
         }()
     }
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
-        # First extract goroutines
         goroutines = go_impl.extract_go_goroutines(tree, code, "test.go")
         assert len(goroutines) == 1
 
-        # Then extract captured vars
         results = go_impl.extract_go_captured_vars(tree, code, "test.go", goroutines)
 
-        # i and v should be captured and flagged as loop vars
         var_names = {r["var_name"] for r in results}
-        assert "i" in var_names or "v" in var_names  # At least one captured
+        assert "i" in var_names or "v" in var_names
 
         loop_vars = [r for r in results if r["is_loop_var"]]
-        assert len(loop_vars) >= 1  # At least one should be detected as loop var
+        assert len(loop_vars) >= 1
 
     def test_safe_param_passing(self, go_parser):
         """Test that params passed to goroutine are not flagged."""
-        code = '''package main
+        code = """package main
 
 func Process() {
     items := []string{"a", "b", "c"}
@@ -411,14 +406,12 @@ func Process() {
             print(idx, val)
         }(i, v)
     }
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         goroutines = go_impl.extract_go_goroutines(tree, code, "test.go")
         results = go_impl.extract_go_captured_vars(tree, code, "test.go", goroutines)
 
-        # idx and val are params, not captured vars
-        # i and v are passed as args, so they're captured but at call site
         param_names = {r["var_name"] for r in results}
         assert "idx" not in param_names
         assert "val" not in param_names
@@ -429,12 +422,12 @@ class TestGoChannelExtraction:
 
     def test_extract_channel(self, go_parser):
         """Test channel declaration extraction."""
-        code = '''package main
+        code = """package main
 
 func Work() {
     ch := make(chan int)
     _ = ch
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_channels(tree, code, "test.go")
@@ -444,12 +437,12 @@ func Work() {
 
     def test_extract_buffered_channel(self, go_parser):
         """Test buffered channel extraction."""
-        code = '''package main
+        code = """package main
 
 func Work() {
     ch := make(chan string, 10)
     _ = ch
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_channels(tree, code, "test.go")
@@ -463,11 +456,11 @@ class TestGoChannelOpsExtraction:
 
     def test_extract_channel_send(self, go_parser):
         """Test channel send operation extraction."""
-        code = '''package main
+        code = """package main
 
 func Send(ch chan int) {
     ch <- 42
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_channel_ops(tree, code, "test.go")
@@ -478,12 +471,12 @@ func Send(ch chan int) {
 
     def test_extract_channel_receive(self, go_parser):
         """Test channel receive operation extraction."""
-        code = '''package main
+        code = """package main
 
 func Receive(ch chan int) int {
     val := <-ch
     return val
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_channel_ops(tree, code, "test.go")
@@ -497,12 +490,12 @@ class TestGoDeferExtraction:
 
     def test_extract_defer(self, go_parser):
         """Test defer statement extraction."""
-        code = '''package main
+        code = """package main
 
 func Process(f *File) {
     defer f.Close()
     // do work
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_defer_statements(tree, code, "test.go")
@@ -516,11 +509,11 @@ class TestGoTypeParamsExtraction:
 
     def test_extract_generic_function(self, go_parser):
         """Test generic function type parameter extraction."""
-        code = '''package main
+        code = """package main
 
 func Map[T any, U any](items []T, fn func(T) U) []U {
     return nil
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_type_params(tree, code, "test.go")
@@ -532,11 +525,11 @@ func Map[T any, U any](items []T, fn func(T) U) []U {
 
     def test_extract_generic_type(self, go_parser):
         """Test generic type parameter extraction."""
-        code = '''package main
+        code = """package main
 
 type Stack[T any] struct {
     items []T
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_type_params(tree, code, "test.go")
@@ -552,11 +545,11 @@ class TestGoErrorReturnsExtraction:
 
     def test_extract_error_return(self, go_parser):
         """Test function returning error detection."""
-        code = '''package main
+        code = """package main
 
 func Open(name string) (*File, error) {
     return nil, nil
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_error_returns(tree, code, "test.go")
@@ -567,11 +560,11 @@ func Open(name string) (*File, error) {
 
     def test_no_error_return(self, go_parser):
         """Test function not returning error."""
-        code = '''package main
+        code = """package main
 
 func Add(a, b int) int {
     return a + b
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_error_returns(tree, code, "test.go")
@@ -584,12 +577,12 @@ class TestGoTypeAssertionExtraction:
 
     def test_extract_type_assertion(self, go_parser):
         """Test type assertion extraction."""
-        code = '''package main
+        code = """package main
 
 func Process(i interface{}) {
     s := i.(string)
     _ = s
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_type_assertions(tree, code, "test.go")
@@ -599,7 +592,7 @@ func Process(i interface{}) {
 
     def test_extract_type_switch(self, go_parser):
         """Test type switch extraction."""
-        code = '''package main
+        code = """package main
 
 func Process(i interface{}) {
     switch v := i.(type) {
@@ -608,14 +601,11 @@ func Process(i interface{}) {
     case int:
         _ = v
     }
-}'''
+}"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_type_assertions(tree, code, "test.go")
 
-        # Type switches may or may not be captured depending on grammar
-        # The important thing is the function doesn't crash
-        # Type switch detection is a nice-to-have enhancement
         assert isinstance(results, list)
 
 
@@ -638,13 +628,13 @@ const DefaultPort = "8080"'''
 
     def test_extract_grouped_constants(self, go_parser):
         """Test grouped constant extraction."""
-        code = '''package main
+        code = """package main
 
 const (
     A = 1
     B = 2
     C = 3
-)'''
+)"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_constants(tree, code, "test.go")
@@ -657,10 +647,10 @@ class TestGoVariablesExtraction:
 
     def test_extract_package_level_variables(self, go_parser):
         """Test package-level variable extraction."""
-        code = '''package main
+        code = """package main
 
 var GlobalCounter int
-var SharedMap = make(map[string]int)'''
+var SharedMap = make(map[string]int)"""
         tree = parse_go(go_parser, code)
 
         results = go_impl.extract_go_variables(tree, code, "test.go")

@@ -30,90 +30,98 @@ METADATA = RuleMetadata(
 class GoInjectionPatterns:
     """Immutable pattern definitions for Go injection detection."""
 
-    # SQL execution methods (database/sql, GORM, sqlx)
-    SQL_METHODS = frozenset([
-        "Query",
-        "QueryRow",
-        "QueryContext",
-        "QueryRowContext",
-        "Exec",
-        "ExecContext",
-        "Prepare",
-        "PrepareContext",
-        "Raw",           # GORM
-        "Where",         # GORM with string
-        "Select",        # sqlx
-        "Get",           # sqlx
-        "NamedQuery",    # sqlx
-        "NamedExec",     # sqlx
-    ])
+    SQL_METHODS = frozenset(
+        [
+            "Query",
+            "QueryRow",
+            "QueryContext",
+            "QueryRowContext",
+            "Exec",
+            "ExecContext",
+            "Prepare",
+            "PrepareContext",
+            "Raw",
+            "Where",
+            "Select",
+            "Get",
+            "NamedQuery",
+            "NamedExec",
+        ]
+    )
 
-    # String formatting that indicates dynamic SQL
-    STRING_FORMAT_PATTERNS = frozenset([
-        "fmt.Sprintf",
-        "fmt.Fprintf",
-        "+",             # String concatenation
-        "strings.Join",
-    ])
+    STRING_FORMAT_PATTERNS = frozenset(
+        [
+            "fmt.Sprintf",
+            "fmt.Fprintf",
+            "+",
+            "strings.Join",
+        ]
+    )
 
-    # Command execution methods
-    COMMAND_METHODS = frozenset([
-        "exec.Command",
-        "exec.CommandContext",
-        "os.StartProcess",
-        "syscall.Exec",
-        "syscall.ForkExec",
-    ])
+    COMMAND_METHODS = frozenset(
+        [
+            "exec.Command",
+            "exec.CommandContext",
+            "os.StartProcess",
+            "syscall.Exec",
+            "syscall.ForkExec",
+        ]
+    )
 
-    # Template methods that can lead to XSS/injection
-    TEMPLATE_METHODS = frozenset([
-        "template.HTML",
-        "template.HTMLAttr",
-        "template.JS",
-        "template.JSStr",
-        "template.URL",
-        "template.CSS",
-    ])
+    TEMPLATE_METHODS = frozenset(
+        [
+            "template.HTML",
+            "template.HTMLAttr",
+            "template.JS",
+            "template.JSStr",
+            "template.URL",
+            "template.CSS",
+        ]
+    )
 
-    # Path manipulation
-    PATH_METHODS = frozenset([
-        "filepath.Join",
-        "path.Join",
-        "os.Open",
-        "os.OpenFile",
-        "os.Create",
-        "ioutil.ReadFile",
-        "os.ReadFile",
-        "os.WriteFile",
-    ])
+    PATH_METHODS = frozenset(
+        [
+            "filepath.Join",
+            "path.Join",
+            "os.Open",
+            "os.OpenFile",
+            "os.Create",
+            "ioutil.ReadFile",
+            "os.ReadFile",
+            "os.WriteFile",
+        ]
+    )
 
-    # User input sources in Go web frameworks
-    USER_INPUTS = frozenset([
-        "r.URL.Query",
-        "r.FormValue",
-        "r.PostFormValue",
-        "r.Form",
-        "r.PostForm",
-        "r.Body",
-        "c.Query",        # Gin
-        "c.Param",        # Gin
-        "c.PostForm",     # Gin
-        "c.BindJSON",     # Gin
-        "c.ShouldBind",   # Gin
-        "ctx.Query",      # Echo/Fiber
-        "ctx.Param",      # Echo/Fiber
-        "ctx.FormValue",  # Echo
-        "ctx.Body",       # Fiber
-    ])
+    USER_INPUTS = frozenset(
+        [
+            "r.URL.Query",
+            "r.FormValue",
+            "r.PostFormValue",
+            "r.Form",
+            "r.PostForm",
+            "r.Body",
+            "c.Query",
+            "c.Param",
+            "c.PostForm",
+            "c.BindJSON",
+            "c.ShouldBind",
+            "ctx.Query",
+            "ctx.Param",
+            "ctx.FormValue",
+            "ctx.Body",
+        ]
+    )
 
-    # Safe patterns (parameterized queries)
-    SAFE_PATTERNS = frozenset([
-        "?",              # Positional placeholder
-        "$1", "$2",       # PostgreSQL positional
-        ":name",          # Named parameter
-        "@name",          # Named parameter (sqlx)
-        "Prepare",        # Prepared statement
-    ])
+    SAFE_PATTERNS = frozenset(
+        [
+            "?",
+            "$1",
+            "$2",
+            ":name",
+            "@name",
+            "Prepare",
+        ]
+    )
 
 
 class GoInjectionAnalyzer:
@@ -135,7 +143,6 @@ class GoInjectionAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run injection checks (tables guaranteed to exist by schema)
             self._check_sql_injection()
             self._check_command_injection()
             self._check_template_injection()
@@ -149,8 +156,6 @@ class GoInjectionAnalyzer:
 
     def _check_sql_injection(self):
         """Detect SQL injection via string formatting in queries."""
-        # Look for function calls that might be SQL operations
-        # Check if arguments contain fmt.Sprintf or string concatenation
 
         self.cursor.execute("""
             SELECT file_path, line, name, signature
@@ -158,7 +163,6 @@ class GoInjectionAnalyzer:
             WHERE name IN ('Query', 'QueryRow', 'Exec', 'Raw', 'Where')
         """)
 
-        # For now, check assignments that look like SQL construction
         self.cursor.execute("""
             SELECT file_path, line, name, initial_value
             FROM go_variables
@@ -185,8 +189,6 @@ class GoInjectionAnalyzer:
 
     def _check_command_injection(self):
         """Detect command injection via exec.Command with variables."""
-        # Check for goroutines or functions that spawn processes
-        # Look for exec.Command calls where first arg is not a literal
 
         self.cursor.execute("""
             SELECT file_path, line, initial_value
@@ -212,7 +214,6 @@ class GoInjectionAnalyzer:
 
     def _check_template_injection(self):
         """Detect unsafe template usage (template.HTML with variable)."""
-        # Look for template.HTML() calls with variables (not literals)
 
         self.cursor.execute("""
             SELECT file_path, line, initial_value
@@ -240,7 +241,6 @@ class GoInjectionAnalyzer:
 
     def _check_path_traversal(self):
         """Detect path traversal via filepath.Join with user input."""
-        # Look for filepath.Join that includes request parameters
 
         self.cursor.execute("""
             SELECT file_path, line, initial_value
@@ -270,7 +270,6 @@ class GoInjectionAnalyzer:
 
     def _check_sprintf_in_sql(self):
         """Detect fmt.Sprintf used to build SQL queries."""
-        # This is a common Go anti-pattern
 
         self.cursor.execute("""
             SELECT file_path, line, name, initial_value
@@ -284,7 +283,6 @@ class GoInjectionAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
-            # Check if it's not using parameterized style
             value = row["initial_value"] or ""
             if not any(safe in value for safe in ["?", "$1", ":name"]):
                 self.findings.append(

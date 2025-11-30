@@ -19,7 +19,7 @@ class GoHttpStrategy(GraphStrategy):
     """
 
     name = "go_http"
-    priority = 50  # After Python/Node strategies
+    priority = 50
 
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges for Go HTTP routes and middleware."""
@@ -63,26 +63,22 @@ class GoHttpStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Query middleware directly (table guaranteed to exist by schema)
         cursor.execute("""
             SELECT file_path, line, framework, router_var, middleware_func, is_global
             FROM go_middleware
             ORDER BY file_path, line
         """)
 
-        # Group middleware by router variable
         router_middleware: dict[str, list] = defaultdict(list)
         for row in cursor.fetchall():
             key = f"{row['file_path']}::{row['router_var']}"
             router_middleware[key].append(row)
             stats["total_middleware"] += 1
 
-        # Build middleware chain edges
-        for router_key, middlewares in router_middleware.items():
+        for _router_key, middlewares in router_middleware.items():
             if len(middlewares) < 2:
                 continue
 
-            # Sort by line number for execution order
             sorted_mw = sorted(middlewares, key=lambda m: m["line"])
 
             for i in range(len(sorted_mw) - 1):
@@ -93,7 +89,6 @@ class GoHttpStrategy(GraphStrategy):
                 next_func = next_mw["middleware_func"]
                 file_path = curr_mw["file_path"]
 
-                # Create nodes for middleware context parameters (c *gin.Context, etc.)
                 for ctx_field in ["ctx", "c", "c.Request", "c.Writer"]:
                     source_id = f"{file_path}::{curr_func}::{ctx_field}"
                     if source_id not in nodes:
@@ -169,7 +164,6 @@ class GoHttpStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Query routes directly (table guaranteed to exist by schema)
         cursor.execute("""
             SELECT file_path, line, framework, method, path, handler_func
             FROM go_routes
@@ -188,7 +182,6 @@ class GoHttpStrategy(GraphStrategy):
                 "metadata": {"graph_type": "go_routes", "stats": stats},
             }
 
-        # Pre-load Go functions for resolution
         cursor.execute("""
             SELECT file_path, line, name, signature
             FROM go_functions
@@ -217,18 +210,14 @@ class GoHttpStrategy(GraphStrategy):
                 path = route["path"]
                 framework = route["framework"]
 
-                # Try to resolve handler to actual function
                 resolved = func_lookup.get(handler_func)
                 handler_file = resolved["file_path"] if resolved else route_file
 
                 stats["handlers_resolved"] += 1
 
-                # Build edges for request context flow
-                # Framework-specific context parameter names
                 ctx_params = self._get_framework_context_params(framework)
 
                 for ctx_param in ctx_params:
-                    # Route entry point -> handler parameter
                     source_id = f"{route_file}::route::{method}_{path}::{ctx_param}"
                     if source_id not in nodes:
                         nodes[source_id] = DFGNode(

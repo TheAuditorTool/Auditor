@@ -38,7 +38,6 @@ def temp_db():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Create all Bash tables using the schema's create_table_sql method
     for table_name, schema in BASH_TABLES.items():
         cursor.execute(schema.create_table_sql())
 
@@ -58,75 +57,145 @@ def populate_db(db_path: str, parser, code: str, file_path: str = "test.sh"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Insert bash_functions
     for func in result.get("bash_functions", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_functions (file, line, end_line, name, style, body_start_line, body_end_line)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (file_path, func["line"], func["end_line"], func["name"],
-              func["style"], func.get("body_start_line"), func.get("body_end_line")))
+        """,
+            (
+                file_path,
+                func["line"],
+                func["end_line"],
+                func["name"],
+                func["style"],
+                func.get("body_start_line"),
+                func.get("body_end_line"),
+            ),
+        )
 
-    # Insert bash_variables
     for var in result.get("bash_variables", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_variables (file, line, name, scope, readonly, value_expr, containing_function)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (file_path, var["line"], var["name"], var["scope"],
-              1 if var.get("readonly") else 0, var.get("value_expr"), var.get("containing_function")))
+        """,
+            (
+                file_path,
+                var["line"],
+                var["name"],
+                var["scope"],
+                1 if var.get("readonly") else 0,
+                var.get("value_expr"),
+                var.get("containing_function"),
+            ),
+        )
 
-    # Insert bash_sources
     for src in result.get("bash_sources", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_sources (file, line, sourced_path, syntax, has_variable_expansion, containing_function)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (file_path, src["line"], src["sourced_path"], src["syntax"],
-              1 if src.get("has_variable_expansion") else 0, src.get("containing_function")))
+        """,
+            (
+                file_path,
+                src["line"],
+                src["sourced_path"],
+                src["syntax"],
+                1 if src.get("has_variable_expansion") else 0,
+                src.get("containing_function"),
+            ),
+        )
 
-    # Insert bash_commands and bash_command_args
     for cmd in result.get("bash_commands", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_commands (file, line, command_name, pipeline_position, containing_function, wrapped_command)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (file_path, cmd["line"], cmd["command_name"], cmd.get("pipeline_position"),
-              cmd.get("containing_function"), cmd.get("wrapped_command")))
+        """,
+            (
+                file_path,
+                cmd["line"],
+                cmd["command_name"],
+                cmd.get("pipeline_position"),
+                cmd.get("containing_function"),
+                cmd.get("wrapped_command"),
+            ),
+        )
 
         for idx, arg in enumerate(cmd.get("args", [])):
-            # Convert normalized_flags list to string
             normalized = arg.get("normalized_flags")
             if normalized and isinstance(normalized, list):
                 normalized = ",".join(normalized)
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO bash_command_args (file, command_line, command_pipeline_position, arg_index,
                     arg_value, is_quoted, quote_type, has_expansion, expansion_vars, normalized_flags)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (file_path, cmd["line"], cmd.get("pipeline_position"), idx,
-                  arg["value"], 1 if arg.get("is_quoted") else 0, arg.get("quote_type", "none"),
-                  1 if arg.get("has_expansion") else 0, arg.get("expansion_vars"), normalized))
+            """,
+                (
+                    file_path,
+                    cmd["line"],
+                    cmd.get("pipeline_position"),
+                    idx,
+                    arg["value"],
+                    1 if arg.get("is_quoted") else 0,
+                    arg.get("quote_type", "none"),
+                    1 if arg.get("has_expansion") else 0,
+                    arg.get("expansion_vars"),
+                    normalized,
+                ),
+            )
 
-    # Insert bash_pipes
     for pipe in result.get("bash_pipes", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_pipes (file, line, pipeline_id, position, command_text, containing_function)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (file_path, pipe["line"], pipe["pipeline_id"], pipe["position"],
-              pipe["command_text"], pipe.get("containing_function")))
+        """,
+            (
+                file_path,
+                pipe["line"],
+                pipe["pipeline_id"],
+                pipe["position"],
+                pipe["command_text"],
+                pipe.get("containing_function"),
+            ),
+        )
 
-    # Insert bash_subshells
     for sub in result.get("bash_subshells", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_subshells (file, line, col, syntax, command_text, capture_target, containing_function)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (file_path, sub["line"], sub.get("col", 0), sub["syntax"],
-              sub["command_text"], sub.get("capture_target"), sub.get("containing_function")))
+        """,
+            (
+                file_path,
+                sub["line"],
+                sub.get("col", 0),
+                sub["syntax"],
+                sub["command_text"],
+                sub.get("capture_target"),
+                sub.get("containing_function"),
+            ),
+        )
 
-    # Insert bash_redirections
     for redir in result.get("bash_redirections", []):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO bash_redirections (file, line, direction, target, fd_number, containing_function)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (file_path, redir["line"], redir["direction"], redir["target"],
-              redir.get("fd_number"), redir.get("containing_function")))
+        """,
+            (
+                file_path,
+                redir["line"],
+                redir["direction"],
+                redir["target"],
+                redir.get("fd_number"),
+                redir.get("containing_function"),
+            ),
+        )
 
     conn.commit()
     conn.close()
@@ -135,6 +204,7 @@ def populate_db(db_path: str, parser, code: str, file_path: str = "test.sh"):
 def get_context(db_path: str) -> StandardRuleContext:
     """Create a rule context with the given database path."""
     from pathlib import Path
+
     return StandardRuleContext(
         file_path=Path("test.sh"),
         content="",
@@ -144,9 +214,6 @@ def get_context(db_path: str) -> StandardRuleContext:
     )
 
 
-# =============================================================================
-# INJECTION RULE TESTS
-# =============================================================================
 class TestBashInjectionRules:
     """Tests for injection detection rules."""
 
@@ -169,7 +236,6 @@ class TestBashInjectionRules:
         findings = injection_analyze.analyze(get_context(temp_db))
 
         assert len(findings) >= 1
-        # Should be lower severity than variable injection
 
     def test_source_injection_detected(self, bash_parser, temp_db):
         """Test that source with variable path is detected."""
@@ -183,7 +249,7 @@ class TestBashInjectionRules:
 
     def test_safe_source_not_detected(self, bash_parser, temp_db):
         """Test that source with literal path is not detected as injection."""
-        code = '''source /etc/profile'''
+        code = """source /etc/profile"""
         populate_db(temp_db, bash_parser, code)
 
         findings = injection_analyze.analyze(get_context(temp_db))
@@ -193,7 +259,7 @@ class TestBashInjectionRules:
 
     def test_backtick_with_variable_detected(self, bash_parser, temp_db):
         """Test that backtick substitution with variable is detected."""
-        code = '''result=`cat $file`'''
+        code = """result=`cat $file`"""
         populate_db(temp_db, bash_parser, code)
 
         findings = injection_analyze.analyze(get_context(temp_db))
@@ -203,7 +269,7 @@ class TestBashInjectionRules:
 
     def test_xargs_injection_detected(self, bash_parser, temp_db):
         """Test that xargs with -I flag is detected."""
-        code = '''find . -name "*.txt" | xargs -I {} rm {}'''
+        code = """find . -name "*.txt" | xargs -I {} rm {}"""
         populate_db(temp_db, bash_parser, code)
 
         findings = injection_analyze.analyze(get_context(temp_db))
@@ -212,15 +278,12 @@ class TestBashInjectionRules:
         assert len(xargs_findings) >= 1
 
 
-# =============================================================================
-# QUOTING RULE TESTS
-# =============================================================================
 class TestBashQuotingRules:
     """Tests for quoting analysis rules."""
 
     def test_unquoted_rm_detected(self, bash_parser, temp_db):
         """Test that unquoted variable in rm is detected."""
-        code = '''rm $file'''
+        code = """rm $file"""
         populate_db(temp_db, bash_parser, code)
 
         findings = quoting_analyze.analyze(get_context(temp_db))
@@ -235,13 +298,12 @@ class TestBashQuotingRules:
 
         findings = quoting_analyze.analyze(get_context(temp_db))
 
-        # Should have no unquoted findings for this specific command
         unquoted_dangerous = [f for f in findings if f.rule_name == "bash-unquoted-dangerous"]
         assert len(unquoted_dangerous) == 0
 
     def test_unquoted_expansion_generic(self, bash_parser, temp_db):
         """Test that unquoted expansion in non-dangerous command is detected."""
-        code = '''echo $variable'''
+        code = """echo $variable"""
         populate_db(temp_db, bash_parser, code)
 
         findings = quoting_analyze.analyze(get_context(temp_db))
@@ -251,39 +313,36 @@ class TestBashQuotingRules:
 
     def test_glob_injection_detected(self, bash_parser, temp_db):
         """Test that glob with variable in rm is detected."""
-        code = '''rm -rf "$DIR"/*'''
+        code = """rm -rf "$DIR"/*"""
         populate_db(temp_db, bash_parser, code)
 
         findings = quoting_analyze.analyze(get_context(temp_db))
-        # This pattern may or may not be detected depending on expansion detection
-        # Just verify the analyzer runs without error
+
         assert isinstance(findings, list)
 
 
-# =============================================================================
-# DANGEROUS PATTERNS RULE TESTS
-# =============================================================================
 class TestBashDangerousPatternsRules:
     """Tests for dangerous pattern detection rules."""
 
     def test_curl_pipe_bash_detected(self, bash_parser, temp_db):
         """Test that curl | bash is detected."""
-        code = '''curl https://example.com/script.sh | bash'''
+        code = """curl https://example.com/script.sh | bash"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
 
-        curl_bash_findings = [f for f in findings if "curl" in f.rule_name.lower() or "pipe" in f.rule_name.lower()]
+        curl_bash_findings = [
+            f for f in findings if "curl" in f.rule_name.lower() or "pipe" in f.rule_name.lower()
+        ]
         assert len(curl_bash_findings) >= 1
 
     def test_wget_pipe_sh_detected(self, bash_parser, temp_db):
         """Test that wget | sh is detected."""
-        code = '''wget -O - https://example.com/install.sh | sh'''
+        code = """wget -O - https://example.com/install.sh | sh"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
 
-        # Should detect network command piped to shell
         assert isinstance(findings, list)
 
     def test_hardcoded_password_detected(self, bash_parser, temp_db):
@@ -308,9 +367,8 @@ class TestBashDangerousPatternsRules:
 
     def test_env_password_unquoted_not_detected(self, bash_parser, temp_db):
         """Test that password from env (unquoted) is not flagged as hardcoded."""
-        # Note: The rule checks value.startswith("$") which works for unquoted refs
-        # Quoted refs like "$VAR" start with " so are still flagged (known limitation)
-        code = '''DB_PASSWORD=$DB_PASS'''
+
+        code = """DB_PASSWORD=$DB_PASS"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -320,7 +378,7 @@ class TestBashDangerousPatternsRules:
 
     def test_chmod_777_detected(self, bash_parser, temp_db):
         """Test that chmod 777 is detected."""
-        code = '''chmod 777 /tmp/script.sh'''
+        code = """chmod 777 /tmp/script.sh"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -330,9 +388,9 @@ class TestBashDangerousPatternsRules:
 
     def test_missing_set_e_detected(self, bash_parser, temp_db):
         """Test that missing set -e is detected."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 echo "no safety flags"
-'''
+"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -342,10 +400,10 @@ echo "no safety flags"
 
     def test_set_e_present_not_flagged(self, bash_parser, temp_db):
         """Test that script with set -e is not flagged for missing it."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 set -e
 echo "safe script"
-'''
+"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -355,7 +413,7 @@ echo "safe script"
 
     def test_sudo_with_variable_detected(self, bash_parser, temp_db):
         """Test that sudo with variable args is detected."""
-        code = '''sudo $CMD'''
+        code = """sudo $CMD"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -375,7 +433,7 @@ echo "safe script"
 
     def test_unsafe_temp_detected(self, bash_parser, temp_db):
         """Test that predictable temp file is detected."""
-        code = '''echo "data" > /tmp/myapp.log'''
+        code = """echo "data" > /tmp/myapp.log"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -385,7 +443,7 @@ echo "safe script"
 
     def test_relative_sensitive_command_detected(self, bash_parser, temp_db):
         """Test that rm without absolute path is detected."""
-        code = '''rm -rf /tmp/test'''
+        code = """rm -rf /tmp/test"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -395,7 +453,7 @@ echo "safe script"
 
     def test_weak_crypto_detected(self, bash_parser, temp_db):
         """Test that md5sum usage is detected."""
-        code = '''md5sum file.txt > checksum.md5'''
+        code = """md5sum file.txt > checksum.md5"""
         populate_db(temp_db, bash_parser, code)
 
         findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
@@ -404,15 +462,12 @@ echo "safe script"
         assert len(crypto_findings) >= 1
 
 
-# =============================================================================
-# INTEGRATION TESTS
-# =============================================================================
 class TestBashSecurityIntegration:
     """Integration tests running all rules on complex scripts."""
 
     def test_vulnerable_script(self, bash_parser, temp_db):
         """Test detection of multiple vulnerabilities in one script."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 # Intentionally vulnerable script for testing
 
 DB_PASSWORD="hunter2"
@@ -432,7 +487,7 @@ curl https://example.com/install.sh | bash
 source "$CONFIG_DIR/settings.sh"
 
 # Missing set -e (implicit)
-'''
+"""
         populate_db(temp_db, bash_parser, code)
 
         injection_findings = injection_analyze.analyze(get_context(temp_db))
@@ -441,12 +496,11 @@ source "$CONFIG_DIR/settings.sh"
 
         total_findings = len(injection_findings) + len(quoting_findings) + len(pattern_findings)
 
-        # Should detect multiple issues
         assert total_findings >= 5, f"Expected at least 5 findings, got {total_findings}"
 
     def test_secure_script_minimal_findings(self, bash_parser, temp_db):
         """Test that a well-written script has minimal findings."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 set -euo pipefail
 
 readonly CONFIG_FILE="/etc/myapp/config"
@@ -462,31 +516,28 @@ main() {
 }
 
 main "$@"
-'''
+"""
         populate_db(temp_db, bash_parser, code)
 
         injection_findings = injection_analyze.analyze(get_context(temp_db))
         quoting_findings = quoting_analyze.analyze(get_context(temp_db))
         pattern_findings = dangerous_patterns_analyze.analyze(get_context(temp_db))
 
-        # This script is well-written, should have minimal critical findings
         critical_findings = [
-            f for f in injection_findings + quoting_findings + pattern_findings
+            f
+            for f in injection_findings + quoting_findings + pattern_findings
             if f.severity.name == "CRITICAL"
         ]
-        # Allow for some false positives but not many critical ones
+
         assert len(critical_findings) <= 2
 
 
-# =============================================================================
-# TASK 4.2.10: BASHPIPESTRATEGY EDGE CREATION TESTS
-# =============================================================================
 class TestBashPipeStrategyEdgeCreation:
     """Tests for BashPipeStrategy graph edge creation."""
 
     def test_pipe_flow_edges_created(self, bash_parser, temp_db):
         """Test that pipe flow edges are created between pipeline commands."""
-        code = '''cat file.txt | grep pattern | wc -l'''
+        code = """cat file.txt | grep pattern | wc -l"""
         populate_db(temp_db, bash_parser, code)
 
         strategy = BashPipeStrategy()
@@ -496,22 +547,19 @@ class TestBashPipeStrategyEdgeCreation:
         edges = result["edges"]
         stats = result["metadata"]["stats"]
 
-        # Should have nodes for each command in pipeline
         assert len(nodes) >= 3
 
-        # Should have pipe_flow edges connecting them (type field, not edge_type)
         pipe_edges = [e for e in edges if e["type"] == "pipe_flow"]
-        # Bidirectional edges, so 2 edges per connection, 2 connections = 4 edges
+
         assert len(pipe_edges) >= 2
 
-        # Stats should reflect edges created
         assert stats["pipelines_processed"] >= 1
         assert stats["pipe_edges"] >= 2
 
     def test_source_include_edges_created(self, bash_parser, temp_db):
         """Test that source include edges are created."""
-        code = '''source /etc/profile
-. ./lib/utils.sh'''
+        code = """source /etc/profile
+. ./lib/utils.sh"""
         populate_db(temp_db, bash_parser, code)
 
         strategy = BashPipeStrategy()
@@ -521,13 +569,11 @@ class TestBashPipeStrategyEdgeCreation:
         edges = result["edges"]
         stats = result["metadata"]["stats"]
 
-        # Should have source statement and target file nodes
         source_nodes = [n for n in nodes if n["type"] == "bash_source_statement"]
         file_nodes = [n for n in nodes if n["type"] == "bash_sourced_file"]
         assert len(source_nodes) >= 2
         assert len(file_nodes) >= 2
 
-        # Should have source_include edges
         source_edges = [e for e in edges if e["type"] == "source_include"]
         assert len(source_edges) >= 2
 
@@ -535,8 +581,8 @@ class TestBashPipeStrategyEdgeCreation:
 
     def test_subshell_capture_edges_created(self, bash_parser, temp_db):
         """Test that subshell capture edges link to variables."""
-        code = '''RESULT=$(whoami)
-OUTPUT=$(date +%Y-%m-%d)'''
+        code = """RESULT=$(whoami)
+OUTPUT=$(date +%Y-%m-%d)"""
         populate_db(temp_db, bash_parser, code)
 
         strategy = BashPipeStrategy()
@@ -546,13 +592,11 @@ OUTPUT=$(date +%Y-%m-%d)'''
         edges = result["edges"]
         stats = result["metadata"]["stats"]
 
-        # Should have subshell and variable nodes
         subshell_nodes = [n for n in nodes if n["type"] == "bash_subshell"]
         var_nodes = [n for n in nodes if n["type"] == "bash_variable"]
         assert len(subshell_nodes) >= 2
         assert len(var_nodes) >= 2
 
-        # Should have subshell_capture edges
         capture_edges = [e for e in edges if e["type"] == "subshell_capture"]
         assert len(capture_edges) >= 2
 
@@ -560,7 +604,7 @@ OUTPUT=$(date +%Y-%m-%d)'''
 
     def test_complex_script_all_edge_types(self, bash_parser, temp_db):
         """Test that a complex script creates all edge types."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 source ./config.sh
 
 get_data() {
@@ -573,7 +617,7 @@ process() {
 }
 
 process
-'''
+"""
         populate_db(temp_db, bash_parser, code)
 
         strategy = BashPipeStrategy()
@@ -582,12 +626,10 @@ process
         edges = result["edges"]
         stats = result["metadata"]["stats"]
 
-        # Should have all three edge types (type field, not edge_type)
         edge_types = set(e["type"] for e in edges)
 
-        # At minimum we should have source_include and either pipe_flow or subshell_capture
         assert "source_include" in edge_types, "Expected source_include edges"
-        # The pipeline should create pipe_flow edges
+
         assert stats["pipe_edges"] >= 2 or stats["capture_edges"] >= 1
 
     def test_empty_db_returns_empty_graph(self, temp_db):

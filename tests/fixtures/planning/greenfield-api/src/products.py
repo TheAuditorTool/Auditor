@@ -16,10 +16,10 @@ from flask import Blueprint, jsonify, request
 from middleware.auth import rate_limit, require_auth, require_permission, require_role
 from models import Product, db
 
-products_bp = Blueprint('products', __name__)
+products_bp = Blueprint("products", __name__)
 
 
-@products_bp.route('/api/products', methods=['GET'])
+@products_bp.route("/api/products", methods=["GET"])
 @rate_limit(requests_per_minute=100)
 def list_products():
     """
@@ -28,20 +28,22 @@ def list_products():
     No authentication required (public endpoint).
     This tests endpoints WITHOUT auth controls in api_endpoint_controls.
     """
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
 
     products = Product.query.paginate(page=page, per_page=per_page)
 
-    return jsonify({
-        'products': [p.to_dict() for p in products.items],
-        'total': products.total,
-        'page': page,
-        'per_page': per_page
-    })
+    return jsonify(
+        {
+            "products": [p.to_dict() for p in products.items],
+            "total": products.total,
+            "page": page,
+            "per_page": per_page,
+        }
+    )
 
 
-@products_bp.route('/api/products/search', methods=['GET'])
+@products_bp.route("/api/products/search", methods=["GET"])
 @require_auth
 def search_products():
     """
@@ -56,34 +58,29 @@ def search_products():
 
     Authentication: Required
     """
-    # TAINT SOURCE: User input from query params
-    search_term = request.args.get('q', '')
-    category = request.args.get('category', '')
-    min_price = request.args.get('min_price', type=float)
-    max_price = request.args.get('max_price', type=float)
 
-    # Get database connection
-    db_path = os.getenv('DATABASE_PATH', 'app.db')
+    search_term = request.args.get("q", "")
+    category = request.args.get("category", "")
+    min_price = request.args.get("min_price", type=float)
+    max_price = request.args.get("max_price", type=float)
+
+    db_path = os.getenv("DATABASE_PATH", "app.db")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # MULTI-SOURCE ASSIGNMENT: Building query from multiple variables
     base_query = "SELECT id, name, description, price, stock, category FROM products"
     where_conditions = []
     params = []
 
-    # Add search term condition
     if search_term:
         where_conditions.append("(name LIKE ? OR description LIKE ?)")
         search_pattern = f"%{search_term}%"
         params.extend([search_pattern, search_pattern])
 
-    # Add category filter
     if category:
         where_conditions.append("category = ?")
         params.append(category)
 
-    # Add price range filters
     if min_price is not None:
         where_conditions.append("price >= ?")
         params.append(min_price)
@@ -92,39 +89,36 @@ def search_products():
         where_conditions.append("price <= ?")
         params.append(max_price)
 
-    # MULTI-SOURCE: Combine all parts into final query
     query = base_query
     if where_conditions:
         query = query + " WHERE " + " AND ".join(where_conditions)
 
     query = query + " ORDER BY name LIMIT 100"
 
-    # Execute raw SQL query (touches 'products' table)
     cursor.execute(query, params)
 
     results = cursor.fetchall()
     conn.close()
 
-    # Convert results to dict
     products = [
         {
-            'id': row[0],
-            'name': row[1],
-            'description': row[2],
-            'price': float(row[3]),
-            'stock': row[4],
-            'category': row[5]
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "price": float(row[3]),
+            "stock": row[4],
+            "category": row[5],
         }
         for row in results
     ]
 
-    return jsonify({'products': products, 'count': len(products)})
+    return jsonify({"products": products, "count": len(products)})
 
 
-@products_bp.route('/api/products', methods=['POST'])
+@products_bp.route("/api/products", methods=["POST"])
 @require_auth
-@require_role('admin')
-@require_permission('products:create')
+@require_role("admin")
+@require_permission("products:create")
 def create_product():
     """
     Create new product.
@@ -137,15 +131,15 @@ def create_product():
     Authentication: Required
     Authorization: Admin role + products:create permission
     """
-    # TAINT SOURCE: User input from request body
+
     data = request.get_json()
 
     product = Product(
-        name=data['name'],
-        description=data.get('description', ''),
-        price=data['price'],
-        stock=data.get('stock', 0),
-        category=data.get('category', 'general')
+        name=data["name"],
+        description=data.get("description", ""),
+        price=data["price"],
+        stock=data.get("stock", 0),
+        category=data.get("category", "general"),
     )
 
     db.session.add(product)
@@ -154,7 +148,7 @@ def create_product():
     return jsonify(product.to_dict()), 201
 
 
-@products_bp.route('/api/products/<int:product_id>', methods=['GET'])
+@products_bp.route("/api/products/<int:product_id>", methods=["GET"])
 def get_product(product_id):
     """
     Get product by ID.
@@ -165,9 +159,9 @@ def get_product(product_id):
     return jsonify(product.to_dict())
 
 
-@products_bp.route('/api/products/<int:product_id>', methods=['PUT'])
+@products_bp.route("/api/products/<int:product_id>", methods=["PUT"])
 @require_auth
-@require_permission('products:update')
+@require_permission("products:update")
 def update_product(product_id):
     """
     Update existing product.
@@ -181,23 +175,22 @@ def update_product(product_id):
     """
     product = Product.query.get_or_404(product_id)
 
-    # TAINT SOURCE: User input from request body
     data = request.get_json()
 
-    product.name = data.get('name', product.name)
-    product.description = data.get('description', product.description)
-    product.price = data.get('price', product.price)
-    product.stock = data.get('stock', product.stock)
-    product.category = data.get('category', product.category)
+    product.name = data.get("name", product.name)
+    product.description = data.get("description", product.description)
+    product.price = data.get("price", product.price)
+    product.stock = data.get("stock", product.stock)
+    product.category = data.get("category", product.category)
 
     db.session.commit()
 
     return jsonify(product.to_dict())
 
 
-@products_bp.route('/api/products/<int:product_id>', methods=['DELETE'])
+@products_bp.route("/api/products/<int:product_id>", methods=["DELETE"])
 @require_auth
-@require_role('admin')
+@require_role("admin")
 def delete_product(product_id):
     """
     Delete product.
@@ -212,12 +205,12 @@ def delete_product(product_id):
     db.session.delete(product)
     db.session.commit()
 
-    return '', 204
+    return "", 204
 
 
-@products_bp.route('/api/products/<int:product_id>/analytics', methods=['GET'])
+@products_bp.route("/api/products/<int:product_id>/analytics", methods=["GET"])
 @require_auth
-@require_role('admin')
+@require_role("admin")
 def get_product_analytics(product_id):
     """
     Get product analytics using raw SQL.
@@ -230,12 +223,12 @@ def get_product_analytics(product_id):
     Authentication: Required
     Authorization: Admin role
     """
-    db_path = os.getenv('DATABASE_PATH', 'app.db')
+    db_path = os.getenv("DATABASE_PATH", "app.db")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Raw SQL query with JOIN touching multiple tables
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             p.id,
             p.name,
@@ -247,18 +240,22 @@ def get_product_analytics(product_id):
         LEFT JOIN orders o ON oi.order_id = o.id
         WHERE p.id = ?
         GROUP BY p.id, p.name
-    """, (product_id,))
+    """,
+        (product_id,),
+    )
 
     result = cursor.fetchone()
     conn.close()
 
     if not result:
-        return jsonify({'error': 'Product not found'}), 404
+        return jsonify({"error": "Product not found"}), 404
 
-    return jsonify({
-        'product_id': result[0],
-        'product_name': result[1],
-        'times_ordered': result[2] or 0,
-        'total_quantity_sold': result[3] or 0,
-        'total_revenue': float(result[4]) if result[4] else 0.0
-    })
+    return jsonify(
+        {
+            "product_id": result[0],
+            "product_name": result[1],
+            "times_ordered": result[2] or 0,
+            "total_quantity_sold": result[3] or 0,
+            "total_revenue": float(result[4]) if result[4] else 0.0,
+        }
+    )

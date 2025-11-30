@@ -19,7 +19,6 @@ from theauditor.indexer.schema import TABLES
 from theauditor.ast_extractors import go_impl
 
 
-# All 22 expected Go tables
 EXPECTED_GO_TABLES = [
     "go_packages",
     "go_imports",
@@ -90,7 +89,6 @@ class TestGoExtractionIntegration:
         content = go_file.read_text(encoding="utf-8")
         tree = parse_go(go_parser, content)
 
-        # Extract all data types
         results = {}
 
         results["go_packages"] = go_impl.extract_go_package(tree, content, str(go_file))
@@ -98,7 +96,9 @@ class TestGoExtractionIntegration:
         results["go_structs"] = go_impl.extract_go_structs(tree, content, str(go_file))
         results["go_struct_fields"] = go_impl.extract_go_struct_fields(tree, content, str(go_file))
         results["go_interfaces"] = go_impl.extract_go_interfaces(tree, content, str(go_file))
-        results["go_interface_methods"] = go_impl.extract_go_interface_methods(tree, content, str(go_file))
+        results["go_interface_methods"] = go_impl.extract_go_interface_methods(
+            tree, content, str(go_file)
+        )
         results["go_functions"] = go_impl.extract_go_functions(tree, content, str(go_file))
         results["go_methods"] = go_impl.extract_go_methods(tree, content, str(go_file))
         results["go_func_params"] = go_impl.extract_go_func_params(tree, content, str(go_file))
@@ -106,17 +106,20 @@ class TestGoExtractionIntegration:
         results["go_goroutines"] = go_impl.extract_go_goroutines(tree, content, str(go_file))
         results["go_channels"] = go_impl.extract_go_channels(tree, content, str(go_file))
         results["go_channel_ops"] = go_impl.extract_go_channel_ops(tree, content, str(go_file))
-        results["go_defer_statements"] = go_impl.extract_go_defer_statements(tree, content, str(go_file))
+        results["go_defer_statements"] = go_impl.extract_go_defer_statements(
+            tree, content, str(go_file)
+        )
         results["go_constants"] = go_impl.extract_go_constants(tree, content, str(go_file))
         results["go_variables"] = go_impl.extract_go_variables(tree, content, str(go_file))
         results["go_type_params"] = go_impl.extract_go_type_params(tree, content, str(go_file))
-        results["go_type_assertions"] = go_impl.extract_go_type_assertions(tree, content, str(go_file))
+        results["go_type_assertions"] = go_impl.extract_go_type_assertions(
+            tree, content, str(go_file)
+        )
         results["go_error_returns"] = go_impl.extract_go_error_returns(tree, content, str(go_file))
         results["go_captured_vars"] = go_impl.extract_go_captured_vars(
             tree, content, str(go_file), results["go_goroutines"]
         )
 
-        # Verify we got data for key tables
         assert results["go_packages"] is not None, "Should extract package"
         assert len(results["go_imports"]) > 0, "Should extract imports"
         assert len(results["go_structs"]) > 0, "Should extract structs"
@@ -133,18 +136,15 @@ class TestGoExtractionIntegration:
         content = vuln_file.read_text(encoding="utf-8")
         tree = parse_go(go_parser, content)
 
-        # Extract key elements
         constants = go_impl.extract_go_constants(tree, content, str(vuln_file))
         variables = go_impl.extract_go_variables(tree, content, str(vuln_file))
         goroutines = go_impl.extract_go_goroutines(tree, content, str(vuln_file))
         captured = go_impl.extract_go_captured_vars(tree, content, str(vuln_file), goroutines)
 
-        # Verify we found vulnerable patterns
         const_names = {c["name"] for c in constants}
         assert "APIKey" in const_names, "Should find hardcoded secret"
         assert "SecretToken" in const_names, "Should find hardcoded secret"
 
-        # Should find goroutines with captured loop vars
         assert len(goroutines) > 0, "Should find goroutines"
         loop_vars = [c for c in captured if c.get("is_loop_var")]
         assert len(loop_vars) > 0, "Should detect captured loop variables"
@@ -261,14 +261,12 @@ class TestGoDatabaseMixinIntegration:
         from theauditor.indexer.database import DatabaseManager
         from theauditor.indexer.database.go_database import GoDatabaseMixin
 
-        # Check that DatabaseManager inherits from GoDatabaseMixin
         assert issubclass(DatabaseManager, GoDatabaseMixin)
 
     def test_mixin_methods_available(self):
         """Verify Go database methods are available."""
         from theauditor.indexer.database.go_database import GoDatabaseMixin
 
-        # Check a few key methods exist
         assert hasattr(GoDatabaseMixin, "add_go_package")
         assert hasattr(GoDatabaseMixin, "add_go_goroutine")
         assert hasattr(GoDatabaseMixin, "add_go_captured_var")
@@ -280,6 +278,7 @@ class TestGoStorageIntegration:
     def test_storage_importable(self):
         """Verify GoStorage is importable."""
         from theauditor.indexer.storage.go_storage import GoStorage
+
         assert GoStorage is not None
 
     def test_storage_has_handlers(self):
@@ -293,7 +292,6 @@ class TestGoStorageIntegration:
         assert hasattr(storage, "handlers")
         assert len(storage.handlers) > 0
 
-        # Check for key handlers
         expected_handlers = [
             "go_packages",
             "go_imports",

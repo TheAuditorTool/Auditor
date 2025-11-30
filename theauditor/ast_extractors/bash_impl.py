@@ -28,12 +28,27 @@ def extract_all_bash_data(tree: Any, content: str, file_path: str) -> dict[str, 
 class BashExtractor:
     """Extracts Bash constructs from tree-sitter AST."""
 
-    # Wrapper commands that execute another command
-    WRAPPER_COMMANDS = frozenset([
-        "sudo", "time", "nice", "nohup", "xargs", "env", "strace",
-        "timeout", "watch", "ionice", "chroot", "su", "runuser",
-        "doas", "pkexec", "sg", "newgrp",
-    ])
+    WRAPPER_COMMANDS = frozenset(
+        [
+            "sudo",
+            "time",
+            "nice",
+            "nohup",
+            "xargs",
+            "env",
+            "strace",
+            "timeout",
+            "watch",
+            "ionice",
+            "chroot",
+            "su",
+            "runuser",
+            "doas",
+            "pkexec",
+            "sg",
+            "newgrp",
+        ]
+    )
 
     def __init__(self, tree: Any, content: str, file_path: str):
         self.tree = tree
@@ -41,14 +56,12 @@ class BashExtractor:
         self.file_path = file_path
         self.lines = content.split("\n")
 
-        # Track context during traversal
         self.current_function: str | None = None
         self.pipeline_counter = 0
-        self.has_pipefail: bool = False  # Track if script uses pipefail
-        self.has_errexit: bool = False   # Track if script uses -e
-        self.has_nounset: bool = False   # Track if script uses -u
+        self.has_pipefail: bool = False
+        self.has_errexit: bool = False
+        self.has_nounset: bool = False
 
-        # Results
         self.functions: list[dict] = []
         self.variables: list[dict] = []
         self.sources: list[dict] = []
@@ -56,8 +69,8 @@ class BashExtractor:
         self.pipes: list[dict] = []
         self.subshells: list[dict] = []
         self.redirections: list[dict] = []
-        self.control_flows: list[dict] = []  # For if/case/for/while
-        self.set_options: list[dict] = []    # For set command tracking
+        self.control_flows: list[dict] = []
+        self.set_options: list[dict] = []
 
     def extract(self) -> dict[str, Any]:
         """Walk the tree and extract all constructs."""
@@ -72,7 +85,6 @@ class BashExtractor:
             "bash_redirections": self.redirections,
             "bash_control_flows": self.control_flows,
             "bash_set_options": self.set_options,
-            # Script-level metadata for safety flags
             "_bash_metadata": {
                 "has_pipefail": self.has_pipefail,
                 "has_errexit": self.has_errexit,
@@ -91,7 +103,6 @@ class BashExtractor:
         elif node_type == "declaration_command":
             self._extract_declaration(node)
         elif node_type == "concatenation":
-            # Handle edge case: VAR=$(cmd) parsed as concatenation of "VAR=" + $(cmd)
             self._try_extract_assignment_from_concatenation(node)
         elif node_type == "pipeline":
             self._extract_pipeline(node)
@@ -101,7 +112,7 @@ class BashExtractor:
             self._extract_redirected_statement(node)
         elif node_type == "command_substitution":
             self._extract_subshell(node)
-        # Control flow statements (Task 2.4)
+
         elif node_type == "if_statement":
             self._extract_if_statement(node)
         elif node_type == "case_statement":
@@ -114,11 +125,10 @@ class BashExtractor:
             self._extract_while_statement(node)
         elif node_type == "until_statement":
             self._extract_until_statement(node)
-        # Handle expansion nodes for nested command substitutions (Task 2.2.4)
+
         elif node_type == "expansion":
             self._extract_expansion(node)
         else:
-            # Continue walking for other node types
             for child in node.children:
                 self._walk(child)
 
@@ -134,9 +144,6 @@ class BashExtractor:
         """Get 1-based end line number of a node."""
         return node.end_point[0] + 1
 
-    # =========================================================================
-    # FUNCTION EXTRACTION
-    # =========================================================================
     def _extract_function(self, node: Any) -> None:
         """Extract function definition."""
         name = None
@@ -162,7 +169,6 @@ class BashExtractor:
             }
             self.functions.append(func)
 
-            # Walk function body with context
             old_function = self.current_function
             self.current_function = name
             if body_node:
@@ -170,9 +176,6 @@ class BashExtractor:
                     self._walk(child)
             self.current_function = old_function
 
-    # =========================================================================
-    # VARIABLE EXTRACTION
-    # =========================================================================
     def _extract_variable(self, node: Any, scope: str = "global", readonly: bool = False) -> None:
         """Extract variable assignment."""
         name = None
@@ -183,9 +186,8 @@ class BashExtractor:
             if child.type == "variable_name":
                 name = self._node_text(child)
             elif child.type == "string":
-                # Double-quoted string - may contain expansions with nested subshells
                 value_expr = self._node_text(child)
-                # Walk into string to find nested command substitutions (Task 2.2.4 DRAGON)
+
                 self._walk_for_nested_subshells_with_capture(child, name)
             elif child.type in (
                 "raw_string",
@@ -197,22 +199,19 @@ class BashExtractor:
                 value_expr = self._node_text(child)
             elif child.type == "concatenation":
                 value_expr = self._node_text(child)
-                # Walk into concatenation for nested subshells
+
                 self._walk_for_nested_subshells_with_capture(child, name)
             elif child.type == "expansion":
-                # Handle parameter expansion - may contain nested command substitution
                 value_expr = self._node_text(child)
-                # Walk into expansion for nested subshells (Task 2.2.4 DRAGON)
+
                 self._extract_expansion_with_capture(child, name)
             elif child.type == "command_substitution":
                 value_expr = self._node_text(child)
                 capture_target = name
-                # Also record the subshell
+
                 self._extract_subshell(child, capture_target=capture_target)
 
         if name:
-            # Use the provided scope (exported, local, global)
-            # Only default to "global" if no explicit scope was given
             var = {
                 "line": self._get_line(node),
                 "name": name,
@@ -249,7 +248,6 @@ class BashExtractor:
         """
         children = list(node.children)
         if len(children) < 2:
-            # Not an assignment pattern, continue walking
             for child in children:
                 self._walk(child)
             return
@@ -266,18 +264,14 @@ class BashExtractor:
                 self._walk(child)
             return
 
-        # This is an assignment: VAR=value
-        name = first_text[:-1]  # Remove trailing =
+        name = first_text[:-1]
 
-        # Collect the rest as value
         value_parts = []
         capture_target = None
-        has_subshell = False
 
         for child in children[1:]:
             value_parts.append(self._node_text(child))
             if child.type == "command_substitution":
-                has_subshell = True
                 capture_target = name
                 self._extract_subshell(child, capture_target=capture_target)
 
@@ -293,9 +287,6 @@ class BashExtractor:
         }
         self.variables.append(var)
 
-    # =========================================================================
-    # COMMAND EXTRACTION
-    # =========================================================================
     def _extract_command(self, node: Any, pipeline_position: int | None = None) -> None:
         """Extract command invocation."""
         command_name = None
@@ -319,7 +310,6 @@ class BashExtractor:
                 args.append(arg_info)
 
         if command_name:
-            # Check for source/dot commands
             if command_name in ("source", "."):
                 sourced_path = args[0]["value"] if args else ""
                 has_expansion = any(a["has_expansion"] for a in args)
@@ -332,19 +322,16 @@ class BashExtractor:
                 }
                 self.sources.append(source_rec)
             else:
-                # Check for set command (Task 2.1.4 - pipefail context)
                 if command_name == "set":
                     self._check_set_command(command_name, args)
-                    # Update the set_options record with correct line
+
                     if self.set_options:
                         self.set_options[-1]["line"] = self._get_line(node)
 
-                # Wrapper unwrapping: detect wrapped command
                 wrapped_command = None
                 if command_name in self.WRAPPER_COMMANDS:
                     wrapped_command = self._find_wrapped_command(args)
 
-                # Normalize flags in args
                 normalized_args = self._normalize_args(args)
 
                 cmd = {
@@ -357,7 +344,6 @@ class BashExtractor:
                 }
                 self.commands.append(cmd)
 
-        # Continue walking for nested constructs (subshells in args)
         for child in node.children:
             if child.type == "command_substitution":
                 self._extract_subshell(child)
@@ -373,32 +359,25 @@ class BashExtractor:
         skip_next = False
         for arg in args:
             value = arg.get("value", "")
-            # Skip empty values
+
             if not value:
                 continue
 
-            # If previous was a flag that takes an argument, skip this one
             if skip_next:
                 skip_next = False
                 continue
 
-            # Skip flags
             if value.startswith("-"):
-                # Flags that take arguments (skip the next value too)
                 if value in ("-u", "-n", "-c", "-e", "-E", "-H", "-p", "-g"):
                     skip_next = True
                 continue
 
-            # Skip common wrapper options that take arguments
-            # (e.g., env VAR=val)
             if "=" in value:
                 continue
 
-            # Skip numeric values (e.g., nice priority)
             if value.isdigit():
                 continue
 
-            # This looks like a command - must start with letter or be a path
             if value[0].isalpha() or value.startswith("/") or value.startswith("./"):
                 return value
 
@@ -412,15 +391,13 @@ class BashExtractor:
         normalized = []
         for arg in args:
             value = arg.get("value", "")
-            # Check for combined short flags: -la, -rf, etc.
-            # Must start with single dash, not double dash, and be 3+ chars
+
             if (
                 value.startswith("-")
                 and not value.startswith("--")
                 and len(value) > 2
                 and value[1:].isalpha()
             ):
-                # Split into individual flags
                 arg["normalized_flags"] = [f"-{c}" for c in value[1:]]
             else:
                 arg["normalized_flags"] = None
@@ -440,7 +417,7 @@ class BashExtractor:
             has_expansion, expansion_vars = self._check_expansions(node)
         elif node.type == "raw_string":
             quote_type = "single"
-            # Single quotes don't expand
+
         elif node.type in ("expansion", "simple_expansion"):
             has_expansion = True
             expansion_vars = self._get_expansion_vars(node)
@@ -472,9 +449,7 @@ class BashExtractor:
         """Get variable names from expansion node."""
         vars_found = []
         for child in node.children:
-            if child.type == "variable_name":
-                vars_found.append(self._node_text(child))
-            elif child.type == "special_variable_name":
+            if child.type == "variable_name" or child.type == "special_variable_name":
                 vars_found.append(self._node_text(child))
         return vars_found
 
@@ -485,9 +460,6 @@ class BashExtractor:
         for child in node.children:
             self._walk_for_subshells(child)
 
-    # =========================================================================
-    # PIPELINE EXTRACTION
-    # =========================================================================
     def _extract_pipeline(self, node: Any) -> None:
         """Extract pipeline (piped commands)."""
         self.pipeline_counter += 1
@@ -505,41 +477,31 @@ class BashExtractor:
                     "containing_function": self.current_function,
                 }
                 self.pipes.append(pipe_rec)
-                # Also extract as command
+
                 self._extract_command(child, pipeline_position=position)
                 position += 1
             elif child.type == "redirected_statement":
-                # Handle final command in pipeline with redirect
-                self._extract_redirected_statement(child, pipeline_id=pipeline_id, position=position)
+                self._extract_redirected_statement(
+                    child, pipeline_id=pipeline_id, position=position
+                )
                 position += 1
             elif child.type == "pipeline":
-                # Nested pipeline - recursively extract
                 self._extract_pipeline(child)
 
-    # =========================================================================
-    # SUBSHELL EXTRACTION
-    # =========================================================================
     def _extract_subshell(self, node: Any, capture_target: str | None = None) -> None:
         """Extract command substitution."""
         syntax = "dollar_paren"
         command_text = ""
 
-        # Determine syntax and extract command text
         for child in node.children:
             if child.type == "`":
                 syntax = "backtick"
-            elif child.type == "command":
-                command_text = self._node_text(child)
-            elif child.type == "pipeline":
-                # Handle pipelines inside command substitution
-                command_text = self._node_text(child)
-            elif child.type == "compound_statement":
-                # Handle compound statements like { cmd1; cmd2; }
+            elif child.type == "command" or child.type == "pipeline" or child.type == "compound_statement":
                 command_text = self._node_text(child)
 
         subshell = {
             "line": self._get_line(node),
-            "col": node.start_point[1],  # Column position for uniqueness
+            "col": node.start_point[1],
             "syntax": syntax,
             "command_text": command_text,
             "capture_target": capture_target,
@@ -547,14 +509,10 @@ class BashExtractor:
         }
         self.subshells.append(subshell)
 
-        # Walk into command substitution for nested constructs
         for child in node.children:
             if child.type == "command":
                 self._walk(child)
 
-    # =========================================================================
-    # REDIRECTION EXTRACTION
-    # =========================================================================
     def _extract_redirected_statement(
         self, node: Any, pipeline_id: int | None = None, position: int | None = None
     ) -> None:
@@ -594,9 +552,7 @@ class BashExtractor:
                 direction = "input"
             elif child.type == ">&":
                 direction = "fd_dup"
-            elif child.type == "word":
-                target = self._node_text(child)
-            elif child.type == "number":
+            elif child.type == "word" or child.type == "number":
                 target = self._node_text(child)
 
         redir = {
@@ -610,23 +566,22 @@ class BashExtractor:
 
     def _extract_heredoc_redirect(self, node: Any) -> None:
         """Extract heredoc redirect with quoting detection (Task 2.3.6)."""
-        # Detect if delimiter is quoted (affects variable expansion)
+
         delimiter = ""
         is_quoted = False
 
         for child in node.children:
             if child.type == "heredoc_start":
                 delimiter_text = self._node_text(child)
-                # Check if delimiter is quoted (has quotes around it)
+
                 is_quoted = (
-                    delimiter_text.startswith("'") or
-                    delimiter_text.startswith('"') or
-                    delimiter_text.startswith("\\")
+                    delimiter_text.startswith("'")
+                    or delimiter_text.startswith('"')
+                    or delimiter_text.startswith("\\")
                 )
-                # Store the delimiter without quotes for target
+
                 delimiter = delimiter_text.strip("'\"\\")
             elif child.type == "heredoc_body":
-                # If unquoted, walk for expansions
                 if not is_quoted:
                     self._walk_for_expansions_in_heredoc(child)
 
@@ -636,24 +591,19 @@ class BashExtractor:
             "target": delimiter,
             "fd_number": None,
             "containing_function": self.current_function,
-            "heredoc_quoted": is_quoted,  # True means no variable expansion
+            "heredoc_quoted": is_quoted,
         }
         self.redirections.append(redir)
 
     def _walk_for_expansions_in_heredoc(self, node: Any) -> None:
         """Walk heredoc body looking for variable expansions (Task 2.3.6)."""
         if node.type in ("simple_expansion", "expansion"):
-            # Found a variable expansion in unquoted heredoc
-            # This is a potential security concern
-            pass  # The extraction is already recorded via normal expansion handling
+            pass
         elif node.type == "command_substitution":
             self._extract_subshell(node)
         for child in node.children:
             self._walk_for_expansions_in_heredoc(child)
 
-    # =========================================================================
-    # CONTROL FLOW EXTRACTION (Task 2.4)
-    # =========================================================================
     def _extract_if_statement(self, node: Any) -> None:
         """Extract if statement control flow."""
         condition_text = ""
@@ -675,7 +625,6 @@ class BashExtractor:
         }
         self.control_flows.append(cf)
 
-        # Continue walking into branches
         for child in node.children:
             self._walk(child)
 
@@ -700,7 +649,6 @@ class BashExtractor:
         }
         self.control_flows.append(cf)
 
-        # Continue walking into case items
         for child in node.children:
             self._walk(child)
 
@@ -726,7 +674,6 @@ class BashExtractor:
         }
         self.control_flows.append(cf)
 
-        # Continue walking into loop body
         for child in node.children:
             self._walk(child)
 
@@ -784,9 +731,6 @@ class BashExtractor:
         for child in node.children:
             self._walk(child)
 
-    # =========================================================================
-    # NESTED EXPANSION RECURSION (Task 2.2.4 - DRAGON)
-    # =========================================================================
     def _extract_expansion(self, node: Any) -> None:
         """Handle parameter expansion with possible nested command substitution.
 
@@ -804,19 +748,17 @@ class BashExtractor:
         """
         for child in node.children:
             if child.type == "command_substitution":
-                # Found nested command substitution!
                 self._extract_subshell(child, capture_target=capture_target)
             elif child.type == "expansion":
-                # Recursive expansion: ${${VAR}} or nested defaults
                 self._extract_expansion_with_capture(child, capture_target)
             elif child.type == "pipeline":
-                # Pipeline inside expansion - walk for subshells
                 self._walk(child)
             else:
-                # Continue looking in other children
                 self._walk_for_nested_subshells_with_capture(child, capture_target)
 
-    def _walk_for_nested_subshells_with_capture(self, node: Any, capture_target: str | None) -> None:
+    def _walk_for_nested_subshells_with_capture(
+        self, node: Any, capture_target: str | None
+    ) -> None:
         """Recursively walk looking for command substitutions with capture context."""
         if node.type == "command_substitution":
             self._extract_subshell(node, capture_target=capture_target)
@@ -836,9 +778,6 @@ class BashExtractor:
             for child in node.children:
                 self._walk_for_nested_subshells(child)
 
-    # =========================================================================
-    # SET COMMAND TRACKING (Task 2.1.4 - pipefail context)
-    # =========================================================================
     def _check_set_command(self, command_name: str, args: list[dict]) -> None:
         """Track set command options for safety flag detection."""
         if command_name != "set":
@@ -849,7 +788,6 @@ class BashExtractor:
             value = arg.get("value", "")
             options.append(value)
 
-            # Track safety flags
             if value in ("-e", "-o errexit"):
                 self.has_errexit = True
             elif value in ("-u", "-o nounset"):
@@ -864,18 +802,16 @@ class BashExtractor:
                     self.has_nounset = True
             elif "pipefail" in value:
                 self.has_pipefail = True
-            # Handle combined flags like -euo, -eu, -eux, etc.
+
             elif value.startswith("-") and not value.startswith("--"):
-                flags = value[1:]  # Strip leading dash
+                flags = value[1:]
                 if "e" in flags:
                     self.has_errexit = True
                 if "u" in flags:
                     self.has_nounset = True
-                # Note: pipefail can't be in combined flags, requires -o pipefail
 
-        # Record set command for later analysis
         set_rec = {
-            "line": 0,  # Will be set by caller
+            "line": 0,
             "options": ",".join(options),
             "containing_function": self.current_function,
         }

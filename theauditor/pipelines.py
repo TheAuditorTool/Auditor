@@ -975,7 +975,7 @@ async def run_full_pipeline(
                             )
 
                             output_lines = [
-                                f"[OK] Taint analysis completed",
+                                "[OK] Taint analysis completed",
                                 f"  Infrastructure issues: {len(infra_findings)}",
                                 f"  Framework patterns: {len(discovery_findings)}",
                                 f"  Taint sources: {result.get('sources_found', 0)}",

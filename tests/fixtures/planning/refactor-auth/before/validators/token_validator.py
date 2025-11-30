@@ -25,23 +25,18 @@ def validate_auth0_token(token):
         InvalidTokenError: Token is invalid
         ExpiredTokenError: Token has expired
     """
-    # TAINT SOURCE: Token from request header
-    secret = os.getenv('AUTH0_CLIENT_SECRET')
+
+    secret = os.getenv("AUTH0_CLIENT_SECRET")
 
     try:
-        # TAINT FLOW: Token validation
         payload = jwt.decode(
-            token,
-            secret,
-            algorithms=['RS256'],
-            audience=os.getenv('AUTH0_AUDIENCE')
+            token, secret, algorithms=["RS256"], audience=os.getenv("AUTH0_AUDIENCE")
         )
 
-        # Verify required claims
-        if 'sub' not in payload:
+        if "sub" not in payload:
             raise InvalidTokenError("Missing 'sub' claim in token")
 
-        if 'exp' not in payload:
+        if "exp" not in payload:
             raise InvalidTokenError("Missing 'exp' claim in token")
 
         return payload
@@ -63,11 +58,11 @@ def extract_user_id(token_payload):
     Returns:
         User ID string
     """
-    # The 'sub' claim in Auth0 format: auth0|{user_id}
-    sub = token_payload.get('sub', '')
 
-    if sub.startswith('auth0|'):
-        return sub[6:]  # Remove 'auth0|' prefix
+    sub = token_payload.get("sub", "")
+
+    if sub.startswith("auth0|"):
+        return sub[6:]
 
     return sub
 
@@ -82,4 +77,4 @@ def extract_permissions(token_payload):
     Returns:
         List of permission strings
     """
-    return token_payload.get('permissions', [])
+    return token_payload.get("permissions", [])

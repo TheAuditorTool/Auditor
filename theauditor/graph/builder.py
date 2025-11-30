@@ -95,7 +95,7 @@ class XGraphBuilder:
         self.module_resolver = ModuleResolver(db_path=str(self.db_path))
         self.ast_parser = ASTParser()
 
-    @lru_cache(maxsize=1024)
+    @lru_cache(maxsize=1024)  # noqa: B019 - intentional cache, builder is long-lived
     def _find_tsconfig_context(self, folder_path: Path) -> str:
         """Recursive lookup for the nearest tsconfig.json."""
 
@@ -317,13 +317,7 @@ class XGraphBuilder:
 
             return import_str
         elif lang == "go":
-            # Go import resolution
-            # 1. Relative imports: ./foo or ../foo
-            # 2. Internal project imports: project/internal/pkg
-            # 3. External: fmt, github.com/..., etc.
-
             if import_str.startswith("./") or import_str.startswith("../"):
-                # Relative import - resolve from source file location
                 source_dir = source_file.parent
                 try:
                     up_count = import_str.count("../")
@@ -331,7 +325,6 @@ class XGraphBuilder:
                     for _ in range(up_count):
                         current_dir = current_dir.parent
 
-                    # Strip ../ prefixes and ./ prefix
                     rel_import = import_str
                     for _ in range(up_count):
                         rel_import = rel_import.replace("../", "", 1)
@@ -340,15 +333,11 @@ class XGraphBuilder:
                     target_path = current_dir / rel_import
                     rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
 
-                    # Go packages are directories - look for .go files in target
-                    # Try exact match first (if it's a file path)
                     if self.db_cache.file_exists(rel_target):
                         return rel_target
 
-                    # Try as directory - find any .go file in that directory
                     for known_file in self.known_files:
                         if known_file.startswith(rel_target + "/") and known_file.endswith(".go"):
-                            # Return the directory path (Go imports are package-level)
                             return rel_target
 
                     return rel_target
@@ -356,43 +345,31 @@ class XGraphBuilder:
                 except (ValueError, OSError):
                     return import_str
 
-            # Check if it's an internal project import by looking for matching paths
-            # Go imports like "myproject/internal/pkg" should map to "internal/pkg/*.go"
             parts = import_str.split("/")
 
-            # Try progressively shorter prefixes to find local packages
             for i in range(len(parts), 0, -1):
                 candidate_path = "/".join(parts[-i:])
 
-                # Check if any known file starts with this path
                 for known_file in self.known_files:
                     if known_file.startswith(candidate_path + "/") and known_file.endswith(".go"):
                         return candidate_path
-                    # Also check if it matches a .go file directly
+
                     if known_file == candidate_path + ".go":
                         return known_file
 
-            # External import (stdlib or third-party)
             return import_str
         elif lang == "rust":
-            # Rust import resolution
-            # Handle crate-relative and self/super paths
-
             if import_str.startswith("crate::"):
-                # crate:: prefix - resolve from project root
-                module_path = import_str[7:].replace("::", "/")  # Remove "crate::" prefix
+                module_path = import_str[7:].replace("::", "/")
 
-                # Try as directory with mod.rs
                 candidate = f"{module_path}/mod.rs"
                 if self.db_cache.file_exists(candidate):
                     return candidate
 
-                # Try as file.rs
                 candidate = f"{module_path}.rs"
                 if self.db_cache.file_exists(candidate):
                     return candidate
 
-                # Try src/ prefix
                 candidate = f"src/{module_path}/mod.rs"
                 if self.db_cache.file_exists(candidate):
                     return candidate
@@ -404,17 +381,14 @@ class XGraphBuilder:
                 return import_str
 
             elif import_str.startswith("self::") or import_str.startswith("super::"):
-                # Relative module path
                 source_dir = source_file.parent
                 module_path = import_str
 
-                # Count super:: levels
                 up_count = module_path.count("super::")
                 current_dir = source_dir
                 for _ in range(up_count):
                     current_dir = current_dir.parent
 
-                # Strip self:: and super:: prefixes
                 clean_path = module_path.replace("super::", "").replace("self::", "")
                 clean_path = clean_path.replace("::", "/")
 
@@ -426,12 +400,10 @@ class XGraphBuilder:
                 try:
                     rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
 
-                    # Try as mod.rs
                     candidate = f"{rel_target}/mod.rs"
                     if self.db_cache.file_exists(candidate):
                         return candidate
 
-                    # Try as .rs file
                     candidate = f"{rel_target}.rs"
                     if self.db_cache.file_exists(candidate):
                         return candidate
@@ -440,7 +412,6 @@ class XGraphBuilder:
                 except ValueError:
                     return import_str
 
-            # External crate
             return import_str
         else:
             return import_str

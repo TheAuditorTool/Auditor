@@ -37,7 +37,6 @@ class RustUnsafeStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Check if rust_unsafe_blocks table exists
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_unsafe_blocks'
@@ -50,13 +49,10 @@ class RustUnsafeStrategy(GraphStrategy):
                 "metadata": {"graph_type": "rust_unsafe", "stats": stats},
             }
 
-        # Build unsafe_contains edges: function -> unsafe_block
         self._build_containment_edges(cursor, nodes, edges, stats)
 
-        # Build unsafe function nodes (functions marked as unsafe)
         self._build_unsafe_function_nodes(cursor, nodes, edges, stats)
 
-        # Build unsafe trait implementation edges
         self._build_unsafe_trait_edges(cursor, nodes, edges, stats)
 
         conn.close()
@@ -81,7 +77,7 @@ class RustUnsafeStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges from functions to their contained unsafe blocks."""
-        # Query unsafe blocks with containing function info
+
         cursor.execute("""
             SELECT
                 ub.file_path,
@@ -112,7 +108,6 @@ class RustUnsafeStrategy(GraphStrategy):
             else:
                 stats["blocks_without_safety_comment"] += 1
 
-            # Create unsafe block node
             block_id = f"{file_path}:{line_start}::unsafe_block"
             if block_id not in nodes:
                 nodes[block_id] = DFGNode(
@@ -130,7 +125,6 @@ class RustUnsafeStrategy(GraphStrategy):
                     },
                 )
 
-            # Find the function definition to get its line number
             cursor.execute(
                 """
                 SELECT line, end_line FROM rust_functions
@@ -144,7 +138,6 @@ class RustUnsafeStrategy(GraphStrategy):
             if fn_row:
                 fn_line = fn_row["line"]
 
-                # Create function node
                 fn_id = f"{file_path}:{fn_line}::{containing_fn}"
                 if fn_id not in nodes:
                     nodes[fn_id] = DFGNode(
@@ -156,7 +149,6 @@ class RustUnsafeStrategy(GraphStrategy):
                         metadata={"contains_unsafe": True},
                     )
 
-                # Create unsafe_contains edge: function -> unsafe_block
                 new_edges = create_bidirectional_edges(
                     source=fn_id,
                     target=block_id,
@@ -196,7 +188,6 @@ class RustUnsafeStrategy(GraphStrategy):
             line = fn["line"]
             fn_name = fn["name"]
 
-            # Create unsafe function node
             fn_id = f"{file_path}:{line}::{fn_name}"
             if fn_id not in nodes:
                 nodes[fn_id] = DFGNode(
@@ -220,7 +211,7 @@ class RustUnsafeStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges for unsafe trait implementations."""
-        # Check if rust_unsafe_traits table exists
+
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_unsafe_traits'
@@ -243,7 +234,6 @@ class RustUnsafeStrategy(GraphStrategy):
             trait_name = impl["trait_name"]
             impl_type = impl["impl_type"]
 
-            # Create unsafe trait impl node
             impl_id = f"{file_path}:{line}::unsafe_impl_{trait_name}"
             if impl_id not in nodes:
                 nodes[impl_id] = DFGNode(
@@ -258,7 +248,6 @@ class RustUnsafeStrategy(GraphStrategy):
                     },
                 )
 
-            # Try to find the trait definition
             cursor.execute(
                 """
                 SELECT file_path, line, name FROM rust_traits
@@ -281,7 +270,6 @@ class RustUnsafeStrategy(GraphStrategy):
                         metadata={"is_unsafe": True},
                     )
 
-                # Create unsafe_trait_impl edge
                 new_edges = create_bidirectional_edges(
                     source=impl_id,
                     target=trait_id,

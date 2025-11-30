@@ -12,10 +12,6 @@ Phase 1 Core Tables (7 tables):
 
 from .utils import Column, TableSchema
 
-# =============================================================================
-# Phase 1: Core Tables (7 tables)
-# =============================================================================
-
 RUST_MODULES = TableSchema(
     name="rust_modules",
     columns=[
@@ -153,19 +149,16 @@ RUST_IMPL_BLOCKS = TableSchema(
     ],
 )
 
-# =============================================================================
-# Phase 2: Advanced Tables (13 tables)
-# =============================================================================
 
 RUST_GENERICS = TableSchema(
     name="rust_generics",
     columns=[
         Column("file_path", "TEXT", nullable=False),
         Column("parent_line", "INTEGER", nullable=False),
-        Column("parent_type", "TEXT", nullable=False),  # struct, enum, function, trait, impl
+        Column("parent_type", "TEXT", nullable=False),
         Column("param_name", "TEXT", nullable=False),
-        Column("param_kind", "TEXT"),  # type, lifetime, const
-        Column("bounds", "TEXT"),  # trait bounds like "Clone + Send"
+        Column("param_kind", "TEXT"),
+        Column("bounds", "TEXT"),
         Column("default_value", "TEXT"),
     ],
     primary_key=["file_path", "parent_line", "param_name"],
@@ -192,7 +185,7 @@ RUST_MACROS = TableSchema(
         Column("file_path", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("name", "TEXT", nullable=False),
-        Column("macro_type", "TEXT"),  # macro_rules, proc_macro, derive, attribute
+        Column("macro_type", "TEXT"),
         Column("visibility", "TEXT"),
     ],
     primary_key=["file_path", "line"],
@@ -208,7 +201,7 @@ RUST_MACRO_INVOCATIONS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("macro_name", "TEXT", nullable=False),
         Column("containing_function", "TEXT"),
-        Column("args_sample", "TEXT"),  # First ~200 chars of args for security scanning
+        Column("args_sample", "TEXT"),
     ],
     primary_key=["file_path", "line"],
     indexes=[
@@ -254,7 +247,7 @@ RUST_UNSAFE_BLOCKS = TableSchema(
         Column("reason", "TEXT"),
         Column("safety_comment", "TEXT"),
         Column("has_safety_comment", "BOOLEAN", default="0"),
-        Column("operations_json", "TEXT"),  # JSON list of unsafe operations
+        Column("operations_json", "TEXT"),
     ],
     primary_key=["file_path", "line_start"],
     indexes=[
@@ -269,7 +262,7 @@ RUST_UNSAFE_TRAITS = TableSchema(
         Column("file_path", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("trait_name", "TEXT", nullable=False),
-        Column("impl_type", "TEXT"),  # The type implementing the unsafe trait
+        Column("impl_type", "TEXT"),
     ],
     primary_key=["file_path", "line"],
     indexes=[],
@@ -281,7 +274,7 @@ RUST_STRUCT_FIELDS = TableSchema(
         Column("file_path", "TEXT", nullable=False),
         Column("struct_line", "INTEGER", nullable=False),
         Column("field_index", "INTEGER", nullable=False),
-        Column("field_name", "TEXT"),  # NULL for tuple structs
+        Column("field_name", "TEXT"),
         Column("field_type", "TEXT", nullable=False),
         Column("visibility", "TEXT"),
         Column("is_pub", "BOOLEAN", default="0"),
@@ -297,9 +290,9 @@ RUST_ENUM_VARIANTS = TableSchema(
         Column("enum_line", "INTEGER", nullable=False),
         Column("variant_index", "INTEGER", nullable=False),
         Column("variant_name", "TEXT", nullable=False),
-        Column("variant_kind", "TEXT"),  # unit, tuple, struct
-        Column("fields_json", "TEXT"),  # JSON for tuple/struct variants
-        Column("discriminant", "TEXT"),  # Explicit discriminant if present
+        Column("variant_kind", "TEXT"),
+        Column("fields_json", "TEXT"),
+        Column("discriminant", "TEXT"),
     ],
     primary_key=["file_path", "enum_line", "variant_index"],
     indexes=[],
@@ -350,12 +343,8 @@ RUST_EXTERN_BLOCKS = TableSchema(
     indexes=[],
 )
 
-# =============================================================================
-# Export all Rust tables
-# =============================================================================
 
 RUST_TABLES: dict[str, TableSchema] = {
-    # Phase 1: Core Tables (7)
     "rust_modules": RUST_MODULES,
     "rust_use_statements": RUST_USE_STATEMENTS,
     "rust_functions": RUST_FUNCTIONS,
@@ -363,7 +352,6 @@ RUST_TABLES: dict[str, TableSchema] = {
     "rust_enums": RUST_ENUMS,
     "rust_traits": RUST_TRAITS,
     "rust_impl_blocks": RUST_IMPL_BLOCKS,
-    # Phase 2: Advanced Tables (13)
     "rust_generics": RUST_GENERICS,
     "rust_lifetimes": RUST_LIFETIMES,
     "rust_macros": RUST_MACROS,

@@ -11,7 +11,7 @@ import ast
 import os
 import sys
 
-# Add project root to path
+
 sys.path.insert(0, os.getcwd())
 
 from theauditor.ast_extractors.python import (
@@ -43,7 +43,7 @@ from theauditor.ast_extractors.python import (
 )
 from theauditor.ast_extractors.python.utils.context import build_file_context
 
-# The "Kitchen Sink" Code Sample - triggers as many extractors as possible
+
 CODE = '''
 import os
 import re
@@ -431,11 +431,9 @@ def audit():
     print("EXTRACTOR OUTPUT AUDIT - TRUTH SERUM")
     print("=" * 80)
 
-    # Build Context
     tree = ast.parse(CODE)
     context = build_file_context(tree, CODE, "audit_dummy.py")
 
-    # All extractor modules
     modules = [
         ("core_extractors", core_extractors),
         ("control_flow_extractors", control_flow_extractors),
@@ -467,12 +465,12 @@ def audit():
     all_results = {}
 
     for module_name, module in modules:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"MODULE: {module_name}")
         print("=" * 60)
 
         for name in sorted(dir(module)):
-            if name.startswith('extract_'):
+            if name.startswith("extract_"):
                 func = getattr(module, name)
                 if not callable(func):
                     continue
@@ -485,26 +483,35 @@ def audit():
                             print(f"  COUNT: {len(results)}")
                             print(f"  KEYS: {keys}")
 
-                            # VALUE SAMPLING for Fidelity Check (Truth Serum Upgrade)
-                            sample_keys = [k for k in keys if k.endswith('_type') or k in ('operation', 'operator', 'name', 'kind')]
+                            sample_keys = [
+                                k
+                                for k in keys
+                                if k.endswith("_type")
+                                or k in ("operation", "operator", "name", "kind")
+                            ]
                             if sample_keys:
                                 print("  VALUE SAMPLES (discriminators):")
                                 for k in sample_keys:
-                                    # Get unique values for this key across all results, limit to 8
-                                    values = sorted({str(r.get(k, '')) for r in results if r.get(k)})[:8]
+                                    values = sorted(
+                                        {str(r.get(k, "")) for r in results if r.get(k)}
+                                    )[:8]
                                     if values:
                                         print(f"    {k}: {values}")
 
                             all_results[f"{module_name}.{name}"] = {
                                 "count": len(results),
-                                "keys": keys
+                                "keys": keys,
                             }
                         elif isinstance(results, tuple):
-                            # Some extractors return tuples
                             print(f"\n{name}:")
                             print(f"  RETURNS TUPLE of {len(results)} items")
                             for i, item in enumerate(results):
-                                if item and isinstance(item, list) and len(item) > 0 and isinstance(item[0], dict):
+                                if (
+                                    item
+                                    and isinstance(item, list)
+                                    and len(item) > 0
+                                    and isinstance(item[0], dict)
+                                ):
                                     print(f"    [{i}]: {sorted(item[0].keys())}")
                         else:
                             print(f"\n{name}: RETURNS {type(results[0])}")
@@ -518,7 +525,6 @@ def audit():
                 except Exception as e:
                     print(f"\n{name}: [ERROR] {type(e).__name__}: {e}")
 
-    # Summary
     print("\n" + "=" * 80)
     print("SUMMARY: EXTRACTORS WITH DATA")
     print("=" * 80)

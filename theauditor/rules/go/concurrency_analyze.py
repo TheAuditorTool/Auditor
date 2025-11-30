@@ -36,22 +36,24 @@ METADATA = RuleMetadata(
 class GoConcurrencyPatterns:
     """Pattern definitions for Go concurrency issue detection."""
 
-    # Synchronization primitives
-    SYNC_PRIMITIVES = frozenset([
-        "sync.Mutex",
-        "sync.RWMutex",
-        "sync.WaitGroup",
-        "sync.Once",
-        "sync.Cond",
-        "sync.Map",
-        "atomic.",
-    ])
+    SYNC_PRIMITIVES = frozenset(
+        [
+            "sync.Mutex",
+            "sync.RWMutex",
+            "sync.WaitGroup",
+            "sync.Once",
+            "sync.Cond",
+            "sync.Map",
+            "atomic.",
+        ]
+    )
 
-    # Channel operations (generally safe)
-    CHANNEL_OPS = frozenset([
-        "<-",
-        "make(chan",
-    ])
+    CHANNEL_OPS = frozenset(
+        [
+            "<-",
+            "make(chan",
+        ]
+    )
 
 
 class GoConcurrencyAnalyzer:
@@ -83,7 +85,6 @@ class GoConcurrencyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run concurrency checks (tables guaranteed to exist by schema)
             self._check_captured_loop_variables()
             self._check_package_var_goroutine_access()
             self._check_goroutine_without_sync()
@@ -129,7 +130,7 @@ class GoConcurrencyAnalyzer:
 
     def _check_package_var_goroutine_access(self):
         """Detect goroutines that might access package-level variables."""
-        # Find package-level variables
+
         self.cursor.execute("""
             SELECT file_path, name
             FROM go_variables
@@ -146,7 +147,6 @@ class GoConcurrencyAnalyzer:
         if not pkg_vars:
             return
 
-        # Find goroutines in files with package-level variables
         self.cursor.execute("""
             SELECT g.file_path, g.line, g.containing_func, g.is_anonymous
             FROM go_goroutines g
@@ -161,22 +161,26 @@ class GoConcurrencyAnalyzer:
             if file_path not in pkg_vars:
                 continue
 
-            # Check if there's sync.Mutex in the file
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT COUNT(*) as cnt FROM go_struct_fields
                 WHERE file_path = ?
                   AND (field_type LIKE '%sync.Mutex%'
                        OR field_type LIKE '%sync.RWMutex%')
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_mutex = self.cursor.fetchone()["cnt"] > 0
 
             if not has_mutex:
-                # Check captured vars for this goroutine
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                     SELECT var_name FROM go_captured_vars
                     WHERE file_path = ? AND line = ?
-                """, (file_path, goroutine["line"]))
+                """,
+                    (file_path, goroutine["line"]),
+                )
 
                 captured = {row["var_name"] for row in self.cursor.fetchall()}
                 pkg_var_access = captured.intersection(pkg_vars[file_path])
@@ -198,7 +202,7 @@ class GoConcurrencyAnalyzer:
 
     def _check_goroutine_without_sync(self):
         """Detect files with multiple goroutines but no sync primitives."""
-        # Count goroutines per file
+
         self.cursor.execute("""
             SELECT file_path, COUNT(*) as goroutine_count
             FROM go_goroutines
@@ -207,25 +211,28 @@ class GoConcurrencyAnalyzer:
         """)
 
         multi_goroutine_files = {
-            row["file_path"]: row["goroutine_count"]
-            for row in self.cursor.fetchall()
+            row["file_path"]: row["goroutine_count"] for row in self.cursor.fetchall()
         }
 
         for file_path, count in multi_goroutine_files.items():
-            # Check for sync imports
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT COUNT(*) as cnt FROM go_imports
                 WHERE file_path = ?
                   AND (path = 'sync' OR path = 'sync/atomic')
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_sync_import = self.cursor.fetchone()["cnt"] > 0
 
-            # Check for channel usage
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT COUNT(*) as cnt FROM go_channels
                 WHERE file_path = ?
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_channels = self.cursor.fetchone()["cnt"] > 0
 
@@ -235,7 +242,7 @@ class GoConcurrencyAnalyzer:
                         rule_name="go-goroutines-no-sync",
                         message=f"File has {count} goroutines but no sync primitives or channels",
                         file_path=file_path,
-                        line=1,  # File-level finding
+                        line=1,
                         severity=Severity.MEDIUM,
                         category="concurrency",
                         confidence=Confidence.LOW,

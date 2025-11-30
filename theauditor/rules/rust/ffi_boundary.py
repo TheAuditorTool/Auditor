@@ -49,7 +49,6 @@ class FFIBoundaryAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check if Rust FFI tables exist
             self.cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_extern_functions'
@@ -80,7 +79,6 @@ class FFIBoundaryAnalyzer:
             fn_name = row["name"]
             abi = row["abi"] or "C"
 
-            # Check for known format string functions
             format_functions = {"printf", "sprintf", "fprintf", "snprintf", "vprintf", "vsprintf"}
             is_format_fn = any(fmt in fn_name.lower() for fmt in format_functions)
 
@@ -120,7 +118,6 @@ class FFIBoundaryAnalyzer:
             params_json = row["params_json"]
             return_type = row["return_type"] or ""
 
-            # Check for raw pointers in params
             has_raw_ptr = False
             ptr_params = []
 
@@ -128,17 +125,17 @@ class FFIBoundaryAnalyzer:
                 try:
                     params = json.loads(params_json)
                     for param in params:
-                        param_type = param.get("type", "") if isinstance(param, dict) else str(param)
+                        param_type = (
+                            param.get("type", "") if isinstance(param, dict) else str(param)
+                        )
                         if "*const" in param_type or "*mut" in param_type:
                             has_raw_ptr = True
                             param_name = param.get("name", "?") if isinstance(param, dict) else "?"
                             ptr_params.append(f"{param_name}: {param_type}")
                 except (json.JSONDecodeError, TypeError):
-                    # Check raw string for pointer patterns
                     if "*const" in params_json or "*mut" in params_json:
                         has_raw_ptr = True
 
-            # Also check return type for raw pointers
             has_ptr_return = "*const" in return_type or "*mut" in return_type
 
             if has_raw_ptr:
@@ -198,7 +195,6 @@ class FFIBoundaryAnalyzer:
             line = row["line"]
             abi = row["abi"] or "C"
 
-            # Count functions in this block
             self.cursor.execute(
                 """
                 SELECT COUNT(*) as fn_count
@@ -212,7 +208,6 @@ class FFIBoundaryAnalyzer:
             fn_count_row = self.cursor.fetchone()
             fn_count = fn_count_row["fn_count"] if fn_count_row else 0
 
-            # Only report if there are functions
             if fn_count > 0:
                 self.findings.append(
                     StandardFinding(
@@ -238,5 +233,4 @@ def find_ffi_boundary_issues(context: StandardRuleContext) -> list[StandardFindi
     return analyzer.analyze()
 
 
-# Alias for backwards compatibility
 analyze = find_ffi_boundary_issues
