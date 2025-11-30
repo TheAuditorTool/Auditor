@@ -25,6 +25,7 @@ SKIP_DIRS: set[str] = {
     ".hg",
     ".svn",
     "node_modules",
+    "vendor",  # Go vendored dependencies
     "dist",
     "build",
     "out",
@@ -89,6 +90,10 @@ SUPPORTED_AST_EXTENSIONS: list[str] = [
     ".graphql",
     ".gql",
     ".graphqls",
+    ".go",  # Go source files
+    ".rs",  # Rust source files
+    ".sh",  # Bash/Shell scripts
+    ".bash",  # Bash scripts
 ]
 
 

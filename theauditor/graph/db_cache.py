@@ -55,6 +55,49 @@ class GraphDatabaseCache:
                 }
             )
 
+        # Load Rust imports from rust_use_statements table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_use_statements'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file_path, import_path, local_name, line, is_glob
+                FROM rust_use_statements
+            """)
+            for row in cursor.fetchall():
+                src = self._normalize_path(row["file_path"])
+                if src not in self.imports_by_file:
+                    self.imports_by_file[src] = []
+
+                self.imports_by_file[src].append(
+                    {
+                        "kind": "use",
+                        "value": row["import_path"],
+                        "line": row["line"],
+                        "local_name": row["local_name"],
+                        "is_glob": bool(row["is_glob"]),
+                    }
+                )
+
+        # Load Go imports from go_imports table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_imports'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file, path, alias, line
+                FROM go_imports
+            """)
+            for row in cursor.fetchall():
+                src = self._normalize_path(row["file"])
+                if src not in self.imports_by_file:
+                    self.imports_by_file[src] = []
+
+                self.imports_by_file[src].append(
+                    {
+                        "kind": "import",
+                        "value": row["path"],
+                        "line": row["line"],
+                        "alias": row["alias"],
+                    }
+                )
+
         cursor.execute("""
             SELECT path, name, type, line
             FROM symbols
@@ -72,6 +115,132 @@ class GraphDatabaseCache:
                     "line": row["line"],
                 }
             )
+
+        # Load Rust exports from rust_functions table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_functions'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file_path, name, line, visibility
+                FROM rust_functions
+                WHERE visibility LIKE 'pub%'
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file_path"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "function",
+                        "line": row["line"],
+                    }
+                )
+
+        # Load Rust struct exports
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_structs'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file_path, name, line, visibility
+                FROM rust_structs
+                WHERE visibility LIKE 'pub%'
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file_path"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "struct",
+                        "line": row["line"],
+                    }
+                )
+
+        # Load Rust trait exports
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rust_traits'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file_path, name, line, visibility
+                FROM rust_traits
+                WHERE visibility LIKE 'pub%'
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file_path"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "trait",
+                        "line": row["line"],
+                    }
+                )
+
+        # Load Go exports from go_functions table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_functions'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file, name, line
+                FROM go_functions
+                WHERE is_exported = 1
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "function",
+                        "line": row["line"],
+                    }
+                )
+
+        # Load Go struct exports
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_structs'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file, name, line
+                FROM go_structs
+                WHERE is_exported = 1
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "struct",
+                        "line": row["line"],
+                    }
+                )
+
+        # Load Go interface exports
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='go_interfaces'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file, name, line
+                FROM go_interfaces
+                WHERE is_exported = 1
+            """)
+            for row in cursor.fetchall():
+                path = self._normalize_path(row["file"])
+                if path not in self.exports_by_file:
+                    self.exports_by_file[path] = []
+
+                self.exports_by_file[path].append(
+                    {
+                        "name": row["name"],
+                        "symbol_type": "interface",
+                        "line": row["line"],
+                    }
+                )
 
         conn.close()
 
@@ -104,7 +273,7 @@ class GraphDatabaseCache:
         if clean in self.known_files:
             return clean
 
-        extensions = [".ts", ".tsx", ".js", ".jsx", ".d.ts", ".py"]
+        extensions = [".ts", ".tsx", ".js", ".jsx", ".d.ts", ".py", ".rs", ".go"]
 
         for ext in extensions:
             candidate = clean + ext
@@ -115,6 +284,11 @@ class GraphDatabaseCache:
             candidate = f"{clean}/index{ext}"
             if candidate in self.known_files:
                 return candidate
+
+        # Rust module resolution: foo/mod.rs
+        candidate = f"{clean}/mod.rs"
+        if candidate in self.known_files:
+            return candidate
 
         return None
 

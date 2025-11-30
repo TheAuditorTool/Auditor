@@ -2,7 +2,7 @@
 
 **Version 1.6.4-dev1** | Offline-First AI-Centric SAST & Code Intelligence Platform
 
-> Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python and JavaScript/TypeScript projects.
+> Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python, JavaScript/TypeScript, Go, and Rust projects.
 
 **Requires Python >=3.14**
 
@@ -217,10 +217,12 @@ Detects misconfigurations in cloud resource definitions before deployment.
 ### Two-Database System
 
 **repo_index.db** (~180MB, regenerated fresh every `aud full`):
-- 250 normalized relational tables across 9 schema domains
+- 190+ normalized relational tables across 11 schema domains
 - Core (24 tables): symbols, assignments, function_call_args, CFG blocks
-- Python (59 tables): ORM models, routes, decorators, async, pytest, Django, Flask, FastAPI
-- JavaScript/Node (26 tables): React/Vue components, TypeScript types, Prisma, Angular
+- Python (35 tables): ORM models, routes, decorators, async, pytest, Django, Flask, FastAPI
+- JavaScript/Node (37 tables): React/Vue components, TypeScript types, Prisma, Angular
+- Go (22 tables): Goroutines, channels, interfaces, type assertions, routes
+- Rust (20 tables): Unsafe blocks, FFI, async/await, traits, macros, lifetimes
 - Infrastructure (18 tables): Docker, Terraform, CDK, GitHub Actions
 - GraphQL (8 tables): Schema analysis, resolvers, execution edges
 - Security (7 tables): SQL queries, JWT patterns, env vars, taint sources/sinks
@@ -271,13 +273,14 @@ Layer 4: DATABASE (Multiple inheritance)
 | Language | Frameworks | Tables | Key Features |
 |----------|-----------|--------|--------------|
 | **Python** | Django, Flask, FastAPI, SQLAlchemy, Pydantic, Celery, Marshmallow, DRF, WTForms | 59 | ORM models, routes, decorators, async, pytest, signals, middleware, validators |
-| **JavaScript/TypeScript** | React, Vue, Angular, Express, Next.js, Prisma, Sequelize, BullMQ | 26 | Components, hooks, TypeScript types, JSX, job queues |
+| **JavaScript/TypeScript** | React, Vue, Angular, Express, Next.js, Prisma, Sequelize, BullMQ | 37 | Components, hooks, TypeScript types, JSX, job queues |
+| **Go** | Gin, Echo, Fiber, Chi, GORM, sqlx | 22 | Goroutines, channels, interfaces, type assertions, routes, race detection |
 | **GraphQL** | Apollo, graphql-core | 8 | Schema analysis, resolvers, execution edges, field mapping |
 | **Terraform** | All providers | 5 | Resources, variables, outputs, data sources |
 | **Docker** | Compose, Dockerfile | 8 | Images, services, env vars, healthchecks |
 | **AWS CDK** | Python + TypeScript CDK | 3 | Constructs, properties, IAM policies |
 | **GitHub Actions** | Workflows | 7 | Jobs, steps, permissions, dependencies |
-| **Rust** | Generic | 2 | Functions, imports (tree-sitter) |
+| **Rust** | Actix-web, Rocket, Axum, Diesel, SQLx, Tokio | 20 | Unsafe analysis, FFI boundaries, async/await, traits, macros, lifetimes, security rules |
 | **SQL** | DDL | 1 | Tables, indexes, views |
 
 ---

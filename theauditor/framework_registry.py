@@ -403,6 +403,54 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "github.com/gorilla/mux",
         "import_patterns": ["github.com/gorilla/mux"],
     },
+    "net_http": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "exists",  # Standard library - always available
+        },
+        "import_patterns": ["net/http"],
+        "file_markers": ["*.go"],  # Any Go file using net/http
+    },
+    "gorm": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "gorm.io/gorm",
+        "import_patterns": ["gorm.io/gorm", "gorm.io/driver"],
+    },
+    "sqlx_go": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "github.com/jmoiron/sqlx",
+        "import_patterns": ["github.com/jmoiron/sqlx"],
+    },
+    "ent": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "entgo.io/ent",
+        "import_patterns": ["entgo.io/ent"],
+    },
+    "cobra": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "github.com/spf13/cobra",
+        "import_patterns": ["github.com/spf13/cobra"],
+    },
+    "grpc_go": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "google.golang.org/grpc",
+        "import_patterns": ["google.golang.org/grpc"],
+    },
     "spring": {
         "language": "java",
         "detection_sources": {

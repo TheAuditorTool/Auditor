@@ -44,6 +44,22 @@ def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
     return lines
 
 
+# Bash shebangs to detect for extensionless scripts
+BASH_SHEBANGS = (
+    "#!/bin/bash",
+    "#!/usr/bin/env bash",
+    "#!/bin/sh",
+    "#!/usr/bin/env sh",
+)
+
+
+def _detect_bash_shebang(first_line: str) -> bool:
+    """Check if first line is a bash/shell shebang."""
+    if not first_line:
+        return False
+    return any(first_line.startswith(shebang) for shebang in BASH_SHEBANGS)
+
+
 def load_gitignore_patterns(root_path: Path) -> set[str]:
     """Load patterns from .gitignore if it exists."""
     gitignore_path = root_path / ".gitignore"
@@ -154,14 +170,24 @@ class FileWalker:
             relative_path = file.relative_to(self.root_path)
             posix_path = relative_path.as_posix()
 
+            first_lines = get_first_lines(file)
+
             file_info = {
                 "path": posix_path,
                 "sha256": compute_file_hash(file),
                 "ext": file.suffix,
                 "bytes": file_size,
                 "loc": count_lines_in_file(file),
-                "first_lines": get_first_lines(file),
+                "first_lines": first_lines,
             }
+
+            # Shebang detection for extensionless files or .sh/.bash
+            if not file.suffix or file.suffix in (".sh", ".bash"):
+                if first_lines and _detect_bash_shebang(first_lines[0]):
+                    file_info["detected_language"] = "bash"
+                    # Set virtual extension for routing if extensionless
+                    if not file.suffix:
+                        file_info["ext"] = ".sh"
 
             return file_info
 

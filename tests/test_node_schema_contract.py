@@ -364,10 +364,10 @@ class TestSchemaContractIntegrity:
         """Verify global TABLES count was updated for new junction tables."""
         from theauditor.indexer.schema import TABLES
 
-        # Updated 2025-11-29: 155 + 15 JSON normalization junction tables = 170
-        assert len(TABLES) == 170, (
-            f"Expected 170 total tables (155 + 15 JSON normalization junction), got {len(TABLES)}. "
-            "Update schema.py assertion if intentionally changing table count."
+        # Updated 2025-11-29: Added Rust (20), Go (22), Bash (8) = 220 tables
+        assert len(TABLES) == 220, (
+            f"Expected 220 total tables (with Rust, Go, Bash support), got {len(TABLES)}. "
+            "Update this test if intentionally changing table count."
         )
 
     def test_junction_tables_have_indexes(self):
