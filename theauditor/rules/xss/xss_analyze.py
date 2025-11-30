@@ -13,7 +13,6 @@ from theauditor.rules.xss.constants import (
     XSS_TARGET_EXTENSIONS,
     is_sanitized,
 )
-from theauditor.taint.sanitizer_util import SanitizerRegistry
 
 METADATA = RuleMetadata(
     name="xss_core",
@@ -36,11 +35,17 @@ def find_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        try:
-            smart_registry = SanitizerRegistry(cursor)
-            dynamic_safe_sinks = smart_registry.safe_sinks
-        except Exception:
-            dynamic_safe_sinks = set()
+        # Load safe sinks directly from database
+        dynamic_safe_sinks: set[str] = set()
+        cursor.execute("""
+            SELECT DISTINCT sink_pattern
+            FROM framework_safe_sinks
+            WHERE is_safe = 1
+        """)
+        for row in cursor.fetchall():
+            pattern = row["sink_pattern"]
+            if pattern:
+                dynamic_safe_sinks.add(pattern)
 
         detected_frameworks = _get_detected_frameworks(cursor)
         static_safe_sinks = _build_framework_safe_sinks(cursor, detected_frameworks)
