@@ -621,6 +621,19 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "serde",
         "import_patterns": ["use serde", "serde::", "#[derive(Serialize", "#[derive(Deserialize"],
     },
+    "validator": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+                ["workspace", "dependencies"],
+            ],
+        },
+        "package_pattern": "validator",
+        "import_patterns": ["use validator", "validator::", "#[derive(Validate)"],
+        "category": "validation",
+    },
     "rails": {
         "language": "ruby",
         "detection_sources": {

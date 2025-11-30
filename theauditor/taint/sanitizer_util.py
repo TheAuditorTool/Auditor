@@ -55,7 +55,7 @@ class SanitizerRegistry:
                     is_validator,
                     variable_name as schema_name
                 FROM validation_framework_usage
-                WHERE framework IN ('zod', 'joi', 'yup', 'express-validator')
+                WHERE framework IN ('zod', 'joi', 'yup', 'express-validator', 'validator')
             """)
 
             for row in self.repo_cursor.fetchall():
@@ -125,6 +125,8 @@ class SanitizerRegistry:
             return "python"
         elif lower.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs")):
             return "javascript"
+        elif lower.endswith(".go"):
+            return "go"
         elif lower.endswith(".rs"):
             return "rust"
         return "unknown"
