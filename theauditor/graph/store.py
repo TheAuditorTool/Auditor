@@ -55,22 +55,16 @@ class XGraphStore:
         cursor = conn.cursor()
 
         try:
-            # Phase 0.5: Explicit transaction for atomicity
             cursor.execute("BEGIN TRANSACTION")
 
-            # Phase 0.4: Scoped or full delete
             if file_path:
-                # Incremental: Only delete nodes/edges for THIS file
                 cursor.execute(
-                    "DELETE FROM nodes WHERE graph_type = ? AND file = ?",
-                    (graph_type, file_path)
+                    "DELETE FROM nodes WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
                 cursor.execute(
-                    "DELETE FROM edges WHERE graph_type = ? AND file = ?",
-                    (graph_type, file_path)
+                    "DELETE FROM edges WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
             else:
-                # Full rebuild: Delete all nodes/edges of this graph type
                 cursor.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
                 cursor.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
 
@@ -129,11 +123,9 @@ class XGraphStore:
                     edges_data,
                 )
 
-            # Phase 0.5: Commit only if ALL operations succeed
             conn.commit()
 
         except Exception as e:
-            # Phase 0.5: Rollback on ANY failure - prevents partial corruption
             conn.rollback()
             raise RuntimeError(f"Graph save failed for {graph_type}: {e}") from e
 

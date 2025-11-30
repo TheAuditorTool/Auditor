@@ -1,7 +1,6 @@
 """Fixture module for verifying Python type hint extraction."""
 
 
-
 def add(x: int, y: int) -> int:
     return x + y
 

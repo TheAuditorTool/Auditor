@@ -717,7 +717,6 @@ class DFGBuilder:
         if not arg_expr:
             return None
 
-        # Strip leading/trailing whitespace
         expr = arg_expr.strip()
 
         if expr.startswith("async") or "=>" in expr:
@@ -729,18 +728,15 @@ class DFGBuilder:
         if expr.startswith("[") and expr.endswith("]"):
             return "array_literal"
 
-        # GRAPH FIX G1: Handle keyword prefixes before function call parsing
-        # These keywords prefix expressions but the DATA flows from the expression result
         keyword_prefixes = ("await ", "new ", "typeof ", "void ", "delete ", "yield ", "yield* ")
         for prefix in keyword_prefixes:
             if expr.startswith(prefix):
-                # Strip the keyword and recursively parse the remainder
-                remainder = expr[len(prefix):].strip()
+                remainder = expr[len(prefix) :].strip()
                 if remainder:
                     result = self._parse_argument_variable(remainder)
                     if result:
                         return result
-                # Keyword with nothing useful after - mark as complex
+
                 return "complex_expression"
 
         if "(" in expr and expr.endswith(")"):
@@ -759,10 +755,7 @@ class DFGBuilder:
         if expr.endswith("!"):
             return expr[:-1]
 
-        # GRAPH FIX G1: If expression contains spaces and wasn't handled above,
-        # it's a complex expression - don't just take the first word
         if " " in expr:
             return "complex_expression"
 
-        # Simple identifier (no spaces, no keywords) - return as-is
         return expr

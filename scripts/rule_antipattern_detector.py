@@ -19,11 +19,12 @@ from pathlib import Path
 @dataclass
 class AntiPattern:
     """Detected anti-pattern."""
+
     file: str
     line: int
     pattern_type: str
     message: str
-    severity: str  # 'critical', 'high', 'medium'
+    severity: str
 
 
 class RuleAntiPatternDetector(ast.NodeVisitor):
@@ -42,28 +43,32 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
         self.in_loop = True
 
-        # Check if iterating over cursor.fetchall()
-        if (isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Attribute) and
-            node.iter.func.attr == 'fetchall'):
+        if (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Attribute)
+            and node.iter.func.attr == "fetchall"
+        ):
             self.loop_iterates_fetchall = True
 
-            # Check for N+1 pattern: cursor.execute inside loop
             for stmt in ast.walk(node):
-                if (isinstance(stmt, ast.Call) and isinstance(stmt.func, ast.Attribute) and
-                    stmt.func.attr == 'execute'):
-                    self.issues.append(AntiPattern(
-                        file=self.filepath,
-                        line=node.lineno,
-                        pattern_type='N+1-query',
-                        message='Query execution inside fetchall() loop - N+1 anti-pattern',
-                        severity='critical'
-                    ))
+                if (
+                    isinstance(stmt, ast.Call)
+                    and isinstance(stmt.func, ast.Attribute)
+                    and stmt.func.attr == "execute"
+                ):
+                    self.issues.append(
+                        AntiPattern(
+                            file=self.filepath,
+                            line=node.lineno,
+                            pattern_type="N+1-query",
+                            message="Query execution inside fetchall() loop - N+1 anti-pattern",
+                            severity="critical",
+                        )
+                    )
                     break
 
-            # Check for checked_count pattern
             self._check_artificial_limit(node)
 
-            # Check for Python filtering that should be in SQL
             self._check_python_filtering(node)
 
         self.generic_visit(node)
@@ -77,28 +82,30 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
         has_break = False
 
         for stmt in ast.walk(loop_node):
-            # Look for counter += 1 or counter = counter + 1
-            if (isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name) and
-                'count' in stmt.target.id.lower()):
+            if (
+                isinstance(stmt, ast.AugAssign)
+                and isinstance(stmt.target, ast.Name)
+                and "count" in stmt.target.id.lower()
+            ):
                 has_increment = True
 
-            # Look for if count > N: break
             if isinstance(stmt, ast.If) and isinstance(stmt.test, ast.Compare):
                 for op in stmt.test.ops:
                     if isinstance(op, ast.Gt):
-                        # Check if body contains break
                         for body_stmt in stmt.body:
                             if isinstance(body_stmt, ast.Break):
                                 has_break = True
 
         if has_increment and has_break:
-            self.issues.append(AntiPattern(
-                file=self.filepath,
-                line=loop_node.lineno,
-                pattern_type='artificial-limit',
-                message='Artificial loop break with checked_count - hiding bugs beyond limit',
-                severity='high'
-            ))
+            self.issues.append(
+                AntiPattern(
+                    file=self.filepath,
+                    line=loop_node.lineno,
+                    pattern_type="artificial-limit",
+                    message="Artificial loop break with checked_count - hiding bugs beyond limit",
+                    severity="high",
+                )
+            )
 
     def _check_python_filtering(self, loop_node: ast.For):
         """Detect filtering in Python that should be in SQL."""
@@ -106,35 +113,40 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 
         for stmt in loop_node.body:
             if isinstance(stmt, ast.If):
-                # Check if body contains continue
                 for body_stmt in stmt.body:
                     if isinstance(body_stmt, ast.Continue):
                         has_continue_in_if = True
                         break
 
         if has_continue_in_if:
-            self.issues.append(AntiPattern(
-                file=self.filepath,
-                line=loop_node.lineno,
-                pattern_type='python-filtering',
-                message='Python-side filtering with continue - should be in SQL WHERE',
-                severity='medium'
-            ))
+            self.issues.append(
+                AntiPattern(
+                    file=self.filepath,
+                    line=loop_node.lineno,
+                    pattern_type="python-filtering",
+                    message="Python-side filtering with continue - should be in SQL WHERE",
+                    severity="medium",
+                )
+            )
 
     def visit_Call(self, node: ast.Call):
         """Detect cursor.execute with LIMIT."""
-        if isinstance(node.func, ast.Attribute) and node.func.attr == 'execute':
-            # Check if query string contains LIMIT
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "execute":
             for arg in node.args:
-                if (isinstance(arg, ast.Constant) and isinstance(arg.value, str) and
-                    'LIMIT' in arg.value.upper()):
-                    self.issues.append(AntiPattern(
-                        file=self.filepath,
-                        line=node.lineno,
-                        pattern_type='limit-in-query',
-                        message='SQL query contains LIMIT - may hide bugs',
-                        severity='high'
-                    ))
+                if (
+                    isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str)
+                    and "LIMIT" in arg.value.upper()
+                ):
+                    self.issues.append(
+                        AntiPattern(
+                            file=self.filepath,
+                            line=node.lineno,
+                            pattern_type="limit-in-query",
+                            message="SQL query contains LIMIT - may hide bugs",
+                            severity="high",
+                        )
+                    )
 
         self.generic_visit(node)
 
@@ -142,7 +154,7 @@ class RuleAntiPatternDetector(ast.NodeVisitor):
 def analyze_rule_file(filepath: Path) -> list[AntiPattern]:
     """Analyze a single rule file for anti-patterns."""
     try:
-        content = filepath.read_text(encoding='utf-8')
+        content = filepath.read_text(encoding="utf-8")
         tree = ast.parse(content)
 
         detector = RuleAntiPatternDetector(str(filepath))
@@ -166,34 +178,31 @@ def main():
 
     all_issues = []
 
-    # Scan all Python files in rules directory
-    for rule_file in rules_dir.rglob('*.py'):
-        if rule_file.name == '__init__.py':
+    for rule_file in rules_dir.rglob("*.py"):
+        if rule_file.name == "__init__.py":
             continue
 
         issues = analyze_rule_file(rule_file)
         all_issues.extend(issues)
 
-    # Report findings
     if not all_issues:
         print("No anti-patterns detected!")
         return
 
     print(f"\nFound {len(all_issues)} anti-patterns:\n")
 
-    # Group by severity
-    by_severity = {'critical': [], 'high': [], 'medium': []}
+    by_severity = {"critical": [], "high": [], "medium": []}
     for issue in all_issues:
         by_severity[issue.severity].append(issue)
 
-    for severity in ['critical', 'high', 'medium']:
+    for severity in ["critical", "high", "medium"]:
         issues = by_severity[severity]
         if not issues:
             continue
 
         print(f"\n{'=' * 80}")
         print(f"{severity.upper()} ({len(issues)} issues)")
-        print('=' * 80)
+        print("=" * 80)
 
         for issue in issues:
             print(f"\n{issue.file}:{issue.line}")
@@ -201,8 +210,8 @@ def main():
 
     print(f"\n{'=' * 80}")
     print(f"Total: {len(all_issues)} issues")
-    print('=' * 80)
+    print("=" * 80)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

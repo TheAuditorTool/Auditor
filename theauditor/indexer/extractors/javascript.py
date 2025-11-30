@@ -322,8 +322,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 if di_injections:
                     result["di_injections"].extend(di_injections)
 
-                # NOTE: frontend_api_calls is handled via key_mappings above
-
         tree_type = tree.get("type") if isinstance(tree, dict) else None
 
         if tree_type == "semantic_ast":
@@ -429,22 +427,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
 
             result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
 
-        # Router mounts still extracted in Python (no TS equivalent yet)
         result["router_mounts"] = self._extract_router_mounts(
             result.get("function_calls", []), file_info.get("path", "")
         )
-
-        # NOTE: React components, hooks, and ORM queries are extracted by the TypeScript engine
-        # in framework_extractors.ts and security_extractors.ts respectively.
-        # Do NOT re-extract here - that causes duplicates and data corruption.
-
-        # NOTE: variable_usage fallback synthesis DELETED - synthesizing usage from
-        # assignments creates "ghost edges" in the graph. If TypeScript didn't see
-        # a usage, Python inferring one is noise. Trust the TS extractor.
-
-        # NOTE: resolved_imports overwrite loop DELETED - TypeScript provides high-fidelity
-        # resolved_imports via key_mappings (line 131). Python's dumb string splitting
-        # (utils -> ./utils) actively degrades data quality by overwriting TS resolution.
 
         manifest = {}
         total_items = 0

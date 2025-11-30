@@ -504,13 +504,9 @@ class NodeStorage(BaseStorage):
                 src_var.get("source_var", ""),
                 src_var.get("var_index", 0),
             )
-            self.counts["assignment_source_vars"] = (
-                self.counts.get("assignment_source_vars", 0) + 1
-            )
+            self.counts["assignment_source_vars"] = self.counts.get("assignment_source_vars", 0) + 1
 
-    def _store_return_source_vars(
-        self, file_path: str, return_source_vars: list, jsx_pass: bool
-    ):
+    def _store_return_source_vars(self, file_path: str, return_source_vars: list, jsx_pass: bool):
         """Store return source variables from flat junction array."""
         for src_var in return_source_vars:
             self.db_manager.add_return_source_var(
@@ -520,9 +516,7 @@ class NodeStorage(BaseStorage):
                 src_var.get("source_var", ""),
                 src_var.get("var_index", 0),
             )
-            self.counts["return_source_vars"] = (
-                self.counts.get("return_source_vars", 0) + 1
-            )
+            self.counts["return_source_vars"] = self.counts.get("return_source_vars", 0) + 1
 
     def _store_import_specifiers(self, file_path: str, import_specifiers: list, jsx_pass: bool):
         """Store import specifiers from flat junction array."""
@@ -627,7 +621,6 @@ class NodeStorage(BaseStorage):
                 edge_file_path = file_path
                 function_name = function_id
 
-            # PHASE 1 FIX: Use None as sentinel, not -1 (which is a valid temp_id)
             source_id = block_id_map.get((function_id, from_block))
             target_id = block_id_map.get((function_id, to_block))
 
@@ -648,7 +641,6 @@ class NodeStorage(BaseStorage):
             function_id = stmt.get("function_id", "")
             block_id = stmt.get("block_id", "")
 
-            # PHASE 1 FIX: Use None as sentinel, not -1 (which is a valid temp_id)
             real_block_id = block_id_map.get((function_id, block_id))
             if real_block_id is None:
                 continue
@@ -673,6 +665,8 @@ class NodeStorage(BaseStorage):
         """No-op handler for cfg_edges. Actual storage is done by _store_cfg_flat."""
         pass
 
-    def _noop_cfg_block_statements(self, file_path: str, cfg_block_statements: list, jsx_pass: bool):
+    def _noop_cfg_block_statements(
+        self, file_path: str, cfg_block_statements: list, jsx_pass: bool
+    ):
         """No-op handler for cfg_block_statements. Actual storage is done by _store_cfg_flat."""
         pass

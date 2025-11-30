@@ -7,7 +7,7 @@ from pydantic import BaseModel, root_validator, validator
 from sqlalchemy import Column, ForeignKey, Integer, String
 from sqlalchemy.orm import backref, declarative_base, relationship
 
-# SQLAlchemy setup
+
 Base = declarative_base()
 
 
@@ -56,7 +56,7 @@ class Profile(Base):
     bio = Column(String)
     user = relationship("User", back_populates="profile", uselist=False)
 
-# Pydantic validators
+
 class Account(BaseModel):
     email: str
     password: str
@@ -75,7 +75,6 @@ class Account(BaseModel):
         return values
 
 
-# FastAPI router with dependencies
 router = APIRouter()
 
 
@@ -92,7 +91,6 @@ def get_user(user_id: int, db=Depends(get_db), current_user=Depends(get_current_
     return {"user_id": user_id, "current": current_user}
 
 
-# Flask blueprint sample
 api = Blueprint("sample_api", __name__, url_prefix="/sample")
 
 

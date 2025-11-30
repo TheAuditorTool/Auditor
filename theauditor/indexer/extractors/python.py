@@ -50,7 +50,6 @@ class PythonExtractor(BaseExtractor):
 
         result = extract_all_python_data(context)
 
-        # Use context's pre-indexed imports instead of walking tree again
         resolved = self._resolve_imports_from_context(file_info, context)
         if resolved:
             result["resolved_imports"] = resolved
@@ -105,7 +104,6 @@ class PythonExtractor(BaseExtractor):
                 return None
             return module_parts_to_path(module_name.split("."))
 
-        # Use context.find_nodes() for O(1) lookup instead of ast.walk()
         for node in context.find_nodes(ast.Import):
             for alias in node.names:
                 module_name = alias.name

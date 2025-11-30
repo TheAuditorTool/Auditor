@@ -606,7 +606,6 @@ FRAMEWORK_REGISTRY = {
         },
         "package_pattern": "grape",
     },
-    # Test frameworks (category: "test")
     "pytest": {
         "language": "python",
         "category": "test",

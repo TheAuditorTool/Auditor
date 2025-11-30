@@ -16,12 +16,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add project root to path
+
 sys.path.insert(0, os.getcwd())
 
 
-# The "Kitchen Sink" Code Sample - triggers as many Node extractors as possible
-KITCHEN_SINK_CODE = '''
+KITCHEN_SINK_CODE = """
 // ============================================================
 // IMPORTS - Various styles
 // ============================================================
@@ -522,16 +521,16 @@ function validateUser(input: unknown) {
 // ============================================================
 export { UserProfile, VueUserCard, VueProductList, UserModule, router };
 export default UserProfile;
-'''
+"""
 
 
 def format_value(value: any, max_len: int = 80) -> str:
     """Format a value for display, truncating if needed."""
     if value is None:
-        return 'None'
+        return "None"
     s = str(value)
     if len(s) > max_len:
-        return s[:max_len-3] + '...'
+        return s[: max_len - 3] + "..."
     return s
 
 
@@ -545,7 +544,6 @@ def audit():
     print("and reports the ACTUAL dictionary keys and value samples it returns.")
     print()
 
-    # Import the required modules
     try:
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
         from theauditor.js_semantic_parser import JSSemanticParser
@@ -554,15 +552,13 @@ def audit():
         print("Make sure you're running from the project root.")
         sys.exit(1)
 
-    # Create temp file with kitchen sink code
     temp_dir = Path(tempfile.gettempdir()) / "theauditor_audit"
     temp_dir.mkdir(exist_ok=True)
     temp_file = temp_dir / "kitchen_sink.tsx"
 
     print(f"[INFO] Writing sample code to: {temp_file}")
-    temp_file.write_text(KITCHEN_SINK_CODE, encoding='utf-8')
+    temp_file.write_text(KITCHEN_SINK_CODE, encoding="utf-8")
 
-    # Initialize parser and extractor
     print("[INFO] Initializing JSSemanticParser...")
     try:
         parser = JSSemanticParser(project_root=str(temp_dir))
@@ -575,9 +571,8 @@ def audit():
 
     print("[INFO] Initializing JavaScriptExtractor...")
     extractor = JavaScriptExtractor(root_path=str(temp_dir))
-    extractor.ast_parser = parser  # Set parser for extractor
+    extractor.ast_parser = parser
 
-    # Parse the file
     print("[INFO] Parsing sample code...")
     try:
         tree = parser.get_semantic_ast(str(temp_file))
@@ -592,51 +587,53 @@ def audit():
         show_expected_schema()
         return
 
-    # Debug: Show what the parser returned
-    print("[DEBUG] Parser returned tree with keys:", list(tree.keys()) if isinstance(tree, dict) else type(tree))
+    print(
+        "[DEBUG] Parser returned tree with keys:",
+        list(tree.keys()) if isinstance(tree, dict) else type(tree),
+    )
     if isinstance(tree, dict):
-        if 'extracted_data' in tree:
-            ed = tree['extracted_data']
-            print("[DEBUG] extracted_data keys:", list(ed.keys()) if isinstance(ed, dict) else type(ed))
+        if "extracted_data" in tree:
+            ed = tree["extracted_data"]
+            print(
+                "[DEBUG] extracted_data keys:",
+                list(ed.keys()) if isinstance(ed, dict) else type(ed),
+            )
             if isinstance(ed, dict):
                 for k, v in ed.items():
                     if isinstance(v, list) and len(v) > 0:
                         print(f"[DEBUG]   {k}: {len(v)} items")
-        elif 'tree' in tree:
-            inner = tree['tree']
-            if isinstance(inner, dict) and 'extracted_data' in inner:
-                ed = inner['extracted_data']
-                print("[DEBUG] tree.extracted_data keys:", list(ed.keys()) if isinstance(ed, dict) else type(ed))
-        if 'error' in tree:
+        elif "tree" in tree:
+            inner = tree["tree"]
+            if isinstance(inner, dict) and "extracted_data" in inner:
+                ed = inner["extracted_data"]
+                print(
+                    "[DEBUG] tree.extracted_data keys:",
+                    list(ed.keys()) if isinstance(ed, dict) else type(ed),
+                )
+        if "error" in tree:
             print(f"[DEBUG] Parser error: {tree['error']}")
             print("[INFO] TypeScript compiler not available - showing expected schema instead.")
             show_expected_schema()
             return
 
-    # Extract
     print("[INFO] Running extraction...")
-    file_info = {
-        'path': str(temp_file),
-        'extension': '.tsx',
-        'size': len(KITCHEN_SINK_CODE)
-    }
+    file_info = {"path": str(temp_file), "extension": ".tsx", "size": len(KITCHEN_SINK_CODE)}
 
     try:
         result = extractor.extract(file_info, KITCHEN_SINK_CODE, tree)
     except Exception as e:
         print(f"[ERROR] Extraction failed: {e}")
         import traceback
+
         traceback.print_exc()
         show_expected_schema()
         return
 
-    # Report results
     print()
     print("=" * 80)
     print("EXTRACTION RESULTS")
     print("=" * 80)
 
-    # Sort keys by whether they have data
     keys_with_data = []
     keys_without_data = []
 
@@ -647,7 +644,6 @@ def audit():
         else:
             keys_without_data.append(key)
 
-    # Report keys WITH data
     print()
     print("-" * 60)
     print("KEYS WITH DATA (Extraction Working)")
@@ -661,29 +657,38 @@ def audit():
             print(f"  COUNT: {len(value)}")
 
             if len(value) > 0 and isinstance(value[0], dict):
-                # Show keys from first item
                 item_keys = sorted(value[0].keys())
                 print(f"  ITEM KEYS: {item_keys}")
 
-                # Show value samples for discriminator fields
-                discriminator_keys = [k for k in item_keys if k in (
-                    'type', 'kind', 'method', 'hook_name', 'directive_name',
-                    'component_type', 'import_style', 'operation_type', 'guard_type',
-                    'association_type', 'injection_type', 'style'
-                )]
+                discriminator_keys = [
+                    k
+                    for k in item_keys
+                    if k
+                    in (
+                        "type",
+                        "kind",
+                        "method",
+                        "hook_name",
+                        "directive_name",
+                        "component_type",
+                        "import_style",
+                        "operation_type",
+                        "guard_type",
+                        "association_type",
+                        "injection_type",
+                        "style",
+                    )
+                ]
 
                 if discriminator_keys:
                     print("  VALUE SAMPLES (discriminators):")
                     for dk in discriminator_keys:
-                        values = sorted({
-                            str(item.get(dk, ''))
-                            for item in value
-                            if item.get(dk)
-                        })[:8]
+                        values = sorted({str(item.get(dk, "")) for item in value if item.get(dk)})[
+                            :8
+                        ]
                         if values:
                             print(f"    {dk}: {values}")
 
-                # Show first item as sample
                 print(f"  SAMPLE ITEM: {format_value(value[0], 200)}")
             else:
                 print(f"  SAMPLE: {format_value(value[:3], 200)}")
@@ -692,14 +697,12 @@ def audit():
             print(f"  COUNT: {len(value)} keys")
             print(f"  KEYS: {sorted(list(value.keys())[:10])}")
 
-    # Report keys WITHOUT data
     print()
     print("-" * 60)
     print("KEYS WITHOUT DATA (May need different sample code)")
     print("-" * 60)
     print(f"  {', '.join(keys_without_data)}")
 
-    # Summary
     print()
     print("=" * 80)
     print("SUMMARY")
@@ -708,15 +711,17 @@ def audit():
     print(f"Keys with data: {len(keys_with_data)}")
     print(f"Keys without data: {len(keys_without_data)}")
 
-    # Schema alignment check
     print()
     print("-" * 60)
     print("SCHEMA ALIGNMENT CHECK (Junction Tables)")
     print("-" * 60)
 
     junction_relevant_keys = [
-        'vue_components', 'angular_components', 'angular_modules',
-        'react_components', 'react_hooks'
+        "vue_components",
+        "angular_components",
+        "angular_modules",
+        "react_components",
+        "react_hooks",
     ]
 
     for key in junction_relevant_keys:
@@ -727,17 +732,27 @@ def audit():
                 print(f"\n{key}:")
                 print(f"  Fields: {sorted(item_keys)}")
 
-                # Check for JSON blob fields that should be normalized
-                json_fields = [k for k in item_keys if k in (
-                    'props_definition', 'emits_definition', 'setup_return',
-                    'style_paths', 'declarations', 'imports', 'providers', 'exports',
-                    'hooks_used', 'dependency_vars'
-                )]
+                json_fields = [
+                    k
+                    for k in item_keys
+                    if k
+                    in (
+                        "props_definition",
+                        "emits_definition",
+                        "setup_return",
+                        "style_paths",
+                        "declarations",
+                        "imports",
+                        "providers",
+                        "exports",
+                        "hooks_used",
+                        "dependency_vars",
+                    )
+                ]
                 if json_fields:
                     print(f"  [WARNING] Contains JSON fields: {json_fields}")
                     print("            These should be in junction tables!")
 
-    # Cleanup
     try:
         temp_file.unlink()
     except Exception:
@@ -763,19 +778,34 @@ def show_expected_schema():
 
     from theauditor.indexer.schemas.node_schema import NODE_TABLES
 
-    # Categorize tables
     junction_tables = [
-        'vue_component_props', 'vue_component_emits', 'vue_component_setup_returns',
-        'angular_component_styles', 'angular_module_declarations',
-        'angular_module_imports', 'angular_module_providers', 'angular_module_exports'
+        "vue_component_props",
+        "vue_component_emits",
+        "vue_component_setup_returns",
+        "angular_component_styles",
+        "angular_module_declarations",
+        "angular_module_imports",
+        "angular_module_providers",
+        "angular_module_exports",
     ]
 
-    react_tables = ['react_components', 'react_component_hooks', 'react_hooks', 'react_hook_dependencies']
-    vue_tables = ['vue_components', 'vue_hooks', 'vue_directives', 'vue_provide_inject']
-    angular_tables = ['angular_components', 'angular_services', 'angular_modules', 'angular_guards', 'di_injections']
-    sequelize_tables = ['sequelize_models', 'sequelize_associations']
-    bullmq_tables = ['bullmq_queues', 'bullmq_workers']
-    express_tables = ['express_middleware_chains', 'frontend_api_calls']
+    react_tables = [
+        "react_components",
+        "react_component_hooks",
+        "react_hooks",
+        "react_hook_dependencies",
+    ]
+    vue_tables = ["vue_components", "vue_hooks", "vue_directives", "vue_provide_inject"]
+    angular_tables = [
+        "angular_components",
+        "angular_services",
+        "angular_modules",
+        "angular_guards",
+        "di_injections",
+    ]
+    sequelize_tables = ["sequelize_models", "sequelize_associations"]
+    bullmq_tables = ["bullmq_queues", "bullmq_workers"]
+    express_tables = ["express_middleware_chains", "frontend_api_calls"]
 
     print("=" * 80)
     print("1. NEW JUNCTION TABLES (node-schema-normalization)")
@@ -787,7 +817,10 @@ def show_expected_schema():
     for table_name in junction_tables:
         if table_name in NODE_TABLES:
             table = NODE_TABLES[table_name]
-            cols = [(col.name, col.type, "NOT NULL" if not col.nullable else "NULL") for col in table.columns]
+            cols = [
+                (col.name, col.type, "NOT NULL" if not col.nullable else "NULL")
+                for col in table.columns
+            ]
             print(f"\n{table_name}:")
             for col_name, col_type, nullable in cols:
                 print(f"    {col_name}: {col_type} {nullable}")
@@ -802,7 +835,7 @@ def show_expected_schema():
     print("  - angular_components: style_paths REMOVED")
     print("  - angular_modules: declarations, imports, providers, exports REMOVED")
 
-    parent_tables = ['vue_components', 'angular_components', 'angular_modules']
+    parent_tables = ["vue_components", "angular_components", "angular_modules"]
     for table_name in parent_tables:
         if table_name in NODE_TABLES:
             table = NODE_TABLES[table_name]
@@ -827,7 +860,7 @@ def show_expected_schema():
     print("4. VUE TABLES (including junction)")
     print("=" * 80)
 
-    for table_name in vue_tables + [t for t in junction_tables if t.startswith('vue_')]:
+    for table_name in vue_tables + [t for t in junction_tables if t.startswith("vue_")]:
         if table_name in NODE_TABLES:
             table = NODE_TABLES[table_name]
             cols = [col.name for col in table.columns]
@@ -840,7 +873,7 @@ def show_expected_schema():
     print("5. ANGULAR TABLES (including junction)")
     print("=" * 80)
 
-    for table_name in angular_tables + [t for t in junction_tables if t.startswith('angular_')]:
+    for table_name in angular_tables + [t for t in junction_tables if t.startswith("angular_")]:
         if table_name in NODE_TABLES:
             table = NODE_TABLES[table_name]
             cols = [col.name for col in table.columns]

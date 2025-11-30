@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Fix remaining dispatcher calls in python.py
 Replaces all variations of extractor calls with context parameter.
@@ -21,53 +20,62 @@ def fix_python_dispatcher():
 
     content = python_file.read_text(encoding="utf-8")
 
-    # Patterns to replace
     patterns = [
-        # core_extractors.extract_X(tree, self.ast_parser)
-        (r'(core_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # framework_extractors.extract_X(tree, self.ast_parser)
-        (r'(framework_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # orm_extractors.extract_X(tree, self.ast_parser)
-        (r'(orm_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\s*\)', r'\1(context)'),
-        (r'(orm_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # django_web_extractors.extract_X(tree, self.ast_parser)
-        (r'(django_web_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # flask_extractors.extract_X(tree, self.ast_parser)
-        (r'(flask_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # security_extractors.extract_X(tree, self.ast_parser)
-        (r'(security_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # testing_extractors.extract_X(tree, self.ast_parser)
-        (r'(testing_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # performance_extractors.extract_X(tree, self.ast_parser)
-        (r'(performance_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # task_graphql_extractors.extract_X(tree, self.ast_parser)
-        (r'(task_graphql_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # stdlib_pattern_extractors.extract_X(tree, self.ast_parser)
-        (r'(stdlib_pattern_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # validation_extractors.extract_X(tree, self.ast_parser)
-        (r'(validation_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # Any other module.extract_X(tree, self.ast_parser)
-        (r'([a-zA-Z0-9_]+_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # Generic extractors (tree, self)
-        (r'(extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\s*\)', r'\1(context)'),
-
-        # Fundamental extractors
-        (r'(fundamental_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)', r'\1(context)'),
-
-        # Any remaining .extract_X(tree, something)
-        (r'(\w+\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*[^)]+\)', r'\1(context)'),
+        (
+            r"(core_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(framework_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (r"(orm_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\s*\)", r"\1(context)"),
+        (
+            r"(orm_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(django_web_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(flask_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(security_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(testing_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(performance_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(task_graphql_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(stdlib_pattern_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"(validation_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (
+            r"([a-zA-Z0-9_]+_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (r"(extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\s*\)", r"\1(context)"),
+        (
+            r"(fundamental_extractors\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*self\.ast_parser\s*\)",
+            r"\1(context)",
+        ),
+        (r"(\w+\.extract_[a-zA-Z0-9_]+)\s*\(\s*tree\s*,\s*[^)]+\)", r"\1(context)"),
     ]
 
     total_replacements = 0
@@ -78,7 +86,6 @@ def fix_python_dispatcher():
             total_replacements += count
 
     if total_replacements > 0:
-        # Write the updated content
         python_file.write_text(content, encoding="utf-8")
         print(f"\nTotal replacements: {total_replacements}")
         print(f"SUCCESS: {python_file} updated")
@@ -86,6 +93,7 @@ def fix_python_dispatcher():
     else:
         print("No changes needed")
         return False
+
 
 if __name__ == "__main__":
     success = fix_python_dispatcher()

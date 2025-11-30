@@ -681,7 +681,7 @@ class FrameworkDetector:
             fw_config = FRAMEWORK_REGISTRY.get(fw_name, {})
             if fw_config.get("category") == "test":
                 cmd = fw_config.get("command", "")
-                # Handle Java build tool variants
+
                 if fw_name == "junit":
                     if (self.project_path / "pom.xml").exists():
                         cmd = fw_config.get("command_maven", "mvn test")
