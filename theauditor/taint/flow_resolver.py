@@ -8,6 +8,7 @@ from functools import lru_cache
 from theauditor.utils.logger import setup_logger
 
 from .sanitizer_util import SanitizerRegistry
+from .taint_path import determine_vulnerability_type
 
 logger = setup_logger(__name__)
 
@@ -588,7 +589,7 @@ class FlowResolver:
             }
             hop_chain.append(hop)
 
-        vuln_type = self._determine_vuln_type(sink_pattern, source_pattern)
+        vuln_type = determine_vulnerability_type(sink_pattern, source_pattern)
 
         cursor.execute(
             """
@@ -625,174 +626,6 @@ class FlowResolver:
         if self.flows_resolved % 1000 == 0:
             self.repo_conn.commit()
             logger.debug(f"Recorded {self.flows_resolved} semantic flows...")
-
-    def _determine_vuln_type(self, sink_pattern: str, source_pattern: str | None = None) -> str:
-        """Determine vulnerability type from sink and source patterns.
-
-        TAINT FIX T4: Replace hardcoded "unknown" with dynamic classification.
-        Classification based on common sink patterns across Node.js/Python/React.
-        """
-        if not sink_pattern:
-            return "Data Exposure"
-
-        lower_sink = sink_pattern.lower()
-        lower_source = (source_pattern or "").lower()
-
-        xss_patterns = [
-            "innerhtml",
-            "outerhtml",
-            "dangerouslysetinnerhtml",
-            "insertadjacenthtml",
-            "document.write",
-            "document.writeln",
-            "res.send",
-            "res.render",
-            "res.write",
-            "response.write",
-            "response.send",
-            "sethtml",
-            "v-html",
-            "ng-bind-html",
-            "__html",
-            "createelement",
-            "appendchild",
-            "insertbefore",
-        ]
-        if any(p in lower_sink for p in xss_patterns):
-            return "Cross-Site Scripting (XSS)"
-
-        sql_patterns = [
-            "query",
-            "execute",
-            "exec",
-            "raw",
-            "sequelize.query",
-            "knex.raw",
-            "prisma.$queryraw",
-            "prisma.$executeraw",
-            "cursor.execute",
-            "conn.execute",
-            "db.query",
-            "pool.query",
-            "client.query",
-            "sql",
-            "rawquery",
-        ]
-        if any(p in lower_sink for p in sql_patterns):
-            return "SQL Injection"
-
-        cmd_patterns = [
-            "exec",
-            "execsync",
-            "spawn",
-            "spawnsync",
-            "child_process",
-            "shellexecute",
-            "popen",
-            "system",
-            "subprocess",
-            "os.system",
-            "os.popen",
-            "subprocess.run",
-            "subprocess.call",
-            "subprocess.popen",
-            "eval",
-            "function(",
-            "new function",
-        ]
-        if any(p in lower_sink for p in cmd_patterns):
-            if "eval" in lower_sink or "function(" in lower_sink:
-                return "Code Injection"
-            return "Command Injection"
-
-        path_patterns = [
-            "readfile",
-            "writefile",
-            "readfilesync",
-            "writefilesync",
-            "createreadstream",
-            "createwritestream",
-            "fs.read",
-            "fs.write",
-            "open(",
-            "path.join",
-            "path.resolve",
-            "sendfile",
-            "download",
-            "unlink",
-            "rmdir",
-            "mkdir",
-            "rename",
-            "copy",
-            "move",
-        ]
-        if any(p in lower_sink for p in path_patterns):
-            return "Path Traversal"
-
-        ssrf_patterns = [
-            "fetch",
-            "axios",
-            "request",
-            "http.get",
-            "http.request",
-            "https.get",
-            "https.request",
-            "urllib",
-            "requests.get",
-            "requests.post",
-            "curl",
-            "httpx",
-        ]
-        if any(p in lower_sink for p in ssrf_patterns):
-            return "Server-Side Request Forgery (SSRF)"
-
-        proto_patterns = [
-            "__proto__",
-            "constructor.prototype",
-            "object.assign",
-            "merge(",
-            "extend(",
-            "deepmerge",
-            "lodash.merge",
-            "$.extend",
-        ]
-        if any(p in lower_sink for p in proto_patterns):
-            return "Prototype Pollution"
-
-        log_patterns = [
-            "console.log",
-            "console.error",
-            "console.warn",
-            "logger.",
-            "logging.",
-            "log.info",
-            "log.error",
-            "log.debug",
-        ]
-        if any(p in lower_sink for p in log_patterns):
-            return "Log Injection"
-
-        redirect_patterns = [
-            "redirect",
-            "location.href",
-            "location.assign",
-            "location.replace",
-            "res.redirect",
-            "window.location",
-        ]
-        if any(p in lower_sink for p in redirect_patterns):
-            return "Open Redirect"
-
-        if (
-            "req.body" in lower_source
-            or "req.params" in lower_source
-            or "req.query" in lower_source
-        ):
-            return "Unvalidated Input"
-        if "user" in lower_source or "input" in lower_source:
-            return "Unvalidated Input"
-
-        return "Data Exposure"
 
     def _get_edge_type(self, from_node: str, to_node: str) -> str:
         """Get edge type via lazy DB query with LRU cache.

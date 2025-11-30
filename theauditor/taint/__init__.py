@@ -11,11 +11,12 @@ from .core import (
 from .discovery import TaintDiscovery
 from .ifds_analyzer import IFDSTaintAnalyzer
 from .schema_cache_adapter import SchemaMemoryCacheAdapter
-from .taint_path import TaintPath
+from .taint_path import TaintPath, determine_vulnerability_type
 
 __all__ = [
     "trace_taint",
     "TaintPath",
+    "determine_vulnerability_type",
     "TaintRegistry",
     "save_taint_analysis",
     "normalize_taint_path",

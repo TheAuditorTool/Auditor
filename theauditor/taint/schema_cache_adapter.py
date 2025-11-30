@@ -1,10 +1,15 @@
 """Adapter to make SchemaMemoryCache compatible with existing MemoryCache interface."""
 
-from typing import Any
-
 
 class SchemaMemoryCacheAdapter:
-    """Adapter to make SchemaMemoryCache work with existing taint code."""
+    """Adapter to make SchemaMemoryCache work with existing taint code.
+
+    This adapter provides compatibility layer between the new SchemaMemoryCache
+    and legacy code that expects specific attribute names.
+
+    NOTE: Discovery logic lives in discovery.py (TaintDiscovery class).
+    This adapter ONLY handles attribute mapping - no business logic.
+    """
 
     def __init__(self, schema_cache):
         """Initialize with a SchemaMemoryCache instance."""
@@ -65,129 +70,6 @@ class SchemaMemoryCacheAdapter:
         total_rows = sum(stats.values())
 
         return (total_rows * 1024) / (1024 * 1024)
-
-    def find_taint_sources_cached(
-        self, sources_dict: dict[str, list[str]] | None = None
-    ) -> list[dict[str, Any]]:
-        """Find taint sources using cache - adapter method."""
-        sources = []
-
-        if not sources_dict:
-            if hasattr(self._cache, "api_endpoints"):
-                for endpoint in self._cache.api_endpoints:
-                    sources.append(
-                        {
-                            "name": endpoint.get("handler_function", "unknown"),
-                            "file": endpoint.get("file", ""),
-                            "line": endpoint.get("line", 0),
-                            "pattern": f"{endpoint.get('method', 'GET')} {endpoint.get('path', '/')}",
-                            "category": "http_request",
-                            "metadata": endpoint,
-                        }
-                    )
-            return sources
-
-        for category, patterns in sources_dict.items():
-            for pattern in patterns:
-                if hasattr(self._cache, "symbols"):
-                    for symbol in self._cache.symbols:
-                        if pattern in symbol.get("name", ""):
-                            sources.append(
-                                {
-                                    "name": symbol.get("name", ""),
-                                    "file": symbol.get("path", ""),
-                                    "line": symbol.get("line", 0),
-                                    "pattern": pattern,
-                                    "category": category,
-                                    "metadata": symbol,
-                                }
-                            )
-
-                if category == "http_request" and hasattr(self._cache, "api_endpoints"):
-                    for endpoint in self._cache.api_endpoints:
-                        sources.append(
-                            {
-                                "name": endpoint.get("handler_function", "unknown"),
-                                "file": endpoint.get("file", ""),
-                                "line": endpoint.get("line", 0),
-                                "pattern": pattern,
-                                "category": category,
-                                "metadata": endpoint,
-                            }
-                        )
-
-        return sources
-
-    def find_security_sinks_cached(
-        self, sinks_dict: dict[str, list[str]] | None = None
-    ) -> list[dict[str, Any]]:
-        """Find security sinks using cache - adapter method."""
-        sinks = []
-
-        if hasattr(self._cache, "sql_queries"):
-            for query in self._cache.sql_queries:
-                sinks.append(
-                    {
-                        "name": "sql_query",
-                        "file": query.get("file_path", ""),
-                        "line": query.get("line_number", 0),
-                        "pattern": query.get("query_text", ""),
-                        "category": "sql",
-                        "metadata": query,
-                    }
-                )
-
-        if hasattr(self._cache, "nosql_queries"):
-            for query in self._cache.nosql_queries:
-                sinks.append(
-                    {
-                        "name": "nosql_query",
-                        "file": query.get("file", ""),
-                        "line": query.get("line", 0),
-                        "pattern": query.get("operation", ""),
-                        "category": "nosql",
-                        "metadata": query,
-                    }
-                )
-
-        if not sinks_dict:
-            return sinks
-
-        cmd_patterns = sinks_dict.get("command", [])
-        if cmd_patterns and hasattr(self._cache, "function_call_args"):
-            for call in self._cache.function_call_args:
-                func_name = call.get("callee_function", "")
-                if any(pattern in func_name for pattern in cmd_patterns):
-                    sinks.append(
-                        {
-                            "name": func_name,
-                            "file": call.get("file", ""),
-                            "line": call.get("line", 0),
-                            "pattern": func_name,
-                            "category": "command",
-                            "metadata": call,
-                        }
-                    )
-
-        xss_patterns = sinks_dict.get("xss", [])
-        if xss_patterns and hasattr(self._cache, "react_hooks"):
-            for hook in self._cache.react_hooks:
-                hook_str = str(hook)
-                for pattern in xss_patterns:
-                    if pattern in hook_str:
-                        sinks.append(
-                            {
-                                "name": "react_dangerous_html",
-                                "file": hook.get("file", ""),
-                                "line": hook.get("line", 0),
-                                "pattern": pattern,
-                                "category": "xss",
-                                "metadata": hook,
-                            }
-                        )
-                        break
-
-        return sinks
 
     def __getattr__(self, name):
         """Forward any other attribute access to the underlying cache."""
