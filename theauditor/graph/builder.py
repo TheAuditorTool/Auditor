@@ -700,7 +700,7 @@ class XGraphBuilder:
             for file_path, lang in bar:
                 rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
 
-                resolved_imports = file_imports_resolved.get(rel_path, set())
+                resolved_imports = file_imports_resolved[rel_path]
 
                 module_node = self._ensure_module_node(
                     nodes,
