@@ -22,8 +22,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         """Extract all JavaScript/TypeScript information."""
         result = {
             "imports": [],
-            "resolved_imports": {},
-            "routes": [],
+            "refs": {},
             "symbols": [],
             "assignments": [],
             "function_calls": [],
@@ -66,7 +65,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             "vue_component_props": [],
             "vue_component_emits": [],
             "vue_component_setup_returns": [],
-            "express_middleware_chains": [],
+            "middleware_chains": [],
+            "validation_calls": [],
             "graphql_resolver_params": [],
             "assignment_source_vars": [],
             "return_source_vars": [],
@@ -110,7 +110,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "class_properties",
                     "env_var_usage",
                     "orm_relationships",
-                    "routes",
+                    "api_endpoints",
                 ]:
                     if key in extracted_data:
                         result[key] = extracted_data[key]
@@ -128,7 +128,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
 
                 key_mappings = {
                     "import_styles": "import_styles",
-                    "resolved_imports": "resolved_imports",
+                    "refs": "refs",
                     "react_components": "react_components",
                     "react_hooks": "react_hooks",
                     "react_component_hooks": "react_component_hooks",
@@ -141,8 +141,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     "vue_component_emits": "vue_component_emits",
                     "vue_component_setup_returns": "vue_component_setup_returns",
                     "orm_queries": "orm_queries",
-                    "express_middleware_chains": "express_middleware_chains",
-                    "validation_framework_usage": "validation_framework_usage",
+                    "middleware_chains": "middleware_chains",
+                    "validation_calls": "validation_calls",
                     "cdk_constructs": "cdk_constructs",
                     "cdk_construct_properties": "cdk_construct_properties",
                     "angular_component_styles": "angular_component_styles",

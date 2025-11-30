@@ -46,6 +46,52 @@ try {
   );
 }
 
+/**
+ * Sanitize virtual Vue paths back to original file paths.
+ * Virtual paths like /virtual_vue/xxx.ts leak into extracted data
+ * and break graph edges since they don't match actual file records.
+ */
+function sanitizeVirtualPaths(
+  data: any,
+  virtualToOriginalMap: Map<string, string>,
+): any {
+  if (!data) return data;
+
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeVirtualPaths(item, virtualToOriginalMap));
+  }
+
+  if (typeof data === "object") {
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (
+        (key === "file" ||
+          key === "defined_in" ||
+          key === "callee_file_path" ||
+          key === "path" ||
+          key === "fileName") &&
+        typeof value === "string" &&
+        value.includes("/virtual_vue/")
+      ) {
+        // Extract scope ID from virtual path and look up original
+        const match = value.match(/\/virtual_vue\/([^.]+)/);
+        if (match) {
+          const scopeId = match[1];
+          const original = virtualToOriginalMap.get(scopeId);
+          sanitized[key] = original || value;
+        } else {
+          sanitized[key] = value;
+        }
+      } else {
+        sanitized[key] = sanitizeVirtualPaths(value, virtualToOriginalMap);
+      }
+    }
+    return sanitized;
+  }
+
+  return data;
+}
+
 interface BatchRequest {
   files: string[];
   projectRoot: string;
@@ -314,6 +360,7 @@ async function main(): Promise<void> {
     const filesByConfig = new Map<string, FileEntry[]>();
     const DEFAULT_KEY = "__DEFAULT__";
     const preprocessingErrors = new Map<string, string>();
+    const virtualToOriginalMap = new Map<string, string>();
 
     for (const filePath of filePaths) {
       const absoluteFilePath = path.resolve(filePath);
@@ -330,6 +377,8 @@ async function main(): Promise<void> {
           const vueMeta = prepareVueSfcFile(absoluteFilePath);
           fileEntry.absolute = vueMeta.virtualPath;
           fileEntry.vueMeta = vueMeta;
+          // Track scopeId -> original path for virtual path sanitization
+          virtualToOriginalMap.set(vueMeta.scopeId, filePath);
         } catch (err: any) {
           preprocessingErrors.set(
             filePath,
@@ -772,7 +821,7 @@ async function main(): Promise<void> {
               import_specifiers: import_specifiers,
               import_styles: importStyles,
               import_style_names: import_style_names,
-              resolved_imports: refs,
+              refs: refs,
               assignments: assignments,
               assignment_source_vars: assignment_source_vars,
               returns: returns,
@@ -788,9 +837,9 @@ async function main(): Promise<void> {
               react_hooks: reactHooks,
               react_hook_dependencies: react_hook_dependencies,
               orm_queries: ormQueries,
-              routes: apiEndpoints,
-              express_middleware_chains: middlewareChains,
-              validation_framework_usage: validationUsage,
+              api_endpoints: apiEndpoints,
+              middleware_chains: middlewareChains,
+              validation_calls: validationUsage,
               sql_queries: sqlQueries,
               cdk_constructs: cdkData.cdk_constructs || [],
               cdk_construct_properties: cdkData.cdk_construct_properties || [],
@@ -845,20 +894,20 @@ async function main(): Promise<void> {
       };
     }
 
+    // Sanitize virtual Vue paths before validation
+    const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
+
     try {
-      const validated = ExtractionReceiptSchema.parse(results);
+      const validated = ExtractionReceiptSchema.parse(sanitizedResults);
       fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
       console.error("[BATCH DEBUG] Output validated and written successfully");
     } catch (e) {
       if (e instanceof z.ZodError) {
-        console.error(
-          "[BATCH WARN] Zod validation failed, writing raw results:",
-        );
-        console.error(JSON.stringify(e.errors.slice(0, 5), null, 2));
-        fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), "utf8");
-      } else {
-        throw e;
+        console.error("[BATCH ERROR] Zod validation failed - refusing to write invalid data:");
+        console.error(JSON.stringify(e.errors.slice(0, 10), null, 2));
+        process.exit(1);
       }
+      throw e;
     }
 
     process.exit(0);

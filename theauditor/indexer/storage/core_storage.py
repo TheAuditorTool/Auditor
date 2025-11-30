@@ -19,9 +19,9 @@ class CoreStorage(BaseStorage):
 
         self.handlers = {
             "imports": self._store_imports,
-            "routes": self._store_routes,
+            "api_endpoints": self._store_routes,
             "router_mounts": self._store_router_mounts,
-            "express_middleware_chains": self._store_express_middleware_chains,
+            "middleware_chains": self._store_express_middleware_chains,
             "sql_objects": self._store_sql_objects,
             "sql_queries": self._store_sql_queries,
             "cdk_constructs": self._store_cdk_constructs,
@@ -29,7 +29,7 @@ class CoreStorage(BaseStorage):
             "symbols": self._store_symbols,
             "type_annotations": self._store_type_annotations,
             "orm_queries": self._store_orm_queries,
-            "validation_framework_usage": self._store_validation_framework_usage,
+            "validation_calls": self._store_validation_framework_usage,
             "assignments": self._store_assignments,
             "function_calls": self._store_function_calls,
             "returns": self._store_returns,
@@ -60,14 +60,14 @@ class CoreStorage(BaseStorage):
                 kind, value = import_item
                 line = None
 
-            resolved = self._current_extracted.get("resolved_imports", {}).get(value, value)
+            resolved = self._current_extracted.get("refs", {}).get(value, value)
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved} (line {line})")
             self.db_manager.add_ref(file_path, kind, resolved, line)
             self.counts["refs"] += 1
 
     def _store_routes(self, file_path: str, routes: list, jsx_pass: bool):
-        """Store routes (api_endpoints with all 8 fields)."""
+        """Store api_endpoints with all 8 fields."""
         for route in routes:
             if isinstance(route, dict):
                 self.db_manager.add_endpoint(
@@ -83,7 +83,7 @@ class CoreStorage(BaseStorage):
             else:
                 method, pattern, controls = route
                 self.db_manager.add_endpoint(file_path, method, pattern, controls)
-            self.counts["routes"] += 1
+            self.counts["api_endpoints"] += 1
 
     def _store_router_mounts(self, file_path: str, router_mounts: list, jsx_pass: bool):
         """Store router mount points (PHASE 6.7 - AST-based route resolution)."""
@@ -272,6 +272,7 @@ class CoreStorage(BaseStorage):
                     symbol.get("end_line"),
                     symbol.get("type_annotation"),
                     parameters_json,
+                    symbol.get("is_typed"),
                 )
                 self.counts["symbols"] += 1
 
