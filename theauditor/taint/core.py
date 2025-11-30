@@ -624,6 +624,37 @@ def trace_taint(
         print("[TAINT] Using IFDS mode with graphs.db", file=sys.stderr)
         sys.stderr.flush()
 
+        # --- THE HANDSHAKE: Filter sinks based on FlowResolver results ---
+        # In complete mode, FlowResolver already ran and identified reachable sinks.
+        # IFDS should only analyze those, not the entire universe.
+        if mode == "complete":
+            print("[TAINT] Handshake: Filtering sinks based on FlowResolver results...", file=sys.stderr)
+
+            handshake_conn = sqlite3.connect(db_path)
+            handshake_cursor = handshake_conn.cursor()
+            handshake_cursor.execute("""
+                SELECT DISTINCT sink_file, sink_line
+                FROM resolved_flow_audit
+                WHERE engine = 'FlowResolver' AND status = 'VULNERABLE'
+            """)
+
+            reachable_targets = set()
+            for row in handshake_cursor.fetchall():
+                reachable_targets.add((row[0], row[1]))
+
+            handshake_conn.close()
+
+            print(f"[TAINT] FlowResolver identified {len(reachable_targets)} reachable sinks.", file=sys.stderr)
+
+            original_count = len(sinks)
+            sinks = [
+                s for s in sinks
+                if (s.get("file"), s.get("line")) in reachable_targets
+            ]
+            print(f"[TAINT] Handshake: {original_count} -> {len(sinks)} sinks.", file=sys.stderr)
+            sys.stderr.flush()
+        # --- END HANDSHAKE ---
+
         from .ifds_analyzer import IFDSTaintAnalyzer
         from .type_resolver import TypeResolver
 

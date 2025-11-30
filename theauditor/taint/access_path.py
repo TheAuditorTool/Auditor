@@ -11,7 +11,7 @@ class AccessPath:
     function: str
     base: str
     fields: tuple[str, ...]
-    max_length: int = 5
+    max_length: int = 10  # Increased from 5 to handle deep paths (config.a.b.c.d.e.f...)
 
     def __str__(self) -> str:
         """Human-readable representation."""
