@@ -202,7 +202,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             result["type_annotations"].append(
                                 {
                                     "line": func.get("line", 0),
-                                    "column": func.get("col", func.get("column", 0)),
+                                    "column": func.get("col", 0),
                                     "symbol_name": func.get("name", ""),
                                     "symbol_kind": "function",
                                     "language": "typescript",
@@ -221,8 +221,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             "name": func.get("name", ""),
                             "type": "function",
                             "line": func.get("line", 0),
-                            "col": func.get("col", func.get("column", 0)),
-                            "column": func.get("column", func.get("col", 0)),
+                            "col": func.get("col", 0),
                         }
 
                         for key in (
@@ -247,7 +246,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                                 "name": call.get("name", ""),
                                 "type": call.get("type", "call"),
                                 "line": call.get("line", 0),
-                                "col": call.get("col", call.get("column", 0)),
+                                "col": call.get("col", 0),
                             }
                         )
 
@@ -261,7 +260,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             result["type_annotations"].append(
                                 {
                                     "line": cls.get("line", 0),
-                                    "column": cls.get("col", cls.get("column", 0)),
+                                    "column": cls.get("col", 0),
                                     "symbol_name": cls.get("name", ""),
                                     "symbol_kind": "class",
                                     "language": "typescript",
@@ -280,8 +279,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             "name": cls.get("name", ""),
                             "type": "class",
                             "line": cls.get("line", 0),
-                            "col": cls.get("col", cls.get("column", 0)),
-                            "column": cls.get("column", cls.get("col", 0)),
+                            "col": cls.get("col", 0),
                         }
 
                         result["symbols"].append(symbol_entry)
@@ -425,7 +423,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']"
                 )
 
-            result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
+            if not result.get("import_styles"):
+                result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
 
         result["router_mounts"] = self._extract_router_mounts(
             result.get("function_calls", []), file_info.get("path", "")
