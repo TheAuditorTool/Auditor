@@ -38,7 +38,6 @@ class RustFFIStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Check if rust_extern_blocks table exists
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_extern_blocks'
@@ -51,10 +50,8 @@ class RustFFIStrategy(GraphStrategy):
                 "metadata": {"graph_type": "rust_ffi", "stats": stats},
             }
 
-        # Build extern block nodes
         self._build_extern_block_nodes(cursor, nodes, stats)
 
-        # Build extern function nodes and edges
         self._build_extern_function_edges(cursor, nodes, edges, stats)
 
         conn.close()
@@ -97,7 +94,6 @@ class RustFFIStrategy(GraphStrategy):
             elif abi == "system":
                 stats["system_abi_blocks"] += 1
 
-            # Create extern block node
             block_id = f"{file_path}:{line}::extern_{abi}"
             if block_id not in nodes:
                 nodes[block_id] = DFGNode(
@@ -122,7 +118,7 @@ class RustFFIStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build nodes and edges for extern functions."""
-        # Check if rust_extern_functions table exists
+
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_extern_functions'
@@ -156,7 +152,6 @@ class RustFFIStrategy(GraphStrategy):
             if is_variadic:
                 stats["variadic_functions"] += 1
 
-            # Create extern function node
             fn_id = f"{file_path}:{line}::ffi_{fn_name}"
             if fn_id not in nodes:
                 nodes[fn_id] = DFGNode(
@@ -174,7 +169,6 @@ class RustFFIStrategy(GraphStrategy):
                     },
                 )
 
-            # Find containing extern block
             cursor.execute(
                 """
                 SELECT file_path, line, abi FROM rust_extern_blocks
@@ -192,7 +186,6 @@ class RustFFIStrategy(GraphStrategy):
                 block_abi = block_row["abi"] or "C"
                 block_id = f"{block_row['file_path']}:{block_row['line']}::extern_{block_abi}"
 
-                # Ensure block node exists
                 if block_id not in nodes:
                     nodes[block_id] = DFGNode(
                         id=block_id,
@@ -207,7 +200,6 @@ class RustFFIStrategy(GraphStrategy):
                         },
                     )
 
-                # Create ffi_declaration edge: extern_block -> extern_function
                 new_edges = create_bidirectional_edges(
                     source=block_id,
                     target=fn_id,

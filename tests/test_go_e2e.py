@@ -29,7 +29,6 @@ def calorie_tracker_db():
     if not fixture_path.exists():
         pytest.skip("go-calorie-tracker fixture not found")
 
-    # Create temp directory for the database
     temp_dir = tempfile.mkdtemp(prefix="theauditor_go_test_")
     pf_dir = Path(temp_dir) / ".pf"
     pf_dir.mkdir()
@@ -37,7 +36,6 @@ def calorie_tracker_db():
     db_path = pf_dir / "repo_index.db"
 
     try:
-        # Run aud full --offline --index on the fixture
         result = subprocess.run(
             [
                 "aud",
@@ -62,7 +60,6 @@ def calorie_tracker_db():
         yield str(db_path)
 
     finally:
-        # Cleanup
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -79,7 +76,6 @@ class TestGoE2EIndexing:
 
         conn.close()
 
-        # We have 16 Go files in the fixture
         assert go_file_count >= 15, f"Expected at least 15 Go files, got {go_file_count}"
 
     def test_go_packages_extracted(self, calorie_tracker_db):
@@ -92,7 +88,16 @@ class TestGoE2EIndexing:
 
         conn.close()
 
-        expected_packages = ["main", "models", "database", "repository", "services", "handlers", "middleware", "config"]
+        expected_packages = [
+            "main",
+            "models",
+            "database",
+            "repository",
+            "services",
+            "handlers",
+            "middleware",
+            "config",
+        ]
         for pkg in expected_packages:
             assert pkg in packages, f"Expected package '{pkg}' not found"
 
@@ -106,7 +111,15 @@ class TestGoE2EIndexing:
 
         conn.close()
 
-        expected_structs = ["User", "Food", "FoodEntry", "Meal", "DailyLog", "AuthService", "TrackingService"]
+        expected_structs = [
+            "User",
+            "Food",
+            "FoodEntry",
+            "Meal",
+            "DailyLog",
+            "AuthService",
+            "TrackingService",
+        ]
         for struct in expected_structs:
             assert struct in structs, f"Expected struct '{struct}' not found"
 
@@ -120,7 +133,6 @@ class TestGoE2EIndexing:
 
         conn.close()
 
-        # Should have many functions
         assert func_count >= 20, f"Expected at least 20 functions, got {func_count}"
 
     def test_go_methods_extracted(self, calorie_tracker_db):
@@ -133,9 +145,12 @@ class TestGoE2EIndexing:
 
         conn.close()
 
-        # Check for key methods
-        assert any("UserRepository" in str(m) and "Create" in str(m) for m in methods), "UserRepository.Create not found"
-        assert any("AuthService" in str(m) and "Login" in str(m) for m in methods), "AuthService.Login not found"
+        assert any("UserRepository" in str(m) and "Create" in str(m) for m in methods), (
+            "UserRepository.Create not found"
+        )
+        assert any("AuthService" in str(m) and "Login" in str(m) for m in methods), (
+            "AuthService.Login not found"
+        )
 
     def test_go_imports_extracted(self, calorie_tracker_db):
         """Verify imports are extracted."""
@@ -173,13 +188,13 @@ class TestGoE2ERoutes:
 
         conn.close()
 
-        # Should detect Gin routes
         gin_routes = [r for r in routes if r[2] == "gin"]
         assert len(gin_routes) > 0, "No Gin routes detected"
 
-        # Check for specific routes
         paths = [r[1] for r in routes]
-        assert "/health" in paths or any("/health" in p for p in paths), "/health route not detected"
+        assert "/health" in paths or any("/health" in p for p in paths), (
+            "/health route not detected"
+        )
 
     def test_middleware_detected(self, calorie_tracker_db):
         """Verify middleware is detected."""
@@ -191,7 +206,6 @@ class TestGoE2ERoutes:
 
         conn.close()
 
-        # Should detect middleware usage
         assert len(middleware) > 0, "No middleware detected"
 
 
@@ -203,7 +217,6 @@ class TestGoE2ESecurityFindings:
         conn = sqlite3.connect(calorie_tracker_db)
         cursor = conn.cursor()
 
-        # Check if the vulnerable function exists
         cursor.execute("""
             SELECT file_path, name FROM go_functions
             WHERE name = 'Search' OR name LIKE '%Search%'
@@ -212,9 +225,9 @@ class TestGoE2ESecurityFindings:
 
         conn.close()
 
-        # The Search function should exist
-        assert any("food_repository" in str(f[0]).lower() and "search" in str(f[1]).lower() for f in funcs), \
-            "Vulnerable Search function not found"
+        assert any(
+            "food_repository" in str(f[0]).lower() and "search" in str(f[1]).lower() for f in funcs
+        ), "Vulnerable Search function not found"
 
     def test_weak_crypto_patterns_exist(self, calorie_tracker_db):
         """Verify weak crypto imports are detected."""
@@ -242,7 +255,6 @@ class TestGoE2ESecurityFindings:
 
         conn.close()
 
-        # The fixture has multiple goroutines
         assert goroutine_count >= 3, f"Expected at least 3 goroutines, got {goroutine_count}"
 
     def test_package_level_vars_detected(self, calorie_tracker_db):
@@ -258,9 +270,9 @@ class TestGoE2ESecurityFindings:
 
         conn.close()
 
-        # Should detect totalEntriesLogged and statsLock
-        assert "totalEntriesLogged" in pkg_vars or any("total" in v.lower() for v in pkg_vars), \
+        assert "totalEntriesLogged" in pkg_vars or any("total" in v.lower() for v in pkg_vars), (
             "Package-level counter variable not detected"
+        )
 
 
 class TestGoE2ERelationships:
@@ -280,10 +292,10 @@ class TestGoE2ERelationships:
 
         conn.close()
 
-        # Should have many fields with GORM/JSON tags
-        assert len(fields_with_tags) >= 10, f"Expected at least 10 fields with tags, got {len(fields_with_tags)}"
+        assert len(fields_with_tags) >= 10, (
+            f"Expected at least 10 fields with tags, got {len(fields_with_tags)}"
+        )
 
-        # Check for GORM relationship tags
         gorm_relationships = [f for f in fields_with_tags if "gorm:" in str(f[2]).lower()]
         assert len(gorm_relationships) > 0, "No GORM relationship tags detected"
 
@@ -303,9 +315,9 @@ class TestGoE2ERelationships:
 
         field_names = [f[0] for f in user_fields]
 
-        # User should have relationship fields
-        assert "Meals" in field_names or "FoodEntries" in field_names or "DailyLogs" in field_names, \
-            "User relationship fields not detected"
+        assert (
+            "Meals" in field_names or "FoodEntries" in field_names or "DailyLogs" in field_names
+        ), "User relationship fields not detected"
 
 
 class TestGoE2EComplexPatterns:
@@ -321,7 +333,6 @@ class TestGoE2EComplexPatterns:
 
         conn.close()
 
-        # Should detect defer statements (database.Close(), wg.Done(), etc.)
         assert defer_count >= 3, f"Expected at least 3 defer statements, got {defer_count}"
 
     def test_channels_detected(self, calorie_tracker_db):
@@ -334,7 +345,6 @@ class TestGoE2EComplexPatterns:
 
         conn.close()
 
-        # The fixture has stopChan, errChan, quit
         assert len(channels) >= 2, f"Expected at least 2 channels, got {len(channels)}"
 
     def test_type_assertions_detected(self, calorie_tracker_db):
@@ -347,7 +357,6 @@ class TestGoE2EComplexPatterns:
 
         conn.close()
 
-        # Should detect type assertions (e.g., userID.(uint))
         assert assertion_count >= 1, f"Expected at least 1 type assertion, got {assertion_count}"
 
 
@@ -368,16 +377,17 @@ class TestGoE2EErrorHandling:
 
         conn.close()
 
-        # Many functions should return error
-        assert len(error_funcs) >= 10, f"Expected at least 10 error-returning functions, got {len(error_funcs)}"
+        assert len(error_funcs) >= 10, (
+            f"Expected at least 10 error-returning functions, got {len(error_funcs)}"
+        )
 
-        # Specific functions should return error
         expected = ["Create", "Login", "Connect", "Migrate"]
         for func in expected:
-            assert any(func in f for f in error_funcs), f"Function '{func}' not detected as returning error"
+            assert any(func in f for f in error_funcs), (
+                f"Function '{func}' not detected as returning error"
+            )
 
 
-# Skip if aud command not available
 def pytest_configure(config):
     """Check if aud command is available."""
     try:

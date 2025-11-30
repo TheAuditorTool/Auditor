@@ -56,16 +56,13 @@ const routes: Routes = [
     RouterModule.forRoot(routes),
   ],
   providers: [
-    // Services
     UserService,
     AuthService,
     ApiService,
     StateService,
 
-    // Guards
     AuthGuard,
 
-    // HTTP Interceptors
     {
       provide: HTTP_INTERCEPTORS,
       useClass: AuthInterceptor,

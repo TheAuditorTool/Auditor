@@ -1,6 +1,6 @@
 """Data contracts for pipeline execution."""
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any

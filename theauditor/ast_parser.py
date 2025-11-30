@@ -299,12 +299,12 @@ class ASTParser:
         except SyntaxError:
             return None
 
-    @lru_cache(maxsize=10000)
+    @lru_cache(maxsize=10000)  # noqa: B019 - intentional cache, parser is long-lived
     def _parse_python_cached(self, content_hash: str, content: str) -> ast.AST | None:
         """Parse Python code with caching based on content hash."""
         return self._parse_python_builtin(content)
 
-    @lru_cache(maxsize=10000)
+    @lru_cache(maxsize=10000)  # noqa: B019 - intentional cache, parser is long-lived
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
         """Parse code using Tree-sitter with caching based on content hash."""
         parser = self.parsers[language]

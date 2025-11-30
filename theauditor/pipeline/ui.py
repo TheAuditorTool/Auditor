@@ -7,7 +7,6 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-
 AUDITOR_THEME = Theme(
     {
         "info": "bold cyan",

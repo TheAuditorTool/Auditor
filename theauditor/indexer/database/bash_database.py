@@ -4,9 +4,6 @@
 class BashDatabaseMixin:
     """Mixin providing add_* methods for BASH_TABLES."""
 
-    # =========================================================================
-    # METHOD 1: add_bash_function
-    # =========================================================================
     def add_bash_function(
         self,
         file_path: str,
@@ -30,9 +27,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 2: add_bash_variable
-    # =========================================================================
     def add_bash_variable(
         self,
         file_path: str,
@@ -56,9 +50,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 3: add_bash_source
-    # =========================================================================
     def add_bash_source(
         self,
         file_path: str,
@@ -80,9 +71,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 4: add_bash_command
-    # =========================================================================
     def add_bash_command(
         self,
         file_path: str,
@@ -104,9 +92,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 5: add_bash_command_arg
-    # =========================================================================
     def add_bash_command_arg(
         self,
         file_path: str,
@@ -136,9 +121,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 6: add_bash_pipe
-    # =========================================================================
     def add_bash_pipe(
         self,
         file_path: str,
@@ -160,9 +142,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 7: add_bash_subshell
-    # =========================================================================
     def add_bash_subshell(
         self,
         file_path: str,
@@ -186,9 +165,6 @@ class BashDatabaseMixin:
             )
         )
 
-    # =========================================================================
-    # METHOD 8: add_bash_redirection
-    # =========================================================================
     def add_bash_redirection(
         self,
         file_path: str,

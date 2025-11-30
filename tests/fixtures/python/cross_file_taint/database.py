@@ -13,7 +13,7 @@ class Database:
     """
 
     def __init__(self):
-        self.conn = sqlite3.connect(':memory:')
+        self.conn = sqlite3.connect(":memory:")
         self.cursor = self.conn.cursor()
 
     def execute_search(self, query: str):
@@ -23,10 +23,9 @@ class Database:
         Expected vulnerability:
           SQL Injection - query comes from request.args.get('query') via service layer
         """
-        # VULNERABLE: String concatenation in SQL query
+
         sql = f"SELECT * FROM users WHERE name = '{query}'"
 
-        # SINK: Execute query with tainted data
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
@@ -37,10 +36,9 @@ class Database:
         Expected vulnerability:
           SQL Injection - user_id comes from URL parameter via service layer
         """
-        # VULNERABLE: Direct string formatting
+
         sql = "SELECT * FROM users WHERE id = " + user_id
 
-        # SINK: Execute query with tainted data
         self.cursor.execute(sql)
         return self.cursor.fetchone()
 
@@ -51,10 +49,9 @@ class Database:
         Expected vulnerability:
           SQL Injection - filter_expression comes from request.json via service layer
         """
-        # VULNERABLE: User-controlled WHERE clause
+
         sql = f"SELECT * FROM records WHERE {filter_expression}"
 
-        # SINK: Execute query with tainted data
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
@@ -65,12 +62,11 @@ class Database:
         Expected vulnerability:
           SQL Injection - data comes from batch processing in service layer
         """
-        # VULNERABLE: String interpolation of user data
-        columns = ', '.join(data.keys())
-        values = ', '.join(f"'{v}'" for v in data.values())
+
+        columns = ", ".join(data.keys())
+        values = ", ".join(f"'{v}'" for v in data.values())
         sql = f"INSERT INTO items ({columns}) VALUES ({values})"
 
-        # SINK: Execute query with tainted data
         self.cursor.execute(sql)
         self.conn.commit()
 
@@ -81,7 +77,7 @@ class Database:
         Expected vulnerability:
           SQL Injection - worst case, entire SQL statement is user-controlled
         """
-        # SINK: Execute arbitrary SQL
+
         self.cursor.execute(sql_string)
         return self.cursor.fetchall()
 
@@ -95,6 +91,5 @@ class Database:
         pg_conn = psycopg2.connect("dbname=test")
         pg_cursor = pg_conn.cursor()
 
-        # SINK: PostgreSQL execution
         pg_cursor.execute(query)
         return pg_cursor.fetchall()

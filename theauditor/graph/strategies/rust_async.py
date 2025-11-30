@@ -38,7 +38,6 @@ class RustAsyncStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Check if rust_async_functions table exists
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_async_functions'
@@ -51,10 +50,8 @@ class RustAsyncStrategy(GraphStrategy):
                 "metadata": {"graph_type": "rust_async", "stats": stats},
             }
 
-        # Build async function nodes
         self._build_async_function_nodes(cursor, nodes, stats)
 
-        # Build await point edges
         self._build_await_point_edges(cursor, nodes, edges, stats)
 
         conn.close()
@@ -108,7 +105,6 @@ class RustAsyncStrategy(GraphStrategy):
             if await_count > stats["max_await_count"]:
                 stats["max_await_count"] = await_count
 
-            # Create async function node
             fn_id = f"{file_path}:{line}::async_{fn_name}"
             if fn_id not in nodes:
                 nodes[fn_id] = DFGNode(
@@ -133,7 +129,7 @@ class RustAsyncStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges from async functions to their await points."""
-        # Check if rust_await_points table exists
+
         cursor.execute("""
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='rust_await_points'
@@ -160,13 +156,12 @@ class RustAsyncStrategy(GraphStrategy):
             containing_fn = await_pt["containing_function"]
             awaited_expr = await_pt["awaited_expression"] or "unknown"
 
-            # Create await point node
             await_id = f"{file_path}:{line}::await"
             if await_id not in nodes:
                 nodes[await_id] = DFGNode(
                     id=await_id,
                     file=file_path,
-                    variable_name=f".await",
+                    variable_name=".await",
                     scope=containing_fn or "unknown",
                     type="await_point",
                     metadata={
@@ -175,7 +170,6 @@ class RustAsyncStrategy(GraphStrategy):
                     },
                 )
 
-            # Find containing async function
             if containing_fn:
                 cursor.execute(
                     """
@@ -191,7 +185,6 @@ class RustAsyncStrategy(GraphStrategy):
                 if fn_row:
                     fn_id = f"{fn_row['file_path']}:{fn_row['line']}::async_{containing_fn}"
 
-                    # Ensure function node exists
                     if fn_id not in nodes:
                         nodes[fn_id] = DFGNode(
                             id=fn_id,
@@ -202,7 +195,6 @@ class RustAsyncStrategy(GraphStrategy):
                             metadata={"is_async": True},
                         )
 
-                    # Create await_point edge: async_function -> await_point
                     new_edges = create_bidirectional_edges(
                         source=fn_id,
                         target=await_id,

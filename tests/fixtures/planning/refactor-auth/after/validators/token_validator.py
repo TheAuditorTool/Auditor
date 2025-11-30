@@ -21,16 +21,15 @@ def get_cognito_public_keys():
     Returns:
         Dict of public keys
     """
-    pool_id = os.getenv('COGNITO_USER_POOL_ID')
-    region = os.getenv('AWS_REGION', 'us-east-1')
+    pool_id = os.getenv("COGNITO_USER_POOL_ID")
+    region = os.getenv("AWS_REGION", "us-east-1")
 
-    keys_url = f'https://cognito-idp.{region}.amazonaws.com/{pool_id}/.well-known/jwks.json'
+    keys_url = f"https://cognito-idp.{region}.amazonaws.com/{pool_id}/.well-known/jwks.json"
 
-    # TAINT SOURCE: External HTTP request
     response = requests.get(keys_url)
-    keys = response.json()['keys']
+    keys = response.json()["keys"]
 
-    return {key['kid']: key for key in keys}
+    return {key["kid"]: key for key in keys}
 
 
 def validate_cognito_token(token):
@@ -47,35 +46,31 @@ def validate_cognito_token(token):
         InvalidTokenError: Token is invalid
         ExpiredTokenError: Token has expired
     """
-    # TAINT SOURCE: Token from request header
+
     try:
-        # Get token header to find key ID
         headers = jwt.get_unverified_header(token)
-        kid = headers.get('kid')
+        kid = headers.get("kid")
 
         if not kid:
             raise InvalidTokenError("Missing 'kid' in token header")
 
-        # Get public key
         public_keys = get_cognito_public_keys()
 
         if kid not in public_keys:
             raise InvalidTokenError(f"Unknown key ID: {kid}")
 
-        # TAINT FLOW: Token validation with Cognito public key
         public_key = jwk.construct(public_keys[kid])
 
         payload = jose_jwt.decode(
             token,
             public_key,
-            algorithms=['RS256'],
-            audience=os.getenv('COGNITO_CLIENT_ID'),
-            issuer=f'https://cognito-idp.{os.getenv("AWS_REGION")}.amazonaws.com/{os.getenv("COGNITO_USER_POOL_ID")}'
+            algorithms=["RS256"],
+            audience=os.getenv("COGNITO_CLIENT_ID"),
+            issuer=f"https://cognito-idp.{os.getenv('AWS_REGION')}.amazonaws.com/{os.getenv('COGNITO_USER_POOL_ID')}",
         )
 
-        # Verify token_use claim (must be 'access' or 'id')
-        token_use = payload.get('token_use')
-        if token_use not in ['access', 'id']:
+        token_use = payload.get("token_use")
+        if token_use not in ["access", "id"]:
             raise InvalidTokenError(f"Invalid token_use: {token_use}")
 
         return payload
@@ -97,8 +92,8 @@ def extract_user_id(token_payload):
     Returns:
         User ID string
     """
-    # Cognito uses 'sub' claim for user ID (UUID format)
-    return token_payload.get('sub', '')
+
+    return token_payload.get("sub", "")
 
 
 def extract_groups(token_payload):
@@ -111,7 +106,7 @@ def extract_groups(token_payload):
     Returns:
         List of group names
     """
-    return token_payload.get('cognito:groups', [])
+    return token_payload.get("cognito:groups", [])
 
 
 def extract_permissions(token_payload):
@@ -124,10 +119,10 @@ def extract_permissions(token_payload):
     Returns:
         List of permission strings
     """
-    # Custom permissions stored in custom:permissions claim
-    permissions = token_payload.get('custom:permissions', '')
+
+    permissions = token_payload.get("custom:permissions", "")
 
     if permissions:
-        return permissions.split(',')
+        return permissions.split(",")
 
     return []

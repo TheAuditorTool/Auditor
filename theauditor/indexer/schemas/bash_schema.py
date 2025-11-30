@@ -2,9 +2,6 @@
 
 from .utils import Column, TableSchema
 
-# =============================================================================
-# TABLE 1: bash_functions - Function definitions
-# =============================================================================
 BASH_FUNCTIONS = TableSchema(
     name="bash_functions",
     columns=[
@@ -23,9 +20,7 @@ BASH_FUNCTIONS = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 2: bash_variables - Variable assignments
-# =============================================================================
+
 BASH_VARIABLES = TableSchema(
     name="bash_variables",
     columns=[
@@ -45,9 +40,7 @@ BASH_VARIABLES = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 3: bash_sources - Source/dot statements
-# =============================================================================
+
 BASH_SOURCES = TableSchema(
     name="bash_sources",
     columns=[
@@ -65,9 +58,7 @@ BASH_SOURCES = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 4: bash_commands - Command invocations
-# =============================================================================
+
 BASH_COMMANDS = TableSchema(
     name="bash_commands",
     columns=[
@@ -76,7 +67,7 @@ BASH_COMMANDS = TableSchema(
         Column("command_name", "TEXT", nullable=False),
         Column("pipeline_position", "INTEGER", nullable=True),
         Column("containing_function", "TEXT", nullable=True),
-        Column("wrapped_command", "TEXT", nullable=True),  # For sudo/time/etc wrappers
+        Column("wrapped_command", "TEXT", nullable=True),
     ],
     primary_key=["file", "line", "pipeline_position"],
     indexes=[
@@ -86,22 +77,20 @@ BASH_COMMANDS = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 5: bash_command_args - Command arguments (junction table)
-# =============================================================================
+
 BASH_COMMAND_ARGS = TableSchema(
     name="bash_command_args",
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("command_line", "INTEGER", nullable=False),
-        Column("command_pipeline_position", "INTEGER", nullable=True),  # FK to bash_commands
+        Column("command_pipeline_position", "INTEGER", nullable=True),
         Column("arg_index", "INTEGER", nullable=False),
         Column("arg_value", "TEXT", nullable=False),
         Column("is_quoted", "INTEGER", nullable=False, default="0"),
         Column("quote_type", "TEXT", nullable=False, default="'none'"),
         Column("has_expansion", "INTEGER", nullable=False, default="0"),
         Column("expansion_vars", "TEXT", nullable=True),
-        Column("normalized_flags", "TEXT", nullable=True),  # Comma-separated: -la -> "-l,-a"
+        Column("normalized_flags", "TEXT", nullable=True),
     ],
     primary_key=["file", "command_line", "command_pipeline_position", "arg_index"],
     indexes=[
@@ -110,9 +99,7 @@ BASH_COMMAND_ARGS = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 6: bash_pipes - Pipeline connections
-# =============================================================================
+
 BASH_PIPES = TableSchema(
     name="bash_pipes",
     columns=[
@@ -130,15 +117,13 @@ BASH_PIPES = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 7: bash_subshells - Command substitutions
-# =============================================================================
+
 BASH_SUBSHELLS = TableSchema(
     name="bash_subshells",
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
-        Column("col", "INTEGER", nullable=False),  # Column position for uniqueness
+        Column("col", "INTEGER", nullable=False),
         Column("syntax", "TEXT", nullable=False, default="'dollar_paren'"),
         Column("command_text", "TEXT", nullable=False),
         Column("capture_target", "TEXT", nullable=True),
@@ -151,9 +136,7 @@ BASH_SUBSHELLS = TableSchema(
     ],
 )
 
-# =============================================================================
-# TABLE 8: bash_redirections - I/O redirections
-# =============================================================================
+
 BASH_REDIRECTIONS = TableSchema(
     name="bash_redirections",
     columns=[
@@ -171,9 +154,7 @@ BASH_REDIRECTIONS = TableSchema(
     ],
 )
 
-# =============================================================================
-# EXPORT: All Bash tables
-# =============================================================================
+
 BASH_TABLES: dict[str, TableSchema] = {
     "bash_functions": BASH_FUNCTIONS,
     "bash_variables": BASH_VARIABLES,

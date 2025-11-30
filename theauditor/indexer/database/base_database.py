@@ -248,7 +248,6 @@ class BaseDatabaseManager:
                 ("python_expressions", "INSERT"),
                 ("python_comprehensions", "INSERT"),
                 ("python_control_statements", "INSERT"),
-                # Go tables (language support)
                 ("go_packages", "INSERT"),
                 ("go_imports", "INSERT"),
                 ("go_structs", "INSERT"),
@@ -271,7 +270,6 @@ class BaseDatabaseManager:
                 ("go_routes", "INSERT"),
                 ("go_middleware", "INSERT"),
                 ("go_captured_vars", "INSERT"),
-                # Rust tables (language support) - Phase 1 core
                 ("rust_modules", "INSERT"),
                 ("rust_use_statements", "INSERT"),
                 ("rust_functions", "INSERT"),
@@ -279,7 +277,6 @@ class BaseDatabaseManager:
                 ("rust_enums", "INSERT"),
                 ("rust_traits", "INSERT"),
                 ("rust_impl_blocks", "INSERT"),
-                # Rust tables - Phase 2 advanced
                 ("rust_generics", "INSERT"),
                 ("rust_lifetimes", "INSERT"),
                 ("rust_macros", "INSERT"),
@@ -293,7 +290,6 @@ class BaseDatabaseManager:
                 ("rust_trait_methods", "INSERT"),
                 ("rust_extern_functions", "INSERT"),
                 ("rust_extern_blocks", "INSERT"),
-                # Bash tables (language support)
                 ("bash_functions", "INSERT"),
                 ("bash_variables", "INSERT"),
                 ("bash_sources", "INSERT"),

@@ -24,7 +24,7 @@ class GoOrmStrategy(GraphStrategy):
     """
 
     name = "go_orm"
-    priority = 51  # After GoHttpStrategy
+    priority = 51
 
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges for Go ORM relationships."""
@@ -43,7 +43,6 @@ class GoOrmStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # Load all struct fields with tags (table guaranteed to exist by schema)
         cursor.execute("""
             SELECT file_path, struct_name, field_name, field_type, tag
             FROM go_struct_fields
@@ -52,7 +51,6 @@ class GoOrmStrategy(GraphStrategy):
 
         struct_fields = cursor.fetchall()
 
-        # Group by struct
         structs: dict[str, list] = defaultdict(list)
         for field in struct_fields:
             key = f"{field['file_path']}::{field['struct_name']}"
@@ -60,12 +58,9 @@ class GoOrmStrategy(GraphStrategy):
 
         stats["total_structs"] = len(structs)
 
-        # Identify ORM models (structs with gorm/db tags)
         orm_models: dict[str, list] = {}
         for struct_key, fields in structs.items():
-            has_orm_tag = any(
-                self._is_orm_tag(f["tag"]) for f in fields
-            )
+            has_orm_tag = any(self._is_orm_tag(f["tag"]) for f in fields)
             if has_orm_tag:
                 orm_models[struct_key] = fields
                 stats["orm_models"] += 1
@@ -80,7 +75,6 @@ class GoOrmStrategy(GraphStrategy):
 
         print(f"[GoOrmStrategy] Found {len(orm_models)} ORM models")
 
-        # Build relationship edges
         with click.progressbar(
             orm_models.items(),
             label="Building Go ORM edges",
@@ -89,7 +83,6 @@ class GoOrmStrategy(GraphStrategy):
             for struct_key, fields in model_items:
                 file_path, struct_name = struct_key.split("::", 1)
 
-                # Create node for the model
                 model_id = f"{file_path}::{struct_name}"
                 if model_id not in nodes:
                     nodes[model_id] = DFGNode(
@@ -101,13 +94,11 @@ class GoOrmStrategy(GraphStrategy):
                         metadata={"is_orm_model": True},
                     )
 
-                # Parse relationships from tags
                 for field in fields:
                     tag = field["tag"]
                     field_name = field["field_name"]
                     field_type = field["field_type"]
 
-                    # Parse GORM relationship tags
                     relationships = self._parse_gorm_relationships(tag, field_type)
 
                     for rel in relationships:
@@ -116,7 +107,6 @@ class GoOrmStrategy(GraphStrategy):
                         target_model = rel["target_model"]
                         rel_type = rel["relationship_type"]
 
-                        # Try to find target model in our orm_models
                         target_key = None
                         for key in orm_models:
                             if key.endswith(f"::{target_model}"):
@@ -127,7 +117,6 @@ class GoOrmStrategy(GraphStrategy):
                             target_file, _ = target_key.split("::", 1)
                             target_id = f"{target_file}::{target_model}"
                         else:
-                            # Create placeholder for unknown target
                             target_id = f"unknown::{target_model}"
 
                         if target_id not in nodes:
@@ -140,7 +129,6 @@ class GoOrmStrategy(GraphStrategy):
                                 metadata={"is_orm_model": True},
                             )
 
-                        # Create relationship edge
                         new_edges = create_bidirectional_edges(
                             source=model_id,
                             target=target_id,
@@ -196,16 +184,13 @@ class GoOrmStrategy(GraphStrategy):
         if not tag:
             return relationships
 
-        # Extract target model from field type
         target_model = self._extract_model_from_type(field_type)
         if not target_model:
             return relationships
 
-        # Determine relationship type from field type
         is_slice = field_type.startswith("[]") or field_type.startswith("[]*")
         is_pointer = "*" in field_type
 
-        # Parse GORM tag for relationship hints
         gorm_match = re.search(r'gorm:"([^"]*)"', tag)
         gorm_tag = gorm_match.group(1) if gorm_match else ""
 
@@ -213,17 +198,14 @@ class GoOrmStrategy(GraphStrategy):
         references = None
 
         if gorm_tag:
-            # Parse foreignKey
-            fk_match = re.search(r'foreignKey:(\w+)', gorm_tag, re.IGNORECASE)
+            fk_match = re.search(r"foreignKey:(\w+)", gorm_tag, re.IGNORECASE)
             if fk_match:
                 foreign_key = fk_match.group(1)
 
-            # Parse references
-            ref_match = re.search(r'references:(\w+)', gorm_tag, re.IGNORECASE)
+            ref_match = re.search(r"references:(\w+)", gorm_tag, re.IGNORECASE)
             if ref_match:
                 references = ref_match.group(1)
 
-        # Determine relationship type
         if is_slice:
             rel_type = "has_many"
         elif "many2many" in gorm_tag.lower():
@@ -233,12 +215,14 @@ class GoOrmStrategy(GraphStrategy):
         else:
             rel_type = "has_one" if is_pointer else "belongs_to"
 
-        relationships.append({
-            "target_model": target_model,
-            "relationship_type": rel_type,
-            "foreign_key": foreign_key,
-            "references": references,
-        })
+        relationships.append(
+            {
+                "target_model": target_model,
+                "relationship_type": rel_type,
+                "foreign_key": foreign_key,
+                "references": references,
+            }
+        )
 
         return relationships
 
@@ -256,28 +240,39 @@ class GoOrmStrategy(GraphStrategy):
         if not field_type:
             return None
 
-        # Remove pointer and slice markers
         clean_type = field_type.lstrip("*").lstrip("[]").lstrip("*")
 
-        # Skip primitive types
         primitives = {
-            "string", "int", "int8", "int16", "int32", "int64",
-            "uint", "uint8", "uint16", "uint32", "uint64",
-            "float32", "float64", "bool", "byte", "rune",
-            "error", "interface{}", "any",
+            "string",
+            "int",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "float64",
+            "bool",
+            "byte",
+            "rune",
+            "error",
+            "interface{}",
+            "any",
         }
 
         if clean_type.lower() in primitives:
             return None
 
-        # Skip stdlib types
         if "." in clean_type:
             pkg = clean_type.split(".")[0]
             stdlib_pkgs = {"time", "context", "sql", "gorm", "json", "fmt"}
             if pkg.lower() in stdlib_pkgs:
                 return None
 
-        # Skip if it looks like a generic type parameter
         if len(clean_type) == 1 and clean_type.isupper():
             return None
 

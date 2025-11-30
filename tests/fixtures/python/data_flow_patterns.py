@@ -17,19 +17,20 @@ import os
 import sqlite3
 import subprocess
 
-# ============================================================================
-# PATTERN 1: I/O Operations
-# ============================================================================
 
 def file_write_operation():
     """Test FILE_WRITE I/O operation."""
-    with open("output.txt", "w") as f:  # Expected: io_type='FILE_WRITE', target='output.txt', is_static=True
+    with open(
+        "output.txt", "w"
+    ) as f:  # Expected: io_type='FILE_WRITE', target='output.txt', is_static=True
         f.write("Hello World")
 
 
 def file_read_operation():
     """Test FILE_READ I/O operation."""
-    with open("input.txt") as f:  # Expected: io_type='FILE_READ', target='input.txt', is_static=True
+    with open(
+        "input.txt"
+    ) as f:  # Expected: io_type='FILE_READ', target='input.txt', is_static=True
         data = f.read()
     return data
 
@@ -53,43 +54,54 @@ def database_query():
     """Test DB_QUERY I/O operation."""
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users")  # Expected: io_type='DB_QUERY', operation='execute', target='SELECT * FROM users', is_static=True
+    cursor.execute(
+        "SELECT * FROM users"
+    )  # Expected: io_type='DB_QUERY', operation='execute', target='SELECT * FROM users', is_static=True
     return cursor.fetchall()
 
 
 def network_request():
     """Test NETWORK I/O operation."""
     import requests
-    response = requests.post("https://api.example.com/data", json={"key": "value"})  # Expected: io_type='NETWORK', operation='requests.post', target='https://api.example.com/data', is_static=True
+
+    response = requests.post(
+        "https://api.example.com/data", json={"key": "value"}
+    )  # Expected: io_type='NETWORK', operation='requests.post', target='https://api.example.com/data', is_static=True
     return response.json()
 
 
 def process_spawn():
     """Test PROCESS I/O operation."""
-    result = subprocess.run(["ls", "-la"], capture_output=True)  # Expected: io_type='PROCESS', operation='subprocess.run', target='ls', is_static=True
+    result = subprocess.run(
+        ["ls", "-la"], capture_output=True
+    )  # Expected: io_type='PROCESS', operation='subprocess.run', target='ls', is_static=True
     return result.stdout
 
 
 def environment_modification():
     """Test ENV_MODIFY I/O operation."""
-    os.environ["API_KEY"] = "secret123"  # Expected: io_type='ENV_MODIFY', operation='setenv', target='API_KEY', is_static=True
+    os.environ["API_KEY"] = (
+        "secret123"  # Expected: io_type='ENV_MODIFY', operation='setenv', target='API_KEY', is_static=True
+    )
 
 
 def pathlib_write():
     """Test Path.write_text() I/O operation."""
     from pathlib import Path
-    Path("output.txt").write_text("Hello")  # Expected: io_type='FILE_WRITE', operation contains 'write_text'
+
+    Path("output.txt").write_text(
+        "Hello"
+    )  # Expected: io_type='FILE_WRITE', operation contains 'write_text'
 
 
 def pathlib_read():
     """Test Path.read_text() I/O operation."""
     from pathlib import Path
-    return Path("input.txt").read_text()  # Expected: io_type='FILE_READ', operation contains 'read_text'
 
+    return Path(
+        "input.txt"
+    ).read_text()  # Expected: io_type='FILE_READ', operation contains 'read_text'
 
-# ============================================================================
-# PATTERN 2: Parameter Return Flow
-# ============================================================================
 
 def direct_return(x):
     """Test direct parameter return."""
@@ -103,7 +115,9 @@ def transformed_return(x):
 
 def conditional_return(x, y):
     """Test conditional parameter return."""
-    return x if x > 0 else y  # Expected: flow_type='conditional', parameter_name='x' and 'y' (2 records)
+    return (
+        x if x > 0 else y
+    )  # Expected: flow_type='conditional', parameter_name='x' and 'y' (2 records)
 
 
 def multiple_operations(a, b):
@@ -114,7 +128,7 @@ def multiple_operations(a, b):
 
 def no_param_return():
     """Test return with no parameter reference (should NOT extract)."""
-    return 42  # Expected: NO extraction (no parameter flow)
+    return 42
 
 
 def partial_param_return(x, y):
@@ -124,7 +138,7 @@ def partial_param_return(x, y):
 
 async def async_param_return(data):
     """Test async parameter return."""
-    return await process_data(data)  # Expected: is_async=True, parameter_name='data'
+    return await process_data(data)
 
 
 def string_concat_return(name):
@@ -132,17 +146,13 @@ def string_concat_return(name):
     return "Hello, " + name  # Expected: flow_type='transformed', parameter_name='name'
 
 
-# ============================================================================
-# PATTERN 3: Closure Captures
-# ============================================================================
-
 def outer_function():
     """Test closure capture."""
-    counter = 0  # Outer variable
+    counter = 0
 
     def inner_function():
         """Inner function capturing outer variable."""
-        return counter + 1  # Expected: captured_variable='counter', outer_function='outer_function', is_lambda=False
+        return counter + 1
 
     return inner_function
 
@@ -155,7 +165,7 @@ def nested_closure():
         level2_var = "level2"
 
         def inner():
-            return level1_var + level2_var  # Expected: 2 captures (level1_var from outer_function, level2_var from middle)
+            return level1_var + level2_var
 
         return inner
 
@@ -165,7 +175,7 @@ def nested_closure():
 def lambda_closure():
     """Test lambda closure."""
     multiplier = 10
-    return lambda x: x * multiplier  # Expected: captured_variable='multiplier', is_lambda=True
+    return lambda x: x * multiplier
 
 
 def closure_with_multiple_captures():
@@ -175,22 +185,19 @@ def closure_with_multiple_captures():
     c = 3
 
     def inner():
-        return a + b + c  # Expected: 3 captures (a, b, c)
+        return a + b + c
 
     return inner
 
 
 def no_closure():
     """Test function with no closure (should NOT extract)."""
+
     def inner(x):
-        return x * 2  # Expected: NO extraction (no captured variables, only parameter)
+        return x * 2
 
     return inner
 
-
-# ============================================================================
-# PATTERN 4: Nonlocal Access
-# ============================================================================
 
 def nonlocal_write():
     """Test nonlocal write access."""
@@ -223,7 +230,7 @@ def nonlocal_multiple_access():
     def modify():
         nonlocal x, y
         x += 1  # Expected: access_type='write', variable_name='x'
-        y = x + 1  # Expected: 2 records (read 'x', write 'y')
+        y = x + 1
 
     modify()
     return x, y
@@ -236,7 +243,9 @@ def nonlocal_in_nested_function():
     def outer():
         def inner():
             nonlocal state
-            state["count"] += 1  # Expected: access_type='write', variable_name='state' (subscription is secondary)
+            state["count"] += (
+                1  # Expected: access_type='write', variable_name='state' (subscription is secondary)
+            )
 
         inner()
 
@@ -244,18 +253,13 @@ def nonlocal_in_nested_function():
     return state
 
 
-# ============================================================================
-# COMBINED PATTERNS (Complex Real-World Example)
-# ============================================================================
-
 def complex_data_flow_example(user_id):
     """Test all data flow patterns together."""
-    cache = {}  # Outer variable for closure
+    cache = {}
 
-    # I/O operation: Database query
-    conn = sqlite3.connect("users.db")  # I/O: DB connection
+    conn = sqlite3.connect("users.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))  # I/O: DB_QUERY
+    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     user_data = cursor.fetchone()
     conn.close()
 
@@ -263,47 +267,44 @@ def complex_data_flow_example(user_id):
         """Closure capturing cache variable."""
         nonlocal cache
         if key not in cache:
-            # I/O operation: Network request
             import requests
-            cache[key] = requests.get(f"https://api.example.com/{key}").json()  # I/O: NETWORK
-        return cache[key]  # Closure: captures 'cache', Nonlocal: read 'cache'
 
-    # Parameter return flow
+            cache[key] = requests.get(f"https://api.example.com/{key}").json()
+        return cache[key]
+
     result = {"user": user_data, "lookup": cached_lookup}
-    return result  # Parameter flow: user_id influences return (indirectly)
+    return result
 
 
 def transaction_pattern(data):
     """Test database transaction pattern with I/O."""
-    conn = sqlite3.connect("app.db")  # I/O: DB connection
+    conn = sqlite3.connect("app.db")
     try:
         cursor = conn.cursor()
-        cursor.execute("BEGIN")  # I/O: DB_QUERY
+        cursor.execute("BEGIN")
 
-        # I/O operations
-        cursor.execute("INSERT INTO logs VALUES (?)", (data,))  # I/O: DB_QUERY
-        cursor.execute("UPDATE stats SET count = count + 1")  # I/O: DB_QUERY
+        cursor.execute("INSERT INTO logs VALUES (?)", (data,))
+        cursor.execute("UPDATE stats SET count = count + 1")
 
-        conn.commit()  # I/O: DB_COMMIT
+        conn.commit()
     except Exception:
-        conn.rollback()  # I/O: DB_ROLLBACK
+        conn.rollback()
         raise
     finally:
         conn.close()
 
-    return data  # Parameter flow: direct return
+    return data
 
 
 def file_processor(input_file, output_file):
     """Test file I/O operations."""
-    # I/O: FILE_READ
-    with open(input_file) as f_in:  # Dynamic target (parameter)
+
+    with open(input_file) as f_in:
         data = f_in.read()
 
-    processed = data.upper()  # Transform
+    processed = data.upper()
 
-    # I/O: FILE_WRITE
-    with open(output_file, "w") as f_out:  # Dynamic target (parameter)
+    with open(output_file, "w") as f_out:
         f_out.write(processed)
 
-    return processed  # Parameter flow: input_file influences return
+    return processed

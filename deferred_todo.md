@@ -1,42 +1,35 @@
 # Deferred Improvements
 
-Architectural improvements identified during validation. Last verified **2025-11-28**.
+Architectural improvements identified during validation. Last verified **2025-11-30**.
 
 ---
 
 ## 1. Test Coverage for Security Rules
 
 **Discovery Date**: 2025-11-22
-**Verified**: 2025-11-28
-**Priority**: P3 (quality) - DEFERRED pending engine rewrite
+**Verified**: 2025-11-30
+**Priority**: P3 (quality) - PARTIALLY ADDRESSED
 
-### Current Problem
+### Current State
 
 - **114 rule files** in `theauditor/rules/`
-- **0 test files** specifically testing rules
-- Coverage: 0%
+- **3 test files** for new language security rules:
+  - `tests/test_bash_security_rules.py` - 25 tests (injection, quoting, dangerous patterns)
+  - `tests/test_go_*.py` - Go security rule coverage
+  - `tests/test_rust_*.py` - Rust security rule coverage
 
-### Scope
+### Remaining Gap
 
-Need tests for critical security rules:
+Legacy Python/Node security rules still lack dedicated tests:
 - SQL injection detection
 - XSS detection
 - Authentication bypass
 - Hardcoded secrets
 - Taint flow
 
-### Estimated Effort
-
-| Task | Hours |
-|------|-------|
-| Test framework setup | 8 |
-| Tests for 20 critical rules | 40 |
-| Tests for remaining rules | 120 |
-| **TOTAL** | **168 hours** |
-
 ### Status
 
-**DEFERRED** - Engine rewrite planned; tests will be written after new architecture is finalized.
+**PARTIALLY ADDRESSED** - New language implementations (Bash/Go/Rust) have security rule tests. Legacy rules remain untested pending engine rewrite.
 
 ---
 
@@ -114,7 +107,7 @@ The following items were verified as **FALSE** on 2025-11-28:
 
 ---
 
-## Known Issues (Verified 2025-11-28)
+## Known Issues (Verified 2025-11-30)
 
 ### Database
 1. **Foreign keys disabled**: SQLite defaults to OFF, needs `PRAGMA foreign_keys = ON` added to base_database.py (see OpenSpec: refactor-extraction-zero-fallback-dedup)

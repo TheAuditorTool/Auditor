@@ -20,52 +20,53 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-# ==============================================================================
-# Basic Custom Decorators
-# ==============================================================================
 
 def simple_decorator(func: Callable) -> Callable:
     """Simple decorator without arguments."""
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         print(f"Before {func.__name__}")
         result = func(*args, **kwargs)
         print(f"After {func.__name__}")
         return result
+
     return wrapper
 
 
 def timer(func: Callable) -> Callable:
     """Decorator to time function execution."""
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         import time
+
         start = time.time()
         result = func(*args, **kwargs)
         elapsed = time.time() - start
         print(f"{func.__name__} took {elapsed:.2f}s")
         return result
+
     return wrapper
 
 
 def log_calls(func: Callable) -> Callable:
     """Decorator to log function calls."""
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         print(f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
         return func(*args, **kwargs)
+
     return wrapper
 
-
-# ==============================================================================
-# Parameterized Decorators (with arguments)
-# ==============================================================================
 
 def cache(timeout: int = 60):
     """
     Parameterized decorator - caches function results.
     Tests: Decorator with arguments extraction.
     """
+
     def decorator(func: Callable) -> Callable:
         cache_store = {}
 
@@ -81,6 +82,7 @@ def cache(timeout: int = 60):
             return result
 
         return wrapper
+
     return decorator
 
 
@@ -89,15 +91,16 @@ def rate_limit(requests: int = 100, window: int = 60):
     Parameterized decorator - rate limiting.
     Tests: Multiple decorator parameters.
     """
+
     def decorator(func: Callable) -> Callable:
         call_log = []
 
         @wraps(func)
         def wrapper(*args, **kwargs):
             import time
+
             now = time.time()
 
-            # Remove old calls outside window
             cutoff = now - window
             call_log[:] = [t for t in call_log if t > cutoff]
 
@@ -108,6 +111,7 @@ def rate_limit(requests: int = 100, window: int = 60):
             return func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -116,6 +120,7 @@ def retry(max_attempts: int = 3, delay: float = 1.0):
     Parameterized decorator - retry failed calls.
     Tests: Decorator with multiple parameters.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -131,15 +136,13 @@ def retry(max_attempts: int = 3, delay: float = 1.0):
                     time.sleep(delay)
 
         return wrapper
+
     return decorator
 
 
-# ==============================================================================
-# Authorization/Authentication Decorators (Security-Relevant)
-# ==============================================================================
-
 class AuthError(Exception):
     """Authentication error."""
+
     pass
 
 
@@ -148,13 +151,14 @@ def require_auth(func: Callable) -> Callable:
     Security decorator - requires authentication.
     Tests: Auth decorator extraction for security analysis.
     """
+
     @wraps(func)
     def wrapper(*args, **kwargs):
-        # Simulate auth check
-        user = kwargs.get('user')
-        if not user or not getattr(user, 'is_authenticated', False):
+        user = kwargs.get("user")
+        if not user or not getattr(user, "is_authenticated", False):
             raise AuthError("Authentication required")
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -163,18 +167,21 @@ def require_role(role: str):
     Parameterized auth decorator - requires specific role.
     Tests: Role-based access control decorator.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            user = kwargs.get('user')
-            if not user or not hasattr(user, 'roles'):
+            user = kwargs.get("user")
+            if not user or not hasattr(user, "roles"):
                 raise AuthError(f"Role '{role}' required")
 
-            if role not in getattr(user, 'roles', []):
+            if role not in getattr(user, "roles", []):
                 raise AuthError(f"Insufficient permissions. Role '{role}' required")
 
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -183,34 +190,33 @@ def require_permissions(*permissions: str):
     Variadic auth decorator - requires multiple permissions.
     Tests: Decorator with *args (variable arguments).
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            user = kwargs.get('user')
-            user_perms = getattr(user, 'permissions', [])
+            user = kwargs.get("user")
+            user_perms = getattr(user, "permissions", [])
 
             missing = [p for p in permissions if p not in user_perms]
             if missing:
                 raise AuthError(f"Missing permissions: {missing}")
 
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
-
-# ==============================================================================
-# Validation Decorators
-# ==============================================================================
 
 def validate_input(schema: dict):
     """
     Validation decorator - validates input against schema.
     Tests: Validation decorator extraction (security-relevant).
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Simplified validation
             for key, validator in schema.items():
                 if key in kwargs:
                     value = kwargs[key]
@@ -218,7 +224,9 @@ def validate_input(schema: dict):
                         raise ValueError(f"Validation failed for {key}: {value}")
 
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -227,6 +235,7 @@ def validate_output(validator: Callable):
     Output validation decorator.
     Tests: Post-condition validation.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -234,13 +243,11 @@ def validate_output(validator: Callable):
             if not validator(result):
                 raise ValueError(f"Output validation failed for {func.__name__}")
             return result
+
         return wrapper
+
     return decorator
 
-
-# ==============================================================================
-# Stacked Decorators (3+ Deep)
-# ==============================================================================
 
 @require_auth
 @require_role("admin")
@@ -275,12 +282,9 @@ def fetch_external_api(url: str):
     Tests: Resilience + caching decorator chain.
     """
     import requests
+
     return requests.get(url).json()
 
-
-# ==============================================================================
-# Class Decorators
-# ==============================================================================
 
 def singleton(cls):
     """
@@ -331,10 +335,6 @@ class ConfigManager:
         self.config[key] = value
 
 
-# ==============================================================================
-# Method Decorators in Classes
-# ==============================================================================
-
 class APIController:
     """
     Class with decorated methods.
@@ -369,13 +369,10 @@ class APIController:
         Tests: Performance decorators on instance method.
         """
         import time
-        time.sleep(0.5)  # Simulate expensive work
+
+        time.sleep(0.5)
         return f"Result for {param}"
 
-
-# ==============================================================================
-# Static and Class Method Decorators
-# ==============================================================================
 
 class UtilityClass:
     """
@@ -403,10 +400,6 @@ class UtilityClass:
         instance = cls()
         return instance
 
-
-# ==============================================================================
-# Property Decorators
-# ==============================================================================
 
 class User:
     """
@@ -449,18 +442,14 @@ class User:
         self._age = value
 
 
-# ==============================================================================
-# Decorator with Context Manager
-# ==============================================================================
-
 def with_transaction(func: Callable) -> Callable:
     """
     Decorator that wraps function in database transaction.
     Tests: Decorator using context manager (important for CFG).
     """
+
     @wraps(func)
     def wrapper(*args, **kwargs):
-        # Simulate transaction context
         print("BEGIN TRANSACTION")
         try:
             result = func(*args, **kwargs)
@@ -469,6 +458,7 @@ def with_transaction(func: Callable) -> Callable:
         except Exception:
             print("ROLLBACK")
             raise
+
     return wrapper
 
 
@@ -483,23 +473,22 @@ def transfer_funds(from_account: str, to_account: str, amount: float):
     return f"Transferred ${amount} from {from_account} to {to_account}"
 
 
-# ==============================================================================
-# Async Decorators (Preview for Task 4)
-# ==============================================================================
-
 def async_timer(func: Callable) -> Callable:
     """
     Async decorator.
     Tests: Decorator on async function.
     """
+
     @wraps(func)
     async def wrapper(*args, **kwargs):
         import time
+
         start = time.time()
         result = await func(*args, **kwargs)
         elapsed = time.time() - start
         print(f"Async {func.__name__} took {elapsed:.2f}s")
         return result
+
     return wrapper
 
 
@@ -511,5 +500,6 @@ async def async_fetch_data(url: str):
     Tests: Decorators on async def (preview of Task 4).
     """
     import asyncio
-    await asyncio.sleep(0.1)  # Simulate async I/O
+
+    await asyncio.sleep(0.1)
     return {"url": url, "data": "..."}

@@ -30,55 +30,61 @@ METADATA = RuleMetadata(
 class GoCryptoPatterns:
     """Immutable pattern definitions for Go crypto misuse detection."""
 
-    # Insecure random sources
-    INSECURE_RANDOM = frozenset([
-        "math/rand",
-    ])
+    INSECURE_RANDOM = frozenset(
+        [
+            "math/rand",
+        ]
+    )
 
-    # Secure random (for comparison)
-    SECURE_RANDOM = frozenset([
-        "crypto/rand",
-    ])
+    SECURE_RANDOM = frozenset(
+        [
+            "crypto/rand",
+        ]
+    )
 
-    # Weak hash algorithms
-    WEAK_HASHES = frozenset([
-        "crypto/md5",
-        "crypto/sha1",
-    ])
+    WEAK_HASHES = frozenset(
+        [
+            "crypto/md5",
+            "crypto/sha1",
+        ]
+    )
 
-    # Strong hash algorithms (for comparison)
-    STRONG_HASHES = frozenset([
-        "crypto/sha256",
-        "crypto/sha512",
-        "golang.org/x/crypto/sha3",
-        "golang.org/x/crypto/blake2b",
-        "golang.org/x/crypto/argon2",
-        "golang.org/x/crypto/bcrypt",
-        "golang.org/x/crypto/scrypt",
-    ])
+    STRONG_HASHES = frozenset(
+        [
+            "crypto/sha256",
+            "crypto/sha512",
+            "golang.org/x/crypto/sha3",
+            "golang.org/x/crypto/blake2b",
+            "golang.org/x/crypto/argon2",
+            "golang.org/x/crypto/bcrypt",
+            "golang.org/x/crypto/scrypt",
+        ]
+    )
 
-    # Insecure TLS patterns
-    INSECURE_TLS = frozenset([
-        "InsecureSkipVerify",
-        "MinVersion",
-        "tls.VersionSSL30",
-        "tls.VersionTLS10",
-        "tls.VersionTLS11",
-    ])
+    INSECURE_TLS = frozenset(
+        [
+            "InsecureSkipVerify",
+            "MinVersion",
+            "tls.VersionSSL30",
+            "tls.VersionTLS10",
+            "tls.VersionTLS11",
+        ]
+    )
 
-    # Hardcoded secret indicators
-    SECRET_PATTERNS = frozenset([
-        "password",
-        "secret",
-        "api_key",
-        "apikey",
-        "api-key",
-        "token",
-        "credential",
-        "private_key",
-        "privatekey",
-        "auth",
-    ])
+    SECRET_PATTERNS = frozenset(
+        [
+            "password",
+            "secret",
+            "api_key",
+            "apikey",
+            "api-key",
+            "token",
+            "credential",
+            "private_key",
+            "privatekey",
+            "auth",
+        ]
+    )
 
 
 class GoCryptoAnalyzer:
@@ -100,7 +106,6 @@ class GoCryptoAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run crypto checks (tables guaranteed to exist by schema)
             self._check_insecure_random()
             self._check_weak_hashing()
             self._check_insecure_tls()
@@ -113,7 +118,7 @@ class GoCryptoAnalyzer:
 
     def _check_insecure_random(self):
         """Detect math/rand usage for security-sensitive operations."""
-        # Find files that import math/rand
+
         self.cursor.execute("""
             SELECT DISTINCT file_path, line, path as import_path
             FROM go_imports
@@ -125,19 +130,20 @@ class GoCryptoAnalyzer:
         if not math_rand_files:
             return
 
-        # Check if these files also have crypto-related code
         for file_path, import_line in math_rand_files.items():
-            # Check for crypto-related imports or function names in same file
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT path FROM go_imports
                 WHERE file_path = ?
                   AND (path LIKE '%crypto%' OR path LIKE '%password%' OR path LIKE '%auth%')
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_crypto = self.cursor.fetchone() is not None
 
-            # Check for security-related function names
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT name FROM go_functions
                 WHERE file_path = ?
                   AND (LOWER(name) LIKE '%token%'
@@ -146,7 +152,9 @@ class GoCryptoAnalyzer:
                        OR LOWER(name) LIKE '%key%'
                        OR LOWER(name) LIKE '%auth%'
                        OR LOWER(name) LIKE '%session%')
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_security_funcs = self.cursor.fetchone() is not None
 
@@ -166,7 +174,7 @@ class GoCryptoAnalyzer:
 
     def _check_weak_hashing(self):
         """Detect MD5/SHA1 usage for security purposes."""
-        # Find files importing weak hash algorithms
+
         self.cursor.execute("""
             SELECT DISTINCT file_path, line, path as import_path
             FROM go_imports
@@ -178,8 +186,8 @@ class GoCryptoAnalyzer:
             import_line = row["line"]
             hash_type = "MD5" if "md5" in row["import_path"] else "SHA1"
 
-            # Check context - is this for checksums or security?
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT name FROM go_functions
                 WHERE file_path = ?
                   AND (LOWER(name) LIKE '%password%'
@@ -187,7 +195,9 @@ class GoCryptoAnalyzer:
                        OR LOWER(name) LIKE '%verify%'
                        OR LOWER(name) LIKE '%hash%'
                        OR LOWER(name) LIKE '%sign%')
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             security_context = self.cursor.fetchone() is not None
 
@@ -209,7 +219,7 @@ class GoCryptoAnalyzer:
 
     def _check_insecure_tls(self):
         """Detect InsecureSkipVerify and weak TLS versions."""
-        # Check for InsecureSkipVerify in struct fields or variables
+
         self.cursor.execute("""
             SELECT file_path, line, initial_value
             FROM go_variables
@@ -231,7 +241,6 @@ class GoCryptoAnalyzer:
                 )
             )
 
-        # Check for weak TLS versions
         self.cursor.execute("""
             SELECT file_path, line, initial_value
             FROM go_variables
@@ -256,7 +265,7 @@ class GoCryptoAnalyzer:
 
     def _check_hardcoded_secrets(self):
         """Detect hardcoded secrets in constants and variables."""
-        # Check constants with suspicious names and string values
+
         self.cursor.execute("""
             SELECT file_path, line, name, value
             FROM go_constants
@@ -273,7 +282,7 @@ class GoCryptoAnalyzer:
 
         for row in self.cursor.fetchall():
             value = row["value"] or ""
-            # Skip empty or obviously placeholder values
+
             if len(value) < 5 or value in ('""', "''", '""', "nil"):
                 continue
 
@@ -290,7 +299,6 @@ class GoCryptoAnalyzer:
                 )
             )
 
-        # Check package-level variables with suspicious names
         self.cursor.execute("""
             SELECT file_path, line, name, initial_value
             FROM go_variables
@@ -307,7 +315,7 @@ class GoCryptoAnalyzer:
 
         for row in self.cursor.fetchall():
             value = row["initial_value"] or ""
-            # Skip if it's reading from env
+
             if "os.Getenv" in value or "viper" in value.lower():
                 continue
 

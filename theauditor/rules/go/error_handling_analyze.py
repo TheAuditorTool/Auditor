@@ -50,7 +50,6 @@ class GoErrorHandlingAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Run error handling checks (tables guaranteed to exist by schema)
             self._check_panic_in_library()
             self._check_ignored_errors()
             self._check_defer_without_recover()
@@ -66,7 +65,7 @@ class GoErrorHandlingAnalyzer:
         Libraries should return errors, not panic. Panic should only be used
         in main packages or for truly unrecoverable situations.
         """
-        # Find packages that are not "main"
+
         self.cursor.execute("""
             SELECT file_path, name
             FROM go_packages
@@ -78,7 +77,6 @@ class GoErrorHandlingAnalyzer:
         if not library_files:
             return
 
-        # Look for panic in variables (panic calls captured in initial_value)
         self.cursor.execute("""
             SELECT file_path, line, initial_value
             FROM go_variables
@@ -100,7 +98,6 @@ class GoErrorHandlingAnalyzer:
                     )
                 )
 
-        # Check for defer statements with panic (less common but worth checking)
         self.cursor.execute("""
             SELECT file_path, line, deferred_expr
             FROM go_defer_statements
@@ -128,8 +125,7 @@ class GoErrorHandlingAnalyzer:
         Pattern: _ = someFunc() where someFunc returns error.
         This is a common anti-pattern in Go code.
         """
-        # Find variables assigned to blank identifier (_)
-        # The initial_value contains the RHS expression
+
         self.cursor.execute("""
             SELECT v.file_path, v.line, v.name, v.initial_value
             FROM go_variables v
@@ -141,30 +137,46 @@ class GoErrorHandlingAnalyzer:
         blank_assignments = self.cursor.fetchall()
 
         for row in blank_assignments:
-            # Check if the RHS looks like a function call
             initial_value = row["initial_value"] or ""
-            # Function calls typically have () in them
+
             if "(" in initial_value and ")" in initial_value:
-                # Extract function name (simple heuristic)
                 func_name = initial_value.split("(")[0].strip()
                 if "." in func_name:
                     func_name = func_name.split(".")[-1]
 
-                # Check if this function returns error
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                     SELECT 1 FROM go_error_returns
                     WHERE func_name = ? AND returns_error = 1
                     LIMIT 1
-                """, (func_name,))
+                """,
+                    (func_name,),
+                )
 
                 returns_error = self.cursor.fetchone() is not None
 
-                # Also flag common error-returning stdlib functions
                 error_funcs = {
-                    "Close", "Write", "Read", "Scan", "Exec", "Query",
-                    "QueryRow", "Prepare", "Begin", "Commit", "Rollback",
-                    "Marshal", "Unmarshal", "Decode", "Encode", "Parse",
-                    "Open", "Create", "Remove", "Rename", "Mkdir",
+                    "Close",
+                    "Write",
+                    "Read",
+                    "Scan",
+                    "Exec",
+                    "Query",
+                    "QueryRow",
+                    "Prepare",
+                    "Begin",
+                    "Commit",
+                    "Rollback",
+                    "Marshal",
+                    "Unmarshal",
+                    "Decode",
+                    "Encode",
+                    "Parse",
+                    "Open",
+                    "Create",
+                    "Remove",
+                    "Rename",
+                    "Mkdir",
                 }
 
                 if returns_error or func_name in error_funcs:
@@ -191,7 +203,7 @@ class GoErrorHandlingAnalyzer:
         Looks for patterns where panic might occur but isn't caught.
         This is a LOW confidence check since recover is sometimes intentional.
         """
-        # Find files with defer but no recover
+
         self.cursor.execute("""
             SELECT DISTINCT file_path
             FROM go_defer_statements
@@ -200,22 +212,26 @@ class GoErrorHandlingAnalyzer:
         files_with_defer = {row["file_path"] for row in self.cursor.fetchall()}
 
         for file_path in files_with_defer:
-            # Check if there's a recover() call in the file
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT COUNT(*) as cnt FROM go_defer_statements
                 WHERE file_path = ?
                   AND deferred_expr LIKE '%recover()%'
-            """, (file_path,))
+            """,
+                (file_path,),
+            )
 
             has_recover = self.cursor.fetchone()["cnt"] > 0
 
             if not has_recover:
-                # Check if there are potential panic sources
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                     SELECT COUNT(*) as cnt FROM go_type_assertions
                     WHERE file_path = ?
                       AND is_type_switch = 0
-                """, (file_path,))
+                """,
+                    (file_path,),
+                )
 
                 has_type_assertions = self.cursor.fetchone()["cnt"] > 0
 
@@ -225,7 +241,7 @@ class GoErrorHandlingAnalyzer:
                             rule_name="go-type-assertion-no-recover",
                             message="Type assertions without recover() - may panic",
                             file_path=file_path,
-                            line=1,  # File-level finding
+                            line=1,
                             severity=Severity.LOW,
                             category="error_handling",
                             confidence=Confidence.LOW,

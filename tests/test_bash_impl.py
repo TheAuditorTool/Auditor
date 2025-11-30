@@ -34,17 +34,14 @@ def parse_bash(parser, code: str):
     return bash_impl.extract_all_bash_data(tree, code, "test.sh")
 
 
-# =============================================================================
-# TASK 4.2.1: FUNCTION EXTRACTION TESTS
-# =============================================================================
 class TestBashFunctionExtraction:
     """Tests for Bash function extraction."""
 
     def test_extract_posix_function(self, bash_parser):
         """Test POSIX-style function extraction: name() { ... }"""
-        code = '''my_func() {
+        code = """my_func() {
     echo "hello"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         funcs = result["bash_functions"]
@@ -56,9 +53,9 @@ class TestBashFunctionExtraction:
 
     def test_extract_bash_function(self, bash_parser):
         """Test Bash-style function extraction: function name() { ... }"""
-        code = '''function my_func() {
+        code = """function my_func() {
     echo "hello"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         funcs = result["bash_functions"]
@@ -69,20 +66,20 @@ class TestBashFunctionExtraction:
 
     def test_extract_function_no_parens(self, bash_parser):
         """Test function keyword without parentheses: function name { ... }"""
-        code = '''function my_func {
+        code = """function my_func {
     echo "hello"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         funcs = result["bash_functions"]
         assert len(funcs) == 1
         assert funcs[0]["name"] == "my_func"
-        # Style should be "bash" for function keyword variant
+
         assert funcs[0]["style"] == "bash"
 
     def test_extract_multiple_functions(self, bash_parser):
         """Test extraction of multiple functions."""
-        code = '''func_one() {
+        code = """func_one() {
     echo "one"
 }
 
@@ -92,7 +89,7 @@ func_two() {
 
 function func_three {
     echo "three"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         funcs = result["bash_functions"]
@@ -102,11 +99,11 @@ function func_three {
 
     def test_function_body_lines(self, bash_parser):
         """Test that function body line numbers are correctly captured."""
-        code = '''my_func() {
+        code = """my_func() {
     line1
     line2
     line3
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         funcs = result["bash_functions"]
@@ -116,23 +113,20 @@ function func_three {
 
     def test_nested_function_scope(self, bash_parser):
         """Test that variables inside functions track containing_function."""
-        code = '''outer_func() {
+        code = """outer_func() {
     local inner_var="value"
     echo "$inner_var"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         variables = result["bash_variables"]
-        # Find the inner_var variable
+
         inner_vars = [v for v in variables if v["name"] == "inner_var"]
         assert len(inner_vars) == 1
         assert inner_vars[0]["containing_function"] == "outer_func"
         assert inner_vars[0]["scope"] == "local"
 
 
-# =============================================================================
-# TASK 4.2.2: VARIABLE EXTRACTION TESTS
-# =============================================================================
 class TestBashVariableExtraction:
     """Tests for Bash variable extraction."""
 
@@ -160,9 +154,9 @@ class TestBashVariableExtraction:
 
     def test_extract_local_variable(self, bash_parser):
         """Test local variable extraction inside function."""
-        code = '''my_func() {
+        code = """my_func() {
     local my_local="value"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         variables = result["bash_variables"]
@@ -183,7 +177,7 @@ class TestBashVariableExtraction:
 
     def test_extract_declare_variable(self, bash_parser):
         """Test declare variable extraction."""
-        code = '''declare -a MY_ARRAY=(1 2 3)'''
+        code = """declare -a MY_ARRAY=(1 2 3)"""
         result = parse_bash(bash_parser, code)
 
         variables = result["bash_variables"]
@@ -193,28 +187,26 @@ class TestBashVariableExtraction:
 
     def test_extract_command_substitution_capture(self, bash_parser):
         """Test variable capturing command substitution output."""
-        code = '''RESULT=$(whoami)'''
+        code = """RESULT=$(whoami)"""
         result = parse_bash(bash_parser, code)
 
         variables = result["bash_variables"]
         subshells = result["bash_subshells"]
 
-        # Variable should exist
         result_vars = [v for v in variables if v["name"] == "RESULT"]
         assert len(result_vars) == 1
 
-        # Subshell should have capture_target
         assert len(subshells) >= 1
         captures = [s for s in subshells if s["capture_target"] == "RESULT"]
         assert len(captures) >= 1
 
     def test_variable_containing_function_tracking(self, bash_parser):
         """Test that global vs local scope is correctly tracked."""
-        code = '''GLOBAL_VAR="outside"
+        code = """GLOBAL_VAR="outside"
 
 my_func() {
     local FUNC_VAR="inside"
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         variables = result["bash_variables"]
@@ -228,15 +220,12 @@ my_func() {
         assert func_vars[0]["containing_function"] == "my_func"
 
 
-# =============================================================================
-# TASK 4.2.3: QUOTING ANALYSIS TESTS
-# =============================================================================
 class TestBashQuotingAnalysis:
     """Tests for Bash quoting analysis in command arguments."""
 
     def test_unquoted_variable_expansion(self, bash_parser):
         """Test detection of unquoted variable expansion (security risk)."""
-        code = '''rm $file'''
+        code = """rm $file"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -289,27 +278,21 @@ class TestBashQuotingAnalysis:
         args = cmd_list[0]["args"]
         assert len(args) == 3
 
-        # First arg: double-quoted with expansion
         assert args[0]["quote_type"] == "double"
         assert args[0]["has_expansion"] is True
 
-        # Second arg: unquoted
         assert args[1]["is_quoted"] is False
 
-        # Third arg: single-quoted, no expansion
         assert args[2]["quote_type"] == "single"
         assert args[2]["has_expansion"] is False
 
 
-# =============================================================================
-# COMMAND EXTRACTION TESTS
-# =============================================================================
 class TestBashCommandExtraction:
     """Tests for Bash command extraction."""
 
     def test_simple_command(self, bash_parser):
         """Test simple command extraction."""
-        code = '''ls -la /tmp'''
+        code = """ls -la /tmp"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -319,9 +302,9 @@ class TestBashCommandExtraction:
 
     def test_command_containing_function(self, bash_parser):
         """Test command tracking of containing function."""
-        code = '''my_func() {
+        code = """my_func() {
     ls -la
-}'''
+}"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -330,15 +313,12 @@ class TestBashCommandExtraction:
         assert ls_cmds[0]["containing_function"] == "my_func"
 
 
-# =============================================================================
-# TASK 4.2.6: WRAPPER UNWRAPPING TESTS (DRAGON)
-# =============================================================================
 class TestBashWrapperUnwrapping:
     """Tests for wrapper command unwrapping (sudo, time, xargs, etc.)."""
 
     def test_sudo_unwrapping(self, bash_parser):
         """Test that sudo wrapper extracts the wrapped command."""
-        code = '''sudo rm -rf /tmp/test'''
+        code = """sudo rm -rf /tmp/test"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -348,7 +328,7 @@ class TestBashWrapperUnwrapping:
 
     def test_sudo_with_user_flag(self, bash_parser):
         """Test sudo with -u flag unwrapping."""
-        code = '''sudo -u nobody cat /etc/passwd'''
+        code = """sudo -u nobody cat /etc/passwd"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -358,7 +338,7 @@ class TestBashWrapperUnwrapping:
 
     def test_time_unwrapping(self, bash_parser):
         """Test that time wrapper extracts the wrapped command."""
-        code = '''time curl https://example.com'''
+        code = """time curl https://example.com"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -368,7 +348,7 @@ class TestBashWrapperUnwrapping:
 
     def test_nohup_unwrapping(self, bash_parser):
         """Test that nohup wrapper extracts the wrapped command."""
-        code = '''nohup ./long_process.sh &'''
+        code = """nohup ./long_process.sh &"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -378,7 +358,7 @@ class TestBashWrapperUnwrapping:
 
     def test_env_unwrapping(self, bash_parser):
         """Test that env wrapper skips VAR=val and finds command."""
-        code = '''env PATH=/bin VAR=value ls -la'''
+        code = """env PATH=/bin VAR=value ls -la"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -388,7 +368,7 @@ class TestBashWrapperUnwrapping:
 
     def test_non_wrapper_command(self, bash_parser):
         """Test that non-wrapper commands have no wrapped_command."""
-        code = '''ls -la'''
+        code = """ls -la"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -396,15 +376,12 @@ class TestBashWrapperUnwrapping:
         assert commands[0]["wrapped_command"] is None
 
 
-# =============================================================================
-# FLAG NORMALIZATION TESTS
-# =============================================================================
 class TestBashFlagNormalization:
     """Tests for combined flag normalization (-la -> -l, -a)."""
 
     def test_combined_short_flags(self, bash_parser):
         """Test that combined short flags are normalized."""
-        code = '''ls -la'''
+        code = """ls -la"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -417,7 +394,7 @@ class TestBashFlagNormalization:
 
     def test_single_short_flag(self, bash_parser):
         """Test that single short flags are not normalized."""
-        code = '''ls -l'''
+        code = """ls -l"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -428,7 +405,7 @@ class TestBashFlagNormalization:
 
     def test_long_flag(self, bash_parser):
         """Test that long flags are not normalized."""
-        code = '''ls --all'''
+        code = """ls --all"""
         result = parse_bash(bash_parser, code)
 
         commands = result["bash_commands"]
@@ -438,15 +415,12 @@ class TestBashFlagNormalization:
         assert all_args[0]["normalized_flags"] is None
 
 
-# =============================================================================
-# SOURCE STATEMENT EXTRACTION TESTS
-# =============================================================================
 class TestBashSourceExtraction:
     """Tests for source/dot statement extraction."""
 
     def test_source_command(self, bash_parser):
         """Test source command extraction."""
-        code = '''source /etc/profile'''
+        code = """source /etc/profile"""
         result = parse_bash(bash_parser, code)
 
         sources = result["bash_sources"]
@@ -457,7 +431,7 @@ class TestBashSourceExtraction:
 
     def test_dot_command(self, bash_parser):
         """Test dot (.) command extraction."""
-        code = '''. ./lib/utils.sh'''
+        code = """. ./lib/utils.sh"""
         result = parse_bash(bash_parser, code)
 
         sources = result["bash_sources"]
@@ -475,31 +449,26 @@ class TestBashSourceExtraction:
         assert sources[0]["has_variable_expansion"] is True
 
 
-# =============================================================================
-# PIPELINE EXTRACTION TESTS
-# =============================================================================
 class TestBashPipelineExtraction:
     """Tests for pipeline extraction."""
 
     def test_simple_pipeline(self, bash_parser):
         """Test simple two-command pipeline."""
-        code = '''cat file.txt | grep pattern'''
+        code = """cat file.txt | grep pattern"""
         result = parse_bash(bash_parser, code)
 
         pipes = result["bash_pipes"]
         assert len(pipes) == 2
 
-        # Check positions
         positions = sorted([p["position"] for p in pipes])
         assert positions == [0, 1]
 
-        # Both should have same pipeline_id
         pipeline_ids = set(p["pipeline_id"] for p in pipes)
         assert len(pipeline_ids) == 1
 
     def test_three_stage_pipeline(self, bash_parser):
         """Test three-stage pipeline."""
-        code = '''cat file.txt | grep pattern | wc -l'''
+        code = """cat file.txt | grep pattern | wc -l"""
         result = parse_bash(bash_parser, code)
 
         pipes = result["bash_pipes"]
@@ -507,7 +476,7 @@ class TestBashPipelineExtraction:
 
     def test_pipeline_command_text(self, bash_parser):
         """Test that pipeline captures command text."""
-        code = '''echo hello | tr a-z A-Z'''
+        code = """echo hello | tr a-z A-Z"""
         result = parse_bash(bash_parser, code)
 
         pipes = result["bash_pipes"]
@@ -516,9 +485,6 @@ class TestBashPipelineExtraction:
         assert any("tr" in ct for ct in cmd_texts)
 
 
-# =============================================================================
-# TASK 4.2.7: NESTED EXPANSION RECURSION TESTS (DRAGON)
-# =============================================================================
 class TestBashNestedExpansion:
     """Tests for nested command substitution inside parameter expansion."""
 
@@ -528,7 +494,7 @@ class TestBashNestedExpansion:
         result = parse_bash(bash_parser, code)
 
         subshells = result["bash_subshells"]
-        # The nested $(cat /etc/hostname) should be extracted
+
         assert len(subshells) >= 1
         cat_subshells = [s for s in subshells if "cat" in s["command_text"]]
         assert len(cat_subshells) >= 1
@@ -543,15 +509,12 @@ class TestBashNestedExpansion:
         assert len(whoami_subs) >= 1
 
 
-# =============================================================================
-# SUBSHELL EXTRACTION TESTS
-# =============================================================================
 class TestBashSubshellExtraction:
     """Tests for command substitution extraction."""
 
     def test_dollar_paren_syntax(self, bash_parser):
         """Test $() command substitution extraction."""
-        code = '''result=$(ls -la)'''
+        code = """result=$(ls -la)"""
         result = parse_bash(bash_parser, code)
 
         subshells = result["bash_subshells"]
@@ -561,7 +524,7 @@ class TestBashSubshellExtraction:
 
     def test_backtick_syntax(self, bash_parser):
         """Test backtick command substitution extraction."""
-        code = '''result=`date`'''
+        code = """result=`date`"""
         result = parse_bash(bash_parser, code)
 
         subshells = result["bash_subshells"]
@@ -570,7 +533,7 @@ class TestBashSubshellExtraction:
 
     def test_subshell_capture_target(self, bash_parser):
         """Test that capture_target links to variable."""
-        code = '''MY_OUTPUT=$(process_data)'''
+        code = """MY_OUTPUT=$(process_data)"""
         result = parse_bash(bash_parser, code)
 
         subshells = result["bash_subshells"]
@@ -583,51 +546,47 @@ class TestBashSubshellExtraction:
         result = parse_bash(bash_parser, code)
 
         subshells = result["bash_subshells"]
-        # Should have at least 2 subshells
+
         assert len(subshells) >= 2
 
-        # Each should have unique col position
         cols = [s["col"] for s in subshells]
         assert len(cols) == len(set(cols)), "Each subshell should have unique col"
 
 
-# =============================================================================
-# TASK 4.2.8: HEREDOC VARIABLE EXPANSION TESTS (DRAGON)
-# =============================================================================
 class TestBashHeredocExtraction:
     """Tests for heredoc extraction with quoting detection."""
 
     def test_unquoted_heredoc_delimiter(self, bash_parser):
         """Test unquoted heredoc delimiter (variables expand)."""
-        code = '''cat <<EOF
+        code = """cat <<EOF
 Hello $USER
-EOF'''
+EOF"""
         result = parse_bash(bash_parser, code)
 
         redirections = result["bash_redirections"]
         heredocs = [r for r in redirections if r["direction"] == "heredoc"]
         assert len(heredocs) == 1
-        # Unquoted delimiter means variables expand
+
         assert heredocs[0].get("heredoc_quoted", False) is False
 
     def test_quoted_heredoc_delimiter(self, bash_parser):
         """Test quoted heredoc delimiter (variables do not expand)."""
-        code = '''cat <<'EOF'
+        code = """cat <<'EOF'
 Hello $USER stays literal
-EOF'''
+EOF"""
         result = parse_bash(bash_parser, code)
 
         redirections = result["bash_redirections"]
         heredocs = [r for r in redirections if r["direction"] == "heredoc"]
         assert len(heredocs) == 1
-        # Quoted delimiter means no variable expansion
+
         assert heredocs[0].get("heredoc_quoted", False) is True
 
     def test_heredoc_target_captured(self, bash_parser):
         """Test heredoc captures delimiter as target."""
-        code = '''cat <<MYDELIM
+        code = """cat <<MYDELIM
 content here
-MYDELIM'''
+MYDELIM"""
         result = parse_bash(bash_parser, code)
 
         redirections = result["bash_redirections"]
@@ -636,15 +595,12 @@ MYDELIM'''
         assert heredocs[0]["target"] == "MYDELIM"
 
 
-# =============================================================================
-# REDIRECTION EXTRACTION TESTS
-# =============================================================================
 class TestBashRedirectionExtraction:
     """Tests for I/O redirection extraction."""
 
     def test_output_redirect(self, bash_parser):
         """Test output redirection extraction."""
-        code = '''echo hello > output.txt'''
+        code = """echo hello > output.txt"""
         result = parse_bash(bash_parser, code)
 
         redirections = result["bash_redirections"]
@@ -654,7 +610,7 @@ class TestBashRedirectionExtraction:
 
     def test_input_redirect(self, bash_parser):
         """Test input redirection extraction."""
-        code = '''cat < input.txt'''
+        code = """cat < input.txt"""
         result = parse_bash(bash_parser, code)
 
         redirections = result["bash_redirections"]
@@ -662,17 +618,14 @@ class TestBashRedirectionExtraction:
         assert len(input_redir) == 1
 
 
-# =============================================================================
-# CONTROL FLOW EXTRACTION TESTS
-# =============================================================================
 class TestBashControlFlowExtraction:
     """Tests for control flow statement extraction."""
 
     def test_if_statement(self, bash_parser):
         """Test if statement extraction."""
-        code = '''if [ -f file.txt ]; then
+        code = """if [ -f file.txt ]; then
     echo "exists"
-fi'''
+fi"""
         result = parse_bash(bash_parser, code)
 
         control_flows = result["bash_control_flows"]
@@ -681,9 +634,9 @@ fi'''
 
     def test_for_loop(self, bash_parser):
         """Test for loop extraction with loop variable."""
-        code = '''for item in a b c; do
+        code = """for item in a b c; do
     echo "$item"
-done'''
+done"""
         result = parse_bash(bash_parser, code)
 
         control_flows = result["bash_control_flows"]
@@ -693,9 +646,9 @@ done'''
 
     def test_while_loop(self, bash_parser):
         """Test while loop extraction."""
-        code = '''while [ true ]; do
+        code = """while [ true ]; do
     echo "loop"
-done'''
+done"""
         result = parse_bash(bash_parser, code)
 
         control_flows = result["bash_control_flows"]
@@ -704,11 +657,11 @@ done'''
 
     def test_case_statement(self, bash_parser):
         """Test case statement extraction."""
-        code = '''case "$1" in
+        code = """case "$1" in
     start) echo "starting" ;;
     stop) echo "stopping" ;;
     *) echo "unknown" ;;
-esac'''
+esac"""
         result = parse_bash(bash_parser, code)
 
         control_flows = result["bash_control_flows"]
@@ -716,9 +669,6 @@ esac'''
         assert len(case_stmts) == 1
 
 
-# =============================================================================
-# TASK 4.2.9: SET COMMAND / SAFETY FLAGS TESTS
-# =============================================================================
 class TestBashSetCommandTracking:
     """Tests for set command and safety flag detection."""
 
@@ -742,8 +692,8 @@ echo "$UNDEFINED"'''
 
     def test_set_o_pipefail(self, bash_parser):
         """Test detection of set -o pipefail."""
-        code = '''set -o pipefail
-cat file | grep pattern'''
+        code = """set -o pipefail
+cat file | grep pattern"""
         result = parse_bash(bash_parser, code)
 
         metadata = result.get("_bash_metadata", {})
@@ -771,15 +721,12 @@ echo "strict mode"'''
         assert metadata.get("has_pipefail") is False
 
 
-# =============================================================================
-# COMPLEX REAL-WORLD SCRIPT TESTS
-# =============================================================================
 class TestBashRealWorldScripts:
     """Integration tests with realistic script patterns."""
 
     def test_devops_script_pattern(self, bash_parser):
         """Test extraction from DevOps-style deployment script."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 set -euo pipefail
 
 DEPLOY_DIR="/opt/myapp"
@@ -800,29 +747,26 @@ deploy() {
 }
 
 deploy "$@"
-'''
+"""
         result = parse_bash(bash_parser, code)
 
-        # Should extract functions
         funcs = result["bash_functions"]
         func_names = {f["name"] for f in funcs}
         assert "log" in func_names
         assert "deploy" in func_names
 
-        # Should extract variables
         variables = result["bash_variables"]
         var_names = {v["name"] for v in variables}
         assert "DEPLOY_DIR" in var_names
         assert "LOG_FILE" in var_names
 
-        # Should detect safety flags
         metadata = result.get("_bash_metadata", {})
         assert metadata.get("has_errexit") is True
         assert metadata.get("has_pipefail") is True
 
     def test_ci_pipeline_pattern(self, bash_parser):
         """Test extraction from CI/CD pipeline script pattern."""
-        code = '''#!/bin/bash
+        code = """#!/bin/bash
 
 build() {
     docker build -t "$IMAGE_NAME:$TAG" .
@@ -842,15 +786,13 @@ case "$1" in
     push) push ;;
     *) echo "Usage: $0 {build|test|push}" ;;
 esac
-'''
+"""
         result = parse_bash(bash_parser, code)
 
-        # Should extract all functions
         funcs = result["bash_functions"]
         func_names = {f["name"] for f in funcs}
         assert func_names == {"build", "test", "push"}
 
-        # Should extract case statement
         control_flows = result["bash_control_flows"]
         case_stmts = [cf for cf in control_flows if cf["type"] == "case"]
         assert len(case_stmts) == 1

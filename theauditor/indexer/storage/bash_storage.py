@@ -19,12 +19,7 @@ class BashStorage(BaseStorage):
             "bash_redirections": self._store_bash_redirections,
         }
 
-    # =========================================================================
-    # HANDLER 1: bash_functions
-    # =========================================================================
-    def _store_bash_functions(
-        self, file_path: str, bash_functions: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_functions(self, file_path: str, bash_functions: list, jsx_pass: bool) -> None:
         """Store Bash function definitions."""
         for func in bash_functions:
             self.db_manager.add_bash_function(
@@ -40,12 +35,7 @@ class BashStorage(BaseStorage):
                 self.counts["bash_functions"] = 0
             self.counts["bash_functions"] += 1
 
-    # =========================================================================
-    # HANDLER 2: bash_variables
-    # =========================================================================
-    def _store_bash_variables(
-        self, file_path: str, bash_variables: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_variables(self, file_path: str, bash_variables: list, jsx_pass: bool) -> None:
         """Store Bash variable assignments."""
         for var in bash_variables:
             self.db_manager.add_bash_variable(
@@ -61,12 +51,7 @@ class BashStorage(BaseStorage):
                 self.counts["bash_variables"] = 0
             self.counts["bash_variables"] += 1
 
-    # =========================================================================
-    # HANDLER 3: bash_sources
-    # =========================================================================
-    def _store_bash_sources(
-        self, file_path: str, bash_sources: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_sources(self, file_path: str, bash_sources: list, jsx_pass: bool) -> None:
         """Store Bash source/dot statements."""
         for src in bash_sources:
             self.db_manager.add_bash_source(
@@ -81,12 +66,7 @@ class BashStorage(BaseStorage):
                 self.counts["bash_sources"] = 0
             self.counts["bash_sources"] += 1
 
-    # =========================================================================
-    # HANDLER 4: bash_commands (with junction table for args)
-    # =========================================================================
-    def _store_bash_commands(
-        self, file_path: str, bash_commands: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_commands(self, file_path: str, bash_commands: list, jsx_pass: bool) -> None:
         """Store Bash command invocations and their arguments."""
         for cmd in bash_commands:
             line = cmd.get("line", 0)
@@ -103,17 +83,15 @@ class BashStorage(BaseStorage):
                 self.counts["bash_commands"] = 0
             self.counts["bash_commands"] += 1
 
-            # Store arguments in junction table
             for idx, arg in enumerate(cmd.get("args", [])):
-                # Convert normalized_flags list to comma-separated string
                 normalized_flags = arg.get("normalized_flags")
                 if normalized_flags and isinstance(normalized_flags, list):
                     normalized_flags = ",".join(normalized_flags)
 
                 self.db_manager.add_bash_command_arg(
                     file_path,
-                    line,  # command_line FK
-                    pipeline_position,  # command_pipeline_position FK
+                    line,
+                    pipeline_position,
                     idx,
                     arg.get("value", ""),
                     arg.get("is_quoted", False),
@@ -126,12 +104,7 @@ class BashStorage(BaseStorage):
                     self.counts["bash_command_args"] = 0
                 self.counts["bash_command_args"] += 1
 
-    # =========================================================================
-    # HANDLER 5: bash_pipes
-    # =========================================================================
-    def _store_bash_pipes(
-        self, file_path: str, bash_pipes: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_pipes(self, file_path: str, bash_pipes: list, jsx_pass: bool) -> None:
         """Store Bash pipeline connections."""
         for pipe in bash_pipes:
             self.db_manager.add_bash_pipe(
@@ -146,12 +119,7 @@ class BashStorage(BaseStorage):
                 self.counts["bash_pipes"] = 0
             self.counts["bash_pipes"] += 1
 
-    # =========================================================================
-    # HANDLER 6: bash_subshells
-    # =========================================================================
-    def _store_bash_subshells(
-        self, file_path: str, bash_subshells: list, jsx_pass: bool
-    ) -> None:
+    def _store_bash_subshells(self, file_path: str, bash_subshells: list, jsx_pass: bool) -> None:
         """Store Bash command substitutions."""
         for sub in bash_subshells:
             self.db_manager.add_bash_subshell(
@@ -167,9 +135,6 @@ class BashStorage(BaseStorage):
                 self.counts["bash_subshells"] = 0
             self.counts["bash_subshells"] += 1
 
-    # =========================================================================
-    # HANDLER 7: bash_redirections
-    # =========================================================================
     def _store_bash_redirections(
         self, file_path: str, bash_redirections: list, jsx_pass: bool
     ) -> None:

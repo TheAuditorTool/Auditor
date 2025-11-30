@@ -21,7 +21,6 @@ class BashExtractor(BaseExtractor):
         if not tree:
             return result
 
-        # Handle tree-sitter result
         if isinstance(tree, dict) and tree.get("type") == "tree_sitter":
             actual_tree = tree.get("tree")
             if actual_tree:

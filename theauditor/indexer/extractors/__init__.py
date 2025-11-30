@@ -68,9 +68,11 @@ class BaseExtractor(ABC):
                 objects.append((kind, name))
         return objects
 
-    def cleanup(self) -> None:
-        """Clean up extractor resources after all files processed."""
-        pass
+    def cleanup(self) -> None:  # noqa: B027
+        """Clean up extractor resources after all files processed.
+
+        Default no-op. Override in subclasses that need cleanup.
+        """
 
 
 class ExtractorRegistry:

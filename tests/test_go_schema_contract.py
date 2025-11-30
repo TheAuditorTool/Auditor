@@ -16,7 +16,6 @@ from theauditor.indexer.schema import TABLES
 from theauditor.indexer.schemas.go_schema import GO_TABLES
 
 
-# Expected Go tables from the spec
 EXPECTED_GO_TABLES = {
     "go_packages",
     "go_imports",
@@ -49,8 +48,7 @@ class TestGoSchemaContract:
     def test_go_tables_count(self):
         """Verify expected number of Go tables."""
         assert len(GO_TABLES) == 22, (
-            f"Expected 22 Go tables, got {len(GO_TABLES)}. "
-            f"Tables: {sorted(GO_TABLES.keys())}"
+            f"Expected 22 Go tables, got {len(GO_TABLES)}. Tables: {sorted(GO_TABLES.keys())}"
         )
 
     def test_all_expected_tables_exist(self):
@@ -138,8 +136,13 @@ class TestGoTableStructure:
         table = GO_TABLES["go_struct_fields"]
         column_names = {col.name for col in table.columns}
         required = {
-            "file", "struct_name", "field_name", "field_type",
-            "tag", "is_embedded", "is_exported"
+            "file",
+            "struct_name",
+            "field_name",
+            "field_type",
+            "tag",
+            "is_embedded",
+            "is_exported",
         }
         assert required.issubset(column_names), (
             f"go_struct_fields missing columns: {required - column_names}"
@@ -176,8 +179,13 @@ class TestGoTableStructure:
         table = GO_TABLES["go_type_params"]
         column_names = {col.name for col in table.columns}
         required = {
-            "file", "line", "parent_name", "parent_kind",
-            "param_index", "param_name", "constraint"
+            "file",
+            "line",
+            "parent_name",
+            "parent_kind",
+            "param_index",
+            "param_name",
+            "constraint",
         }
         assert required.issubset(column_names), (
             f"go_type_params missing columns: {required - column_names}"
@@ -208,6 +216,7 @@ class TestGoDatabaseMixin:
     def test_go_database_mixin_importable(self):
         """Verify GoDatabaseMixin is importable."""
         from theauditor.indexer.database.go_database import GoDatabaseMixin
+
         assert GoDatabaseMixin is not None
 
     def test_go_database_mixin_has_methods(self):
@@ -251,6 +260,7 @@ class TestGoExtractor:
     def test_go_extractor_importable(self):
         """Verify GoExtractor is importable."""
         from theauditor.indexer.extractors.go import GoExtractor
+
         assert GoExtractor is not None
 
     def test_go_extractor_supports_go_extension(self):
@@ -268,6 +278,7 @@ class TestGoStorage:
     def test_go_storage_importable(self):
         """Verify GoStorage is importable."""
         from theauditor.indexer.storage.go_storage import GoStorage
+
         assert GoStorage is not None
 
     def test_go_storage_has_handlers(self):
@@ -290,6 +301,7 @@ class TestGoImplFunctions:
     def test_go_impl_importable(self):
         """Verify go_impl module is importable."""
         from theauditor.ast_extractors import go_impl
+
         assert go_impl is not None
 
     def test_extraction_functions_exist(self):

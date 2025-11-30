@@ -11,10 +11,10 @@ Validates that import resolution doesn't infinite loop or crash.
 
 from typing import TYPE_CHECKING
 
-# TYPE_CHECKING guard prevents runtime circular import
-# But static analysis tools should still track this import
+
 if TYPE_CHECKING:
     from services import UserService
+
 
 class User:
     """
@@ -34,8 +34,8 @@ class User:
         Tests: Runtime import resolution inside method.
         """
         if self._service is None:
-            # Import inside method to break circular dependency at runtime
             from services import UserService
+
             self._service = UserService(self)
         return self._service
 
@@ -45,11 +45,7 @@ class User:
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
-        return {
-            "user_id": self.user_id,
-            "username": self.username,
-            "email": self.email
-        }
+        return {"user_id": self.user_id, "username": self.username, "email": self.email}
 
 
 class Post:
@@ -70,7 +66,6 @@ class Post:
         Tests: Method that imports from circular module.
         """
 
-        # Would fetch from service in real code
         return None
 
     def get_comment_service(self):
@@ -79,6 +74,7 @@ class Post:
         Tests: Another circular import path.
         """
         from services import CommentService
+
         return CommentService(self.post_id)
 
 
@@ -96,5 +92,5 @@ class Comment:
 
     def get_post(self) -> Post | None:
         """Get the parent post."""
-        # Would use controller to fetch post
+
         return None

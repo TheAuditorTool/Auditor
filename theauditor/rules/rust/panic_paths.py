@@ -33,23 +33,26 @@ METADATA = RuleMetadata(
 )
 
 
-# Panic-inducing macros
-PANIC_MACROS = frozenset([
-    "panic",
-    "todo",
-    "unimplemented",
-    "unreachable",
-])
+PANIC_MACROS = frozenset(
+    [
+        "panic",
+        "todo",
+        "unimplemented",
+        "unreachable",
+    ]
+)
 
-# Assertion macros (may panic in debug builds)
-ASSERT_MACROS = frozenset([
-    "assert",
-    "assert_eq",
-    "assert_ne",
-    "debug_assert",
-    "debug_assert_eq",
-    "debug_assert_ne",
-])
+
+ASSERT_MACROS = frozenset(
+    [
+        "assert",
+        "assert_eq",
+        "assert_ne",
+        "debug_assert",
+        "debug_assert_eq",
+        "debug_assert_ne",
+    ]
+)
 
 
 class PanicPathAnalyzer:
@@ -70,7 +73,6 @@ class PanicPathAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check if Rust tables exist
             self.cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_macro_invocations'
@@ -108,7 +110,6 @@ class PanicPathAnalyzer:
         for row in self.cursor.fetchall():
             file_path = row["file_path"]
 
-            # Skip test files
             if self._is_test_file(file_path):
                 continue
 
@@ -158,7 +159,6 @@ class PanicPathAnalyzer:
         for row in self.cursor.fetchall():
             file_path = row["file_path"]
 
-            # Skip test files
             if self._is_test_file(file_path):
                 continue
 
@@ -166,7 +166,6 @@ class PanicPathAnalyzer:
             macro_name = row["macro_name"]
             containing_fn = row["containing_function"] or "unknown"
 
-            # debug_assert variants only panic in debug builds - lower severity
             is_debug = macro_name.startswith("debug_")
             severity = Severity.LOW if is_debug else Severity.MEDIUM
 
@@ -227,5 +226,4 @@ def find_panic_paths(context: StandardRuleContext) -> list[StandardFinding]:
     return analyzer.analyze()
 
 
-# Alias for backwards compatibility
 analyze = find_panic_paths

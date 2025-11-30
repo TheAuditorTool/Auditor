@@ -15,6 +15,34 @@ Usage:
 import sqlite3
 from pathlib import Path
 
+# Rust standard library prelude types
+_STD_PRELUDE = frozenset({
+    "Option", "Some", "None", "Result", "Ok", "Err",
+    "Vec", "String", "Box", "Rc", "Arc", "Cell", "RefCell",
+    "Copy", "Clone", "Default", "Debug", "Display",
+    "Iterator", "IntoIterator", "From", "Into",
+    "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+    "Send", "Sync", "Sized", "Drop", "Fn", "FnMut", "FnOnce",
+})
+
+_PRELUDE_PATHS = {
+    "Vec": "std::vec::Vec",
+    "String": "std::string::String",
+    "Box": "std::boxed::Box",
+    "Rc": "std::rc::Rc",
+    "Arc": "std::sync::Arc",
+    "Cell": "std::cell::Cell",
+    "RefCell": "std::cell::RefCell",
+    "Option": "std::option::Option",
+    "Result": "std::result::Result",
+}
+
+_PRIMITIVES = frozenset({
+    "i8", "i16", "i32", "i64", "i128", "isize",
+    "u8", "u16", "u32", "u64", "u128", "usize",
+    "f32", "f64", "bool", "char", "str",
+})
+
 
 class RustResolver:
     """Resolves Rust type/trait names to canonical paths."""
@@ -26,8 +54,8 @@ class RustResolver:
             db_path: Path to repo_index.db
         """
         self.db_path = Path(db_path)
-        self._alias_cache: dict[str, dict[str, str]] = {}  # file_path -> {local: canonical}
-        self._modules_cache: dict[str, str] = {}  # file_path -> module_path
+        self._alias_cache: dict[str, dict[str, str]] = {}
+        self._modules_cache: dict[str, str] = {}
         self._loaded = False
 
     def _load_from_db(self) -> None:
@@ -40,7 +68,6 @@ class RustResolver:
         cursor = conn.cursor()
 
         try:
-            # Check if rust tables exist
             cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_use_statements'
@@ -48,7 +75,6 @@ class RustResolver:
             if not cursor.fetchone():
                 return
 
-            # Load use statements to build alias map
             cursor.execute("""
                 SELECT file_path, import_path, local_name, is_glob
                 FROM rust_use_statements
@@ -63,10 +89,8 @@ class RustResolver:
                 if file_path not in self._alias_cache:
                     self._alias_cache[file_path] = {}
 
-                # Store mapping: local_name -> canonical import_path
                 self._alias_cache[file_path][local_name] = import_path
 
-            # Load module paths for crate-relative resolution
             cursor.execute("""
                 SELECT file_path, module_name, parent_module
                 FROM rust_modules
@@ -77,7 +101,6 @@ class RustResolver:
                 module_name = row["module_name"]
                 parent_module = row["parent_module"]
 
-                # Build module path
                 if parent_module:
                     self._modules_cache[file_path] = f"{parent_module}::{module_name}"
                 else:
@@ -99,52 +122,20 @@ class RustResolver:
         """
         self._load_from_db()
 
-        # First check if it's a direct import alias
         if file_path in self._alias_cache:
             aliases = self._alias_cache[file_path]
             if local_name in aliases:
                 return aliases[local_name]
 
-        # Check if name contains :: (already qualified)
         if "::" in local_name:
             return local_name
 
-        # Check common std types that don't need imports
-        STD_PRELUDE = {
-            "Option", "Some", "None", "Result", "Ok", "Err",
-            "Vec", "String", "Box", "Rc", "Arc", "Cell", "RefCell",
-            "Copy", "Clone", "Default", "Debug", "Display",
-            "Iterator", "IntoIterator", "From", "Into",
-            "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
-            "Send", "Sync", "Sized", "Drop", "Fn", "FnMut", "FnOnce",
-        }
+        if local_name in _STD_PRELUDE:
+            return _PRELUDE_PATHS.get(local_name, f"std::prelude::{local_name}")
 
-        if local_name in STD_PRELUDE:
-            # Map to canonical std path
-            PRELUDE_PATHS = {
-                "Vec": "std::vec::Vec",
-                "String": "std::string::String",
-                "Box": "std::boxed::Box",
-                "Rc": "std::rc::Rc",
-                "Arc": "std::sync::Arc",
-                "Cell": "std::cell::Cell",
-                "RefCell": "std::cell::RefCell",
-                "Option": "std::option::Option",
-                "Result": "std::result::Result",
-            }
-            return PRELUDE_PATHS.get(local_name, f"std::prelude::{local_name}")
-
-        # For primitive types, return as-is
-        PRIMITIVES = {
-            "i8", "i16", "i32", "i64", "i128", "isize",
-            "u8", "u16", "u32", "u64", "u128", "usize",
-            "f32", "f64", "bool", "char", "str",
-        }
-        if local_name in PRIMITIVES:
+        if local_name in _PRIMITIVES:
             return local_name
 
-        # Not found - might be a local type in the same crate
-        # Return the original name (it's either a local type or needs explicit import)
         return local_name
 
     def resolve_for_file(self, file_path: str) -> dict[str, str]:
@@ -177,7 +168,6 @@ class RustResolver:
         stats = {"updated": 0, "skipped": 0}
 
         try:
-            # Get all impl blocks
             cursor.execute("""
                 SELECT rowid, file_path, target_type_raw, trait_name
                 FROM rust_impl_blocks
@@ -191,10 +181,8 @@ class RustResolver:
                 target_raw = row["target_type_raw"]
                 trait_name = row["trait_name"]
 
-                # Resolve target type
                 target_resolved = self.resolve(file_path, target_raw)
 
-                # Resolve trait name
                 trait_resolved = None
                 if trait_name:
                     trait_resolved = self.resolve(file_path, trait_name)
@@ -205,13 +193,15 @@ class RustResolver:
                 else:
                     stats["skipped"] += 1
 
-            # Batch update
             if updates:
-                cursor.executemany("""
+                cursor.executemany(
+                    """
                     UPDATE rust_impl_blocks
                     SET target_type_resolved = ?, trait_resolved = ?
                     WHERE rowid = ?
-                """, updates)
+                """,
+                    updates,
+                )
                 conn.commit()
 
         finally:
@@ -240,7 +230,6 @@ class RustResolver:
         stats = {"updated": 0, "skipped": 0}
 
         try:
-            # Get all use statements where canonical might differ from import_path
             cursor.execute("""
                 SELECT rowid, import_path, local_name
                 FROM rust_use_statements
@@ -253,10 +242,7 @@ class RustResolver:
                 import_path = row["import_path"]
                 local_name = row["local_name"]
 
-                # For `use foo::bar::Baz`, canonical should be `foo::bar::Baz`
-                # For `use foo::bar::{A, B}`, we extract each item separately
                 if "::{" in import_path and "}" in import_path:
-                    # Complex import - need to expand
                     base = import_path.split("::{")[0]
                     canonical = f"{base}::{local_name}"
                     updates.append((canonical, rowid))
@@ -264,13 +250,15 @@ class RustResolver:
                 else:
                     stats["skipped"] += 1
 
-            # Batch update
             if updates:
-                cursor.executemany("""
+                cursor.executemany(
+                    """
                     UPDATE rust_use_statements
                     SET canonical_path = ?
                     WHERE rowid = ?
-                """, updates)
+                """,
+                    updates,
+                )
                 conn.commit()
 
         finally:

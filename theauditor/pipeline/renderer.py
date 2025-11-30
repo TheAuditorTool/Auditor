@@ -10,14 +10,14 @@ from rich.live import Live
 from rich.table import Table
 
 from .events import PipelineObserver
-from .structures import PhaseResult, TaskStatus
+from .structures import PhaseResult
 from .ui import AUDITOR_THEME
 
 
 class DynamicTable:
     """Wrapper that builds a fresh table on each Rich render cycle."""
 
-    def __init__(self, renderer: "RichRenderer"):
+    def __init__(self, renderer: RichRenderer):
         self.renderer = renderer
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
@@ -32,7 +32,7 @@ class RichRenderer(PipelineObserver):
         self.quiet = quiet
         self.log_file: TextIO | None = None
         if log_file:
-            self.log_file = open(log_file, "w", encoding="utf-8", buffering=1)
+            self.log_file = open(log_file, "w", encoding="utf-8", buffering=1)  # noqa: SIM115
 
         self.is_tty = sys.stdout.isatty()
 

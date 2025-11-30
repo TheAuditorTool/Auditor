@@ -49,7 +49,6 @@ class UnsafeAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check if Rust tables exist
             self.cursor.execute("""
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name='rust_unsafe_blocks'
@@ -209,5 +208,4 @@ def find_unsafe_issues(context: StandardRuleContext) -> list[StandardFinding]:
     return analyzer.analyze()
 
 
-# Alias for backwards compatibility
 analyze = find_unsafe_issues

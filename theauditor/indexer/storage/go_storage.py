@@ -105,7 +105,9 @@ class GoStorage(BaseStorage):
                 self.counts["go_interfaces"] = 0
             self.counts["go_interfaces"] += 1
 
-    def _store_go_interface_methods(self, file_path: str, go_interface_methods: list, jsx_pass: bool):
+    def _store_go_interface_methods(
+        self, file_path: str, go_interface_methods: list, jsx_pass: bool
+    ):
         """Store Go interface methods."""
         for method in go_interface_methods:
             self.db_manager.add_go_interface_method(
@@ -307,7 +309,7 @@ class GoStorage(BaseStorage):
                 var.get("initial_value"),
                 var.get("is_exported", False),
                 var.get("is_package_level", False),
-                var.get("containing_func"),  # NULL for package-level, func name for local
+                var.get("containing_func"),
             )
             if "go_variables" not in self.counts:
                 self.counts["go_variables"] = 0
