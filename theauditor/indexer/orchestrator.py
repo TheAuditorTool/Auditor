@@ -363,6 +363,13 @@ class IndexerOrchestrator:
 
             self._process_file(file_info, js_ts_cache)
 
+            # Phase 0.1: Release AST from cache immediately after processing
+            # This allows GC to reclaim memory incrementally instead of holding all ASTs
+            file_path = self.root_path / file_info["path"]
+            file_str = str(file_path).replace("\\", "/")
+            if file_str in js_ts_cache:
+                del js_ts_cache[file_str]
+
             if (idx + 1) % self.db_manager.batch_size == 0 or idx == len(files) - 1:
                 self.db_manager.flush_batch()
 
@@ -578,12 +585,31 @@ class IndexerOrchestrator:
                 if not extractor:
                     continue
 
+                # Phase 0.6: Partial success mode - extract what we can from failed parses
                 if isinstance(tree, dict) and tree.get("success") is False:
-                    print(
-                        f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}",
-                        file=sys.stderr,
-                    )
-                    continue
+                    # Check if we have partial extracted_data despite parse failure
+                    partial_data = tree.get("extracted_data")
+                    if not partial_data:
+                        # Check nested structure
+                        actual_tree = tree.get("tree") if tree.get("type") == "semantic_ast" else tree
+                        if isinstance(actual_tree, dict):
+                            partial_data = actual_tree.get("extracted_data")
+
+                    if partial_data and isinstance(partial_data, dict):
+                        # Partial success: we have some extracted data
+                        print(
+                            f"[Indexer] JavaScript PARTIAL extraction for {file_path}: "
+                            f"{tree.get('error')} - processing {len(partial_data)} data keys",
+                            file=sys.stderr,
+                        )
+                        # Continue with extraction using partial data
+                    else:
+                        # Total failure: no extractable data
+                        print(
+                            f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}",
+                            file=sys.stderr,
+                        )
+                        continue
 
                 try:
                     extracted = extractor.extract(file_info, content, tree)
@@ -600,6 +626,10 @@ class IndexerOrchestrator:
                 jsx_counts["assignments"] += len(extracted.get("assignments", []))
                 jsx_counts["calls"] += len(extracted.get("function_calls", []))
                 jsx_counts["returns"] += len(extracted.get("returns", []))
+
+                # Phase 0.1: Release JSX AST from cache immediately after processing
+                if file_str in jsx_cache:
+                    del jsx_cache[file_str]
 
                 if (idx + 1) % self.db_manager.batch_size == 0:
                     self.db_manager.flush_batch()

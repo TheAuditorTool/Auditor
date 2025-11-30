@@ -1,15 +1,29 @@
-"""Graph database cache layer - Solves N+1 query problem."""
+"""Graph database cache layer - Lazy loading with LRU cache.
+
+Phase 0.2: Converted from eager loading (500k+ rows at startup) to on-demand
+queries with bounded LRU cache. Memory usage drops from O(all_imports) to O(cache_size).
+"""
 
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 
 class GraphDatabaseCache:
-    """In-memory cache of database tables for graph building."""
+    """Lazy-loading cache of database tables for graph building.
+
+    Uses @lru_cache for O(1) repeated lookups while keeping memory bounded.
+    Only known_files is loaded eagerly (small set, needed for O(1) file_exists).
+    """
+
+    # Cache sizes tuned for typical usage patterns
+    IMPORTS_CACHE_SIZE = 2000  # Most graphs touch <2000 unique files
+    EXPORTS_CACHE_SIZE = 2000
+    RESOLVE_CACHE_SIZE = 5000  # Path resolution called frequently
 
     def __init__(self, db_path: Path):
-        """Initialize cache by loading all data once."""
+        """Initialize cache - only loads file list, imports/exports are lazy."""
         self.db_path = db_path
 
         if not self.db_path.exists():
@@ -18,87 +32,94 @@ class GraphDatabaseCache:
             )
 
         self.known_files: set[str] = set()
-        self.imports_by_file: dict[str, list[dict[str, Any]]] = {}
-        self.exports_by_file: dict[str, list[dict[str, Any]]] = {}
-
-        self._load_cache()
+        self._load_file_list()
 
     def _normalize_path(self, path: str) -> str:
         """Normalize path to forward-slash format."""
         return path.replace("\\", "/") if path else ""
 
-    def _load_cache(self):
-        """Load all graph-relevant data from database in bulk."""
+    def _load_file_list(self):
+        """Load only the file list - small and needed for O(1) file_exists."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT path FROM files")
+        self.known_files = {self._normalize_path(row[0]) for row in cursor.fetchall()}
+
+        conn.close()
+
+        print(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
+
+    @lru_cache(maxsize=IMPORTS_CACHE_SIZE)
+    def get_imports(self, file_path: str) -> tuple[dict[str, Any], ...]:
+        """Get all imports for a file (lazy query with LRU cache).
+
+        Returns tuple instead of list for hashability (lru_cache requirement).
+        """
+        normalized = self._normalize_path(file_path)
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute("SELECT path FROM files")
-        self.known_files = {self._normalize_path(row["path"]) for row in cursor.fetchall()}
-
         cursor.execute("""
-            SELECT src, kind, value, line
+            SELECT kind, value, line
             FROM refs
-            WHERE kind IN ('import', 'require', 'from', 'import_type', 'export', 'dynamic_import')
-        """)
-        for row in cursor.fetchall():
-            src = self._normalize_path(row["src"])
-            if src not in self.imports_by_file:
-                self.imports_by_file[src] = []
+            WHERE src = ?
+              AND kind IN ('import', 'require', 'from', 'import_type', 'export', 'dynamic_import')
+        """, (normalized,))
 
-            self.imports_by_file[src].append(
-                {
-                    "kind": row["kind"],
-                    "value": row["value"],
-                    "line": row["line"],
-                }
-            )
-
-        cursor.execute("""
-            SELECT path, name, type, line
-            FROM symbols
-            WHERE type IN ('function', 'class')
-        """)
-        for row in cursor.fetchall():
-            path = self._normalize_path(row["path"])
-            if path not in self.exports_by_file:
-                self.exports_by_file[path] = []
-
-            self.exports_by_file[path].append(
-                {
-                    "name": row["name"],
-                    "symbol_type": row["type"],
-                    "line": row["line"],
-                }
-            )
-
-        conn.close()
-
-        print(
-            f"[GraphCache] Loaded {len(self.known_files)} files, "
-            f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
-            f"{sum(len(v) for v in self.exports_by_file.values())} export records"
+        results = tuple(
+            {
+                "kind": row["kind"],
+                "value": row["value"],
+                "line": row["line"],
+            }
+            for row in cursor.fetchall()
         )
 
-    def get_imports(self, file_path: str) -> list[dict[str, Any]]:
-        """Get all imports for a file (O(1) lookup)."""
-        normalized = self._normalize_path(file_path)
-        return self.imports_by_file.get(normalized, [])
+        conn.close()
+        return results
 
-    def get_exports(self, file_path: str) -> list[dict[str, Any]]:
-        """Get all exports for a file (O(1) lookup)."""
+    @lru_cache(maxsize=EXPORTS_CACHE_SIZE)
+    def get_exports(self, file_path: str) -> tuple[dict[str, Any], ...]:
+        """Get all exports for a file (lazy query with LRU cache).
+
+        Returns tuple instead of list for hashability (lru_cache requirement).
+        """
         normalized = self._normalize_path(file_path)
-        return self.exports_by_file.get(normalized, [])
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT name, type, line
+            FROM symbols
+            WHERE path = ?
+              AND type IN ('function', 'class')
+        """, (normalized,))
+
+        results = tuple(
+            {
+                "name": row["name"],
+                "symbol_type": row["type"],
+                "line": row["line"],
+            }
+            for row in cursor.fetchall()
+        )
+
+        conn.close()
+        return results
 
     def file_exists(self, file_path: str) -> bool:
         """Check if file exists in project (O(1) lookup)."""
         normalized = self._normalize_path(file_path)
         return normalized in self.known_files
 
+    @lru_cache(maxsize=RESOLVE_CACHE_SIZE)
     def resolve_filename(self, path_guess: str) -> str | None:
         """Smart-resolve a path to an actual file in the DB, handling extensions."""
-
         clean = self._normalize_path(path_guess)
 
         if clean in self.known_files:
@@ -120,8 +141,24 @@ class GraphDatabaseCache:
 
     def get_stats(self) -> dict[str, int]:
         """Get cache statistics."""
+        imports_info = self.get_imports.cache_info()
+        exports_info = self.get_exports.cache_info()
+        resolve_info = self.resolve_filename.cache_info()
+
         return {
             "files": len(self.known_files),
-            "imports": sum(len(v) for v in self.imports_by_file.values()),
-            "exports": sum(len(v) for v in self.exports_by_file.values()),
+            "imports_cache_hits": imports_info.hits,
+            "imports_cache_misses": imports_info.misses,
+            "imports_cache_size": imports_info.currsize,
+            "exports_cache_hits": exports_info.hits,
+            "exports_cache_misses": exports_info.misses,
+            "exports_cache_size": exports_info.currsize,
+            "resolve_cache_hits": resolve_info.hits,
+            "resolve_cache_misses": resolve_info.misses,
         }
+
+    def clear_caches(self):
+        """Clear all LRU caches - useful for testing or memory pressure."""
+        self.get_imports.cache_clear()
+        self.get_exports.cache_clear()
+        self.resolve_filename.cache_clear()

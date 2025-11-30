@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from collections import defaultdict
+from functools import lru_cache
 
 from theauditor.utils.logger import setup_logger
 
@@ -20,6 +21,10 @@ USERCODE_MAX_VISITS = 10
 class FlowResolver:
     """Resolves ALL control flows in codebase to populate resolved_flow_audit table."""
 
+    # Phase 0.3: LRU cache sizes for lazy graph loading
+    SUCCESSORS_CACHE_SIZE = 10_000  # Most traversals touch <10k unique nodes
+    EDGE_TYPE_CACHE_SIZE = 20_000   # Edge types queried frequently during path recording
+
     def __init__(self, repo_db: str, graph_db: str, registry=None):
         """Initialize the flow resolver with database connections."""
         self.repo_db = repo_db
@@ -36,32 +41,21 @@ class FlowResolver:
 
         self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=registry)
 
-        self.adjacency_list: dict[str, list[str]] = defaultdict(list)
-        self.edge_types: dict[tuple[str, str], str] = {}
-        self._preload_graph()
+        # Phase 0.3: Removed eager loading of adjacency_list and edge_types
+        # Now using lazy @lru_cache decorated methods for on-demand queries
+        # Memory: O(cache_size) instead of O(all_edges)
 
         self.best_paths_cache: dict[tuple, int] = {}
 
+        logger.info("FlowResolver initialized with lazy graph loading (Phase 0.3)")
+
     def _preload_graph(self):
-        """Pre-load the entire data flow graph into memory for O(1) traversal."""
-        logger.info("Pre-loading data flow graph into memory...")
-        cursor = self.graph_conn.cursor()
+        """DEPRECATED: Phase 0.3 removed eager loading.
 
-        cursor.execute("""
-            SELECT source, target, type
-            FROM edges
-            WHERE graph_type = 'data_flow'
-        """)
-
-        edge_count = 0
-        for source, target, edge_type in cursor.fetchall():
-            self.adjacency_list[source].append(target)
-            self.edge_types[(source, target)] = edge_type or "unknown"
-            edge_count += 1
-
-        logger.info(
-            f"Graph pre-loaded: {edge_count} edges, {len(self.adjacency_list)} nodes in memory"
-        )
+        This method is kept as a no-op for backward compatibility.
+        Graph data is now loaded on-demand via _get_successors() and _get_edge_type().
+        """
+        logger.debug("_preload_graph() is deprecated - using lazy loading instead")
 
     def resolve_all_flows(self) -> int:
         """Complete forward flow resolution to generate atomic truth."""
@@ -445,9 +439,25 @@ class FlowResolver:
                 worklist.append((successor_id, new_path))
 
     def _get_successors(self, node_id: str) -> list[str]:
-        """Get successor nodes from in-memory graph cache (O(1) lookup)."""
+        """Get successor nodes via lazy DB query with LRU cache.
 
-        return self.adjacency_list.get(node_id, [])
+        Phase 0.3: Replaced in-memory adjacency_list with on-demand query.
+        """
+        return list(self._get_successors_cached(node_id))
+
+    @lru_cache(maxsize=10_000)
+    def _get_successors_cached(self, node_id: str) -> tuple[str, ...]:
+        """Internal cached query for successors.
+
+        Returns tuple for lru_cache hashability.
+        """
+        cursor = self.graph_conn.cursor()
+        cursor.execute("""
+            SELECT target FROM edges
+            WHERE source = ? AND graph_type = 'data_flow'
+        """, (node_id,))
+
+        return tuple(row[0] for row in cursor.fetchall())
 
     def _classify_flow(self, path: list[str]) -> tuple[str, dict | None]:
         """Classify a flow path based on sanitization."""
@@ -615,9 +625,24 @@ class FlowResolver:
             logger.debug(f"Recorded {self.flows_resolved} semantic flows...")
 
     def _get_edge_type(self, from_node: str, to_node: str) -> str:
-        """Get the edge type between two nodes from in-memory cache (O(1) lookup)."""
+        """Get edge type via lazy DB query with LRU cache.
 
-        return self.edge_types.get((from_node, to_node), "unknown")
+        Phase 0.3: Replaced in-memory edge_types with on-demand query.
+        """
+        return self._get_edge_type_cached(from_node, to_node)
+
+    @lru_cache(maxsize=20_000)
+    def _get_edge_type_cached(self, from_node: str, to_node: str) -> str:
+        """Internal cached query for edge type."""
+        cursor = self.graph_conn.cursor()
+        cursor.execute("""
+            SELECT type FROM edges
+            WHERE source = ? AND target = ? AND graph_type = 'data_flow'
+            LIMIT 1
+        """, (from_node, to_node))
+
+        row = cursor.fetchone()
+        return row[0] if row and row[0] else "unknown"
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
         """Extract variable name from argument expression."""
