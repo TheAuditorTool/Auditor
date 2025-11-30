@@ -491,23 +491,38 @@ export function extractSQLQueries(
     const argExpr = call.argument_expr || "";
     if (!argExpr) continue;
 
+    // EXTRACTION FIX EXT-002: Capture SQL queries even when passed as variables
+    // Previously skipped if resolveSQLLiteral returned null (variable case)
+    // Now we capture these as "dynamic_sql" for taint analysis to track
+
     const upperArg = argExpr.toUpperCase();
-    if (
-      !["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"].some(
-        (kw) => upperArg.includes(kw),
-      )
-    ) {
-      continue;
-    }
+    const hasSQLKeyword = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"].some(
+      (kw) => upperArg.includes(kw),
+    );
 
     const queryText = resolveSQLLiteral(argExpr);
-    if (!queryText) continue;
 
-    queries.push({
-      line: call.line,
-      query_text: queryText.substring(0, 1000),
-      function_name: call.caller_function || null,
-    });
+    // If it's a string literal with SQL keywords, use the resolved text
+    if (queryText && hasSQLKeyword) {
+      queries.push({
+        line: call.line,
+        query_text: queryText.substring(0, 1000),
+        function_name: call.caller_function || null,
+      });
+    }
+    // If it's a variable or template with interpolation, still capture it
+    // This catches patterns like: db.query(sqlVar) or db.query(`SELECT * FROM ${table}`)
+    else if (!queryText && argExpr.trim()) {
+      // Check if the method name strongly suggests SQL execution
+      const strongSQLMethods = ["query", "execute", "exec", "raw", "executeSql", "executeQuery", "query_raw"];
+      if (strongSQLMethods.includes(methodName)) {
+        queries.push({
+          line: call.line,
+          query_text: `[DYNAMIC_SQL] ${argExpr.substring(0, 900)}`,
+          function_name: call.caller_function || null,
+        });
+      }
+    }
   }
 
   return queries;
