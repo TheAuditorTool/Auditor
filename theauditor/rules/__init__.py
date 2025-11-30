@@ -1,5 +1,10 @@
 """TheAuditor AST-based rule definitions."""
 
+from .bash import (
+    find_dangerous_patterns as find_bash_dangerous_patterns,
+    find_injection_issues as find_bash_injection_issues,
+    find_quoting_issues as find_bash_quoting_issues,
+)
 from .node import find_runtime_issues as find_node_runtime_issues
 from .performance import find_performance_issues
 from .secrets import find_hardcoded_secrets
@@ -18,4 +23,8 @@ __all__ = [
     "find_type_safety_issues",
     "find_performance_issues",
     "find_apiauth_issues",
+    # Bash rules
+    "find_bash_injection_issues",
+    "find_bash_quoting_issues",
+    "find_bash_dangerous_patterns",
 ]

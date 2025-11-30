@@ -1,6 +1,7 @@
 """AST Data Extraction Engine - Language-specific implementation modules."""
 
 from . import python as python_impl
+from . import rust_impl
 from . import typescript_impl
 from .base import detect_language
 
@@ -11,6 +12,7 @@ except ImportError:
 
 __all__ = [
     "python_impl",
+    "rust_impl",
     "typescript_impl",
     "detect_language",
     "get_semantic_ast_batch",
