@@ -708,35 +708,61 @@ class DFGBuilder:
         }
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
-        """Parse an argument expression to extract the variable name."""
+        """Parse an argument expression to extract the variable name.
+
+        GRAPH FIX G1: Removed naive split(" ")[0] which lost data for expressions
+        like `await getID()` (returned "await") or `new User()` (returned "new").
+        Now handles keyword prefixes properly before falling back to complex_expression.
+        """
         if not arg_expr:
             return None
 
-        if arg_expr.startswith("async") or "=>" in arg_expr:
+        # Strip leading/trailing whitespace
+        expr = arg_expr.strip()
+
+        if expr.startswith("async") or "=>" in expr:
             return "function_expression"
 
-        if arg_expr.startswith("{") and arg_expr.endswith("}"):
+        if expr.startswith("{") and expr.endswith("}"):
             return "object_literal"
 
-        if arg_expr.startswith("[") and arg_expr.endswith("]"):
+        if expr.startswith("[") and expr.endswith("]"):
             return "array_literal"
 
-        if "(" in arg_expr and arg_expr.endswith(")"):
-            start = arg_expr.find("(") + 1
-            end = arg_expr.rfind(")")
-            inner = arg_expr[start:end].strip()
+        # GRAPH FIX G1: Handle keyword prefixes before function call parsing
+        # These keywords prefix expressions but the DATA flows from the expression result
+        keyword_prefixes = ("await ", "new ", "typeof ", "void ", "delete ", "yield ", "yield* ")
+        for prefix in keyword_prefixes:
+            if expr.startswith(prefix):
+                # Strip the keyword and recursively parse the remainder
+                remainder = expr[len(prefix):].strip()
+                if remainder:
+                    result = self._parse_argument_variable(remainder)
+                    if result:
+                        return result
+                # Keyword with nothing useful after - mark as complex
+                return "complex_expression"
+
+        if "(" in expr and expr.endswith(")"):
+            start = expr.find("(") + 1
+            end = expr.rfind(")")
+            inner = expr[start:end].strip()
 
             if inner and all(c.isalnum() or c in "._$?" for c in inner):
                 return inner
 
             return "complex_expression"
 
-        if arg_expr[0] in "\"'`":
+        if expr and expr[0] in "\"'`":
             return "string_literal"
 
-        if arg_expr.endswith("!"):
-            return arg_expr[:-1]
+        if expr.endswith("!"):
+            return expr[:-1]
 
-        clean_expr = arg_expr.split(" ")[0]
+        # GRAPH FIX G1: If expression contains spaces and wasn't handled above,
+        # it's a complex expression - don't just take the first word
+        if " " in expr:
+            return "complex_expression"
 
-        return clean_expr
+        # Simple identifier (no spaces, no keywords) - return as-is
+        return expr
