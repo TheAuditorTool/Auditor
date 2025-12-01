@@ -11,6 +11,7 @@ from theauditor.indexer.config import DEFAULT_BATCH_SIZE
 from theauditor.indexer.core import FileWalker
 from theauditor.indexer.database import create_database_schema
 from theauditor.indexer.orchestrator import IndexerOrchestrator
+from theauditor.utils.logging import logger
 
 try:
     from theauditor.js_semantic_parser import _module_resolver_cache
@@ -72,7 +73,7 @@ def run_repository_index(
     conn.close()
 
     if not db_exists:
-        print(f"[Indexer] Created database: {db_path}")
+        logger.info(f"Created database: {db_path}")
 
     if _module_resolver_cache is not None:
         try:

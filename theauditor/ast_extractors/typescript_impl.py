@@ -11,6 +11,7 @@ from .typescript_impl_structure import (
     build_scope_map,
     detect_jsx_in_node,
 )
+from theauditor.utils.logging import logger
 
 
 def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, Any]]:
@@ -19,33 +20,20 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            import sys
-
-            print("[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
+        import sys
+        logger.debug("[AST_DEBUG] extract_typescript_assignments: No success in tree")
         return assignments
 
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "assignments" in extracted_data:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            import sys
-
-            print(
-                f"[DEBUG] extract_typescript_assignments: Using PRE-EXTRACTED data ({len(extracted_data['assignments'])} assignments)",
-                file=sys.stderr,
-            )
+        import sys
+        logger.debug(f"extract_typescript_assignments: Using PRE-EXTRACTED data ({len(extracted_data['assignments'])} assignments)")
         return extracted_data["assignments"]
 
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
-
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        print(
-            "[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map",
-            file=sys.stderr,
-        )
+    import sys
+    logger.debug("[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map")
 
     def traverse(node, depth=0):
         if depth > 100 or not isinstance(node, dict):
@@ -53,22 +41,20 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
 
         try:
             kind = node.get("kind", "")
+            import sys
 
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                import sys
-
-                if depth < 5:
-                    print(f"[AST_DEBUG] Depth {depth}: kind='{kind}'", file=sys.stderr)
-                if (
-                    "Variable" in kind
-                    or "Assignment" in kind
-                    or "Binary" in kind
-                    or "=" in str(node.get("text", ""))
-                ):
-                    print(
-                        f"[AST_DEBUG] *** POTENTIAL ASSIGNMENT at depth {depth}: {kind}, text={str(node.get('text', ''))[:50]} ***",
-                        file=sys.stderr,
-                    )
+            if depth < 5:
+                print(f"[AST_DEBUG] Depth {depth}: kind='{kind}'", file=sys.stderr)
+            if (
+                "Variable" in kind
+                or "Assignment" in kind
+                or "Binary" in kind
+                or "=" in str(node.get("text", ""))
+            ):
+                print(
+                    f"[AST_DEBUG] *** POTENTIAL ASSIGNMENT at depth {depth}: {kind}, text={str(node.get('text', ''))[:50]} ***",
+                    file=sys.stderr,
+                )
 
             if kind in ["VariableDeclaration", "BinaryExpression"]:
                 is_assignment = True
@@ -98,14 +84,8 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
                                     ):
                                         source_vars = extract_vars_from_typescript_node(child)
                                         break
-
-                                if os.environ.get("THEAUDITOR_DEBUG"):
-                                    import sys
-
-                                    print(
-                                        f"[AST_DEBUG] Found TS assignment: {target_var} = {source_expr[:30]}... at line {line} in {in_function}",
-                                        file=sys.stderr,
-                                    )
+                                import sys
+                                logger.debug(f"[AST_DEBUG] Found TS assignment: {target_var} = {source_expr[:30]}... at line {line} in {in_function}")
                                 assignments.append(
                                     {
                                         "target_var": target_var,
@@ -162,14 +142,8 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
                                         if isinstance(source_node, dict)
                                         else []
                                     )
-
-                                    if os.environ.get("THEAUDITOR_DEBUG"):
-                                        import sys
-
-                                        print(
-                                            f"[AST_DEBUG] Found assignment: {target_var} = {source_expr[:50]}... at line {line} in {in_function}",
-                                            file=sys.stderr,
-                                        )
+                                    import sys
+                                    logger.debug(f"[AST_DEBUG] Found assignment: {target_var} = {source_expr[:50]}... at line {line} in {in_function}")
                                     assignments.append(
                                         {
                                             "target_var": target_var,
@@ -196,25 +170,20 @@ def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, An
         if key not in seen:
             seen.add(key)
             deduped.append(a)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(assignments) != len(deduped):
-            print(
-                f"[AST_DEBUG] Deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(assignments) != len(deduped):
         print(
-            f"[AST_DEBUG] extract_typescript_assignments: Found {len(deduped)} unique assignments",
+            f"[AST_DEBUG] Deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)",
             file=sys.stderr,
         )
-        if deduped and len(deduped) < 5:
-            for a in deduped[:3]:
-                print(
-                    f"[AST_DEBUG]   Example: {a['target_var']} = {a['source_expr'][:30]}...",
-                    file=sys.stderr,
-                )
+    logger.debug(f"[AST_DEBUG] extract_typescript_assignments: Found {len(deduped)} unique assignments")
+    if deduped and len(deduped) < 5:
+        for a in deduped[:3]:
+            print(
+                f"[AST_DEBUG]   Example: {a['target_var']} = {a['source_expr'][:30]}...",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -359,13 +328,8 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 
                     if prop_name and params:
                         func_params[prop_name] = params
-                        if os.environ.get("THEAUDITOR_DEBUG"):
-                            import sys
-
-                            print(
-                                f"[DEBUG] Extracted PropertyDeclaration params: {prop_name}({', '.join(params)})",
-                                file=sys.stderr,
-                            )
+                        import sys
+                        logger.debug(f"Extracted PropertyDeclaration params: {prop_name}({', '.join(params)})")
 
                 elif init_kind == "CallExpression":
                     prop_name = None
@@ -402,13 +366,8 @@ def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, lis
 
                             if prop_name and params:
                                 func_params[prop_name] = params
-                                if os.environ.get("THEAUDITOR_DEBUG"):
-                                    import sys
-
-                                    print(
-                                        f"[DEBUG] Extracted wrapped PropertyDeclaration params: {prop_name}({', '.join(params)})",
-                                        file=sys.stderr,
-                                    )
+                                import sys
+                                logger.debug(f"Extracted wrapped PropertyDeclaration params: {prop_name}({', '.join(params)})")
 
         for child in node.get("children", []):
             traverse(child, depth + 1)
@@ -458,40 +417,26 @@ def extract_typescript_calls_with_args(
 ) -> list[dict[str, Any]]:
     """Extract function calls with arguments from TypeScript semantic AST."""
     calls = []
-
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print(
-            f"[DEBUG] extract_typescript_calls_with_args: tree type={type(tree)}, success={tree.get('success') if tree else 'N/A'}"
-        )
+    logger.debug(f"extract_typescript_calls_with_args: tree type={type(tree)}, success={tree.get('success') if tree else 'N/A'}")
 
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(
-                "[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success"
-            )
+        logger.debug("extract_typescript_calls_with_args: Returning early - no tree or no success")
         return calls
 
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "function_call_args" in extracted_data:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            import sys
-
-            print(
-                f"[DEBUG] extract_typescript_calls_with_args: Using PRE-EXTRACTED data ({len(extracted_data['function_call_args'])} calls)",
-                file=sys.stderr,
-            )
+        import sys
+        logger.debug(f"extract_typescript_calls_with_args: Using PRE-EXTRACTED data ({len(extracted_data['function_call_args'])} calls)")
         return extracted_data["function_call_args"]
 
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
+    logger.debug(f"Built scope map with {len(scope_map)} line mappings")
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print(f"[DEBUG] Built scope map with {len(scope_map)} line mappings")
-
-        sample_lines = sorted([ln for ln in scope_map if scope_map[ln] != "global"])[:5]
-        for line in sample_lines:
-            print(f"[DEBUG]   Line {line} -> {scope_map[line]}")
+    sample_lines = sorted([ln for ln in scope_map if scope_map[ln] != "global"])[:5]
+    for line in sample_lines:
+        print(f"[DEBUG]   Line {line} -> {scope_map[line]}")
 
     visited_nodes = set()
 
@@ -513,9 +458,7 @@ def extract_typescript_calls_with_args(
 
                 caller_function_raw = scope_map.get(line, "global") or "global"
                 caller_function = _strip_comment_prefix(caller_function_raw) or "global"
-
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] Found CallExpression at line {line}, caller={caller_function}")
+                logger.debug(f"Found CallExpression at line {line}, caller={caller_function}")
 
                 children = node.get("children", [])
                 if not children:
@@ -532,11 +475,7 @@ def extract_typescript_calls_with_args(
                     callee_file_path = callee_file_path_raw
                 else:
                     callee_file_path = None
-
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(
-                        f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, callee_file={callee_file_path}, args={len(arguments)}"
-                    )
+                logger.debug(f"CallExpression: caller={caller_function}, callee={callee_name}, callee_file={callee_file_path}, args={len(arguments)}")
 
                 callee_params = function_params.get(callee_name.split(".")[-1], [])
 
@@ -572,18 +511,15 @@ def extract_typescript_calls_with_args(
                 traverse(child, depth + 1)
 
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] Error in extract_typescript_calls_with_args: {e}")
+            logger.debug(f"Error in extract_typescript_calls_with_args: {e}")
 
     traverse(ast_root)
+    logger.debug(f"Extracted {len(calls)} function calls with args from semantic AST")
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print(f"[DEBUG] Extracted {len(calls)} function calls with args from semantic AST")
+    from collections import Counter
 
-        from collections import Counter
-
-        caller_dist = Counter(c["caller_function"] for c in calls)
-        print(f"[DEBUG] Caller distribution: {dict(caller_dist)}")
+    caller_dist = Counter(c["caller_function"] for c in calls)
+    logger.debug(f"Caller distribution: {dict(caller_dist)}")
 
     return calls
 
@@ -598,13 +534,8 @@ def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
 
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "returns" in extracted_data:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            import sys
-
-            print(
-                f"[DEBUG] extract_typescript_returns: Using PRE-EXTRACTED data ({len(extracted_data['returns'])} returns)",
-                file=sys.stderr,
-            )
+        import sys
+        logger.debug(f"extract_typescript_returns: Using PRE-EXTRACTED data ({len(extracted_data['returns'])} returns)")
         return extracted_data["returns"]
 
     ast_root = actual_tree.get("ast", {})
@@ -695,26 +626,21 @@ def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(r)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(returns) != len(deduped):
-            print(
-                f"[AST_DEBUG] TypeScript returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
-        jsx_returns = [r for r in deduped if r.get("has_jsx")]
+    if len(returns) != len(deduped):
         print(
-            f"[DEBUG] Found {len(deduped)} total returns, {len(jsx_returns)} with JSX",
+            f"[AST_DEBUG] TypeScript returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)",
             file=sys.stderr,
         )
-        if jsx_returns and len(jsx_returns) < 5:
-            for r in jsx_returns[:3]:
-                print(
-                    f"[DEBUG]   JSX return in {r['function_name']} at line {r['line']}: {r['return_expr'][:50]}...",
-                    file=sys.stderr,
-                )
+    jsx_returns = [r for r in deduped if r.get("has_jsx")]
+    logger.debug(f"Found {len(deduped)} total returns, {len(jsx_returns)} with JSX")
+    if jsx_returns and len(jsx_returns) < 5:
+        for r in jsx_returns[:3]:
+            print(
+                f"[DEBUG]   JSX return in {r['function_name']} at line {r['line']}: {r['return_expr'][:50]}...",
+                file=sys.stderr,
+            )
 
     return deduped
 
@@ -729,14 +655,9 @@ def extract_typescript_cfg(tree: dict, parser_self) -> list[dict[str, Any]]:
 
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "cfg" in extracted_data:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(
-                f"[DEBUG] extract_typescript_cfg: Using PRE-EXTRACTED CFG data ({len(extracted_data['cfg'])} CFGs)"
-            )
+        logger.debug(f"extract_typescript_cfg: Using PRE-EXTRACTED CFG data ({len(extracted_data['cfg'])} CFGs)")
         return extracted_data["cfg"]
-
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print("[DEBUG] extract_typescript_cfg: No 'cfg' key found in extracted_data.")
+    logger.debug("extract_typescript_cfg: No 'cfg' key found in extracted_data.")
 
     return cfgs
 
@@ -751,13 +672,8 @@ def extract_typescript_object_literals(tree: dict, parser_self) -> list[dict[str
 
     extracted_data = actual_tree.get("extracted_data")
     if extracted_data and "object_literals" in extracted_data:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            import sys
-
-            print(
-                f"[DEBUG] extract_typescript_object_literals: Using PRE-EXTRACTED data ({len(extracted_data['object_literals'])} literals)",
-                file=sys.stderr,
-            )
+        import sys
+        logger.debug(f"extract_typescript_object_literals: Using PRE-EXTRACTED data ({len(extracted_data['object_literals'])} literals)")
         return extracted_data["object_literals"]
 
     ast_root = actual_tree.get("ast", {})

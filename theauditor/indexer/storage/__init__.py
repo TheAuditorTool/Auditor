@@ -10,6 +10,7 @@ from .infrastructure_storage import InfrastructureStorage
 from .node_storage import NodeStorage
 from .python_storage import PythonStorage
 from .rust_storage import RustStorage
+from theauditor.utils.logging import logger
 
 
 class DataStorer:
@@ -81,8 +82,7 @@ class DataStorer:
                 else:
                     receipt[data_type] = 1 if data else 0
             else:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] No handler for data type: {data_type}")
+                logger.debug(f"No handler for data type: {data_type}")
 
         return receipt
 

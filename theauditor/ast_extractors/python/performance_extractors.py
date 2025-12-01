@@ -119,15 +119,13 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(lp)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(loop_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Loop complexity deduplication: {len(loop_patterns)} -> {len(deduped)} ({len(loop_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(loop_patterns) != len(deduped):
+        print(
+            f"[AST_DEBUG] Loop complexity deduplication: {len(loop_patterns)} -> {len(deduped)} ({len(loop_patterns) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -185,15 +183,13 @@ def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(rp)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(resource_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Resource usage deduplication: {len(resource_patterns)} -> {len(deduped)} ({len(resource_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(resource_patterns) != len(deduped):
+        print(
+            f"[AST_DEBUG] Resource usage deduplication: {len(resource_patterns)} -> {len(deduped)} ({len(resource_patterns) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -260,14 +256,12 @@ def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(mp)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(memoization_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Memoization patterns deduplication: {len(memoization_patterns)} -> {len(deduped)} ({len(memoization_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(memoization_patterns) != len(deduped):
+        print(
+            f"[AST_DEBUG] Memoization patterns deduplication: {len(memoization_patterns)} -> {len(deduped)} ({len(memoization_patterns) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped

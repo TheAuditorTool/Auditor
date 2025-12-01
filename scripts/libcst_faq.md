@@ -130,7 +130,7 @@ class NameCollector(cst.CSTVisitor):
 # Usage
 module = cst.parse_module("x = 1\ny = 2")
 visitor = NameCollector()
-module.walk(visitor)
+module.visit(visitor)  # Note: .visit() not .walk()
 print(visitor.names)  # ['x', 'y']
 ```
 
@@ -628,9 +628,9 @@ print(cst.LIBCST_PARSER_TYPE)  # Should show 'native'
 **WRONG - Multiple traversals:**
 ```python
 # Traverses tree 3 times!
-module.walk(VisitorA())
-module.walk(VisitorB())
-module.walk(VisitorC())
+module.visit(VisitorA())
+module.visit(VisitorB())
+module.visit(VisitorC())
 ```
 
 **CORRECT - Single traversal:**
@@ -646,7 +646,7 @@ class CombinedVisitor(cst.CSTVisitor):
         self.visitor_b.visit_Name(node)
         self.visitor_c.visit_Name(node)
 
-module.walk(CombinedVisitor())
+module.visit(CombinedVisitor())
 ```
 
 ### 6. Check Tree Equality Before Writing

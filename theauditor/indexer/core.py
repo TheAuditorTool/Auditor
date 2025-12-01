@@ -9,6 +9,7 @@ from typing import Any
 from theauditor.utils import compute_file_hash, count_lines_in_file
 
 from .config import MONOREPO_ENTRY_FILES, SKIP_DIRS, STANDARD_MONOREPO_PATHS
+from theauditor.utils.logging import logger
 
 
 def is_text_file(file_path: Path) -> bool:
@@ -211,11 +212,9 @@ class FileWalker:
         monorepo_detected, monorepo_dirs, root_entry_files = self.detect_monorepo()
 
         if monorepo_detected:
-            print(
-                f"[Indexer] Monorepo detected ({len(monorepo_dirs)} src directories). Scanning ALL paths."
-            )
+            logger.info(f"Monorepo detected ({len(monorepo_dirs)} src directories). Scanning ALL paths.")
         else:
-            print("[Indexer] Standard project structure detected.")
+            logger.info("Standard project structure detected.")
 
         for dirpath, dirnames, filenames in os.walk(
             self.root_path, followlinks=self.follow_symlinks

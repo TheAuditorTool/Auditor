@@ -138,15 +138,13 @@ def extract_exception_raises(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(r)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(raises) != len(deduped):
-            print(
-                f"[AST_DEBUG] Exception raises deduplication: {len(raises)} -> {len(deduped)} ({len(raises) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(raises) != len(deduped):
+        print(
+            f"[AST_DEBUG] Exception raises deduplication: {len(raises)} -> {len(deduped)} ({len(raises) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -211,15 +209,13 @@ def extract_exception_catches(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(h)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(handlers) != len(deduped):
-            print(
-                f"[AST_DEBUG] Exception catches deduplication: {len(handlers)} -> {len(deduped)} ({len(handlers) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(handlers) != len(deduped):
+        print(
+            f"[AST_DEBUG] Exception catches deduplication: {len(handlers)} -> {len(deduped)} ({len(handlers) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -279,15 +275,13 @@ def extract_finally_blocks(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(fb)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(finally_blocks) != len(deduped):
-            print(
-                f"[AST_DEBUG] Finally blocks deduplication: {len(finally_blocks)} -> {len(deduped)} ({len(finally_blocks) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(finally_blocks) != len(deduped):
+        print(
+            f"[AST_DEBUG] Finally blocks deduplication: {len(finally_blocks)} -> {len(deduped)} ({len(finally_blocks) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -365,14 +359,12 @@ def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(cm)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(context_managers) != len(deduped):
-            print(
-                f"[AST_DEBUG] Context managers deduplication: {len(context_managers)} -> {len(deduped)} ({len(context_managers) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(context_managers) != len(deduped):
+        print(
+            f"[AST_DEBUG] Context managers deduplication: {len(context_managers)} -> {len(deduped)} ({len(context_managers) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .base import BaseStorage
+from theauditor.utils.logging import logger
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ class CoreStorage(BaseStorage):
 
     def _store_imports(self, file_path: str, imports: list, jsx_pass: bool):
         """Store imports/references."""
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] Processing {len(imports)} imports for {file_path}")
+        logger.debug(f"Processing {len(imports)} imports for {file_path}")
         for import_item in imports:
             if isinstance(import_item, dict):
                 kind = import_item.get("type", "import")
@@ -61,8 +61,7 @@ class CoreStorage(BaseStorage):
                 line = None
 
             resolved = self._current_extracted.get("resolved_imports", {}).get(value, value)
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved} (line {line})")
+            logger.debug(f"Adding ref: {file_path} -> {kind} {resolved} (line {line})")
             self.db_manager.add_ref(file_path, kind, resolved, line)
             self.counts["refs"] += 1
 
@@ -667,8 +666,7 @@ class CoreStorage(BaseStorage):
 
     def _store_class_properties(self, file_path: str, class_properties: list, jsx_pass: bool):
         """Store class property declarations (TypeScript/JavaScript ES2022+)."""
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG INDEXER] Found {len(class_properties)} class_properties for {file_path}")
+        logger.debug(f"[DEBUG INDEXER] Found {len(class_properties)} class_properties for {file_path}")
         for prop in class_properties:
             if os.environ.get("THEAUDITOR_DEBUG") and len(class_properties) > 0:
                 print(
@@ -692,8 +690,7 @@ class CoreStorage(BaseStorage):
 
     def _store_env_var_usage(self, file_path: str, env_var_usage: list, jsx_pass: bool):
         """Store environment variable usage (process.env.X)."""
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
+        logger.debug(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
 
         seen = set()
         for usage in env_var_usage:
@@ -729,10 +726,7 @@ class CoreStorage(BaseStorage):
 
     def _store_orm_relationships(self, file_path: str, orm_relationships: list, jsx_pass: bool):
         """Store ORM relationship declarations (hasMany, belongsTo, etc.)."""
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(
-                f"[DEBUG INDEXER] Found {len(orm_relationships)} orm_relationships for {file_path}"
-            )
+        logger.debug(f"[DEBUG INDEXER] Found {len(orm_relationships)} orm_relationships for {file_path}")
         for rel in orm_relationships:
             self.db_manager.add_orm_relationship(
                 file_path,

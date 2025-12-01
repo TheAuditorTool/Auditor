@@ -22,6 +22,7 @@ from graphql.language.ast import (
 )
 
 from . import BaseExtractor
+from theauditor.utils.logging import logger
 
 
 class GraphQLExtractor(BaseExtractor):
@@ -101,7 +102,7 @@ class GraphQLExtractor(BaseExtractor):
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
             import sys
 
-            print(f"[DEBUG] GraphQL Extractor Output for {file_path}:", file=sys.stderr)
+            logger.debug(f"GraphQL Extractor Output for {file_path}:")
             print(f"  Schemas: {len(graphql_schemas)}", file=sys.stderr)
             print(f"  Types: {len(graphql_types)}", file=sys.stderr)
             print(f"  Fields: {len(graphql_fields)}", file=sys.stderr)

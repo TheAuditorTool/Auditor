@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.pipeline import PhaseResult, RichRenderer, TaskStatus
+from theauditor.utils.logging import logger
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -67,7 +68,7 @@ def signal_handler(signum, frame):
     """Handle Ctrl+C by setting stop flag."""
     global _stop_requested
 
-    print("\n[INFO] Interrupt received, stopping pipeline gracefully...", file=sys.stderr)
+    logger.info("\n Interrupt received, stopping pipeline gracefully...")
     _stop_requested = True
 
 
@@ -253,7 +254,7 @@ async def run_full_pipeline(
 
         _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
     except Exception as e:
-        print(f"[WARNING] Archiving failed: {e}", file=sys.stderr)
+        logger.warning(f"Archiving failed: {e}")
         archive_success = False
 
     log_file_path = pf_dir / "pipeline.log"
@@ -836,7 +837,7 @@ async def run_full_pipeline(
                             memory_limit = get_recommended_memory_limit()
                             db_path = Path(root) / ".pf" / "repo_index.db"
 
-                            print("[TAINT] Initializing security analysis infrastructure...")
+                            logger.info("Initializing security analysis infrastructure...")
                             registry = TaintRegistry()
                             orchestrator = RulesOrchestrator(
                                 project_path=Path(root), db_path=db_path
@@ -845,21 +846,19 @@ async def run_full_pipeline(
 
                             all_findings = []
 
-                            print("[TAINT] Running infrastructure and configuration analysis...")
+                            logger.info("Running infrastructure and configuration analysis...")
                             infra_findings = orchestrator.run_standalone_rules()
                             all_findings.extend(infra_findings)
-                            print(f"[TAINT]   Found {len(infra_findings)} infrastructure issues")
+                            logger.info(f"Found {len(infra_findings)} infrastructure issues")
 
-                            print("[TAINT] Discovering framework-specific patterns...")
+                            logger.info("Discovering framework-specific patterns...")
                             discovery_findings = orchestrator.run_discovery_rules(registry)
                             all_findings.extend(discovery_findings)
 
                             stats = registry.get_stats()
-                            print(
-                                f"[TAINT]   Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources"
-                            )
+                            logger.info(f"Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources")
 
-                            print("[TAINT] Performing data-flow taint analysis...")
+                            logger.info("Performing data-flow taint analysis...")
                             graph_db_path = Path(root) / ".pf" / "graphs.db"
                             result = trace_taint(
                                 db_path=str(db_path),
@@ -874,19 +873,13 @@ async def run_full_pipeline(
                             taint_paths = result.get("taint_paths", result.get("paths", []))
 
                             if result.get("mode") == "complete":
-                                print("[TAINT] COMPLETE MODE RESULTS:")
-                                print(
-                                    f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths"
-                                )
-                                print(
-                                    f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
-                                )
+                                logger.info("COMPLETE MODE RESULTS:")
+                                logger.info(f"IFDS (backward): {len(taint_paths)} vulnerable paths")
+                                logger.info(f"FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows")
                             else:
-                                print(
-                                    f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities"
-                                )
+                                logger.info(f"Found {len(taint_paths)} taint flow vulnerabilities")
 
-                            print("[TAINT] Running advanced security analysis...")
+                            logger.info("Running advanced security analysis...")
 
                             def taint_checker(var_name, line_num=None):
                                 for path in taint_paths:
@@ -903,13 +896,9 @@ async def run_full_pipeline(
                                 taint_checker
                             )
                             all_findings.extend(advanced_findings)
-                            print(
-                                f"[TAINT]   Found {len(advanced_findings)} advanced security issues"
-                            )
+                            logger.info(f"Found {len(advanced_findings)} advanced security issues")
 
-                            print(
-                                f"[TAINT] Total vulnerabilities found: {len(all_findings) + len(taint_paths)}"
-                            )
+                            logger.info(f"Total vulnerabilities found: {len(all_findings) + len(taint_paths)}")
 
                             result["infrastructure_issues"] = infra_findings
                             result["discovery_findings"] = discovery_findings

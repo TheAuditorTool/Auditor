@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from theauditor.utils.logging import logger
 
 
 class JournalWriter:
@@ -25,7 +26,7 @@ class JournalWriter:
         try:
             self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         except Exception as e:
-            print(f"[WARNING] Could not open journal file {self.journal_path}: {e}")
+            logger.warning(f"Could not open journal file {self.journal_path}: {e}")
             self.file_handle = None
 
     def write_event(self, event_type: str, data: dict[str, Any]) -> bool:
@@ -47,7 +48,7 @@ class JournalWriter:
             return True
 
         except Exception as e:
-            print(f"[WARNING] Failed to write journal event: {e}")
+            logger.warning(f"Failed to write journal event: {e}")
             return False
 
     def phase_start(self, phase_name: str, command: str, phase_num: int = 0) -> bool:
@@ -157,9 +158,9 @@ class JournalWriter:
                 self.history_dir.mkdir(parents=True, exist_ok=True)
                 dest_path = self.history_dir / f"journal_{self.session_id}.ndjson"
                 shutil.copy2(self.journal_path, dest_path)
-                print(f"[INFO] Journal copied to history: {dest_path}")
+                logger.info(f"Journal copied to history: {dest_path}")
             except Exception as e:
-                print(f"[WARNING] Could not copy journal to history: {e}")
+                logger.warning(f"Could not copy journal to history: {e}")
 
     def __enter__(self):
         """Context manager entry."""
@@ -212,11 +213,11 @@ class JournalReader:
                         events.append(event)
 
                     except json.JSONDecodeError:
-                        print(f"[WARNING] Skipping malformed JSON at line {line_num}")
+                        logger.warning(f"Skipping malformed JSON at line {line_num}")
                         continue
 
         except Exception as e:
-            print(f"[WARNING] Error reading journal: {e}")
+            logger.warning(f"Error reading journal: {e}")
 
         return events
 

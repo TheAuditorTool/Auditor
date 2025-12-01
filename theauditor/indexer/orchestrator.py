@@ -20,6 +20,7 @@ from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
 from .storage import DataStorer
+from theauditor.utils.logging import logger
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +109,12 @@ class IndexerOrchestrator:
                 save_path.parent.mkdir(parents=True, exist_ok=True)
                 detector.save_to_file(save_path)
             except Exception as save_error:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] Could not save frameworks.json: {save_error}")
+                logger.debug(f"Could not save frameworks.json: {save_error}")
 
             return frameworks
 
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] Framework detection failed: {e}")
+            logger.debug(f"Framework detection failed: {e}")
             return []
 
     def _store_frameworks(self):
@@ -316,10 +315,10 @@ class IndexerOrchestrator:
         files, stats = self.file_walker.walk()
 
         if not files:
-            print("[Indexer] No files found to index.")
+            logger.info("No files found to index.")
             return self.counts, stats
 
-        print(f"[Indexer] Processing {len(files)} files...")
+        logger.info(f"Processing {len(files)} files...")
 
         js_ts_files = []
         js_ts_cache = {}
@@ -330,7 +329,7 @@ class IndexerOrchestrator:
                 js_ts_files.append(file_path)
 
         if js_ts_files:
-            print(f"[Indexer] Batch processing {len(js_ts_files)} JavaScript/TypeScript files...")
+            logger.info(f"Batch processing {len(js_ts_files)} JavaScript/TypeScript files...")
 
             for i in range(0, len(js_ts_files), JS_BATCH_SIZE):
                 batch = js_ts_files[i : i + JS_BATCH_SIZE]
@@ -343,14 +342,11 @@ class IndexerOrchestrator:
                     if file_str in batch_trees:
                         js_ts_cache[file_str] = batch_trees[file_str]
 
-            print(f"[Indexer] Successfully batch processed {len(js_ts_cache)} JS/TS files")
+            logger.info(f"Successfully batch processed {len(js_ts_cache)} JS/TS files")
 
         for idx, file_info in enumerate(files):
             if os.environ.get("THEAUDITOR_DEBUG") and idx % 50 == 0:
-                print(
-                    f"[INDEXER_DEBUG] Processing file {idx + 1}/{len(files)}: {file_info['path']}",
-                    file=sys.stderr,
-                )
+                logger.debug(f"Processing file {idx + 1}/{len(files)}: {file_info['path']}")
 
             self._process_file(file_info, js_ts_cache)
 
@@ -390,36 +386,27 @@ class IndexerOrchestrator:
         self.db_manager.commit()
 
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[INDEXER] PHASE 6: Resolving cross-file parameter names...", file=sys.stderr)
+        logger.debug("[INDEXER] PHASE 6: Resolving cross-file parameter names...")
         JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
         self.db_manager.commit()
 
         self.db_manager.flush_batch()
         self.db_manager.commit()
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[INDEXER] PHASE 6.7: Resolving router mount hierarchy...", file=sys.stderr)
+        logger.debug("[INDEXER] PHASE 6.7: Resolving router mount hierarchy...")
         JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
         self.db_manager.commit()
 
         self.db_manager.flush_batch()
         self.db_manager.commit()
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[INDEXER] PHASE 6.9: Resolving handler file paths...", file=sys.stderr)
+        logger.debug("[INDEXER] PHASE 6.9: Resolving handler file paths...")
         JavaScriptExtractor.resolve_handler_file_paths(self.db_manager.db_path)
         self.db_manager.commit()
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[INDEXER] PHASE 6.10: Resolving import paths...", file=sys.stderr)
+        logger.debug("[INDEXER] PHASE 6.10: Resolving import paths...")
         JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
         self.db_manager.commit()
 
         if self.counts.get("rust_use_statements", 0) > 0:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print("[INDEXER] PHASE 7: Resolving Rust module paths...", file=sys.stderr)
+            logger.debug("[INDEXER] PHASE 7: Resolving Rust module paths...")
             from theauditor.rust_resolver import resolve_rust_modules
 
             resolve_rust_modules(self.db_manager.db_path)
@@ -513,7 +500,7 @@ class IndexerOrchestrator:
                 config_parts.append(f"{self.counts['config_files']} config files")
             print(f"{config_msg}{', '.join(config_parts)}")
 
-        print(f"[Indexer] Database updated: {self.db_manager.db_path}")
+        logger.info(f"Database updated: {self.db_manager.db_path}")
 
         if hasattr(self, "frameworks") and self.frameworks:
             self._store_frameworks()
@@ -522,9 +509,7 @@ class IndexerOrchestrator:
         jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            print(
-                f"[Indexer] Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
-            )
+            logger.info(f"Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
 
             jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
@@ -541,9 +526,9 @@ class IndexerOrchestrator:
                         if file_str in batch_trees:
                             jsx_cache[file_str] = batch_trees[file_str]
 
-                print(f"[Indexer] Parsed {len(jsx_cache)} JSX files in preserved mode")
+                logger.info(f"Parsed {len(jsx_cache)} JSX files in preserved mode")
             except Exception as e:
-                print(f"[Indexer] WARNING: Preserved mode parsing failed: {e}")
+                logger.info(f"WARNING: Preserved mode parsing failed: {e}")
                 jsx_cache = {}
 
             jsx_counts = {"symbols": 0, "assignments": 0, "calls": 0, "returns": 0}
@@ -555,17 +540,13 @@ class IndexerOrchestrator:
                 tree = jsx_cache.get(file_str)
                 if not tree:
                     continue
-
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    has_ast = False
-                    if isinstance(tree, dict):
-                        if "ast" in tree:
-                            has_ast = tree["ast"] is not None
-                        elif "tree" in tree and isinstance(tree["tree"], dict):
-                            has_ast = tree["tree"].get("ast") is not None
-                    print(
-                        f"[DEBUG] JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}"
-                    )
+                has_ast = False
+                if isinstance(tree, dict):
+                    if "ast" in tree:
+                        has_ast = tree["ast"] is not None
+                    elif "tree" in tree and isinstance(tree["tree"], dict):
+                        has_ast = tree["tree"].get("ast") is not None
+                logger.debug(f"JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
 
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -578,17 +559,13 @@ class IndexerOrchestrator:
                     continue
 
                 if isinstance(tree, dict) and tree.get("success") is False:
-                    print(
-                        f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}",
-                        file=sys.stderr,
-                    )
+                    logger.info(f"JavaScript extraction FAILED for {file_path}: {tree.get('error')}")
                     continue
 
                 try:
                     extracted = extractor.extract(file_info, content, tree)
                 except Exception as e:
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[DEBUG] JSX extraction failed for {file_path}: {e}")
+                    logger.debug(f"JSX extraction failed for {file_path}: {e}")
                     continue
 
                 file_path_str = file_info["path"]
@@ -606,11 +583,9 @@ class IndexerOrchestrator:
             self.db_manager.flush_batch()
             self.db_manager.commit()
 
-            print(
-                f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
+            logger.info(f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
                 f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
-                f"{jsx_counts['returns']} returns stored to _jsx tables"
-            )
+                f"{jsx_counts['returns']} returns stored to _jsx tables")
 
         self.db_manager.commit()
 
@@ -622,7 +597,7 @@ class IndexerOrchestrator:
         """Process a single file."""
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
-            print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
+            logger.trace(f"_process_file() called for: {file_info['path']}")
 
         self.db_manager.add_file(
             file_info["path"],
@@ -638,8 +613,7 @@ class IndexerOrchestrator:
             with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read(1024 * 1024)
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"Debug: Cannot read {file_path}: {e}")
+            logger.debug(f"Debug: Cannot read {file_path}: {e}")
             return
 
         if file_info["path"].endswith("tsconfig.json"):
@@ -651,8 +625,7 @@ class IndexerOrchestrator:
 
             self.db_manager.add_config_file(file_info["path"], content, "tsconfig", context_dir)
             self.counts["config_files"] += 1
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] Cached tsconfig: {file_info['path']} (context: {context_dir})")
+            logger.debug(f"Cached tsconfig: {file_info['path']} (context: {context_dir})")
 
         tree = self._get_or_parse_ast(file_info, file_path, js_ts_cache)
 
@@ -666,16 +639,12 @@ class IndexerOrchestrator:
         try:
             extracted = extractor.extract(file_info, content, tree)
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"Debug: Extraction failed for {file_path}: {e}")
+            logger.debug(f"Debug: Extraction failed for {file_path}: {e}")
             return
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             num_assignments = len(extracted.get("assignments", []))
-            print(
-                f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments",
-                file=sys.stderr,
-            )
+            logger.trace(f"_store_extracted_data() called for {file_info['path']}: {num_assignments} assignments")
         self._store_extracted_data(file_info["path"], extracted)
 
     def _get_or_parse_ast(

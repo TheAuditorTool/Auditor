@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from theauditor.utils.logging import logger
 
 DEFAULTS = {
     "paths": {
@@ -88,8 +89,8 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                             if key in cfg[section] and isinstance(value, type(cfg[section][key])):
                                 cfg[section][key] = value
     except (json.JSONDecodeError, OSError) as e:
-        print(f"[WARNING] Could not load config file from {path}: {e}")
-        print("[INFO] Continuing with default configuration")
+        logger.warning(f"Could not load config file from {path}: {e}")
+        logger.info("Continuing with default configuration")
 
     for section in cfg:
         for key in cfg[section]:
@@ -107,9 +108,7 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                     else:
                         cfg[section][key] = value
                 except (ValueError, AttributeError) as e:
-                    print(
-                        f"[WARNING] Invalid value for environment variable {env_var}: '{value}' - {e}"
-                    )
-                    print(f"[INFO] Using default value: {cfg[section][key]}")
+                    logger.warning(f"Invalid value for environment variable {env_var}: '{value}' - {e}")
+                    logger.info(f"Using default value: {cfg[section][key]}")
 
     return cfg
