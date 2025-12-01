@@ -5,6 +5,8 @@ import os
 import re
 import sqlite3
 
+from theauditor.utils.logging import logger
+
 
 class JavaScriptResolversMixin:
     """Mixin containing static database resolution methods."""
@@ -25,7 +27,7 @@ class JavaScriptResolversMixin:
         raw_mounts = cursor.fetchall()
 
         if debug:
-            print(f"[MOUNT RESOLUTION] Loaded {len(raw_mounts)} mount statements")
+            logger.debug(f"Loaded {len(raw_mounts)} mount statements")
 
         if not raw_mounts:
             conn.close()
@@ -44,7 +46,7 @@ class JavaScriptResolversMixin:
             constants[key] = cleaned_value
 
         if debug:
-            print(f"[MOUNT RESOLUTION] Loaded {len(constants)} constant definitions")
+            logger.debug(f"Loaded {len(constants)} constant definitions")
 
         cursor.execute("""
             SELECT file, package, alias_name
@@ -77,7 +79,7 @@ class JavaScriptResolversMixin:
                 imports[key] = resolved
 
         if debug:
-            print(f"[MOUNT RESOLUTION] Loaded {len(imports)} import mappings")
+            logger.debug(f"Loaded {len(imports)} import mappings")
 
         mount_map = {}
 
@@ -110,9 +112,7 @@ class JavaScriptResolversMixin:
 
             if not resolved_mount:
                 if debug:
-                    print(
-                        f"[MOUNT RESOLUTION] Failed to resolve mount: {file}:{line} - {mount_expr}"
-                    )
+                    logger.debug(f"Failed to resolve mount: {file}:{line} - {mount_expr}")
                 continue
 
             import_key = f"{file}::{router_var}"
@@ -130,12 +130,12 @@ class JavaScriptResolversMixin:
                 if cursor.fetchone()[0] > 0:
                     router_file = file
                     if debug:
-                        print(f"[MOUNT RESOLUTION] {router_var} is local to {file}")
+                        logger.debug(f"{router_var} is local to {file}")
 
             if router_file:
                 mount_map[router_file] = resolved_mount
                 if debug:
-                    print(f"[MOUNT RESOLUTION] {router_file} → {resolved_mount}")
+                    logger.debug(f"{router_file} → {resolved_mount}")
 
         updated_count = 0
         for file_path, mount_path in mount_map.items():
@@ -185,7 +185,7 @@ class JavaScriptResolversMixin:
         chains_to_resolve = cursor.fetchall()
 
         if debug:
-            print(f"[HANDLER FILE RESOLUTION] Found {len(chains_to_resolve)} chains to resolve")
+            logger.debug(f"Found {len(chains_to_resolve)} chains to resolve")
 
         if not chains_to_resolve:
             conn.close()
@@ -223,9 +223,7 @@ class JavaScriptResolversMixin:
                 var_to_class[key] = class_name
 
         if debug:
-            print(
-                f"[HANDLER FILE RESOLUTION] Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
-            )
+            logger.debug(f"Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
 
         path_aliases = {}
 
@@ -247,7 +245,7 @@ class JavaScriptResolversMixin:
                 path_aliases["@config"] = f"{base_path}/config"
 
         if debug:
-            print(f"[HANDLER FILE RESOLUTION] Path aliases: {path_aliases}")
+            logger.debug(f"Path aliases: {path_aliases}")
 
         updates = []
         resolved_count = 0
@@ -386,8 +384,8 @@ class JavaScriptResolversMixin:
         conn.close()
 
         if debug:
-            print(f"[HANDLER FILE RESOLUTION] Resolved {resolved_count} handler files")
-            print(f"[HANDLER FILE RESOLUTION] Unresolved: {unresolved_count}")
+            logger.debug(f"Resolved {resolved_count} handler files")
+            logger.debug(f"Unresolved: {unresolved_count}")
 
     @staticmethod
     def resolve_cross_file_parameters(db_path: str):
@@ -415,7 +413,7 @@ class JavaScriptResolversMixin:
                 f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names"
             )
         elif debug:
-            print(f"[PARAM RESOLUTION] Found {total_calls} function calls with generic param names")
+            logger.debug(f"Found {total_calls} function calls with generic param names")
 
         if total_calls == 0:
             conn.close()
@@ -440,7 +438,7 @@ class JavaScriptResolversMixin:
                 continue
 
         if debug:
-            print(f"[PARAM RESOLUTION] Built lookup with {len(param_lookup)} functions")
+            logger.debug(f"Built lookup with {len(param_lookup)} functions")
 
         updates = []
         resolved_count = 0
@@ -465,9 +463,7 @@ class JavaScriptResolversMixin:
                     resolved_count += 1
 
                     if debug and resolved_count <= 5:
-                        print(
-                            f"[PARAM RESOLUTION] {callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}"
-                        )
+                        logger.debug(f"{callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}")
                 else:
                     unresolved_count += 1
             else:
@@ -490,10 +486,8 @@ class JavaScriptResolversMixin:
                     f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
                 )
             elif debug:
-                print(f"[PARAM RESOLUTION] Resolved {resolved_count} parameter names")
-                print(
-                    f"[PARAM RESOLUTION] Unresolved: {unresolved_count} (external libs, dynamic calls)"
-                )
+                logger.debug(f"Resolved {resolved_count} parameter names")
+                logger.debug(f"Unresolved: {unresolved_count} (external libs, dynamic calls)")
 
         conn.close()
 
@@ -512,12 +506,12 @@ class JavaScriptResolversMixin:
         indexed_paths = {row[0] for row in cursor.fetchall()}
 
         if debug:
-            print(f"[IMPORT RESOLUTION] Loaded {len(indexed_paths)} indexed JS/TS paths")
+            logger.debug(f"Loaded {len(indexed_paths)} indexed JS/TS paths")
 
         path_aliases = _load_path_aliases(cursor)
 
         if debug:
-            print(f"[IMPORT RESOLUTION] Path aliases: {path_aliases}")
+            logger.debug(f"Path aliases: {path_aliases}")
 
         cursor.execute("""
             SELECT rowid, file, package FROM import_styles
@@ -529,7 +523,7 @@ class JavaScriptResolversMixin:
         imports_to_resolve = cursor.fetchall()
 
         if debug:
-            print(f"[IMPORT RESOLUTION] Found {len(imports_to_resolve)} imports to resolve")
+            logger.debug(f"Found {len(imports_to_resolve)} imports to resolve")
 
         resolved_count = 0
         unresolved_count = 0
@@ -549,10 +543,8 @@ class JavaScriptResolversMixin:
         conn.close()
 
         if debug:
-            print(
-                f"[IMPORT RESOLUTION] Resolved {resolved_count}/{len(imports_to_resolve)} imports"
-            )
-            print(f"[IMPORT RESOLUTION] Unresolved: {unresolved_count}")
+            logger.debug(f"Resolved {resolved_count}/{len(imports_to_resolve)} imports")
+            logger.debug(f"Unresolved: {unresolved_count}")
 
 
 def _load_path_aliases(cursor) -> dict:

@@ -2,11 +2,9 @@
 
 from typing import Any
 
-from ...utils.logger import setup_logger
-from . import BaseExtractor
 from theauditor.utils.logging import logger
 
-logger = setup_logger(__name__)
+from . import BaseExtractor
 
 
 class BashExtractor(BaseExtractor):
@@ -28,8 +26,8 @@ class BashExtractor(BaseExtractor):
         if isinstance(tree, dict) and tree.get("type") == "tree_sitter":
             actual_tree = tree.get("tree")
             if actual_tree:
-                from theauditor.ast_extractors.bash_impl import extract_all_bash_data
                 from theauditor.ast_extractors.base import check_tree_sitter_parse_quality
+                from theauditor.ast_extractors.bash_impl import extract_all_bash_data
 
                 check_tree_sitter_parse_quality(actual_tree.root_node, file_info["path"], logger)
 
@@ -37,12 +35,9 @@ class BashExtractor(BaseExtractor):
                     extracted = extract_all_bash_data(actual_tree, content, file_info["path"])
                     result.update(extracted)
                 except Exception as e:
-                    import os
-                    import sys
                     logger.debug(f"Bash extraction failed: {e}")
-                    import traceback
 
-                    traceback.print_exc(file=sys.stderr)
+                    logger.exception("")
 
         return result
 

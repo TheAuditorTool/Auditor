@@ -3,9 +3,7 @@
 from collections import OrderedDict
 from pathlib import Path
 
-from .logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 class CodeSnippetManager:

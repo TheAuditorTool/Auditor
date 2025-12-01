@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+
 from theauditor.utils.logging import logger
 
 DEFAULTS = {
@@ -108,7 +109,9 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                     else:
                         cfg[section][key] = value
                 except (ValueError, AttributeError) as e:
-                    logger.warning(f"Invalid value for environment variable {env_var}: '{value}' - {e}")
+                    logger.warning(
+                        f"Invalid value for environment variable {env_var}: '{value}' - {e}"
+                    )
                     logger.info(f"Using default value: {cfg[section][key]}")
 
     return cfg

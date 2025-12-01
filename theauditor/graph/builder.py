@@ -13,6 +13,7 @@ import click
 from theauditor.ast_parser import ASTParser
 from theauditor.indexer.config import SKIP_DIRS
 from theauditor.module_resolver import ModuleResolver
+from theauditor.utils.logging import logger
 
 
 @dataclass
@@ -670,7 +671,7 @@ class XGraphBuilder:
                 function_defs[row["name"]].add(rel)
                 function_lines[(rel, row["name"])] = row["line"]
 
-            print("[Graph Builder] Querying function returns from normalized schema...")
+            logger.info("Querying function returns from normalized schema...")
             cursor.execute("""
                 SELECT
                     fr.file,
@@ -684,7 +685,7 @@ class XGraphBuilder:
                     AND fr.function_name = frsrc.return_function
                 GROUP BY fr.file, fr.function_name, fr.return_expr
             """)
-            print("[Graph Builder] Processing function return data...")
+            logger.info("Processing function return data...")
             for row in cursor.fetchall():
                 rel = row["file"].replace("\\", "/")
                 returns_map[(rel, row["function_name"])] = {
@@ -724,7 +725,7 @@ class XGraphBuilder:
             nodes[node_id] = node
             return node
 
-        print("[Graph Builder] Pre-resolving imports for all files...")
+        logger.info("Pre-resolving imports for all files...")
         file_imports_resolved: dict[str, set[str]] = {}
 
         with click.progressbar(
@@ -869,7 +870,7 @@ class XGraphBuilder:
                 conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            print("[Graph Builder] Querying SQL queries from normalized schema...")
+            logger.info("Querying SQL queries from normalized schema...")
             cursor.execute("""
                 SELECT
                     sq.file_path,
@@ -885,7 +886,7 @@ class XGraphBuilder:
                 GROUP BY sq.file_path, sq.line_number, sq.command, sq.extraction_source, sq.query_text
             """)
             sql_rows = cursor.fetchall()
-            print(f"[Graph Builder] Found {len(sql_rows)} SQL query records")
+            logger.info(f"Found {len(sql_rows)} SQL query records")
 
             for row in sql_rows:
                 rel_file = row["file_path"].replace("\\", "/")
@@ -977,7 +978,7 @@ class XGraphBuilder:
                     )
                 )
 
-            print("[Graph Builder] Querying React hooks from normalized schema...")
+            logger.info("Querying React hooks from normalized schema...")
             cursor.execute("""
                 SELECT
                     rh.file,
@@ -993,7 +994,7 @@ class XGraphBuilder:
                 GROUP BY rh.file, rh.line, rh.component_name, rh.hook_name
             """)
             react_hook_rows = cursor.fetchall()
-            print(f"[Graph Builder] Found {len(react_hook_rows)} React hook records")
+            logger.info(f"Found {len(react_hook_rows)} React hook records")
             for row in react_hook_rows:
                 rel_file = row["file"].replace("\\", "/")
                 module_node = self._ensure_module_node(

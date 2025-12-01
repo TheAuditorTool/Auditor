@@ -2,12 +2,12 @@
 
 import os
 import sqlite3
-import sys
 from collections import defaultdict
+
+from theauditor.utils.logging import logger
 
 from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE
 from ..schema import TABLES, get_table_schema
-from theauditor.utils.logging import logger
 
 
 def validate_table_name(table: str) -> str:
@@ -65,7 +65,6 @@ class BaseDatabaseManager:
 
     def validate_schema(self) -> bool:
         """Validate database schema matches expected definitions."""
-        import sys
 
         from ..schema import validate_all_tables
 
@@ -145,16 +144,16 @@ class BaseDatabaseManager:
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
             logger.debug(f"Flush: {table_name}")
-            print(f"  all_cols count: {len(all_cols)}", file=sys.stderr)
-            print(f"  all_cols names: {[col.name for col in all_cols]}", file=sys.stderr)
-            print(f"  tuple_size from batch[0]: {tuple_size}", file=sys.stderr)
+            logger.error(f"  all_cols count: {len(all_cols)}")
+            logger.error(f"  all_cols names: {[col.name for col in all_cols]}")
+            logger.error(f"  tuple_size from batch[0]: {tuple_size}")
             if batch:
-                print(f"  batch[0]: {batch[0]}", file=sys.stderr)
+                logger.error(f"  batch[0]: {batch[0]}")
 
         columns = [col.name for col in all_cols[:tuple_size]]
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"  columns taken (first {tuple_size}): {columns}", file=sys.stderr)
+            logger.error(f"  columns taken (first {tuple_size}): {columns}")
 
         if len(columns) != tuple_size:
             raise RuntimeError(
@@ -169,7 +168,7 @@ class BaseDatabaseManager:
         query = f"{insert_mode} INTO {table_name} ({column_list}) VALUES ({placeholders})"
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"  query: {query}", file=sys.stderr)
+            logger.error(f"  query: {query}")
 
         cursor = self.conn.cursor()
         try:
@@ -572,7 +571,6 @@ class BaseDatabaseManager:
                     self.generic_batches["cfg_block_statements_jsx"] = []
 
             import os
-            import sys
 
             for table_name, insert_mode in flush_order:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
@@ -604,7 +602,6 @@ class BaseDatabaseManager:
 
         except sqlite3.Error as e:
             import os
-            import sys
 
             if os.environ.get("THEAUDITOR_DEBUG") == "1":
                 logger.debug(f"\n SQL Error: {type(e).__name__}: {e}")
@@ -800,4 +797,4 @@ class BaseDatabaseManager:
         self.conn.commit()
 
         if hasattr(self, "_debug") and self._debug:
-            print(f"[DB] Wrote {len(findings)} findings from {tool_name} to findings_consolidated")
+            logger.info(f"Wrote {len(findings)} findings from {tool_name} to findings_consolidated")

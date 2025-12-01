@@ -9,9 +9,7 @@ from pathlib import Path
 
 import click
 
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 @click.group()

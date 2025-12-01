@@ -7,8 +7,9 @@ from typing import Any
 
 import yaml
 
-from . import BaseExtractor
 from theauditor.utils.logging import logger
+
+from . import BaseExtractor
 
 
 class GitHubWorkflowExtractor(BaseExtractor):
@@ -41,13 +42,9 @@ class GitHubWorkflowExtractor(BaseExtractor):
                 self._extract_jobs(workflow_path, jobs_data)
 
         except yaml.YAMLError as e:
-            import sys
-
             logger.error(f"Failed to parse workflow {workflow_path}: {e}")
             return {}
         except Exception as e:
-            import sys
-
             logger.error(f"Failed to extract workflow {workflow_path}: {e}")
             return {}
 

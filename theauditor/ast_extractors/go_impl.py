@@ -540,7 +540,12 @@ def _extract_return_types(
 
     result_list = None
     for i, pl in enumerate(param_lists):
-        if func_decl.type == "method_declaration" and i == 2 or func_decl.type == "function_declaration" and i == 1:
+        if (
+            func_decl.type == "method_declaration"
+            and i == 2
+            or func_decl.type == "function_declaration"
+            and i == 1
+        ):
             result_list = pl
 
     if result_list:

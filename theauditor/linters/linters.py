@@ -18,10 +18,8 @@ from theauditor.linters.golangci import GolangciLinter
 from theauditor.linters.mypy import MypyLinter
 from theauditor.linters.ruff import RuffLinter
 from theauditor.linters.shellcheck import ShellcheckLinter
-from theauditor.utils.logger import setup_logger
+from theauditor.utils.logging import logger
 from theauditor.utils.toolbox import Toolbox
-
-logger = setup_logger(__name__)
 
 
 class LinterOrchestrator:

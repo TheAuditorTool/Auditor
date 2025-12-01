@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -246,7 +247,9 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
         length_component = length if cross_hops else -length
 
         if cross_hops > 0:
-            logger.debug(f"Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}")
+            logger.debug(
+                f"Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}"
+            )
 
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
@@ -451,20 +454,19 @@ def trace_taint(
                     built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
         if current_hash != built_hash:
-            print(
-                "[SCHEMA STALE] Schema files have changed but generated code is out of date!",
-                file=sys.stderr,
+            logger.error(
+                "[SCHEMA STALE] Schema files have changed but generated code is out of date!"
             )
-            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+            logger.error("[SCHEMA STALE] Regenerating code automatically...")
 
             try:
                 output_dir = Path(__file__).parent.parent / "indexer" / "schemas"
                 SchemaCodeGenerator.write_generated_code(output_dir)
-                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
-                print("[SCHEMA FIX] Please re-run the command", file=sys.stderr)
+                logger.error("[SCHEMA FIX] Generated code updated successfully")
+                logger.error("[SCHEMA FIX] Please re-run the command")
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
-                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                logger.error(f"[SCHEMA ERROR] Failed to regenerate code: {e}")
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
@@ -563,7 +565,9 @@ def trace_taint(
         for idx, sink in enumerate(sinks):
             if idx % progress_interval == 0:
                 total_found = len(all_vulnerable_paths) + len(all_sanitized_paths)
-                logger.info(f"Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)")
+                logger.info(
+                    f"Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)"
+                )
                 sys.stderr.flush()
 
             vulnerable, sanitized = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
@@ -574,7 +578,9 @@ def trace_taint(
 
         graph_conn.close()
         repo_conn.close()
-        logger.info(f"IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths")
+        logger.info(
+            f"IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths"
+        )
 
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 
@@ -680,8 +686,12 @@ def trace_taint(
 
         conn.commit()
         conn.close()
-        logger.info(f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)")
-        logger.info(f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)")
+        logger.info(
+            f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)"
+        )
+        logger.info(
+            f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)"
+        )
 
         unique_paths = unique_vulnerable_paths
 
@@ -692,10 +702,7 @@ def trace_taint(
         path_dicts = [p.to_dict() for p in unique_paths]
 
         multi_file_in_dicts = sum(1 for p in path_dicts if p["source"]["file"] != p["sink"]["file"])
-        print(
-            f"[CORE] Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)",
-            file=sys.stderr,
-        )
+        logger.debug(f"Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)")
 
         summary = {
             "total_count": len(unique_paths),
@@ -741,7 +748,9 @@ def trace_taint(
             logger.info("COMPLETE MODE RESULTS:")
             logger.info(f"IFDS found: {len(unique_paths)} vulnerable paths")
             logger.info(f"FlowResolver resolved: {total_flows} total flows")
-            logger.info(f"resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized")
+            logger.info(
+                f"resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized"
+            )
 
         return result
 
@@ -793,8 +802,8 @@ def trace_taint(
 
         error_msg = f"[TAINT ERROR] {str(e)}"
         traceback_str = traceback.format_exc()
-        print(error_msg, file=sys.stderr)
-        print(traceback_str, file=sys.stderr)
+        logger.error(error_msg)
+        logger.error(traceback_str)
 
         return {
             "success": False,
@@ -866,9 +875,8 @@ def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     src_file_after = path["source"]["file"]
     sink_file_after = path["sink"]["file"]
     if src_file_before != src_file_after or sink_file_before != sink_file_after:
-        print(
-            f"[NORMALIZE] Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}",
-            file=sys.stderr,
+        logger.debug(
+            f"Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}"
         )
 
     return path

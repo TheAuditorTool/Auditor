@@ -1,15 +1,12 @@
 """Core storage handlers for language-agnostic patterns."""
 
 import json
-import logging
 import os
-import sys
 from pathlib import Path
 
-from .base import BaseStorage
 from theauditor.utils.logging import logger
 
-logger = logging.getLogger(__name__)
+from .base import BaseStorage
 
 
 class CoreStorage(BaseStorage):
@@ -154,10 +151,8 @@ class CoreStorage(BaseStorage):
             construct_id = f"{file_path}::L{line}::{cdk_class}::{construct_name or 'unnamed'}"
 
             if os.environ.get("THEAUDITOR_CDK_DEBUG") == "1":
-                print(f"[CDK-INDEX] Generating construct_id: {construct_id}")
-                print(
-                    f"[CDK-INDEX]   file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}"
-                )
+                logger.info(f"Generating construct_id: {construct_id}")
+                logger.info(f"file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}")
 
             self.db_manager.add_cdk_construct(
                 file_path=file_path,
@@ -320,13 +315,11 @@ class CoreStorage(BaseStorage):
     ):
         """Store validation framework usage (for taint analysis sanitizer detection)."""
         if os.environ.get("THEAUDITOR_VALIDATION_DEBUG") and file_path.endswith("validate.ts"):
-            print(
-                f"[PY-DEBUG] Extracted keys for {file_path}: {list(self._current_extracted.keys())}",
-                file=sys.stderr,
+            logger.error(
+                f"[PY-DEBUG] Extracted keys for {file_path}: {list(self._current_extracted.keys())}"
             )
-            print(
-                f"[PY-DEBUG] validation_framework_usage has {len(validation_framework_usage)} items",
-                file=sys.stderr,
+            logger.error(
+                f"[PY-DEBUG] validation_framework_usage has {len(validation_framework_usage)} items"
             )
 
         for usage in validation_framework_usage:
@@ -666,12 +659,12 @@ class CoreStorage(BaseStorage):
 
     def _store_class_properties(self, file_path: str, class_properties: list, jsx_pass: bool):
         """Store class property declarations (TypeScript/JavaScript ES2022+)."""
-        logger.debug(f"[DEBUG INDEXER] Found {len(class_properties)} class_properties for {file_path}")
+        logger.debug(
+            f"[DEBUG INDEXER] Found {len(class_properties)} class_properties for {file_path}"
+        )
         for prop in class_properties:
             if os.environ.get("THEAUDITOR_DEBUG") and len(class_properties) > 0:
-                print(
-                    f"[DEBUG INDEXER]   Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}"
-                )
+                logger.debug(f"Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}")
             self.db_manager.add_class_property(
                 file_path,
                 prop["line"],
@@ -726,7 +719,9 @@ class CoreStorage(BaseStorage):
 
     def _store_orm_relationships(self, file_path: str, orm_relationships: list, jsx_pass: bool):
         """Store ORM relationship declarations (hasMany, belongsTo, etc.)."""
-        logger.debug(f"[DEBUG INDEXER] Found {len(orm_relationships)} orm_relationships for {file_path}")
+        logger.debug(
+            f"[DEBUG INDEXER] Found {len(orm_relationships)} orm_relationships for {file_path}"
+        )
         for rel in orm_relationships:
             self.db_manager.add_orm_relationship(
                 file_path,

@@ -1,4 +1,5 @@
 """Base class for domain-specific storage modules."""
+
 from theauditor.utils.logging import logger
 
 
@@ -12,5 +13,4 @@ class BaseStorage:
 
     def _debug(self, message: str):
         """Debug logging helper."""
-        import os
         logger.debug(f"[DEBUG STORAGE] {message}")

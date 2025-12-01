@@ -86,7 +86,7 @@ class RichGroup(click.Group):
         console = Console(force_terminal=sys.stdout.isatty())
 
         console.print()
-        console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]")
+        console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]", characters="-")
         console.print(
             "[center]Local-first | Air-gapped | Polyglot Static Analysis[/center]", style="dim"
         )
@@ -122,7 +122,7 @@ class RichGroup(click.Group):
                     subtitle=f"[dim]{cat_data['description']}[/dim]",
                     subtitle_align="right",
                     border_style=cat_data["style"],
-                    box=box.ROUNDED,
+                    box=box.ASCII,
                 )
                 console.print(panel)
 

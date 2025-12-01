@@ -4,6 +4,7 @@ import * as os from "os";
 import * as crypto from "crypto";
 import { pathToFileURL } from "url";
 
+import { logger } from "./utils/logger";
 import * as core from "./extractors/core_language";
 import * as flow from "./extractors/data_flow";
 import * as mod from "./extractors/module_framework";
@@ -30,9 +31,7 @@ try {
     compileVueTemplate = vueSfcModule.compileTemplate;
   }
 } catch (err: any) {
-  console.error(
-    `[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`,
-  );
+  logger.info(`Vue SFC support disabled: @vue/compiler-sfc not available - ${err.message}`);
 }
 
 try {
@@ -41,9 +40,7 @@ try {
     VueNodeTypes = vueDomModule.NodeTypes;
   }
 } catch (err: any) {
-  console.error(
-    `[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`,
-  );
+  logger.info(`Vue template support disabled: @vue/compiler-dom not available - ${err.message}`);
 }
 
 interface BatchRequest {
@@ -146,9 +143,7 @@ function prepareVueSfcFile(filePath: string): VueMeta {
         });
         templateAst = templateResult.ast || null;
       } catch (err: any) {
-        console.error(
-          `[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`,
-        );
+        logger.warn(`Failed to compile Vue template for ${filePath}: ${err.message}`);
       }
     }
   }
@@ -239,9 +234,7 @@ async function main(): Promise<void> {
     const outputPath = process.argv[3];
 
     if (!requestPath || !outputPath) {
-      console.error(
-        JSON.stringify({ error: "Request and output paths required" }),
-      );
+      logger.error("Request and output paths required");
       process.exit(1);
     }
 
@@ -357,9 +350,7 @@ async function main(): Promise<void> {
     const jsxEmitMode =
       jsxMode === "preserved" ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
 
-    console.error(
-      `[BATCH DEBUG] Processing ${filePaths.length} files, jsxMode=${jsxMode}`,
-    );
+    logger.debug(`Processing ${filePaths.length} files, jsxMode=${jsxMode}`);
 
     for (const [configKey, groupedFiles] of filesByConfig.entries()) {
       if (!groupedFiles || groupedFiles.length === 0) {
@@ -457,18 +448,14 @@ async function main(): Promise<void> {
         );
       }
 
-      console.error(
-        `[BATCH DEBUG] Created program, rootNames=${program.getRootFileNames().length}`,
-      );
+      logger.debug(`Created program, rootNames=${program.getRootFileNames().length}`);
       const checker = program.getTypeChecker();
 
       for (const fileInfo of groupedFiles) {
         try {
           const sourceFile = program.getSourceFile(fileInfo.absolute);
           if (!sourceFile) {
-            console.error(
-              `[DEBUG JS BATCH] Could not load sourceFile for ${fileInfo.original}`,
-            );
+            logger.debug(`Could not load sourceFile for ${fileInfo.original}`);
             results[fileInfo.original] = {
               success: false,
               error: `Could not load source file: ${fileInfo.original}`,
@@ -480,7 +467,7 @@ async function main(): Promise<void> {
           }
 
           const filePath = fileInfo.original;
-          console.error(`[DEBUG JS BATCH] Processing ${filePath}`);
+          logger.debug(`Processing ${filePath}`);
 
           const diagnostics: any[] = [];
           const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
@@ -743,7 +730,7 @@ async function main(): Promise<void> {
             ...(nestjsResolvers.graphql_resolver_params || []),
           ];
 
-          console.error(`[DEBUG JS BATCH] Extracting CFG for ${filePath}`);
+          logger.debug(`Extracting CFG for ${filePath}`);
           const cfgData = cfg.extractCFG(sourceFile, functions, filePath);
 
           const nodeCount = core.countNodes(sourceFile, ts);
@@ -822,7 +809,7 @@ async function main(): Promise<void> {
             },
           };
 
-          console.error(`[DEBUG JS BATCH] Complete for ${filePath}`);
+          logger.debug(`Complete for ${filePath}`);
         } catch (error: any) {
           results[fileInfo.original] = {
             success: false,
@@ -848,13 +835,11 @@ async function main(): Promise<void> {
     try {
       const validated = ExtractionReceiptSchema.parse(results);
       fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
-      console.error("[BATCH DEBUG] Output validated and written successfully");
+      logger.debug("Output validated and written successfully");
     } catch (e) {
       if (e instanceof z.ZodError) {
-        console.error(
-          "[BATCH WARN] Zod validation failed, writing raw results:",
-        );
-        console.error(JSON.stringify(e.errors.slice(0, 5), null, 2));
+        logger.warn("Zod validation failed, writing raw results");
+        logger.debug({ errors: e.errors.slice(0, 5) }, "Zod validation errors");
         fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), "utf8");
       } else {
         throw e;
@@ -863,24 +848,12 @@ async function main(): Promise<void> {
 
     process.exit(0);
   } catch (error: any) {
-    console.error(
-      JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack,
-      }),
-    );
+    logger.error({ err: error, stack: error.stack }, error.message);
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error(
-    JSON.stringify({
-      success: false,
-      error: `Unhandled error: ${error.message}`,
-      stack: error.stack,
-    }),
-  );
+  logger.error({ err: error, stack: error.stack }, `Unhandled error: ${error.message}`);
   process.exit(1);
 });

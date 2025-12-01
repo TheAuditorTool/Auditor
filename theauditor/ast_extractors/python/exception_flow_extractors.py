@@ -1,15 +1,12 @@
 """Exception flow extractors - Raises, catches, finally blocks, context managers."""
 
 import ast
-import logging
-import os
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import get_node_name
-
-logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
@@ -138,12 +135,10 @@ def extract_exception_raises(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(r)
-    import sys
 
     if len(raises) != len(deduped):
-        print(
-            f"[AST_DEBUG] Exception raises deduplication: {len(raises)} -> {len(deduped)} ({len(raises) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Exception raises deduplication: {len(raises)} -> {len(deduped)} ({len(raises) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -209,12 +204,10 @@ def extract_exception_catches(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(h)
-    import sys
 
     if len(handlers) != len(deduped):
-        print(
-            f"[AST_DEBUG] Exception catches deduplication: {len(handlers)} -> {len(deduped)} ({len(handlers) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Exception catches deduplication: {len(handlers)} -> {len(deduped)} ({len(handlers) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -275,12 +268,10 @@ def extract_finally_blocks(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(fb)
-    import sys
 
     if len(finally_blocks) != len(deduped):
-        print(
-            f"[AST_DEBUG] Finally blocks deduplication: {len(finally_blocks)} -> {len(deduped)} ({len(finally_blocks) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Finally blocks deduplication: {len(finally_blocks)} -> {len(deduped)} ({len(finally_blocks) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -359,12 +350,10 @@ def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(cm)
-    import sys
 
     if len(context_managers) != len(deduped):
-        print(
-            f"[AST_DEBUG] Context managers deduplication: {len(context_managers)} -> {len(deduped)} ({len(context_managers) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Context managers deduplication: {len(context_managers)} -> {len(deduped)} ({len(context_managers) - len(deduped)} duplicates removed)"
         )
 
     return deduped

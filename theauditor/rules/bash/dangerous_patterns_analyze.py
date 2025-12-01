@@ -21,9 +21,20 @@ METADATA = RuleMetadata(
 
 # Credential variable name patterns
 CREDENTIAL_PATTERNS = (
-    "PASSWORD", "PASSWD", "SECRET", "API_KEY", "APIKEY",
-    "TOKEN", "AUTH", "CREDENTIAL", "PRIVATE_KEY", "AWS_SECRET",
-    "DB_PASS", "MYSQL_PASS", "POSTGRES_PASS", "REDIS_PASS",
+    "PASSWORD",
+    "PASSWD",
+    "SECRET",
+    "API_KEY",
+    "APIKEY",
+    "TOKEN",
+    "AUTH",
+    "CREDENTIAL",
+    "PRIVATE_KEY",
+    "AWS_SECRET",
+    "DB_PASS",
+    "MYSQL_PASS",
+    "POSTGRES_PASS",
+    "REDIS_PASS",
 )
 
 # Network fetching commands
@@ -126,7 +137,7 @@ class BashDangerousPatternsAnalyzer:
                 file=row["file"],
                 line=row["line"],
                 rule_name="bash-curl-pipe-bash",
-                message=f"Remote code execution: piping network data to shell",
+                message="Remote code execution: piping network data to shell",
                 severity=Severity.CRITICAL,
                 confidence=Confidence.HIGH,
                 cwe_id="CWE-94",
@@ -202,7 +213,8 @@ class BashDangerousPatternsAnalyzer:
 
         for file in files:
             # Check for safety set commands
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
                 SELECT command_name, GROUP_CONCAT(a.arg_value, ' ') as args
                 FROM bash_commands c
                 LEFT JOIN bash_command_args a
@@ -212,7 +224,9 @@ class BashDangerousPatternsAnalyzer:
                 WHERE c.file = ?
                   AND c.command_name = 'set'
                 GROUP BY c.file, c.line
-            """, (file,))
+            """,
+                (file,),
+            )
 
             has_set_e = False
             has_set_u = False
@@ -408,8 +422,18 @@ class BashDangerousPatternsAnalyzer:
         """
         # Security-sensitive commands that should use absolute paths
         sensitive_commands = (
-            "rm", "chmod", "chown", "kill", "pkill", "mount", "umount",
-            "iptables", "ip6tables", "systemctl", "service", "dd",
+            "rm",
+            "chmod",
+            "chown",
+            "kill",
+            "pkill",
+            "mount",
+            "umount",
+            "iptables",
+            "ip6tables",
+            "systemctl",
+            "service",
+            "dd",
         )
         sensitive_list = ", ".join(f"'{cmd}'" for cmd in sensitive_commands)
 

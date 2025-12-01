@@ -3,6 +3,8 @@
 import json
 import os
 
+from theauditor.utils.logging import logger
+
 
 class InfrastructureDatabaseMixin:
     """Mixin providing add_* methods for INFRASTRUCTURE_TABLES."""
@@ -212,7 +214,7 @@ class InfrastructureDatabaseMixin:
         """Add a CDK construct record to the batch."""
 
         if os.environ.get("THEAUDITOR_CDK_DEBUG") == "1":
-            print(f"[CDK-DB] Adding to batch: {construct_id}")
+            logger.info(f"Adding to batch: {construct_id}")
 
         self.generic_batches["cdk_constructs"].append(
             (construct_id, file_path, line, cdk_class, construct_name)

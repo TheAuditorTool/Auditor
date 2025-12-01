@@ -29,9 +29,7 @@ class BashInjectionPatterns:
     EVAL_COMMANDS: frozenset = frozenset(["eval", "bash", "sh", "zsh", "ksh"])
 
     # Commands where variable-as-command is dangerous
-    COMMAND_EXECUTION: frozenset = frozenset(
-        ["xargs", "find", "parallel", "watch", "exec"]
-    )
+    COMMAND_EXECUTION: frozenset = frozenset(["xargs", "find", "parallel", "watch", "exec"])
 
     # Dangerous flags for xargs
     XARGS_DANGEROUS_FLAGS: frozenset = frozenset(["-I", "-i", "-0"])
@@ -174,9 +172,7 @@ class BashInjectionAnalyzer:
                 xargs_calls[key].append(row["arg_value"])
 
         for (file, line), args in xargs_calls.items():
-            has_dangerous_flag = any(
-                arg in self.patterns.XARGS_DANGEROUS_FLAGS for arg in args
-            )
+            has_dangerous_flag = any(arg in self.patterns.XARGS_DANGEROUS_FLAGS for arg in args)
             if has_dangerous_flag:
                 self._add_finding(
                     file=file,

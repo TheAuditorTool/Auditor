@@ -2,8 +2,9 @@
 
 import json
 
-from .base import BaseStorage
 from theauditor.utils.logging import logger
+
+from .base import BaseStorage
 
 
 class InfrastructureStorage(BaseStorage):
@@ -156,7 +157,6 @@ class InfrastructureStorage(BaseStorage):
     def _store_graphql_types(self, file_path: str, graphql_types: list, jsx_pass: bool):
         """Store GraphQL type definition records."""
         import os
-        import sys
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
             logger.debug(f"Storage: _store_graphql_types called with {len(graphql_types)} types")

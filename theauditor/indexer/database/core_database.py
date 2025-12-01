@@ -1,4 +1,5 @@
 """Core database operations for language-agnostic patterns."""
+
 from theauditor.utils.logging import logger
 
 
@@ -35,7 +36,9 @@ class CoreDatabaseMixin:
                 if (s[0], s[1], s[2], s[3], s[4]) == symbol_key
             ]
             if existing:
-                logger.debug(f"add_symbol: DUPLICATE detected! {name} ({symbol_type}) at {path}:{line}:{col}")
+                logger.debug(
+                    f"add_symbol: DUPLICATE detected! {name} ({symbol_type}) at {path}:{line}:{col}"
+                )
             if parameters and os.getenv("THEAUDITOR_DEBUG"):
                 logger.debug(f"add_symbol: {name} ({symbol_type}) has parameters: {parameters}")
         self.generic_batches["symbols"].append(
@@ -59,9 +62,10 @@ class CoreDatabaseMixin:
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             batch_idx = len(self.generic_batches["assignments"])
-            import sys
 
-            logger.trace(f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}")
+            logger.trace(
+                f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}"
+            )
 
         self.generic_batches["assignments"].append(
             (file_path, line, col, target_var, source_expr, in_function, property_path)

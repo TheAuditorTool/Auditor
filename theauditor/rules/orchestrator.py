@@ -4,11 +4,12 @@ import importlib
 import inspect
 import os
 import sqlite3
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from theauditor.utils.logging import logger
 
 try:
     from theauditor.rules.base import convert_old_context, validate_rule_signature
@@ -82,12 +83,10 @@ class RulesOrchestrator:
 
         if self._debug:
             total_rules = sum(len(r) for r in self.rules.values())
-            print(
-                f"[ORCHESTRATOR] Discovered {total_rules} rules across {len(self.rules)} categories"
-            )
+            logger.info(f"Discovered {total_rules} rules across {len(self.rules)} categories")
             if STANDARD_CONTRACTS_AVAILABLE:
-                print(
-                    f"[ORCHESTRATOR] Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy"
+                logger.info(
+                    f"Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy"
                 )
 
     def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
@@ -120,16 +119,16 @@ class RulesOrchestrator:
                             rules_by_category[category].append(rule_info)
 
                             if self._debug:
-                                print(
-                                    f"[ORCHESTRATOR] Found rule: {category}/{name} with {rule_info.param_count} params"
+                                logger.info(
+                                    f"Found rule: {category}/{name} with {rule_info.param_count} params"
                                 )
 
                 except ImportError as e:
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
+                        logger.info(f"Warning: Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Warning: Error processing {module_name}: {e}")
+                        logger.info(f"Warning: Error processing {module_name}: {e}")
 
         for py_file in rules_dir.glob("*.py"):
             if py_file.name.startswith("__") or py_file.is_dir():
@@ -156,7 +155,7 @@ class RulesOrchestrator:
                 pass
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Warning: Error processing {module_name}: {e}")
+                    logger.info(f"Warning: Error processing {module_name}: {e}")
 
         return rules_by_category
 
@@ -185,7 +184,7 @@ class RulesOrchestrator:
 
         if is_standardized:
             if self._debug:
-                print(f"[ORCHESTRATOR] Found STANDARDIZED rule: {category}/{name}")
+                logger.info(f"Found STANDARDIZED rule: {category}/{name}")
 
             requires_db = execution_scope == "database"
             requires_file = execution_scope == "file"
@@ -209,7 +208,7 @@ class RulesOrchestrator:
             )
 
         if self._debug and STANDARD_CONTRACTS_AVAILABLE:
-            print(f"[ORCHESTRATOR] Found LEGACY rule: {category}/{name} with params: {params}")
+            logger.info(f"Found LEGACY rule: {category}/{name} with params: {params}")
 
         requires_ast = any(p in ["ast", "tree", "ast_tree", "python_ast"] for p in params)
         requires_db_param = any(p in ["db_path", "database", "conn"] for p in params)
@@ -262,7 +261,7 @@ class RulesOrchestrator:
                 continue
 
             if self._debug:
-                print(f"[ORCHESTRATOR] Running {len(rules)} rules in category: {category}")
+                logger.info(f"Running {len(rules)} rules in category: {category}")
 
             for rule in rules:
                 if rule.execution_scope == "database" and context.file_path:
@@ -280,24 +279,22 @@ class RulesOrchestrator:
 
                     findings = self._execute_rule(rule, context)
 
-                    print(f" Done. ({len(findings or [])} findings)", file=sys.stderr, flush=True)
+                    logger.error(f" Done. ({len(findings or [])} findings)")
 
                     if findings:
                         all_findings.extend(findings)
                         total_executed += 1
 
                         if self._debug:
-                            print(f"[ORCHESTRATOR]   {rule.name}: {len(findings)} findings")
+                            logger.info(f"{rule.name}: {len(findings)} findings")
 
                 except Exception as e:
-                    print(f" FAILED: {e}", file=sys.stderr, flush=True)
+                    logger.error(f" FAILED: {e}")
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Warning: Rule {rule.name} failed: {e}")
+                        logger.info(f"Warning: Rule {rule.name} failed: {e}")
 
         if self._debug:
-            print(
-                f"[ORCHESTRATOR] Executed {total_executed} rules, found {len(all_findings)} issues"
-            )
+            logger.info(f"Executed {total_executed} rules, found {len(all_findings)} issues")
 
         return all_findings
 
@@ -349,8 +346,8 @@ class RulesOrchestrator:
 
                     if not self._should_run_rule_on_file(rule_module, file_to_check):
                         if self._debug:
-                            print(
-                                f"[ORCHESTRATOR] Skipping rule '{rule.name}' on file '{file_to_check.name}' due to metadata mismatch."
+                            logger.info(
+                                f"Skipping rule '{rule.name}' on file '{file_to_check.name}' due to metadata mismatch."
                             )
                         continue
 
@@ -360,7 +357,7 @@ class RulesOrchestrator:
 
                 except Exception as e:
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Rule {rule.name} failed for file: {e}")
+                        logger.info(f"Rule {rule.name} failed for file: {e}")
 
         return findings
 
@@ -390,13 +387,13 @@ class RulesOrchestrator:
                     findings.extend(rule_findings)
 
                 if self._debug:
-                    print(
-                        f"[ORCHESTRATOR] Discovery rule {rule.name}: {len(rule_findings) if rule_findings else 0} findings"
+                    logger.info(
+                        f"Discovery rule {rule.name}: {len(rule_findings) if rule_findings else 0} findings"
                     )
 
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Discovery rule {rule.name} failed: {e}")
+                    logger.info(f"Discovery rule {rule.name} failed: {e}")
 
         return findings
 
@@ -416,7 +413,7 @@ class RulesOrchestrator:
 
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Standalone rule {rule.name} failed: {e}")
+                    logger.info(f"Standalone rule {rule.name} failed: {e}")
 
         return findings
 
@@ -439,7 +436,7 @@ class RulesOrchestrator:
 
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Taint-dependent rule {rule.name} failed: {e}")
+                    logger.info(f"Taint-dependent rule {rule.name} failed: {e}")
 
         return findings
 
@@ -484,7 +481,7 @@ class RulesOrchestrator:
 
                 except Exception as e:
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Database rule {rule.name} failed: {e}")
+                        logger.info(f"Database rule {rule.name} failed: {e}")
 
         return findings
 
@@ -503,7 +500,7 @@ class RulesOrchestrator:
 
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Standardized rule {rule.name} failed: {e}")
+                    logger.info(f"Standardized rule {rule.name} failed: {e}")
                 return []
 
         kwargs = {}
@@ -555,8 +552,8 @@ class RulesOrchestrator:
                     continue
                 else:
                     if self._debug:
-                        print(
-                            f"[ORCHESTRATOR] Warning: Don't know how to fill parameter '{param_name}' for rule {rule.name}"
+                        logger.info(
+                            f"Warning: Don't know how to fill parameter '{param_name}' for rule {rule.name}"
                         )
                     return []
 
@@ -571,14 +568,14 @@ class RulesOrchestrator:
                 return [result]
             else:
                 if self._debug:
-                    print(
-                        f"[ORCHESTRATOR] Warning: Rule {rule.name} returned unexpected type: {type(result)}"
+                    logger.info(
+                        f"Warning: Rule {rule.name} returned unexpected type: {type(result)}"
                     )
                 return []
 
         except Exception as e:
             if self._debug:
-                print(f"[ORCHESTRATOR] Error executing rule {rule.name}: {e}")
+                logger.info(f"Error executing rule {rule.name}: {e}")
             return []
 
     def get_rule_stats(self) -> dict[str, Any]:
@@ -612,7 +609,7 @@ class RulesOrchestrator:
             self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
             if self._debug:
                 total = len(self._taint_results.get("taint_paths", []))
-                print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
+                logger.info(f"Cached {total} taint paths for rules")
 
         def is_tainted(var_name: str, line: int) -> bool:
             """Check if variable is in any taint path."""
@@ -647,10 +644,10 @@ class RulesOrchestrator:
                 conn.close()
 
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Detected languages: {detected_languages}")
+                    logger.info(f"Detected languages: {detected_languages}")
             except Exception as e:
                 if self._debug:
-                    print(f"[ORCHESTRATOR] Warning: Failed to query frameworks: {e}")
+                    logger.info(f"Warning: Failed to query frameworks: {e}")
 
         processed_modules = set()
         skipped_categories = set()
@@ -662,9 +659,7 @@ class RulesOrchestrator:
             ):
                 skipped_categories.add(category)
                 if self._debug:
-                    print(
-                        f"[ORCHESTRATOR] Skipping {category} rules (no {category} frameworks detected)"
-                    )
+                    logger.info(f"Skipping {category} rules (no {category} frameworks detected)")
                 continue
 
             for rule in rules:
@@ -683,25 +678,21 @@ class RulesOrchestrator:
                         register_func(registry)
 
                         if self._debug:
-                            print(f"[ORCHESTRATOR] Registered patterns from {module_name}")
+                            logger.info(f"Registered patterns from {module_name}")
 
                 except ImportError as e:
                     if self._debug:
-                        print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
+                        logger.info(f"Warning: Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
-                        print(
-                            f"[ORCHESTRATOR] Warning: Error registering patterns from {module_name}: {e}"
-                        )
+                        logger.info(f"Warning: Error registering patterns from {module_name}: {e}")
 
         if self._debug:
             stats = registry.get_stats()
             processed_count = len(processed_modules)
-            print(f"[ORCHESTRATOR] Dynamically processed {processed_count} modules")
-            print(
-                f"[ORCHESTRATOR] Skipped {len(skipped_categories)} categories: {skipped_categories}"
-            )
-            print(f"[ORCHESTRATOR] Pattern statistics: {stats}")
+            logger.info(f"Dynamically processed {processed_count} modules")
+            logger.info(f"Skipped {len(skipped_categories)} categories: {skipped_categories}")
+            logger.info(f"Pattern statistics: {stats}")
 
         return registry
 
@@ -715,7 +706,7 @@ class RulesOrchestrator:
                 self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
                 if self._debug:
                     total = len(self._taint_results.get("taint_paths", []))
-                    print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
+                    logger.info(f"Cached {total} taint paths for rules")
 
             def get_taint_for_location(
                 source_var: str,

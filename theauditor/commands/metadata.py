@@ -2,9 +2,7 @@
 
 import click
 
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 @click.group()
