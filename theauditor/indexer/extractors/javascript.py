@@ -329,16 +329,19 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 if di_injections:
                     result["di_injections"].extend(di_injections)
 
-        tree_type = tree.get("type") if isinstance(tree, dict) else None
-
-        if tree_type == "semantic_ast":
-            actual_tree = tree.get("tree")
-            if not isinstance(actual_tree, dict):
-                actual_tree = tree
-            imports_data = actual_tree.get("imports", [])
-        else:
-            actual_tree = tree
-            imports_data = tree.get("imports", []) if isinstance(tree, dict) else []
+        # STRICT SCHEMA IMPLEMENTATION - NO FALLBACKS
+        # The Schema Contract (schema.ts) guarantees imports are in extracted_data.imports
+        # We do NOT search legacy locations. If it's not here, the extractor failed.
+        imports_data = []
+        if isinstance(tree, dict):
+            # For semantic_ast wrapper, data is in tree["tree"]["extracted_data"]
+            extracted_data = tree.get("extracted_data")
+            if not extracted_data and tree.get("type") == "semantic_ast":
+                actual_tree = tree.get("tree")
+                if isinstance(actual_tree, dict):
+                    extracted_data = actual_tree.get("extracted_data")
+            if extracted_data and isinstance(extracted_data, dict):
+                imports_data = extracted_data.get("imports", [])
 
         normalized_imports = []
         for imp in imports_data:

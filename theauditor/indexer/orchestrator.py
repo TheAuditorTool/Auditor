@@ -706,19 +706,60 @@ class IndexerOrchestrator:
         self, file_info: dict[str, Any], file_path: Path, js_ts_cache: dict[str, Any]
     ) -> dict | None:
         """Get AST from cache or parse the file."""
+        # 1. Check extension support
         if file_info["ext"] not in SUPPORTED_AST_EXTENSIONS:
             return None
 
+        # 2. Check JS/TS cache (from batch processing)
         file_str = str(file_path).replace("\\", "/")
         if file_str in js_ts_cache:
             return js_ts_cache[file_str]
 
+        # 3. Check persistent AST cache (disk)
         cached_tree = self.ast_cache.get(file_info["sha256"])
         if cached_tree:
             return cached_tree
 
-        tree = self.ast_parser.parse_file(file_path, root_path=str(self.root_path))
+        # 4. PARSE THE FILE (This is the changed part)
+        try:
+            tree = self.ast_parser.parse_file(file_path, root_path=str(self.root_path))
 
+        except RuntimeError as e:
+            # FIX: Catch the "FATAL" error from ast_parser and turn it into a finding
+            error_msg = str(e)
+
+            # Try to grab the line number if it's in the error message
+            line_no = 1
+            if "line " in error_msg:
+                try:
+                    import re
+
+                    match = re.search(r"line (\d+)", error_msg)
+                    if match:
+                        line_no = int(match.group(1))
+                except Exception:
+                    pass
+
+            # Record the syntax error in the findings table
+            self.db_manager.write_findings_batch(
+                [
+                    {
+                        "file": str(file_path),
+                        "line": line_no,
+                        "rule": "syntax_error",
+                        "tool": "indexer",
+                        "severity": "error",
+                        "message": f"Syntax Error: {error_msg}",
+                        "category": "syntax",
+                    }
+                ],
+                "indexer",
+            )
+
+            # Return None means "no AST available", but don't crash!
+            return None
+
+        # 5. Cache successful results
         if tree and isinstance(tree, dict):
             self.ast_cache.set(file_info["sha256"], tree)
 

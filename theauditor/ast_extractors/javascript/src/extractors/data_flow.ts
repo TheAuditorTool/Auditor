@@ -217,8 +217,8 @@ function extractVarsFromNode(
 
   function visit(n: ts.Node): void {
     if (!n) return;
-    const kind = ts.SyntaxKind[n.kind];
 
+    // 1. Capture simple Identifiers (variables)
     if (n.kind === ts.SyntaxKind.Identifier) {
       const id = n as ts.Identifier;
       const text = id.text || id.escapedText?.toString();
@@ -228,6 +228,7 @@ function extractVarsFromNode(
       }
     }
 
+    // 2. Capture Property Access (obj.prop)
     if (n.kind === ts.SyntaxKind.PropertyAccessExpression) {
       const fullText = n.getText(sourceFile);
       if (fullText && !seen.has(fullText)) {
@@ -236,6 +237,7 @@ function extractVarsFromNode(
       }
     }
 
+    // 3. Capture Element Access (arr[0])
     if (n.kind === ts.SyntaxKind.ElementAccessExpression) {
       const fullText = n.getText(sourceFile);
       if (fullText && !seen.has(fullText)) {
@@ -244,6 +246,7 @@ function extractVarsFromNode(
       }
     }
 
+    // 4. Capture 'this'
     if (n.kind === ts.SyntaxKind.ThisKeyword) {
       const fullText = "this";
       if (!seen.has(fullText)) {
@@ -252,27 +255,19 @@ function extractVarsFromNode(
       }
     }
 
+    // 5. Capture Instantiation (new ClassName) - with length limit
     if (n.kind === ts.SyntaxKind.NewExpression) {
       const fullText = n.getText(sourceFile);
-      if (fullText && !seen.has(fullText)) {
+      // Safety check: Don't capture if it's too long (e.g. huge args)
+      if (fullText && fullText.length < 200 && !seen.has(fullText)) {
         vars.push(fullText);
         seen.add(fullText);
       }
     }
 
-    if (
-      kind === "ParenthesizedExpression" ||
-      kind === "AsExpression" ||
-      kind === "TypeAssertionExpression" ||
-      kind === "NonNullExpression" ||
-      kind === "ArrayLiteralExpression"
-    ) {
-      const fullText = n.getText(sourceFile);
-      if (fullText && !seen.has(fullText)) {
-        vars.push(fullText);
-        seen.add(fullText);
-      }
-    }
+    // REMOVED: ParenthesizedExpression, AsExpression, etc. capture block
+    // These were capturing "return (<HugeJSX>)" as one giant variable name.
+    // Now we just recurse into them to extract actual variables.
 
     ts.forEachChild(n, visit);
   }
