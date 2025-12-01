@@ -1,6 +1,7 @@
 """Complete flow resolution engine for codebase truth generation."""
 
 import json
+import os
 import sqlite3
 from collections import defaultdict
 from functools import lru_cache
@@ -35,6 +36,7 @@ class FlowResolver:
         self.max_depth = 20
         self.max_flows = 100_000
         self.max_flows_per_entry = 1_000
+        self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
         # Sanitizer data for path checking
         self._safe_sinks: set[str] = set()
@@ -116,93 +118,129 @@ class FlowResolver:
         return request_patterns
 
     def _get_entry_nodes(self) -> list[str]:
-        """Get all entry points from the unified graph."""
-        cursor = self.graph_conn.cursor()
-        entry_nodes = []
+        """
+        Get authoritative entry points from the Indexer's structural understanding.
 
-        request_patterns = []
-        if self.registry:
-            for lang in ["javascript", "python", "rust"]:
-                patterns = self.registry.get_source_patterns(lang)
-                for p in patterns:
-                    if p not in request_patterns:
-                        request_patterns.append(p)
+        This uses database-driven lookups from canonical tables (api_endpoints,
+        express_middleware_chains, env_var_usage) instead of naive pattern matching
+        on variable names. This prevents State Space Explosion in monorepos.
+        """
+        graph_cursor = self.graph_conn.cursor()
+        repo_cursor = self.repo_conn.cursor()
+        entry_nodes = set()
 
-        for pattern in request_patterns:
-            cursor.execute(
-                """
-                SELECT id FROM nodes
-                WHERE graph_type = 'data_flow'
-                  AND (id LIKE ? OR id LIKE ?)
-            """,
-                (f"%::{pattern}", f"%::{pattern}.%"),
-            )
+        # Common web framework argument names to try for each handler
+        web_args = ["req", "request", "args", "kwargs", "event", "context"]
 
-            for (node_id,) in cursor.fetchall():
-                if node_id not in entry_nodes:
-                    entry_nodes.append(node_id)
+        # 1. Canonical API Endpoints (Python Flask/Django/FastAPI + normalized routes)
+        # These are authoritative - the Indexer confirmed they are real routes
+        repo_cursor.execute("""
+            SELECT file, handler_function
+            FROM api_endpoints
+            WHERE handler_function IS NOT NULL
+        """)
+        for row in repo_cursor.fetchall():
+            file, handler = row[0], row[1]
+            base_id = f"{file}::{handler}"
+            for arg in web_args:
+                entry_nodes.add(f"{base_id}::{arg}")
 
-        cursor.execute("""
+        # 2. Express Middleware Chains (Node.js)
+        # Only the FIRST handler in each chain is a true entry point
+        repo_cursor.execute("""
+            SELECT file, handler_function, handler_expr
+            FROM express_middleware_chains
+            WHERE execution_order = 0
+        """)
+        for row in repo_cursor.fetchall():
+            file = row[0]
+            func = row[1] or row[2]
+            if func:
+                base_id = f"{file}::{func}"
+                for arg in ["req", "req.body", "req.query", "req.params"]:
+                    entry_nodes.add(f"{base_id}::{arg}")
+
+        # 3. Environment Variables (Configuration Injection Sources)
+        repo_cursor.execute("""
+            SELECT DISTINCT file, var_name, in_function
+            FROM env_var_usage
+        """)
+        for row in repo_cursor.fetchall():
+            file, var_name = row[0], row[1]
+            func = row[2] if row[2] else "global"
+            entry_nodes.add(f"{file}::{func}::{var_name}")
+
+        # 4. Cross-Boundary Edges (Frontend -> Backend)
+        # These are GOLDEN - explicitly created by DFG Builder
+        graph_cursor.execute("""
             SELECT DISTINCT target
             FROM edges
             WHERE graph_type = 'data_flow'
               AND type = 'cross_boundary'
         """)
+        for (target,) in graph_cursor.fetchall():
+            entry_nodes.add(target)
 
-        for (target,) in cursor.fetchall():
-            entry_nodes.append(target)
-
-        repo_cursor = self.repo_conn.cursor()
-        repo_cursor.execute("""
-            SELECT DISTINCT file, line, var_name, in_function
-            FROM env_var_usage
-        """)
-
-        for row in repo_cursor.fetchall():
-            file = row[0]
-            var_name = row[2]
-            func = row[3] if row[3] else "global"
-
-            node_id = f"{file}::{func}::{var_name}"
-
-            cursor.execute(
+        # 5. Validate existence in graph (filter out ghosts and node_modules)
+        # FIX #9: Exclude node_modules to prevent library traversal
+        validated_entries = []
+        for node_id in entry_nodes:
+            graph_cursor.execute(
                 """
                 SELECT 1 FROM nodes
                 WHERE graph_type = 'data_flow'
                   AND id = ?
+                  AND id NOT LIKE '%node_modules%'
                 LIMIT 1
             """,
                 (node_id,),
             )
+            if graph_cursor.fetchone():
+                validated_entries.append(node_id)
 
-            if cursor.fetchone():
-                entry_nodes.append(node_id)
+        # 6. Adaptive Strict Mode - if still too many, filter to controller patterns
+        if len(validated_entries) > 300:
+            print(
+                f"[TAINT] High entry point count ({len(validated_entries)}). Enabling STRICT MODE.",
+                file=sys.stderr,
+            )
+            strict_keywords = [
+                "controller", "route", "api", "handler", "view",
+                "endpoint", "lambda", "function", "app", "server",
+            ]
+            strict_entries = []
+            for node in validated_entries:
+                file_part = node.split("::")[0].lower()
+                # Keep if file matches controller patterns
+                if any(kw in file_part for kw in strict_keywords):
+                    strict_entries.append(node)
+                    continue
+                # Keep env vars (they're always valid sources)
+                if "process.env" in node or "ENV_" in node.upper():
+                    strict_entries.append(node)
+                    continue
+            print(
+                f"[TAINT] Strict Mode reduced entries: {len(validated_entries)} -> {len(strict_entries)}",
+                file=sys.stderr,
+            )
+            validated_entries = strict_entries
 
-        cursor.execute("""
-            SELECT DISTINCT target
-            FROM edges
-            WHERE graph_type = 'call'
-              AND source LIKE '%index%'
-              AND target NOT LIKE '%node_modules%'
-            LIMIT 100
-        """)
+        # Filter out test/fixture files
+        filtered_entries = [
+            n for n in validated_entries
+            if not any(
+                x in n.lower()
+                for x in [".test.", ".spec.", "__tests__", "/test/", "/mock/", "/fixtures/"]
+            )
+        ]
 
-        for (target,) in cursor.fetchall():
-            cursor.execute(
-                """
-                SELECT DISTINCT id FROM nodes
-                WHERE graph_type = 'data_flow'
-                  AND id LIKE ?
-                LIMIT 1
-            """,
-                (f"{target.split('::')[0]}::%",),
+        if self.debug:
+            print(
+                f"[TAINT] High-Fidelity Entry Analysis: {len(filtered_entries)} confirmed roots",
+                file=sys.stderr,
             )
 
-            result = cursor.fetchone()
-            if result:
-                entry_nodes.append(result[0])
-
-        return entry_nodes
+        return filtered_entries
 
     def _get_exit_nodes(self) -> set[str]:
         """Get all exit points from the unified graph."""
@@ -447,12 +485,18 @@ class FlowResolver:
         """Internal cached query for successors.
 
         Returns tuple for lru_cache hashability.
+
+        FIX #9: Excludes node_modules targets to prevent traversal into
+        third-party libraries. This treats libraries as "black boxes" -
+        we know data enters axios.post(), we don't trace axios internals.
         """
         cursor = self.graph_conn.cursor()
         cursor.execute(
             """
             SELECT target FROM edges
-            WHERE source = ? AND graph_type = 'data_flow'
+            WHERE source = ?
+              AND graph_type = 'data_flow'
+              AND target NOT LIKE '%node_modules%'
         """,
             (node_id,),
         )
@@ -792,31 +836,53 @@ class FlowResolver:
         return False
 
     def _path_goes_through_sanitizer(self, path: list) -> dict | None:
-        """Check if a taint path goes through any sanitizer."""
+        """Check if a taint path goes through any sanitizer.
+
+        Uses call edge checks instead of string matching to detect sanitizers.
+        """
         if not self.registry:
             raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
 
-        def check_node_string(node_str: str) -> dict | None:
-            """Check a single node string (format: file::func::pattern) for sanitizers."""
+        graph_cursor = self.graph_conn.cursor()
+
+        def check_node_for_sanitizer(node_str: str) -> dict | None:
+            """Check a single node for sanitizer calls via graph edges and call cache."""
             parts = node_str.split("::")
             hop_file = parts[0] if parts else None
             func = parts[1] if len(parts) > 1 else ""
 
-            if hop_file and func:
-                lang = self._get_language_for_file(hop_file)
-                validation_patterns = self.registry.get_sanitizer_patterns(lang)
-                for pattern in validation_patterns:
-                    if pattern in func:
-                        return {"file": hop_file, "line": 0, "method": func}
+            if not hop_file:
+                return None
 
-                if self._is_sanitizer(func):
-                    return {"file": hop_file, "line": 0, "method": func}
+            # PRIMARY CHECK: Query graph for call edges from this node
+            graph_cursor.execute(
+                """
+                SELECT target, metadata
+                FROM edges
+                WHERE source = ? AND graph_type = 'call'
+                LIMIT 10
+            """,
+                (node_str,),
+            )
+            for row in graph_cursor.fetchall():
+                target = row[0]
+                # Extract function name from target node ID
+                target_parts = target.split("::")
+                if len(target_parts) >= 2:
+                    called_func = target_parts[-1]
+                    if self._is_sanitizer(called_func):
+                        return {"file": hop_file, "line": 0, "method": called_func}
+
+            # SECONDARY CHECK: Check if function itself is a sanitizer
+            if func and self._is_sanitizer(func):
+                return {"file": hop_file, "line": 0, "method": func}
+
             return None
 
         for node in path:
             if isinstance(node, str):
                 # Legacy string format: "file::func::pattern"
-                result = check_node_string(node)
+                result = check_node_for_sanitizer(node)
                 if result:
                     return result
             elif isinstance(node, dict):
@@ -824,7 +890,7 @@ class FlowResolver:
                 for key in ("from", "to"):
                     node_str = node.get(key)
                     if node_str and isinstance(node_str, str):
-                        result = check_node_string(node_str)
+                        result = check_node_for_sanitizer(node_str)
                         if result:
                             return result
 

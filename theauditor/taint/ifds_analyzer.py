@@ -210,9 +210,19 @@ class IFDSTaintAnalyzer:
         return (vulnerable_paths, sanitized_paths)
 
     def _get_predecessors(self, ap: AccessPath) -> list[tuple[AccessPath, str, dict]]:
-        """Get all access paths that flow into this access path."""
+        """Get all access paths that flow into this access path.
+
+        Queries BOTH edge directions to ensure complete backward traversal:
+        1. Reverse edges: WHERE source = current (edges explicitly marked as reverse)
+        2. Forward edges: WHERE target = current (forward edges traversed backwards)
+
+        This is NOT a fallback - it's complete graph coverage. If graph builder
+        created A -> B but not B -> A_reverse, we still find the predecessor.
+        """
         predecessors = []
 
+        # Query 1: Reverse edges (source = current, target = predecessor)
+        # FIX #9: Exclude node_modules to prevent traversal into libraries
         self.graph_cursor.execute(
             """
             SELECT target, type, metadata
@@ -220,6 +230,7 @@ class IFDSTaintAnalyzer:
             WHERE source = ?
               AND graph_type = 'data_flow'
               AND type LIKE '%_reverse'
+              AND target NOT LIKE '%node_modules%'
         """,
             (ap.node_id,),
         )
@@ -241,11 +252,48 @@ class IFDSTaintAnalyzer:
             if source_ap:
                 predecessors.append((source_ap, edge_type, metadata))
 
+        # Query 2: Forward edges traversed backwards (target = current, source = predecessor)
+        # This catches edges where graph builder created forward but not reverse
+        # FIX #9: Exclude node_modules to prevent traversal into libraries
         self.graph_cursor.execute(
             """
             SELECT source, type, metadata
             FROM edges
-            WHERE target = ? AND graph_type = 'call'
+            WHERE target = ?
+              AND graph_type = 'data_flow'
+              AND type NOT LIKE '%_reverse'
+              AND source NOT LIKE '%node_modules%'
+        """,
+            (ap.node_id,),
+        )
+
+        for row in self.graph_cursor.fetchall():
+            pred_id = row["source"]
+            edge_type = row["type"] + "_traversed_reverse"
+            metadata = {}
+
+            if row["metadata"]:
+                try:
+                    import json
+
+                    metadata = json.loads(row["metadata"])
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
+
+            pred_ap = AccessPath.parse(pred_id)
+            if pred_ap:
+                # Avoid duplicates if same predecessor found via both queries
+                if not any(p[0].node_id == pred_ap.node_id for p in predecessors):
+                    predecessors.append((pred_ap, edge_type, metadata))
+
+        # FIX #9: Exclude node_modules from call graph traversal too
+        self.graph_cursor.execute(
+            """
+            SELECT source, type, metadata
+            FROM edges
+            WHERE target = ?
+              AND graph_type = 'call'
+              AND source NOT LIKE '%node_modules%'
         """,
             (ap.node_id,),
         )
@@ -567,15 +615,36 @@ class IFDSTaintAnalyzer:
             if not hop_file:
                 continue
 
-            # Check node string against validation patterns
-            if node_str:
-                lang = self._get_language_for_file(hop_file)
-                validation_patterns = self.registry.get_sanitizer_patterns(lang)
-                for pattern in validation_patterns:
-                    if pattern in node_str:
-                        return {"file": hop_file, "line": hop_line, "method": pattern}
+            # PRIMARY CHECK: Function calls at this location (call edge check)
+            # This is the authoritative source - checks what functions are actually called
+            if hop_line > 0:
+                callees = self._call_args_cache.get((hop_file, hop_line), [])
+                for callee in callees:
+                    if self._is_sanitizer(callee):
+                        return {"file": hop_file, "line": hop_line, "method": callee}
 
-            # Check validation sanitizers by proximity
+            # SECONDARY CHECK: Query graph for call edges from this node
+            # Catches cases where assignment target doesn't reveal the sanitizer
+            if node_str and "::" in node_str:
+                self.graph_cursor.execute(
+                    """
+                    SELECT target, metadata
+                    FROM edges
+                    WHERE source = ? AND graph_type = 'call'
+                    LIMIT 10
+                """,
+                    (node_str,),
+                )
+                for row in self.graph_cursor.fetchall():
+                    target = row["target"]
+                    # Extract function name from target node ID
+                    target_parts = target.split("::")
+                    if len(target_parts) >= 2:
+                        called_func = target_parts[-1]
+                        if self._is_sanitizer(called_func):
+                            return {"file": hop_file, "line": hop_line, "method": called_func}
+
+            # TERTIARY CHECK: Validation framework sanitizers by proximity
             if hop_line > 0:
                 for san in self._validation_sanitizers:
                     if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and \
@@ -585,13 +654,6 @@ class IFDSTaintAnalyzer:
                             "line": hop_line,
                             "method": f"{san['framework']}:{san.get('schema', 'validation')}",
                         }
-
-            # Check function calls at this location
-            if hop_line > 0:
-                callees = self._call_args_cache.get((hop_file, hop_line), [])
-                for callee in callees:
-                    if self._is_sanitizer(callee):
-                        return {"file": hop_file, "line": hop_line, "method": callee}
 
         return None
 

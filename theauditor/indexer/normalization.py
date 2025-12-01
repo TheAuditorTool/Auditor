@@ -1,0 +1,95 @@
+"""
+Normalization Layer.
+
+Promotes language-specific raw data into canonical tables for the Graph Builder.
+This bridges the gap between extraction (which writes to language-specific tables)
+and graph building (which reads from canonical tables).
+
+NO FALLBACKS. Single pass. Hard fail on errors.
+"""
+
+import os
+import sqlite3
+import sys
+
+
+def normalize_python_routes(db_path: str) -> int:
+    """
+    Lift Python routes from 'python_routes' to 'api_endpoints'.
+
+    Why: The Graph Builder (dfg_builder.py:390) ONLY reads from 'api_endpoints'
+    to link Frontend -> Backend. Without this normalization, Python backends
+    (Flask, Django, FastAPI) are invisible to cross-boundary analysis.
+
+    Returns: Number of routes promoted.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Check if we have raw data
+    cursor.execute("SELECT COUNT(*) FROM python_routes")
+    result = cursor.fetchone()
+    count = result[0] if result else 0
+
+    if count == 0:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[Normalization] No Python routes found to normalize.", file=sys.stderr)
+        conn.close()
+        return 0
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        print(
+            f"[Normalization] Promoting {count} Python routes to API Endpoints...",
+            file=sys.stderr,
+        )
+
+    # The "Forklift" Query
+    # Map python_routes fields to api_endpoints canonical schema
+    cursor.execute("""
+        INSERT INTO api_endpoints (
+            file,
+            method,
+            pattern,
+            path,
+            full_path,
+            has_auth,
+            handler_function
+        )
+        SELECT
+            file,
+            UPPER(COALESCE(method, 'GET')),
+            pattern,
+            pattern,
+            pattern,
+            has_auth,
+            handler_function
+        FROM python_routes
+        WHERE handler_function IS NOT NULL
+          AND pattern IS NOT NULL
+          AND (file, pattern, UPPER(COALESCE(method, 'GET'))) NOT IN (
+              SELECT file, pattern, method FROM api_endpoints
+          )
+    """)
+
+    promoted = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+    if os.environ.get("THEAUDITOR_DEBUG") or promoted > 0:
+        print(f"[Normalization] Successfully promoted {promoted} Python routes.", file=sys.stderr)
+
+    return promoted
+
+
+def run_normalization_pass(db_path: str) -> dict[str, int]:
+    """
+    Run all registered normalizers.
+
+    Returns dict with counts per normalizer for reporting.
+    """
+    results = {}
+
+    # Python routes -> api_endpoints
+    results["python_routes"] = normalize_python_routes(db_path)
+
+    return results

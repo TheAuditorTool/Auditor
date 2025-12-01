@@ -146,17 +146,31 @@ class TaintDiscovery:
             if extraction_source == "migration_file":
                 continue
 
+            # First, get the containing function for scope-aware lookup
+            cursor.execute(
+                """
+                SELECT name FROM symbols
+                WHERE path = ? AND type = 'function' AND line <= ?
+                ORDER BY line DESC
+                LIMIT 1
+            """,
+                (file_path, line_number),
+            )
+            func_row = cursor.fetchone()
+            containing_function = func_row["name"] if func_row else None
+
+            # Scope-based query: Find assignment in same function scope, before this line
             cursor.execute(
                 """
                 SELECT target_var, in_function
                 FROM assignments
                 WHERE file = ?
-                  AND line >= ? - 5
-                  AND line <= ?
+                  AND (in_function = ? OR (in_function IS NULL AND ? IS NULL))
+                  AND line < ?
                 ORDER BY line DESC
                 LIMIT 1
             """,
-                (file_path, line_number, line_number),
+                (file_path, containing_function, containing_function, line_number),
             )
 
             result_row = cursor.fetchone()
@@ -209,21 +223,34 @@ class TaintDiscovery:
 
                 file_path = call.get("file", "")
                 line_number = call.get("line", 0)
+                caller_function = call.get("caller_function")
 
-                cursor2.execute(
-                    """
-                    SELECT target_var, in_function
-                    FROM assignments
-                    WHERE file = ?
-                      AND line >= ? - 5
-                      AND line <= ?
-                    ORDER BY line DESC
-                    LIMIT 1
-                """,
-                    (file_path, line_number, line_number),
-                )
+                # Extract variable name from argument expression
+                # Handle cases like "sql", "query_string", or "sql, params"
+                target_variable = arg_expr.split(",")[0].strip() if arg_expr else None
 
-                result_row = cursor2.fetchone()
+                # Scope-based query: Match variable name AND function scope
+                if target_variable and not (
+                    target_variable.startswith('"') or target_variable.startswith("'")
+                ):
+                    cursor2.execute(
+                        """
+                        SELECT target_var, in_function
+                        FROM assignments
+                        WHERE file = ?
+                          AND target_var = ?
+                          AND (in_function = ? OR (in_function IS NULL AND ? IS NULL))
+                          AND line < ?
+                        ORDER BY line DESC
+                        LIMIT 1
+                    """,
+                        (file_path, target_variable, caller_function, caller_function, line_number),
+                    )
+                    result_row = cursor2.fetchone()
+                else:
+                    # Literal string argument - no variable lookup needed
+                    result_row = None
+
                 pattern = result_row["target_var"] if result_row else func_name
 
                 sinks.append(

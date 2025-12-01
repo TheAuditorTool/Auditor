@@ -20,6 +20,7 @@ from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
 from .js_build_guard import JavaScriptBuildGuard, get_js_project_path
+from .normalization import run_normalization_pass
 from .storage import DataStorer
 
 logger = logging.getLogger(__name__)
@@ -429,6 +430,18 @@ class IndexerOrchestrator:
             print("[INDEXER] PHASE 6.10: Resolving import paths...", file=sys.stderr)
         JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
         self.db_manager.commit()
+
+        # PHASE 7: Schema Normalization
+        # Bridge language-specific tables to canonical tables for Graph Builder
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 7: Running Schema Normalization...", file=sys.stderr)
+        normalization_results = run_normalization_pass(self.db_manager.db_path)
+        self.db_manager.commit()
+
+        if normalization_results.get("python_routes", 0) > 0:
+            print(
+                f"[Indexer] Normalization: {normalization_results['python_routes']} Python routes promoted to API endpoints",
+            )
 
         base_msg = (
             f"[Indexer] Indexed {self.counts['files']} files, "
