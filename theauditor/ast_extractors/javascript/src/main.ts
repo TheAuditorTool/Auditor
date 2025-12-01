@@ -268,7 +268,7 @@ function findNearestTsconfig(
 
   while (true) {
     const candidate = path.join(currentDir, "tsconfig.json");
-    if (ts.sys.fileExists(candidate)) {
+    if (fs.existsSync(candidate)) {
       return candidate;
     }
     if (
@@ -432,59 +432,66 @@ async function main(): Promise<void> {
         }
       }
 
+      let loadedConfigSuccessfully = false;
+
       if (configKey !== DEFAULT_KEY) {
-        const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
-        if (tsConfig.error) {
-          throw new Error(
-            `Failed to read tsconfig: ${ts.flattenDiagnosticMessageText(tsConfig.error.messageText, "\n")}`,
-          );
-        }
+        try {
+          const configFileContent = fs.readFileSync(configKey, "utf8");
 
-        const configDir = path.dirname(configKey);
-        const parsedConfig = ts.parseJsonConfigFileContent(
-          tsConfig.config,
-          ts.sys,
-          configDir,
-          {},
-          configKey,
-        );
-
-        if (parsedConfig.errors && parsedConfig.errors.length > 0) {
-          const errorMessages = parsedConfig.errors
-            .map((err) =>
-              ts.flattenDiagnosticMessageText(err.messageText, "\n"),
-            )
-            .join("; ");
-          throw new Error(`Failed to parse tsconfig: ${errorMessages}`);
-        }
-
-        compilerOptions = { ...parsedConfig.options };
-        compilerOptions.jsx = jsxEmitMode;
-
-        const hasJavaScriptFiles = groupedFiles.some((fileInfo) => {
-          const ext = path.extname(fileInfo.absolute).toLowerCase();
-          return (
-            ext === ".js" || ext === ".jsx" || ext === ".cjs" || ext === ".mjs"
-          );
-        });
-        if (hasJavaScriptFiles) {
-          compilerOptions.allowJs = true;
-          if (compilerOptions.checkJs === undefined) {
-            compilerOptions.checkJs = false;
+          const { config, error } = ts.parseConfigFileTextToJson(configKey, configFileContent);
+          if (error) {
+            throw new Error(typeof error.messageText === 'string' ? error.messageText : JSON.stringify(error.messageText));
           }
+
+          const parseConfigHost = {
+            useCaseSensitiveFileNames: ts.sys?.useCaseSensitiveFileNames ?? true,
+            readDirectory: ts.sys?.readDirectory ?? (() => []),
+            fileExists: fs.existsSync,
+            readFile: (f: string) => fs.readFileSync(f, "utf8"),
+          };
+
+          const parsedConfig = ts.parseJsonConfigFileContent(
+            config,
+            parseConfigHost,
+            path.dirname(configKey),
+            {},
+            configKey,
+          );
+
+          if (parsedConfig.errors && parsedConfig.errors.length > 0) {
+            const errorMessages = parsedConfig.errors
+              .map((err) =>
+                ts.flattenDiagnosticMessageText(err.messageText, "\n"),
+              )
+              .join("; ");
+            throw new Error(errorMessages);
+          }
+
+          compilerOptions = { ...parsedConfig.options };
+          compilerOptions.jsx = jsxEmitMode;
+
+          const hasJavaScriptFiles = groupedFiles.some((fileInfo) => {
+            const ext = path.extname(fileInfo.absolute).toLowerCase();
+            return (
+              ext === ".js" || ext === ".jsx" || ext === ".cjs" || ext === ".mjs"
+            );
+          });
+          if (hasJavaScriptFiles) {
+            compilerOptions.allowJs = true;
+            if (compilerOptions.checkJs === undefined) {
+              compilerOptions.checkJs = false;
+            }
+          }
+
+          loadedConfigSuccessfully = true;
+        } catch (err: any) {
+          console.error(
+            `[BATCH WARN] Failed to load tsconfig ${configKey}, falling back to defaults: ${err.message}`,
+          );
         }
+      }
 
-        const host =
-          vueContentMap.size > 0
-            ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
-            : undefined;
-
-        program = ts.createProgram(
-          groupedFiles.map((f) => f.absolute),
-          compilerOptions,
-          host,
-        );
-      } else {
+      if (configKey === DEFAULT_KEY || !loadedConfigSuccessfully) {
         compilerOptions = {
           target: ts.ScriptTarget.Latest,
           module: ts.ModuleKind.ESNext,
@@ -497,18 +504,18 @@ async function main(): Promise<void> {
           baseUrl: resolvedProjectRoot,
           rootDir: resolvedProjectRoot,
         };
-
-        const host =
-          vueContentMap.size > 0
-            ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
-            : undefined;
-
-        program = ts.createProgram(
-          groupedFiles.map((f) => f.absolute),
-          compilerOptions,
-          host,
-        );
       }
+
+      const host =
+        vueContentMap.size > 0
+          ? createVueAwareCompilerHost(ts, compilerOptions, vueContentMap)
+          : undefined;
+
+      program = ts.createProgram(
+        groupedFiles.map((f) => f.absolute),
+        compilerOptions,
+        host,
+      );
 
       console.error(
         `[BATCH DEBUG] Created program, rootNames=${program.getRootFileNames().length}`,
@@ -651,12 +658,14 @@ async function main(): Promise<void> {
             sourceFile,
             ts,
             scopeMap,
+            filePath,
           );
 
           const variableUsage = flow.extractVariableUsage(
             assignments,
             functionCallArgs,
             assignment_source_vars,
+            filePath,
           );
 
           const importStyleData = mod.extractImportStyles(
