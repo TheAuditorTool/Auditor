@@ -4,6 +4,7 @@ import sys
 from typing import Any
 
 from .base import sanitize_call_name
+from theauditor.utils.logging import logger
 
 PARAMETER_NAMES = frozenset(
     {
@@ -529,15 +530,13 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
         import os
 
         if os.getenv("THEAUDITOR_DEBUG"):
-            print(
-                f"[DEBUG] extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)"
-            )
+            logger.debug(f"extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)")
         return extracted_data["functions"]
 
     import os
 
     if os.getenv("THEAUDITOR_DEBUG"):
-        print("[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
+        logger.debug("extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
     ast_root = actual_tree.get("ast", {})
 
     if not ast_root:
@@ -681,14 +680,9 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
         if key not in seen:
             seen[key] = True
             deduped_functions.append(func)
-
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print(
-            f"[DEBUG] extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})",
-            file=sys.stderr,
-        )
-        for func in deduped_functions[:5]:
-            print(f"[DEBUG]   {func['name']} at line {func['line']}", file=sys.stderr)
+    logger.debug(f"extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})")
+    for func in deduped_functions[:5]:
+        print(f"[DEBUG]   {func['name']} at line {func['line']}", file=sys.stderr)
 
     return deduped_functions
 
@@ -816,15 +810,13 @@ def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
             import os
 
             if os.getenv("THEAUDITOR_DEBUG"):
-                print(
-                    f"[DEBUG] extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)"
-                )
+                logger.debug(f"extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)")
             return extracted_data["calls"]
 
         import os
 
         if os.getenv("THEAUDITOR_DEBUG"):
-            print("[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
+            logger.debug("extract_typescript_calls: Using FALLBACK AST traversal")
         ast_root = actual_tree.get("ast")
         if ast_root:
             calls = extract_semantic_ast_symbols(ast_root)

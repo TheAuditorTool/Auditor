@@ -7,6 +7,7 @@ from typing import Any
 from . import BaseExtractor
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
+from theauditor.utils.logging import logger
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
@@ -94,11 +95,10 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     extracted_data = actual_tree.get("extracted_data")
 
             if extracted_data and isinstance(extracted_data, dict):
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] {file_info['path']}: Using Phase 5 extracted_data")
-                    print(f"[DEBUG]   Functions: {len(extracted_data.get('functions', []))}")
-                    print(f"[DEBUG]   Classes: {len(extracted_data.get('classes', []))}")
-                    print(f"[DEBUG]   Calls: {len(extracted_data.get('calls', []))}")
+                logger.debug(f"{file_info['path']}: Using Phase 5 extracted_data")
+                logger.debug(f"Functions: {len(extracted_data.get('functions', []))}")
+                logger.debug(f"Classes: {len(extracted_data.get('classes', []))}")
+                logger.debug(f"Calls: {len(extracted_data.get('calls', []))}")
 
                 for key in [
                     "assignments",
@@ -389,28 +389,22 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             normalized_imports.append(imp)
 
         imports_data = normalized_imports
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] JS extractor for {file_info['path']}: tree_type = {tree_type}")
-            print(
-                f"[DEBUG] JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}"
-            )
-            print(
-                f"[DEBUG] JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}"
-            )
-            if isinstance(actual_tree, dict):
-                print(f"[DEBUG] JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
-                for key in list(actual_tree.keys())[:10]:
-                    val = actual_tree[key]
-                    if isinstance(val, list):
-                        print(f"[DEBUG]   {key}: list with {len(val)} items")
-                        if val and len(val) < 5:
-                            print(f"[DEBUG]     items: {val}")
-                    elif isinstance(val, dict):
-                        print(f"[DEBUG]   {key}: dict with keys {list(val.keys())[:5]}")
-                    else:
-                        print(f"[DEBUG]   {key}: {type(val).__name__}")
-            print(f"[DEBUG] JS extractor: imports_data = {imports_data}")
+        logger.debug(f"JS extractor for {file_info['path']}: tree_type = {tree_type}")
+        logger.debug(f"JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}")
+        logger.debug(f"JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}")
+        if isinstance(actual_tree, dict):
+            print(f"[DEBUG] JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
+            for key in list(actual_tree.keys())[:10]:
+                val = actual_tree[key]
+                if isinstance(val, list):
+                    print(f"[DEBUG]   {key}: list with {len(val)} items")
+                    if val and len(val) < 5:
+                        print(f"[DEBUG]     items: {val}")
+                elif isinstance(val, dict):
+                    print(f"[DEBUG]   {key}: dict with keys {list(val.keys())[:5]}")
+                else:
+                    print(f"[DEBUG]   {key}: {type(val).__name__}")
+        logger.debug(f"JS extractor: imports_data = {imports_data}")
 
         if imports_data:
             for imp in imports_data:
@@ -419,11 +413,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     kind = imp.get("source", imp.get("kind", "import"))
                     line = imp.get("line", 0)
                     result["imports"].append((kind, module, line))
-
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(
-                    f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']"
-                )
+            logger.debug(f"JS extractor: Converted {len(result['imports'])} imports to result['imports']")
 
             result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
 

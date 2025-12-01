@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import ROUTE_PATTERNS, SQL_PATTERNS
+from theauditor.utils.logging import logger
 
 
 class BaseExtractor(ABC):
@@ -115,8 +116,7 @@ class ExtractorRegistry:
                         break
 
             except (ImportError, AttributeError) as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Debug: Failed to load extractor {module_name}: {e}")
+                logger.debug(f"Debug: Failed to load extractor {module_name}: {e}")
                 continue
 
     def get_extractor(self, file_path: str, file_extension: str) -> BaseExtractor | None:

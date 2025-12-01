@@ -11,6 +11,7 @@ from typing import Any
 from theauditor.ast_parser import ASTParser
 from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RuleContext, RulesOrchestrator
+from theauditor.utils.logging import logger
 
 
 @dataclass
@@ -73,8 +74,7 @@ class UniversalPatternDetector:
         self.ast_parser = ASTParser()
 
         stats = self.orchestrator.get_rule_stats()
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DETECTOR] Orchestrator loaded {stats['total_rules']} rules")
+        logger.debug(f"[DETECTOR] Orchestrator loaded {stats['total_rules']} rules")
 
     def detect_patterns(
         self, categories: list[str] | None = None, file_filter: str | None = None
@@ -237,9 +237,9 @@ class UniversalPatternDetector:
                     ast_tree = ast_result
                     if os.environ.get("THEAUDITOR_DEBUG", "").lower() == "true":
                         ast_type = ast_result.get("type", "unknown")
-                        print(f"[DEBUG] Parsed {file_path} as {ast_type}")
+                        logger.debug(f"Parsed {file_path} as {ast_type}")
                 else:
-                    print(f"[WARNING] Failed to parse AST for {file_path}")
+                    logger.warning(f"Failed to parse AST for {file_path}")
 
                 context = RuleContext(
                     file_path=file_path,
@@ -270,8 +270,7 @@ class UniversalPatternDetector:
                     )
 
             except Exception as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Error processing {file_path}: {e}")
+                logger.debug(f"Error processing {file_path}: {e}")
 
             return local_findings
 
@@ -283,8 +282,7 @@ class UniversalPatternDetector:
                     file_findings = future.result()
                     self.findings.extend(file_findings)
                 except Exception as e:
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"Worker error: {e}")
+                    logger.debug(f"Worker error: {e}")
 
     def _process_regex_files(self, files: list[tuple], categories: list[str] = None):
         """Process non-AST files with regex patterns."""
@@ -331,8 +329,7 @@ class UniversalPatternDetector:
                             )
 
             except Exception as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Error processing {file_path}: {e}")
+                logger.debug(f"Error processing {file_path}: {e}")
 
     def _run_database_rules(self) -> list[Finding]:
         """Run database-level rules through orchestrator."""
@@ -359,8 +356,7 @@ class UniversalPatternDetector:
                 )
 
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"Database rules error: {e}")
+            logger.debug(f"Database rules error: {e}")
 
         return findings
 

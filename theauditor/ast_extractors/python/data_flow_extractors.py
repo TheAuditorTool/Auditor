@@ -224,15 +224,13 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(io_op)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(io_operations) != len(deduped):
-            print(
-                f"[AST_DEBUG] I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(io_operations) != len(deduped):
+        print(
+            f"[AST_DEBUG] I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -318,15 +316,13 @@ def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(pf)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(param_flows) != len(deduped):
-            print(
-                f"[AST_DEBUG] Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(param_flows) != len(deduped):
+        print(
+            f"[AST_DEBUG] Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -439,15 +435,13 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(closure)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(closures) != len(deduped):
-            print(
-                f"[AST_DEBUG] Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(closures) != len(deduped):
+        print(
+            f"[AST_DEBUG] Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -508,15 +502,13 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(nl)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(nonlocal_accesses) != len(deduped):
-            print(
-                f"[AST_DEBUG] Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(nonlocal_accesses) != len(deduped):
+        print(
+            f"[AST_DEBUG] Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -641,14 +633,12 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(call)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(conditional_calls) != len(deduped):
-            print(
-                f"[AST_DEBUG] Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(conditional_calls) != len(deduped):
+        print(
+            f"[AST_DEBUG] Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped

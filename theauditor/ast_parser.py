@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.js_semantic_parser import get_semantic_ast_batch
+from theauditor.utils.logging import logger
 
 
 @dataclass
@@ -40,7 +41,7 @@ class ASTParser:
             self.has_tree_sitter = True
             self._init_tree_sitter_parsers()
         except ImportError:
-            print("\n[WARNING] AST parsing dependencies not fully installed.")
+            logger.warning("\n AST parsing dependencies not fully installed.")
             print("  - Python analysis: ✓ Will work (uses built-in ast module)")
             print(
                 "  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)"
@@ -89,11 +90,9 @@ class ASTParser:
                 self.parsers["hcl"] = hcl_parser
                 self.languages["hcl"] = hcl_lang
             except Exception as e:
-                print(f"[INFO] HCL tree-sitter not available: {e}")
-                print(
-                    "[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
-                )
+                logger.info(f"HCL tree-sitter not available: {e}")
+                logger.info("[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
             try:
                 go_lang = get_language("go")
@@ -101,11 +100,9 @@ class ASTParser:
                 self.parsers["go"] = go_parser
                 self.languages["go"] = go_lang
             except Exception as e:
-                print(f"[INFO] Go tree-sitter not available: {e}")
-                print(
-                    "[INFO] Go analysis requires the tree-sitter Go grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
-                )
+                logger.info(f"Go tree-sitter not available: {e}")
+                logger.info("[INFO] Go analysis requires the tree-sitter Go grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
             try:
                 rust_lang = get_language("rust")
@@ -113,11 +110,9 @@ class ASTParser:
                 self.parsers["rust"] = rust_parser
                 self.languages["rust"] = rust_lang
             except Exception as e:
-                print(f"[INFO] Rust tree-sitter not available: {e}")
-                print(
-                    "[INFO] Rust analysis requires the tree-sitter Rust grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
-                )
+                logger.info(f"Rust tree-sitter not available: {e}")
+                logger.info("[INFO] Rust analysis requires the tree-sitter Rust grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
             try:
                 bash_lang = get_language("bash")
@@ -125,11 +120,9 @@ class ASTParser:
                 self.parsers["bash"] = bash_parser
                 self.languages["bash"] = bash_lang
             except Exception as e:
-                print(f"[INFO] Bash tree-sitter not available: {e}")
-                print(
-                    "[INFO] Bash analysis requires the tree-sitter Bash grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
-                )
+                logger.info(f"Bash tree-sitter not available: {e}")
+                logger.info("[INFO] Bash analysis requires the tree-sitter Bash grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
         except ImportError as e:
             print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
@@ -208,12 +201,8 @@ class ASTParser:
                         )
 
                     semantic_result = batch_results[normalized_path]
-
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
-                        print(
-                            f"[DEBUG] Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data"
-                        )
+                    cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
+                    logger.debug(f"Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data")
 
                 except Exception as e:
                     raise RuntimeError(
@@ -437,14 +426,10 @@ class ASTParser:
                     file_str = str(file_path).replace("\\", "/")
                     if file_str in batch_results:
                         semantic_result = batch_results[file_str]
-
-                        if os.environ.get("THEAUDITOR_DEBUG"):
-                            cfg_count = len(
-                                semantic_result.get("extracted_data", {}).get("cfg", [])
-                            )
-                            print(
-                                f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
-                            )
+                        cfg_count = len(
+                            semantic_result.get("extracted_data", {}).get("cfg", [])
+                        )
+                        logger.debug(f"Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data")
 
                         if semantic_result.get("success"):
                             try:

@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
 
@@ -85,7 +86,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             shutil.move(str(item), str(archive_dest))
             archived_count += 1
         except Exception as e:
-            print(f"[WARNING] Could not archive {item.name}: {e}", file=sys.stderr)
+            logger.warning(f"Could not archive {item.name}: {e}")
             skipped_count += 1
 
     if archived_count > 0:
@@ -118,4 +119,4 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
     except Exception as e:
-        print(f"[WARNING] Could not write metadata file: {e}", file=sys.stderr)
+        logger.warning(f"Could not write metadata file: {e}")

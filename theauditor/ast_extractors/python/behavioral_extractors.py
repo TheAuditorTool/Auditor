@@ -132,15 +132,13 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(rp)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(recursion_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Recursion patterns deduplication: {len(recursion_patterns)} -> {len(deduped)} ({len(recursion_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(recursion_patterns) != len(deduped):
+        print(
+            f"[AST_DEBUG] Recursion patterns deduplication: {len(recursion_patterns)} -> {len(deduped)} ({len(recursion_patterns) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -196,15 +194,13 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(y)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(yields) != len(deduped):
-            print(
-                f"[AST_DEBUG] Generator yields deduplication: {len(yields)} -> {len(deduped)} ({len(yields) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(yields) != len(deduped):
+        print(
+            f"[AST_DEBUG] Generator yields deduplication: {len(yields)} -> {len(deduped)} ({len(yields) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -305,15 +301,13 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(prop)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(properties) != len(deduped):
-            print(
-                f"[AST_DEBUG] Property patterns deduplication: {len(properties)} -> {len(deduped)} ({len(properties) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(properties) != len(deduped):
+        print(
+            f"[AST_DEBUG] Property patterns deduplication: {len(properties)} -> {len(deduped)} ({len(properties) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -383,14 +377,12 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(da)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(dynamic_attrs) != len(deduped):
-            print(
-                f"[AST_DEBUG] Dynamic attributes deduplication: {len(dynamic_attrs)} -> {len(deduped)} ({len(dynamic_attrs) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(dynamic_attrs) != len(deduped):
+        print(
+            f"[AST_DEBUG] Dynamic attributes deduplication: {len(dynamic_attrs)} -> {len(deduped)} ({len(dynamic_attrs) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped

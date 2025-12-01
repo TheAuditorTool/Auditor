@@ -4,6 +4,7 @@ from typing import Any
 
 from ...utils.logger import setup_logger
 from . import BaseExtractor
+from theauditor.utils.logging import logger
 
 logger = setup_logger(__name__)
 
@@ -38,12 +39,10 @@ class BashExtractor(BaseExtractor):
                 except Exception as e:
                     import os
                     import sys
+                    logger.debug(f"Bash extraction failed: {e}")
+                    import traceback
 
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[DEBUG] Bash extraction failed: {e}", file=sys.stderr)
-                        import traceback
-
-                        traceback.print_exc(file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
 
         return result
 

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import venv
 from pathlib import Path
+from theauditor.utils.logging import logger
 
 try:
     import tomllib
@@ -208,12 +209,12 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
             print(f"{check_mark} Venv already exists: {venv_path}")
             return venv_path
         else:
-            print(f"[WARN] Venv exists but is broken (missing {python_exe})")
-            print("[INFO] Removing broken venv and recreating...")
+            logger.warning(f"Venv exists but is broken (missing {python_exe})")
+            logger.info("Removing broken venv and recreating...")
             try:
                 shutil.rmtree(venv_path)
             except Exception as e:
-                print(f"[ERROR] Failed to remove broken venv: {e}")
+                logger.error(f"Failed to remove broken venv: {e}")
                 print(f"[TIP] Manually delete {venv_path} and retry")
                 raise RuntimeError(f"Cannot remove broken venv: {e}") from e
 
@@ -455,7 +456,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
         return updated_count
 
     except Exception as e:
-        print(f"    [WARN] Could not self-update package.json: {e}")
+        logger.warning(f"Could not self-update package.json: {e}")
         return 0
 
 
@@ -631,13 +632,11 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
 
             print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
         except urllib.error.URLError as e:
-            print(f"    [WARN] Network error downloading OSV-Scanner: {e}")
-            print(
-                "    [WARN] You can manually download from: https://github.com/google/osv-scanner/releases"
-            )
+            logger.warning(f"Network error downloading OSV-Scanner: {e}")
+            logger.warning("You can manually download from: https://github.com/google/osv-scanner/releases")
             return None
         except Exception as e:
-            print(f"    [WARN] Failed to install OSV-Scanner: {e}")
+            logger.warning(f"Failed to install OSV-Scanner: {e}")
             if binary_path.exists():
                 binary_path.unlink()
             return None
@@ -672,9 +671,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             if "npm" not in lockfiles:
                 pkg_json = target_dir / "package.json"
                 if pkg_json.exists():
-                    print(
-                        "    [INFO] package.json found but no package-lock.json (npm install not run) - skipping npm database"
-                    )
+                    logger.info("package.json found but no package-lock.json (npm install not run) - skipping npm database")
 
             python_lockfile_names = ["requirements.txt", "Pipfile.lock", "poetry.lock"]
             for name in python_lockfile_names:
@@ -821,7 +818,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
     try:
         venv_path = create_venv(target_dir, force)
     except RuntimeError as e:
-        print(f"[ERROR] Failed to create venv: {e}")
+        logger.error(f"Failed to create venv: {e}")
         return target_dir / ".auditor_venv", False
 
     success = install_theauditor_editable(venv_path)

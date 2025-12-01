@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from theauditor.utils.logging import logger
 
 try:
     import json5
@@ -108,10 +109,7 @@ class ModuleResolver:
                             normalized_targets.append(full_target)
 
                         mappings[normalized_alias] = normalized_targets
-                        if os.environ.get("THEAUDITOR_DEBUG"):
-                            print(
-                                f"[DEBUG]   {normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}"
-                            )
+                        logger.debug(f"{normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}")
 
                     self.path_mappings_by_context[context_dir] = mappings
 
@@ -120,18 +118,16 @@ class ModuleResolver:
                         self.base_url = base_url
 
                 except (json.JSONDecodeError, KeyError) as e:
-                    print(f"[WARNING] Failed to parse {path}: {e}")
+                    logger.warning(f"Failed to parse {path}: {e}")
 
         except sqlite3.OperationalError as e:
             error_msg = str(e)
             if "database is locked" in error_msg:
-                print(
-                    "[WARNING] Database locked (indexing in progress?), using empty path mappings"
-                )
+                logger.warning("Database locked (indexing in progress?), using empty path mappings")
             elif "no such table" in error_msg:
-                print("[WARNING] config_files table not found, using empty mappings")
+                logger.warning("config_files table not found, using empty mappings")
             else:
-                print(f"[WARNING] Failed to load config_files: {error_msg}")
+                logger.warning(f"Failed to load config_files: {error_msg}")
 
         finally:
             conn.close()
@@ -210,7 +206,7 @@ class ModuleResolver:
         mappings = self.path_mappings_by_context.get(context, {})
 
         if not mappings and os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] No mappings for context '{context}'")
+            logger.debug(f"No mappings for context '{context}'")
 
         for alias_prefix, target_patterns in mappings.items():
             if import_path.startswith(alias_prefix):
@@ -218,8 +214,7 @@ class ModuleResolver:
 
                 if target_patterns:
                     resolved = target_patterns[0] + suffix
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[DEBUG] Resolved: {import_path} -> {resolved} (context: {context})")
+                    logger.debug(f"Resolved: {import_path} -> {resolved} (context: {context})")
                     return resolved
 
         return import_path
@@ -247,7 +242,7 @@ class ModuleResolver:
                         if main_file.exists():
                             return str(main_file.relative_to(self.project_root)).replace("\\", "/")
                     except (json.JSONDecodeError, OSError) as e:
-                        print(f"[WARNING] Could not parse package.json from {package_json}: {e}")
+                        logger.warning(f"Could not parse package.json from {package_json}: {e}")
 
                 index_file = node_modules / "index.js"
                 if index_file.exists():

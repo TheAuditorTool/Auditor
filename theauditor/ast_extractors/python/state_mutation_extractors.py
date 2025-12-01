@@ -144,15 +144,13 @@ def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(mutations) != len(deduped):
-            print(
-                f"[AST_DEBUG] Instance mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(mutations) != len(deduped):
+        print(
+            f"[AST_DEBUG] Instance mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -202,15 +200,13 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(mutations) != len(deduped):
-            print(
-                f"[AST_DEBUG] Class mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(mutations) != len(deduped):
+        print(
+            f"[AST_DEBUG] Class mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -311,15 +307,13 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(mutations) != len(deduped):
-            print(
-                f"[AST_DEBUG] Global mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(mutations) != len(deduped):
+        print(
+            f"[AST_DEBUG] Global mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -457,15 +451,13 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(mutations) != len(deduped):
-            print(
-                f"[AST_DEBUG] Argument mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(mutations) != len(deduped):
+        print(
+            f"[AST_DEBUG] Argument mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped
 
@@ -560,14 +552,12 @@ def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
+    import sys
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(mutations) != len(deduped):
-            print(
-                f"[AST_DEBUG] Augmented assignments deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(mutations) != len(deduped):
+        print(
+            f"[AST_DEBUG] Augmented assignments deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
+            file=sys.stderr,
+        )
 
     return deduped

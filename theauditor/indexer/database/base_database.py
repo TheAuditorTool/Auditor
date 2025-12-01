@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE
 from ..schema import TABLES, get_table_schema
+from theauditor.utils.logging import logger
 
 
 def validate_table_name(table: str) -> str:
@@ -72,19 +73,16 @@ class BaseDatabaseManager:
         mismatches = validate_all_tables(cursor)
 
         if not mismatches:
-            print("[SCHEMA] All table schemas validated successfully", file=sys.stderr)
+            logger.debug("All table schemas validated successfully")
             return True
 
-        print("[SCHEMA] Schema validation warnings detected:", file=sys.stderr)
+        logger.debug("Schema validation warnings detected:")
         for table_name, errors in mismatches.items():
-            print(f"[SCHEMA]   Table: {table_name}", file=sys.stderr)
+            logger.debug(f"Table: {table_name}")
             for error in errors:
-                print(f"[SCHEMA]     - {error}", file=sys.stderr)
+                logger.debug(f"- {error}")
 
-        print(
-            "[SCHEMA] Note: Some mismatches may be due to migration columns (expected)",
-            file=sys.stderr,
-        )
+        logger.debug("Note: Some mismatches may be due to migration columns (expected)")
         return False
 
     def create_schema(self) -> None:
@@ -146,7 +144,7 @@ class BaseDatabaseManager:
         tuple_size = len(batch[0]) if batch else 0
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"[DEBUG] Flush: {table_name}", file=sys.stderr)
+            logger.debug(f"Flush: {table_name}")
             print(f"  all_cols count: {len(all_cols)}", file=sys.stderr)
             print(f"  all_cols names: {[col.name for col in all_cols]}", file=sys.stderr)
             print(f"  tuple_size from batch[0]: {tuple_size}", file=sys.stderr)
@@ -177,10 +175,10 @@ class BaseDatabaseManager:
         try:
             cursor.executemany(query, batch)
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-                print(f"[DEBUG] Flush: {table_name} SUCCESS", file=sys.stderr)
+                logger.debug(f"Flush: {table_name} SUCCESS")
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-                print(f"[DEBUG] Flush: {table_name} FAILED - {e}", file=sys.stderr)
+                logger.debug(f"Flush: {table_name} FAILED - {e}")
             raise
 
         self.generic_batches[table_name] = []
@@ -609,11 +607,11 @@ class BaseDatabaseManager:
             import sys
 
             if os.environ.get("THEAUDITOR_DEBUG") == "1":
-                print(f"\n[DEBUG] SQL Error: {type(e).__name__}: {e}", file=sys.stderr)
-                print("[DEBUG] Tables with pending batches:", file=sys.stderr)
+                logger.debug(f"\n SQL Error: {type(e).__name__}: {e}")
+                logger.debug("Tables with pending batches:")
                 for table_name, batch in self.generic_batches.items():
                     if batch:
-                        print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
+                        logger.debug(f"{table_name}: {len(batch)} records")
 
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e

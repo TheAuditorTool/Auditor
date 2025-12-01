@@ -8,6 +8,7 @@ from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python_impl import extract_all_python_data
 
 from . import BaseExtractor
+from theauditor.utils.logging import logger
 
 
 class PythonExtractor(BaseExtractor):
@@ -166,17 +167,12 @@ class PythonExtractor(BaseExtractor):
         actual_tree = tree.get("tree")
 
         import os
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
+        logger.debug(f"_extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}")
+        if isinstance(tree, dict) and "tree" in tree:
             print(
-                f"[DEBUG]   _extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}"
+                f"[DEBUG]   actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}"
             )
-            if isinstance(tree, dict) and "tree" in tree:
-                print(
-                    f"[DEBUG]   actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}"
-                )
 
         if not actual_tree or not isinstance(actual_tree, ast.Module):
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print("[DEBUG]   Returning empty - actual_tree check failed")
+            logger.debug("Returning empty - actual_tree check failed")
             return imports
