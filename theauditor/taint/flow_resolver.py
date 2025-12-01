@@ -796,22 +796,37 @@ class FlowResolver:
         if not self.registry:
             raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
 
+        def check_node_string(node_str: str) -> dict | None:
+            """Check a single node string (format: file::func::pattern) for sanitizers."""
+            parts = node_str.split("::")
+            hop_file = parts[0] if parts else None
+            func = parts[1] if len(parts) > 1 else ""
+
+            if hop_file and func:
+                lang = self._get_language_for_file(hop_file)
+                validation_patterns = self.registry.get_sanitizer_patterns(lang)
+                for pattern in validation_patterns:
+                    if pattern in func:
+                        return {"file": hop_file, "line": 0, "method": func}
+
+                if self._is_sanitizer(func):
+                    return {"file": hop_file, "line": 0, "method": func}
+            return None
+
         for node in path:
             if isinstance(node, str):
-                parts = node.split("::")
-                hop_file = parts[0] if parts else None
-                hop_line = 0
-                func = parts[1] if len(parts) > 1 else ""
-
-                if hop_file and func:
-                    lang = self._get_language_for_file(hop_file)
-                    validation_patterns = self.registry.get_sanitizer_patterns(lang)
-                    for pattern in validation_patterns:
-                        if pattern in func:
-                            return {"file": hop_file, "line": 0, "method": func}
-
-                    if self._is_sanitizer(func):
-                        return {"file": hop_file, "line": 0, "method": func}
+                # Legacy string format: "file::func::pattern"
+                result = check_node_string(node)
+                if result:
+                    return result
+            elif isinstance(node, dict):
+                # Dict format: {"from": "file::func::pattern", "to": "file::func::pattern", ...}
+                for key in ("from", "to"):
+                    node_str = node.get(key)
+                    if node_str and isinstance(node_str, str):
+                        result = check_node_string(node_str)
+                        if result:
+                            return result
 
         return None
 

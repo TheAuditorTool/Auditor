@@ -161,7 +161,18 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("assignment_source_vars", "INSERT"),
     ("return_source_vars", "INSERT"),
     ("import_specifiers", "INSERT"),
+    ("sequelize_models", "INSERT"),
     ("sequelize_model_fields", "INSERT"),
+    ("sequelize_associations", "INSERT"),
+    # Angular framework tables
+    ("angular_components", "INSERT"),
+    ("angular_modules", "INSERT"),
+    ("angular_services", "INSERT"),
+    ("angular_guards", "INSERT"),
+    # Planning tables
+    ("plan_jobs", "INSERT"),
+    ("plan_phases", "INSERT"),
+    # Framework metadata (must be last - populated by framework detector)
     ("frameworks", "INSERT OR IGNORE"),
     ("framework_safe_sinks", "INSERT OR IGNORE"),
     ("framework_taint_patterns", "INSERT OR IGNORE"),
