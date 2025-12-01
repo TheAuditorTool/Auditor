@@ -496,7 +496,11 @@ class BashExtractor:
         for child in node.children:
             if child.type == "`":
                 syntax = "backtick"
-            elif child.type == "command" or child.type == "pipeline" or child.type == "compound_statement":
+            elif (
+                child.type == "command"
+                or child.type == "pipeline"
+                or child.type == "compound_statement"
+            ):
                 command_text = self._node_text(child)
 
         subshell = {

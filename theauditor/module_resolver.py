@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+
 from theauditor.utils.logging import logger
 
 try:
@@ -39,7 +40,6 @@ class ModuleResolver:
         if not self.db_path.exists():
             return
 
-        import os
         import sqlite3
 
         conn = sqlite3.connect(str(self.db_path))
@@ -109,7 +109,9 @@ class ModuleResolver:
                             normalized_targets.append(full_target)
 
                         mappings[normalized_alias] = normalized_targets
-                        logger.debug(f"{normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}")
+                        logger.debug(
+                            f"{normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}"
+                        )
 
                     self.path_mappings_by_context[context_dir] = mappings
 

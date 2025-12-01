@@ -6,8 +6,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from ..config import ROUTE_PATTERNS, SQL_PATTERNS
 from theauditor.utils.logging import logger
+
+from ..config import ROUTE_PATTERNS, SQL_PATTERNS
 
 
 class BaseExtractor(ABC):

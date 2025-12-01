@@ -10,11 +10,10 @@ from pathlib import Path
 
 import click
 
+from theauditor.utils.logging import logger
+
 from .. import __version__
 from ..utils.error_handler import handle_exceptions
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
 
 
 @click.group()

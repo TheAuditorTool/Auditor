@@ -9,6 +9,8 @@ from typing import Any
 
 import click
 
+from theauditor.utils.logging import logger
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -73,7 +75,7 @@ class GoOrmStrategy(GraphStrategy):
                 "metadata": {"graph_type": "go_orm", "stats": stats},
             }
 
-        print(f"[GoOrmStrategy] Found {len(orm_models)} ORM models")
+        logger.info(f"Found {len(orm_models)} ORM models")
 
         with click.progressbar(
             orm_models.items(),

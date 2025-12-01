@@ -830,9 +830,7 @@ async def run_full_pipeline(
                             contextlib.redirect_stdout(stdout_capture),
                             contextlib.redirect_stderr(stderr_capture),
                         ):
-                            print(
-                                "[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]"
-                            )
+                            logger.info("Track A (Taint Analysis): Running: Taint analysis [0/1]")
 
                             memory_limit = get_recommended_memory_limit()
                             db_path = Path(root) / ".pf" / "repo_index.db"
@@ -856,7 +854,9 @@ async def run_full_pipeline(
                             all_findings.extend(discovery_findings)
 
                             stats = registry.get_stats()
-                            logger.info(f"Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources")
+                            logger.info(
+                                f"Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources"
+                            )
 
                             logger.info("Performing data-flow taint analysis...")
                             graph_db_path = Path(root) / ".pf" / "graphs.db"
@@ -875,7 +875,9 @@ async def run_full_pipeline(
                             if result.get("mode") == "complete":
                                 logger.info("COMPLETE MODE RESULTS:")
                                 logger.info(f"IFDS (backward): {len(taint_paths)} vulnerable paths")
-                                logger.info(f"FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows")
+                                logger.info(
+                                    f"FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
+                                )
                             else:
                                 logger.info(f"Found {len(taint_paths)} taint flow vulnerabilities")
 
@@ -898,7 +900,9 @@ async def run_full_pipeline(
                             all_findings.extend(advanced_findings)
                             logger.info(f"Found {len(advanced_findings)} advanced security issues")
 
-                            logger.info(f"Total vulnerabilities found: {len(all_findings) + len(taint_paths)}")
+                            logger.info(
+                                f"Total vulnerabilities found: {len(all_findings) + len(taint_paths)}"
+                            )
 
                             result["infrastructure_issues"] = infra_findings
                             result["discovery_findings"] = discovery_findings
@@ -955,13 +959,11 @@ async def run_full_pipeline(
                                         findings_dicts, tool_name="taint"
                                     )
                                     db_manager.close()
-                                    print(
-                                        f"[DB] Wrote {len(findings_dicts)} taint findings to database"
+                                    logger.info(
+                                        f"Wrote {len(findings_dicts)} taint findings to database"
                                     )
 
-                            print(
-                                "[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]"
-                            )
+                            logger.info("Track A (Taint Analysis): Completed: Taint analysis [1/1]")
 
                             output_lines = [
                                 "[OK] Taint analysis completed",

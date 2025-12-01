@@ -1,11 +1,12 @@
 """Centralized error handler for TheAuditor commands."""
 
-import traceback
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
 import click
+
+from theauditor.utils.logging import logger
 
 from .constants import ERROR_LOG_FILE, PF_DIR
 
@@ -28,7 +29,7 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
                 f.write(f"Error in command: {func.__name__}\n")
                 f.write("=" * 80 + "\n")
 
-                traceback.print_exc(file=f)
+                logger.exception("")
                 f.write("=" * 80 + "\n\n")
 
             error_type = type(e).__name__

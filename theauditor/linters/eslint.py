@@ -9,11 +9,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from theauditor.linters.base import BaseLinter, Finding, LINTER_TIMEOUT
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
-
+from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding
+from theauditor.utils.logging import logger
 
 # ESLint severity constants
 ESLINT_SEVERITY_ERROR = 2
@@ -150,7 +147,7 @@ class EslintLinter(BaseLinter):
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=LINTER_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"[{self.name}] Batch {batch_num} timed out")
             return []
         except Exception as e:
@@ -179,9 +176,7 @@ class EslintLinter(BaseLinter):
             file_path = file_result.get("filePath", "")
 
             for msg in file_result.get("messages", []):
-                severity = (
-                    "error" if msg.get("severity") == ESLINT_SEVERITY_ERROR else "warning"
-                )
+                severity = "error" if msg.get("severity") == ESLINT_SEVERITY_ERROR else "warning"
 
                 findings.append(
                     Finding(

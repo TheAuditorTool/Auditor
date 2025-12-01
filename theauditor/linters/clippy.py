@@ -8,10 +8,8 @@ and filter output to match requested files.
 import json
 import shutil
 
-from theauditor.linters.base import BaseLinter, Finding, LINTER_TIMEOUT
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding
+from theauditor.utils.logging import logger
 
 
 class ClippyLinter(BaseLinter):

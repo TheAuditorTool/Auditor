@@ -8,9 +8,7 @@ for cross-file type inference, so we pass all files in a single invocation
 import json
 
 from theauditor.linters.base import BaseLinter, Finding
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 class MypyLinter(BaseLinter):

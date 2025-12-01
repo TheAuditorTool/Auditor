@@ -8,6 +8,8 @@ from typing import Any
 
 import click
 
+from theauditor.utils.logging import logger
+
 from .strategies.bash_pipes import BashPipeStrategy
 from .strategies.go_http import GoHttpStrategy
 from .strategies.go_orm import GoOrmStrategy
@@ -400,7 +402,7 @@ class DFGBuilder:
             "skipped_no_match": 0,
         }
 
-        print("[DFG Builder] Loading backend API endpoints...")
+        logger.info("Loading backend API endpoints...")
         cursor.execute("""
             SELECT file, method, full_path, handler_function
             FROM api_endpoints
@@ -428,7 +430,7 @@ class DFGBuilder:
         for method in suffix_candidates:
             suffix_candidates[method].sort(key=lambda r: len(r["path"]), reverse=True)
 
-        print("[DFG Builder] Loading frontend API calls...")
+        logger.info("Loading frontend API calls...")
         cursor.execute("""
             SELECT file, line, method, url_literal, body_variable, function_name
             FROM frontend_api_calls
@@ -439,9 +441,7 @@ class DFGBuilder:
 
         frontend_calls = cursor.fetchall()
 
-        print(
-            f"[DFG Builder] Matching {len(frontend_calls)} frontend calls to backend endpoints..."
-        )
+        logger.info(f"Matching {len(frontend_calls)} frontend calls to backend endpoints...")
 
         with click.progressbar(
             frontend_calls,

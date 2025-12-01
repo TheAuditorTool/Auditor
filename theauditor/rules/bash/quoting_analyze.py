@@ -20,18 +20,35 @@ METADATA = RuleMetadata(
 )
 
 # Commands where unquoted variables are particularly dangerous
-DANGEROUS_COMMANDS = frozenset([
-    "rm", "mv", "cp", "chmod", "chown", "chgrp",
-    "mkdir", "rmdir", "touch", "cat", "grep",
-    "find", "xargs", "exec", "eval", "source",
-])
+DANGEROUS_COMMANDS = frozenset(
+    [
+        "rm",
+        "mv",
+        "cp",
+        "chmod",
+        "chown",
+        "chgrp",
+        "mkdir",
+        "rmdir",
+        "touch",
+        "cat",
+        "grep",
+        "find",
+        "xargs",
+        "exec",
+        "eval",
+        "source",
+    ]
+)
 
 # Safe contexts where unquoted is acceptable
-SAFE_CONTEXTS = frozenset([
-    "$((",  # Arithmetic expansion
-    "$((",
-    "[[",   # Modern test (handles some cases)
-])
+SAFE_CONTEXTS = frozenset(
+    [
+        "$((",  # Arithmetic expansion
+        "$((",
+        "[[",  # Modern test (handles some cases)
+    ]
+)
 
 
 class BashQuotingAnalyzer:

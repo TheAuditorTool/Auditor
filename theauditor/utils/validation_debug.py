@@ -2,7 +2,8 @@
 
 import json
 import os
-import sys
+
+from theauditor.utils.logging import logger
 
 VALIDATION_DEBUG = os.getenv("THEAUDITOR_VALIDATION_DEBUG", "0") == "1"
 
@@ -13,13 +14,13 @@ def log_validation(layer: str, message: str, data: dict = None):
         return
 
     prefix = f"[VALIDATION-{layer}]"
-    print(f"{prefix} {message}", file=sys.stderr)
+    logger.error(f"{prefix} {message}")
 
     if data:
         data_str = json.dumps(data, indent=2)
 
         for line in data_str.split("\n"):
-            print(f"{prefix}   {line}", file=sys.stderr)
+            logger.error(f"{prefix}   {line}")
 
 
 def is_validation_debug_enabled() -> bool:

@@ -1,6 +1,6 @@
 """Shared sanitizer detection utilities for taint analysis."""
 
-import sys
+from theauditor.utils.logging import logger
 
 
 class SanitizerRegistry:
@@ -36,13 +36,12 @@ class SanitizerRegistry:
                     self.safe_sinks.add(pattern)
 
             if self.debug:
-                print(
-                    f"[SanitizerRegistry] Loaded {len(self.safe_sinks)} safe sink patterns",
-                    file=sys.stderr,
+                logger.error(
+                    f"[SanitizerRegistry] Loaded {len(self.safe_sinks)} safe sink patterns"
                 )
         except Exception as e:
             if self.debug:
-                print(f"[SanitizerRegistry] Failed to load safe sinks: {e}", file=sys.stderr)
+                logger.error(f"[SanitizerRegistry] Failed to load safe sinks: {e}")
 
     def _load_validation_sanitizers(self):
         """Load validation framework sanitizers from database."""
@@ -68,16 +67,12 @@ class SanitizerRegistry:
                 self.validation_sanitizers.append(sanitizer)
 
             if self.debug:
-                print(
-                    f"[SanitizerRegistry] Loaded {len(self.validation_sanitizers)} validation sanitizers",
-                    file=sys.stderr,
+                logger.error(
+                    f"[SanitizerRegistry] Loaded {len(self.validation_sanitizers)} validation sanitizers"
                 )
         except Exception as e:
             if self.debug:
-                print(
-                    f"[SanitizerRegistry] Failed to load validation sanitizers: {e}",
-                    file=sys.stderr,
-                )
+                logger.error(f"[SanitizerRegistry] Failed to load validation sanitizers: {e}")
 
     def _preload_call_args(self):
         """Pre-load function_call_args into memory to eliminate DB queries in hot loop."""
@@ -95,13 +90,12 @@ class SanitizerRegistry:
                 self.call_args_cache[key].append(row["callee_function"])
 
             if self.debug:
-                print(
-                    f"[SanitizerRegistry] Pre-loaded {len(self.call_args_cache)} file:line locations with {sum(len(v) for v in self.call_args_cache.values())} function calls",
-                    file=sys.stderr,
+                logger.error(
+                    f"[SanitizerRegistry] Pre-loaded {len(self.call_args_cache)} file:line locations with {sum(len(v) for v in self.call_args_cache.values())} function calls"
                 )
         except Exception as e:
             if self.debug:
-                print(f"[SanitizerRegistry] Failed to preload call args: {e}", file=sys.stderr)
+                logger.error(f"[SanitizerRegistry] Failed to preload call args: {e}")
 
     def _is_sanitizer(self, function_name: str) -> bool:
         """Check if a function name matches any safe sink pattern."""
@@ -146,10 +140,7 @@ class SanitizerRegistry:
     def _path_goes_through_sanitizer(self, hop_chain: list[dict]) -> dict | None:
         """Check if a taint path goes through any sanitizer."""
         if self.debug:
-            print(
-                f"[SanitizerRegistry] Checking {len(hop_chain)} hops for sanitizers",
-                file=sys.stderr,
-            )
+            logger.error(f"[SanitizerRegistry] Checking {len(hop_chain)} hops for sanitizers")
 
         for i, hop in enumerate(hop_chain):
             if isinstance(hop, dict):
@@ -175,28 +166,26 @@ class SanitizerRegistry:
                     for pattern in validation_patterns:
                         if pattern in func:
                             if self.debug:
-                                print(
-                                    f"[SanitizerRegistry] Found validation pattern '{pattern}' in function '{func}'",
-                                    file=sys.stderr,
+                                logger.error(
+                                    f"[SanitizerRegistry] Found validation pattern '{pattern}' in function '{func}'"
                                 )
                             return {"file": hop_file, "line": 0, "method": func}
 
             if not hop_file:
                 if self.debug:
-                    print(f"[SanitizerRegistry] Hop {i + 1}: No file, skipping", file=sys.stderr)
+                    logger.error(f"[SanitizerRegistry] Hop {i + 1}: No file, skipping")
                 continue
 
             if self.debug:
-                print(f"[SanitizerRegistry] Hop {i + 1}: {hop_file}:{hop_line}", file=sys.stderr)
+                logger.error(f"[SanitizerRegistry] Hop {i + 1}: {hop_file}:{hop_line}")
 
             if node_str:
                 validation_patterns = self._get_validation_patterns(hop_file)
                 for pattern in validation_patterns:
                     if pattern in node_str:
                         if self.debug:
-                            print(
-                                f"[SanitizerRegistry] Found validation pattern '{pattern}' in node",
-                                file=sys.stderr,
+                            logger.error(
+                                f"[SanitizerRegistry] Found validation pattern '{pattern}' in node"
                             )
                         return {"file": hop_file, "line": hop_line, "method": pattern}
 
@@ -206,9 +195,8 @@ class SanitizerRegistry:
                         san["line"] - hop_line
                     ) <= 10:
                         if self.debug:
-                            print(
-                                f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}",
-                                file=sys.stderr,
+                            logger.error(
+                                f"[SanitizerRegistry] Found validation sanitizer at {hop_file}:{hop_line}"
                             )
                         return {
                             "file": hop_file,
@@ -220,20 +208,17 @@ class SanitizerRegistry:
                 callees = self.call_args_cache.get((hop_file, hop_line), [])
 
                 if self.debug and callees:
-                    print(
-                        f"[SanitizerRegistry] Found {len(callees)} function calls at {hop_file}:{hop_line}",
-                        file=sys.stderr,
+                    logger.error(
+                        f"[SanitizerRegistry] Found {len(callees)} function calls at {hop_file}:{hop_line}"
                     )
 
                 for callee in callees:
                     if self._is_sanitizer(callee):
                         if self.debug:
-                            print(
-                                f"[SanitizerRegistry] Found safe sink '{callee}'", file=sys.stderr
-                            )
+                            logger.error(f"[SanitizerRegistry] Found safe sink '{callee}'")
                         return {"file": hop_file, "line": hop_line, "method": callee}
 
         if self.debug:
-            print("[SanitizerRegistry] No sanitizers found in path", file=sys.stderr)
+            logger.error("[SanitizerRegistry] No sanitizers found in path")
 
         return None

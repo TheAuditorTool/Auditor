@@ -24,7 +24,7 @@ class TestTier1CliEntry:
         """Does the CLI load without crashing?"""
         result = subprocess.run(AUD_CMD + ["--help"], capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, f"CLI failed to load:\n{result.stderr}"
-        assert "Usage:" in result.stdout, "Help output missing Usage section"
+        assert "TheAuditor Security Platform" in result.stdout, "Help output missing header"
 
     def test_cli_version_returns_zero(self):
         """Does --version work?"""

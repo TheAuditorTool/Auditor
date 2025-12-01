@@ -8,6 +8,8 @@ from typing import Any
 
 import click
 
+from theauditor.utils.logging import logger
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -167,7 +169,7 @@ class NodeExpressStrategy(GraphStrategy):
             "failed_resolutions": 0,
         }
 
-        print("[NodeExpressStrategy] Pre-loading import_styles and symbols...")
+        logger.info("Pre-loading import_styles and symbols...")
 
         import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
         cursor.execute("SELECT file, package, alias_name FROM import_styles")

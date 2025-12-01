@@ -11,12 +11,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from theauditor.utils.logger import setup_logger
+from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
     from theauditor.utils.toolbox import Toolbox
-
-logger = setup_logger(__name__)
 
 
 LINTER_TIMEOUT = 300
@@ -169,7 +167,7 @@ class BaseLinter(ABC):
                 proc.communicate(),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             logger.error(f"[{self.name}] Command timed out after {timeout}s")

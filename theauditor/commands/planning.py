@@ -10,10 +10,6 @@ import click
 from theauditor.planning import snapshots, verification
 from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
-
 
 TRIGGER_START = "<!-- THEAUDITOR:START -->"
 TRIGGER_END = "<!-- THEAUDITOR:END -->"

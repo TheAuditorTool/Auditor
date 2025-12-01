@@ -30,7 +30,7 @@ from .helpers import (
     load_json_file,
     save_json_file,
 )
-from .logger import setup_logger
+from .logging import logger
 from .memory import get_available_memory, get_recommended_memory_limit
 from .temp_manager import TempManager, cleanup_project_temp, get_project_temp_dir
 
@@ -53,7 +53,7 @@ __all__ = [
     "count_lines_in_file",
     "extract_data_array",
     "get_self_exclusion_patterns",
-    "setup_logger",
+    "logger",
     "get_recommended_memory_limit",
     "get_available_memory",
     "TempManager",

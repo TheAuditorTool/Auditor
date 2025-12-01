@@ -6,9 +6,9 @@ from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python_impl import extract_all_python_data
+from theauditor.utils.logging import logger
 
 from . import BaseExtractor
-from theauditor.utils.logging import logger
 
 
 class PythonExtractor(BaseExtractor):
@@ -22,8 +22,6 @@ class PythonExtractor(BaseExtractor):
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
         """Extract all relevant information from a Python file."""
-
-        import sys
 
         if not hasattr(self.__class__, "_processed_files"):
             self.__class__._processed_files = set()
@@ -42,9 +40,7 @@ class PythonExtractor(BaseExtractor):
                     context = build_file_context(actual_tree, content, str(file_info["path"]))
 
                 except Exception:
-                    import traceback
-
-                    traceback.print_exc(file=sys.stderr)
+                    logger.exception("")
 
         if not context:
             return self._empty_result()
@@ -166,11 +162,12 @@ class PythonExtractor(BaseExtractor):
 
         actual_tree = tree.get("tree")
 
-        import os
-        logger.debug(f"_extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}")
+        logger.debug(
+            f"_extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}"
+        )
         if isinstance(tree, dict) and "tree" in tree:
-            print(
-                f"[DEBUG]   actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}"
+            logger.debug(
+                f"actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}"
             )
 
         if not actual_tree or not isinstance(actual_tree, ast.Module):

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import venv
 from pathlib import Path
+
 from theauditor.utils.logging import logger
 
 try:
@@ -215,7 +216,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
                 shutil.rmtree(venv_path)
             except Exception as e:
                 logger.error(f"Failed to remove broken venv: {e}")
-                print(f"[TIP] Manually delete {venv_path} and retry")
+                logger.info(f"Manually delete {venv_path} and retry")
                 raise RuntimeError(f"Cannot remove broken venv: {e}") from e
 
     print(f"Creating venv at {venv_path}...", flush=True)
@@ -633,7 +634,9 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
         except urllib.error.URLError as e:
             logger.warning(f"Network error downloading OSV-Scanner: {e}")
-            logger.warning("You can manually download from: https://github.com/google/osv-scanner/releases")
+            logger.warning(
+                "You can manually download from: https://github.com/google/osv-scanner/releases"
+            )
             return None
         except Exception as e:
             logger.warning(f"Failed to install OSV-Scanner: {e}")
@@ -671,7 +674,9 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             if "npm" not in lockfiles:
                 pkg_json = target_dir / "package.json"
                 if pkg_json.exists():
-                    logger.info("package.json found but no package-lock.json (npm install not run) - skipping npm database")
+                    logger.info(
+                        "package.json found but no package-lock.json (npm install not run) - skipping npm database"
+                    )
 
             python_lockfile_names = ["requirements.txt", "Pipfile.lock", "poetry.lock"]
             for name in python_lockfile_names:
@@ -1086,14 +1091,14 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
 
         def track_a_package_updates():
             """Track A: Update package.json with latest versions."""
-            print("  [Track A] Checking for latest tool versions...", flush=True)
+            logger.debug("Checking for latest tool versions...")
             _self_update_package_json(sandbox_package_json)
 
         def track_b_node_download():
             """Track B: ONLY download Node.js, nothing else."""
             nonlocal node_exe, node_error
             try:
-                print("  [Track B] Setting up portable Node.js runtime...", flush=True)
+                logger.debug("Setting up portable Node.js runtime...")
                 node_exe = download_portable_node(sandbox_dir)
             except Exception as e:
                 node_error = e

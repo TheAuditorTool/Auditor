@@ -16,14 +16,44 @@ import sqlite3
 from pathlib import Path
 
 # Rust standard library prelude types
-_STD_PRELUDE = frozenset({
-    "Option", "Some", "None", "Result", "Ok", "Err",
-    "Vec", "String", "Box", "Rc", "Arc", "Cell", "RefCell",
-    "Copy", "Clone", "Default", "Debug", "Display",
-    "Iterator", "IntoIterator", "From", "Into",
-    "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
-    "Send", "Sync", "Sized", "Drop", "Fn", "FnMut", "FnOnce",
-})
+_STD_PRELUDE = frozenset(
+    {
+        "Option",
+        "Some",
+        "None",
+        "Result",
+        "Ok",
+        "Err",
+        "Vec",
+        "String",
+        "Box",
+        "Rc",
+        "Arc",
+        "Cell",
+        "RefCell",
+        "Copy",
+        "Clone",
+        "Default",
+        "Debug",
+        "Display",
+        "Iterator",
+        "IntoIterator",
+        "From",
+        "Into",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+        "Send",
+        "Sync",
+        "Sized",
+        "Drop",
+        "Fn",
+        "FnMut",
+        "FnOnce",
+    }
+)
 
 _PRELUDE_PATHS = {
     "Vec": "std::vec::Vec",
@@ -37,11 +67,27 @@ _PRELUDE_PATHS = {
     "Result": "std::result::Result",
 }
 
-_PRIMITIVES = frozenset({
-    "i8", "i16", "i32", "i64", "i128", "isize",
-    "u8", "u16", "u32", "u64", "u128", "usize",
-    "f32", "f64", "bool", "char", "str",
-})
+_PRIMITIVES = frozenset(
+    {
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "isize",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "usize",
+        "f32",
+        "f64",
+        "bool",
+        "char",
+        "str",
+    }
+)
 
 
 class RustResolver:

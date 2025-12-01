@@ -187,9 +187,17 @@ class BashPipeStrategy(GraphStrategy):
             # Create subshell node
             if subshell_node_id not in nodes:
                 if syntax == "backtick":
-                    label = f"`{command_text[:30]}...`" if len(command_text) > 30 else f"`{command_text}`"
+                    label = (
+                        f"`{command_text[:30]}...`"
+                        if len(command_text) > 30
+                        else f"`{command_text}`"
+                    )
                 else:
-                    label = f"$({command_text[:30]}...)" if len(command_text) > 30 else f"$({command_text})"
+                    label = (
+                        f"$({command_text[:30]}...)"
+                        if len(command_text) > 30
+                        else f"$({command_text})"
+                    )
 
                 nodes[subshell_node_id] = DFGNode(
                     id=subshell_node_id,

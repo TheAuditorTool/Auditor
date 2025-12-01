@@ -1,10 +1,10 @@
 """TypeScript/JavaScript Structural AST Extraction Layer."""
 
-import sys
 from typing import Any
 
-from .base import sanitize_call_name
 from theauditor.utils.logging import logger
+
+from .base import sanitize_call_name
 
 PARAMETER_NAMES = frozenset(
     {
@@ -530,7 +530,9 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
         import os
 
         if os.getenv("THEAUDITOR_DEBUG"):
-            logger.debug(f"extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)")
+            logger.debug(
+                f"extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)"
+            )
         return extracted_data["functions"]
 
     import os
@@ -680,9 +682,11 @@ def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[di
         if key not in seen:
             seen[key] = True
             deduped_functions.append(func)
-    logger.debug(f"extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})")
+    logger.debug(
+        f"extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})"
+    )
     for func in deduped_functions[:5]:
-        print(f"[DEBUG]   {func['name']} at line {func['line']}", file=sys.stderr)
+        logger.debug(f"{func['name']} at line {func['line']}")
 
     return deduped_functions
 
@@ -810,7 +814,9 @@ def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
             import os
 
             if os.getenv("THEAUDITOR_DEBUG"):
-                logger.debug(f"extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)")
+                logger.debug(
+                    f"extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)"
+                )
             return extracted_data["calls"]
 
         import os

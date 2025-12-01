@@ -21,8 +21,9 @@ from graphql.language.ast import (
     UnionTypeDefinitionNode,
 )
 
-from . import BaseExtractor
 from theauditor.utils.logging import logger
+
+from . import BaseExtractor
 
 
 class GraphQLExtractor(BaseExtractor):
@@ -100,16 +101,14 @@ class GraphQLExtractor(BaseExtractor):
         }
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
-            import sys
-
             logger.debug(f"GraphQL Extractor Output for {file_path}:")
-            print(f"  Schemas: {len(graphql_schemas)}", file=sys.stderr)
-            print(f"  Types: {len(graphql_types)}", file=sys.stderr)
-            print(f"  Fields: {len(graphql_fields)}", file=sys.stderr)
-            print(f"  Args: {len(graphql_field_args)}", file=sys.stderr)
+            logger.error(f"  Schemas: {len(graphql_schemas)}")
+            logger.error(f"  Types: {len(graphql_types)}")
+            logger.error(f"  Fields: {len(graphql_fields)}")
+            logger.error(f"  Args: {len(graphql_field_args)}")
             if graphql_types:
-                print(f"  First type keys: {list(graphql_types[0].keys())}", file=sys.stderr)
-                print(f"  First type data: {graphql_types[0]}", file=sys.stderr)
+                logger.error(f"  First type keys: {list(graphql_types[0].keys())}")
+                logger.error(f"  First type data: {graphql_types[0]}")
 
         return result
 

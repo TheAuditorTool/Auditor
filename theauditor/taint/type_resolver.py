@@ -68,8 +68,16 @@ class TypeResolver:
             lower = file_path.lower()
             return any(
                 pattern in lower
-                for pattern in ["controller", "routes", "handlers", "views", "endpoints",
-                                "internal/api", "cmd/server", "pkg/api"]
+                for pattern in [
+                    "controller",
+                    "routes",
+                    "handlers",
+                    "views",
+                    "endpoints",
+                    "internal/api",
+                    "cmd/server",
+                    "pkg/api",
+                ]
             )
 
         if self._controller_files is None:

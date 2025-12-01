@@ -1,6 +1,5 @@
 """Indexer orchestration logic."""
 
-import logging
 import os
 import sys
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any
 
 from theauditor.ast_parser import ASTParser
 from theauditor.config_runtime import load_runtime_config
+from theauditor.utils.logging import logger
 
 from ..cache.ast_cache import ASTCache
 from .config import DEFAULT_BATCH_SIZE, JS_BATCH_SIZE, SUPPORTED_AST_EXTENSIONS
@@ -20,9 +20,6 @@ from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
 from .fidelity import reconcile_fidelity
 from .storage import DataStorer
-from theauditor.utils.logging import logger
-
-logger = logging.getLogger(__name__)
 
 
 class IndexerOrchestrator:
@@ -294,20 +291,19 @@ class IndexerOrchestrator:
                     built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
         if current_hash != built_hash:
-            print(
-                "[SCHEMA STALE] Schema files have changed but generated code is out of date!",
-                file=sys.stderr,
+            logger.error(
+                "[SCHEMA STALE] Schema files have changed but generated code is out of date!"
             )
-            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+            logger.error("[SCHEMA STALE] Regenerating code automatically...")
 
             try:
                 output_dir = Path(__file__).parent / "schemas"
                 SchemaCodeGenerator.write_generated_code(output_dir)
-                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
-                print("[SCHEMA FIX] Please re-run the indexing command", file=sys.stderr)
+                logger.error("[SCHEMA FIX] Generated code updated successfully")
+                logger.error("[SCHEMA FIX] Please re-run the indexing command")
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
-                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                logger.error(f"[SCHEMA ERROR] Failed to regenerate code: {e}")
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
         self.frameworks = self._detect_frameworks_inline()
@@ -386,6 +382,7 @@ class IndexerOrchestrator:
         self.db_manager.commit()
 
         from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+
         logger.debug("[INDEXER] PHASE 6: Resolving cross-file parameter names...")
         JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
         self.db_manager.commit()
@@ -509,7 +506,9 @@ class IndexerOrchestrator:
         jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            logger.info(f"Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
+            logger.info(
+                f"Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
+            )
 
             jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
@@ -546,7 +545,9 @@ class IndexerOrchestrator:
                         has_ast = tree["ast"] is not None
                     elif "tree" in tree and isinstance(tree["tree"], dict):
                         has_ast = tree["tree"].get("ast") is not None
-                logger.debug(f"JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
+                logger.debug(
+                    f"JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}"
+                )
 
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -559,7 +560,9 @@ class IndexerOrchestrator:
                     continue
 
                 if isinstance(tree, dict) and tree.get("success") is False:
-                    logger.info(f"JavaScript extraction FAILED for {file_path}: {tree.get('error')}")
+                    logger.info(
+                        f"JavaScript extraction FAILED for {file_path}: {tree.get('error')}"
+                    )
                     continue
 
                 try:
@@ -583,9 +586,11 @@ class IndexerOrchestrator:
             self.db_manager.flush_batch()
             self.db_manager.commit()
 
-            logger.info(f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
+            logger.info(
+                f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
                 f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
-                f"{jsx_counts['returns']} returns stored to _jsx tables")
+                f"{jsx_counts['returns']} returns stored to _jsx tables"
+            )
 
         self.db_manager.commit()
 
@@ -634,7 +639,7 @@ class IndexerOrchestrator:
             return
 
         if os.getenv("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG ORCHESTRATOR] _process_file called for: {file_info['path']}")
+            logger.debug(f"_process_file called for: {file_info['path']}")
 
         try:
             extracted = extractor.extract(file_info, content, tree)
@@ -644,7 +649,9 @@ class IndexerOrchestrator:
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             num_assignments = len(extracted.get("assignments", []))
-            logger.trace(f"_store_extracted_data() called for {file_info['path']}: {num_assignments} assignments")
+            logger.trace(
+                f"_store_extracted_data() called for {file_info['path']}: {num_assignments} assignments"
+            )
         self._store_extracted_data(file_info["path"], extracted)
 
     def _get_or_parse_ast(

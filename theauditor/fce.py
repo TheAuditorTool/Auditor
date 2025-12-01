@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.framework_detector import FrameworkDetector
-from theauditor.utils.temp_manager import TempManager
 from theauditor.utils.logging import logger
+from theauditor.utils.temp_manager import TempManager
 
 
 def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -349,9 +349,11 @@ def scan_all_findings(db_path: str) -> tuple[list[dict[str, Any]], dict[str, Any
 
     if all_findings:
         if dedupe_stats["duplicates_collapsed"] > 0:
-            logger.info("[FCE] Loaded "
+            logger.info(
+                "[FCE] Loaded "
                 f"{dedupe_stats['unique_rows']} unique findings from database "
-                f"(collapsed {dedupe_stats['duplicates_collapsed']} duplicates)")
+                f"(collapsed {dedupe_stats['duplicates_collapsed']} duplicates)"
+            )
         else:
             logger.info(f"Loaded {len(all_findings)} findings from database (database-first)")
     else:
@@ -1394,7 +1396,9 @@ def run_fce(
     results["correlations"]["total_workflow_taint_correlations"] = len(workflow_taint_correlations)
 
     if workflow_taint_correlations:
-        logger.info(f"Found {len(workflow_taint_correlations)} workflow + taint correlations (CRITICAL compound risks)")
+        logger.info(
+            f"Found {len(workflow_taint_correlations)} workflow + taint correlations (CRITICAL compound risks)"
+        )
 
     path_clusters = []
     from theauditor.graph.path_correlator import PathCorrelator
@@ -1428,7 +1432,9 @@ def run_fce(
 
             false_positives_removed = len(hotspot_findings - path_findings)
             if false_positives_removed > 0:
-                logger.info(f"Path correlation filtered {false_positives_removed} potential false positives")
+                logger.info(
+                    f"Path correlation filtered {false_positives_removed} potential false positives"
+                )
     else:
         logger.info("Skipping path correlation - database not found")
 
@@ -1443,7 +1449,9 @@ def run_fce(
                 if isinstance(original_severity, int):
                     pass
                 else:
-                    logger.info(f"Normalized severity: {original_severity} -> {finding['severity']}")
+                    logger.info(
+                        f"Normalized severity: {original_severity} -> {finding['severity']}"
+                    )
 
         results["all_findings"] = sort_findings(results["all_findings"])
 

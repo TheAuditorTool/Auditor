@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from theauditor.indexer.schema import build_query
+from theauditor.utils.logging import logger
 
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
@@ -333,7 +334,7 @@ class PythonOrmStrategy(GraphStrategy):
                 conn.close()
                 return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
         except Exception as e:
-            print(f"[PythonOrmStrategy] ORM Context init failed: {e}")
+            logger.info(f"ORM Context init failed: {e}")
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 
@@ -344,11 +345,11 @@ class PythonOrmStrategy(GraphStrategy):
             known_models = list(getattr(orm_context, "models", {}).keys())
 
         if not known_models:
-            print("[PythonOrmStrategy] No ORM models found, skipping")
+            logger.info("No ORM models found, skipping")
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 
-        print(f"[PythonOrmStrategy] Found {len(known_models)} ORM models: {known_models[:5]}...")
+        logger.info(f"Found {len(known_models)} ORM models: {known_models[:5]}...")
 
         model_patterns = set()
         for model in known_models:
@@ -369,9 +370,7 @@ class PythonOrmStrategy(GraphStrategy):
         )
 
         potential_models = cursor.fetchall()
-        print(
-            f"[PythonOrmStrategy] Found {len(potential_models)} potential ORM variable assignments"
-        )
+        logger.info(f"Found {len(potential_models)} potential ORM variable assignments")
 
         with click.progressbar(
             potential_models, label="Building Python ORM edges", show_pos=True

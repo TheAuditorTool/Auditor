@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from theauditor.utils.logging import logger
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -183,7 +185,7 @@ def validate_ml_schema():
     except ImportError:
         pass
     except AssertionError as e:
-        print(f"[ML] Schema validation warning: {e}")
+        logger.info(f"Schema validation warning: {e}")
         _SCHEMA_VALIDATED = True
 
 

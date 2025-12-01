@@ -1,14 +1,10 @@
 """State mutation extractors - Instance, class, global, argument mutations."""
 
 import ast
-import logging
-import os
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
-
-logger = logging.getLogger(__name__)
-
+from theauditor.utils.logging import logger
 
 MUTATION_METHODS = frozenset(
     {
@@ -144,12 +140,10 @@ def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
-    import sys
 
     if len(mutations) != len(deduped):
-        print(
-            f"[AST_DEBUG] Instance mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Instance mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -200,12 +194,10 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
-    import sys
 
     if len(mutations) != len(deduped):
-        print(
-            f"[AST_DEBUG] Class mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Class mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -307,12 +299,10 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
-    import sys
 
     if len(mutations) != len(deduped):
-        print(
-            f"[AST_DEBUG] Global mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Global mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -451,12 +441,10 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
-    import sys
 
     if len(mutations) != len(deduped):
-        print(
-            f"[AST_DEBUG] Argument mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Argument mutations deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)"
         )
 
     return deduped
@@ -552,12 +540,10 @@ def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             deduped.append(m)
-    import sys
 
     if len(mutations) != len(deduped):
-        print(
-            f"[AST_DEBUG] Augmented assignments deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)",
-            file=sys.stderr,
+        logger.debug(
+            f"Augmented assignments deduplication: {len(mutations)} -> {len(deduped)} ({len(mutations) - len(deduped)} duplicates removed)"
         )
 
     return deduped

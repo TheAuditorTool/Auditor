@@ -4,10 +4,11 @@ import os
 from datetime import datetime
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 from . import BaseExtractor
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
-from theauditor.utils.logging import logger
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
@@ -119,9 +120,7 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             "env_var_usage",
                             "orm_relationships",
                         ):
-                            print(
-                                f"[DEBUG EXTRACTOR] Mapped {len(extracted_data[key])} {key} for {file_info['path']}"
-                            )
+                            logger.debug(f"Mapped {len(extracted_data[key])} {key} for {file_info['path']}")
 
                 if "function_call_args" in extracted_data:
                     result["function_calls"] = extracted_data["function_call_args"]
@@ -390,20 +389,24 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
 
         imports_data = normalized_imports
         logger.debug(f"JS extractor for {file_info['path']}: tree_type = {tree_type}")
-        logger.debug(f"JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}")
-        logger.debug(f"JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}")
+        logger.debug(
+            f"JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}"
+        )
+        logger.debug(
+            f"JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}"
+        )
         if isinstance(actual_tree, dict):
-            print(f"[DEBUG] JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
+            logger.debug(f"JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
             for key in list(actual_tree.keys())[:10]:
                 val = actual_tree[key]
                 if isinstance(val, list):
-                    print(f"[DEBUG]   {key}: list with {len(val)} items")
+                    logger.debug(f"{key}: list with {len(val)} items")
                     if val and len(val) < 5:
-                        print(f"[DEBUG]     items: {val}")
+                        logger.debug(f"items: {val}")
                 elif isinstance(val, dict):
-                    print(f"[DEBUG]   {key}: dict with keys {list(val.keys())[:5]}")
+                    logger.debug(f"{key}: dict with keys {list(val.keys())[:5]}")
                 else:
-                    print(f"[DEBUG]   {key}: {type(val).__name__}")
+                    logger.debug(f"{key}: {type(val).__name__}")
         logger.debug(f"JS extractor: imports_data = {imports_data}")
 
         if imports_data:
@@ -413,7 +416,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                     kind = imp.get("source", imp.get("kind", "import"))
                     line = imp.get("line", 0)
                     result["imports"].append((kind, module, line))
-            logger.debug(f"JS extractor: Converted {len(result['imports'])} imports to result['imports']")
+            logger.debug(
+                f"JS extractor: Converted {len(result['imports'])} imports to result['imports']"
+            )
 
             result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
 

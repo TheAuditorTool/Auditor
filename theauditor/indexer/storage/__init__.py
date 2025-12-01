@@ -3,6 +3,8 @@
 import os
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 from .bash_storage import BashStorage
 from .core_storage import CoreStorage
 from .go_storage import GoStorage
@@ -10,7 +12,6 @@ from .infrastructure_storage import InfrastructureStorage
 from .node_storage import NodeStorage
 from .python_storage import PythonStorage
 from .rust_storage import RustStorage
-from theauditor.utils.logging import logger
 
 
 class DataStorer:

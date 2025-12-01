@@ -8,9 +8,7 @@ was previously missing from TheAuditor.
 import json
 
 from theauditor.linters.base import BaseLinter, Finding
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 class ShellcheckLinter(BaseLinter):

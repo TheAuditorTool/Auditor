@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 class MetadataCollector:
     """Collects temporal (churn) and quality (coverage) metadata as pure facts."""
@@ -119,16 +121,16 @@ class MetadataCollector:
                 db_manager = DatabaseManager(str(db_path))
                 db_manager.write_findings_batch(meta_findings, "churn-analysis")
                 db_manager.close()
-                print(f"[METADATA] Wrote {len(meta_findings)} churn findings to database")
+                logger.info(f"Wrote {len(meta_findings)} churn findings to database")
             except Exception as e:
-                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+                logger.info(f"Warning: Could not write findings to database: {e}")
 
         if output_path:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2)
-            print(f"[METADATA] Churn analysis saved to {output_path}")
+            logger.info(f"Churn analysis saved to {output_path}")
 
         return result
 
@@ -152,7 +154,7 @@ class MetadataCollector:
                 candidate_path = self.root_path / candidate
                 if candidate_path.exists():
                     coverage_file = str(candidate_path)
-                    print(f"[METADATA] Auto-detected coverage file: {candidate}")
+                    logger.info(f"Auto-detected coverage file: {candidate}")
                     break
 
         if not coverage_file:
@@ -270,16 +272,16 @@ class MetadataCollector:
                 db_manager = DatabaseManager(str(db_path))
                 db_manager.write_findings_batch(meta_findings, "coverage-analysis")
                 db_manager.close()
-                print(f"[METADATA] Wrote {len(meta_findings)} coverage findings to database")
+                logger.info(f"Wrote {len(meta_findings)} coverage findings to database")
             except Exception as e:
-                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+                logger.info(f"Warning: Could not write findings to database: {e}")
 
         if output_path:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2)
-            print(f"[METADATA] Coverage analysis saved to {output_path}")
+            logger.info(f"Coverage analysis saved to {output_path}")
 
         return result
 

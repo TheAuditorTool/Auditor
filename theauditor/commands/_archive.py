@@ -1,11 +1,11 @@
 """Internal archive command for segregating history by run type."""
 
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 
 import click
+
 from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
@@ -44,7 +44,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     history_dir = pf_dir / "history"
 
     if not pf_dir.exists() or not any(pf_dir.iterdir()):
-        print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)
+        logger.info("No previous run artifacts found to archive")
         return
 
     dest_base = history_dir / "full" if run_type == "full" else history_dir / "diff"
@@ -78,7 +78,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             continue
 
         if item.name in CACHE_DIRS and not wipe_cache:
-            print(f"[ARCHIVE] Preserving cache: {item.name}/", file=sys.stderr)
+            logger.info(f"Preserving cache: {item.name}/")
             preserved_count += 1
             continue
 

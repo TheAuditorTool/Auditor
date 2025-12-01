@@ -4,7 +4,6 @@ import json
 import platform
 import re
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from theauditor.security import (
     sanitize_url_component,
     validate_package_name,
 )
+from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -221,7 +221,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
                         deps.append(dep_obj)
 
             except json.JSONDecodeError as e:
-                print(f"WARNING: Corrupted JSON in database for {file_path}: {e}", file=sys.stderr)
+                logger.error(f"WARNING: Corrupted JSON in database for {file_path}: {e}")
                 continue
 
         conn.close()
@@ -1594,7 +1594,7 @@ def generate_grouped_report(
                 ghost_files_detected += 1
 
         if is_ghost:
-            print(f"\n{folder} {source_file} [TEST/FIXTURE]")
+            logger.info(f"\n{folder} {source_file}")
         else:
             print(f"\n{folder} {source_file}")
 

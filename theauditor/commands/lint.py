@@ -9,9 +9,7 @@ import click
 from theauditor.linters import LinterOrchestrator
 from theauditor.utils import load_json_file
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 def lint_command(

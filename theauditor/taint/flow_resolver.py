@@ -4,12 +4,9 @@ import json
 import sqlite3
 from collections import defaultdict
 
-from theauditor.utils.logger import setup_logger
+from theauditor.utils.logging import logger
 
 from .sanitizer_util import SanitizerRegistry
-
-logger = setup_logger(__name__)
-
 
 INFRASTRUCTURE_MAX_EFFORT = 5_000
 INFRASTRUCTURE_MAX_VISITS = 2
