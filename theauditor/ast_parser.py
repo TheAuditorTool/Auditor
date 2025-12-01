@@ -42,13 +42,13 @@ class ASTParser:
             self._init_tree_sitter_parsers()
         except ImportError:
             logger.warning("\n AST parsing dependencies not fully installed.")
-            print("  - Python analysis: ✓ Will work (uses built-in ast module)")
-            print(
+            logger.info("  - Python analysis: ✓ Will work (uses built-in ast module)")
+            logger.info(
                 "  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)"
             )
-            print("  - Terraform/HCL analysis: ✗ Limited functionality")
-            print("\nTo enable full analysis capabilities, run:")
-            print("  aud setup-ai --target .\n")
+            logger.info("  - Terraform/HCL analysis: ✗ Limited functionality")
+            logger.info("\nTo enable full analysis capabilities, run:")
+            logger.info("  aud setup-ai --target .\n")
 
     def _init_tree_sitter_parsers(self):
         """Initialize Tree-sitter language parsers with proper bindings."""
@@ -133,10 +133,12 @@ class ASTParser:
                 )
 
         except ImportError as e:
-            print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
-            print("This means tree-sitter AST analysis cannot work properly.")
-            print("Please install with: pip install tree-sitter-language-pack")
-            print("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
+            logger.info(
+                f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}"
+            )
+            logger.info("This means tree-sitter AST analysis cannot work properly.")
+            logger.info("Please install with: pip install tree-sitter-language-pack")
+            logger.info("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
 
             self.has_tree_sitter = False
 
@@ -268,7 +270,7 @@ class ASTParser:
             return None
 
         except Exception as e:
-            print(f"Warning: Failed to parse {file_path}: {e}")
+            logger.info(f"Warning: Failed to parse {file_path}: {e}")
             return None
 
     def _detect_language(self, file_path: Path) -> str:
@@ -456,7 +458,7 @@ class ASTParser:
                                     "symbols": semantic_result.get("symbols", []),
                                 }
                             except Exception as e:
-                                print(
+                                logger.info(
                                     f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing"
                                 )
 
@@ -465,7 +467,7 @@ class ASTParser:
                                 )
                                 results[str(file_path).replace("\\", "/")] = individual_result
                         else:
-                            print(
+                            logger.info(
                                 f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing"
                             )
 
@@ -474,7 +476,7 @@ class ASTParser:
                             )
                             results[str(file_path).replace("\\", "/")] = individual_result
                     else:
-                        print(
+                        logger.info(
                             f"Warning: No batch result for {file_path}, falling back to individual parsing"
                         )
                         individual_result = self.parse_file(
@@ -483,7 +485,7 @@ class ASTParser:
                         results[str(file_path).replace("\\", "/")] = individual_result
 
             except Exception as e:
-                print(f"Warning: Batch processing failed for JS/TS files: {e}")
+                logger.info(f"Warning: Batch processing failed for JS/TS files: {e}")
 
                 for file_path in js_ts_files:
                     results[str(file_path).replace("\\", "/")] = self.parse_file(

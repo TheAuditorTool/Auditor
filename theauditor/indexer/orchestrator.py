@@ -439,7 +439,7 @@ class IndexerOrchestrator:
         if annotation_summaries:
             base_msg += ", type annotations: " + ", ".join(annotation_summaries)
 
-        print(base_msg)
+        logger.info(base_msg)
 
         if self.counts.get("assignments", 0) > 0 or self.counts.get("function_calls", 0) > 0:
             flow_msg = "[Indexer] Data flow: "
@@ -454,13 +454,13 @@ class IndexerOrchestrator:
                 flow_parts.append(f"{self.counts['variable_usage']} variable usages")
             if self.counts.get("object_literals", 0) > 0:
                 flow_parts.append(f"{self.counts['object_literals']} object literal properties")
-            print(f"{flow_msg}{', '.join(flow_parts)}")
+            logger.info(f"{flow_msg}{', '.join(flow_parts)}")
 
         if self.counts.get("cfg_blocks", 0) > 0:
             cfg_msg = f"[Indexer] Control flow: {self.counts['cfg_blocks']} blocks, {self.counts['cfg_edges']} edges"
             if self.counts.get("cfg_statements", 0) > 0:
                 cfg_msg += f", {self.counts['cfg_statements']} statements"
-            print(cfg_msg)
+            logger.info(cfg_msg)
 
         if self.counts.get("orm", 0) > 0 or self.counts.get("sql_queries", 0) > 0:
             db_msg = "[Indexer] Database: "
@@ -469,7 +469,7 @@ class IndexerOrchestrator:
                 db_parts.append(f"{self.counts['orm']} ORM queries")
             if self.counts.get("sql_queries", 0) > 0:
                 db_parts.append(f"{self.counts['sql_queries']} SQL queries")
-            print(f"{db_msg}{', '.join(db_parts)}")
+            logger.info(f"{db_msg}{', '.join(db_parts)}")
 
         if (
             self.counts.get("compose", 0) > 0
@@ -484,7 +484,7 @@ class IndexerOrchestrator:
                 infra_parts.append(f"{self.counts['compose']} compose services")
             if self.counts.get("nginx", 0) > 0:
                 infra_parts.append(f"{self.counts['nginx']} nginx blocks")
-            print(f"{infra_msg}{', '.join(infra_parts)}")
+            logger.info(f"{infra_msg}{', '.join(infra_parts)}")
 
         if self.counts.get("frameworks", 0) > 0 or self.counts.get("package_configs", 0) > 0:
             config_msg = "[Indexer] Configuration: "
@@ -495,7 +495,7 @@ class IndexerOrchestrator:
                 config_parts.append(f"{self.counts['package_configs']} package configs")
             if self.counts.get("config_files", 0) > 0:
                 config_parts.append(f"{self.counts['config_files']} config files")
-            print(f"{config_msg}{', '.join(config_parts)}")
+            logger.info(f"{config_msg}{', '.join(config_parts)}")
 
         logger.info(f"Database updated: {self.db_manager.db_path}")
 

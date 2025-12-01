@@ -773,9 +773,9 @@ def run_fce(
         logger.info("Skipping npm build (set THEAUDITOR_FCE_RUN_BUILD=1 to enable)")
 
     if print_plan:
-        print("Detected tools:")
+        logger.info("Detected tools:")
         for tool in tools:
-            print(f"  - {tool['name']}: {tool['command']}")
+            logger.info(f"  - {tool['name']}: {tool['command']}")
         return {"success": True, "printed_plan": True}
 
     if not tools:
@@ -784,7 +784,7 @@ def run_fce(
     all_failures = []
 
     for tool in tools:
-        print(f"Running {tool['name']}...")
+        logger.info(f"Running {tool['name']}...")
         exit_code, stdout, stderr = run_tool(tool["command"], root_path, timeout)
 
         if exit_code != 0:
@@ -792,7 +792,7 @@ def run_fce(
             errors = parse_errors(output, tool["name"])
 
             if tool["name"] == "pytest" and exit_code == 2 and "ERROR collecting" in output:
-                print("Pytest collection failed. Falling back to Python compilation check...")
+                logger.info("Pytest collection failed. Falling back to Python compilation check...")
 
                 py_files = []
                 for py_file in Path(root_path).rglob("*.py"):
@@ -802,7 +802,7 @@ def run_fce(
                         py_files.append(str(py_file.relative_to(root_path)))
 
                 if py_files:
-                    print(f"Checking {len(py_files)} Python files for compilation errors...")
+                    logger.info(f"Checking {len(py_files)} Python files for compilation errors...")
                     compile_errors = []
 
                     for py_file in py_files[:50]:
@@ -839,7 +839,7 @@ def run_fce(
                                 )
 
                     if compile_errors:
-                        print(f"Found {len(compile_errors)} compilation errors")
+                        logger.info(f"Found {len(compile_errors)} compilation errors")
                         errors.extend(compile_errors)
 
             if not errors and exit_code != 0:
@@ -974,7 +974,7 @@ def run_fce(
         meta_findings.append(entry)
         meta_stats["added"] += 1
         if log_fn:
-            print(log_fn(entry))
+            logger.info(log_fn(entry))
         return True
 
     if hotspot_files and consolidated_findings:

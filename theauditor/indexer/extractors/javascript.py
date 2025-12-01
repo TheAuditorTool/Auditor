@@ -120,7 +120,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                             "env_var_usage",
                             "orm_relationships",
                         ):
-                            logger.debug(f"Mapped {len(extracted_data[key])} {key} for {file_info['path']}")
+                            logger.debug(
+                                f"Mapped {len(extracted_data[key])} {key} for {file_info['path']}"
+                            )
 
                 if "function_call_args" in extracted_data:
                     result["function_calls"] = extracted_data["function_call_args"]

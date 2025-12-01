@@ -604,16 +604,16 @@ class DFGBuilder:
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types."""
 
-        print("Building assignment flow graph...")
+        logger.info("Building assignment flow graph...")
         assignment_graph = self.build_assignment_flow_graph(root)
 
-        print("Building return flow graph...")
+        logger.info("Building return flow graph...")
         return_graph = self.build_return_flow_graph(root)
 
-        print("Building parameter binding edges...")
+        logger.info("Building parameter binding edges...")
         parameter_graph = self.build_parameter_binding_edges(root)
 
-        print("Building cross-boundary API edges...")
+        logger.info("Building cross-boundary API edges...")
         cross_boundary_graph = self.build_cross_boundary_edges(root)
 
         core_graphs = [assignment_graph, return_graph, parameter_graph, cross_boundary_graph]
@@ -622,13 +622,13 @@ class DFGBuilder:
         strategy_stats = {}
 
         for strategy in self.strategies:
-            print(f"Running strategy: {strategy.name}...")
+            logger.info(f"Running strategy: {strategy.name}...")
             try:
                 result = strategy.build(str(self.db_path), root)
                 strategy_graphs.append(result)
                 strategy_stats[strategy.name] = result.get("metadata", {}).get("stats", {})
             except Exception as e:
-                print(f"  WARNING: Strategy {strategy.name} failed: {e}")
+                logger.info(f"  WARNING: Strategy {strategy.name} failed: {e}")
                 strategy_stats[strategy.name] = {"error": str(e)}
 
         nodes = {}
@@ -650,7 +650,7 @@ class DFGBuilder:
             "total_edges": len(edges),
         }
 
-        print(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
+        logger.info(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
 
         return {
             "nodes": list(nodes.values()),

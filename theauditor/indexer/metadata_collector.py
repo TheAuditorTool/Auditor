@@ -294,9 +294,9 @@ def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == "churn":
         result = collector.collect_churn(output_path=".pf/raw/churn_analysis.json")
-        print(f"Analyzed {result.get('total_files_analyzed', 0)} files")
+        logger.info(f"Analyzed {result.get('total_files_analyzed', 0)} files")
         if result.get("files"):
-            print(
+            logger.info(
                 f"Most active file: {result['files'][0]['path']} "
                 f"({result['files'][0]['commits_90d']} commits)"
             )
@@ -307,15 +307,15 @@ def main():
             coverage_file=coverage_file, output_path=".pf/raw/coverage_analysis.json"
         )
         if result.get("files"):
-            print(f"Format: {result['format_detected']}")
-            print(f"Average coverage: {result['average_coverage']}%")
+            logger.info(f"Format: {result['format_detected']}")
+            logger.info(f"Average coverage: {result['average_coverage']}%")
             if result["files"]:
-                print(
+                logger.info(
                     f"Least covered: {result['files'][0]['path']} "
                     f"({result['files'][0]['line_coverage_percent']}%)"
                 )
     else:
-        print("Usage: python metadata_collector.py [churn|coverage] [coverage_file]")
+        logger.info("Usage: python metadata_collector.py [churn|coverage] [coverage_file]")
 
 
 if __name__ == "__main__":

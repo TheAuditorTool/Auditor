@@ -223,7 +223,9 @@ class JavaScriptResolversMixin:
                 var_to_class[key] = class_name
 
         if debug:
-            logger.debug(f"Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
+            logger.debug(
+                f"Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
+            )
 
         path_aliases = {}
 
@@ -463,7 +465,9 @@ class JavaScriptResolversMixin:
                     resolved_count += 1
 
                     if debug and resolved_count <= 5:
-                        logger.debug(f"{callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}")
+                        logger.debug(
+                            f"{callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}"
+                        )
                 else:
                     unresolved_count += 1
             else:

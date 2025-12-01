@@ -6,6 +6,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from theauditor.utils.logging import logger
+
 logger = logging.getLogger(__name__)
 
 
@@ -441,15 +443,15 @@ class GraphQLBuilder:
 
     def print_summary(self):
         """Print detailed summary statistics."""
-        print("\n=== GraphQL Build Summary ===")
-        print(f"Schemas loaded:      {self.stats['schemas_loaded']}")
-        print(f"Types loaded:        {self.stats['types_loaded']}")
-        print(f"Fields loaded:       {self.stats['fields_loaded']}")
-        print(f"Resolver candidates: {self.stats['resolvers_found']}")
-        print(f"Mappings created:    {self.stats['mappings_created']}")
-        print(f"Execution edges:     {self.stats['edges_created']}")
-        print(f"Coverage:            {self.get_coverage_percent():.1f}%")
-        print(f"Missing resolvers:   {self.stats['missing_resolvers']}")
+        logger.info("\n=== GraphQL Build Summary ===")
+        logger.info(f"Schemas loaded:      {self.stats['schemas_loaded']}")
+        logger.info(f"Types loaded:        {self.stats['types_loaded']}")
+        logger.info(f"Fields loaded:       {self.stats['fields_loaded']}")
+        logger.info(f"Resolver candidates: {self.stats['resolvers_found']}")
+        logger.info(f"Mappings created:    {self.stats['mappings_created']}")
+        logger.info(f"Execution edges:     {self.stats['edges_created']}")
+        logger.info(f"Coverage:            {self.get_coverage_percent():.1f}%")
+        logger.info(f"Missing resolvers:   {self.stats['missing_resolvers']}")
 
     def export_courier_artifacts(self, output_dir: Path) -> tuple[Path, Path]:
         """Export GraphQL data to courier-compliant JSON artifacts."""

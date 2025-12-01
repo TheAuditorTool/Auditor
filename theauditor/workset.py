@@ -12,6 +12,8 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -191,7 +193,7 @@ def get_reverse_deps(
             except (FileNotFoundError, OSError, ValueError) as e:
                 if src not in logged_paths:
                     logged_paths.add(src)
-                    print(f"Debug: Could not resolve import from {src}: {type(e).__name__}")
+                    logger.info(f"Debug: Could not resolve import from {src}: {type(e).__name__}")
                 continue
 
     return deps
@@ -342,7 +344,7 @@ def compute_workset(
     if print_stats:
         include_count = len(include_patterns) if include_patterns else 0
         exclude_count = len(exclude_patterns) if exclude_patterns else 0
-        print(
+        logger.info(
             f"seed={len(seed_files)} expanded={len(sorted_files)} depth={max_depth} include={include_count} exclude={exclude_count}"
         )
 

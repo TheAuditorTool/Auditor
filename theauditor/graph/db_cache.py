@@ -4,6 +4,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 class GraphDatabaseCache:
     """In-memory cache of database tables for graph building."""
@@ -240,7 +242,7 @@ class GraphDatabaseCache:
 
         conn.close()
 
-        print(
+        logger.info(
             f"[GraphCache] Loaded {len(self.known_files)} files, "
             f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
             f"{sum(len(v) for v in self.exports_by_file.values())} export records"

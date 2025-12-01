@@ -152,7 +152,9 @@ class CoreStorage(BaseStorage):
 
             if os.environ.get("THEAUDITOR_CDK_DEBUG") == "1":
                 logger.info(f"Generating construct_id: {construct_id}")
-                logger.info(f"file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}")
+                logger.info(
+                    f"file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}"
+                )
 
             self.db_manager.add_cdk_construct(
                 file_path=file_path,
@@ -664,7 +666,9 @@ class CoreStorage(BaseStorage):
         )
         for prop in class_properties:
             if os.environ.get("THEAUDITOR_DEBUG") and len(class_properties) > 0:
-                logger.debug(f"Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}")
+                logger.debug(
+                    f"Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}"
+                )
             self.db_manager.add_class_property(
                 file_path,
                 prop["line"],

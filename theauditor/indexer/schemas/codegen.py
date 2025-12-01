@@ -3,6 +3,8 @@
 import hashlib
 from pathlib import Path
 
+from theauditor.utils.logging import logger
+
 from ..schema import TABLES
 
 
@@ -333,7 +335,7 @@ class SchemaCodeGenerator:
         with open(validators_path, "w") as f:
             f.write(components["validators"])
 
-        print(f"Generated code written to {output_dir}")
+        logger.info(f"Generated code written to {output_dir}")
 
 
 def generate_complete_module() -> str:
