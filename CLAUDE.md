@@ -173,17 +173,17 @@ The JavaScript/TypeScript AST extractor is a compiled TypeScript bundle. If it's
 # Build the extractor bundle (required before first run or after TS changes)
 cd C:/Users/santa/Desktop/TheAuditor/theauditor/ast_extractors/javascript
 npm install    # First time only
-npm run build  # Produces dist/extractor.js (~10MB)
+npm run build  # Produces dist/extractor.cjs (~10MB)
 ```
 
 **If you see this error:**
 ```
-FileNotFoundError: Extractor bundle not found at .../dist/extractor.js
+FileNotFoundError: Extractor bundle not found at .../dist/extractor.cjs
 ```
 **Solution:** Run `npm run build` in the javascript directory.
 
 **Important:**
-- DO NOT edit `dist/extractor.js` directly - it's auto-generated
+- DO NOT edit `dist/extractor.cjs` directly - it's auto-generated
 - Source files are in `src/` directory (TypeScript)
 - After editing `src/*.ts`, run `npm run build` to regenerate bundle
 

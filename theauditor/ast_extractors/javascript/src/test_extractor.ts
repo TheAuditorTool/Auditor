@@ -1,7 +1,6 @@
 // src/test_extractor.ts
 // Comprehensive extractor test suite
-// Run with: npx ts-node src/test_extractor.ts
-// Or after build: node dist/test_extractor.cjs
+// Run with: npm test (uses tsx)
 
 import * as ts from "typescript";
 import { z } from "zod";
