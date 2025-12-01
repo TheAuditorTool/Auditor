@@ -553,7 +553,7 @@ class FlowResolver:
         if source_line == 0:
             repo_cursor.execute(
                 """
-                SELECT MIN(line) FROM func_params
+                SELECT MIN(function_line) FROM func_params
                 WHERE file = ? AND param_name = ?
             """,
                 (source_file, source_pattern.split(".")[0]),
