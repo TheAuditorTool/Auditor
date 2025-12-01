@@ -50,6 +50,35 @@ The linter orchestrator SHALL apply appropriate batching strategies per tool typ
 - **THEN** cargo clippy SHALL run on the entire crate
 - **AND** output SHALL be filtered to match requested file list
 
+#### Scenario: golangci-lint runs without batching
+- **WHEN** golangci-lint linter executes on Go files
+- **THEN** all Go files SHALL be processed in a single invocation
+- **AND** golangci-lint SHALL handle file discovery internally
+
+#### Scenario: shellcheck runs without batching
+- **WHEN** shellcheck linter executes on Bash files
+- **THEN** all .sh/.bash files SHALL be passed in a single invocation
+- **AND** shellcheck SHALL handle multiple files efficiently
+
+### Requirement: Go and Bash Linter Support
+The pipeline SHALL support linting for Go and Bash files when tools are available.
+
+#### Scenario: Go linting with golangci-lint
+- **WHEN** Go files exist in the project AND golangci-lint is available
+- **THEN** GolangciLinter SHALL execute golangci-lint with JSON output
+- **AND** findings SHALL be parsed into Finding objects
+
+#### Scenario: Bash linting with shellcheck
+- **WHEN** Bash files (.sh, .bash) exist in the project AND shellcheck is available
+- **THEN** ShellcheckLinter SHALL execute shellcheck with JSON output
+- **AND** findings SHALL be parsed into Finding objects
+
+#### Scenario: Optional tools graceful skip
+- **WHEN** golangci-lint or shellcheck is not installed
+- **THEN** the respective linter SHALL be silently skipped
+- **AND** no error SHALL be raised
+- **AND** other linters SHALL continue execution
+
 ### Requirement: Toolbox Path Resolution
 The pipeline SHALL use a centralized Toolbox class for all runtime path resolution.
 

@@ -107,6 +107,8 @@ class BaseLinter(ABC):
 | Mypy | No batching | Needs full project context for type inference across files |
 | ESLint | Dynamic batching | Node.js, Windows command line limit (8191 chars) |
 | Clippy | Crate-level | Cargo requirement - must run on whole crate, filter output |
+| golangci-lint | No batching | Go binary, internally parallelized, handles file discovery |
+| shellcheck | No batching | Haskell binary, efficient multi-file handling |
 
 **Current code locations to modify:**
 - Remove batching from `_run_ruff` (linters.py:235-238)
@@ -150,7 +152,37 @@ class LinterOrchestrator:
 - Easier testing - mock one class instead of patching everywhere
 - Eliminates 4 IS_WINDOWS checks in linters.py (lines 16, 117-118, 137)
 
-### Decision 5: Typed Finding dataclass
+### Decision 5: Add Go and Bash linters (scope expansion)
+
+**Choice:** Add `GolangciLinter` and `ShellcheckLinter` to complete language coverage
+
+**Rationale:** Go and Bash extractors exist (`theauditor/indexer/extractors/go.py`, `bash.py`) but linters were missing. Adding them during refactor ensures all indexed languages have lint coverage.
+
+**Implementation:**
+
+```python
+# theauditor/linters/golangci.py
+class GolangciLinter(BaseLinter):
+    async def run(self, files: list[str]) -> list[Finding]:
+        # golangci-lint run --out-format json ./...
+        # Parse: Issues[].Pos.Filename, Line, Column; FromLinter; Text
+```
+
+```python
+# theauditor/linters/shellcheck.py
+class ShellcheckLinter(BaseLinter):
+    async def run(self, files: list[str]) -> list[Finding]:
+        # shellcheck --format=json file1.sh file2.sh
+        # Parse: [].file, line, column, code, message, level
+```
+
+**Toolbox additions:**
+- `get_golangci_lint()` - Check sandbox, fallback to system PATH
+- `get_shellcheck()` - Check sandbox, fallback to system PATH
+
+Both tools are optional (not installed by `aud setup-ai`). If not found, linter is silently skipped.
+
+### Decision 6: Typed Finding dataclass
 
 **Choice:** Replace `dict[str, Any]` with strict dataclass (shown in Decision 2)
 
