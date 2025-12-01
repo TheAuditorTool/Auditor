@@ -309,38 +309,75 @@ def transform_string_content(value: str, is_error: bool = False) -> tuple[str, b
 
 class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
     """
-    Transform click.echo() calls to console.print() with Rich styling.
+    Transform click.echo() and click.secho() calls to console.print() with Rich styling.
 
     This codemod handles:
     - Basic click.echo("text") -> console.print("text")
+    - click.secho("text", fg="red") -> console.print("text", style="red")
     - Error output click.echo("text", err=True) -> console.print("[error]text[/error]")
     - Status prefixes [OK], [WARN], [ERROR] -> Rich tokens
     - Separator lines "=" * 60 -> console.rule()
     - Emoji removal for Windows CP1252 compatibility
     - Import management (add console, optionally remove click)
+
+    Style Stacking Behavior:
+        When encountering nested styles like `click.secho(click.style("Text", fg="red"), bold=True)`,
+        this codemod flattens all styles into a single style= argument. Rich handles duplicate
+        attributes gracefully (last wins for colors, attributes combine). This is safe but
+        may differ slightly from Click's layered style application.
+
+    Configuration:
+        Override CONSOLE_MODULE and CONSOLE_NAME class attributes to customize the import path.
+        Default: `from theauditor.pipeline.ui import console`
+
+    Important:
+        Ensure the target module (CONSOLE_MODULE) exists and exports a Console instance
+        before running this codemod on a large codebase.
+
+    Known Limitations:
+        1. Variable Shadowing: If a local variable or function parameter is named 'console'
+           in the target file, the added import will shadow it. This requires manual review.
+           The compile() check will catch syntax errors but not shadowing issues.
+
+        2. BinaryOperation: Explicit concatenation like "[ERROR] " + message detects the
+           semantic prefix but cannot transform the string content. Rich will attempt to
+           render [ERROR] as markup (unknown tags pass through safely).
+
+        3. click.style as Variable: When click.style() result is stored in a variable and
+           passed to click.echo(), the ANSI codes are preserved. Rich can render these,
+           but markup=False may affect other formatting.
     """
 
     DESCRIPTION = "Migrate click.echo() to console.print() with Rich tokens"
+
+    # Configurable import path for the console object
+    # Override these in a subclass to use a different module
+    CONSOLE_MODULE = "theauditor.pipeline.ui"
+    CONSOLE_NAME = "console"
 
     def __init__(self, context: CodemodContext) -> None:
         super().__init__(context)
         self.click_echo_count = 0
         self.transformations = 0
+        self.skipped_file_redirects = 0
+        self.binary_concat_warnings = 0
 
     def visit_Module(self, node: cst.Module) -> bool:
         """Reset counters for each module."""
         self.click_echo_count = 0
         self.transformations = 0
+        self.skipped_file_redirects = 0
+        self.binary_concat_warnings = 0
         return True
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         """Add console import and clean up click import if no longer used."""
         if self.transformations > 0:
-            # Add the console import
+            # Add the console import (uses configurable class constants)
             AddImportsVisitor.add_needed_import(
                 self.context,
-                "theauditor.pipeline.ui",
-                "console"
+                self.CONSOLE_MODULE,
+                self.CONSOLE_NAME
             )
             # Remove click import if it's no longer used after our transformations
             # RemoveImportsVisitor automatically checks for remaining usages
@@ -392,23 +429,50 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
     def _transform_simple_string(
         self, node: cst.SimpleString, is_error: bool = False
     ) -> cst.SimpleString:
-        """Transform a SimpleString with Rich tokens."""
-        value = node.value
-        quote_char = value[0]  # ' or "
+        """Transform a SimpleString with Rich tokens.
 
-        # Handle triple quotes
-        if value.startswith('"""') or value.startswith("'''"):
-            quote_char = value[:3]
-            inner = value[3:-3]
+        Handles raw strings (r"...") by escaping existing backslashes before
+        converting to a standard string. This preserves Windows paths and regex
+        patterns that might contain backslashes.
+        """
+        value = node.value
+
+        # Detect raw string prefix (r, R, combinations like rb, br, etc.)
+        is_raw = False
+        prefix = ""
+        for i, char in enumerate(value):
+            if char in ('"', "'"):
+                prefix = value[:i]
+                value_without_prefix = value[i:]
+                is_raw = 'r' in prefix.lower()
+                break
         else:
-            inner = value[1:-1]
+            # Fallback if no quote found (shouldn't happen)
+            value_without_prefix = value
+
+        # Determine quote style
+        if value_without_prefix.startswith('"""') or value_without_prefix.startswith("'''"):
+            quote_char = value_without_prefix[:3]
+            inner = value_without_prefix[3:-3]
+        else:
+            quote_char = value_without_prefix[0]
+            inner = value_without_prefix[1:-1]
+
+        # EDGE CASE FIX: Raw strings with backslashes
+        # In raw strings, backslashes are literal. When converting to standard string,
+        # we must escape them to preserve the original meaning.
+        # Example: r"C:\Users\[Name]" -> "C:\\Users\\[Name]" (before bracket escaping)
+        if is_raw:
+            # Escape existing backslashes (except those already part of escape sequences)
+            # This is conservative: we double all backslashes
+            inner = inner.replace("\\", "\\\\")
+            # Remove the 'r' from prefix since we're converting to standard string
+            prefix = prefix.replace('r', '').replace('R', '')
 
         transformed, _ = transform_string_content(inner, is_error)
 
-        if value.startswith('"""') or value.startswith("'''"):
-            return node.with_changes(value=f"{quote_char}{transformed}{quote_char}")
-        else:
-            return node.with_changes(value=f"{quote_char}{transformed}{quote_char}")
+        # Reconstruct without 'r' prefix (we've escaped backslashes)
+        return node.with_changes(value=f"{prefix}{quote_char}{transformed}{quote_char}")
 
     def _transform_formatted_string(
         self, node: cst.FormattedString, is_error: bool = False
@@ -591,6 +655,13 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                     # ABORT: file=open(...) or other streams
                     # console.print cannot print to arbitrary file handles
                     # without creating a new Console instance - skip this call
+                    self.skipped_file_redirects += 1
+                    print(
+                        f"[WARN] Skipping click.echo with custom file= argument "
+                        f"(console.print cannot write to arbitrary streams). "
+                        f"Manual migration required.",
+                        file=sys.stderr
+                    )
                     return updated_node
 
                 # Handle color=... (Click's way of forcing color on/off)
@@ -700,6 +771,7 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
         has_semantic_prefix = False
         is_pure_variable = False  # True if argument is just a variable/expression
         has_fstring_variables = False  # True if f-string contains {var} expressions
+        is_binary_concat = False  # True if using + for string concatenation
 
         if text_arg is not None:
             text_value = text_arg.value
@@ -751,6 +823,45 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                         return check_concat_for_fstring_vars(node.left) or check_concat_for_fstring_vars(node.right)
                     return False
                 has_fstring_variables = check_concat_for_fstring_vars(text_value)
+
+            elif isinstance(text_value, cst.BinaryOperation):
+                # EDGE CASE: Explicit string concatenation with +
+                # Example: click.echo("[ERROR] " + message)
+                # Check if the left side is a string literal with semantic prefix
+                # If so, we don't want to add markup=False (would disable our prefix styling)
+                # Note: We can't transform the BinaryOperation content, but Rich will
+                # attempt to render [ERROR] as markup. Unknown tags are passed through.
+                is_binary_concat = True  # Flag for special handling
+                left = text_value.left
+                found_prefix = False
+                if isinstance(left, cst.SimpleString):
+                    raw_text = left.value
+                    raw_text = raw_text.lstrip("rRuUbBfF")
+                    if raw_text.startswith('"""') or raw_text.startswith("'''"):
+                        raw_text = raw_text[3:-3]
+                    else:
+                        raw_text = raw_text[1:-1]
+                    raw_text = self._strip_leading_whitespace(raw_text)
+                    for prefix in PREFIX_PATTERNS:
+                        if raw_text.startswith(prefix):
+                            has_semantic_prefix = True
+                            found_prefix = True
+                            break
+                # If no semantic prefix found in BinaryOperation, treat as unsafe
+                # (the right side likely contains user data that could have brackets)
+                if not found_prefix:
+                    is_pure_variable = True
+                else:
+                    # WARNING: We found a semantic prefix but can't fully transform
+                    # BinaryOperation. Rich will see "[ERROR]" as-is (not our styled tag).
+                    # Unknown tags pass through safely, but won't be styled.
+                    self.binary_concat_warnings += 1
+                    print(
+                        f"[WARN] BinaryOperation with semantic prefix detected. "
+                        f"Cannot fully transform - Rich will render prefix as-is (unstyled). "
+                        f"Consider refactoring to f-string for proper styling.",
+                        file=sys.stderr
+                    )
 
             else:
                 # It's a variable or expression (e.g., click.echo(my_var))
@@ -804,18 +915,25 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
 
         # style="..." (from click.style attributes)
         # Only apply if no semantic prefix and not is_error (those provide styling)
+        # FIX: Check for existing 'style' kwarg to prevent SyntaxError from duplicate kwargs
+        existing_kwarg_names = {
+            arg.keyword.value for arg in other_args
+            if arg.keyword is not None
+        }
         if extracted_style_parts and not has_semantic_prefix and not is_error:
-            style_str = " ".join(extracted_style_parts)
-            extra_kwargs.append(
-                cst.Arg(
-                    keyword=cst.Name("style"),
-                    value=cst.SimpleString(f'"{style_str}"'),
-                    equal=cst.AssignEqual(
-                        whitespace_before=cst.SimpleWhitespace(""),
-                        whitespace_after=cst.SimpleWhitespace("")
+            if "style" not in existing_kwarg_names:
+                style_str = " ".join(extracted_style_parts)
+                extra_kwargs.append(
+                    cst.Arg(
+                        keyword=cst.Name("style"),
+                        value=cst.SimpleString(f'"{style_str}"'),
+                        equal=cst.AssignEqual(
+                            whitespace_before=cst.SimpleWhitespace(""),
+                            whitespace_after=cst.SimpleWhitespace("")
+                        )
                     )
                 )
-            )
+            # else: 'style' already exists in other_args, skip adding ours to prevent SyntaxError
 
         # CRITICAL FIX #5: markup=False for pure variables
         # Variables may contain brackets that Rich interprets as tags
@@ -863,6 +981,39 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
         )
 
 
+class NameConflictVisitor(cst.CSTVisitor):
+    """
+    Scan for existing uses of a variable name to detect potential shadowing.
+
+    Used to warn when 'console' is already defined in a file before we add
+    the import, which could cause AttributeError at runtime.
+    """
+
+    def __init__(self, target_name: str = "console"):
+        self.target_name = target_name
+        self.found = False
+        self.locations: list[str] = []  # Track where conflicts are found
+
+    def visit_Name(self, node: cst.Name) -> bool:
+        if node.value == self.target_name:
+            self.found = True
+        return True  # Continue visiting
+
+    def visit_Param(self, node: cst.Param) -> bool:
+        # Check function parameters: def foo(console): ...
+        if node.name.value == self.target_name:
+            self.found = True
+            self.locations.append("function parameter")
+        return True
+
+    def visit_AssignTarget(self, node: cst.AssignTarget) -> bool:
+        # Check assignments: console = ...
+        if isinstance(node.target, cst.Name) and node.target.value == self.target_name:
+            self.found = True
+            self.locations.append("variable assignment")
+        return True
+
+
 def transform_file(file_path: str, dry_run: bool = False) -> tuple[str, int]:
     """
     Transform a single file.
@@ -889,6 +1040,17 @@ def transform_file(file_path: str, dry_run: bool = False) -> tuple[str, int]:
 
     # Apply import changes registered in leave_Module
     if transformer.transformations > 0:
+        # SAFETY: Check for variable shadowing before adding import
+        conflict_check = NameConflictVisitor(transformer.CONSOLE_NAME)
+        module.walk(conflict_check)
+        if conflict_check.found:
+            locations = ", ".join(set(conflict_check.locations)) if conflict_check.locations else "unknown"
+            print(
+                f"[WARN] Variable '{transformer.CONSOLE_NAME}' already exists in {file_path} ({locations}). "
+                f"Import may cause shadowing - manual review recommended.",
+                file=sys.stderr
+            )
+
         # AddImportsVisitor.add_needed_import was called in leave_Module
         # Now apply the visitor to insert the actual import statement
         modified = AddImportsVisitor(context).transform_module(modified)
