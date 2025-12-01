@@ -26,15 +26,14 @@ class ClippyLinter(BaseLinter):
     async def run(self, files: list[str]) -> list[Finding]:
         """Run Clippy on Rust project.
 
-        Note: files parameter is accepted for interface consistency but
-        Clippy always runs on the entire crate. Output is NOT filtered
-        to requested files since cargo clippy analyzes the whole crate.
+        Clippy runs on the entire crate (cannot target individual files),
+        but output is filtered to match the requested files list.
 
         Args:
-            files: List of Rust file paths (used for logging only)
+            files: List of Rust file paths to filter output to
 
         Returns:
-            List of Finding objects from Clippy analysis
+            List of Finding objects from Clippy analysis (filtered to requested files)
         """
         # Check for Cargo.toml
         cargo_toml = self.root / "Cargo.toml"
@@ -62,7 +61,10 @@ class ClippyLinter(BaseLinter):
             logger.error(f"[{self.name}] Timed out")
             return []
 
-        findings = []
+        # Build set of requested files for O(1) filtering
+        requested_files = set(files) if files else set()
+
+        all_findings = []
         for line in stdout.splitlines():
             if not line.strip():
                 continue
@@ -78,9 +80,19 @@ class ClippyLinter(BaseLinter):
 
             finding = self._parse_clippy_message(msg)
             if finding:
-                findings.append(finding)
+                all_findings.append(finding)
 
-        logger.info(f"[{self.name}] Found {len(findings)} issues")
+        # Filter to requested files only
+        if requested_files:
+            findings = [f for f in all_findings if f.file in requested_files]
+            logger.info(
+                f"[{self.name}] Found {len(findings)} issues in requested files "
+                f"({len(all_findings)} total in crate)"
+            )
+        else:
+            findings = all_findings
+            logger.info(f"[{self.name}] Found {len(findings)} issues")
+
         return findings
 
     def _parse_clippy_message(self, msg: dict) -> Finding | None:
