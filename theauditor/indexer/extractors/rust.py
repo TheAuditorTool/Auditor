@@ -44,8 +44,11 @@ class RustExtractor(BaseExtractor):
             )
             return {}
 
+        from ...ast_extractors.base import check_tree_sitter_parse_quality
+
         ts_tree = tree["tree"]
         root = ts_tree.root_node
+        check_tree_sitter_parse_quality(root, file_path, logger)
 
         result = {
             "rust_modules": rust_core.extract_rust_modules(root, file_path),
