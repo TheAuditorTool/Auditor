@@ -3,6 +3,8 @@
 import json
 import os
 import sqlite3
+import sys
+import time
 from collections import defaultdict
 from functools import lru_cache
 
@@ -11,10 +13,11 @@ from theauditor.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-INFRASTRUCTURE_MAX_EFFORT = 5_000
-INFRASTRUCTURE_MAX_VISITS = 2
-USERCODE_MAX_EFFORT = 25_000
-USERCODE_MAX_VISITS = 10
+# UNCAGED PROTOCOL: Replaced arbitrary effort limits with time budgets.
+# Old limits (25k nodes, 20 depth) were training wheels for dirty data.
+# With sanitized graph (Phase 3), we can traverse deep chains efficiently.
+INFRASTRUCTURE_MAX_VISITS = 5    # Was 2 - allow more revisits for infra
+USERCODE_MAX_VISITS = 50         # Was 10 - handle recursion/loops better
 
 
 class FlowResolver:
@@ -33,9 +36,11 @@ class FlowResolver:
         self.repo_cursor = self.repo_conn.cursor()
         self.graph_conn = sqlite3.connect(graph_db)
         self.flows_resolved = 0
-        self.max_depth = 20
-        self.max_flows = 100_000
-        self.max_flows_per_entry = 1_000
+        # UNCAGED: Increased limits now that graph data is clean
+        self.max_depth = 100              # Was 20 - capture full framework lifecycles
+        self.max_flows = 10_000_000       # Was 100,000 - no arbitrary cap
+        self.max_flows_per_entry = 50_000 # Was 1,000 - allow deep exploration
+        self.time_budget_seconds = 30     # NEW: Wall clock limit replaces effort counting
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
         # Sanitizer data for path checking
@@ -68,16 +73,22 @@ class FlowResolver:
 
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
 
+        # UNCAGED: Time-based exit instead of arbitrary flow count
+        start_time = time.time()
+
         for _i, entry_id in enumerate(entry_nodes):
-            if self.flows_resolved >= self.max_flows:
-                logger.warning(f"Reached maximum flow limit ({self.max_flows})")
+            # Time budget check - stop if we've been running too long
+            elapsed = time.time() - start_time
+            if elapsed > self.time_budget_seconds:
+                logger.warning(f"Time budget ({self.time_budget_seconds}s) exceeded after {elapsed:.1f}s")
                 break
 
             self._trace_from_entry(entry_id, exit_nodes)
 
         self.repo_conn.commit()
 
-        logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved")
+        elapsed = time.time() - start_time
+        logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved in {elapsed:.1f}s")
         return self.flows_resolved
 
     def _get_language_for_file(self, file_path: str) -> str:
@@ -119,21 +130,22 @@ class FlowResolver:
 
     def _get_entry_nodes(self) -> list[str]:
         """
-        Get authoritative entry points from the Indexer's structural understanding.
+        Get entry points using a Hybrid Strategy:
+        1. Authoritative: Database tables (api_endpoints, middleware, env_vars).
+        2. Heuristic: Graph nodes that LOOK like entry points (Smart Search).
 
-        This uses database-driven lookups from canonical tables (api_endpoints,
-        express_middleware_chains, env_var_usage) instead of naive pattern matching
-        on variable names. This prevents State Space Explosion in monorepos.
+        This walks ALL roads, but filters out noise (node_modules, tests, mocks).
         """
         graph_cursor = self.graph_conn.cursor()
         repo_cursor = self.repo_conn.cursor()
         entry_nodes = set()
 
+        # --- 1. AUTHORITATIVE SOURCES (The "Highway Map") ---
+
         # Common web framework argument names to try for each handler
         web_args = ["req", "request", "args", "kwargs", "event", "context"]
 
-        # 1. Canonical API Endpoints (Python Flask/Django/FastAPI + normalized routes)
-        # These are authoritative - the Indexer confirmed they are real routes
+        # API Endpoints (Python Flask/Django/FastAPI + normalized routes)
         repo_cursor.execute("""
             SELECT file, handler_function
             FROM api_endpoints
@@ -141,12 +153,12 @@ class FlowResolver:
         """)
         for row in repo_cursor.fetchall():
             file, handler = row[0], row[1]
+            file = file.replace("\\", "/") if file else file  # Normalize path
             base_id = f"{file}::{handler}"
             for arg in web_args:
                 entry_nodes.add(f"{base_id}::{arg}")
 
-        # 2. Express Middleware Chains (Node.js)
-        # Only the FIRST handler in each chain is a true entry point
+        # Express Middleware Chains (First handlers only)
         repo_cursor.execute("""
             SELECT file, handler_function, handler_expr
             FROM express_middleware_chains
@@ -154,24 +166,25 @@ class FlowResolver:
         """)
         for row in repo_cursor.fetchall():
             file = row[0]
+            file = file.replace("\\", "/") if file else file  # Normalize path
             func = row[1] or row[2]
             if func:
                 base_id = f"{file}::{func}"
                 for arg in ["req", "req.body", "req.query", "req.params"]:
                     entry_nodes.add(f"{base_id}::{arg}")
 
-        # 3. Environment Variables (Configuration Injection Sources)
+        # Environment Variables (Configuration Injection Sources)
         repo_cursor.execute("""
             SELECT DISTINCT file, var_name, in_function
             FROM env_var_usage
         """)
         for row in repo_cursor.fetchall():
             file, var_name = row[0], row[1]
+            file = file.replace("\\", "/") if file else file  # Normalize path
             func = row[2] if row[2] else "global"
             entry_nodes.add(f"{file}::{func}::{var_name}")
 
-        # 4. Cross-Boundary Edges (Frontend -> Backend)
-        # These are GOLDEN - explicitly created by DFG Builder
+        # Cross-Boundary Edges (Frontend -> Backend)
         graph_cursor.execute("""
             SELECT DISTINCT target
             FROM edges
@@ -181,53 +194,66 @@ class FlowResolver:
         for (target,) in graph_cursor.fetchall():
             entry_nodes.add(target)
 
-        # 5. Validate existence in graph (filter out ghosts and node_modules)
-        # FIX #9: Exclude node_modules to prevent library traversal
-        validated_entries = []
-        for node_id in entry_nodes:
+        authoritative_count = len(entry_nodes)
+
+        # --- 2. SMART HEURISTICS (The "Dirt Roads") ---
+        # Catches what extractors missed, but filters out noise.
+
+        # Patterns that indicate entry points (request objects, event handlers)
+        heuristic_patterns = ["req", "request", "event", "context", "body", "payload"]
+
+        # Exclusions - the circuit breaker against noise
+        exclusions = [
+            "node_modules", ".test.", ".spec.", "__tests__", "test/",
+            "mock", "fixtures", ".d.ts", "__mocks__"
+        ]
+
+        # Query graph for nodes matching entry patterns
+        # Node ID format: file::function::variable
+        like_clauses = " OR ".join([f"id LIKE '%::{p}'" for p in heuristic_patterns])
+
+        graph_cursor.execute(f"""
+            SELECT id FROM nodes
+            WHERE graph_type = 'data_flow'
+              AND ({like_clauses})
+        """)
+
+        for (node_id,) in graph_cursor.fetchall():
+            # Filter 1: Noise Exclusion (Tests/Libs)
+            node_lower = node_id.lower()
+            if any(exc in node_lower for exc in exclusions):
+                continue
+
+            # Filter 2: Must be actual parameter, not just variable containing the word
+            # Node format: file::func::var - we want var to BE the pattern, not contain it
+            parts = node_id.split("::")
+            if len(parts) >= 3:
+                var_name = parts[-1]
+                # Only accept if variable name IS the pattern (not "my_request_helper")
+                if var_name in heuristic_patterns or var_name.split(".")[0] in heuristic_patterns:
+                    entry_nodes.add(node_id)
+
+        heuristic_count = len(entry_nodes) - authoritative_count
+
+        # --- 3. FINAL VALIDATION ---
+
+        # Validate all nodes exist in graph (filter ghosts)
+        validated = []
+        for node in entry_nodes:
             graph_cursor.execute(
                 """
                 SELECT 1 FROM nodes
-                WHERE graph_type = 'data_flow'
-                  AND id = ?
-                  AND id NOT LIKE '%node_modules%'
+                WHERE id = ? AND graph_type = 'data_flow'
                 LIMIT 1
             """,
-                (node_id,),
+                (node,),
             )
             if graph_cursor.fetchone():
-                validated_entries.append(node_id)
+                validated.append(node)
 
-        # 6. Adaptive Strict Mode - if still too many, filter to controller patterns
-        if len(validated_entries) > 300:
-            print(
-                f"[TAINT] High entry point count ({len(validated_entries)}). Enabling STRICT MODE.",
-                file=sys.stderr,
-            )
-            strict_keywords = [
-                "controller", "route", "api", "handler", "view",
-                "endpoint", "lambda", "function", "app", "server",
-            ]
-            strict_entries = []
-            for node in validated_entries:
-                file_part = node.split("::")[0].lower()
-                # Keep if file matches controller patterns
-                if any(kw in file_part for kw in strict_keywords):
-                    strict_entries.append(node)
-                    continue
-                # Keep env vars (they're always valid sources)
-                if "process.env" in node or "ENV_" in node.upper():
-                    strict_entries.append(node)
-                    continue
-            print(
-                f"[TAINT] Strict Mode reduced entries: {len(validated_entries)} -> {len(strict_entries)}",
-                file=sys.stderr,
-            )
-            validated_entries = strict_entries
-
-        # Filter out test/fixture files
+        # Final test/fixture filter on validated set
         filtered_entries = [
-            n for n in validated_entries
+            n for n in validated
             if not any(
                 x in n.lower()
                 for x in [".test.", ".spec.", "__tests__", "/test/", "/mock/", "/fixtures/"]
@@ -236,7 +262,8 @@ class FlowResolver:
 
         if self.debug:
             print(
-                f"[TAINT] High-Fidelity Entry Analysis: {len(filtered_entries)} confirmed roots",
+                f"[TAINT] Hybrid Entry Analysis: {len(filtered_entries)} roots "
+                f"(Authoritative: {authoritative_count}, Heuristic: {heuristic_count})",
                 file=sys.stderr,
             )
 
@@ -269,6 +296,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
+            file = file.replace("\\", "/") if file else file  # Normalize path
             if not func:
                 func = "global"
 
@@ -305,6 +333,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
+            file = file.replace("\\", "/") if file else file  # Normalize path
             if not func:
                 func = "global"
 
@@ -338,6 +367,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
+            file = file.replace("\\", "/") if file else file  # Normalize path
             if not func:
                 func = "global"
 
@@ -387,6 +417,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
+            file = file.replace("\\", "/") if file else file  # Normalize path
             if not func:
                 func = "global"
 
@@ -410,42 +441,36 @@ class FlowResolver:
         return exit_nodes
 
     def _trace_from_entry(self, entry_id: str, exit_nodes: set[str]) -> None:
-        """Trace all flows from a single entry point using DFS with Adaptive Throttling."""
+        """Trace all flows from a single entry point using DFS.
 
+        UNCAGED: Removed effort_counter limit. Time budget at resolve_all_flows level
+        handles runaway analysis. Visit counts still prevent infinite loops.
+        """
         parts = entry_id.split("::")
         file_path = parts[0].lower()
         var_name = parts[-1] if len(parts) > 0 else ""
 
+        # Adaptive visit limits: infrastructure nodes need fewer revisits
         is_infrastructure = (
             "config" in file_path
             or "env" in file_path
             or (var_name.isupper() and len(var_name) > 1)
             or "process.env" in var_name
         )
-
-        if is_infrastructure:
-            current_max_effort = INFRASTRUCTURE_MAX_EFFORT
-            current_max_visits = INFRASTRUCTURE_MAX_VISITS
-        else:
-            current_max_effort = USERCODE_MAX_EFFORT
-            current_max_visits = USERCODE_MAX_VISITS
+        current_max_visits = INFRASTRUCTURE_MAX_VISITS if is_infrastructure else USERCODE_MAX_VISITS
 
         worklist = [(entry_id, [entry_id])]
         visited_edges: set[tuple[str, str]] = set()
         node_visit_counts: dict[str, int] = defaultdict(int)
 
         flows_from_this_entry = 0
-        effort_counter = 0
+        # UNCAGED: Removed effort_counter - time budget handles this at higher level
 
         while (
             worklist
             and self.flows_resolved < self.max_flows
             and flows_from_this_entry < self.max_flows_per_entry
         ):
-            effort_counter += 1
-            if effort_counter > current_max_effort:
-                break
-
             current_id, path = worklist.pop()
 
             if len(path) > self.max_depth:
