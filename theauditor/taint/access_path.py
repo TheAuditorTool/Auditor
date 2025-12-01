@@ -13,6 +13,16 @@ class AccessPath:
     fields: tuple[str, ...]
     max_length: int = 10  # Increased from 5 to handle deep paths (config.a.b.c.d.e.f...)
 
+    def __post_init__(self):
+        """Normalize file path to Unix-style (forward slashes).
+
+        This ensures AccessPath('a\\b') == AccessPath('a/b').
+        Required for Windows/WSL environments where extractors may produce mixed paths.
+        """
+        if self.file and "\\" in self.file:
+            # frozen=True requires object.__setattr__ to mutate
+            object.__setattr__(self, "file", self.file.replace("\\", "/"))
+
     def __str__(self) -> str:
         """Human-readable representation."""
         if not self.fields:
@@ -30,7 +40,7 @@ class AccessPath:
         return f"{self.file}::{self.function}::{path_str}"
 
     @staticmethod
-    def parse(node_id: str, max_length: int = 5) -> AccessPath | None:
+    def parse(node_id: str, max_length: int = 10) -> AccessPath | None:
         """Parse graphs.db node ID into AccessPath."""
         if not node_id or "::" not in node_id:
             return None
@@ -44,9 +54,11 @@ class AccessPath:
             file, var_path = parts
             function = "global"
         else:
+            # BOUNDARY APPROACH: First = file, Last = variable, Middle = function
+            # Handles: file::Namespace::Class::Method::variable
             file = parts[0]
-            function = parts[1]
-            var_path = "::".join(parts[2:])
+            var_path = parts[-1]  # Last segment is always the variable
+            function = "::".join(parts[1:-1]) if len(parts) > 2 else ""
 
         if not var_path:
             return None

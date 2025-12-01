@@ -2,6 +2,7 @@
 
 import sqlite3
 import sys
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -34,8 +35,10 @@ class IFDSTaintAnalyzer:
 
         self.visited: set[tuple[str, str]] = set()
 
-        self.max_depth = 10
-        self.max_paths_per_sink = 100
+        # UNCAGED: Increased limits now that graph data is clean
+        self.max_depth = 100              # Was 10 - capture full call chains
+        self.max_paths_per_sink = 1000    # Was 100 - find more real paths
+        self.time_budget_seconds = 10     # NEW: Per-sink time budget
 
         import os
 
@@ -95,13 +98,14 @@ class IFDSTaintAnalyzer:
 
         worklist = deque([(sink_ap, 0, [], None)])
         visited_states: set[str] = set()
-        iteration = 0
+        # UNCAGED: Replaced iteration count with time budget
+        start_time = time.time()
 
         while worklist and (len(vulnerable_paths) + len(sanitized_paths)) < self.max_paths_per_sink:
-            iteration += 1
-            if iteration > 10000:
+            # Time budget check - stop if taking too long on this sink
+            if time.time() - start_time > self.time_budget_seconds:
                 if self.debug:
-                    print("[IFDS] Hit iteration limit", file=sys.stderr)
+                    print(f"[IFDS] Time budget ({self.time_budget_seconds}s) exceeded for sink", file=sys.stderr)
                 break
 
             current_ap, depth, hop_chain, matched_source = worklist.popleft()
@@ -251,6 +255,11 @@ class IFDSTaintAnalyzer:
             source_ap = AccessPath.parse(source_id)
             if source_ap:
                 predecessors.append((source_ap, edge_type, metadata))
+            elif self.debug:
+                print(
+                    f"[IFDS] WARNING: Dropped malformed node ID: '{source_id}' (parse failed)",
+                    file=sys.stderr,
+                )
 
         # Query 2: Forward edges traversed backwards (target = current, source = predecessor)
         # This catches edges where graph builder created forward but not reverse
@@ -285,6 +294,11 @@ class IFDSTaintAnalyzer:
                 # Avoid duplicates if same predecessor found via both queries
                 if not any(p[0].node_id == pred_ap.node_id for p in predecessors):
                     predecessors.append((pred_ap, edge_type, metadata))
+            elif self.debug:
+                print(
+                    f"[IFDS] WARNING: Dropped malformed node ID: '{pred_id}' (parse failed)",
+                    file=sys.stderr,
+                )
 
         # FIX #9: Exclude node_modules from call graph traversal too
         self.graph_cursor.execute(
@@ -320,8 +334,11 @@ class IFDSTaintAnalyzer:
                         f"[IFDS] Edge (Parse OK): {source_id} -> {ap.node_id} ({edge_type})",
                         file=sys.stderr,
                     )
-            else:
-                pass
+            elif self.debug:
+                print(
+                    f"[IFDS] WARNING: Dropped malformed node ID: '{source_id}' (parse failed)",
+                    file=sys.stderr,
+                )
 
         if not predecessors and self.debug:
             print(f"[IFDS] No predecessors for {ap.node_id} (termination point)", file=sys.stderr)
