@@ -96,21 +96,26 @@
 
 ## 5. Testing
 
-**BLOCKER**: Pre-existing bug in codebase - 29 files import from `theauditor.utils.logging` but file is `theauditor.utils.logger`. This breaks all imports and prevents testing. Requires separate fix.
-
-- [ ] 5.1 Test `BaseLinter._normalize_path()` with Windows and Unix paths
-- [ ] 5.2 Test individual linter output parsing with sample JSON fixtures
-- [ ] 5.3 Test async orchestrator runs linters in parallel (timing comparison)
-- [ ] 5.4 Test backward compatibility of `run_all_linters()` return format
+- [x] 5.1 Test `BaseLinter._normalize_path()` with Windows and Unix paths
+- [x] 5.2 Test individual linter output parsing with sample JSON fixtures
+- [x] 5.3 Test async orchestrator runs linters in parallel (timing comparison)
+- [x] 5.4 Test backward compatibility of `run_all_linters()` return format
 
 ## 6. Integration Verification
 
-**BLOCKED** by logging import bug above.
+- [x] 6.1 Run `aud full --offline` on TheAuditor itself
+- [x] 6.2 Verify `lint.json` output format unchanged (diff against baseline)
+- [x] 6.3 Verify database findings table populated correctly
+- [x] 6.4 Time comparison: sequential vs parallel on sample project
 
-- [ ] 6.1 Run `aud full --offline` on TheAuditor itself
-- [ ] 6.2 Verify `lint.json` output format unchanged (diff against baseline)
-- [ ] 6.3 Verify database findings table populated correctly
-- [ ] 6.4 Time comparison: sequential vs parallel on sample project
+## 7. Audit Remediation
+
+- [x] 7.1 Fix Clippy file filtering (audit finding)
+  - Task 2.4 spec said "filter output to requested files" but was not implemented
+  - Added `requested_files` set for O(1) lookup in `clippy.py:64-65`
+  - Added filtering logic in `clippy.py:85-96`
+  - Updated logging to show filtered vs total count
+  - Now matches spec: `aud lint src/main.rs` returns only findings for that file
 
 ## Code References
 
