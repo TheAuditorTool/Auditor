@@ -11,6 +11,8 @@ from typing import Any
 
 import click
 
+from theauditor.pipeline.ui import console
+
 SECURITY_SINKS = {
     "sql": ["execute", "query", "raw", "literal"],
     "command": ["exec", "system", "spawn", "popen"],
@@ -152,77 +154,90 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     raw_dir = pf_dir / "raw"
 
     if not raw_dir.exists():
-        click.echo("[ERROR] No raw audit data found. Run 'aud full' first.", err=True)
+        console.print("[error]No raw audit data found. Run 'aud full' first.[/error]", stderr=True)
         sys.exit(1)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    click.echo(f"\n{'=' * 60}")
-    click.echo(f"INSIGHTS ANALYSIS - {mode.upper()} Mode")
-    click.echo(f"{'=' * 60}")
-    click.echo(f"Output directory: {output_path}")
+    console.print(f"\n{'=' * 60}", highlight=False)
+    console.print(f"INSIGHTS ANALYSIS - {mode.upper()} Mode", highlight=False)
+    console.print(f"{'=' * 60}", highlight=False)
+    console.print(f"Output directory: {output_path}", highlight=False)
 
     results = {}
     errors = []
 
     if mode in ["ml", "all"]:
-        click.echo("\n[ML] Running machine learning insights...")
+        console.print("\n\\[ML] Running machine learning insights...")
         ml_result = run_ml_insights(ml_train, topk, output_path)
         results["ml"] = ml_result
         if ml_result.get("error"):
             errors.append(f"ML: {ml_result['error']}")
         else:
-            click.echo(f"  ✓ ML predictions saved to {output_path}/ml_suggestions.json")
+            console.print(
+                f"  \\[OK] ML predictions saved to {output_path}/ml_suggestions.json",
+                highlight=False,
+            )
 
     if mode in ["graph", "all"]:
-        click.echo("\n[GRAPH] Running graph health analysis...")
+        console.print("\n\\[GRAPH] Running graph health analysis...")
         graph_result = run_graph_insights(output_path)
         results["graph"] = graph_result
         if graph_result.get("error"):
             errors.append(f"Graph: {graph_result['error']}")
         else:
-            click.echo(f"  ✓ Graph health saved to {output_path}/graph_health.json")
+            console.print(
+                f"  \\[OK] Graph health saved to {output_path}/graph_health.json", highlight=False
+            )
 
     if mode in ["taint", "all"]:
-        click.echo("\n[TAINT] Running taint severity scoring...")
+        console.print("\n\\[TAINT] Running taint severity scoring...")
         taint_result = run_taint_insights(output_path)
         results["taint"] = taint_result
         if taint_result.get("error"):
             errors.append(f"Taint: {taint_result['error']}")
         else:
-            click.echo(f"  ✓ Taint severity saved to {output_path}/taint_severity.json")
+            console.print(
+                f"  \\[OK] Taint severity saved to {output_path}/taint_severity.json",
+                highlight=False,
+            )
 
     if mode in ["impact", "all"]:
-        click.echo("\n[IMPACT] Running impact analysis...")
+        console.print("\n\\[IMPACT] Running impact analysis...")
         impact_result = run_impact_insights(output_path)
         results["impact"] = impact_result
         if impact_result.get("error"):
             errors.append(f"Impact: {impact_result['error']}")
         else:
-            click.echo(f"  ✓ Impact analysis saved to {output_path}/impact_analysis.json")
+            console.print(
+                f"  \\[OK] Impact analysis saved to {output_path}/impact_analysis.json",
+                highlight=False,
+            )
 
-    click.echo("\n[AGGREGATE] Creating unified insights summary...")
+    console.print("\n\\[AGGREGATE] Creating unified insights summary...")
     summary = aggregate_insights(results, output_path)
 
     summary_path = output_path / "unified_insights.json"
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2, default=str)
-    click.echo(f"  ✓ Unified summary saved to {summary_path}")
+    console.print(f"  \\[OK] Unified summary saved to {summary_path}", highlight=False)
 
     if print_summary:
         print_insights_summary(summary)
 
-    click.echo(f"\n{'=' * 60}")
+    console.print(f"\n{'=' * 60}", highlight=False)
     if errors:
-        click.echo(f"[WARN] Insights completed with {len(errors)} errors:", err=True)
+        console.print(
+            f"[warning]Insights completed with {len(errors)} errors:[/warning]", stderr=True
+        )
         for error in errors:
-            click.echo(f"  • {error}", err=True)
+            console.print(f"[error]  • {error}[/error]", stderr=True, highlight=False)
     else:
-        click.echo("[OK] All insights generated successfully")
+        console.print("[success]All insights generated successfully[/success]")
 
-    click.echo("\n[TIP] Insights are interpretive and optional.")
-    click.echo("      Raw facts remain in .pf/raw/ unchanged.")
+    console.print("\n\\[TIP] Insights are interpretive and optional.")
+    console.print("      Raw facts remain in .pf/raw/ unchanged.")
 
     sys.exit(1 if errors else 0)
 
@@ -461,17 +476,21 @@ def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, A
 
 def print_insights_summary(summary: dict[str, Any]) -> None:
     """Print insights summary to console."""
-    click.echo(f"\n{'=' * 60}")
-    click.echo("INSIGHTS SUMMARY")
-    click.echo(f"{'=' * 60}")
+    console.print(f"\n{'=' * 60}", highlight=False)
+    console.print("INSIGHTS SUMMARY")
+    console.print(f"{'=' * 60}", highlight=False)
 
     if "ml" in summary:
         if summary["ml"]["status"] == "success":
-            click.echo("\n[ML] Machine Learning Insights:")
-            click.echo(f"  • Workset size: {summary['ml'].get('workset_size', 0)} files")
-            click.echo("  • Predictions: Generated successfully")
+            console.print("\n\\[ML] Machine Learning Insights:")
+            console.print(
+                f"  • Workset size: {summary['ml'].get('workset_size', 0)} files", highlight=False
+            )
+            console.print("  • Predictions: Generated successfully")
         else:
-            click.echo(f"\n[ML] Machine Learning Insights: {summary['ml'].get('error')}")
+            console.print(
+                f"\n\\[ML] Machine Learning Insights: {summary['ml'].get('error')}", highlight=False
+            )
 
     if "graph" in summary:
         if summary["graph"]["status"] == "success":
@@ -487,27 +506,35 @@ def print_insights_summary(summary: dict[str, Any]) -> None:
                 if health >= 60
                 else "F"
             )
-            click.echo("\n[GRAPH] Architecture Health:")
-            click.echo(f"  • Health score: {health}/100 (Grade: {grade})")
+            console.print("\n\\[GRAPH] Architecture Health:")
+            console.print(f"  • Health score: {health}/100 (Grade: {grade})", highlight=False)
         else:
-            click.echo(f"\n[GRAPH] Architecture Health: {summary['graph'].get('error')}")
+            console.print(
+                f"\n\\[GRAPH] Architecture Health: {summary['graph'].get('error')}", highlight=False
+            )
 
     if "taint" in summary:
         if summary["taint"]["status"] == "success":
             risk = summary["taint"].get("risk_level", "unknown")
-            click.echo("\n[TAINT] Security Risk:")
-            click.echo(f"  • Risk level: {risk.upper()}")
+            console.print("\n\\[TAINT] Security Risk:")
+            console.print(f"  • Risk level: {risk.upper()}", highlight=False)
         else:
-            click.echo(f"\n[TAINT] Security Risk: {summary['taint'].get('error')}")
+            console.print(
+                f"\n\\[TAINT] Security Risk: {summary['taint'].get('error')}", highlight=False
+            )
 
     if "impact" in summary:
         if summary["impact"]["status"] == "success":
-            click.echo("\n[IMPACT] Change Impact:")
-            click.echo(f"  • Files analyzed: {summary['impact'].get('files_analyzed', 0)}")
+            console.print("\n\\[IMPACT] Change Impact:")
+            console.print(
+                f"  • Files analyzed: {summary['impact'].get('files_analyzed', 0)}", highlight=False
+            )
         else:
-            click.echo(f"\n[IMPACT] Change Impact: {summary['impact'].get('error')}")
+            console.print(
+                f"\n\\[IMPACT] Change Impact: {summary['impact'].get('error')}", highlight=False
+            )
 
-    click.echo(f"\n{'=' * 60}")
+    console.print(f"\n{'=' * 60}", highlight=False)
 
 
 insights_command = insights

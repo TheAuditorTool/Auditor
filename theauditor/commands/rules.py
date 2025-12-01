@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 import yaml
 
+from theauditor.pipeline.ui import console
 from theauditor.utils import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -114,11 +115,8 @@ def rules_command(summary: bool) -> None:
     It only generates a capability inventory from pattern definitions.
     """
     if not summary:
-        click.echo(
-            click.style(
-                "[ERROR] Please specify --summary to generate a capability report", fg="red"
-            ),
-            err=True,
+        console.print(
+            "[error]Please specify --summary to generate a capability report[/error]", stderr=True
         )
         raise SystemExit(ExitCodes.TASK_INCOMPLETE)
 
@@ -185,8 +183,8 @@ def rules_command(summary: bool) -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(output_lines))
 
-    click.echo(click.style("\n[SUCCESS] Capability report generated successfully", fg="green"))
-    click.echo(f"[INFO] Report saved to: {output_file}")
+    console.print("\n[success]Capability report generated successfully[/success]")
+    console.print(f"[info]Report saved to: {output_file}[/info]")
     raise SystemExit(ExitCodes.SUCCESS)
 
 

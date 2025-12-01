@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
@@ -152,38 +153,47 @@ def detect_patterns(
                 db_manager.write_findings_batch(findings_dicts, tool_name="patterns")
                 db_manager.close()
 
-                click.echo(f"[DB] Wrote {len(findings)} findings to database for FCE correlation")
+                console.print(
+                    f"\\[DB] Wrote {len(findings)} findings to database for FCE correlation",
+                    highlight=False,
+                )
             except Exception as e:
-                click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
-                click.echo("[DB] JSON output will still be generated for AI consumption")
+                console.print(
+                    f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
+                console.print("\\[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo("[DB] Database not found - run 'aud full' first for optimal FCE performance")
+            console.print(
+                "\\[DB] Database not found - run 'aud full' first for optimal FCE performance"
+            )
 
         output_path = (
             Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
         )
         detector.to_json(output_path)
-        click.echo(f"[OK] Patterns analysis saved to {output_path}")
+        console.print(f"[success]Patterns analysis saved to {output_path}[/success]")
 
         table = detector.format_table(max_rows=max_rows)
-        click.echo(table)
+        console.print(table, markup=False)
 
         if print_stats:
             stats = detector.get_summary_stats()
-            click.echo("\n--- Summary Statistics ---")
-            click.echo(f"Total findings: {stats['total_findings']}")
-            click.echo(f"Files affected: {stats['files_affected']}")
+            console.print("\n--- Summary Statistics ---")
+            console.print(f"Total findings: {stats['total_findings']}", highlight=False)
+            console.print(f"Files affected: {stats['files_affected']}", highlight=False)
 
             if stats["by_severity"]:
-                click.echo("\nBy severity:")
+                console.print("\nBy severity:")
                 for severity, count in sorted(stats["by_severity"].items()):
-                    click.echo(f"  {severity}: {count}")
+                    console.print(f"  {severity}: {count}", highlight=False)
 
             if stats["by_category"]:
-                click.echo("\nBy category:")
+                console.print("\nBy category:")
                 for category, count in sorted(stats["by_category"].items()):
-                    click.echo(f"  {category}: {count}")
+                    console.print(f"  {category}: {count}", highlight=False)
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e

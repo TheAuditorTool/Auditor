@@ -4,6 +4,8 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command(name="learn")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
@@ -234,19 +236,22 @@ def learn(
     """
     from theauditor.insights.ml import learn as ml_learn
 
-    click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
+    console.print(
+        f"\\[ML] Training models from audit artifacts (using {train_on} runs)...", highlight=False
+    )
 
     if session_analysis and session_dir:
         import json
         import sqlite3
 
-        click.echo("[SESSION] Analyzing AI agent behavior from session logs...")
+        console.print("\\[SESSION] Analyzing AI agent behavior from session logs...")
 
         try:
             session_db = Path(".pf/ml/session_history.db")
             if not session_db.exists():
-                click.echo(
-                    "[WARN] session_history.db not found - run session analysis first", err=True
+                console.print(
+                    "[warning]session_history.db not found - run session analysis first[/warning]",
+                    stderr=True,
                 )
             else:
                 conn = sqlite3.connect(session_db)
@@ -256,9 +261,9 @@ def learn(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
                 )
                 if not cursor.fetchone():
-                    click.echo(
-                        "[WARN] session_executions table not found - run session analysis first",
-                        err=True,
+                    console.print(
+                        "[warning]session_executions table not found - run session analysis first[/warning]",
+                        stderr=True,
                     )
                     conn.close()
                 else:
@@ -283,18 +288,25 @@ def learn(
                             all_files.update(d["file"] for d in diffs)
                         unique_files = len(all_files)
 
-                        click.echo("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
-                        click.echo("=" * 60)
-                        click.echo(f"Sessions analyzed: {total}")
-                        click.echo(f"Total edits: {total_edits}")
-                        click.echo(f"Unique files: {unique_files}")
-                        click.echo(
-                            f"Workflow compliance rate: {(compliant / total) * 100:.1f}% ({compliant}/{total} compliant)"
+                        console.print("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
+                        console.rule()
+                        console.print(f"Sessions analyzed: {total}", highlight=False)
+                        console.print(f"Total edits: {total_edits}", highlight=False)
+                        console.print(f"Unique files: {unique_files}", highlight=False)
+                        console.print(
+                            f"Workflow compliance rate: {(compliant / total) * 100:.1f}% ({compliant}/{total} compliant)",
+                            highlight=False,
                         )
-                        click.echo(f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)")
-                        click.echo(f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)")
-                        click.echo(
-                            f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)"
+                        console.print(
+                            f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)",
+                            highlight=False,
+                        )
+                        console.print(
+                            f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)", highlight=False
+                        )
+                        console.print(
+                            f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)",
+                            highlight=False,
                         )
 
                         cursor.execute("""
@@ -306,10 +318,11 @@ def learn(
                         risky_sessions = cursor.fetchall()
 
                         if risky_sessions:
-                            click.echo("\nTop 3 riskiest sessions:")
+                            console.print("\nTop 3 riskiest sessions:")
                             for i, (sid, risk, files, eng) in enumerate(risky_sessions, 1):
-                                click.echo(
-                                    f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})"
+                                console.print(
+                                    f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})",
+                                    highlight=False,
                                 )
 
                         cursor.execute("""
@@ -331,24 +344,27 @@ def learn(
                             and non_compliant_stats
                             and compliant_stats[0] is not None
                         ):
-                            click.echo("\nWorkflow Compliance Correlation:")
-                            click.echo(
-                                f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}"
+                            console.print("\nWorkflow Compliance Correlation:")
+                            console.print(
+                                f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}",
+                                highlight=False,
                             )
-                            click.echo(
-                                f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}"
+                            console.print(
+                                f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}",
+                                highlight=False,
                             )
 
-                        click.echo()
+                        console.print()
                     else:
-                        click.echo(
-                            "[WARN] No session data found in session_executions table", err=True
+                        console.print(
+                            "[warning]No session data found in session_executions table[/warning]",
+                            stderr=True,
                         )
 
                     conn.close()
 
         except Exception as e:
-            click.echo(f"[WARN] Could not load Tier 5 statistics: {e}", err=True)
+            console.print(f"[warning]Could not load Tier 5 statistics: {e}[/warning]", stderr=True)
 
     result = ml_learn(
         db_path=db_path,
@@ -365,17 +381,20 @@ def learn(
 
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo("[OK] Models trained successfully")
-        click.echo(f"  * Training data: {train_on} runs from history")
-        click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
-        click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
-        click.echo(f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}")
-        click.echo(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}")
+        console.print("[success]Models trained successfully[/success]")
+        console.print(f"  * Training data: {train_on} runs from history", highlight=False)
+        console.print(f"  * Files analyzed: {result.get('source_files', 0)}", highlight=False)
+        console.print(f"  * Features: {stats.get('n_features', 0)} dimensions", highlight=False)
+        console.print(
+            f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}",
+            highlight=False,
+        )
+        console.print(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}", highlight=False)
         if stats.get("cold_start"):
-            click.echo("  [WARN] Cold-start mode (<500 samples)")
-        click.echo(f"  * Models saved to: {result.get('model_dir')}")
+            console.print("  [warning]Cold-start mode (<500 samples)[/warning]")
+        console.print(f"  * Models saved to: {result.get('model_dir')}", highlight=False)
     else:
-        click.echo(f"[FAIL] Training failed: {result.get('error')}", err=True)
+        console.print(f"[error]Training failed: {result.get('error')}[/error]", stderr=True)
         raise click.ClickException(result.get("error"))
 
 
@@ -568,7 +587,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     """
     from theauditor.insights.ml import suggest as ml_suggest
 
-    click.echo("[ML] Generating suggestions from trained models...")
+    console.print("\\[ML] Generating suggestions from trained models...")
 
     result = ml_suggest(
         db_path=db_path,
@@ -581,15 +600,22 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     )
 
     if result.get("success"):
-        click.echo("[OK] Suggestions generated")
-        click.echo(f"  * Workset size: {result.get('workset_size', 0)} files")
-        click.echo(f"  * Source files analyzed: {result.get('workset_size', 0)}")
-        click.echo(f"  * Non-source excluded: {result.get('excluded_count', 0)}")
-        click.echo(
-            f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}"
+        console.print("[success]Suggestions generated[/success]")
+        console.print(f"  * Workset size: {result.get('workset_size', 0)} files", highlight=False)
+        console.print(
+            f"  * Source files analyzed: {result.get('workset_size', 0)}", highlight=False
+        )
+        console.print(
+            f"  * Non-source excluded: {result.get('excluded_count', 0)}", highlight=False
+        )
+        console.print(
+            f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}",
+            highlight=False,
         )
     else:
-        click.echo(f"[FAIL] Suggestion generation failed: {result.get('error')}", err=True)
+        console.print(
+            f"[error]Suggestion generation failed: {result.get('error')}[/error]", stderr=True
+        )
         raise click.ClickException(result.get("error"))
 
 
@@ -796,7 +822,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
     from theauditor.insights.ml import learn as ml_learn
 
     if not Path(feedback_file).exists():
-        click.echo(f"[FAIL] Feedback file not found: {feedback_file}", err=True)
+        console.print(f"[error]Feedback file not found: {feedback_file}[/error]", stderr=True)
         raise click.ClickException(f"Feedback file not found: {feedback_file}")
 
     try:
@@ -809,13 +835,17 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
             raise ValueError("Feedback file must contain a JSON object")
 
         feedback_count = len(feedback_data)
-        click.echo(f"[ML] Loading human feedback for {feedback_count} files...")
+        console.print(
+            f"\\[ML] Loading human feedback for {feedback_count} files...", highlight=False
+        )
 
     except Exception as e:
-        click.echo(f"[FAIL] Invalid feedback file format: {e}", err=True)
+        console.print(f"[error]Invalid feedback file format: {e}[/error]", stderr=True)
         raise click.ClickException(f"Invalid feedback file: {e}") from e
 
-    click.echo(f"[ML] Re-training models with human feedback (using {train_on} runs)...")
+    console.print(
+        f"\\[ML] Re-training models with human feedback (using {train_on} runs)...", highlight=False
+    )
 
     result = ml_learn(
         db_path=db_path,
@@ -829,15 +859,15 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
 
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo("[OK] Models re-trained with human feedback")
-        click.echo(f"  * Training data: {train_on} runs from history")
-        click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
-        click.echo(f"  * Human feedback incorporated: {feedback_count} files")
-        click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
-        click.echo(f"  * Models saved to: {result.get('model_dir')}")
-        click.echo(
-            "\n[TIP] The models have learned from your feedback and will provide more accurate predictions."
+        console.print("[success]Models re-trained with human feedback[/success]")
+        console.print(f"  * Training data: {train_on} runs from history", highlight=False)
+        console.print(f"  * Files analyzed: {result.get('source_files', 0)}", highlight=False)
+        console.print(f"  * Human feedback incorporated: {feedback_count} files", highlight=False)
+        console.print(f"  * Features: {stats.get('n_features', 0)} dimensions", highlight=False)
+        console.print(f"  * Models saved to: {result.get('model_dir')}", highlight=False)
+        console.print(
+            "\n\\[TIP] The models have learned from your feedback and will provide more accurate predictions."
         )
     else:
-        click.echo(f"[FAIL] Re-training failed: {result.get('error')}", err=True)
+        console.print(f"[error]Re-training failed: {result.get('error')}[/error]", stderr=True)
         raise click.ClickException(result.get("error"))

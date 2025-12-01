@@ -4,6 +4,8 @@ import time
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command()
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
@@ -31,17 +33,17 @@ def init(ctx, offline, quiet, exclude_self):
 
     WHAT HAPPENS NOW:
       Running 'aud init' will execute 'aud full' which includes:
-        ✓ Automatic .pf/ directory creation (no separate init needed)
-        ✓ Repository indexing (AST parsing)
-        ✓ Framework detection (Django, Flask, React, etc.)
-        ✓ Dependency analysis and vulnerability scanning
-        ✓ Workset creation (file filtering)
-        ✓ Security pattern detection (200+ patterns)
-        ✓ Taint analysis (cross-file data flow)
-        ✓ Graph analysis (hotspots, cycles)
-        ✓ Control flow graphs (complexity analysis)
-        ✓ Factual Correlation Engine (finding aggregation)
-        ✓ Report generation (AI-optimized chunks)
+        [OK] Automatic .pf/ directory creation (no separate init needed)
+        [OK] Repository indexing (AST parsing)
+        [OK] Framework detection (Django, Flask, React, etc.)
+        [OK] Dependency analysis and vulnerability scanning
+        [OK] Workset creation (file filtering)
+        [OK] Security pattern detection (200+ patterns)
+        [OK] Taint analysis (cross-file data flow)
+        [OK] Graph analysis (hotspots, cycles)
+        [OK] Control flow graphs (complexity analysis)
+        [OK] Factual Correlation Engine (finding aggregation)
+        [OK] Report generation (AI-optimized chunks)
 
     MIGRATION GUIDE:
       OLD Workflow:
@@ -102,40 +104,42 @@ def init(ctx, offline, quiet, exclude_self):
     """
 
     if not quiet:
-        click.echo("")
-        click.echo("=" * 80)
-        click.echo(" " * 28 + "DEPRECATION WARNING")
-        click.echo("=" * 80)
-        click.echo("")
-        click.echo("  The 'aud init' command is DEPRECATED and now runs 'aud full' instead.")
-        click.echo("")
-        click.echo("  WHY: 'aud init' alone no longer provides sufficient initialization")
-        click.echo("       for modern TheAuditor analysis. 'aud full' auto-creates .pf/")
-        click.echo("       directory and handles all setup + analysis in one command.")
-        click.echo("")
-        click.echo("  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)")
-        click.echo("          instead of just 4-step initialization (~10-30 seconds).")
-        click.echo("")
-        click.echo("  ACTION REQUIRED:")
-        click.echo("    • Replace 'aud init && aud full' with just 'aud full'")
-        click.echo("    • Update CI/CD pipelines to use 'aud full' directly")
-        click.echo("    • Use 'aud full --offline' for air-gapped environments")
-        click.echo("    • Use 'aud full --quiet' for minimal output in automation")
-        click.echo("")
-        click.echo("  NOTE: .pf/ directory is created automatically by 'aud full'.")
-        click.echo("        No separate initialization step is needed.")
-        click.echo("")
-        click.echo("  This warning will be removed in v2.0 when 'aud init' is fully retired.")
-        click.echo("")
-        click.echo("=" * 80)
-        click.echo("")
-        click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
-        click.echo("")
+        console.print("")
+        console.rule()
+        console.print(" " * 28 + "DEPRECATION WARNING", markup=False)
+        console.rule()
+        console.print("")
+        console.print("  The 'aud init' command is DEPRECATED and now runs 'aud full' instead.")
+        console.print("")
+        console.print("  WHY: 'aud init' alone no longer provides sufficient initialization")
+        console.print("       for modern TheAuditor analysis. 'aud full' auto-creates .pf/")
+        console.print("       directory and handles all setup + analysis in one command.")
+        console.print("")
+        console.print(
+            "  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)"
+        )
+        console.print("          instead of just 4-step initialization (~10-30 seconds).")
+        console.print("")
+        console.print("  ACTION REQUIRED:")
+        console.print("    • Replace 'aud init && aud full' with just 'aud full'")
+        console.print("    • Update CI/CD pipelines to use 'aud full' directly")
+        console.print("    • Use 'aud full --offline' for air-gapped environments")
+        console.print("    • Use 'aud full --quiet' for minimal output in automation")
+        console.print("")
+        console.print("  NOTE: .pf/ directory is created automatically by 'aud full'.")
+        console.print("        No separate initialization step is needed.")
+        console.print("")
+        console.print("  This warning will be removed in v2.0 when 'aud init' is fully retired.")
+        console.print("")
+        console.rule()
+        console.print("")
+        console.print("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
+        console.print("")
 
         try:
             time.sleep(3)
         except KeyboardInterrupt:
-            click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
+            console.print("\nCancelled. Please update your command to use 'aud full' instead.")
             ctx.exit(0)
 
     from theauditor.commands.full import full

@@ -9,6 +9,7 @@ from pathlib import Path
 import click
 
 from theauditor.context.deadcode_graph import detect_isolated_modules
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -187,7 +188,9 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+        console.print(
+            "[error]Error: Database not found. Run 'aud full' first.[/error]", stderr=True
+        )
         raise click.ClickException("Database not found")
 
     try:
@@ -200,7 +203,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
         deadcode_data = json.loads(_format_json(modules))
         with open(output_path, "w") as f:
             json.dump(deadcode_data, f, indent=2)
-        click.echo(f"[OK] Deadcode analysis saved to {output_path}")
+        console.print(f"[success]Deadcode analysis saved to {output_path}[/success]")
 
         if format == "json":
             output = _format_json(modules)
@@ -209,20 +212,20 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
         else:
             output = _format_text(modules)
 
-        click.echo(output)
+        console.print(output, markup=False)
 
         if save:
             save_path = Path(save)
             save_path.parent.mkdir(parents=True, exist_ok=True)
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(output)
-            click.echo(f"\nSaved to: {save_path}", err=True)
+            console.print(f"[error]\nSaved to: {save_path}[/error]", stderr=True, highlight=False)
 
         if fail_on_dead_code and len(modules) > 0:
             raise click.ClickException(f"Dead code detected: {len(modules)} files")
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise
 
 

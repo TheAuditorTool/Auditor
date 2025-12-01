@@ -11,6 +11,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -185,33 +186,37 @@ def context(context_file: str, output: str | None, verbose: bool):
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("\n" + "=" * 60, err=True)
-        click.echo("❌ ERROR: Database not found", err=True)
-        click.echo("=" * 60, err=True)
-        click.echo("\nSemantic context requires analysis data.", err=True)
-        click.echo("\nPlease run ONE of these first:", err=True)
-        click.echo("\n  Option A (Recommended):", err=True)
-        click.echo("    aud full", err=True)
-        click.echo("\nThen try again:", err=True)
-        click.echo(f"    aud context --file {context_file}\n", err=True)
+        console.print("\n" + "=" * 60, stderr=True)
+        console.print("[error]\\[X] ERROR: Database not found[/error]", stderr=True)
+        console.rule()
+        console.print("[error]\nSemantic context requires analysis data.[/error]", stderr=True)
+        console.print("[error]\nPlease run ONE of these first:[/error]", stderr=True)
+        console.print("[error]\n  Option A (Recommended):[/error]", stderr=True)
+        console.print("[error]    aud full[/error]", stderr=True)
+        console.print("[error]\nThen try again:[/error]", stderr=True)
+        console.print(
+            f"[error]    aud context --file {context_file}\n[/error]", stderr=True, highlight=False
+        )
         raise click.Abort()
 
-    click.echo("\n" + "=" * 80)
-    click.echo("SEMANTIC CONTEXT ANALYSIS")
-    click.echo("=" * 80)
-    click.echo(f"\n📋 Loading semantic context: {context_file}")
+    console.print("\n" + "=" * 80, markup=False)
+    console.print("SEMANTIC CONTEXT ANALYSIS")
+    console.rule()
+    console.print(f"\n Loading semantic context: {context_file}", highlight=False)
 
     try:
         context = SemanticContext.load(Path(context_file))
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"\n❌ ERROR loading context file: {e}", err=True)
+        console.print(
+            f"[error]\n\\[X] ERROR loading context file: {e}[/error]", stderr=True, highlight=False
+        )
         raise click.Abort() from e
 
-    click.echo(f"✓ Loaded context: {context.context_name}")
-    click.echo(f"  Version: {context.version}")
-    click.echo(f"  Description: {context.description}")
+    console.print(f"[success]Loaded context: {context.context_name}[/success]", highlight=False)
+    console.print(f"  Version: {context.version}", highlight=False)
+    console.print(f"  Description: {context.description}", highlight=False)
 
-    click.echo("\n📊 Loading findings from database...")
+    console.print("\n Loading findings from database...")
 
     try:
         conn = sqlite3.connect(db_path)
@@ -224,10 +229,12 @@ def context(context_file: str, output: str | None, verbose: bool):
         """)
 
         if not cursor.fetchone():
-            click.echo("\n⚠️  WARNING: findings_consolidated table not found", err=True)
-            click.echo("\nThis means analysis hasn't been run yet.", err=True)
-            click.echo("\nPlease run:", err=True)
-            click.echo("    aud full", err=True)
+            console.print(
+                "\n[warning]️  WARNING: findings_consolidated table not found[/warning]", stderr=True
+            )
+            console.print("[error]\nThis means analysis hasn't been run yet.[/error]", stderr=True)
+            console.print("[error]\nPlease run:[/error]", stderr=True)
+            console.print("[error]    aud full[/error]", stderr=True)
             conn.close()
             raise click.Abort()
 
@@ -257,71 +264,81 @@ def context(context_file: str, output: str | None, verbose: bool):
         conn.close()
 
     except sqlite3.Error as e:
-        click.echo(f"\n❌ ERROR reading database: {e}", err=True)
+        console.print(
+            f"[error]\n\\[X] ERROR reading database: {e}[/error]", stderr=True, highlight=False
+        )
         raise click.Abort() from e
 
     if not findings:
-        click.echo("\n⚠️  No findings in database")
-        click.echo("\nThis could mean:")
-        click.echo("  1. Analysis hasn't been run yet (run: aud full)")
-        click.echo("  2. No issues detected (clean code!)")
-        click.echo("  3. Database is outdated (re-run: aud full)")
-        click.echo("\nCannot classify findings without data.")
+        console.print("\n[warning]️  No findings in database[/warning]")
+        console.print("\nThis could mean:")
+        console.print("  1. Analysis hasn't been run yet (run: aud full)")
+        console.print("  2. No issues detected (clean code!)")
+        console.print("  3. Database is outdated (re-run: aud full)")
+        console.print("\nCannot classify findings without data.")
         raise click.Abort()
 
-    click.echo(f"✓ Loaded {len(findings)} findings from database")
+    console.print(
+        f"[success]Loaded {len(findings)} findings from database[/success]", highlight=False
+    )
 
-    click.echo("\n🔍 Applying semantic patterns:")
-    click.echo(f"  Obsolete patterns:     {len(context.obsolete_patterns)}")
-    click.echo(f"  Current patterns:      {len(context.current_patterns)}")
-    click.echo(f"  Transitional patterns: {len(context.transitional_patterns)}")
+    console.print("\n Applying semantic patterns:")
+    console.print(f"  Obsolete patterns:     {len(context.obsolete_patterns)}", highlight=False)
+    console.print(f"  Current patterns:      {len(context.current_patterns)}", highlight=False)
+    console.print(f"  Transitional patterns: {len(context.transitional_patterns)}", highlight=False)
 
-    click.echo("\n⚙️  Classifying findings...")
+    console.print("\n️  Classifying findings...")
     result = context.classify_findings(findings)
 
-    click.echo("✓ Classification complete")
-    click.echo(f"  Classified: {result.summary['classified']}")
-    click.echo(f"  Unclassified: {result.summary['unclassified']}")
+    console.print("[success]Classification complete[/success]")
+    console.print(f"  Classified: {result.summary['classified']}", highlight=False)
+    console.print(f"  Unclassified: {result.summary['unclassified']}", highlight=False)
 
-    click.echo("\n" + "=" * 80)
+    console.print("\n" + "=" * 80, markup=False)
     report = context.generate_report(result, verbose=verbose)
-    click.echo(report)
+    console.print(report, markup=False)
 
-    click.echo("\n" + "=" * 80)
-    click.echo("💾 Writing results...")
-    click.echo("=" * 80)
+    console.print("\n" + "=" * 80, markup=False)
+    console.print(" Writing results...")
+    console.rule()
 
     raw_dir = pf_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     output_file = raw_dir / f"semantic_context_{context.context_name}.json"
     context.export_to_json(result, output_file)
-    click.echo(f"\n✓ Raw results: {output_file}")
+    console.print(f"\n\\[OK] Raw results: {output_file}", highlight=False)
 
     if output:
         context.export_to_json(result, Path(output))
-        click.echo(f"\n✓ Custom output: {output}")
+        console.print(f"\n\\[OK] Custom output: {output}", highlight=False)
 
-    click.echo("\n" + "=" * 80)
-    click.echo("📂 OUTPUT LOCATIONS")
-    click.echo("=" * 80)
-    click.echo(f"\n  Raw JSON:     {output_file}")
+    console.print("\n" + "=" * 80, markup=False)
+    console.print(" OUTPUT LOCATIONS")
+    console.rule()
+    console.print(f"\n  Raw JSON:     {output_file}", highlight=False)
     if output:
-        click.echo(f"  Custom:       {output}")
+        console.print(f"  Custom:       {output}", highlight=False)
 
-    click.echo("\n" + "=" * 80)
-    click.echo("✅ SEMANTIC CONTEXT ANALYSIS COMPLETE")
-    click.echo("=" * 80)
+    console.print("\n" + "=" * 80, markup=False)
+    console.print("[success]SEMANTIC CONTEXT ANALYSIS COMPLETE[/success]")
+    console.rule()
 
     migration_progress = result.get_migration_progress()
     if migration_progress["files_need_migration"] > 0:
-        click.echo("\n📋 Next steps:")
-        click.echo(f"  1. Address {len(result.get_high_priority_files())} high-priority files")
-        click.echo(f"  2. Update {len(result.mixed_files)} mixed files")
-        click.echo(f"  3. Migrate {migration_progress['files_need_migration']} files total")
-        click.echo("\n  Run with --verbose for detailed file list")
+        console.print("\n Next steps:")
+        console.print(
+            f"  1. Address {len(result.get_high_priority_files())} high-priority files",
+            highlight=False,
+        )
+        console.print(f"  2. Update {len(result.mixed_files)} mixed files", highlight=False)
+        console.print(
+            f"  3. Migrate {migration_progress['files_need_migration']} files total",
+            highlight=False,
+        )
+        console.print("\n  Run with --verbose for detailed file list")
     else:
-        click.echo("\n🎉 All files migrated! No obsolete patterns found.")
+        console.print("\n All files migrated! No obsolete patterns found.")
 
 
 context_command = context

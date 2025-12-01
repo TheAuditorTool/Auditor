@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -232,17 +233,21 @@ def query(
 
     pf_dir = Path.cwd() / ".pf"
     if not pf_dir.exists():
-        click.echo("\n" + "=" * 60, err=True)
-        click.echo("ERROR: No .pf directory found", err=True)
-        click.echo("=" * 60, err=True)
-        click.echo("\nContext queries require indexed data.", err=True)
-        click.echo("\nPlease run:", err=True)
-        click.echo("    aud full", err=True)
-        click.echo("\nThen try again:", err=True)
+        console.print("\n" + "=" * 60, stderr=True)
+        console.print("[error]ERROR: No .pf directory found[/error]", stderr=True)
+        console.rule()
+        console.print("[error]\nContext queries require indexed data.[/error]", stderr=True)
+        console.print("[error]\nPlease run:[/error]", stderr=True)
+        console.print("[error]    aud full[/error]", stderr=True)
+        console.print("[error]\nThen try again:[/error]", stderr=True)
         if symbol:
-            click.echo(f"    aud query --symbol {symbol} --show-callers\n", err=True)
+            console.print(
+                f"[error]    aud query --symbol {symbol} --show-callers\n[/error]",
+                stderr=True,
+                highlight=False,
+            )
         else:
-            click.echo("    aud query --help\n", err=True)
+            console.print("[error]    aud query --help\n[/error]", stderr=True)
         raise click.Abort()
 
     if not any(
@@ -260,42 +265,76 @@ def query(
             list_symbols,
         ]
     ):
-        click.echo("\n" + "=" * 60, err=True)
-        click.echo("ERROR: No query target specified", err=True)
-        click.echo("=" * 60, err=True)
-        click.echo("\nYou must specify what to query:", err=True)
-        click.echo("    --symbol NAME       (query a symbol)", err=True)
-        click.echo("    --file PATH         (query a file)", err=True)
-        click.echo("    --api ROUTE         (query an API endpoint)", err=True)
-        click.echo("    --component NAME    (query a component)", err=True)
-        click.echo("    --variable NAME     (query variable data flow)", err=True)
-        click.echo("    --pattern PATTERN   (search symbols by pattern)", err=True)
-        click.echo("    --category CATEGORY (search by security category)", err=True)
-        click.echo("    --search TERM       (cross-table exploratory search)", err=True)
-        click.echo(
-            "    --list TYPE         (list symbols: functions, classes, imports, all)", err=True
+        console.print("\n" + "=" * 60, stderr=True)
+        console.print("[error]ERROR: No query target specified[/error]", stderr=True)
+        console.rule()
+        console.print("[error]\nYou must specify what to query:[/error]", stderr=True)
+        console.print("[error]    --symbol NAME       (query a symbol)[/error]", stderr=True)
+        console.print("[error]    --file PATH         (query a file)[/error]", stderr=True)
+        console.print("[error]    --api ROUTE         (query an API endpoint)[/error]", stderr=True)
+        console.print("[error]    --component NAME    (query a component)[/error]", stderr=True)
+        console.print(
+            "[error]    --variable NAME     (query variable data flow)[/error]", stderr=True
         )
-        click.echo("    --list-symbols      (discovery mode: find symbols by pattern)", err=True)
-        click.echo("    --show-api-coverage (query all API security coverage)", err=True)
-        click.echo("\nExamples:", err=True)
-        click.echo("    aud query --symbol authenticateUser --show-callers", err=True)
-        click.echo("    aud query --file src/auth.ts --show-dependencies", err=True)
-        click.echo("    aud query --api '/users' --format json", err=True)
-        click.echo("    aud query --symbol createApp --show-data-deps", err=True)
-        click.echo("    aud query --variable userToken --show-flow --depth 3", err=True)
-        click.echo("    aud query --pattern 'auth%' --type-filter function", err=True)
-        click.echo("    aud query --category jwt --format json", err=True)
-        click.echo("    aud query --search payment --include-tables symbols,findings", err=True)
-        click.echo("    aud query --file python_impl.py --list functions", err=True)
-        click.echo("    aud query --list-symbols --filter '*Controller*'", err=True)
-        click.echo("    aud query --list-symbols --path 'services/' --filter '*'", err=True)
-        click.echo("    aud query --show-api-coverage\n", err=True)
+        console.print(
+            "[error]    --pattern PATTERN   (search symbols by pattern)[/error]", stderr=True
+        )
+        console.print(
+            "[error]    --category CATEGORY (search by security category)[/error]", stderr=True
+        )
+        console.print(
+            "[error]    --search TERM       (cross-table exploratory search)[/error]", stderr=True
+        )
+        console.print(
+            "[error]    --list TYPE         (list symbols: functions, classes, imports, all)[/error]",
+            stderr=True,
+        )
+        console.print(
+            "[error]    --list-symbols      (discovery mode: find symbols by pattern)[/error]",
+            stderr=True,
+        )
+        console.print(
+            "[error]    --show-api-coverage (query all API security coverage)[/error]", stderr=True
+        )
+        console.print("[error]\nExamples:[/error]", stderr=True)
+        console.print(
+            "[error]    aud query --symbol authenticateUser --show-callers[/error]", stderr=True
+        )
+        console.print(
+            "[error]    aud query --file src/auth.ts --show-dependencies[/error]", stderr=True
+        )
+        console.print("[error]    aud query --api '/users' --format json[/error]", stderr=True)
+        console.print(
+            "[error]    aud query --symbol createApp --show-data-deps[/error]", stderr=True
+        )
+        console.print(
+            "[error]    aud query --variable userToken --show-flow --depth 3[/error]", stderr=True
+        )
+        console.print(
+            "[error]    aud query --pattern 'auth%' --type-filter function[/error]", stderr=True
+        )
+        console.print("[error]    aud query --category jwt --format json[/error]", stderr=True)
+        console.print(
+            "[error]    aud query --search payment --include-tables symbols,findings[/error]",
+            stderr=True,
+        )
+        console.print(
+            "[error]    aud query --file python_impl.py --list functions[/error]", stderr=True
+        )
+        console.print(
+            "[error]    aud query --list-symbols --filter '*Controller*'[/error]", stderr=True
+        )
+        console.print(
+            "[error]    aud query --list-symbols --path 'services/' --filter '*'[/error]",
+            stderr=True,
+        )
+        console.print("[error]    aud query --show-api-coverage\n[/error]", stderr=True)
         raise click.Abort()
 
     try:
         engine = CodeQueryEngine(Path.cwd())
     except FileNotFoundError as e:
-        click.echo(f"\nERROR: {e}", err=True)
+        console.print(f"[error]\nERROR: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
 
     results = None
@@ -356,8 +395,13 @@ def query(
 
         elif list_mode:
             if not file:
-                click.echo("\nERROR: --list requires --file to be specified", err=True)
-                click.echo("Example: aud query --file python_impl.py --list functions\n", err=True)
+                console.print(
+                    "[error]\nERROR: --list requires --file to be specified[/error]", stderr=True
+                )
+                console.print(
+                    "[error]Example: aud query --file python_impl.py --list functions\n[/error]",
+                    stderr=True,
+                )
                 raise click.Abort()
 
             db_path = Path.cwd() / ".pf" / "repo_index.db"
@@ -399,8 +443,14 @@ def query(
                 cursor.execute(query, (f"%{file}%",))
             else:
                 conn.close()
-                click.echo(f"\nERROR: Unknown list type: {list_type}", err=True)
-                click.echo("Valid types: functions, classes, imports, all\n", err=True)
+                console.print(
+                    f"[error]\nERROR: Unknown list type: {list_type}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
+                console.print(
+                    "[error]Valid types: functions, classes, imports, all\n[/error]", stderr=True
+                )
                 raise click.Abort()
 
             rows = cursor.fetchall()
@@ -450,7 +500,7 @@ def query(
                 results = {"error": "Please specify --show-flow with --variable"}
 
     except ValueError as e:
-        click.echo(f"\nERROR: {e}", err=True)
+        console.print(f"[error]\nERROR: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
     finally:
         engine.close()
@@ -481,11 +531,11 @@ def query(
 
     output_str = format_output(results, format=output_format)
 
-    click.echo(output_str)
+    console.print(output_str, markup=False)
 
     if save:
         save_path = Path(save)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         with open(save_path, "w", encoding="utf-8") as f:
             f.write(output_str)
-        click.echo(f"\nSaved to: {save_path}", err=True)
+        console.print(f"[error]\nSaved to: {save_path}[/error]", stderr=True, highlight=False)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
@@ -113,8 +114,10 @@ def graphql_build(root, db, verbose):
 
     db_path = Path(root) / db
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud full' first to extract GraphQL schemas", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        )
+        console.print("[error]Run 'aud full' first to extract GraphQL schemas[/error]", stderr=True)
         return 1
 
     logger.info(f"Building GraphQL resolver mappings from {db_path}")
@@ -122,31 +125,33 @@ def graphql_build(root, db, verbose):
     builder = GraphQLBuilder(db_path, verbose=verbose)
 
     try:
-        click.echo("Phase 1: Loading GraphQL schemas...")
+        console.print("Phase 1: Loading GraphQL schemas...")
         schemas_count = builder.load_schemas()
-        click.echo(f"  Loaded {schemas_count} schema files")
+        console.print(f"  Loaded {schemas_count} schema files", highlight=False)
 
-        click.echo("Phase 2: Loading resolver candidates...")
+        console.print("Phase 2: Loading resolver candidates...")
         resolvers_count = builder.load_resolver_candidates()
-        click.echo(f"  Found {resolvers_count} potential resolvers")
+        console.print(f"  Found {resolvers_count} potential resolvers", highlight=False)
 
-        click.echo("Phase 3: Correlating fields with resolvers...")
+        console.print("Phase 3: Correlating fields with resolvers...")
         mappings_count = builder.correlate_resolvers()
-        click.echo(f"  Created {mappings_count} resolver mappings")
+        console.print(f"  Created {mappings_count} resolver mappings", highlight=False)
 
-        click.echo("Phase 4: Building execution graph...")
+        console.print("Phase 4: Building execution graph...")
         edges_count = builder.build_execution_graph()
-        click.echo(f"  Created {edges_count} execution edges")
+        console.print(f"  Created {edges_count} execution edges", highlight=False)
 
-        click.echo("Phase 5: Exporting courier artifacts...")
+        console.print("Phase 5: Exporting courier artifacts...")
         output_dir = Path(root) / ".pf" / "raw"
         schema_path, execution_path = builder.export_courier_artifacts(output_dir)
-        click.echo(f"  Exported: {schema_path.name}")
-        click.echo(f"  Exported: {execution_path.name}")
+        console.print(f"  Exported: {schema_path.name}", highlight=False)
+        console.print(f"  Exported: {execution_path.name}", highlight=False)
 
-        click.echo("\nGraphQL build complete!")
-        click.echo(f"  Resolver coverage: {builder.get_coverage_percent():.1f}%")
-        click.echo(f"  Missing resolvers: {builder.get_missing_count()}")
+        console.print("\nGraphQL build complete!")
+        console.print(
+            f"  Resolver coverage: {builder.get_coverage_percent():.1f}%", highlight=False
+        )
+        console.print(f"  Missing resolvers: {builder.get_missing_count()}", highlight=False)
 
         if verbose:
             builder.print_summary()
@@ -155,7 +160,7 @@ def graphql_build(root, db, verbose):
 
     except Exception as e:
         logger.error(f"GraphQL build failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         return 1
 
 
@@ -179,7 +184,9 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        )
         return 1
 
     querier = GraphQLQuerier(db_path)
@@ -195,7 +202,7 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
             result = querier.query_all_types()
 
         if output_json:
-            click.echo(json.dumps(result, indent=2))
+            console.print(json.dumps(result, indent=2), markup=False)
         else:
             querier.print_result(result)
 
@@ -203,7 +210,7 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     except Exception as e:
         logger.error(f"GraphQL query failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         return 1
 
 
@@ -224,18 +231,20 @@ def graphql_viz(db, output, format, type_filter):
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        )
         return 1
 
     visualizer = GraphQLVisualizer(db_path)
 
     try:
-        click.echo("Generating GraphQL visualization...")
+        console.print("Generating GraphQL visualization...")
         visualizer.generate(output_path=output, output_format=format, type_filter=type_filter)
-        click.echo(f"Visualization saved to {output}")
+        console.print(f"Visualization saved to {output}", highlight=False)
         return 0
 
     except Exception as e:
         logger.error(f"GraphQL visualization failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         return 1

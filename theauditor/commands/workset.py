@@ -2,6 +2,7 @@
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -230,6 +231,6 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
     )
 
     if not print_stats:
-        click.echo(f"Workset written to {out}")
-        click.echo(f"  Seed files: {result['seed_count']}")
-        click.echo(f"  Expanded files: {result['expanded_count']}")
+        console.print(f"Workset written to {out}", highlight=False)
+        console.print(f"  Seed files: {result['seed_count']}", highlight=False)
+        console.print(f"  Expanded files: {result['expanded_count']}", highlight=False)

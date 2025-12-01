@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -284,7 +285,9 @@ def taint_analyze(
 
     if memory_limit is None:
         memory_limit = get_recommended_memory_limit()
-        click.echo(f"[MEMORY] Using auto-detected memory limit: {memory_limit}MB")
+        console.print(
+            f"\\[MEMORY] Using auto-detected memory limit: {memory_limit}MB", highlight=False
+        )
 
     config = load_runtime_config(".")
 
@@ -293,11 +296,15 @@ def taint_analyze(
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud full' first to build the repository index", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db}[/error]", stderr=True, highlight=False
+        )
+        console.print(
+            "[error]Run 'aud full' first to build the repository index[/error]", stderr=True
+        )
         raise click.ClickException(f"Database not found: {db}")
 
-    click.echo("Validating database schema...", err=True)
+    console.print("[error]Validating database schema...[/error]", stderr=True)
     try:
         import sqlite3
 
@@ -309,37 +316,47 @@ def taint_analyze(
         conn.close()
 
         if mismatches:
-            click.echo("", err=True)
-            click.echo("=" * 60, err=True)
-            click.echo(" SCHEMA VALIDATION FAILED ", err=True)
-            click.echo("=" * 60, err=True)
-            click.echo("Database schema does not match expected definitions.", err=True)
-            click.echo("This will cause incorrect results or failures.\n", err=True)
+            console.print("[error][/error]", stderr=True)
+            console.rule()
+            console.print("[error] SCHEMA VALIDATION FAILED [/error]", stderr=True)
+            console.rule()
+            console.print(
+                "[error]Database schema does not match expected definitions.[/error]", stderr=True
+            )
+            console.print(
+                "[error]This will cause incorrect results or failures.\n[/error]", stderr=True
+            )
 
             for table_name, errors in list(mismatches.items())[:5]:
-                click.echo(f"Table: {table_name}", err=True)
+                console.print(f"[error]Table: {table_name}[/error]", stderr=True, highlight=False)
                 for error in errors[:2]:
-                    click.echo(f"  - {error}", err=True)
+                    console.print(f"[error]  - {error}[/error]", stderr=True, highlight=False)
 
-            click.echo("\nFix: Run 'aud index' to rebuild database with correct schema.", err=True)
-            click.echo("=" * 60, err=True)
+            console.print(
+                "[error]\nFix: Run 'aud index' to rebuild database with correct schema.[/error]",
+                stderr=True,
+            )
+            console.rule()
 
             if not click.confirm("\nContinue anyway? (results may be incorrect)", default=False):
                 raise click.ClickException("Aborted due to schema mismatch")
 
-            click.echo(
-                "WARNING: Continuing with schema mismatch - results may be unreliable", err=True
+            console.print(
+                "[error]WARNING: Continuing with schema mismatch - results may be unreliable[/error]",
+                stderr=True,
             )
         else:
-            click.echo("Schema validation passed.", err=True)
+            console.print("[error]Schema validation passed.[/error]", stderr=True)
     except ImportError:
-        click.echo("Schema validation skipped (schema module not available)", err=True)
+        console.print(
+            "[error]Schema validation skipped (schema module not available)[/error]", stderr=True
+        )
     except Exception as e:
-        click.echo(f"Schema validation error: {e}", err=True)
-        click.echo("Continuing anyway...", err=True)
+        console.print(f"[error]Schema validation error: {e}[/error]", stderr=True, highlight=False)
+        console.print("[error]Continuing anyway...[/error]", stderr=True)
 
     if rules:
-        click.echo("Initializing security analysis infrastructure...")
+        console.print("Initializing security analysis infrastructure...")
         registry = TaintRegistry()
         orchestrator = RulesOrchestrator(project_path=Path("."), db_path=db_path)
 
@@ -347,26 +364,27 @@ def taint_analyze(
 
         all_findings = []
 
-        click.echo("Running infrastructure and configuration analysis...")
+        console.print("Running infrastructure and configuration analysis...")
         infra_findings = orchestrator.run_standalone_rules()
         all_findings.extend(infra_findings)
-        click.echo(f"  Found {len(infra_findings)} infrastructure issues")
+        console.print(f"  Found {len(infra_findings)} infrastructure issues", highlight=False)
 
-        click.echo("Discovering framework-specific patterns...")
+        console.print("Discovering framework-specific patterns...")
         discovery_findings = orchestrator.run_discovery_rules(registry)
         all_findings.extend(discovery_findings)
 
         stats = registry.get_stats()
-        click.echo(
-            f"  Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources"
+        console.print(
+            f"  Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources",
+            highlight=False,
         )
 
-        click.echo("Performing data-flow taint analysis...")
+        console.print("Performing data-flow taint analysis...")
 
         if mode == "backward":
-            click.echo("  Using IFDS mode (graphs.db)")
+            console.print("  Using IFDS mode (graphs.db)")
         else:
-            click.echo(f"  Using {mode} flow resolution mode")
+            console.print(f"  Using {mode} flow resolution mode", highlight=False)
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
@@ -377,9 +395,9 @@ def taint_analyze(
         )
 
         taint_paths = result.get("taint_paths", result.get("paths", []))
-        click.echo(f"  Found {len(taint_paths)} taint flow vulnerabilities")
+        console.print(f"  Found {len(taint_paths)} taint flow vulnerabilities", highlight=False)
 
-        click.echo("Running advanced security analysis...")
+        console.print("Running advanced security analysis...")
 
         def taint_checker(var_name, line_num=None):
             """Check if variable is in any taint path."""
@@ -397,9 +415,12 @@ def taint_analyze(
 
         advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
         all_findings.extend(advanced_findings)
-        click.echo(f"  Found {len(advanced_findings)} advanced security issues")
+        console.print(f"  Found {len(advanced_findings)} advanced security issues", highlight=False)
 
-        click.echo(f"\nTotal vulnerabilities found: {len(all_findings) + len(taint_paths)}")
+        console.print(
+            f"\nTotal vulnerabilities found: {len(all_findings) + len(taint_paths)}",
+            highlight=False,
+        )
 
         result["infrastructure_issues"] = infra_findings
         result["discovery_findings"] = discovery_findings
@@ -408,12 +429,12 @@ def taint_analyze(
 
         result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
     else:
-        click.echo("Performing taint analysis (rules disabled)...")
+        console.print("Performing taint analysis (rules disabled)...")
 
         if mode == "backward":
-            click.echo("  Using IFDS mode (graphs.db)")
+            console.print("  Using IFDS mode (graphs.db)")
         else:
-            click.echo(f"  Using {mode} flow resolution mode")
+            console.print(f"  Using {mode} flow resolution mode", highlight=False)
 
         registry = TaintRegistry()
 
@@ -506,12 +527,17 @@ def taint_analyze(
             if findings_dicts:
                 db_manager.write_findings_batch(findings_dicts, tool_name="taint")
                 db_manager.close()
-                click.echo(
-                    f"[DB] Wrote {len(findings_dicts)} taint findings to database for FCE correlation"
+                console.print(
+                    f"\\[DB] Wrote {len(findings_dicts)} taint findings to database for FCE correlation",
+                    highlight=False,
                 )
         except Exception as e:
-            click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
-            click.echo("[DB] JSON output will still be generated for AI consumption")
+            console.print(
+                f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
+                stderr=True,
+                highlight=False,
+            )
+            console.print("\\[DB] JSON output will still be generated for AI consumption")
 
     output_path = Path(".pf") / "raw" / "taint.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -519,30 +545,35 @@ def taint_analyze(
         import json as json_lib
 
         json_lib.dump(result, f, indent=2, sort_keys=True)
-    click.echo(f"[OK] Taint analysis saved to {output_path}")
+    console.print(f"[success]Taint analysis saved to {output_path}[/success]")
 
     if json:
-        click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
+        console.print(json_lib.dumps(result, indent=2, sort_keys=True), markup=False)
     else:
         if result.get("success"):
             paths = result.get("taint_paths", result.get("paths", []))
-            click.echo(f"\n[TAINT] Found {len(paths)} taint paths")
-            click.echo(f"[TAINT] Sources: {result.get('sources_found', 0)}")
-            click.echo(f"[TAINT] Sinks: {result.get('sinks_found', 0)}")
+            console.print(f"\n\\[TAINT] Found {len(paths)} taint paths", highlight=False)
+            console.print(f"\\[TAINT] Sources: {result.get('sources_found', 0)}", highlight=False)
+            console.print(f"\\[TAINT] Sinks: {result.get('sinks_found', 0)}", highlight=False)
 
             for i, path in enumerate(paths[:10], 1):
                 path = normalize_taint_path(path)
                 sink_type = path.get("sink", {}).get("type", "unknown")
-                click.echo(f"\n{i}. {sink_type}")
-                click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
-                click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
+                console.print(f"\n{i}. {sink_type}", highlight=False)
+                console.print(
+                    f"   Source: {path['source']['file']}:{path['source']['line']}", highlight=False
+                )
+                console.print(
+                    f"   Sink: {path['sink']['file']}:{path['sink']['line']}", highlight=False
+                )
 
             if len(paths) > 10:
-                click.echo(
-                    f"\n... and {len(paths) - 10} additional paths (use --json for full output)"
+                console.print(
+                    f"\n... and {len(paths) - 10} additional paths (use --json for full output)",
+                    highlight=False,
                 )
         else:
-            click.echo(f"\n[ERROR] {result.get('error', 'Unknown error')}")
+            console.print(f"\n\\[ERROR] {result.get('error', 'Unknown error')}")
 
     if result.get("success"):
         summary = result.get("summary", {})

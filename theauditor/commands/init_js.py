@@ -2,6 +2,8 @@
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command("init-js", hidden=True)
 @click.option("--path", default="package.json", help="Path to package.json")
@@ -171,9 +173,9 @@ def init_js(path, add_hooks):
     manually after initialization. PIN_ME placeholders must be replaced with actual
     version numbers before running npm install.
     """
-    click.echo("WARNING: 'aud init-js' is deprecated and will be removed in v2.0.")
-    click.echo("         Package.json scaffolding is not part of security auditing.")
-    click.echo("")
+    console.print("WARNING: 'aud init-js' is deprecated and will be removed in v2.0.")
+    console.print("         Package.json scaffolding is not part of security auditing.")
+    console.print("")
 
     from theauditor.js_init import add_auditor_hooks, ensure_package_json
 
@@ -181,27 +183,31 @@ def init_js(path, add_hooks):
         res = ensure_package_json(path)
 
         if res["status"] == "created":
-            click.echo(f"[OK] Created {path} with PIN_ME placeholders")
-            click.echo("  Edit devDependencies to set exact versions")
+            console.print(f"[success]Created {path} with PIN_ME placeholders[/success]")
+            console.print("  Edit devDependencies to set exact versions")
         elif res["status"] == "merged":
-            click.echo(f"[OK] Merged lint/typecheck config into {path}")
-            click.echo("  Check devDependencies for PIN_ME placeholders")
+            console.print(f"[success]Merged lint/typecheck config into {path}[/success]")
+            console.print("  Check devDependencies for PIN_ME placeholders")
         else:
-            click.echo(f"No changes needed - {path} already configured")
+            console.print(f"No changes needed - {path} already configured", highlight=False)
 
         if add_hooks:
-            click.echo("\nAdding TheAuditor hooks to npm scripts...")
+            console.print("\nAdding TheAuditor hooks to npm scripts...")
             hook_res = add_auditor_hooks(path)
 
             if hook_res["status"] == "hooks_added":
-                click.echo("[OK] Added TheAuditor hooks to package.json:")
+                console.print("[success]Added TheAuditor hooks to package.json:[/success]")
                 for change in hook_res["details"]:
-                    click.echo(f"  - {change}")
+                    console.print(f"  - {change}", highlight=False)
             elif hook_res["status"] == "unchanged":
-                click.echo("No changes needed - all hooks already present")
+                console.print("No changes needed - all hooks already present")
             elif hook_res["status"] == "error":
-                click.echo(f"Error adding hooks: {hook_res['message']}", err=True)
+                console.print(
+                    f"[error]Error adding hooks: {hook_res['message']}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e

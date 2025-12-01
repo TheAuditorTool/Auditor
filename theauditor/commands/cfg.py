@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
@@ -116,7 +117,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
     try:
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud full' first.")
+            console.print(f"Database not found: {db}. Run 'aud full' first.", highlight=False)
             return
 
         builder = CFGBuilder(str(db_path))
@@ -128,19 +129,19 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                 with open(workset_path) as f:
                     workset_data = json.load(f)
                     target_files = {p["path"] for p in workset_data.get("paths", [])}
-                    click.echo(f"Analyzing {len(target_files)} workset files")
+                    console.print(f"Analyzing {len(target_files)} workset files", highlight=False)
 
         if function:
             functions = builder.get_all_functions()
             matching = [f for f in functions if f["function_name"] == function]
             if not matching:
-                click.echo(f"Function '{function}' not found")
+                console.print(f"Function '{function}' not found", highlight=False)
                 return
             functions = matching
         elif file:
             functions = builder.get_all_functions(file_path=file)
             if not functions:
-                click.echo(f"No functions found in {file}")
+                console.print(f"No functions found in {file}", highlight=False)
                 return
         else:
             functions = builder.get_all_functions()
@@ -148,7 +149,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             if target_files:
                 functions = [f for f in functions if f["file"] in target_files]
 
-        click.echo(f"Analyzing {len(functions)} functions...")
+        console.print(f"Analyzing {len(functions)} functions...", highlight=False)
 
         results = {
             "total_functions": len(functions),
@@ -174,24 +175,28 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             results["statistics"]["avg_complexity"] = sum(complexities) / len(complexities)
 
         if complex_functions:
-            click.echo(
-                f"\n[COMPLEXITY] Found {len(complex_functions)} functions above threshold {complexity_threshold}:"
+            console.print(
+                f"\n\\[COMPLEXITY] Found {len(complex_functions)} functions above threshold {complexity_threshold}:",
+                highlight=False,
             )
             for func in complex_functions[:10]:
-                click.echo(f"  • {func['function']} ({func['file']})")
-                click.echo(
-                    f"    Complexity: {func['complexity']}, Blocks: {func['block_count']}, Has loops: {func['has_loops']}"
+                console.print(f"  • {func['function']} ({func['file']})", highlight=False)
+                console.print(
+                    f"    Complexity: {func['complexity']}, Blocks: {func['block_count']}, Has loops: {func['has_loops']}",
+                    highlight=False,
                 )
         else:
-            click.echo(f"[OK] No functions exceed complexity threshold {complexity_threshold}")
+            console.print(
+                f"[success]No functions exceed complexity threshold {complexity_threshold}[/success]"
+            )
 
         if find_dead_code:
-            click.echo("\n[DEAD CODE] Searching for unreachable blocks...")
+            console.print("\n\\[DEAD CODE] Searching for unreachable blocks...")
             dead_blocks = builder.find_dead_code(file_path=file)
             results["dead_code"] = dead_blocks
 
             if dead_blocks:
-                click.echo(f"Found {len(dead_blocks)} unreachable blocks:")
+                console.print(f"Found {len(dead_blocks)} unreachable blocks:", highlight=False)
 
                 by_function = {}
                 for block in dead_blocks:
@@ -201,13 +206,16 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                     by_function[key].append(block)
 
                 for func_key, blocks in list(by_function.items())[:5]:
-                    click.echo(f"  • {func_key}: {len(blocks)} unreachable blocks")
+                    console.print(
+                        f"  • {func_key}: {len(blocks)} unreachable blocks", highlight=False
+                    )
                     for block in blocks[:2]:
-                        click.echo(
-                            f"    - {block['block_type']} block at lines {block['start_line']}-{block['end_line']}"
+                        console.print(
+                            f"    - {block['block_type']} block at lines {block['start_line']}-{block['end_line']}",
+                            highlight=False,
                         )
             else:
-                click.echo("[OK] No unreachable code detected")
+                console.print("[success]No unreachable code detected[/success]")
 
         from theauditor.indexer.database import DatabaseManager
         from theauditor.utils.meta_findings import format_complexity_finding
@@ -223,32 +231,46 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                 db_manager = DatabaseManager(str(repo_db_path.resolve()))
                 db_manager.write_findings_batch(meta_findings, "cfg-analysis")
                 db_manager.close()
-                click.echo(f"  Wrote {len(meta_findings)} CFG findings to database")
+                console.print(
+                    f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False
+                )
             except Exception as e:
-                click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
+                console.print(
+                    f"[error]  Warning: Could not write findings to database: {e}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
 
         output_path = Path(".pf") / "raw" / "cfg.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(results, f, indent=2)
-        click.echo(f"\n[OK] CFG analysis saved to {output_path}")
+        console.print(f"\n\\[OK] CFG analysis saved to {output_path}")
 
-        click.echo("\n[SUMMARY]")
-        click.echo(f"  Total functions analyzed: {len(functions)}")
-        click.echo(f"  Functions above complexity {complexity_threshold}: {len(complex_functions)}")
+        console.print("\n\\[SUMMARY]")
+        console.print(f"  Total functions analyzed: {len(functions)}", highlight=False)
+        console.print(
+            f"  Functions above complexity {complexity_threshold}: {len(complex_functions)}",
+            highlight=False,
+        )
         if complex_functions:
-            click.echo(f"  Maximum complexity: {results['statistics']['max_complexity']}")
-            click.echo(
-                f"  Average complexity of complex functions: {results['statistics']['avg_complexity']:.1f}"
+            console.print(
+                f"  Maximum complexity: {results['statistics']['max_complexity']}", highlight=False
+            )
+            console.print(
+                f"  Average complexity of complex functions: {results['statistics']['avg_complexity']:.1f}",
+                highlight=False,
             )
         if find_dead_code:
-            click.echo(f"  Unreachable blocks found: {len(results['dead_code'])}")
+            console.print(
+                f"  Unreachable blocks found: {len(results['dead_code'])}", highlight=False
+            )
 
         builder.close()
 
     except Exception as e:
         logger.error(f"CFG analysis failed: {e}")
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -280,20 +302,22 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud full' first.")
+            console.print(f"Database not found: {db}. Run 'aud full' first.", highlight=False)
             return
 
         builder = CFGBuilder(str(db_path))
 
-        click.echo(f"Loading CFG for {function} in {file}...")
+        console.print(f"Loading CFG for {function} in {file}...", highlight=False)
         cfg = builder.get_function_cfg(file, function)
 
         if not cfg["blocks"]:
-            click.echo(f"No CFG data found for {function} in {file}")
-            click.echo("Make sure the function was indexed with 'aud full'")
+            console.print(f"No CFG data found for {function} in {file}", highlight=False)
+            console.print("Make sure the function was indexed with 'aud full'")
             return
 
-        click.echo(f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges")
+        console.print(
+            f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges", highlight=False
+        )
 
         if show_statements:
             dot_content = builder.export_dot(file, function)
@@ -311,10 +335,12 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         if highlight_paths:
             paths = builder.get_execution_paths(file, function, max_paths=5)
             if paths:
-                click.echo(f"Found {len(paths)} execution paths (showing first 5)")
+                console.print(
+                    f"Found {len(paths)} execution paths (showing first 5)", highlight=False
+                )
 
                 for i, path in enumerate(paths[:5]):
-                    click.echo(f"  Path {i + 1}: {' → '.join(map(str, path))}")
+                    console.print(f"  Path {i + 1}: {' → '.join(map(str, path))}", highlight=False)
 
         if not output:
             output = f"{function}_cfg.{format}"
@@ -326,8 +352,10 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         if format == "dot":
             with open(output_path, "w") as f:
                 f.write(dot_content)
-            click.echo(f"[OK] DOT file saved to {output_path}")
-            click.echo(f"  View with: dot -Tsvg {output_path} -o {output_path.stem}.svg")
+            console.print(f"[success]DOT file saved to {output_path}[/success]")
+            console.print(
+                f"  View with: dot -Tsvg {output_path} -o {output_path.stem}.svg", highlight=False
+            )
         else:
             import subprocess
 
@@ -343,30 +371,37 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                 )
 
                 if result.returncode == 0:
-                    click.echo(f"[OK] {format.upper()} saved to {output_path}")
+                    console.print(f"[success]{format.upper()} saved to {output_path}[/success]")
 
                     dot_path.unlink()
                 else:
-                    click.echo(f"[ERROR] Graphviz failed: {result.stderr}")
-                    click.echo(f"  DOT file saved to {dot_path}")
+                    console.print(f"[error]Graphviz failed: {result.stderr}[/error]")
+                    console.print(f"  DOT file saved to {dot_path}", highlight=False)
             except FileNotFoundError:
-                click.echo("[ERROR] Graphviz not installed. Install it to generate images:")
-                click.echo("  Ubuntu/Debian: apt install graphviz")
-                click.echo("  macOS: brew install graphviz")
-                click.echo("  Windows: choco install graphviz")
-                click.echo(f"\n  DOT file saved to {dot_path}")
-                click.echo(f"  Manual generation: dot -T{format} {dot_path} -o {output_path}")
+                console.print(
+                    "[error]Graphviz not installed. Install it to generate images:[/error]"
+                )
+                console.print("  Ubuntu/Debian: apt install graphviz")
+                console.print("  macOS: brew install graphviz")
+                console.print("  Windows: choco install graphviz")
+                console.print(f"\n  DOT file saved to {dot_path}", highlight=False)
+                console.print(
+                    f"  Manual generation: dot -T{format} {dot_path} -o {output_path}",
+                    highlight=False,
+                )
 
         metrics = cfg["metrics"]
-        click.echo("\n[METRICS]")
-        click.echo(f"  Cyclomatic Complexity: {metrics['cyclomatic_complexity']}")
-        click.echo(f"  Decision Points: {metrics['decision_points']}")
-        click.echo(f"  Maximum Nesting: {metrics['max_nesting_depth']}")
-        click.echo(f"  Has Loops: {metrics['has_loops']}")
+        console.print("\n\\[METRICS]")
+        console.print(
+            f"  Cyclomatic Complexity: {metrics['cyclomatic_complexity']}", highlight=False
+        )
+        console.print(f"  Decision Points: {metrics['decision_points']}", highlight=False)
+        console.print(f"  Maximum Nesting: {metrics['max_nesting_depth']}", highlight=False)
+        console.print(f"  Has Loops: {metrics['has_loops']}", highlight=False)
 
         builder.close()
 
     except Exception as e:
         logger.error(f"CFG visualization failed: {e}")
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e

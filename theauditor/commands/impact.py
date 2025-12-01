@@ -5,6 +5,8 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -157,8 +159,12 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud full' first to build the repository index", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db}[/error]", stderr=True, highlight=False
+        )
+        console.print(
+            "[error]Run 'aud full' first to build the repository index[/error]", stderr=True
+        )
         raise click.ClickException(f"Database not found: {db}")
 
     if symbol is None and file is None:
@@ -211,16 +217,33 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
                 sym_name, sym_path, sym_line, sym_type = results[0]
                 file = sym_path
                 line = sym_line
-                click.echo(f"Resolved: {sym_name} ({sym_type}) at {sym_path}:{sym_line}", err=True)
+                console.print(
+                    f"[error]Resolved: {sym_name} ({sym_type}) at {sym_path}:{sym_line}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
             else:
-                click.echo(f"Found {len(results)} symbols matching '{symbol}':", err=True)
+                console.print(
+                    f"[error]Found {len(results)} symbols matching '{symbol}':[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
                 for i, (name, path, ln, typ) in enumerate(results[:10], 1):
-                    click.echo(f"  {i}. {name} ({typ}) at {path}:{ln}", err=True)
+                    console.print(
+                        f"[error]  {i}. {name} ({typ}) at {path}:{ln}[/error]",
+                        stderr=True,
+                        highlight=False,
+                    )
                 if len(results) > 10:
-                    click.echo(f"  ... and {len(results) - 10} more", err=True)
-                click.echo("", err=True)
-                click.echo(
-                    "Use --file and --line to specify exact location, or refine pattern.", err=True
+                    console.print(
+                        f"[error]  ... and {len(results) - 10} more[/error]",
+                        stderr=True,
+                        highlight=False,
+                    )
+                console.print("[error][/error]", stderr=True)
+                console.print(
+                    "[error]Use --file and --line to specify exact location, or refine pattern.[/error]",
+                    stderr=True,
                 )
                 raise click.ClickException("Ambiguous symbol - multiple matches found")
 
@@ -262,18 +285,27 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
             sym_name, sym_line, sym_type = file_symbols[0]
             line = sym_line
-            click.echo(
-                f"Analyzing file from first symbol: {sym_name} ({sym_type}) at line {sym_line}",
-                err=True,
+            console.print(
+                f"[error]Analyzing file from first symbol: {sym_name} ({sym_type}) at line {sym_line}[/error]",
+                stderr=True,
+                highlight=False,
             )
-            click.echo(f"File contains {len(file_symbols)} symbols total", err=True)
+            console.print(
+                f"[error]File contains {len(file_symbols)} symbols total[/error]",
+                stderr=True,
+                highlight=False,
+            )
 
     if isinstance(file, str):
         file = Path(file)
 
     if not file.exists():
-        click.echo(f"Warning: File {file} not found in filesystem", err=True)
-        click.echo("Proceeding with analysis using indexed data...", err=True)
+        console.print(
+            f"[error]Warning: File {file} not found in filesystem[/error]",
+            stderr=True,
+            highlight=False,
+        )
+        console.print("[error]Proceeding with analysis using indexed data...[/error]", stderr=True)
 
     try:
         result = analyze_impact(
@@ -284,58 +316,75 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
         )
 
         if json:
-            click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
+            console.print(json_lib.dumps(result, indent=2, sort_keys=True), markup=False)
         elif planning_context:
             report = format_planning_context(result)
-            click.echo(report)
+            console.print(report, markup=False)
         else:
             report = format_impact_report(result)
-            click.echo(report)
+            console.print(report, markup=False)
 
             if verbose and not result.get("error"):
-                click.echo("\n" + "=" * 60)
-                click.echo("DETAILED DEPENDENCY INFORMATION")
-                click.echo("=" * 60)
+                console.print("\n" + "=" * 60, markup=False)
+                console.print("DETAILED DEPENDENCY INFORMATION")
+                console.rule()
 
                 if result.get("upstream_transitive"):
-                    click.echo(
-                        f"\nTransitive Upstream Dependencies ({len(result['upstream_transitive'])} total):"
+                    console.print(
+                        f"\nTransitive Upstream Dependencies ({len(result['upstream_transitive'])} total):",
+                        highlight=False,
                     )
                     for dep in result["upstream_transitive"][:20]:
                         depth_indicator = "  " * (3 - dep.get("depth", 1))
                         tree_char = "+-" if IS_WINDOWS else "└─"
-                        click.echo(
-                            f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}"
+                        console.print(
+                            f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}",
+                            highlight=False,
                         )
                     if len(result["upstream_transitive"]) > 20:
-                        click.echo(f"  ... and {len(result['upstream_transitive']) - 20} more")
+                        console.print(
+                            f"  ... and {len(result['upstream_transitive']) - 20} more",
+                            highlight=False,
+                        )
 
                 if result.get("downstream_transitive"):
-                    click.echo(
-                        f"\nTransitive Downstream Dependencies ({len(result['downstream_transitive'])} total):"
+                    console.print(
+                        f"\nTransitive Downstream Dependencies ({len(result['downstream_transitive'])} total):",
+                        highlight=False,
                     )
                     for dep in result["downstream_transitive"][:20]:
                         depth_indicator = "  " * (3 - dep.get("depth", 1))
                         if dep["file"] != "external":
                             tree_char = "+-" if IS_WINDOWS else "└─"
-                            click.echo(
-                                f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}"
+                            console.print(
+                                f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}",
+                                highlight=False,
                             )
                         else:
                             tree_char = "+-" if IS_WINDOWS else "└─"
-                            click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} (external)")
+                            console.print(
+                                f"{depth_indicator}{tree_char} {dep['symbol']} (external)",
+                                highlight=False,
+                            )
                     if len(result["downstream_transitive"]) > 20:
-                        click.echo(f"  ... and {len(result['downstream_transitive']) - 20} more")
+                        console.print(
+                            f"  ... and {len(result['downstream_transitive']) - 20} more",
+                            highlight=False,
+                        )
 
         if result.get("error"):
             exit(3)
 
         summary = result.get("impact_summary", {})
         if summary.get("total_impact", 0) > 20:
-            click.echo("\n[!] WARNING: High impact change detected!", err=True)
+            console.print(
+                "[error]\n\\[!] WARNING: High impact change detected![/error]", stderr=True
+            )
             exit(1)
 
     except Exception as e:
         if "No function or class found at" not in str(e):
-            click.echo(f"Error during impact analysis: {e}", err=True)
+            console.print(
+                f"[error]Error during impact analysis: {e}[/error]", stderr=True, highlight=False
+            )
         raise click.ClickException(str(e)) from e
