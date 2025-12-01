@@ -64,8 +64,6 @@ class BaseDatabaseManager:
 
     def validate_schema(self) -> bool:
         """Validate database schema matches expected definitions."""
-        import sys
-
         from ..schema import validate_all_tables
 
         cursor = self.conn.cursor()
@@ -394,9 +392,6 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["cfg_block_statements_jsx"] = []
 
-            import os
-            import sys
-
             for table_name, insert_mode in FLUSH_ORDER:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
                     self.flush_generic_batch(table_name, insert_mode)
@@ -440,9 +435,6 @@ class BaseDatabaseManager:
                 raise RuntimeError(f"Batch insert failed: {e}") from e
 
         except sqlite3.Error as e:
-            import os
-            import sys
-
             if os.environ.get("THEAUDITOR_DEBUG") == "1":
                 print(f"\n[DEBUG] SQL Error: {type(e).__name__}: {e}", file=sys.stderr)
                 print("[DEBUG] Tables with pending batches:", file=sys.stderr)

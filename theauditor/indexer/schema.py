@@ -49,6 +49,7 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("router_mounts", "INSERT"),
     ("api_endpoint_controls", "INSERT"),
     ("express_middleware_chains", "INSERT"),
+    ("validation_framework_usage", "INSERT"),
     ("python_orm_models", "INSERT"),
     ("python_orm_fields", "INSERT"),
     ("python_routes", "INSERT"),
