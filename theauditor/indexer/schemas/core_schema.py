@@ -37,6 +37,9 @@ REFS = TableSchema(
     indexes=[
         ("idx_refs_src", ["src"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["src"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -59,6 +62,9 @@ SYMBOLS = TableSchema(
         ("idx_symbols_type", ["type"]),
         ("idx_symbols_name", ["name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["path"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 SYMBOLS_JSX = TableSchema(
@@ -76,6 +82,9 @@ SYMBOLS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_symbols_path", ["path"]),
         ("idx_jsx_symbols_type", ["type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["path"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -98,6 +107,9 @@ ASSIGNMENTS = TableSchema(
         ("idx_assignments_target", ["target_var"]),
         ("idx_assignments_property_path", ["property_path"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 ASSIGNMENTS_JSX = TableSchema(
@@ -117,6 +129,9 @@ ASSIGNMENTS_JSX = TableSchema(
         ("idx_jsx_assignments_file", ["file"]),
         ("idx_jsx_assignments_function", ["in_function"]),
         ("idx_jsx_assignments_property_path", ["property_path"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -141,6 +156,9 @@ FUNCTION_CALL_ARGS = TableSchema(
         ("idx_function_call_args_argument_index", ["argument_index"]),
         ("idx_function_call_args_param_name", ["param_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 FUNCTION_CALL_ARGS_JSX = TableSchema(
@@ -161,6 +179,9 @@ FUNCTION_CALL_ARGS_JSX = TableSchema(
         ("idx_jsx_calls_file", ["file"]),
         ("idx_jsx_calls_caller", ["caller_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 FUNCTION_RETURNS = TableSchema(
@@ -179,6 +200,9 @@ FUNCTION_RETURNS = TableSchema(
     indexes=[
         ("idx_function_returns_file", ["file"]),
         ("idx_function_returns_function", ["function_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -199,6 +223,9 @@ FUNCTION_RETURNS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_returns_file", ["file"]),
         ("idx_jsx_returns_function", ["function_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -255,10 +282,11 @@ ASSIGNMENT_SOURCES_JSX = TableSchema(
     ],
     foreign_keys=[
         ForeignKey(
-            local_columns=["assignment_file", "assignment_line", "assignment_target"],
+            local_columns=["assignment_file", "assignment_line", "assignment_target", "jsx_mode"],
             foreign_table="assignments_jsx",
-            foreign_columns=["file", "line", "target_var"],
-        )
+            foreign_columns=["file", "line", "target_var", "jsx_mode"],
+        ),
+        ForeignKey(local_columns=["assignment_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -298,18 +326,20 @@ FUNCTION_RETURN_SOURCES_JSX = TableSchema(
         Column("return_function", "TEXT"),
         Column("jsx_mode", "TEXT", nullable=False),
         Column("return_var_name", "TEXT", nullable=False),
+        Column("extraction_pass", "INTEGER", default="1"),
     ],
     indexes=[
-        ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "jsx_mode"]),
+        ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "extraction_pass"]),
         ("idx_function_return_sources_jsx_var", ["return_var_name"]),
         ("idx_function_return_sources_jsx_file", ["return_file"]),
     ],
     foreign_keys=[
         ForeignKey(
-            local_columns=["return_file", "return_line"],
+            local_columns=["return_file", "return_line", "extraction_pass"],
             foreign_table="function_returns_jsx",
-            foreign_columns=["file", "line"],
-        )
+            foreign_columns=["file", "line", "extraction_pass"],
+        ),
+        ForeignKey(local_columns=["return_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -328,6 +358,9 @@ VARIABLE_USAGE = TableSchema(
         ("idx_variable_usage_file", ["file"]),
         ("idx_variable_usage_component", ["in_component"]),
         ("idx_variable_usage_var", ["variable_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -350,6 +383,9 @@ OBJECT_LITERALS = TableSchema(
         ("idx_object_literals_value", ["property_value"]),
         ("idx_object_literals_type", ["property_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -368,6 +404,9 @@ CFG_BLOCKS = TableSchema(
         ("idx_cfg_blocks_file", ["file"]),
         ("idx_cfg_blocks_function", ["function_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 CFG_EDGES = TableSchema(
@@ -385,6 +424,9 @@ CFG_EDGES = TableSchema(
         ("idx_cfg_edges_function", ["function_name"]),
         ("idx_cfg_edges_source", ["source_block_id"]),
         ("idx_cfg_edges_target", ["target_block_id"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -419,6 +461,9 @@ CFG_BLOCKS_JSX = TableSchema(
         ("idx_jsx_cfg_blocks_file", ["file"]),
         ("idx_jsx_cfg_blocks_function", ["function_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 CFG_EDGES_JSX = TableSchema(
@@ -438,6 +483,9 @@ CFG_EDGES_JSX = TableSchema(
         ("idx_jsx_cfg_edges_function", ["function_name"]),
         ("idx_jsx_cfg_edges_source", ["source_block_id"]),
         ("idx_jsx_cfg_edges_target", ["target_block_id"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -508,6 +556,9 @@ FINDINGS_CONSOLIDATED = TableSchema(
         ("idx_findings_cfg_complexity", ["cfg_complexity"], "cfg_complexity IS NOT NULL"),
         ("idx_findings_graph_score", ["graph_score"], "graph_score IS NOT NULL"),
         ("idx_findings_mypy_error_code", ["mypy_error_code"], "mypy_error_code IS NOT NULL"),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -19,7 +20,10 @@ class CoreStorage(BaseStorage):
 
         self.handlers = {
             "imports": self._store_imports,
+            "refs": self._store_imports,  # Alias: extractor sends 'refs'
+            "resolved_imports": self._store_imports,  # Alias: extractor sends 'resolved_imports'
             "api_endpoints": self._store_routes,
+            "routes": self._store_routes,  # Alias: extractor sends 'routes'
             "router_mounts": self._store_router_mounts,
             "middleware_chains": self._store_express_middleware_chains,
             "sql_objects": self._store_sql_objects,
@@ -42,6 +46,7 @@ class CoreStorage(BaseStorage):
             "variable_usage": self._store_variable_usage,
             "object_literals": self._store_object_literals,
             "package_configs": self._store_package_configs,
+            "python_package_configs": self._store_package_configs,  # Alias: Python extractor sends this
         }
 
     def _store_imports(self, file_path: str, imports: list, jsx_pass: bool):
@@ -53,18 +58,30 @@ class CoreStorage(BaseStorage):
                 kind = import_item.get("type", "import")
                 value = import_item.get("target") or import_item.get("source", "")
                 line = import_item.get("line")
-
-            elif len(import_item) == 3:
-                kind, value, line = import_item
+            elif isinstance(import_item, (list, tuple)):
+                # Robust indexing: handle any length (2, 3, 4+)
+                kind = import_item[0] if len(import_item) > 0 else "import"
+                value = import_item[1] if len(import_item) > 1 else ""
+                line = import_item[2] if len(import_item) > 2 else None
             else:
-                kind, value = import_item
+                # Fallback for unexpected types
+                kind = "import"
+                value = str(import_item)
                 line = None
 
             resolved = self._current_extracted.get("refs", {}).get(value, value)
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved} (line {line})")
-            self.db_manager.add_ref(file_path, kind, resolved, line)
-            self.counts["refs"] += 1
+            # Diagnostic trap: reveal offending path on FK crash, then re-raise
+            try:
+                self.db_manager.add_ref(file_path, kind, resolved, line)
+                self.counts["refs"] += 1
+            except sqlite3.IntegrityError as e:
+                logger.critical(
+                    f"FK VIOLATION in add_ref: src={file_path!r}, kind={kind!r}, "
+                    f"target={resolved!r}, line={line} -- {e}"
+                )
+                raise  # Re-raise: crash loud, don't suppress
 
     def _store_routes(self, file_path: str, routes: list, jsx_pass: bool):
         """Store api_endpoints with all 8 fields."""

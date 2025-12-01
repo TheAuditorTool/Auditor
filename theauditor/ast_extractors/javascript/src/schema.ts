@@ -647,7 +647,7 @@ export const ExtractedDataSchema = z.object({
   api_endpoints: z.array(APIEndpointSchema).optional(),
   middleware_chains: z.array(MiddlewareChainSchema).optional(),
   validation_calls: z.array(ValidationCallSchema).optional(),
-  schema_definitions: z.array(SchemaDefinitionSchema).optional(),
+  // Note: schema_definitions are merged into validation_calls (see main.ts:717)
   sql_queries: z.array(SQLQuerySchema).optional(),
   cdk_constructs: z.array(CDKConstructSchema).optional(),
   cdk_construct_properties: z.array(CDKConstructPropertySchema).optional(),
@@ -656,7 +656,7 @@ export const ExtractedDataSchema = z.object({
   graphql_resolvers: z.array(GraphQLResolverSchema).optional(),
   graphql_resolver_params: z.array(GraphQLResolverParamSchema).optional(),
 
-  env_vars: z.array(EnvVarUsageSchema).optional(),
+  env_var_usage: z.array(EnvVarUsageSchema).optional(),
   import_styles: z.array(ImportStyleSchema).optional(),
   import_style_names: z.array(ImportStyleNameSchema).optional(),
   refs: z.record(z.string()).optional(),

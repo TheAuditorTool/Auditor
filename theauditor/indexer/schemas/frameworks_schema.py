@@ -21,6 +21,9 @@ ORM_RELATIONSHIPS = TableSchema(
         ("idx_orm_relationships_target", ["target_model"]),
         ("idx_orm_relationships_type", ["relationship_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 ORM_QUERIES = TableSchema(
@@ -36,6 +39,9 @@ ORM_QUERIES = TableSchema(
     indexes=[
         ("idx_orm_queries_file", ["file"]),
         ("idx_orm_queries_type", ["query_type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -60,7 +66,7 @@ API_ENDPOINTS = TableSchema(
     name="api_endpoints",
     columns=[
         Column("file", "TEXT", nullable=False),
-        Column("line", "INTEGER"),
+        Column("line", "INTEGER", nullable=False),
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
@@ -68,8 +74,12 @@ API_ENDPOINTS = TableSchema(
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
     ],
+    primary_key=["file", "line"],
     indexes=[
         ("idx_api_endpoints_file", ["file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -109,6 +119,9 @@ ROUTER_MOUNTS = TableSchema(
     indexes=[
         ("idx_router_mounts_file", ["file"]),
         ("idx_router_mounts_router_var", ["router_variable"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 

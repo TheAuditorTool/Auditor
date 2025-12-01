@@ -33,79 +33,77 @@ class NodeOrmStrategy(GraphStrategy):
             "edges_created": 0,
         }
 
-        try:
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='sequelize_associations'"
-            )
-            if cursor.fetchone():
-                cursor.execute("""
-                    SELECT file, line, model_name, association_type, target_model, foreign_key
-                    FROM sequelize_associations
-                """)
+        # GRAPH FIX G4: Removed try/except - violates Zero Fallback (Fail Loud)
+        # Table check is valid feature detection, but real errors must crash
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sequelize_associations'"
+        )
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT file, line, model_name, association_type, target_model, foreign_key
+                FROM sequelize_associations
+            """)
 
-                associations = cursor.fetchall()
-                if associations:
-                    with click.progressbar(
-                        associations,
-                        label="Building Sequelize ORM edges",
-                        show_pos=True,
-                    ) as items:
-                        for row in items:
-                            stats["sequelize_associations"] += 1
+            associations = cursor.fetchall()
+            if associations:
+                with click.progressbar(
+                    associations,
+                    label="Building Sequelize ORM edges",
+                    show_pos=True,
+                ) as items:
+                    for row in items:
+                        stats["sequelize_associations"] += 1
 
-                            file = row["file"]
-                            line = row["line"]
-                            model = row["model_name"]
-                            assoc_type = row["association_type"]
-                            target = row["target_model"]
-                            foreign_key = row["foreign_key"]
+                        file = row["file"]
+                        line = row["line"]
+                        model = row["model_name"]
+                        assoc_type = row["association_type"]
+                        target = row["target_model"]
+                        foreign_key = row["foreign_key"]
 
-                            alias = self._infer_alias(assoc_type, target)
+                        alias = self._infer_alias(assoc_type, target)
 
-                            source_id = f"{file}::{model}::{alias}"
-                            if source_id not in nodes:
-                                nodes[source_id] = DFGNode(
-                                    id=source_id,
-                                    file=file,
-                                    variable_name=alias,
-                                    scope=model,
-                                    type="orm_relationship",
-                                    metadata={
-                                        "model": model,
-                                        "target": target,
-                                        "association_type": assoc_type,
-                                    },
-                                )
-
-                            target_id = f"{file}::{target}::instance"
-                            if target_id not in nodes:
-                                nodes[target_id] = DFGNode(
-                                    id=target_id,
-                                    file=file,
-                                    variable_name="instance",
-                                    scope=target,
-                                    type="orm_model",
-                                    metadata={"model": target},
-                                )
-
-                            new_edges = create_bidirectional_edges(
-                                source=source_id,
-                                target=target_id,
-                                edge_type="orm_expansion",
+                        source_id = f"{file}::{model}::{alias}"
+                        if source_id not in nodes:
+                            nodes[source_id] = DFGNode(
+                                id=source_id,
                                 file=file,
-                                line=line,
-                                expression=f"{model}.{assoc_type}({target})",
-                                function=model,
+                                variable_name=alias,
+                                scope=model,
+                                type="orm_relationship",
                                 metadata={
+                                    "model": model,
+                                    "target": target,
                                     "association_type": assoc_type,
-                                    "foreign_key": foreign_key or "",
                                 },
                             )
-                            edges.extend(new_edges)
-                            stats["edges_created"] += len(new_edges)
 
-        except sqlite3.OperationalError:
-            pass
+                        target_id = f"{file}::{target}::instance"
+                        if target_id not in nodes:
+                            nodes[target_id] = DFGNode(
+                                id=target_id,
+                                file=file,
+                                variable_name="instance",
+                                scope=target,
+                                type="orm_model",
+                                metadata={"model": target},
+                            )
+
+                        new_edges = create_bidirectional_edges(
+                            source=source_id,
+                            target=target_id,
+                            edge_type="orm_expansion",
+                            file=file,
+                            line=line,
+                            expression=f"{model}.{assoc_type}({target})",
+                            function=model,
+                            metadata={
+                                "association_type": assoc_type,
+                                "foreign_key": foreign_key or "",
+                            },
+                        )
+                        edges.extend(new_edges)
+                        stats["edges_created"] += len(new_edges)
 
         conn.close()
 

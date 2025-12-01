@@ -1,6 +1,6 @@
 """Python-specific schema definitions."""
 
-from .utils import Column, TableSchema
+from .utils import Column, ForeignKey, TableSchema
 
 PYTHON_ORM_MODELS = TableSchema(
     name="python_orm_models",
@@ -15,6 +15,9 @@ PYTHON_ORM_MODELS = TableSchema(
     indexes=[
         ("idx_python_orm_models_file", ["file"]),
         ("idx_python_orm_models_type", ["orm_type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -36,6 +39,9 @@ PYTHON_ORM_FIELDS = TableSchema(
         ("idx_python_orm_fields_model", ["model_name"]),
         ("idx_python_orm_fields_foreign", ["is_foreign_key"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_ROUTES = TableSchema(
@@ -55,6 +61,9 @@ PYTHON_ROUTES = TableSchema(
         ("idx_python_routes_file", ["file"]),
         ("idx_python_routes_framework", ["framework"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_VALIDATORS = TableSchema(
@@ -71,6 +80,9 @@ PYTHON_VALIDATORS = TableSchema(
         ("idx_python_validators_file", ["file"]),
         ("idx_python_validators_model", ["model_name"]),
         ("idx_python_validators_type", ["validator_type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -92,6 +104,9 @@ PYTHON_PACKAGE_CONFIGS = TableSchema(
         ("idx_python_package_configs_type", ["file_type"]),
         ("idx_python_package_configs_project", ["project_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_DECORATORS = TableSchema(
@@ -110,6 +125,9 @@ PYTHON_DECORATORS = TableSchema(
         ("idx_python_decorators_file", ["file"]),
         ("idx_python_decorators_type", ["decorator_type"]),
         ("idx_python_decorators_target", ["target_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -134,6 +152,9 @@ PYTHON_DJANGO_VIEWS = TableSchema(
         ("idx_python_django_views_model", ["model_name"]),
         ("idx_python_django_views_no_perm", ["has_permission_check"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_DJANGO_MIDDLEWARE = TableSchema(
@@ -152,6 +173,9 @@ PYTHON_DJANGO_MIDDLEWARE = TableSchema(
     indexes=[
         ("idx_python_django_middleware_file", ["file"]),
         ("idx_python_django_middleware_request", ["has_process_request"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -177,6 +201,9 @@ PYTHON_LOOPS = TableSchema(
         ("idx_python_loops_file", ["file"]),
         ("idx_python_loops_kind", ["loop_kind"]),
         ("idx_python_loops_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -214,6 +241,9 @@ PYTHON_BRANCHES = TableSchema(
         ("idx_python_branches_file", ["file"]),
         ("idx_python_branches_kind", ["branch_kind"]),
         ("idx_python_branches_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -260,6 +290,9 @@ PYTHON_FUNCTIONS_ADVANCED = TableSchema(
         ("idx_python_functions_advanced_kind", ["function_kind"]),
         ("idx_python_functions_advanced_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_IO_OPERATIONS = TableSchema(
@@ -286,6 +319,9 @@ PYTHON_IO_OPERATIONS = TableSchema(
         ("idx_python_io_operations_kind", ["io_kind"]),
         ("idx_python_io_operations_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_STATE_MUTATIONS = TableSchema(
@@ -310,6 +346,9 @@ PYTHON_STATE_MUTATIONS = TableSchema(
         ("idx_python_state_mutations_file", ["file"]),
         ("idx_python_state_mutations_kind", ["mutation_kind"]),
         ("idx_python_state_mutations_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -347,6 +386,9 @@ PYTHON_CLASS_FEATURES = TableSchema(
     indexes=[
         ("idx_python_class_features_file", ["file"]),
         ("idx_python_class_features_kind", ["feature_kind"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -390,6 +432,9 @@ PYTHON_PROTOCOLS = TableSchema(
         ("idx_python_protocols_file", ["file"]),
         ("idx_python_protocols_kind", ["protocol_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_DESCRIPTORS = TableSchema(
@@ -419,6 +464,9 @@ PYTHON_DESCRIPTORS = TableSchema(
         ("idx_python_descriptors_file", ["file"]),
         ("idx_python_descriptors_kind", ["descriptor_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_TYPE_DEFINITIONS = TableSchema(
@@ -442,6 +490,9 @@ PYTHON_TYPE_DEFINITIONS = TableSchema(
     indexes=[
         ("idx_python_type_definitions_file", ["file"]),
         ("idx_python_type_definitions_kind", ["type_kind"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -468,6 +519,9 @@ PYTHON_LITERALS = TableSchema(
         ("idx_python_literals_file", ["file"]),
         ("idx_python_literals_kind", ["literal_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -493,6 +547,9 @@ PYTHON_SECURITY_FINDINGS = TableSchema(
         ("idx_python_security_findings_file", ["file"]),
         ("idx_python_security_findings_kind", ["finding_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_TEST_CASES = TableSchema(
@@ -514,6 +571,9 @@ PYTHON_TEST_CASES = TableSchema(
         ("idx_python_test_cases_file", ["file"]),
         ("idx_python_test_cases_kind", ["test_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_TEST_FIXTURES = TableSchema(
@@ -533,6 +593,9 @@ PYTHON_TEST_FIXTURES = TableSchema(
     indexes=[
         ("idx_python_test_fixtures_file", ["file"]),
         ("idx_python_test_fixtures_kind", ["fixture_kind"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -561,6 +624,9 @@ PYTHON_FRAMEWORK_CONFIG = TableSchema(
         ("idx_python_framework_config_framework", ["framework"]),
         ("idx_python_framework_config_kind", ["config_kind"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_VALIDATION_SCHEMAS = TableSchema(
@@ -581,6 +647,9 @@ PYTHON_VALIDATION_SCHEMAS = TableSchema(
         ("idx_python_validation_schemas_file", ["file"]),
         ("idx_python_validation_schemas_framework", ["framework"]),
         ("idx_python_validation_schemas_kind", ["schema_kind"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -608,6 +677,9 @@ PYTHON_OPERATORS = TableSchema(
         ("idx_python_operators_kind", ["operator_kind"]),
         ("idx_python_operators_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_COLLECTIONS = TableSchema(
@@ -631,6 +703,9 @@ PYTHON_COLLECTIONS = TableSchema(
         ("idx_python_collections_file", ["file"]),
         ("idx_python_collections_kind", ["collection_kind"]),
         ("idx_python_collections_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -660,6 +735,9 @@ PYTHON_STDLIB_USAGE = TableSchema(
         ("idx_python_stdlib_usage_kind", ["stdlib_kind"]),
         ("idx_python_stdlib_usage_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 PYTHON_IMPORTS_ADVANCED = TableSchema(
@@ -688,6 +766,9 @@ PYTHON_IMPORTS_ADVANCED = TableSchema(
         ("idx_python_imports_advanced_file", ["file"]),
         ("idx_python_imports_advanced_kind", ["import_kind"]),
         ("idx_python_imports_advanced_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -732,6 +813,9 @@ PYTHON_EXPRESSIONS = TableSchema(
         ("idx_python_expressions_kind", ["expression_kind"]),
         ("idx_python_expressions_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -756,6 +840,9 @@ PYTHON_COMPREHENSIONS = TableSchema(
         ("idx_pcomp_file", ["file"]),
         ("idx_pcomp_kind", ["comp_kind"]),
         ("idx_pcomp_function", ["in_function"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -783,6 +870,9 @@ PYTHON_CONTROL_STATEMENTS = TableSchema(
         ("idx_pcs_kind", ["statement_kind"]),
         ("idx_pcs_function", ["in_function"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -802,7 +892,12 @@ PYTHON_PROTOCOL_METHODS = TableSchema(
         ("idx_ppm_method", ["method_name"]),
     ],
     foreign_keys=[
-        ("protocol_id", "python_protocols", "id", "CASCADE"),
+        ForeignKey(
+            local_columns=["protocol_id"],
+            foreign_table="python_protocols",
+            foreign_columns=["id"],
+        ),
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -825,7 +920,12 @@ PYTHON_TYPEDDICT_FIELDS = TableSchema(
         ("idx_ptf_field", ["field_name"]),
     ],
     foreign_keys=[
-        ("typeddict_id", "python_type_definitions", "id", "CASCADE"),
+        ForeignKey(
+            local_columns=["typeddict_id"],
+            foreign_table="python_type_definitions",
+            foreign_columns=["id"],
+        ),
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -846,7 +946,12 @@ PYTHON_FIXTURE_PARAMS = TableSchema(
         ("idx_pfp_fixture", ["fixture_id"]),
     ],
     foreign_keys=[
-        ("fixture_id", "python_test_fixtures", "id", "CASCADE"),
+        ForeignKey(
+            local_columns=["fixture_id"],
+            foreign_table="python_test_fixtures",
+            foreign_columns=["id"],
+        ),
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -867,7 +972,12 @@ PYTHON_FRAMEWORK_METHODS = TableSchema(
         ("idx_pfm_method", ["method_name"]),
     ],
     foreign_keys=[
-        ("config_id", "python_framework_config", "id", "CASCADE"),
+        ForeignKey(
+            local_columns=["config_id"],
+            foreign_table="python_framework_config",
+            foreign_columns=["id"],
+        ),
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -889,7 +999,12 @@ PYTHON_SCHEMA_VALIDATORS = TableSchema(
         ("idx_psv_validator", ["validator_name"]),
     ],
     foreign_keys=[
-        ("schema_id", "python_validation_schemas", "id", "CASCADE"),
+        ForeignKey(
+            local_columns=["schema_id"],
+            foreign_table="python_validation_schemas",
+            foreign_columns=["id"],
+        ),
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 

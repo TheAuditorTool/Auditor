@@ -98,6 +98,20 @@ class TableSchema:
             unique_str = ", ".join(unique_cols)
             col_defs.append(f"UNIQUE({unique_str})")
 
+        for fk in self.foreign_keys:
+            if isinstance(fk, ForeignKey):
+                local_cols = ", ".join(fk.local_columns)
+                foreign_cols = ", ".join(fk.foreign_columns)
+                col_defs.append(
+                    f"FOREIGN KEY ({local_cols}) REFERENCES {fk.foreign_table} ({foreign_cols})"
+                )
+            elif isinstance(fk, tuple) and len(fk) >= 3:
+                # Legacy tuple format: (local_col, foreign_table, foreign_col, [cascade])
+                local_col, foreign_table, foreign_col = fk[0], fk[1], fk[2]
+                col_defs.append(
+                    f"FOREIGN KEY ({local_col}) REFERENCES {foreign_table} ({foreign_col})"
+                )
+
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
     def create_indexes_sql(self) -> list[str]:

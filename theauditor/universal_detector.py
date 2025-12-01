@@ -260,8 +260,8 @@ class UniversalPatternDetector:
                             ),
                             message=finding.get("message", "Issue detected"),
                             file=str(file_path.relative_to(self.project_path)),
-                            line=finding.get("line", 0),
-                            column=finding.get("column", finding.get("col", 0)),
+                            line=finding.get("line") or 0,
+                            column=finding.get("column") or finding.get("col") or 0,
                             severity=finding.get("severity", "medium").lower(),
                             snippet=finding.get("snippet", finding.get("hint", ""))[:200],
                             category=finding.get("category", "security"),
@@ -349,8 +349,8 @@ class UniversalPatternDetector:
                         ),
                         message=finding.get("message", "Database issue detected"),
                         file=finding.get("file", ""),
-                        line=finding.get("line", 0),
-                        column=finding.get("column", 0),
+                        line=finding.get("line") or 0,
+                        column=finding.get("column") or 0,
                         severity=finding.get("severity", "medium").lower(),
                         snippet=finding.get("snippet", "")[:200],
                         category=finding.get("category", "database"),
@@ -371,7 +371,7 @@ class UniversalPatternDetector:
 
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         sorted_findings = sorted(
-            self.findings, key=lambda f: (severity_order.get(f.severity, 4), f.file, f.line)
+            self.findings, key=lambda f: (severity_order.get(f.severity, 4), f.file, f.line or 0)
         )
 
         lines = []

@@ -74,7 +74,7 @@ class ApiEndpointControlsRow(TypedDict):
 class ApiEndpointsRow(TypedDict):
     """Row type for api_endpoints table."""
     file: str
-    line: int | None
+    line: int
     method: str
     pattern: str
     path: str | None
@@ -570,6 +570,7 @@ class FunctionReturnSourcesJsxRow(TypedDict):
     return_function: str | None
     jsx_mode: str
     return_var_name: str
+    extraction_pass: int | None
 
 class FunctionReturnsRow(TypedDict):
     """Row type for function_returns table."""

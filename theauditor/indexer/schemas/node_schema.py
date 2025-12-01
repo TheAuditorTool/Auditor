@@ -22,6 +22,9 @@ CLASS_PROPERTIES = TableSchema(
         ("idx_class_properties_class", ["class_name"]),
         ("idx_class_properties_name", ["property_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -36,9 +39,13 @@ REACT_COMPONENTS = TableSchema(
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("props_type", "TEXT"),
     ],
+    primary_key=["file", "name"],
     indexes=[
         ("idx_react_components_file", ["file"]),
         ("idx_react_components_name", ["name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -61,7 +68,8 @@ REACT_COMPONENT_HOOKS = TableSchema(
             local_columns=["component_file", "component_name"],
             foreign_table="react_components",
             foreign_columns=["file", "name"],
-        )
+        ),
+        ForeignKey(local_columns=["component_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -77,10 +85,14 @@ REACT_HOOKS = TableSchema(
         Column("has_cleanup", "BOOLEAN", default="0"),
         Column("cleanup_type", "TEXT"),
     ],
+    primary_key=["file", "line", "component_name"],
     indexes=[
         ("idx_react_hooks_file", ["file"]),
         ("idx_react_hooks_component", ["component_name"]),
         ("idx_react_hooks_name", ["hook_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -104,7 +116,8 @@ REACT_HOOK_DEPENDENCIES = TableSchema(
             local_columns=["hook_file", "hook_line", "hook_component"],
             foreign_table="react_hooks",
             foreign_columns=["file", "line", "component_name"],
-        )
+        ),
+        ForeignKey(local_columns=["hook_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -126,6 +139,9 @@ VUE_COMPONENTS = TableSchema(
         ("idx_vue_components_name", ["name"]),
         ("idx_vue_components_type", ["type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 VUE_HOOKS = TableSchema(
@@ -145,6 +161,9 @@ VUE_HOOKS = TableSchema(
         ("idx_vue_hooks_component", ["component_name"]),
         ("idx_vue_hooks_type", ["hook_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 VUE_DIRECTIVES = TableSchema(
@@ -162,6 +181,9 @@ VUE_DIRECTIVES = TableSchema(
         ("idx_vue_directives_file", ["file"]),
         ("idx_vue_directives_name", ["directive_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 VUE_PROVIDE_INJECT = TableSchema(
@@ -177,6 +199,9 @@ VUE_PROVIDE_INJECT = TableSchema(
     ],
     indexes=[
         ("idx_vue_provide_inject_file", ["file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -205,6 +230,9 @@ TYPE_ANNOTATIONS = TableSchema(
         ("idx_type_annotations_unknown", ["file", "is_unknown"]),
         ("idx_type_annotations_generic", ["file", "is_generic"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -221,6 +249,9 @@ SEQUELIZE_MODELS = TableSchema(
     indexes=[
         ("idx_sequelize_models_file", ["file"]),
         ("idx_sequelize_models_name", ["model_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -242,6 +273,9 @@ SEQUELIZE_ASSOCIATIONS = TableSchema(
         ("idx_sequelize_assoc_target", ["target_model"]),
         ("idx_sequelize_assoc_type", ["association_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -258,6 +292,9 @@ BULLMQ_QUEUES = TableSchema(
         ("idx_bullmq_queues_file", ["file"]),
         ("idx_bullmq_queues_name", ["queue_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 BULLMQ_WORKERS = TableSchema(
@@ -273,6 +310,9 @@ BULLMQ_WORKERS = TableSchema(
     indexes=[
         ("idx_bullmq_workers_file", ["file"]),
         ("idx_bullmq_workers_queue", ["queue_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -293,6 +333,9 @@ ANGULAR_COMPONENTS = TableSchema(
         ("idx_angular_components_name", ["component_name"]),
         ("idx_angular_components_selector", ["selector"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 ANGULAR_SERVICES = TableSchema(
@@ -309,6 +352,9 @@ ANGULAR_SERVICES = TableSchema(
         ("idx_angular_services_file", ["file"]),
         ("idx_angular_services_name", ["service_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 ANGULAR_MODULES = TableSchema(
@@ -322,6 +368,9 @@ ANGULAR_MODULES = TableSchema(
     indexes=[
         ("idx_angular_modules_file", ["file"]),
         ("idx_angular_modules_name", ["module_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -340,6 +389,9 @@ ANGULAR_GUARDS = TableSchema(
         ("idx_angular_guards_name", ["guard_name"]),
         ("idx_angular_guards_type", ["guard_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 DI_INJECTIONS = TableSchema(
@@ -356,6 +408,9 @@ DI_INJECTIONS = TableSchema(
         ("idx_di_injections_target", ["target_class"]),
         ("idx_di_injections_service", ["injected_service"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -369,6 +424,9 @@ PACKAGE_CONFIGS = TableSchema(
     ],
     indexes=[
         ("idx_package_configs_file", ["file_path"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -491,6 +549,9 @@ LOCK_ANALYSIS = TableSchema(
         ("idx_lock_analysis_file", ["file_path"]),
         ("idx_lock_analysis_type", ["lock_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 IMPORT_STYLES = TableSchema(
@@ -504,11 +565,15 @@ IMPORT_STYLES = TableSchema(
         Column("full_statement", "TEXT"),
         Column("resolved_path", "TEXT"),
     ],
+    primary_key=["file", "line"],
     indexes=[
         ("idx_import_styles_file", ["file"]),
         ("idx_import_styles_package", ["package"]),
         ("idx_import_styles_style", ["import_style"]),
         ("idx_import_styles_resolved", ["resolved_path"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -531,7 +596,8 @@ IMPORT_STYLE_NAMES = TableSchema(
             local_columns=["import_file", "import_line"],
             foreign_table="import_styles",
             foreign_columns=["file", "line"],
-        )
+        ),
+        ForeignKey(local_columns=["import_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -580,6 +646,9 @@ VALIDATION_FRAMEWORK_USAGE = TableSchema(
         ("idx_validation_framework_method", ["framework", "method"]),
         ("idx_validation_is_validator", ["is_validator"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -605,6 +674,9 @@ EXPRESS_MIDDLEWARE_CHAINS = TableSchema(
         ("idx_express_middleware_chains_method", ["route_method"]),
         ("idx_express_middleware_chains_handler_type", ["handler_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -623,6 +695,9 @@ FRONTEND_API_CALLS = TableSchema(
         ("idx_frontend_api_calls_url", ["url_literal"]),
         ("idx_frontend_api_calls_method", ["method"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -640,6 +715,9 @@ VUE_COMPONENT_PROPS = TableSchema(
         ("idx_vue_component_props_file", ["file"]),
         ("idx_vue_component_props_component", ["component_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -654,6 +732,9 @@ VUE_COMPONENT_EMITS = TableSchema(
     indexes=[
         ("idx_vue_component_emits_file", ["file"]),
         ("idx_vue_component_emits_component", ["component_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -670,6 +751,9 @@ VUE_COMPONENT_SETUP_RETURNS = TableSchema(
         ("idx_vue_component_setup_returns_file", ["file"]),
         ("idx_vue_component_setup_returns_component", ["component_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -683,6 +767,9 @@ ANGULAR_COMPONENT_STYLES = TableSchema(
     indexes=[
         ("idx_angular_component_styles_file", ["file"]),
         ("idx_angular_component_styles_component", ["component_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -699,6 +786,9 @@ ANGULAR_MODULE_DECLARATIONS = TableSchema(
         ("idx_angular_module_declarations_file", ["file"]),
         ("idx_angular_module_declarations_module", ["module_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -712,6 +802,9 @@ ANGULAR_MODULE_IMPORTS = TableSchema(
     indexes=[
         ("idx_angular_module_imports_file", ["file"]),
         ("idx_angular_module_imports_module", ["module_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -728,6 +821,9 @@ ANGULAR_MODULE_PROVIDERS = TableSchema(
         ("idx_angular_module_providers_file", ["file"]),
         ("idx_angular_module_providers_module", ["module_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -741,6 +837,9 @@ ANGULAR_MODULE_EXPORTS = TableSchema(
     indexes=[
         ("idx_angular_module_exports_file", ["file"]),
         ("idx_angular_module_exports_module", ["module_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -759,6 +858,9 @@ FUNC_PARAMS = TableSchema(
         ("idx_func_params_function", ["file", "function_line", "function_name"]),
         ("idx_func_params_name", ["param_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -776,6 +878,9 @@ FUNC_DECORATORS = TableSchema(
         ("idx_func_decorators_function", ["file", "function_line"]),
         ("idx_func_decorators_name", ["decorator_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -791,6 +896,9 @@ FUNC_DECORATOR_ARGS = TableSchema(
     ],
     indexes=[
         ("idx_func_decorator_args_decorator", ["file", "function_line", "decorator_index"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -809,6 +917,9 @@ FUNC_PARAM_DECORATORS = TableSchema(
         ("idx_func_param_decorators_function", ["file", "function_line", "function_name"]),
         ("idx_func_param_decorators_decorator", ["decorator_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -826,6 +937,9 @@ CLASS_DECORATORS = TableSchema(
         ("idx_class_decorators_class", ["file", "class_line"]),
         ("idx_class_decorators_name", ["decorator_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -841,6 +955,9 @@ CLASS_DECORATOR_ARGS = TableSchema(
     ],
     indexes=[
         ("idx_class_decorator_args_decorator", ["file", "class_line", "decorator_index"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -858,6 +975,9 @@ ASSIGNMENT_SOURCE_VARS = TableSchema(
         ("idx_assignment_source_vars_assignment", ["file", "line", "target_var"]),
         ("idx_assignment_source_vars_source", ["source_var"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -873,6 +993,9 @@ RETURN_SOURCE_VARS = TableSchema(
     indexes=[
         ("idx_return_source_vars_return", ["file", "line"]),
         ("idx_return_source_vars_source", ["source_var"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -892,6 +1015,9 @@ IMPORT_SPECIFIERS = TableSchema(
         ("idx_import_specifiers_import", ["file", "import_line"]),
         ("idx_import_specifiers_name", ["specifier_name"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -910,6 +1036,9 @@ SEQUELIZE_MODEL_FIELDS = TableSchema(
     indexes=[
         ("idx_sequelize_model_fields_model", ["file", "model_name"]),
         ("idx_sequelize_model_fields_type", ["data_type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
