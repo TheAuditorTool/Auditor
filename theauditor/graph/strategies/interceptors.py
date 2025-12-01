@@ -395,20 +395,56 @@ class InterceptorStrategy:
     def _path_matches(self, import_package: str, symbol_path: str) -> bool:
         """Check if import package matches symbol path.
 
-        GRAPH FIX G9: Normalize BOTH paths and compare base names.
-        ONE code path - no fallbacks.
+        GRAPH FIX G11: Qualifier-Aware Suffix Matching.
+        Fixes G10 regression where TypeScript conventions (auth.guard.ts) broke matching.
+        1. Normalizes paths.
+        2. Strips extensions (.ts, .js).
+        3. Strips framework qualifiers (.guard, .service) to align 'auth' with 'auth.guard'.
+        4. Performs directory-sensitive suffix match.
         """
         if not import_package or not symbol_path:
             return False
 
-        # Normalize both to base filename without extension
-        import_base = import_package.replace("\\", "/").split("/")[-1]
-        import_base = import_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").lower()
+        def clean_path(path: str) -> str:
+            # 1. Normalize
+            p = path.replace("\\", "/").lower()
 
-        sym_base = symbol_path.replace("\\", "/").split("/")[-1]
-        sym_base = sym_base.replace(".ts", "").replace(".tsx", "").replace(".js", "").replace(".jsx", "").replace(".py", "").lower()
+            # 2. Remove Extensions
+            for ext in [".ts", ".tsx", ".js", ".jsx", ".py"]:
+                if p.endswith(ext):
+                    p = p[:-len(ext)]
 
-        return import_base == sym_base
+            # 3. Remove Framework Qualifiers (TypeScript/NestJS/Angular conventions)
+            qualifiers = [
+                ".guard", ".service", ".controller", ".interceptor",
+                ".middleware", ".module", ".entity", ".dto",
+                ".resolver", ".strategy", ".pipe", ".component", ".directive"
+            ]
+            for q in qualifiers:
+                if p.endswith(q):
+                    p = p[:-len(q)]
+            return p
+
+        clean_import = clean_path(import_package)
+        clean_symbol = clean_path(symbol_path)
+
+        # 4. Extract Segments (Fingerprint)
+        parts = [p for p in clean_import.split("/") if p not in (".", "..", "")]
+        if not parts:
+            return False
+
+        import_fingerprint = "/".join(parts)
+
+        # 5. Suffix Check with Boundary Enforcement
+        # "src/guards/auth" (was auth.guard.ts) ends with "guards/auth" -> MATCH
+        # "src/interceptors/auth" (was auth.interceptor.ts) ends with "guards/auth" -> NO MATCH
+        if clean_symbol.endswith(import_fingerprint):
+            match_index = clean_symbol.rfind(import_fingerprint)
+            # Ensure boundary is a slash or start of string (prevents "unauth" matching "auth")
+            if match_index == 0 or clean_symbol[match_index - 1] == "/":
+                return True
+
+        return False
 
     def _resolve_controller_info(
         self,
@@ -447,8 +483,8 @@ class InterceptorStrategy:
                 for sym in candidates:
                     if "controller" in sym["path"].lower():
                         return (sym["name"], sym["path"])
-                if candidates:
-                    return (candidates[0]["name"], candidates[0]["path"])
+                # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
+                # If "controller" in path didn't match, don't guess
             return (method_name, None)
 
         full_method_name = f"{object_name}.{method_name}"
@@ -459,8 +495,8 @@ class InterceptorStrategy:
             for sym in candidates:
                 if self._path_matches(import_package, sym["path"]):
                     return (sym["name"], sym["path"])
-            if candidates:
-                return (candidates[0]["name"], candidates[0]["path"])
+            # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
+            # If path matching failed, don't guess - fall through to method_name lookup
 
         if method_name in symbols_by_name:
             candidates = symbols_by_name[method_name]
@@ -472,7 +508,7 @@ class InterceptorStrategy:
             for sym in candidates:
                 if "controller" in sym["path"].lower():
                     return (sym["name"], sym["path"])
-            if candidates:
-                return (candidates[0]["name"], candidates[0]["path"])
+            # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
+            # If "controller" in path didn't match, don't guess
 
         return (method_name, None)
