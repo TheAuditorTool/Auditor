@@ -105,8 +105,8 @@ def validate_ml_schema():
 def check_ml_available():
     """Check if ML dependencies are available."""
     if not ML_AVAILABLE:
-        print("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
-        print("These are now installed by default. Reinstall: pip install -e .")
+        logger.info("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
+        logger.info("These are now installed by default. Reinstall: pip install -e .")
         return False
 
     validate_ml_schema()

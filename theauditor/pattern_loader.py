@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from theauditor.utils.logging import logger
+
 
 @dataclass
 class Pattern:
@@ -76,7 +78,7 @@ class PatternLoader:
                 patterns = self._load_yaml_file(yaml_file)
                 self.patterns[category] = patterns
             except Exception as e:
-                print(f"Warning: Failed to load {yaml_file}: {e}")
+                logger.info(f"Warning: Failed to load {yaml_file}: {e}")
 
         self._loaded = True
         return self.patterns
@@ -106,7 +108,7 @@ class PatternLoader:
                 )
                 patterns.append(pattern)
             except (KeyError, ValueError) as e:
-                print(f"Warning: Skipping invalid pattern in {file_path}: {e}")
+                logger.info(f"Warning: Skipping invalid pattern in {file_path}: {e}")
 
         return patterns
 

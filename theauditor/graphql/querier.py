@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 logger = logging.getLogger(__name__)
 
 
@@ -184,34 +186,34 @@ class GraphQLQuerier:
     def print_result(self, result: dict[str, Any]):
         """Pretty-print query result."""
         if "error" in result:
-            print(f"Error: {result['error']}")
+            logger.info(f"Error: {result['error']}")
             return
 
         if "types" in result:
-            print("\nGraphQL Types:")
+            logger.info("\nGraphQL Types:")
             for type_data in result["types"]:
-                print(
+                logger.info(
                     f"  {type_data['type_name']} ({type_data['kind']}) - {type_data['field_count']} fields"
                 )
 
         elif "fields" in result and isinstance(result["fields"], list):
-            print("\nFields matching query:")
+            logger.info("\nFields matching query:")
             for field in result["fields"]:
-                print(
+                logger.info(
                     f"  {field.get('type_name', '?')}.{field['field_name']}: {field['return_type']}"
                 )
                 if field.get("resolver"):
                     resolver = field["resolver"]
-                    print(f"    → {resolver['name']} ({resolver['file']}:{resolver['line']})")
+                    logger.info(f"    → {resolver['name']} ({resolver['file']}:{resolver['line']})")
 
         else:
-            print(f"\nType: {result['type_name']} ({result['kind']})")
-            print(f"Fields ({len(result['fields'])}):")
+            logger.info(f"\nType: {result['type_name']} ({result['kind']})")
+            logger.info(f"Fields ({len(result['fields'])}):")
             for field in result["fields"]:
-                print(f"  {field['field_name']}: {field['return_type']}")
+                logger.info(f"  {field['field_name']}: {field['return_type']}")
                 if field.get("arguments"):
                     for arg in field["arguments"]:
-                        print(f"    - {arg['arg_name']}: {arg['arg_type']}")
+                        logger.info(f"    - {arg['arg_name']}: {arg['arg_type']}")
                 if field.get("resolver"):
                     resolver = field["resolver"]
-                    print(f"    → {resolver['name']} ({resolver['binding_style']})")
+                    logger.info(f"    → {resolver['name']} ({resolver['binding_style']})")

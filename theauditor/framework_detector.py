@@ -8,6 +8,7 @@ from typing import Any
 
 from theauditor.framework_registry import FRAMEWORK_REGISTRY
 from theauditor.manifest_parser import ManifestParser
+from theauditor.utils.logging import logger
 from theauditor.utils.validation_debug import log_validation
 
 
@@ -177,7 +178,7 @@ class FrameworkDetector:
                         with open(path, encoding="utf-8") as f:
                             parsed_data[manifest_key] = f.read()
                 except Exception as e:
-                    print(f"Warning: Failed to parse {manifest_key}: {e}")
+                    logger.info(f"Warning: Failed to parse {manifest_key}: {e}")
 
         for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
             for required_manifest_name, search_configs in fw_config.get(
@@ -372,7 +373,7 @@ class FrameworkDetector:
                             if workspace_pkg.exists():
                                 self._check_workspace_package(workspace_pkg, parser)
         except Exception as e:
-            print(f"Warning: Failed to check workspaces: {e}")
+            logger.info(f"Warning: Failed to check workspaces: {e}")
 
     def _check_workspace_package(self, pkg_path: Path, parser: ManifestParser):
         """Check a single workspace package.json for frameworks."""
@@ -413,7 +414,7 @@ class FrameworkDetector:
                         }
                     )
         except Exception as e:
-            print(f"Warning: Failed to parse workspace package {pkg_path}: {e}")
+            logger.info(f"Warning: Failed to parse workspace package {pkg_path}: {e}")
 
         pass
 
@@ -584,7 +585,7 @@ class FrameworkDetector:
                     for dep in deps_list:
                         self.deps_cache[dep["name"]] = dep
             except Exception as e:
-                print(f"Warning: Could not load deps cache: {e}")
+                logger.info(f"Warning: Could not load deps cache: {e}")
                 pass
 
     def _find_cargo_workspace_root(self, cargo_toml_path: Path) -> Path | None:

@@ -46,7 +46,9 @@ class JSSemanticParser:
             stack = traceback.extract_stack()
             caller = stack[-2] if len(stack) > 1 else None
             if caller:
-                logger.debug(f"JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}")
+                logger.debug(
+                    f"JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}"
+                )
             logger.debug(f"Created JSSemanticParser for project: {self.project_root}")
             if self.project_module_type == "module":
                 logger.debug("Detected ES module project (package.json has 'type': 'module')")

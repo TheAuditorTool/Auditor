@@ -73,7 +73,7 @@ def pino_compatible_sink(message):
         }
 
     # Write to stderr (no emojis - Windows CP1252 compatibility)
-    print(json.dumps(pino_log), file=sys.stderr)
+    logger.error(json.dumps(pino_log))
 
 
 # Human-readable format (no emojis - Windows CP1252 compatibility)

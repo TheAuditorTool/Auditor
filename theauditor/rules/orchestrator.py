@@ -268,18 +268,13 @@ class RulesOrchestrator:
                     continue
 
                 try:
-                    import sys
-
-                    print(
-                        f"[ORCHESTRATOR] >> Starting rule: {category}/{rule.name}...",
-                        file=sys.stderr,
-                        end="",
-                        flush=True,
-                    )
+                    logger.debug(f"Starting rule: {category}/{rule.name}...")
 
                     findings = self._execute_rule(rule, context)
 
-                    logger.error(f" Done. ({len(findings or [])} findings)")
+                    logger.debug(
+                        f"Rule {category}/{rule.name} done. ({len(findings or [])} findings)"
+                    )
 
                     if findings:
                         all_findings.extend(findings)

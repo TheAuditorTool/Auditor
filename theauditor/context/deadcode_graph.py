@@ -134,9 +134,9 @@ class GraphDeadCodeDetector:
         entry_points = self._find_entry_points(self.import_graph)
 
         if self.debug:
-            print(f"  Nodes: {self.import_graph.number_of_nodes()}")
-            print(f"  Edges: {self.import_graph.number_of_edges()}")
-            print(f"  Entry points: {len(entry_points)}")
+            logger.info(f"  Nodes: {self.import_graph.number_of_nodes()}")
+            logger.info(f"  Edges: {self.import_graph.number_of_edges()}")
+            logger.info(f"  Entry points: {len(entry_points)}")
 
         dead_modules = self._find_dead_nodes(self.import_graph, entry_points, exclude_patterns)
         findings.extend(dead_modules)
@@ -426,7 +426,7 @@ class GraphDeadCodeDetector:
 
         if self.debug:
             logger.info(f"Cluster #{cluster_id} exported to {output_path}")
-            print(f"    Visualize with: dot -Tpng {output_path} -o cluster_{cluster_id}.png")
+            logger.info(f"    Visualize with: dot -Tpng {output_path} -o cluster_{cluster_id}.png")
 
     def __del__(self):
         """Close database connections."""

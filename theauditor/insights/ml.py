@@ -192,8 +192,8 @@ def validate_ml_schema():
 def check_ml_available():
     """Check if ML dependencies are available."""
     if not ML_AVAILABLE:
-        print("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
-        print("These are now installed by default. Reinstall: pip install -e .")
+        logger.info("ERROR: ML dependencies missing (sklearn, numpy, scipy, joblib)")
+        logger.info("These are now installed by default. Reinstall: pip install -e .")
         return False
 
     validate_ml_schema()
@@ -1443,7 +1443,7 @@ def learn(
         if print_stats:
             excluded_count = len(all_file_paths) - len(file_paths)
             if excluded_count > 0:
-                print(f"Excluded {excluded_count} non-source files (tests, docs, configs)")
+                logger.info(f"Excluded {excluded_count} non-source files (tests, docs, configs)")
 
     except Exception as e:
         return {"success": False, "error": f"Failed to load manifest: {e}"}
@@ -1495,23 +1495,23 @@ def learn(
 
             if print_stats:
                 feedback_count = sum(1 for fp in file_paths if fp in feedback_data)
-                print(f"Incorporating human feedback for {feedback_count} files")
+                logger.info(f"Incorporating human feedback for {feedback_count} files")
 
         except Exception as e:
             if print_stats:
-                print(f"Warning: Could not load feedback file: {e}")
+                logger.info(f"Warning: Could not load feedback file: {e}")
 
     n_samples = len(file_paths)
     cold_start = n_samples < 500
 
     if print_stats:
-        print(f"Training on {n_samples} files")
-        print(f"Features: {features.shape[1]} dimensions")
-        print(f"Root cause positive: {np.sum(root_cause_labels)}/{n_samples}")
-        print(f"Next edit positive: {np.sum(next_edit_labels)}/{n_samples}")
-        print(f"Mean risk: {np.mean(risk_labels):.3f}")
+        logger.info(f"Training on {n_samples} files")
+        logger.info(f"Features: {features.shape[1]} dimensions")
+        logger.info(f"Root cause positive: {np.sum(root_cause_labels)}/{n_samples}")
+        logger.info(f"Next edit positive: {np.sum(next_edit_labels)}/{n_samples}")
+        logger.info(f"Mean risk: {np.mean(risk_labels):.3f}")
         if cold_start:
-            print("WARNING: Cold-start with <500 samples, expect noisy signals")
+            logger.info("WARNING: Cold-start with <500 samples, expect noisy signals")
 
     root_cause_clf, next_edit_clf, risk_reg, scaler, root_cause_calibrator, next_edit_calibrator = (
         train_models(
@@ -1547,7 +1547,7 @@ def learn(
     )
 
     if print_stats:
-        print(f"Models saved to {model_dir}")
+        logger.info(f"Models saved to {model_dir}")
 
     return {
         "success": True,
@@ -1585,7 +1585,7 @@ def suggest(
     ) = load_models(model_dir)
 
     if root_cause_clf is None:
-        print(f"No models found in {model_dir}. Run 'aud learn' first.")
+        logger.info(f"No models found in {model_dir}. Run 'aud learn' first.")
         return {"success": False, "error": "Models not found"}
 
     try:
@@ -1598,7 +1598,7 @@ def suggest(
         if print_plan:
             excluded_count = len(all_file_paths) - len(file_paths)
             if excluded_count > 0:
-                print(f"Excluded {excluded_count} non-source files from suggestions")
+                logger.info(f"Excluded {excluded_count} non-source files from suggestions")
 
     except Exception as e:
         return {"success": False, "error": f"Failed to load workset: {e}"}
@@ -1727,24 +1727,24 @@ def suggest(
     os.replace(tmp_path, out_path)
 
     if print_plan:
-        print(f"Workset: {len(file_paths)} files")
-        print(f"\nTop {min(5, topk)} likely root causes:")
+        logger.info(f"Workset: {len(file_paths)} files")
+        logger.info(f"\nTop {min(5, topk)} likely root causes:")
         for item in output["likely_root_causes"][:5]:
             conf_str = (
                 f" (±{item['confidence_std']:.3f})" if item.get("confidence_std", 0) > 0 else ""
             )
-            print(f"  {item['score']:.3f}{conf_str} - {item['path']}")
+            logger.info(f"  {item['score']:.3f}{conf_str} - {item['path']}")
 
-        print(f"\nTop {min(5, topk)} next files to edit:")
+        logger.info(f"\nTop {min(5, topk)} next files to edit:")
         for item in output["next_files_to_edit"][:5]:
             conf_str = (
                 f" (±{item['confidence_std']:.3f})" if item.get("confidence_std", 0) > 0 else ""
             )
-            print(f"  {item['score']:.3f}{conf_str} - {item['path']}")
+            logger.info(f"  {item['score']:.3f}{conf_str} - {item['path']}")
 
-        print(f"\nTop {min(5, topk)} risk scores:")
+        logger.info(f"\nTop {min(5, topk)} risk scores:")
         for item in output["risk"][:5]:
-            print(f"  {item['score']:.3f} - {item['path']}")
+            logger.info(f"  {item['score']:.3f} - {item['path']}")
 
     return {
         "success": True,

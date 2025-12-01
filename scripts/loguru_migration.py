@@ -1,4 +1,7 @@
-"""LibCST codemod: Migrate print('[TAG]...') statements to Loguru logger calls.
+"""LibCST codemod: Migrate ALL print() statements to Loguru logger calls.
+
+TRAINING WHEELS OFF: This script now converts ALL print() statements, not just
+tagged ones. Untagged prints default to logger.info().
 
 This script automates the migration of TheAuditor's logging infrastructure from
 scattered print() statements to centralized Loguru logging.
@@ -377,9 +380,8 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         elif has_stderr:
             # AUDIT FIX 2: No tag, but printing to stderr -> ERROR level
             level = "error"
-        else:
-            # No tag found, no force, no stderr -> Don't transform
-            return None
+        # TRAINING WHEELS OFF: Untagged prints default to logger.info()
+        # No more skipping - every print() gets converted
 
         # ---------------------------------------------------------------------
         # AUDIT FIX 3: Extract 'sep' argument for format string

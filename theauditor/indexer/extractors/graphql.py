@@ -42,7 +42,7 @@ class GraphQLExtractor(BaseExtractor):
         try:
             document = parse(content)
         except Exception as e:
-            print(f"GraphQL parse error in {file_path}: {e}")
+            logger.info(f"GraphQL parse error in {file_path}: {e}")
             raise
 
         schema_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()

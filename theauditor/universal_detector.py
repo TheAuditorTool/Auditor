@@ -84,15 +84,15 @@ class UniversalPatternDetector:
 
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud full' first.")
+            logger.info("Error: Database not found. Run 'aud full' first.")
             return []
 
         files_to_scan = self._query_files(db_path, file_filter)
         if not files_to_scan:
-            print("No files to scan.")
+            logger.info("No files to scan.")
             return []
 
-        print(f"Found {len(files_to_scan)} files to scan...")
+        logger.info(f"Found {len(files_to_scan)} files to scan...")
 
         ast_files = []
         regex_files = []
@@ -105,18 +105,18 @@ class UniversalPatternDetector:
                 regex_files.append(file_info)
 
         if ast_files:
-            print(f"Processing {len(ast_files)} files with AST analysis...")
+            logger.info(f"Processing {len(ast_files)} files with AST analysis...")
             self._process_ast_files(ast_files)
 
         if regex_files:
-            print(f"Processing {len(regex_files)} config files with patterns...")
+            logger.info(f"Processing {len(regex_files)} config files with patterns...")
             self._process_regex_files(regex_files, categories)
 
-        print("Running database-aware rules...")
+        logger.info("Running database-aware rules...")
         db_findings = self._run_database_rules()
         self.findings.extend(db_findings)
 
-        print(f"Total findings: {len(self.findings)}")
+        logger.info(f"Total findings: {len(self.findings)}")
         return self.findings
 
     def detect_patterns_for_files(
@@ -138,7 +138,7 @@ class UniversalPatternDetector:
 
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud full' first.")
+            logger.info("Error: Database not found. Run 'aud full' first.")
             return []
 
         files_to_scan = self._query_specific_files(db_path, normalized_files)
@@ -183,7 +183,7 @@ class UniversalPatternDetector:
             conn.close()
 
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logger.info(f"Database error: {e}")
 
         return files
 
@@ -210,7 +210,7 @@ class UniversalPatternDetector:
             conn.close()
 
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logger.info(f"Database error: {e}")
 
         return files
 
@@ -402,7 +402,7 @@ class UniversalPatternDetector:
             output_file = Path(output_file)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_text(json_str)
-            print(f"Findings written to {output_file}")
+            logger.info(f"Findings written to {output_file}")
 
         return json_str
 
