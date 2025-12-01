@@ -646,12 +646,20 @@ def trace_taint(
 
             print(f"[TAINT] FlowResolver identified {len(reachable_targets)} reachable sinks.", file=sys.stderr)
 
-            original_count = len(sinks)
-            sinks = [
-                s for s in sinks
-                if (s.get("file"), s.get("line")) in reachable_targets
-            ]
-            print(f"[TAINT] Handshake: {original_count} -> {len(sinks)} sinks.", file=sys.stderr)
+            # UNION STRATEGY: Tag sinks confirmed by FlowResolver, but let IFDS analyze ALL sinks
+            # This ensures FlowResolver timeouts don't muzzle IFDS (backward, deterministic) analysis
+            flow_resolver_hits = reachable_targets
+            for sink in sinks:
+                sink_key = (sink.get("file"), sink.get("line"))
+                if sink_key in flow_resolver_hits:
+                    sink["confirmed_by_forward_analysis"] = True
+
+            confirmed_count = sum(1 for s in sinks if s.get("confirmed_by_forward_analysis"))
+            print(
+                f"[TAINT] Ensemble: {confirmed_count}/{len(sinks)} sinks confirmed by FlowResolver. "
+                f"IFDS will analyze ALL {len(sinks)} sinks (Union Strategy).",
+                file=sys.stderr,
+            )
             sys.stderr.flush()
         # --- END HANDSHAKE ---
 
