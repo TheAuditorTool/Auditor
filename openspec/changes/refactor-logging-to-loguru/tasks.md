@@ -1,4 +1,4 @@
-# Implementation Tasks: Logging Migration to Loguru (Polyglot)
+# Implementation Tasks: Logging Migration to Loguru + Pino (Polyglot)
 
 **IMPORTANT**: READ `specs/logging/spec.md` before implementing EACH language phase.
 
@@ -13,7 +13,8 @@
 - [ ] 0.5 Verify `theauditor/pipeline/renderer.py` exists (must NOT modify)
 - [ ] 0.6 Verify `theauditor/pipeline/ui.py` exists (must NOT modify)
 - [ ] 0.7 Run `aud full --index` and capture baseline output for comparison
-- [ ] 0.8 Verify libcst is available or can be installed
+- [ ] 0.8 Verify libcst 1.8.6 is available: `pip install libcst==1.8.6`
+- [ ] 0.9 Verify `scripts/loguru_migration.py` exists (847 lines)
 
 ---
 
@@ -23,16 +24,22 @@
 
 ### 1.1 Add Dependencies
 
-- [ ] 1.1.1 Add `loguru>=0.7.0` to `pyproject.toml` dependencies
-- [ ] 1.1.2 Add `libcst>=1.0.0` to `pyproject.toml` dev dependencies
+- [ ] 1.1.1 Add `loguru==0.7.3` to `pyproject.toml` runtime dependencies
+- [ ] 1.1.2 Add `libcst==1.8.6` to `pyproject.toml` dev dependencies
 - [ ] 1.1.3 Run `pip install -e ".[dev]"` to install dependencies
+- [ ] 1.1.4 Verify: `python -c "import loguru; print(loguru.__version__)"` shows `0.7.3`
+- [ ] 1.1.5 Verify: `python -c "import libcst; print(libcst.__version__)"` shows `1.8.6`
 
-### 1.2 Create Python Logger Configuration
+### 1.2 Create Python Logger Configuration (Pino-Compatible Sink)
 
 - [ ] 1.2.1 Create `theauditor/utils/logging.py`:
 
 ```python
-"""Centralized logging configuration using Loguru.
+"""Centralized logging configuration using Loguru with Pino-compatible output.
+
+This module provides a unified logging interface that outputs NDJSON compatible
+with Pino (Node.js logging library), enabling unified log viewing across
+Python and TypeScript components.
 
 Usage:
     from theauditor.utils.logging import logger
@@ -43,9 +50,12 @@ Environment Variables:
     THEAUDITOR_LOG_LEVEL: DEBUG|INFO|WARNING|ERROR (default: INFO)
     THEAUDITOR_LOG_JSON: 0|1 (default: 0, human-readable)
     THEAUDITOR_LOG_FILE: path to log file (optional)
+    THEAUDITOR_REQUEST_ID: correlation ID for cross-language tracing
 """
+import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from loguru import logger
@@ -53,10 +63,54 @@ from loguru import logger
 # Remove default handler
 logger.remove()
 
+# Pino-compatible numeric levels
+PINO_LEVELS = {
+    "TRACE": 10,
+    "DEBUG": 20,
+    "INFO": 30,
+    "WARNING": 40,
+    "ERROR": 50,
+    "CRITICAL": 60,
+}
+
 # Get configuration from environment
 _log_level = os.environ.get("THEAUDITOR_LOG_LEVEL", "INFO").upper()
 _json_mode = os.environ.get("THEAUDITOR_LOG_JSON", "0") == "1"
 _log_file = os.environ.get("THEAUDITOR_LOG_FILE")
+_request_id = os.environ.get("THEAUDITOR_REQUEST_ID") or str(uuid.uuid4())
+
+
+def pino_compatible_sink(message):
+    """Format log records as Pino-compatible NDJSON.
+
+    Output format matches Pino exactly for unified log viewing:
+    {"level":30,"time":1715629847123,"msg":"...","pid":12345,"request_id":"..."}
+    """
+    record = message.record
+
+    pino_log = {
+        "level": PINO_LEVELS.get(record["level"].name, 30),
+        "time": int(record["time"].timestamp() * 1000),
+        "msg": record["message"],
+        "pid": record["process"].id,
+        "request_id": record["extra"].get("request_id", _request_id),
+    }
+
+    # Add any extra context fields
+    for key, value in record["extra"].items():
+        if key not in ("request_id",):
+            pino_log[key] = value
+
+    # Add exception info if present (Pino err format)
+    if record["exception"]:
+        pino_log["err"] = {
+            "type": record["exception"].type.__name__ if record["exception"].type else "Error",
+            "message": str(record["exception"].value) if record["exception"].value else "",
+        }
+
+    # Write to stderr (no emojis - Windows CP1252 compatibility)
+    print(json.dumps(pino_log), file=sys.stderr)
+
 
 # Human-readable format (no emojis - Windows CP1252 compatibility)
 _human_format = (
@@ -66,12 +120,11 @@ _human_format = (
     "<level>{message}</level>"
 )
 
-# Console handler
+# Console handler - choose format based on JSON mode
 if _json_mode:
     logger.add(
-        sys.stderr,
+        pino_compatible_sink,
         level=_log_level,
-        serialize=True,  # JSON output
         colorize=False,
     )
 else:
@@ -82,15 +135,11 @@ else:
         colorize=True,
     )
 
-# Optional file handler
+# Optional file handler (always NDJSON for machine parsing)
 if _log_file:
     logger.add(
-        _log_file,
-        rotation="10 MB",
-        retention="7 days",
+        pino_compatible_sink,
         level="DEBUG",  # File always captures everything
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        serialize=_json_mode,
     )
 
 
@@ -102,8 +151,11 @@ def configure_file_logging(log_dir: Path, level: str = "DEBUG") -> None:
         level: Minimum log level for file output
     """
     log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "theauditor.log"
+
+    # File logging uses human-readable format (for manual inspection)
     logger.add(
-        log_dir / "theauditor.log",
+        log_file,
         rotation="10 MB",
         retention="7 days",
         level=level,
@@ -111,10 +163,31 @@ def configure_file_logging(log_dir: Path, level: str = "DEBUG") -> None:
     )
 
 
-__all__ = ["logger", "configure_file_logging"]
+def get_request_id() -> str:
+    """Get the current request ID for correlation."""
+    return _request_id
+
+
+def get_subprocess_env() -> dict:
+    """Get environment dict with REQUEST_ID for subprocess calls.
+
+    Use this when spawning TypeScript extractor or other subprocesses
+    to maintain log correlation.
+
+    Example:
+        env = get_subprocess_env()
+        subprocess.run(["node", "extractor.js"], env=env)
+    """
+    env = os.environ.copy()
+    env["THEAUDITOR_REQUEST_ID"] = _request_id
+    return env
+
+
+__all__ = ["logger", "configure_file_logging", "get_request_id", "get_subprocess_env"]
 ```
 
 - [ ] 1.2.2 Verify: `python -c "from theauditor.utils.logging import logger; logger.info('test')"` works
+- [ ] 1.2.3 Verify JSON mode: `THEAUDITOR_LOG_JSON=1 python -c "from theauditor.utils.logging import logger; logger.info('test')"` outputs NDJSON
 
 ---
 
@@ -229,7 +302,7 @@ grep -r "from theauditor.utils.logger import" theauditor/
 # Replace with new import
 ```
 
-### 5.2 Update Old Logger References (21 files)
+### 5.2 Update Old Logger References (22 files)
 
 The following files use `setup_logger` and need import migration:
 
@@ -269,6 +342,7 @@ The following files use `setup_logger` and need import migration:
 
 **theauditor/utils/__init__.py** (re-export):
 - [ ] 5.2.21 Update `__init__.py` - remove `setup_logger` from `__all__` (lines 33, 56)
+- [ ] 5.2.22 Add `logger` export from new logging.py
 
 **Replacement pattern for each file:**
 ```python
@@ -280,9 +354,9 @@ logger = setup_logger(__name__)
 from theauditor.utils.logging import logger
 ```
 
-- [ ] 5.2.22 Verify all 21 files updated:
+- [ ] 5.2.23 Verify all 22 files updated:
 ```bash
-grep -r "setup_logger" theauditor/ | grep -v "__pycache__"  # Should only show logger.py definition
+grep -r "setup_logger" theauditor/ | grep -v "__pycache__"  # Should return nothing
 ```
 
 ---
@@ -309,7 +383,7 @@ THEAUDITOR_LOG_LEVEL=DEBUG aud full --index
 THEAUDITOR_LOG_LEVEL=ERROR aud full --index
 ```
 
-### 6.3 JSON Output Tests
+### 6.3 JSON Output Tests (Pino-Compatible NDJSON)
 
 - [ ] 6.3.1 Verify JSON output:
 ```bash
@@ -318,6 +392,11 @@ THEAUDITOR_LOG_JSON=1 aud full --index 2>&1 | head -5
 - [ ] 6.3.2 Validate JSON is parseable:
 ```bash
 THEAUDITOR_LOG_JSON=1 aud full --index 2>&1 | python -c "import sys,json; [json.loads(l) for l in sys.stdin]"
+```
+- [ ] 6.3.3 Verify Pino format (level is int, time is epoch ms, msg not message):
+```bash
+THEAUDITOR_LOG_JSON=1 python -c "from theauditor.utils.logging import logger; logger.info('test')" 2>&1
+# Should output: {"level":30,"time":1715...,"msg":"test","pid":...,"request_id":"..."}
 ```
 
 ### 6.4 Rich UI Verification
@@ -330,111 +409,152 @@ aud full --offline
 
 ---
 
-## PHASE 7: TypeScript Migration (Manual)
+## PHASE 7: TypeScript Migration (Pino 10.1.0)
 
 **READ**: specs/logging/spec.md "TypeScript Requirements" before starting.
 
-### 7.1 Create TypeScript Logger
+### 7.1 Add Pino Dependencies
 
-- [ ] 7.1.1 Create directory: `mkdir -p theauditor/ast_extractors/javascript/src/utils`
-- [ ] 7.1.2 Create `theauditor/ast_extractors/javascript/src/utils/logger.ts`:
+- [ ] 7.1.1 Navigate to JavaScript extractor directory:
+```bash
+cd theauditor/ast_extractors/javascript
+```
+- [ ] 7.1.2 Add Pino as dependency:
+```bash
+npm install pino@10.1.0
+```
+- [ ] 7.1.3 Add pino-pretty as dev dependency:
+```bash
+npm install --save-dev pino-pretty@13.0.0
+```
+- [ ] 7.1.4 Verify package.json has correct versions:
+```json
+{
+  "dependencies": {
+    "pino": "10.1.0"
+  },
+  "devDependencies": {
+    "pino-pretty": "13.0.0"
+  }
+}
+```
+
+### 7.2 Create TypeScript Logger (Pino Wrapper)
+
+- [ ] 7.2.1 Create directory: `mkdir -p theauditor/ast_extractors/javascript/src/utils`
+- [ ] 7.2.2 Create `theauditor/ast_extractors/javascript/src/utils/logger.ts`:
 
 ```typescript
 /**
- * Lightweight logger for TypeScript extractor.
+ * Pino logger for TypeScript extractor.
  *
- * Respects same environment variables as Python:
+ * Outputs NDJSON to stderr (preserving stdout for JSON data output).
+ * Respects same environment variables as Python (Loguru):
  * - THEAUDITOR_LOG_LEVEL: DEBUG|INFO|WARNING|ERROR (default: INFO)
- * - THEAUDITOR_LOG_JSON: 0|1 (default: 0)
+ * - THEAUDITOR_REQUEST_ID: Correlation ID passed from Python orchestrator
  *
- * All output goes to stderr to avoid corrupting stdout JSON.
+ * Format matches Python exactly for unified log viewing:
+ * {"level":30,"time":1715629847123,"msg":"...","pid":12345,"request_id":"..."}
  */
+import pino from "pino";
 
-const LOG_LEVELS = {
-  DEBUG: 0,
-  INFO: 1,
-  WARNING: 2,
-  ERROR: 3,
-} as const;
-
-type LogLevel = keyof typeof LOG_LEVELS;
-
-const currentLevel: number =
-  LOG_LEVELS[
-    (process.env.THEAUDITOR_LOG_LEVEL?.toUpperCase() as LogLevel) ?? "INFO"
-  ] ?? LOG_LEVELS.INFO;
-
-const jsonMode = process.env.THEAUDITOR_LOG_JSON === "1";
-
-function formatMessage(level: string, message: string): string {
-  const timestamp = new Date().toISOString().slice(11, 19);
-  if (jsonMode) {
-    return JSON.stringify({ time: timestamp, level, message });
-  }
-  return `${timestamp} | ${level.padEnd(8)} | ${message}`;
-}
-
-export const logger = {
-  debug: (msg: string): void => {
-    if (currentLevel <= LOG_LEVELS.DEBUG) {
-      console.error(formatMessage("DEBUG", msg));
-    }
-  },
-  info: (msg: string): void => {
-    if (currentLevel <= LOG_LEVELS.INFO) {
-      console.error(formatMessage("INFO", msg));
-    }
-  },
-  warning: (msg: string): void => {
-    if (currentLevel <= LOG_LEVELS.WARNING) {
-      console.error(formatMessage("WARNING", msg));
-    }
-  },
-  error: (msg: string): void => {
-    if (currentLevel <= LOG_LEVELS.ERROR) {
-      console.error(formatMessage("ERROR", msg));
-    }
-  },
+// Map env var names to Pino level names
+const LOG_LEVEL_MAP: Record<string, pino.Level> = {
+  DEBUG: "debug",
+  INFO: "info",
+  WARNING: "warn",
+  WARN: "warn",
+  ERROR: "error",
 };
+
+// Get level from environment, default to info
+const envLevel = process.env.THEAUDITOR_LOG_LEVEL?.toUpperCase() || "INFO";
+const pinoLevel = LOG_LEVEL_MAP[envLevel] || "info";
+
+// Get request ID from environment (passed by Python orchestrator)
+const requestId = process.env.THEAUDITOR_REQUEST_ID || "unknown";
+
+// Create base logger writing to stderr (stdout reserved for JSON data)
+// Using pino.destination for stderr
+const baseLogger = pino(
+  {
+    level: pinoLevel,
+    // Pino outputs level as number and time as epoch ms by default
+    // msg is also default key - perfect match for our Python sink
+  },
+  pino.destination(2) // fd 2 = stderr
+);
+
+// Create child logger with request_id bound
+export const logger = baseLogger.child({ request_id: requestId });
+
+// Re-export for convenience
+export default logger;
 ```
 
-### 7.2 Migrate main.ts (15 statements)
+### 7.3 Migrate main.ts (15 statements)
 
-- [ ] 7.2.1 Add import: `import { logger } from "./utils/logger";`
-- [ ] 7.2.2 Replace line 33: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.3 Replace line 44: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.4 Replace line 149: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.5 Replace line 242: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.6 Replace line 360: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.7 Replace line 460: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.8 Replace line 469: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.9 Replace line 483: `console.error(`[DEBUG JS BATCH]...`)` → `logger.debug(...)`
-- [ ] 7.2.10 Replace line 746: `console.error(`[DEBUG JS BATCH]...`)` → `logger.debug(...)`
-- [ ] 7.2.11 Replace line 825: `console.error(`[DEBUG JS BATCH]...`)` → `logger.debug(...)`
-- [ ] 7.2.12 Replace line 851: `console.error("[BATCH DEBUG]...")` → `logger.debug(...)`
-- [ ] 7.2.13 Replace line 854: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.14 Replace line 857: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.15 Replace line 866: `console.error(...)` → `logger.error(...)`
-- [ ] 7.2.16 Replace line 878: `console.error(...)` → `logger.error(...)`
+- [ ] 7.3.1 Add import at top of file: `import { logger } from "./utils/logger";`
+- [ ] 7.3.2 Replace line 33: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.3 Replace line 44: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.4 Replace line 149: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.5 Replace line 242: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.6 Replace line 360: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.7 Replace line 460: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.8 Replace line 469: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.9 Replace line 483: `console.error(\`[DEBUG JS BATCH]...\`)` -> `logger.debug(...)`
+- [ ] 7.3.10 Replace line 746: `console.error(\`[DEBUG JS BATCH]...\`)` -> `logger.debug(...)`
+- [ ] 7.3.11 Replace line 825: `console.error(\`[DEBUG JS BATCH]...\`)` -> `logger.debug(...)`
+- [ ] 7.3.12 Replace line 851: `console.error("[BATCH DEBUG]...")` -> `logger.debug(...)`
+- [ ] 7.3.13 Replace line 854: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.14 Replace line 857: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.15 Replace line 866: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.3.16 Replace line 878: `console.error(...)` -> `logger.error(...)`
 
-### 7.3 Migrate core_language.ts (1 statement)
+**Tag-to-Level Mapping for TypeScript:**
+| Original Tag | New Method |
+|--------------|------------|
+| `[DEBUG JS BATCH]` | `logger.debug(...)` |
+| `[DEBUG JS]` | `logger.debug(...)` |
+| `[BATCH DEBUG]` | `logger.debug(...)` |
+| No tag (errors) | `logger.error(...)` |
 
-- [ ] 7.3.1 Add import: `import { logger } from "../utils/logger";`
-- [ ] 7.3.2 Replace line 350: `console.error(...)` → `logger.error(...)`
-
-### 7.4 Migrate data_flow.ts (2 statements)
+### 7.4 Migrate core_language.ts (1 statement)
 
 - [ ] 7.4.1 Add import: `import { logger } from "../utils/logger";`
-- [ ] 7.4.2 Replace line 184: `console.error(...)` → `logger.error(...)`
-- [ ] 7.4.3 Replace line 189: `console.error(`[DEBUG JS]...`)` → `logger.debug(...)`
+- [ ] 7.4.2 Replace line 350: `console.error(...)` -> `logger.error(...)`
 
-### 7.5 Rebuild TypeScript
+### 7.5 Migrate data_flow.ts (2 statements)
 
-- [ ] 7.5.1 Build: `cd theauditor/ast_extractors/javascript && npm run build`
-- [ ] 7.5.2 Verify no build errors
-- [ ] 7.5.3 Verify no remaining console.error (except in logger.ts):
+- [ ] 7.5.1 Add import: `import { logger } from "../utils/logger";`
+- [ ] 7.5.2 Replace line 184: `console.error(...)` -> `logger.error(...)`
+- [ ] 7.5.3 Replace line 189: `console.error(\`[DEBUG JS]...\`)` -> `logger.debug(...)`
+
+### 7.6 Rebuild TypeScript
+
+- [ ] 7.6.1 Build: `cd theauditor/ast_extractors/javascript && npm run build`
+- [ ] 7.6.2 Verify no build errors
+- [ ] 7.6.3 Verify no remaining console.error (except in logger.ts):
 ```bash
 grep -r "console\." theauditor/ast_extractors/javascript/src/ | grep -v logger.ts
+```
+
+### 7.7 Test Pino Output
+
+- [ ] 7.7.1 Test logger directly:
+```bash
+cd theauditor/ast_extractors/javascript
+node -e "const {logger} = require('./dist/utils/logger'); logger.info('test')"
+# Should output: {"level":30,"time":...,"msg":"test",...}
+```
+- [ ] 7.7.2 Test with pino-pretty:
+```bash
+node -e "const {logger} = require('./dist/utils/logger'); logger.info('test')" 2>&1 | npx pino-pretty
+```
+- [ ] 7.7.3 Test REQUEST_ID threading:
+```bash
+THEAUDITOR_REQUEST_ID=abc-123 node -e "const {logger} = require('./dist/utils/logger'); logger.info('test')"
+# Should include: "request_id":"abc-123"
 ```
 
 ---
@@ -467,28 +587,53 @@ grep -r "console\." theauditor/ast_extractors/javascript/src/ | grep -v logger.t
 - [ ] 8.2.2 Logger import present in all modified files
 - [ ] 8.2.3 TypeScript builds without errors
 
-### 8.3 Integration Verification
+### 8.3 NDJSON Format Verification
 
-- [ ] 8.3.1 Full pipeline works:
+- [ ] 8.3.1 Python NDJSON format correct:
+```bash
+THEAUDITOR_LOG_JSON=1 python -c "from theauditor.utils.logging import logger; logger.info('test')" 2>&1 | python -c "import sys,json; d=json.load(sys.stdin); assert 'level' in d and isinstance(d['level'],int); assert 'msg' in d; assert 'time' in d"
+```
+- [ ] 8.3.2 TypeScript NDJSON format correct:
+```bash
+cd theauditor/ast_extractors/javascript && node -e "const {logger} = require('./dist/utils/logger'); logger.info('test')" 2>&1 | python -c "import sys,json; d=json.load(sys.stdin); assert 'level' in d and isinstance(d['level'],int); assert 'msg' in d; assert 'time' in d"
+```
+- [ ] 8.3.3 Unified pino-pretty works for both:
+```bash
+# Python
+THEAUDITOR_LOG_JSON=1 python -c "from theauditor.utils.logging import logger; logger.info('Python log')" 2>&1 | npx pino-pretty
+# TypeScript
+cd theauditor/ast_extractors/javascript && node -e "const {logger} = require('./dist/utils/logger'); logger.info('TypeScript log')" 2>&1 | npx pino-pretty
+```
+
+### 8.4 Integration Verification
+
+- [ ] 8.4.1 Full pipeline works:
 ```bash
 aud full --offline
 ```
-- [ ] 8.3.2 Log level filtering works across both languages:
+- [ ] 8.4.2 Log level filtering works across both languages:
 ```bash
 THEAUDITOR_LOG_LEVEL=DEBUG aud full --index
 THEAUDITOR_LOG_LEVEL=ERROR aud full --index
 ```
-- [ ] 8.3.3 JSON output works:
+- [ ] 8.4.3 JSON output works:
 ```bash
 THEAUDITOR_LOG_JSON=1 aud full --index 2>&1 | head -10
 ```
-- [ ] 8.3.4 Rich UI unchanged (visual comparison)
+- [ ] 8.4.4 Rich UI unchanged (visual comparison)
+- [ ] 8.4.5 REQUEST_ID threads from Python to TypeScript:
+```bash
+# Run a command that invokes TypeScript extractor
+# Check that logs from both have same request_id
+THEAUDITOR_LOG_JSON=1 aud full --index 2>&1 | grep request_id | head -5
+```
 
-### 8.4 Cleanup
+### 8.5 Cleanup
 
-- [ ] 8.4.1 Remove any debug code added during implementation
-- [ ] 8.4.2 Verify no `.pyc` or build artifacts committed
-- [ ] 8.4.3 Final ruff check: `ruff check theauditor/`
+- [ ] 8.5.1 Remove any debug code added during implementation
+- [ ] 8.5.2 Verify no `.pyc` or build artifacts committed
+- [ ] 8.5.3 Final ruff check: `ruff check theauditor/`
+- [ ] 8.5.4 Final TypeScript lint: `cd theauditor/ast_extractors/javascript && npm run lint`
 
 ---
 
@@ -498,14 +643,14 @@ THEAUDITOR_LOG_JSON=1 aud full --index 2>&1 | head -10
 |-------|------------|
 | Phase 1 | Phase 0 verification |
 | Phase 2 | Phase 1 (dependencies installed) |
-| Phase 3 | Phase 2 (codemod written) |
+| Phase 3 | Phase 2 (codemod verified) |
 | Phase 4 | Phase 3 (dry run verified) |
 | Phase 5 | Phase 4 (transformation applied) |
 | Phase 6 | Phase 5 (cleanup done) |
-| Phase 7 | Phase 1 (Python logger available for reference) |
+| Phase 7 | Phase 1 (can run in parallel with Phases 2-6) |
 | Phase 8 | Phase 6 AND Phase 7 |
 
-**Note**: Phase 7 (TypeScript) can run in parallel with Phases 2-6 (Python).
+**Note**: Phase 7 (TypeScript/Pino) can run in parallel with Phases 2-6 (Python/Loguru).
 
 ---
 
@@ -522,7 +667,10 @@ rm theauditor/utils/logging.py
 **TypeScript:**
 ```bash
 git checkout -- theauditor/ast_extractors/javascript/src/
+git checkout -- theauditor/ast_extractors/javascript/package.json
+git checkout -- theauditor/ast_extractors/javascript/package-lock.json
 rm -rf theauditor/ast_extractors/javascript/src/utils/
+npm install  # Restore original dependencies
 ```
 
 **Note**: `scripts/loguru_migration.py` is a standalone tool - no cleanup needed.

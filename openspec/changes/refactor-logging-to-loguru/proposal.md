@@ -1,4 +1,4 @@
-# Refactor Logging Infrastructure to Loguru (Polyglot)
+# Refactor Logging Infrastructure to Loguru + Pino (Polyglot)
 
 **Status**: PROPOSAL - Awaiting Architect Approval
 **Change ID**: `refactor-logging-to-loguru`
@@ -74,9 +74,14 @@ The script provides:
 - Edge case handling: end="", sep=, file=custom, eager eval protection, brace hazard
 - Multi-encoding support (utf-8, latin-1, cp1252)
 
-### Why Manual for TypeScript
+### Why Pino for TypeScript
 
-Only 18 statements across 3 files - scripting overhead not justified.
+**Pino** is the spiritual equivalent of Loguru in the Node.js ecosystem:
+- Industry standard for fast, JSON-native logging in Node
+- 10M+ weekly downloads, battle-tested in production
+- Native NDJSON output compatible with log aggregators
+- Child logger pattern for correlation ID threading
+- `pino-pretty` for developer experience during local debugging
 
 ---
 
@@ -86,13 +91,14 @@ Only 18 statements across 3 files - scripting overhead not justified.
 
 | Component | Action | Lines | Risk |
 |-----------|--------|-------|------|
-| `pyproject.toml` | ADD dependency | +1 | LOW |
-| `theauditor/utils/logging.py` | CREATE (replaces logger.py) | +100 | LOW |
+| `pyproject.toml` | ADD dependency (loguru==0.7.3) | +1 | LOW |
+| `theauditor/utils/logging.py` | CREATE (Pino-compatible sink) | +80 | LOW |
 | `scripts/loguru_migration.py` | EXISTS (847 lines) | 0 | LOW |
 | `theauditor/**/*.py` (51 files) | MODIFY via codemod | ~-323/+323 | MEDIUM |
 | `theauditor/utils/logger.py` | DELETE (replaced) | -24 | LOW |
+| `theauditor/ast_extractors/javascript/package.json` | ADD pino@10.1.0 | +2 | LOW |
+| `theauditor/ast_extractors/javascript/src/utils/logger.ts` | CREATE (Pino wrapper) | +50 | LOW |
 | `theauditor/ast_extractors/javascript/src/*.ts` (3 files) | MODIFY manually | ~-18/+18 | LOW |
-| `theauditor/ast_extractors/javascript/src/utils/logger.ts` | CREATE | +40 | LOW |
 | `theauditor/pipeline/renderer.py` | PRESERVE | 0 | NONE |
 | `theauditor/pipeline/ui.py` | PRESERVE | 0 | NONE |
 
@@ -100,48 +106,82 @@ Only 18 statements across 3 files - scripting overhead not justified.
 
 ```
 BEFORE (Current - 6 Code Paths):
-┌─────────────────────────────────────────────────────────────┐
-│ Python (theauditor/**/*.py)                                 │
-│   ├── print("[TAG] msg") ────────────────────► STDOUT       │
-│   ├── print("[TAG] msg", file=sys.stderr) ───► STDERR       │
-│   ├── logger.info("msg") ─► utils/logger.py ─► STDERR       │
-│   ├── if DEBUG: print(...) ──────────────────► STDERR       │
-│   └── RichRenderer.on_log() ─────────────────► Rich Console │
-├─────────────────────────────────────────────────────────────┤
-│ TypeScript (javascript/src/*.ts)                            │
-│   └── console.error("[TAG] msg") ────────────► STDERR       │
-│                                                              │
-│   Result: 6 code paths, no filtering, no structure = CHAOS  │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+| Python (theauditor/**/*.py)                                 |
+|   +-- print("[TAG] msg") ---------------------> STDOUT       |
+|   +-- print("[TAG] msg", file=sys.stderr) ---> STDERR       |
+|   +-- logger.info("msg") --> utils/logger.py --> STDERR     |
+|   +-- if DEBUG: print(...) ------------------> STDERR       |
+|   +-- RichRenderer.on_log() -----------------> Rich Console |
++-------------------------------------------------------------+
+| TypeScript (javascript/src/*.ts)                            |
+|   +-- console.error("[TAG] msg") ------------> STDERR       |
+|                                                              |
+|   Result: 6 code paths, no filtering, no structure = CHAOS  |
++-------------------------------------------------------------+
 
-AFTER (Proposed - 3 Code Paths):
-┌─────────────────────────────────────────────────────────────┐
-│ Python (theauditor/**/*.py)                                 │
-│   ├── logger.info/debug/error("msg") ─► Loguru ─► STDERR    │
-│   │                                         │               │
-│   │                                         ├──► File (.pf/)│
-│   │                                         └──► JSON (opt) │
-│   │                                                         │
-│   └── RichRenderer (PRESERVED) ──────────────► Rich Console │
-├─────────────────────────────────────────────────────────────┤
-│ TypeScript (javascript/src/*.ts)                            │
-│   └── logger.info/debug/error("msg") ─► Custom ──► STDERR   │
-│                                             │               │
-│                                             └──► JSON (opt) │
-│                                                              │
-│   Result: 3 code paths, centralized config, structured logs │
-└─────────────────────────────────────────────────────────────┘
+AFTER (Proposed - 3 Code Paths, Unified NDJSON):
++-------------------------------------------------------------+
+| Python (theauditor/**/*.py)                                 |
+|   +-- logger.info/debug/error("msg")                        |
+|       |                                                     |
+|       +--> Loguru (Pino-compatible sink) --> STDERR         |
+|       |         |                                           |
+|       |         +--> {"level":30,"time":1715...,"msg":""}   |
+|       |         +--> File (.pf/) with rotation              |
+|       |                                                     |
+|   +-- RichRenderer (PRESERVED) -----------> Rich Console    |
++-------------------------------------------------------------+
+| TypeScript (javascript/src/*.ts)                            |
+|   +-- logger.info/debug/error("msg")                        |
+|       |                                                     |
+|       +--> Pino --------------------------> STDERR          |
+|                 |                                           |
+|                 +--> {"level":30,"time":1715...,"msg":""}   |
+|                                                              |
+|   Result: 3 code paths, unified NDJSON, structured logs     |
++-------------------------------------------------------------+
+                              |
+                              v
+                  +-------------------------+
+                  | UNIFIED NDJSON OUTPUT   |
+                  | (Same format from both) |
+                  +-------------------------+
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
+      pino-pretty (dev)              Log Aggregator (prod)
+      Human-readable                 ELK/Splunk/DataDog
 ```
 
 ### Key Design Decisions
 
 1. **Loguru for Python** - Simple API, drop-in replacement, built-in rotation
-2. **Custom logger for TypeScript** - Lightweight, no npm dependency (18 statements not worth pino)
-3. **Preserve Rich pipeline UI** - RichRenderer stays exactly as-is for `aud full` progress
-4. **LibCST automation for Python** - Script the migration, don't hand-edit 323 statements
-5. **Manual migration for TypeScript** - Only 18 statements, scripting overhead not justified
-6. **Tag-to-level mapping** - `[DEBUG]` → `logger.debug()`, `[ERROR]` → `logger.error()`, etc.
-7. **JSON output option** - `THEAUDITOR_LOG_JSON=1` for log aggregation systems
+2. **Pino for TypeScript** - Industry standard, JSON-native, fast
+3. **Unified NDJSON format** - Loguru outputs Pino-compatible JSON
+4. **REQUEST_ID correlation** - Thread ID from Python to TypeScript subprocess
+5. **Preserve Rich pipeline UI** - RichRenderer stays exactly as-is for `aud full` progress
+6. **LibCST automation for Python** - Script the migration, don't hand-edit 323 statements
+7. **Tag-to-level mapping** - `[DEBUG]` -> `logger.debug()`, `[ERROR]` -> `logger.error()`, etc.
+8. **pino-pretty for dev** - Human-readable output during development
+
+### Unified JSON Format (NDJSON)
+
+Both Python (Loguru) and TypeScript (Pino) output identical JSON structure:
+
+```json
+{"level":30,"time":1715629847123,"msg":"Processing file","pid":12345,"request_id":"abc-123"}
+{"level":20,"time":1715629847456,"msg":"Debug info","pid":12345,"request_id":"abc-123"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `level` | integer | Pino-compatible: 10=trace, 20=debug, 30=info, 40=warn, 50=error |
+| `time` | integer | Unix epoch milliseconds |
+| `msg` | string | Log message |
+| `pid` | integer | Process ID |
+| `request_id` | string | Correlation ID passed from Python to TypeScript |
 
 ### New Environment Variables
 
@@ -150,6 +190,7 @@ AFTER (Proposed - 3 Code Paths):
 | `THEAUDITOR_LOG_LEVEL` | DEBUG, INFO, WARNING, ERROR | INFO | Filter log output |
 | `THEAUDITOR_LOG_JSON` | 0, 1 | 0 | Enable JSON structured output |
 | `THEAUDITOR_LOG_FILE` | path | None | Optional file output location |
+| `THEAUDITOR_REQUEST_ID` | uuid | auto-generated | Correlation ID for pipeline tracing |
 
 ---
 
@@ -157,21 +198,22 @@ AFTER (Proposed - 3 Code Paths):
 
 **CRITICAL: This is a polyglot system with 5 language extractors.**
 
-| Language | Extractor Location | Implementation | Logging Issue |
-|----------|-------------------|----------------|---------------|
-| **Python** | `theauditor/ast_extractors/python/` | Python (tree-sitter) | Uses Python orchestrator logging |
-| **TypeScript/JS** | `theauditor/ast_extractors/javascript/src/` | TypeScript (standalone) | **18 `console.error()` - NEEDS MIGRATION** |
-| **Go** | `theauditor/ast_extractors/go_impl.py` | Python (tree-sitter) | Uses Python orchestrator logging |
-| **Rust** | `theauditor/ast_extractors/rust_impl.py` | Python (tree-sitter) | Uses Python orchestrator logging |
-| **Bash** | `theauditor/ast_extractors/bash_impl.py` | Python (tree-sitter) | Uses Python orchestrator logging |
+| Language | Extractor Location | Implementation | Logging Solution |
+|----------|-------------------|----------------|------------------|
+| **Python** | `theauditor/ast_extractors/python/` | Python (tree-sitter) | Loguru (Pino-compatible sink) |
+| **TypeScript/JS** | `theauditor/ast_extractors/javascript/src/` | TypeScript (standalone) | **Pino 10.1.0** |
+| **Go** | `theauditor/ast_extractors/go_impl.py` | Python (tree-sitter) | Loguru (via orchestrator) |
+| **Rust** | `theauditor/ast_extractors/rust_impl.py` | Python (tree-sitter) | Loguru (via orchestrator) |
+| **Bash** | `theauditor/ast_extractors/bash_impl.py` | Python (tree-sitter) | Loguru (via orchestrator) |
 
-**Orchestrator**: `theauditor/indexer/orchestrator.py` calls all extractors. Go/Rust/Bash extractors are Python modules imported directly. TypeScript extractor runs as subprocess via Node.js.
+**Orchestrator**: `theauditor/indexer/orchestrator.py` calls all extractors. Go/Rust/Bash extractors are Python modules imported directly. TypeScript extractor runs as subprocess via Node.js with `THEAUDITOR_REQUEST_ID` passed as env var.
 
 ### What This Means
 
 1. **Python logging migration** affects ALL extractors except TypeScript
-2. **TypeScript extractor** needs separate migration (standalone process)
+2. **TypeScript extractor** uses Pino with REQUEST_ID from env var
 3. **No Go/Rust/Bash-specific logging work** needed - they're Python modules
+4. **Unified NDJSON** enables cross-language log correlation
 
 ---
 
@@ -183,9 +225,10 @@ AFTER (Proposed - 3 Code Paths):
 |------|-------------|-------------|
 | `logging` | NEW: Centralized Logging Configuration | ADDED |
 | `logging` | NEW: Runtime Log Level Control | ADDED |
-| `logging` | NEW: Structured JSON Output | ADDED |
+| `logging` | NEW: Structured JSON Output (NDJSON) | ADDED |
 | `logging` | NEW: Log Rotation | ADDED |
-| `logging` | NEW: Polyglot Logging Consistency | ADDED |
+| `logging` | NEW: Polyglot Logging Consistency (Pino format) | ADDED |
+| `logging` | NEW: Cross-Language Correlation (REQUEST_ID) | ADDED |
 
 ### Affected Code by Language
 
@@ -193,28 +236,30 @@ AFTER (Proposed - 3 Code Paths):
 
 | Directory | Files | Transformation |
 |-----------|-------|----------------|
-| `theauditor/taint/` | 4 | ~38 prints → logger calls |
-| `theauditor/indexer/` | 12 | ~45 prints → logger calls |
-| `theauditor/commands/` | 8 | ~25 prints → logger calls |
-| `theauditor/ast_extractors/` | 15 | ~80 prints → logger calls |
-| `theauditor/graph/` | 5 | ~20 prints → logger calls |
-| `theauditor/rules/` | 7 | ~35 prints → logger calls |
-| Other | - | ~80 prints → logger calls |
+| `theauditor/taint/` | 4 | ~38 prints -> logger calls |
+| `theauditor/indexer/` | 12 | ~45 prints -> logger calls |
+| `theauditor/commands/` | 8 | ~25 prints -> logger calls |
+| `theauditor/ast_extractors/` | 15 | ~80 prints -> logger calls |
+| `theauditor/graph/` | 5 | ~20 prints -> logger calls |
+| `theauditor/rules/` | 7 | ~35 prints -> logger calls |
+| Other | - | ~80 prints -> logger calls |
 
-**TypeScript (manual):**
+**TypeScript (manual with Pino):**
 
 | File | Statements | Transformation |
 |------|------------|----------------|
-| `theauditor/ast_extractors/javascript/src/main.ts` | 15 | console.error → logger calls |
-| `theauditor/ast_extractors/javascript/src/extractors/core_language.ts` | 1 | console.error → logger calls |
-| `theauditor/ast_extractors/javascript/src/extractors/data_flow.ts` | 2 | console.error → logger calls |
+| `theauditor/ast_extractors/javascript/src/main.ts` | 15 | console.error -> logger calls |
+| `theauditor/ast_extractors/javascript/src/extractors/core_language.ts` | 1 | console.error -> logger calls |
+| `theauditor/ast_extractors/javascript/src/extractors/data_flow.ts` | 2 | console.error -> logger calls |
 
 ### Dependencies Added
 
 | Package | Version | Size | Language | Why |
 |---------|---------|------|----------|-----|
-| `loguru` | >=0.7.0 | ~500KB | Python | Structured logging with rotation |
-| `libcst` | >=1.0.0 | ~3MB | Python | Migration script dependency (already in dev deps) |
+| `loguru` | 0.7.3 | ~500KB | Python | Structured logging with rotation |
+| `libcst` | 1.8.6 | ~3MB | Python | Migration script dependency (dev only) |
+| `pino` | 10.1.0 | ~150KB | Node.js | Industry-standard JSON logging |
+| `pino-pretty` | 13.0.0 | ~100KB | Node.js | Dev dependency for human-readable logs |
 
 ---
 
@@ -227,17 +272,19 @@ AFTER (Proposed - 3 Code Paths):
 | Codemod misses edge case | MEDIUM | LOW | Dry-run + grep verification |
 | Import conflicts | LOW | LOW | LibCST handles imports automatically |
 | Windows CP1252 encoding | LOW | MEDIUM | Loguru auto-detects, we ban emojis per CLAUDE.md |
-| Performance regression | LOW | LOW | Loguru is faster than print() |
+| Performance regression | LOW | LOW | Both Loguru and Pino are faster than print()/console |
 | Rich UI breaks | NONE | - | RichRenderer not modified |
-| TS extractor output parsing | LOW | LOW | Logger writes to stderr, stdout unchanged |
+| TS extractor output parsing | LOW | LOW | Pino writes to stderr, stdout unchanged |
+| NDJSON format mismatch | LOW | LOW | Both configured identically at setup |
 
 ### ZERO FALLBACK COMPLIANCE
 
 This change introduces NO fallback patterns:
-- Single logging path per language (Python: loguru, TS: custom logger)
+- Single logging path per language (Python: Loguru, TS: Pino)
 - No try/except falling back to print()
 - No "if loguru available else print()" patterns
 - Configuration fails hard if invalid (no silent defaults)
+- REQUEST_ID missing = hard fail, not silent fallback
 
 ### Rollback Plan
 
@@ -249,6 +296,7 @@ git revert <commit>  # Single commit with all Python changes
 **TypeScript:**
 ```bash
 git checkout -- javascript/src/  # Revert TS changes
+npm install  # Restore original package.json
 ```
 
 Time to rollback: ~2 minutes
@@ -263,15 +311,23 @@ All criteria MUST pass before marking complete:
 - [ ] `grep -r "print.*\[" theauditor/` returns 0 matches
 - [ ] `THEAUDITOR_LOG_LEVEL=DEBUG aud full --index` shows debug output
 - [ ] `THEAUDITOR_LOG_LEVEL=ERROR aud full --index` shows only errors
-- [ ] `THEAUDITOR_LOG_JSON=1 aud full --index` produces valid JSON lines
+- [ ] `THEAUDITOR_LOG_JSON=1 aud full --index` produces valid NDJSON
+- [ ] NDJSON format matches Pino: `{"level":30,"time":...,"msg":"..."}`
 - [ ] `.pf/theauditor.log` file created with rotation working
 - [ ] `aud full` Rich pipeline UI unchanged (visual regression test)
 - [ ] All existing tests pass
 
 **TypeScript:**
 - [ ] `grep -r "console\." javascript/src/ | grep -v logger.ts` returns 0 matches
-- [ ] `THEAUDITOR_LOG_LEVEL=DEBUG` shows TS debug output
-- [ ] `THEAUDITOR_LOG_JSON=1` produces valid JSON from TS extractor
+- [ ] `THEAUDITOR_LOG_LEVEL=DEBUG` shows TS debug output via Pino
+- [ ] `THEAUDITOR_LOG_JSON=1` produces valid NDJSON from Pino
+- [ ] NDJSON format matches Python output exactly
+- [ ] REQUEST_ID appears in TypeScript logs when passed from Python
+
+**Integration:**
+- [ ] `(python orchestrator.py | node extractor.js) 2>&1 | npx pino-pretty` shows unified logs
+- [ ] REQUEST_ID threads correctly from Python to TypeScript
+- [ ] Log aggregator (if tested) receives unified format from both
 
 ---
 
@@ -281,9 +337,9 @@ All criteria MUST pass before marking complete:
 
 | Phase | Language | Task File Section | Spec Reference |
 |-------|----------|-------------------|----------------|
-| 1 | Python | tasks.md §1-§6 | specs/logging/spec.md "Python Requirements" |
-| 2 | TypeScript | tasks.md §7 | specs/logging/spec.md "TypeScript Requirements" |
-| 3 | Verification | tasks.md §8 | specs/logging/spec.md "All Requirements" |
+| 1 | Python | tasks.md SS1-SS6 | specs/logging/spec.md "Python Requirements" |
+| 2 | TypeScript | tasks.md SS7 | specs/logging/spec.md "TypeScript Requirements" |
+| 3 | Verification | tasks.md SS8 | specs/logging/spec.md "All Requirements" |
 
 ---
 
@@ -291,12 +347,13 @@ All criteria MUST pass before marking complete:
 
 ### Architect Decision Points
 
-1. **Loguru as hard dependency** - Adds ~500KB, provides 2025-standard logging
-2. **LibCST already in dev deps** - Used by existing `scripts/loguru_migration.py` (847 lines, production-ready)
-3. **Delete utils/logger.py** - Replaced by utils/logging.py with Loguru
-4. **Tag-to-level mapping** - Proposed mapping in codemod (can be adjusted)
-5. **JSON output option** - `THEAUDITOR_LOG_JSON=1` for ELK/Splunk integration
-6. **No npm dependency for TS** - Custom lightweight logger (18 statements not worth pino)
+1. **Loguru 0.7.3 as hard dependency** - Adds ~500KB, provides 2025-standard logging
+2. **Pino 10.1.0 for TypeScript** - Industry standard, replaces custom logger
+3. **LibCST 1.8.6 in dev deps** - Used by existing `scripts/loguru_migration.py`
+4. **Delete utils/logger.py** - Replaced by utils/logging.py with Loguru
+5. **Pino-compatible sink** - Loguru outputs NDJSON matching Pino format exactly
+6. **REQUEST_ID correlation** - Thread correlation ID from Python to TypeScript
+7. **pino-pretty dev dependency** - Human-readable logs during development
 
 ---
 
