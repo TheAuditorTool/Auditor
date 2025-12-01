@@ -118,300 +118,60 @@ __all__ = ["logger", "configure_file_logging"]
 
 ---
 
-## PHASE 2: LibCST Codemod Development
+## PHASE 2: Verify Migration Script
 
-### 2.1 Setup LibCST
+**IMPORTANT**: The migration script already exists at `scripts/loguru_migration.py` (847 lines).
+Do NOT create a new script. Use the existing production-ready script.
 
-- [ ] 2.1.1 Create directory: `mkdir -p scripts/codemods`
-- [ ] 2.1.2 Create `scripts/codemods/__init__.py` (empty file)
-- [ ] 2.1.3 Initialize LibCST: `python -m libcst.tool initialize .`
-- [ ] 2.1.4 Create `.libcst.codemod.yaml` in repository root:
+### 2.1 Verify Script Exists
 
-```yaml
-# LibCST Codemod Configuration
-modules:
-  - scripts.codemods
+- [ ] 2.1.1 Verify `scripts/loguru_migration.py` exists and has ~847 lines
+- [ ] 2.1.2 Verify script has standalone CLI: `python scripts/loguru_migration.py --help`
+- [ ] 2.1.3 Review edge case handling in script docstring (lines 27-37)
 
-# Exclude generated files
-blacklist_patterns:
-  - "*/node_modules/*"
-  - "*/.venv/*"
-  - "*/dist/*"
-  - "*/__pycache__/*"
+### 2.2 Understand Script Capabilities
+
+The script handles these edge cases (already implemented):
+
+| Edge Case | Behavior | Script Line |
+|-----------|----------|-------------|
+| `end=""` or `end="\r"` | SKIPPED (progress bars) | 307-314 |
+| `sep=","` | Separator preserved in format string | 359-369 |
+| `sep=my_var` (dynamic) | SKIPPED (cannot build static format) | 366-368 |
+| `file=sys.stderr` | Defaults to logger.error | 349-351 |
+| `file=custom_handle` | SKIPPED (data loss prevention) | 329-331 |
+| Multi-arg prints | Format string `"{} {}"` injected | 431-436 |
+| Brace hazard `{regex}` | Format injection to prevent crash | 417-429 |
+| Debug guards | Unwrapped if safe, kept if eager eval risk | 176-200, 493-522 |
+| `traceback.print_exc()` | Converted to `logger.exception("")` | 577-592 |
+
+### 2.3 Script Usage Reference
+
+```bash
+# Dry run - preview changes without modifying files
+python scripts/loguru_migration.py theauditor/ --dry-run
+
+# Apply changes to directory
+python scripts/loguru_migration.py theauditor/
+
+# Single file with diff output
+python scripts/loguru_migration.py theauditor/taint/core.py --dry-run --diff
+
+# Multiple specific files
+python scripts/loguru_migration.py file1.py file2.py file3.py
 ```
 
-### 2.2 Create Codemod
-
-- [ ] 2.2.1 Create `scripts/codemods/print_to_loguru.py` with the following implementation:
-
-```python
-"""LibCST codemod: Convert print('[TAG]...') to loguru logger calls.
-
-Usage:
-    # Dry run (show diff)
-    python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCodemod \
-        --no-format theauditor/
-
-    # Apply changes
-    python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCodemod \
-        theauditor/
-"""
-from __future__ import annotations
-
-from typing import Sequence, Union
-
-import libcst as cst
-from libcst import matchers as m
-from libcst.codemod import CodemodContext, VisitorBasedCodemodCommand
-from libcst.codemod.visitors import AddImportsVisitor, RemoveImportsVisitor
-
-
-class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
-    """Convert print('[TAG]...') statements to loguru logger calls."""
-
-    DESCRIPTION = "Convert print('[TAG]...') statements to loguru logger calls"
-
-    # Map [TAG] prefixes to log levels
-    TAG_TO_LEVEL: dict[str, str] = {
-        # Debug level
-        "[DEBUG]": "debug",
-        "[TRACE]": "trace",
-        "[INDEXER_DEBUG]": "debug",
-        "[DEDUP]": "debug",
-        "[SCHEMA]": "debug",
-        # Info level
-        "[INFO]": "info",
-        "[Indexer]": "info",
-        "[TAINT]": "info",
-        "[FCE]": "info",
-        "[GRAPH]": "info",
-        "[RULES]": "info",
-        # Warning level
-        "[WARNING]": "warning",
-        "[WARN]": "warning",
-        # Error level
-        "[ERROR]": "error",
-        # Critical level
-        "[CRITICAL]": "critical",
-        "[FATAL]": "critical",
-    }
-
-    def __init__(self, context: CodemodContext) -> None:
-        super().__init__(context)
-        self.needs_logger_import = False
-        self.in_debug_guard = False
-
-    def _get_level_and_clean_text(self, text: str) -> tuple[str, str]:
-        """Extract log level from [TAG] prefix and return (level, cleaned_text)."""
-        for tag, level in self.TAG_TO_LEVEL.items():
-            if tag in text:
-                cleaned = text.replace(tag, "").lstrip()
-                return level, cleaned
-        return "info", text  # Default to info for untagged
-
-    def _has_tag(self, node: cst.BaseExpression) -> bool:
-        """Check if expression contains a recognized tag."""
-        if isinstance(node, cst.FormattedString):
-            for part in node.parts:
-                if isinstance(part, cst.FormattedStringText):
-                    for tag in self.TAG_TO_LEVEL:
-                        if tag in part.value:
-                            return True
-        elif isinstance(node, cst.SimpleString):
-            for tag in self.TAG_TO_LEVEL:
-                if tag in node.value:
-                    return True
-        elif isinstance(node, cst.ConcatenatedString):
-            for part in node.left, node.right:
-                if self._has_tag(part):
-                    return True
-        return False
-
-    def _is_debug_guard(self, node: cst.If) -> bool:
-        """Check if this is: if os.environ.get('THEAUDITOR_DEBUG'):"""
-        return m.matches(
-            node.test,
-            m.Call(
-                func=m.Attribute(
-                    value=m.Attribute(value=m.Name("os"), attr=m.Name("environ")),
-                    attr=m.Name("get"),
-                ),
-                args=[
-                    m.Arg(
-                        value=m.OneOf(
-                            m.SimpleString('"THEAUDITOR_DEBUG"'),
-                            m.SimpleString("'THEAUDITOR_DEBUG'"),
-                        )
-                    )
-                ],
-            ),
-        )
-
-    def visit_If(self, node: cst.If) -> bool:
-        """Track when we enter a debug guard."""
-        if self._is_debug_guard(node):
-            self.in_debug_guard = True
-        return True
-
-    def leave_If(
-        self, original_node: cst.If, updated_node: cst.If
-    ) -> Union[cst.If, cst.RemovalSentinel, cst.FlattenSentinel[cst.BaseStatement]]:
-        """Remove debug guards, convert inner prints to logger.debug()."""
-        if not self._is_debug_guard(original_node):
-            return updated_node
-
-        self.in_debug_guard = False
-
-        # Extract statements from the if body
-        new_statements: list[cst.BaseStatement] = []
-        body = updated_node.body
-        if isinstance(body, cst.IndentedBlock):
-            for stmt in body.body:
-                # Convert print to logger.debug
-                if m.matches(
-                    stmt,
-                    m.SimpleStatementLine(
-                        body=[m.Expr(value=m.Call(func=m.Name("print")))]
-                    ),
-                ):
-                    expr = stmt.body[0]
-                    if isinstance(expr, cst.Expr) and isinstance(expr.value, cst.Call):
-                        logger_call = self._convert_print_to_logger(
-                            expr.value, force_level="debug"
-                        )
-                        if logger_call:
-                            new_statements.append(
-                                cst.SimpleStatementLine(body=[cst.Expr(value=logger_call)])
-                            )
-                            continue
-                new_statements.append(stmt)
-
-        if not new_statements:
-            return cst.RemovalSentinel.REMOVE
-
-        return cst.FlattenSentinel(new_statements)
-
-    def _convert_print_to_logger(
-        self, node: cst.Call, force_level: str | None = None
-    ) -> cst.Call | None:
-        """Convert a print() call to logger.level() call."""
-        if not node.args:
-            return None
-
-        first_arg = node.args[0].value
-        level = force_level or "info"
-
-        # Handle FormattedString (f-string)
-        if isinstance(first_arg, cst.FormattedString):
-            new_parts: list[cst.BaseFormattedStringContent] = []
-            tag_removed = False
-
-            for part in first_arg.parts:
-                if isinstance(part, cst.FormattedStringText) and not tag_removed:
-                    new_value = part.value
-                    for tag in self.TAG_TO_LEVEL:
-                        if tag in new_value:
-                            if not force_level:
-                                level = self.TAG_TO_LEVEL[tag]
-                            new_value = new_value.replace(tag, "").lstrip()
-                            tag_removed = True
-                            break
-                    if new_value:
-                        new_parts.append(part.with_changes(value=new_value))
-                else:
-                    new_parts.append(part)
-
-            if not new_parts:
-                return None
-
-            new_arg = first_arg.with_changes(parts=new_parts)
-
-        # Handle SimpleString
-        elif isinstance(first_arg, cst.SimpleString):
-            text = first_arg.value
-            quote_char = text[0]
-            inner = text[1:-1]
-            for tag in self.TAG_TO_LEVEL:
-                if tag in inner:
-                    if not force_level:
-                        level = self.TAG_TO_LEVEL[tag]
-                    inner = inner.replace(tag, "").lstrip()
-                    break
-            if not inner:
-                return None
-            new_arg = cst.SimpleString(value=f"{quote_char}{inner}{quote_char}")
-
-        else:
-            # Other expression types - keep as-is
-            new_arg = first_arg
-
-        self.needs_logger_import = True
-
-        return cst.Call(
-            func=cst.Attribute(value=cst.Name("logger"), attr=cst.Name(level)),
-            args=[cst.Arg(value=new_arg)],
-        )
-
-    def leave_Call(
-        self, original_node: cst.Call, updated_node: cst.Call
-    ) -> cst.Call:
-        """Transform print() calls to logger calls."""
-        # Only transform print() calls
-        if not m.matches(updated_node.func, m.Name("print")):
-            return updated_node
-
-        # Skip if inside debug guard (handled by leave_If)
-        if self.in_debug_guard:
-            return updated_node
-
-        # Skip print() with no arguments
-        if not updated_node.args:
-            return updated_node
-
-        # Only transform if has a recognized tag
-        first_arg = updated_node.args[0].value
-        if not self._has_tag(first_arg):
-            return updated_node
-
-        result = self._convert_print_to_logger(updated_node)
-        return result if result else updated_node
-
-    def leave_Module(
-        self, original_node: cst.Module, updated_node: cst.Module
-    ) -> cst.Module:
-        """Add loguru import if any transformations occurred."""
-        if self.needs_logger_import:
-            AddImportsVisitor.add_needed_import(
-                self.context, "theauditor.utils.logging", "logger"
-            )
-        return updated_node
-```
-
-- [ ] 2.2.2 Verify all tag-to-level mappings match design.md Decision 4
-- [ ] 2.2.3 Verify debug guard removal pattern handles `if os.environ.get("THEAUDITOR_DEBUG"):`
-- [ ] 2.2.4 Note: `file=sys.stderr` is automatically dropped when converting to logger (logger always goes to stderr)
-
-### 2.3 Create Codemod Tests
-
-- [ ] 2.3.1 Create `scripts/codemods/test_print_to_loguru.py`
-- [ ] 2.3.2 Test: tagged f-string to logger
-- [ ] 2.3.3 Test: tagged print with stderr
-- [ ] 2.3.4 Test: debug guard removal
-- [ ] 2.3.5 Test: untagged print unchanged
-- [ ] 2.3.6 Test: multiple tags in file
-- [ ] 2.3.7 Run tests: `python -m pytest scripts/codemods/test_print_to_loguru.py -v`
+- [ ] 2.3.1 Run help to verify CLI works: `python scripts/loguru_migration.py --help`
 
 ---
 
-## PHASE 3: Python Codemod Dry Run
+## PHASE 3: Python Migration Dry Run
 
 ### 3.1 Single File Test
 
 - [ ] 3.1.1 Dry run on `theauditor/taint/core.py` (has many prints):
 ```bash
-python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCodemod \
-    --no-format \
-    theauditor/taint/core.py
+python scripts/loguru_migration.py theauditor/taint/core.py --dry-run --diff
 ```
 - [ ] 3.1.2 Review the diff output
 - [ ] 3.1.3 Verify tag-to-level mapping is correct
@@ -421,24 +181,21 @@ python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCode
 
 - [ ] 3.2.1 Dry run on all theauditor files:
 ```bash
-python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCodemod \
-    --no-format \
-    theauditor/
+python scripts/loguru_migration.py theauditor/ --dry-run
 ```
-- [ ] 3.2.2 Review full diff
-- [ ] 3.2.3 Note any edge cases not handled
-- [ ] 3.2.4 Fix codemod if needed, re-run tests
+- [ ] 3.2.2 Review summary output (files modified, transformations count)
+- [ ] 3.2.3 Note any edge cases skipped (end="", file=custom, etc.)
+- [ ] 3.2.4 Verify no syntax errors reported
 
 ---
 
-## PHASE 4: Python Codemod Application
+## PHASE 4: Python Migration Application
 
 ### 4.1 Apply Transformation
 
-- [ ] 4.1.1 Apply codemod to all files:
+- [ ] 4.1.1 Apply migration to all files:
 ```bash
-python -m libcst.tool codemod scripts.codemods.print_to_loguru.PrintToLoguruCodemod \
-    theauditor/
+python scripts/loguru_migration.py theauditor/
 ```
 
 ### 4.2 Post-Transform Cleanup
@@ -759,10 +516,7 @@ If anything goes wrong:
 **Python:**
 ```bash
 git checkout -- theauditor/
-git checkout -- scripts/
 rm theauditor/utils/logging.py
-rm -rf scripts/codemods/
-rm .libcst.codemod.yaml
 ```
 
 **TypeScript:**
@@ -770,5 +524,7 @@ rm .libcst.codemod.yaml
 git checkout -- theauditor/ast_extractors/javascript/src/
 rm -rf theauditor/ast_extractors/javascript/src/utils/
 ```
+
+**Note**: `scripts/loguru_migration.py` is a standalone tool - no cleanup needed.
 
 **Full rollback time**: ~2 minutes

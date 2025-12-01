@@ -119,17 +119,32 @@ export const logger = {
 
 ---
 
-### Decision 3: LibCST for Automated Python Migration
+### Decision 3: Production Migration Script (Already Written)
 
-**Choice**: Use LibCST codemods to transform all 323 Python print statements automatically.
+**Choice**: Use existing `scripts/loguru_migration.py` (847 lines) to transform all 323 Python print statements automatically.
 
-**Rationale**:
-- LibCST preserves formatting (comments, whitespace)
-- Automatic import management (adds loguru, removes sys)
-- Parallel processing across files
-- Dry-run mode for verification
-- Test framework for validation
-- Used by Instagram/Meta for large-scale refactoring
+**Script Location**: `scripts/loguru_migration.py`
+
+**Usage**:
+```bash
+# Dry run - preview changes
+python scripts/loguru_migration.py theauditor/ --dry-run
+
+# Apply changes
+python scripts/loguru_migration.py theauditor/
+
+# Single file with diff
+python scripts/loguru_migration.py theauditor/taint/core.py --dry-run --diff
+```
+
+**Features**:
+- LibCST-based preserves formatting (comments, whitespace)
+- Automatic import management (adds loguru import)
+- Standalone CLI - no yaml/init required
+- Dry-run mode with diff output
+- Syntax validation via compile() before writing
+- Multi-encoding support (utf-8, latin-1, cp1252)
+- Edge case handling: end="", sep=, file=custom, eager eval protection, brace hazard
 
 **Why not manual refactoring**:
 - 323 statements across 51 files = days of tedious work
@@ -303,12 +318,7 @@ theauditor/
 └── ...
 
 scripts/
-└── codemods/
-    ├── __init__.py
-    ├── print_to_loguru.py      # NEW: LibCST codemod
-    └── test_print_to_loguru.py # NEW: Codemod tests
-
-.libcst.codemod.yaml            # NEW: LibCST configuration
+└── loguru_migration.py         # EXISTS: Production migration script (847 lines, standalone CLI)
 ```
 
 ---
@@ -326,6 +336,7 @@ All resolved:
 
 ## References
 
+- `scripts/loguru_migration.py` - Production migration script (847 lines, standalone CLI)
 - `scripts/libcst_faq.md` - LibCST best practices and patterns
 - `theauditor/utils/logger.py` - Current logging facade (to be replaced)
 - `theauditor/pipeline/renderer.py` - Rich UI (preserved)
