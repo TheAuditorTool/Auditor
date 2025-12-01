@@ -2,7 +2,10 @@
 
 from typing import Any
 
+from ...utils.logger import setup_logger
 from . import BaseExtractor
+
+logger = setup_logger(__name__)
 
 
 class BashExtractor(BaseExtractor):
@@ -25,6 +28,9 @@ class BashExtractor(BaseExtractor):
             actual_tree = tree.get("tree")
             if actual_tree:
                 from theauditor.ast_extractors.bash_impl import extract_all_bash_data
+                from theauditor.ast_extractors.base import check_tree_sitter_parse_quality
+
+                check_tree_sitter_parse_quality(actual_tree.root_node, file_info["path"], logger)
 
                 try:
                     extracted = extract_all_bash_data(actual_tree, content, file_info["path"])

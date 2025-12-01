@@ -37,8 +37,10 @@ class GoExtractor(BaseExtractor):
             return {}
 
         from ...ast_extractors import go_impl
+        from ...ast_extractors.base import check_tree_sitter_parse_quality
 
         ts_tree = tree["tree"]
+        check_tree_sitter_parse_quality(ts_tree.root_node, file_path, logger)
 
         package = go_impl.extract_go_package(ts_tree, content, file_path)
         imports = go_impl.extract_go_imports(ts_tree, content, file_path)
