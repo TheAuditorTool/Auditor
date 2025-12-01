@@ -1456,23 +1456,23 @@ class FunctionReturnSourcesJsxTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from function_return_sources_jsx."""
-        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'])
+        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'])
         cursor.execute(query)
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_return_var_name(cursor: sqlite3.Cursor, return_var_name: str) -> list[dict[str, Any]]:
         """Get rows by return_var_name."""
-        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'], where="return_var_name = ?")
+        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'], where="return_var_name = ?")
         cursor.execute(query, (return_var_name,))
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_return_file(cursor: sqlite3.Cursor, return_file: str) -> list[dict[str, Any]]:
         """Get rows by return_file."""
-        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'], where="return_file = ?")
+        query = build_query('function_return_sources_jsx', ['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'], where="return_file = ?")
         cursor.execute(query, (return_file,))
-        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'return_file', 'return_line', 'return_function', 'jsx_mode', 'return_var_name', 'extraction_pass'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class FunctionReturnsTable:

@@ -176,6 +176,7 @@ async def run_chain_silent(
             or "cdk" in cmd_str
             or "terraform" in cmd_str
             or "workflows" in cmd_str
+            or "detect-patterns" in cmd_str
         )
 
         if is_findings_command:
@@ -1151,6 +1152,7 @@ async def run_full_pipeline(
                     or "cdk" in cmd_str
                     or "terraform" in cmd_str
                     or "workflows" in cmd_str
+                    or "detect-patterns" in cmd_str
                 )
 
                 if is_findings_command:

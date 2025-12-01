@@ -1,12 +1,14 @@
 """Storage layer: Domain-specific handler modules."""
 
-import os
+import logging
 from typing import Any
 
 from .core_storage import CoreStorage
 from .infrastructure_storage import InfrastructureStorage
 from .node_storage import NodeStorage
 from .python_storage import PythonStorage
+
+logger = logging.getLogger(__name__)
 
 
 class DataStorer:
@@ -72,8 +74,9 @@ class DataStorer:
                 else:
                     receipt[data_type] = 1 if data else 0
             else:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] No handler for data type: {data_type}")
+                # WARNING: Data being dropped - no handler registered
+                # This exposes schema/handler mismatches immediately
+                logger.warning(f"No handler for data type '{data_type}' - data dropped")
 
         return receipt
 

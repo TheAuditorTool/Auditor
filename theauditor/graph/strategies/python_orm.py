@@ -284,7 +284,18 @@ class PythonOrmContext:
         if "(" not in expr:
             return None
 
-        candidate = expr.split("(")[0].strip()
+        # GRAPH FIX G5: Handle Django/SQLAlchemy ORM patterns before generic split
+        # "User.objects.create()" → split("(")[0] = "User.objects.create" → NOT in model_names
+        # Need to extract model name from ORM method chains
+        if ".objects." in expr:
+            # Django: User.objects.create(), User.objects.filter()
+            candidate = expr.split(".objects.")[0].strip()
+        elif ".query." in expr:
+            # SQLAlchemy: User.query.filter(), User.query.get()
+            candidate = expr.split(".query.")[0].strip()
+        else:
+            # Standard constructor: User(), MyModel()
+            candidate = expr.split("(")[0].strip()
 
         if not candidate or not (candidate[0].isalpha() or candidate[0] == "_"):
             return None

@@ -23,6 +23,9 @@ ENV_VAR_USAGE = TableSchema(
         ("idx_env_var_usage_name", ["var_name"]),
         ("idx_env_var_usage_type", ["access_type"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 
@@ -36,6 +39,9 @@ SQL_OBJECTS = TableSchema(
     indexes=[
         ("idx_sql_file", ["file"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+    ],
 )
 
 SQL_QUERIES = TableSchema(
@@ -47,9 +53,13 @@ SQL_QUERIES = TableSchema(
         Column("command", "TEXT", nullable=False, check="command != 'UNKNOWN'"),
         Column("extraction_source", "TEXT", nullable=False, default="'code_execute'"),
     ],
+    primary_key=["file_path", "line_number"],
     indexes=[
         ("idx_sql_queries_file", ["file_path"]),
         ("idx_sql_queries_command", ["command"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -72,7 +82,8 @@ SQL_QUERY_TABLES = TableSchema(
             local_columns=["query_file", "query_line"],
             foreign_table="sql_queries",
             foreign_columns=["file_path", "line_number"],
-        )
+        ),
+        ForeignKey(local_columns=["query_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -91,6 +102,9 @@ JWT_PATTERNS = TableSchema(
         ("idx_jwt_file", ["file_path"]),
         ("idx_jwt_type", ["pattern_type"]),
         ("idx_jwt_secret_source", ["secret_source"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -116,6 +130,10 @@ TAINT_FLOWS = TableSchema(
         ("idx_taint_flows_sink", ["sink_file", "sink_line"]),
         ("idx_taint_flows_type", ["vulnerability_type"]),
         ("idx_taint_flows_length", ["path_length"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["source_file"], foreign_table="files", foreign_columns=["path"]),
+        ForeignKey(local_columns=["sink_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 
@@ -156,6 +174,10 @@ RESOLVED_FLOW_AUDIT = TableSchema(
         ("idx_resolved_flow_sanitizer", ["sanitizer_file", "sanitizer_line"]),
         ("idx_resolved_flow_sanitizer_method", ["sanitizer_method"]),
         ("idx_resolved_flow_engine", ["engine"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["source_file"], foreign_table="files", foreign_columns=["path"]),
+        ForeignKey(local_columns=["sink_file"], foreign_table="files", foreign_columns=["path"]),
     ],
 )
 

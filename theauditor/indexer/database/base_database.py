@@ -178,6 +178,16 @@ class BaseDatabaseManager:
             cursor.executemany(query, batch)
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
                 print(f"[DEBUG] Flush: {table_name} SUCCESS", file=sys.stderr)
+        except sqlite3.IntegrityError as e:
+            # FK VIOLATION DIAGNOSTIC: Print offending data before crash
+            print(f"\n[CRITICAL] FK VIOLATION in table '{table_name}'", file=sys.stderr)
+            print(f"  Error: {e}", file=sys.stderr)
+            print(f"  Query: {query}", file=sys.stderr)
+            print(f"  Batch size: {len(batch)}", file=sys.stderr)
+            print(f"  Sample rows (first 5):", file=sys.stderr)
+            for i, row in enumerate(batch[:5]):
+                print(f"    [{i}] {row}", file=sys.stderr)
+            raise  # Re-raise: crash loud with forensics
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
                 print(f"[DEBUG] Flush: {table_name} FAILED - {e}", file=sys.stderr)
@@ -393,6 +403,20 @@ class BaseDatabaseManager:
 
         except sqlite3.IntegrityError as e:
             error_msg = str(e)
+
+            # DIAGNOSTIC: Dump all pending batches to help identify the culprit
+            print(f"\n[CRITICAL] IntegrityError in flush_batch: {error_msg}", file=sys.stderr)
+            print(f"[CRITICAL] Pending batches with data:", file=sys.stderr)
+            for tbl, batch in self.generic_batches.items():
+                if batch:
+                    print(f"  {tbl}: {len(batch)} rows", file=sys.stderr)
+                    if len(batch) <= 5:
+                        for i, row in enumerate(batch):
+                            print(f"    [{i}] {row}", file=sys.stderr)
+                    else:
+                        for i, row in enumerate(batch[:3]):
+                            print(f"    [{i}] {row}", file=sys.stderr)
+                        print(f"    ... ({len(batch) - 3} more)", file=sys.stderr)
 
             if "UNIQUE constraint failed" in error_msg:
                 raise ValueError(

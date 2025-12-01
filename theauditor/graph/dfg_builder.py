@@ -737,7 +737,10 @@ class DFGBuilder:
                     if result:
                         return result
 
-                return "complex_expression"
+                # GRAPH FIX G2: Return None instead of "complex_expression"
+                # "complex_expression" caused intra-function collisions when multiple
+                # complex args in same call got identical node IDs. Better no edge than false edge.
+                return None
 
         if "(" in expr and expr.endswith(")"):
             start = expr.find("(") + 1
@@ -747,7 +750,8 @@ class DFGBuilder:
             if inner and all(c.isalnum() or c in "._$?" for c in inner):
                 return inner
 
-            return "complex_expression"
+            # GRAPH FIX G2: Return None instead of "complex_expression"
+            return None
 
         if expr and expr[0] in "\"'`":
             return "string_literal"
@@ -756,6 +760,7 @@ class DFGBuilder:
             return expr[:-1]
 
         if " " in expr:
-            return "complex_expression"
+            # GRAPH FIX G2: Return None instead of "complex_expression"
+            return None
 
         return expr
