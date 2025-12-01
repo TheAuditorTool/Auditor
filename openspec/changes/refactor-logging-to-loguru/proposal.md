@@ -63,12 +63,16 @@ Manual refactoring of 323 print statements across 51 files is:
 - Time-consuming (days of tedious work)
 - Risky (human errors in repetitive tasks)
 
-LibCST codemods provide:
-- Automated pattern matching and transformation
+**Production script exists**: `scripts/loguru_migration.py` (847 lines, standalone CLI)
+
+The script provides:
+- Automated pattern matching and transformation via LibCST
 - Preserves all formatting (comments, whitespace)
-- Automatic import management (adds loguru, removes unused sys)
-- Parallel processing across all files
-- Dry-run mode for verification before applying
+- Automatic import management (adds loguru import)
+- Dry-run mode with diff output for verification
+- Syntax validation via compile() before writing any file
+- Edge case handling: end="", sep=, file=custom, eager eval protection, brace hazard
+- Multi-encoding support (utf-8, latin-1, cp1252)
 
 ### Why Manual for TypeScript
 
@@ -84,7 +88,7 @@ Only 18 statements across 3 files - scripting overhead not justified.
 |-----------|--------|-------|------|
 | `pyproject.toml` | ADD dependency | +1 | LOW |
 | `theauditor/utils/logging.py` | CREATE (replaces logger.py) | +100 | LOW |
-| `scripts/codemods/print_to_loguru.py` | CREATE | +200 | LOW |
+| `scripts/loguru_migration.py` | EXISTS (847 lines) | 0 | LOW |
 | `theauditor/**/*.py` (51 files) | MODIFY via codemod | ~-323/+323 | MEDIUM |
 | `theauditor/utils/logger.py` | DELETE (replaced) | -24 | LOW |
 | `theauditor/ast_extractors/javascript/src/*.ts` (3 files) | MODIFY manually | ~-18/+18 | LOW |
@@ -210,7 +214,7 @@ AFTER (Proposed - 3 Code Paths):
 | Package | Version | Size | Language | Why |
 |---------|---------|------|----------|-----|
 | `loguru` | >=0.7.0 | ~500KB | Python | Structured logging with rotation |
-| `libcst` | >=1.0.0 | ~3MB | Python | Codemod automation (dev dependency) |
+| `libcst` | >=1.0.0 | ~3MB | Python | Migration script dependency (already in dev deps) |
 
 ---
 
@@ -288,7 +292,7 @@ All criteria MUST pass before marking complete:
 ### Architect Decision Points
 
 1. **Loguru as hard dependency** - Adds ~500KB, provides 2025-standard logging
-2. **LibCST as dev dependency** - Used only for migration, not runtime
+2. **LibCST already in dev deps** - Used by existing `scripts/loguru_migration.py` (847 lines, production-ready)
 3. **Delete utils/logger.py** - Replaced by utils/logging.py with Loguru
 4. **Tag-to-level mapping** - Proposed mapping in codemod (can be adjusted)
 5. **JSON output option** - `THEAUDITOR_LOG_JSON=1` for ELK/Splunk integration
