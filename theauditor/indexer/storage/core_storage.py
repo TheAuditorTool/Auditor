@@ -375,11 +375,8 @@ class CoreStorage(BaseStorage):
                     usage.get("argument_expr", ""),
                 )
             )
-        if (
-            len(self.db_manager.generic_batches["validation_framework_usage"])
-            >= self.db_manager.batch_size
-        ):
-            self.db_manager.flush_generic_batch("validation_framework_usage")
+        # NOTE: Do NOT flush here! Let flush_batch() handle it per FLUSH_ORDER.
+        # Immediate flush causes FK violation - files table not flushed yet.
 
     def _store_assignments(self, file_path: str, assignments: list, jsx_pass: bool):
         """Store data flow information for taint analysis.
@@ -900,7 +897,7 @@ class CoreStorage(BaseStorage):
         """Store build analysis data."""
         for pkg_config in package_configs:
             self.db_manager.add_package_config(
-                pkg_config["file_path"],
+                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
                 pkg_config["package_name"],
                 pkg_config["version"],
                 pkg_config.get("dependencies"),

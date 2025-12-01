@@ -73,7 +73,7 @@ class NodeStorage(BaseStorage):
         """Store React component hooks from flat junction array."""
         for hook in hooks:
             self.db_manager.add_react_component_hook_flat(
-                hook.get("component_file", file_path),
+                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
                 hook.get("component_name", ""),
                 hook.get("hook_name", ""),
             )
@@ -83,7 +83,7 @@ class NodeStorage(BaseStorage):
         """Store React hook dependencies from flat junction array."""
         for dep in deps:
             self.db_manager.add_react_hook_dependency_flat(
-                dep.get("hook_file", file_path),
+                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
                 dep.get("hook_line", 0),
                 dep.get("hook_component", ""),
                 dep.get("dependency_name", ""),
@@ -267,7 +267,7 @@ class NodeStorage(BaseStorage):
         """Store lock analysis."""
         for lock in lock_analysis:
             self.db_manager.add_lock_analysis(
-                lock["file_path"],
+                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
                 lock["lock_type"],
                 lock.get("package_manager_version"),
                 lock["total_packages"],

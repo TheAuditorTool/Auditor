@@ -35,6 +35,8 @@ class DataStorer:
         self, file_path: str, extracted: dict[str, Any], jsx_pass: bool = False
     ) -> dict[str, int]:
         """Store extracted data via domain-specific handlers."""
+        # Force POSIX paths to match 'files' table normalized format
+        file_path = file_path.replace("\\", "/")
 
         self._current_extracted = extracted
 
