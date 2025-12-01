@@ -26,11 +26,15 @@ The current linter orchestration in `theauditor/linters/linters.py` (592 lines) 
   - `theauditor/linters/eslint.py` - New file: Extract from `linters.py:128-222`
   - `theauditor/linters/mypy.py` - New file: Extract from `linters.py:327-452`
   - `theauditor/linters/clippy.py` - New file: Extract from `linters.py:498-592`
+  - `theauditor/linters/golangci.py` - **New file**: Go linting via golangci-lint (was missing)
+  - `theauditor/linters/shellcheck.py` - **New file**: Bash linting via shellcheck (was missing)
+  - `theauditor/utils/toolbox.py` - Add `get_golangci_lint()` and `get_shellcheck()` methods
 - Files to DELETE:
   - `theauditor/sandbox_executor.py` - Superseded by `theauditor/utils/toolbox.py` (no imports found)
 - Breaking changes: None (same public interface `LinterOrchestrator.run_all_linters()`)
 - Performance: Expected 40-60% faster on multi-core systems (parallel execution)
 - Risk: Low - existing tests cover output format, internal restructuring only
+- **Expanded scope**: Added Go and Bash linters to complete language coverage (extractors existed but linters were missing)
 
 ## Verified Current State
 

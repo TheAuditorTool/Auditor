@@ -150,3 +150,63 @@ class Toolbox:
     def get_typescript_config(self) -> Path:
         """Get path to TypeScript config in sandbox."""
         return self.sandbox / "tsconfig.json"
+
+    def get_golangci_lint(self, required: bool = False) -> Path | None:
+        """Get path to golangci-lint binary.
+
+        Checks sandbox first, then falls back to system PATH.
+        Optional by default since not all projects use Go.
+
+        Args:
+            required: If True, raise FileNotFoundError when not found
+
+        Returns:
+            Path to golangci-lint binary, or None if not found and not required
+        """
+        bin_dir = self.sandbox / "bin"
+        bundled = bin_dir / ("golangci-lint.exe" if IS_WINDOWS else "golangci-lint")
+
+        if bundled.exists():
+            return bundled
+
+        system_binary = shutil.which("golangci-lint")
+        if system_binary:
+            return Path(system_binary)
+
+        if required:
+            raise FileNotFoundError(
+                f"golangci-lint not found at {bundled} or in system PATH. "
+                f"Install via: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+            )
+
+        return None
+
+    def get_shellcheck(self, required: bool = False) -> Path | None:
+        """Get path to shellcheck binary.
+
+        Checks sandbox first, then falls back to system PATH.
+        Optional by default since not all projects use Bash.
+
+        Args:
+            required: If True, raise FileNotFoundError when not found
+
+        Returns:
+            Path to shellcheck binary, or None if not found and not required
+        """
+        bin_dir = self.sandbox / "bin"
+        bundled = bin_dir / ("shellcheck.exe" if IS_WINDOWS else "shellcheck")
+
+        if bundled.exists():
+            return bundled
+
+        system_binary = shutil.which("shellcheck")
+        if system_binary:
+            return Path(system_binary)
+
+        if required:
+            raise FileNotFoundError(
+                f"shellcheck not found at {bundled} or in system PATH. "
+                f"Install via: apt install shellcheck / brew install shellcheck / scoop install shellcheck"
+            )
+
+        return None
