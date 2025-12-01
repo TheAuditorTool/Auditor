@@ -1042,7 +1042,7 @@ def transform_file(file_path: str, dry_run: bool = False) -> tuple[str, int]:
     if transformer.transformations > 0:
         # SAFETY: Check for variable shadowing before adding import
         conflict_check = NameConflictVisitor(transformer.CONSOLE_NAME)
-        module.walk(conflict_check)
+        module.visit(conflict_check)
         if conflict_check.found:
             locations = ", ".join(set(conflict_check.locations)) if conflict_check.locations else "unknown"
             print(
