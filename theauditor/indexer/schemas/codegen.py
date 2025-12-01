@@ -222,6 +222,20 @@ class SchemaCodeGenerator:
         code.append("        for table_name in TABLES:")
         code.append("            stats[table_name] = self.get_table_size(table_name)")
         code.append("        return stats")
+        code.append("")
+        code.append("    def get_memory_usage_mb(self) -> float:")
+        code.append('        """Estimate memory usage of the cache in MB."""')
+        code.append("        import sys")
+        code.append("        total_bytes = 0")
+        code.append("        for attr, value in self.__dict__.items():")
+        code.append("            total_bytes += sys.getsizeof(value)")
+        code.append("            if isinstance(value, list):")
+        code.append("                total_bytes += sum(sys.getsizeof(i) for i in value)")
+        code.append("            elif isinstance(value, dict):")
+        code.append(
+            "                total_bytes += sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in value.items())"
+        )
+        code.append("        return total_bytes / (1024 * 1024)")
 
         return "\n".join(code)
 

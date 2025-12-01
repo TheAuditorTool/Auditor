@@ -1,5 +1,5 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: 0571c26217c12e4fb79a57b61a378fac6f8776cd2b633c3d90949f8e90aa336f
+# SCHEMA_HASH: 4353ae731a4a689f7297df142bfae7ad57258aa156dacdcd26848b37f561e833
 from typing import Any
 from collections import defaultdict
 import sqlite3
@@ -67,3 +67,15 @@ class SchemaMemoryCache:
         for table_name in TABLES:
             stats[table_name] = self.get_table_size(table_name)
         return stats
+
+    def get_memory_usage_mb(self) -> float:
+        """Estimate memory usage of the cache in MB."""
+        import sys
+        total_bytes = 0
+        for attr, value in self.__dict__.items():
+            total_bytes += sys.getsizeof(value)
+            if isinstance(value, list):
+                total_bytes += sum(sys.getsizeof(i) for i in value)
+            elif isinstance(value, dict):
+                total_bytes += sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in value.items())
+        return total_bytes / (1024 * 1024)

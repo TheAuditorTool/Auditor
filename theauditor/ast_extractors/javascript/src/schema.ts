@@ -526,9 +526,12 @@ export const GraphQLResolverParamSchema = z.object({
 export const ObjectLiteralSchema = z.object({
   file: z.string(),
   line: z.number(),
+  variable_name: z.string(),
+  property_name: z.string(),
+  property_value: z.string(),
+  property_type: z.string(),
+  nested_level: z.number(),
   in_function: z.string(),
-  property_count: z.number(),
-  keys: z.string().nullable(),
 });
 
 export const VariableUsageSchema = z.object({
@@ -735,6 +738,9 @@ export type SequelizeAssociation = z.infer<typeof SequelizeAssociationSchema>;
 export type AngularModule = z.infer<typeof AngularModuleSchema>;
 export type AngularService = z.infer<typeof AngularServiceSchema>;
 export type AngularGuard = z.infer<typeof AngularGuardSchema>;
+
+export type ObjectLiteral = z.infer<typeof ObjectLiteralSchema>;
+export type VariableUsage = z.infer<typeof VariableUsageSchema>;
 
 export type CFGBlock = z.infer<typeof CFGBlockSchema>;
 export type CFGEdge = z.infer<typeof CFGEdgeSchema>;

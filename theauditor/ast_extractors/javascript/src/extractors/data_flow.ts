@@ -9,6 +9,8 @@ import type {
   ReturnSourceVar as IReturnSourceVar,
   Function as IFunction,
   Class as IClass,
+  ObjectLiteral as IObjectLiteral,
+  VariableUsage as IVariableUsage,
 } from "../schema";
 
 export function extractCalls(
@@ -808,274 +810,201 @@ export function extractReturns(
   return { returns, return_source_vars };
 }
 
-interface IObjectLiteralProperty {
-  line: number;
-  variable_name: string;
-  property_name: string;
-  property_value: string;
-  property_type: string;
-  nested_level: number;
-  in_function: string;
-}
-
-function extractFromObjectNode(
-  objNode: ts.ObjectLiteralExpression,
-  varName: string,
-  inFunction: string,
-  sourceFile: ts.SourceFile,
-  ts: typeof import("typescript"),
-  nestedLevel: number,
-  literals: IObjectLiteralProperty[],
-): void {
-  const properties = objNode.properties || [];
-  properties.forEach((prop) => {
-    if (!prop) return;
-
-    const { line } = sourceFile.getLineAndCharacterOfPosition(
-      prop.getStart(sourceFile),
-    );
-    const kind = ts.SyntaxKind[prop.kind];
-
-    if (kind === "PropertyAssignment") {
-      const propAssign = prop as ts.PropertyAssignment;
-      const propName = propAssign.name
-        ? (propAssign.name as ts.Identifier).text ||
-          (propAssign.name as ts.Identifier).escapedText?.toString() ||
-          "<unknown>"
-        : "<unknown>";
-      const propValue = propAssign.initializer
-        ? propAssign.initializer.getText(sourceFile).substring(0, 250)
-        : "";
-
-      literals.push({
-        line: line + 1,
-        variable_name: varName,
-        property_name: propName,
-        property_value: propValue,
-        property_type: "value",
-        nested_level: nestedLevel,
-        in_function: inFunction,
-      });
-
-      if (
-        propAssign.initializer &&
-        propAssign.initializer.kind === ts.SyntaxKind.ObjectLiteralExpression
-      ) {
-        const nestedVarName = "<property:" + propName + ">";
-        extractFromObjectNode(
-          propAssign.initializer as ts.ObjectLiteralExpression,
-          nestedVarName,
-          inFunction,
-          sourceFile,
-          ts,
-          nestedLevel + 1,
-          literals,
-        );
-      }
-    } else if (kind === "ShorthandPropertyAssignment") {
-      const shorthand = prop as ts.ShorthandPropertyAssignment;
-      const propName = shorthand.name
-        ? shorthand.name.text ||
-          shorthand.name.escapedText?.toString() ||
-          "<unknown>"
-        : "<unknown>";
-
-      literals.push({
-        line: line + 1,
-        variable_name: varName,
-        property_name: propName,
-        property_value: propName,
-        property_type: "shorthand",
-        nested_level: nestedLevel,
-        in_function: inFunction,
-      });
-    } else if (kind === "MethodDeclaration") {
-      const method = prop as ts.MethodDeclaration;
-      const methodName = method.name
-        ? (method.name as ts.Identifier).text ||
-          (method.name as ts.Identifier).escapedText?.toString() ||
-          "<unknown>"
-        : "<unknown>";
-
-      literals.push({
-        line: line + 1,
-        variable_name: varName,
-        property_name: methodName,
-        property_value: "<function>",
-        property_type: "method",
-        nested_level: nestedLevel,
-        in_function: inFunction,
-      });
-    }
-  });
-}
-
 export function extractObjectLiterals(
   sourceFile: ts.SourceFile,
   ts: typeof import("typescript"),
   scopeMap: Map<number, string>,
-): IObjectLiteralProperty[] {
-  const literals: IObjectLiteralProperty[] = [];
+  filePath: string,
+): IObjectLiteral[] {
+  const literals: IObjectLiteral[] = [];
   const visited = new Set<string>();
 
-  function traverse(node: ts.Node, depth: number = 0): void {
-    if (depth > 100 || !node) return;
+  function inferPropertyType(
+    initializer: ts.Expression,
+    ts: typeof import("typescript"),
+  ): string {
+    if (ts.isStringLiteral(initializer)) return "string";
+    if (ts.isNumericLiteral(initializer)) return "number";
+    if (
+      initializer.kind === ts.SyntaxKind.TrueKeyword ||
+      initializer.kind === ts.SyntaxKind.FalseKeyword
+    )
+      return "boolean";
+    if (initializer.kind === ts.SyntaxKind.NullKeyword) return "null";
+    if (ts.isArrayLiteralExpression(initializer)) return "array";
+    if (ts.isObjectLiteralExpression(initializer)) return "object";
+    if (ts.isFunctionExpression(initializer) || ts.isArrowFunction(initializer))
+      return "function";
+    return "unknown";
+  }
+
+  function extractFromObjectNode(
+    objNode: ts.ObjectLiteralExpression,
+    variableName: string,
+    inFunction: string,
+    nestedLevel: number,
+  ): void {
+    const properties = objNode.properties || [];
+
+    properties.forEach((prop) => {
+      if (!prop) return;
+
+      const { line } = sourceFile.getLineAndCharacterOfPosition(
+        prop.getStart(sourceFile),
+      );
+
+      if (ts.isPropertyAssignment(prop)) {
+        const propName = prop.name
+          ? prop.name.getText(sourceFile).replace(/^['"]|['"]$/g, "")
+          : "<unknown>";
+        const propValue = prop.initializer
+          ? prop.initializer.getText(sourceFile).substring(0, 500)
+          : "";
+        const propType = inferPropertyType(prop.initializer, ts);
+
+        literals.push({
+          file: filePath,
+          line: line + 1,
+          variable_name: variableName,
+          property_name: propName,
+          property_value: propValue,
+          property_type: propType,
+          nested_level: nestedLevel,
+          in_function: inFunction,
+        });
+
+        if (ts.isObjectLiteralExpression(prop.initializer)) {
+          extractFromObjectNode(
+            prop.initializer,
+            variableName + "." + propName,
+            inFunction,
+            nestedLevel + 1,
+          );
+        }
+      } else if (ts.isShorthandPropertyAssignment(prop)) {
+        const propName = prop.name
+          ? prop.name.getText(sourceFile)
+          : "<unknown>";
+
+        literals.push({
+          file: filePath,
+          line: line + 1,
+          variable_name: variableName,
+          property_name: propName,
+          property_value: propName,
+          property_type: "shorthand",
+          nested_level: nestedLevel,
+          in_function: inFunction,
+        });
+      } else if (ts.isMethodDeclaration(prop)) {
+        const methodName = prop.name
+          ? prop.name.getText(sourceFile)
+          : "<unknown>";
+
+        literals.push({
+          file: filePath,
+          line: line + 1,
+          variable_name: variableName,
+          property_name: methodName,
+          property_value: "<method>",
+          property_type: "method",
+          nested_level: nestedLevel,
+          in_function: inFunction,
+        });
+      } else if (ts.isSpreadAssignment(prop)) {
+        const spreadExpr = prop.expression
+          ? prop.expression.getText(sourceFile).substring(0, 500)
+          : "<unknown>";
+
+        literals.push({
+          file: filePath,
+          line: line + 1,
+          variable_name: variableName,
+          property_name: "..." + spreadExpr,
+          property_value: spreadExpr,
+          property_type: "spread",
+          nested_level: nestedLevel,
+          in_function: inFunction,
+        });
+      }
+    });
+  }
+
+  function traverse(node: ts.Node): void {
+    if (!node) return;
 
     const nodeId = node.pos + "-" + node.kind;
     if (visited.has(nodeId)) return;
     visited.add(nodeId);
 
-    const kind = ts.SyntaxKind[node.kind];
-    const { line } = sourceFile.getLineAndCharacterOfPosition(
-      node.getStart(sourceFile),
-    );
-    const inFunction = scopeMap.get(line + 1) || "global";
+    if (ts.isObjectLiteralExpression(node)) {
+      const { line } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
+      const inFunction = scopeMap.get(line + 1) || "global";
 
-    if (kind === "VariableDeclaration") {
-      const varDecl = node as ts.VariableDeclaration;
-      if (
-        varDecl.initializer &&
-        varDecl.initializer.kind === ts.SyntaxKind.ObjectLiteralExpression
-      ) {
-        const varName = varDecl.name
-          ? (varDecl.name as ts.Identifier).text ||
-            (varDecl.name as ts.Identifier).escapedText?.toString() ||
-            "<unknown>"
-          : "<unknown>";
-        extractFromObjectNode(
-          varDecl.initializer as ts.ObjectLiteralExpression,
-          varName,
-          inFunction,
-          sourceFile,
-          ts,
-          0,
-          literals,
-        );
-      }
-    } else if (kind === "BinaryExpression") {
-      const binExpr = node as ts.BinaryExpression;
-      if (
-        binExpr.operatorToken &&
-        binExpr.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      ) {
-        if (
-          binExpr.right &&
-          binExpr.right.kind === ts.SyntaxKind.ObjectLiteralExpression
+      let variableName = "<anonymous>";
+      const parent = node.parent;
+
+      if (parent) {
+        if (ts.isVariableDeclaration(parent) && parent.name) {
+          variableName = parent.name.getText(sourceFile);
+        } else if (
+          ts.isBinaryExpression(parent) &&
+          parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          parent.right === node
         ) {
-          const varName = binExpr.left
-            ? binExpr.left.getText(sourceFile)
-            : "<unknown>";
-          extractFromObjectNode(
-            binExpr.right as ts.ObjectLiteralExpression,
-            varName,
-            inFunction,
-            sourceFile,
-            ts,
-            0,
-            literals,
-          );
+          variableName = parent.left.getText(sourceFile);
+        } else if (ts.isReturnStatement(parent)) {
+          variableName = "<return:" + inFunction + ">";
+        } else if (ts.isCallExpression(parent)) {
+          const callee = parent.expression.getText(sourceFile);
+          const argIndex = parent.arguments.indexOf(node as ts.Expression);
+          variableName = "<arg" + argIndex + ":" + callee + ">";
+        } else if (ts.isArrayLiteralExpression(parent)) {
+          const elemIndex = parent.elements.indexOf(node as ts.Expression);
+          variableName = "<array_elem" + elemIndex + ">";
+        } else if (ts.isPropertyAssignment(parent) && parent.initializer === node) {
+          // Nested object - already handled by extractFromObjectNode recursion
+          return;
         }
       }
-    } else if (kind === "ReturnStatement") {
-      const returnStmt = node as ts.ReturnStatement;
-      if (
-        returnStmt.expression &&
-        returnStmt.expression.kind === ts.SyntaxKind.ObjectLiteralExpression
-      ) {
-        const varName = "<return:" + inFunction + ">";
-        extractFromObjectNode(
-          returnStmt.expression as ts.ObjectLiteralExpression,
-          varName,
-          inFunction,
-          sourceFile,
-          ts,
-          0,
-          literals,
-        );
-      }
-    } else if (kind === "CallExpression") {
-      const callExpr = node as ts.CallExpression;
-      const args = callExpr.arguments || [];
-      const calleeName = callExpr.expression
-        ? callExpr.expression.getText(sourceFile)
-        : "unknown";
 
-      args.forEach((arg, i) => {
-        if (arg.kind === ts.SyntaxKind.ObjectLiteralExpression) {
-          const varName = "<arg" + i + ":" + calleeName + ">";
-          extractFromObjectNode(
-            arg as ts.ObjectLiteralExpression,
-            varName,
-            inFunction,
-            sourceFile,
-            ts,
-            0,
-            literals,
-          );
-        }
-      });
-    } else if (kind === "ArrayLiteralExpression") {
-      const arrayExpr = node as ts.ArrayLiteralExpression;
-      const elements = arrayExpr.elements || [];
-      elements.forEach((elem, i) => {
-        if (elem.kind === ts.SyntaxKind.ObjectLiteralExpression) {
-          const varName = "<array_elem" + i + ">";
-          extractFromObjectNode(
-            elem as ts.ObjectLiteralExpression,
-            varName,
-            inFunction,
-            sourceFile,
-            ts,
-            0,
-            literals,
-          );
-        }
-      });
+      extractFromObjectNode(node, variableName, inFunction, 0);
     }
 
-    ts.forEachChild(node, (child) => traverse(child, depth + 1));
+    ts.forEachChild(node, traverse);
   }
 
   traverse(sourceFile);
   return literals;
 }
 
-interface IVariableUsage {
-  line: number;
-  variable_name: string;
-  usage_type: string;
-  in_component: string;
-  in_hook: string;
-  scope_level: number;
-}
-
 export function extractVariableUsage(
   assignments: IAssignment[],
   functionCallArgs: IFunctionCallArg[],
   assignment_source_vars: IAssignmentSourceVar[],
+  filePath: string,
 ): IVariableUsage[] {
   const usage: IVariableUsage[] = [];
 
   const assignmentContext = new Map<string, string>();
   assignments.forEach((assign) => {
-    // Include column to avoid same-line collisions (e.g., const a=1, b=2)
     const key = assign.line + "|" + (assign.col || 0) + "|" + assign.target_var;
     assignmentContext.set(key, assign.in_function);
   });
 
   assignments.forEach((assign) => {
     usage.push({
+      file: filePath,
       line: assign.line,
       variable_name: assign.target_var,
       usage_type: "write",
-      in_component: assign.in_function,
-      in_hook: "",
-      scope_level: assign.in_function === "global" ? 0 : 1,
+      in_function: assign.in_function,
     });
   });
 
   assignment_source_vars.forEach((srcVar) => {
-    // Try to find matching assignment context - source vars don't have col, so try all columns
     let inFunction = "global";
     for (const [key, fn] of assignmentContext.entries()) {
       if (key.endsWith("|" + srcVar.target_var) && key.startsWith(srcVar.line + "|")) {
@@ -1084,12 +1013,11 @@ export function extractVariableUsage(
       }
     }
     usage.push({
+      file: filePath,
       line: srcVar.line,
       variable_name: srcVar.source_var,
       usage_type: "read",
-      in_component: inFunction,
-      in_hook: "",
-      scope_level: inFunction === "global" ? 0 : 1,
+      in_function: inFunction,
     });
   });
 
@@ -1099,12 +1027,11 @@ export function extractVariableUsage(
     if (!seenCalls.has(key)) {
       seenCalls.add(key);
       usage.push({
+        file: filePath,
         line: call.line,
         variable_name: call.callee_function,
         usage_type: "call",
-        in_component: call.caller_function,
-        in_hook: "",
-        scope_level: call.caller_function === "global" ? 0 : 1,
+        in_function: call.caller_function,
       });
     }
   });

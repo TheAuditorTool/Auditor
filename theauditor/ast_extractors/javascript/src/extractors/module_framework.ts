@@ -625,21 +625,13 @@ export function extractImportStyles(
   const import_styles: IImportStyle[] = [];
   const import_style_names: IImportStyleName[] = [];
 
-  // Helper to resolve module path using TypeScript compiler
   const resolveModulePath = (modulePath: string): string | null => {
     if (!program || !sourceFile) return null;
 
-    // Use ts.resolveModuleName for proper module resolution
-    const compilerOptions = program.getCompilerOptions();
-    const result = tsLib.resolveModuleName(
-      modulePath,
-      sourceFile.fileName,
-      compilerOptions,
-      tsLib.sys,
-    );
-    if (result.resolvedModule?.resolvedFileName) {
-      let resolved = result.resolvedModule.resolvedFileName;
-      // Normalize to forward slashes and make relative to project root
+    const resolvedModule = program.getResolvedModule(sourceFile, modulePath, undefined);
+
+    if (resolvedModule?.resolvedFileName) {
+      let resolved = resolvedModule.resolvedFileName;
       resolved = resolved.replace(/\\/g, "/");
       if (projectRoot) {
         const normalizedRoot = projectRoot.replace(/\\/g, "/");

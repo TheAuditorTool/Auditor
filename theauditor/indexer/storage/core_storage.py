@@ -83,7 +83,7 @@ class CoreStorage(BaseStorage):
             else:
                 method, pattern, controls = route
                 self.db_manager.add_endpoint(file_path, method, pattern, controls)
-            self.counts["api_endpoints"] += 1
+            self.counts["routes"] += 1
 
     def _store_router_mounts(self, file_path: str, router_mounts: list, jsx_pass: bool):
         """Store router mount points (PHASE 6.7 - AST-based route resolution)."""

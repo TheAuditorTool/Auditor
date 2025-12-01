@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/extractor.cjs",
+    "test": "tsx src/test_extractor.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
@@ -11,8 +12,10 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
+    "@types/node": "^20.10.0",
     "esbuild": "^0.19.11",
-    "@types/node": "^20.10.0"
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
   }
 }
