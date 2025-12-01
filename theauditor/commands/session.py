@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.session.analysis import SessionAnalysis
 from theauditor.session.analyzer import SessionAnalyzer
 from theauditor.session.detector import detect_agent_type, detect_session_directory
@@ -43,16 +44,16 @@ def analyze(session_dir):
     if not session_dir:
         session_dir = detect_session_directory(root_path)
         if not session_dir:
-            click.echo("[INFO] No AI agent sessions found - skipping Tier 5 analysis")
+            console.print("[info]No AI agent sessions found - skipping Tier 5 analysis[/info]")
             return
-        click.echo(f"[INFO] Auto-detected sessions: {session_dir}")
+        console.print(f"[info]Auto-detected sessions: {session_dir}[/info]")
     else:
         session_dir = Path(session_dir)
 
     agent_type = detect_agent_type(session_dir)
-    click.echo(f"[INFO] Detected agent: {agent_type}")
+    console.print(f"[info]Detected agent: {agent_type}[/info]")
 
-    click.echo("[TIER 5] Analyzing AI agent sessions...")
+    console.print("\\[TIER 5] Analyzing AI agent sessions...")
 
     parser = SessionParser()
     analyzer = SessionAnalysis()
@@ -61,24 +62,32 @@ def analyze(session_dir):
         sessions = parser.parse_all_sessions(session_dir)
 
         if not sessions:
-            click.echo("[INFO] No sessions found in directory")
+            console.print("[info]No sessions found in directory[/info]")
             return
 
-        click.echo(f"[TIER 5] Found {len(sessions)} sessions")
+        console.print(f"\\[TIER 5] Found {len(sessions)} sessions", highlight=False)
 
         for i, session in enumerate(sessions, 1):
             try:
                 analyzer.analyze_session(session)
                 if i % 50 == 0:
-                    click.echo(f"[TIER 5] Progress: {i}/{len(sessions)} sessions analyzed")
+                    console.print(
+                        f"\\[TIER 5] Progress: {i}/{len(sessions)} sessions analyzed",
+                        highlight=False,
+                    )
             except Exception as e:
-                click.echo(f"[WARN] Failed to analyze session {session.session_id}: {e}", err=True)
+                console.print(
+                    f"[warning]Failed to analyze session {session.session_id}: {e}[/warning]",
+                    stderr=True,
+                )
                 continue
 
-        click.echo(f"[OK] Tier 5 analysis complete: {len(sessions)} sessions stored")
+        console.print(
+            f"[success]Tier 5 analysis complete: {len(sessions)} sessions stored[/success]"
+        )
 
     except Exception as e:
-        click.echo(f"[ERROR] Session analysis failed: {e}", err=True)
+        console.print(f"[error]Session analysis failed: {e}[/error]", stderr=True)
         raise
 
 
@@ -93,21 +102,21 @@ def report(project_path, db_path, limit, show_findings):
     if project_path is None:
         project_path = str(Path.cwd())
 
-    click.echo(f"Analyzing sessions for project: {project_path}")
+    console.print(f"Analyzing sessions for project: {project_path}", highlight=False)
 
     parser = SessionParser()
     session_dir = parser.find_project_sessions(project_path)
 
     if not session_dir.exists():
-        click.echo(f"No sessions found for project: {project_path}")
-        click.echo(f"Expected directory: {session_dir}")
+        console.print(f"No sessions found for project: {project_path}", highlight=False)
+        console.print(f"Expected directory: {session_dir}", highlight=False)
         return
 
-    click.echo(f"Loading sessions from: {session_dir}")
+    console.print(f"Loading sessions from: {session_dir}", highlight=False)
     all_sessions = parser.parse_all_sessions(session_dir)
 
     if not all_sessions:
-        click.echo("No valid sessions found")
+        console.print("No valid sessions found")
         return
 
     all_sessions.sort(
@@ -119,47 +128,51 @@ def report(project_path, db_path, limit, show_findings):
 
     sessions_to_analyze = all_sessions[:limit] if limit else all_sessions
 
-    click.echo(f"\nFound {len(all_sessions)} total sessions")
-    click.echo(f"Analyzing {len(sessions_to_analyze)} most recent sessions\n")
+    console.print(f"\nFound {len(all_sessions)} total sessions", highlight=False)
+    console.print(f"Analyzing {len(sessions_to_analyze)} most recent sessions\n", highlight=False)
 
     db_full_path = Path(project_path) / db_path
     analyzer = SessionAnalyzer(db_path=db_full_path if db_full_path.exists() else None)
 
     if db_full_path.exists():
-        click.echo(f"Using database for cross-referencing: {db_full_path}")
+        console.print(f"Using database for cross-referencing: {db_full_path}", highlight=False)
     else:
-        click.echo("Database not found - some detectors will be disabled")
+        console.print("Database not found - some detectors will be disabled")
 
     aggregate_report = analyzer.analyze_multiple_sessions(sessions_to_analyze)
 
-    click.echo("=" * 60)
-    click.echo("SESSION ANALYSIS SUMMARY")
-    click.echo("=" * 60)
+    console.rule()
+    console.print("SESSION ANALYSIS SUMMARY")
+    console.rule()
 
-    click.echo(f"\nSessions analyzed: {aggregate_report['total_sessions']}")
-    click.echo(f"Total findings: {aggregate_report['total_findings']}")
+    console.print(f"\nSessions analyzed: {aggregate_report['total_sessions']}", highlight=False)
+    console.print(f"Total findings: {aggregate_report['total_findings']}", highlight=False)
 
-    click.echo("\n--- Aggregate Stats ---")
+    console.print("\n--- Aggregate Stats ---")
     stats = aggregate_report["aggregate_stats"]
-    click.echo(f"Total tool calls: {stats['total_tool_calls']}")
-    click.echo(f"Total reads: {stats['total_reads']}")
-    click.echo(f"Total edits: {stats['total_edits']}")
-    click.echo(f"Avg tool calls/session: {stats['avg_tool_calls_per_session']:.1f}")
-    click.echo(f"Edit-to-read ratio: {stats['edit_to_read_ratio']:.2f}")
+    console.print(f"Total tool calls: {stats['total_tool_calls']}", highlight=False)
+    console.print(f"Total reads: {stats['total_reads']}", highlight=False)
+    console.print(f"Total edits: {stats['total_edits']}", highlight=False)
+    console.print(
+        f"Avg tool calls/session: {stats['avg_tool_calls_per_session']:.1f}", highlight=False
+    )
+    console.print(f"Edit-to-read ratio: {stats['edit_to_read_ratio']:.2f}", highlight=False)
 
-    click.echo("\n--- Findings by Category ---")
+    console.print("\n--- Findings by Category ---")
     for category, count in sorted(
         aggregate_report["findings_by_category"].items(), key=lambda x: x[1], reverse=True
     ):
-        click.echo(f"  {category}: {count}")
+        console.print(f"  {category}: {count}", highlight=False)
 
     if show_findings and aggregate_report["top_findings"]:
-        click.echo("\n--- Top Findings ---")
+        console.print("\n--- Top Findings ---")
         for i, finding in enumerate(aggregate_report["top_findings"][:10], 1):
-            click.echo(f"\n{i}. [{finding.severity.upper()}] {finding.title}")
-            click.echo(f"   {finding.description}")
+            console.print(f"\n{i}. \\[{finding.severity.upper()}] {finding.title}", highlight=False)
+            console.print(f"   {finding.description}", highlight=False)
             if finding.evidence:
-                click.echo(f"   Evidence: {json.dumps(finding.evidence, indent=4)}")
+                console.print(
+                    f"   Evidence: {json.dumps(finding.evidence, indent=4)}", highlight=False
+                )
 
     analyzer.close()
 
@@ -170,48 +183,50 @@ def report(project_path, db_path, limit, show_findings):
 @handle_exceptions
 def inspect(session_file, db_path):
     """Inspect a single session file in detail."""
-    click.echo(f"Loading session: {session_file}")
+    console.print(f"Loading session: {session_file}", highlight=False)
 
     session_obj = load_session(session_file)
 
-    click.echo("\n=== Session Details ===")
-    click.echo(f"Session ID: {session_obj.session_id}")
-    click.echo(f"Agent ID: {session_obj.agent_id}")
-    click.echo(f"Working directory: {session_obj.cwd}")
-    click.echo(f"Git branch: {session_obj.git_branch}")
-    click.echo(f"User messages: {len(session_obj.user_messages)}")
-    click.echo(f"Assistant messages: {len(session_obj.assistant_messages)}")
-    click.echo(f"Total tool calls: {len(session_obj.all_tool_calls)}")
+    console.print("\n=== Session Details ===")
+    console.print(f"Session ID: {session_obj.session_id}", highlight=False)
+    console.print(f"Agent ID: {session_obj.agent_id}", highlight=False)
+    console.print(f"Working directory: {session_obj.cwd}", highlight=False)
+    console.print(f"Git branch: {session_obj.git_branch}", highlight=False)
+    console.print(f"User messages: {len(session_obj.user_messages)}", highlight=False)
+    console.print(f"Assistant messages: {len(session_obj.assistant_messages)}", highlight=False)
+    console.print(f"Total tool calls: {len(session_obj.all_tool_calls)}", highlight=False)
 
     files_touched = session_obj.files_touched
     if files_touched:
-        click.echo("\n=== Files Touched ===")
+        console.print("\n=== Files Touched ===")
         for tool, files in files_touched.items():
-            click.echo(f"\n{tool}:")
+            console.print(f"\n{tool}:", highlight=False)
             for file in set(files):
                 count = files.count(file)
-                click.echo(f"  - {file}" + (f" (x{count})" if count > 1 else ""))
+                console.print(f"  - {file}" + (f" (x{count})" if count > 1 else ""), markup=False)
 
     db_full_path = Path(session_obj.cwd) / db_path if session_obj.cwd else Path(db_path)
     analyzer = SessionAnalyzer(db_path=db_full_path if db_full_path.exists() else None)
 
     stats, findings = analyzer.analyze_session(session_obj)
 
-    click.echo("\n=== Session Stats ===")
-    click.echo(f"Total turns: {stats.total_turns}")
-    click.echo(f"Files read: {stats.files_read}")
-    click.echo(f"Files edited: {stats.files_edited}")
-    click.echo(f"Files written: {stats.files_written}")
-    click.echo(f"Bash commands: {stats.bash_commands}")
-    click.echo(f"Avg tokens/turn: {stats.avg_tokens_per_turn:.0f}")
+    console.print("\n=== Session Stats ===")
+    console.print(f"Total turns: {stats.total_turns}", highlight=False)
+    console.print(f"Files read: {stats.files_read}", highlight=False)
+    console.print(f"Files edited: {stats.files_edited}", highlight=False)
+    console.print(f"Files written: {stats.files_written}", highlight=False)
+    console.print(f"Bash commands: {stats.bash_commands}", highlight=False)
+    console.print(f"Avg tokens/turn: {stats.avg_tokens_per_turn:.0f}", highlight=False)
 
     if findings:
-        click.echo(f"\n=== Findings ({len(findings)}) ===")
+        console.print(f"\n=== Findings ({len(findings)}) ===", highlight=False)
         for finding in findings:
-            click.echo(f"\n[{finding.severity.upper()}] {finding.title}")
-            click.echo(f"  {finding.description}")
+            console.print(f"\n\\[{finding.severity.upper()}] {finding.title}", highlight=False)
+            console.print(f"  {finding.description}", highlight=False)
             if finding.evidence:
-                click.echo(f"  Evidence: {json.dumps(finding.evidence, indent=4)}")
+                console.print(
+                    f"  Evidence: {json.dumps(finding.evidence, indent=4)}", highlight=False
+                )
 
     analyzer.close()
 
@@ -228,11 +243,11 @@ def list(project_path):
     session_dir = parser.find_project_sessions(project_path)
 
     if not session_dir.exists():
-        click.echo(f"No sessions found for: {project_path}")
+        console.print(f"No sessions found for: {project_path}", highlight=False)
         return
 
     session_files = parser.list_sessions(session_dir)
-    click.echo(f"\nFound {len(session_files)} sessions in: {session_dir}\n")
+    console.print(f"\nFound {len(session_files)} sessions in: {session_dir}\n", highlight=False)
 
     for session_file in session_files:
         try:
@@ -245,14 +260,15 @@ def list(project_path):
                 else (first_msg.content if first_msg else "")
             )
 
-            click.echo(f"{session_file.name}")
-            click.echo(f"  Time: {timestamp}")
-            click.echo(f"  Branch: {session_obj.git_branch}")
-            click.echo(
-                f"  Turns: {len(session_obj.user_messages) + len(session_obj.assistant_messages)}"
+            console.print(f"{session_file.name}", highlight=False)
+            console.print(f"  Time: {timestamp}", highlight=False)
+            console.print(f"  Branch: {session_obj.git_branch}", highlight=False)
+            console.print(
+                f"  Turns: {len(session_obj.user_messages) + len(session_obj.assistant_messages)}",
+                highlight=False,
             )
-            click.echo(f"  Tools: {len(session_obj.all_tool_calls)}")
-            click.echo(f"  Preview: {preview}")
-            click.echo()
+            console.print(f"  Tools: {len(session_obj.all_tool_calls)}", highlight=False)
+            console.print(f"  Preview: {preview}", highlight=False)
+            console.print()
         except Exception as e:
-            click.echo(f"{session_file.name} - ERROR: {e}\n")
+            console.print(f"{session_file.name} - ERROR: {e}\n", highlight=False)

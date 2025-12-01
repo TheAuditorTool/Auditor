@@ -7,6 +7,7 @@ from typing import Any
 import click
 
 from theauditor.linters import LinterOrchestrator
+from theauditor.pipeline.ui import console
 from theauditor.utils import load_json_file
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.logging import logger
@@ -184,5 +185,9 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
         return
 
     if not result["success"]:
-        click.echo(f"Error: {result.get('error', 'Lint failed')}", err=True)
+        console.print(
+            f"[error]Error: {result.get('error', 'Lint failed')}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         raise click.ClickException(result.get("error", "Lint failed"))

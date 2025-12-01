@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
@@ -90,16 +91,23 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             skipped_count += 1
 
     if archived_count > 0:
-        click.echo(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
+        console.print(
+            f"\\[ARCHIVE] Archived {archived_count} items to {archive_dest}", highlight=False
+        )
         if preserved_count > 0:
-            click.echo(f"[ARCHIVE] Preserved {preserved_count} cache directories for reuse")
+            console.print(
+                f"\\[ARCHIVE] Preserved {preserved_count} cache directories for reuse",
+                highlight=False,
+            )
         if skipped_count > 0:
-            click.echo(f"[ARCHIVE] Skipped {skipped_count} items due to errors")
+            console.print(
+                f"\\[ARCHIVE] Skipped {skipped_count} items due to errors", highlight=False
+            )
     else:
         if preserved_count > 0:
-            click.echo("[ARCHIVE] No artifacts to archive (only caches remain)")
+            console.print("\\[ARCHIVE] No artifacts to archive (only caches remain)")
         else:
-            click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
+            console.print("\\[ARCHIVE] No artifacts archived (directory was empty)")
 
     metadata = {
         "run_type": run_type,

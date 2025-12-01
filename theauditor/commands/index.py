@@ -4,6 +4,7 @@ import time
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -110,37 +111,39 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
     """
 
     if not quiet:
-        click.echo("")
-        click.echo("=" * 80)
-        click.echo(" " * 28 + "DEPRECATION WARNING")
-        click.echo("=" * 80)
-        click.echo("")
-        click.echo("  The 'aud index' command is DEPRECATED and now runs 'aud full' instead.")
-        click.echo("")
-        click.echo("  WHY: 'aud index' alone no longer provides sufficient data fidelity")
-        click.echo("       for modern TheAuditor analysis. Most commands require the full")
-        click.echo("       pipeline context (frameworks, workset, graphs) to operate correctly.")
-        click.echo("")
-        click.echo("  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)")
-        click.echo("          instead of just Phase 1 indexing (~10-30 seconds).")
-        click.echo("")
-        click.echo("  ACTION REQUIRED:")
-        click.echo("    • Update CI/CD pipelines to use 'aud full' explicitly")
-        click.echo("    • Replace 'aud index && aud taint-analyze' with just 'aud full'")
-        click.echo("    • Use 'aud full --offline' for air-gapped environments")
-        click.echo("    • Use 'aud full --quiet' for minimal output in automation")
-        click.echo("")
-        click.echo("  This warning will be removed in v2.0 when 'aud index' is fully retired.")
-        click.echo("")
-        click.echo("=" * 80)
-        click.echo("")
-        click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
-        click.echo("")
+        console.print("")
+        console.rule()
+        console.print(" " * 28 + "DEPRECATION WARNING", markup=False)
+        console.rule()
+        console.print("")
+        console.print("  The 'aud index' command is DEPRECATED and now runs 'aud full' instead.")
+        console.print("")
+        console.print("  WHY: 'aud index' alone no longer provides sufficient data fidelity")
+        console.print("       for modern TheAuditor analysis. Most commands require the full")
+        console.print("       pipeline context (frameworks, workset, graphs) to operate correctly.")
+        console.print("")
+        console.print(
+            "  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)"
+        )
+        console.print("          instead of just Phase 1 indexing (~10-30 seconds).")
+        console.print("")
+        console.print("  ACTION REQUIRED:")
+        console.print("    • Update CI/CD pipelines to use 'aud full' explicitly")
+        console.print("    • Replace 'aud index && aud taint-analyze' with just 'aud full'")
+        console.print("    • Use 'aud full --offline' for air-gapped environments")
+        console.print("    • Use 'aud full --quiet' for minimal output in automation")
+        console.print("")
+        console.print("  This warning will be removed in v2.0 when 'aud index' is fully retired.")
+        console.print("")
+        console.rule()
+        console.print("")
+        console.print("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
+        console.print("")
 
         try:
             time.sleep(3)
         except KeyboardInterrupt:
-            click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
+            console.print("\nCancelled. Please update your command to use 'aud full' instead.")
             ctx.exit(0)
 
     from theauditor.commands.full import full

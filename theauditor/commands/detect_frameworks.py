@@ -10,6 +10,8 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command("detect-frameworks")
 @click.option("--project-path", default=".", help="Root directory to analyze")
@@ -145,14 +147,16 @@ def detect_frameworks(project_path, output_json):
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+        console.print(
+            "[error]Error: Database not found. Run 'aud full' first.[/error]", stderr=True
+        )
         raise click.ClickException("Database not found - run 'aud full' first")
 
     try:
         frameworks = _read_frameworks_from_db(db_path)
 
         if not frameworks:
-            click.echo("No frameworks detected.")
+            console.print("No frameworks detected.")
 
             _write_output(frameworks, project_path, output_json)
             return
@@ -160,12 +164,12 @@ def detect_frameworks(project_path, output_json):
         _write_output(frameworks, project_path, output_json)
 
         table = _format_table(frameworks)
-        click.echo(table)
+        console.print(table, markup=False)
 
-        click.echo(f"\nDetected {len(frameworks)} framework(s)")
+        console.print(f"\nDetected {len(frameworks)} framework(s)", highlight=False)
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -219,7 +223,7 @@ def _write_output(frameworks: list[dict], project_path: Path, output_json: str):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(frameworks, f, indent=2)
-    click.echo(f"[OK] Frameworks analysis saved to {output_path}")
+    console.print(f"[success]Frameworks analysis saved to {output_path}[/success]")
 
 
 def _format_table(frameworks: list[dict]) -> str:

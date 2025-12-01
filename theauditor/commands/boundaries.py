@@ -10,6 +10,7 @@ from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
     generate_report,
 )
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -194,22 +195,29 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
     db = Path.cwd() / ".pf" / "repo_index.db" if db is None else Path(db)
 
     if not db.exists():
-        click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud full' first to populate the database", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db}[/error]", stderr=True, highlight=False
+        )
+        console.print("[error]Run 'aud full' first to populate the database[/error]", stderr=True)
         sys.exit(1)
 
     results = []
 
     if boundary_type in ["all", "input-validation"]:
-        click.echo("Analyzing input validation boundaries...", err=True)
+        console.print("[error]Analyzing input validation boundaries...[/error]", stderr=True)
         validation_results = analyze_input_validation_boundaries(
             db_path=str(db), max_entries=max_entries
         )
         results.extend(validation_results)
 
     if boundary_type == "multi-tenant":
-        click.echo("Error: Multi-tenant boundary analysis not yet wired to this command", err=True)
-        click.echo("Use: aud full (includes multi-tenant analysis via rules)", err=True)
+        console.print(
+            "[error]Error: Multi-tenant boundary analysis not yet wired to this command[/error]",
+            stderr=True,
+        )
+        console.print(
+            "[error]Use: aud full (includes multi-tenant analysis via rules)[/error]", stderr=True
+        )
         sys.exit(1)
 
     if severity != "all":
@@ -225,10 +233,10 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
             "total_entry_points": len(results),
             "analysis": results,
         }
-        click.echo(json.dumps(output, indent=2))
+        console.print(json.dumps(output, indent=2), markup=False)
     else:
         report = generate_report(results)
-        click.echo(report)
+        console.print(report, markup=False)
 
     critical_count = sum(
         1 for r in results for v in r.get("violations", []) if v["severity"] == "CRITICAL"

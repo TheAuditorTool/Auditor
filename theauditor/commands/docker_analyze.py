@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -198,13 +199,15 @@ def docker_analyze(db_path, output, severity, check_vulns):
     from theauditor.docker_analyzer import analyze_docker_images
 
     if not Path(db_path).exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud full' first to create the database", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        )
+        console.print("[error]Run 'aud full' first to create the database[/error]", stderr=True)
         return ExitCodes.TASK_INCOMPLETE
 
-    click.echo("Analyzing Docker images for security issues...")
+    console.print("Analyzing Docker images for security issues...")
     if check_vulns:
-        click.echo("  Including vulnerability scan of base images...")
+        console.print("  Including vulnerability scan of base images...")
     findings = analyze_docker_images(db_path, check_vulnerabilities=check_vulns)
 
     if severity != "all":
@@ -222,21 +225,21 @@ def docker_analyze(db_path, output, severity, check_vulns):
         severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
     if findings:
-        click.echo(f"\nFound {len(findings)} Docker security issues:")
+        console.print(f"\nFound {len(findings)} Docker security issues:", highlight=False)
 
         for sev in ["critical", "high", "medium", "low"]:
             if sev in severity_counts:
-                click.echo(f"  {sev.upper()}: {severity_counts[sev]}")
+                console.print(f"  {sev.upper()}: {severity_counts[sev]}", highlight=False)
 
-        click.echo("\nFindings:")
+        console.print("\nFindings:")
         for finding in findings:
-            click.echo(f"\n[{finding['severity'].upper()}] {finding['type']}")
-            click.echo(f"  File: {finding['file']}")
-            click.echo(f"  {finding['message']}")
+            console.print(f"\n\\[{finding['severity'].upper()}] {finding['type']}", highlight=False)
+            console.print(f"  File: {finding['file']}", highlight=False)
+            console.print(f"  {finding['message']}", highlight=False)
             if finding.get("recommendation"):
-                click.echo(f"  Fix: {finding['recommendation']}")
+                console.print(f"  Fix: {finding['recommendation']}", highlight=False)
     else:
-        click.echo("No Docker security issues found")
+        console.print("No Docker security issues found")
 
     if output:
         output_path = Path(output)
@@ -247,7 +250,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(docker_data, f, indent=2)
 
-        click.echo(f"\nResults saved to: {output}")
+        console.print(f"\nResults saved to: {output}", highlight=False)
 
     if severity_counts.get("critical", 0) > 0:
         return ExitCodes.CRITICAL_SEVERITY

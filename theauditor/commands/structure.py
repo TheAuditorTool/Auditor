@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -129,7 +130,9 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     if monoliths:
         db_path_obj = Path(db_path)
         if not db_path_obj.exists():
-            click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+            console.print(
+                "[error]Error: Database not found. Run 'aud full' first.[/error]", stderr=True
+            )
             return ExitCodes.TASK_INCOMPLETE
 
         return _find_monoliths(db_path, threshold, format)
@@ -138,15 +141,23 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     db_exists = Path(db_path).exists()
 
     if not manifest_exists and not db_exists:
-        click.echo("Warning: Neither manifest.json nor repo_index.db found", err=True)
-        click.echo("Run 'aud full' first for complete statistics", err=True)
-        click.echo("Generating basic structure report...\n")
+        console.print(
+            "[error]Warning: Neither manifest.json nor repo_index.db found[/error]", stderr=True
+        )
+        console.print("[error]Run 'aud full' first for complete statistics[/error]", stderr=True)
+        console.print("Generating basic structure report...\n")
     elif not manifest_exists:
-        click.echo("Warning: manifest.json not found, statistics will be limited", err=True)
+        console.print(
+            "[error]Warning: manifest.json not found, statistics will be limited[/error]",
+            stderr=True,
+        )
     elif not db_exists:
-        click.echo("Warning: repo_index.db not found, symbol counts will be missing", err=True)
+        console.print(
+            "[error]Warning: repo_index.db not found, symbol counts will be missing[/error]",
+            stderr=True,
+        )
 
-    click.echo(f"Analyzing project structure (max depth: {max_depth})...")
+    console.print(f"Analyzing project structure (max depth: {max_depth})...", highlight=False)
 
     try:
         report_content = generate_project_summary(
@@ -159,7 +170,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(report_content)
 
-        click.echo(f"\n✓ Project structure report generated: {output}")
+        console.print(f"\n\\[OK] Project structure report generated: {output}", highlight=False)
 
         if manifest_exists:
             import json
@@ -172,25 +183,29 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
             total_bytes = sum(f.get("bytes", 0) for f in manifest_data)
             total_tokens = total_bytes // 4
 
-            click.echo("\nProject Summary:")
-            click.echo(f"  Files: {total_files:,}")
-            click.echo(f"  LOC: {total_loc:,}")
-            click.echo(f"  Tokens: ~{total_tokens:,}")
+            console.print("\nProject Summary:")
+            console.print(f"  Files: {total_files:,}", highlight=False)
+            console.print(f"  LOC: {total_loc:,}", highlight=False)
+            console.print(f"  Tokens: ~{total_tokens:,}", highlight=False)
 
             claude_usable_context = 160000
             token_percent = (total_tokens / claude_usable_context * 100) if total_tokens > 0 else 0
 
             if token_percent > 100:
-                click.echo(
-                    f"  Context Usage: {token_percent:.1f}% (EXCEEDS Claude's practical limit)"
+                console.print(
+                    f"  Context Usage: {token_percent:.1f}% (EXCEEDS Claude's practical limit)",
+                    highlight=False,
                 )
             else:
-                click.echo(f"  Context Usage: {token_percent:.1f}% of Claude's usable window")
+                console.print(
+                    f"  Context Usage: {token_percent:.1f}% of Claude's usable window",
+                    highlight=False,
+                )
 
         return ExitCodes.SUCCESS
 
     except Exception as e:
-        click.echo(f"Error generating report: {e}", err=True)
+        console.print(f"[error]Error generating report: {e}[/error]", stderr=True, highlight=False)
         return ExitCodes.TASK_INCOMPLETE
 
 
@@ -234,12 +249,15 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
 
         if not results:
             if output_format == "json":
-                click.echo(
-                    json.dumps({"monoliths": [], "total": 0, "threshold": threshold}, indent=2)
+                console.print(
+                    json.dumps({"monoliths": [], "total": 0, "threshold": threshold}, indent=2),
+                    markup=False,
                 )
             else:
-                click.echo(f"No monolithic files found (threshold: {threshold} lines)")
-                click.echo("\nAll files are below the AI readability threshold!")
+                console.print(
+                    f"No monolithic files found (threshold: {threshold} lines)", highlight=False
+                )
+                console.print("\nAll files are below the AI readability threshold!")
             return ExitCodes.SUCCESS
 
         if output_format == "json":
@@ -256,31 +274,36 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
                 "total": len(results),
                 "threshold": threshold,
             }
-            click.echo(json.dumps(output_data, indent=2))
+            console.print(json.dumps(output_data, indent=2), markup=False)
         else:
-            click.echo("=" * 80)
-            click.echo(f"Monolithic Files (>{threshold} lines)")
-            click.echo("=" * 80)
-            click.echo(f"Found {len(results)} files requiring chunked reading\n")
+            console.rule()
+            console.print(f"Monolithic Files (>{threshold} lines)", highlight=False)
+            console.rule()
+            console.print(
+                f"Found {len(results)} files requiring chunked reading\n", highlight=False
+            )
 
             for path, lines, symbols in results:
-                click.echo(f"[MONOLITH] {path}")
-                click.echo(f"  Lines: {lines:,} (>{threshold})")
-                click.echo(f"  Symbols: {symbols:,} functions/classes")
-                click.echo("  Recommend: Refactor using chunked reading")
-                click.echo("             See agents/refactor.md Task 3.4 for workflow")
-                click.echo()
+                console.print(f"\\[MONOLITH] {path}", highlight=False)
+                console.print(f"  Lines: {lines:,} (>{threshold})", highlight=False)
+                console.print(f"  Symbols: {symbols:,} functions/classes", highlight=False)
+                console.print("  Recommend: Refactor using chunked reading")
+                console.print("             See agents/refactor.md Task 3.4 for workflow")
+                console.print()
 
-            click.echo("=" * 80)
-            click.echo(f"Total: {len(results)} monolithic files requiring refactor planning")
-            click.echo("=" * 80)
-            click.echo("\nNext Steps:")
-            click.echo("  1. Trigger planning agent with: 'refactor <file> into modular files'")
-            click.echo("  2. Agent will automatically use chunked reading (1500-line chunks)")
-            click.echo("  3. Plan will follow database structure analysis + file content")
+            console.rule()
+            console.print(
+                f"Total: {len(results)} monolithic files requiring refactor planning",
+                highlight=False,
+            )
+            console.rule()
+            console.print("\nNext Steps:")
+            console.print("  1. Trigger planning agent with: 'refactor <file> into modular files'")
+            console.print("  2. Agent will automatically use chunked reading (1500-line chunks)")
+            console.print("  3. Plan will follow database structure analysis + file content")
 
         return ExitCodes.SUCCESS
 
     except Exception as e:
-        click.echo(f"Error finding monoliths: {e}", err=True)
+        console.print(f"[error]Error finding monoliths: {e}[/error]", stderr=True, highlight=False)
         return ExitCodes.TASK_INCOMPLETE

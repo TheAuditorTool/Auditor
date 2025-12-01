@@ -2,6 +2,8 @@
 
 import click
 
+from theauditor.pipeline.ui import console
+
 EXPLANATIONS: dict[str, dict[str, str]] = {
     "taint": {
         "title": "Taint Analysis",
@@ -1171,29 +1173,29 @@ def manual(concept, list_concepts):
     """
 
     if list_concepts:
-        click.echo("\nAvailable concepts to explain:\n")
+        console.print("\nAvailable concepts to explain:\n")
         for key, info in EXPLANATIONS.items():
-            click.echo(f"  {key:12} - {info['summary']}")
-        click.echo("\nUse 'aud manual <concept>' for detailed information.")
+            console.print(f"  {key:12} - {info['summary']}", highlight=False)
+        console.print("\nUse 'aud manual <concept>' for detailed information.")
         return
 
     if not concept:
-        click.echo("Please specify a concept to explain or use --list to see available topics.")
-        click.echo("\nExample: aud manual taint")
+        console.print("Please specify a concept to explain or use --list to see available topics.")
+        console.print("\nExample: aud manual taint")
         return
 
     concept = concept.lower().strip()
 
     if concept not in EXPLANATIONS:
-        click.echo(f"Unknown concept: '{concept}'")
-        click.echo("\nAvailable concepts:")
+        console.print(f"Unknown concept: '{concept}'", highlight=False)
+        console.print("\nAvailable concepts:")
         for key in EXPLANATIONS:
-            click.echo(f"  - {key}")
+            console.print(f"  - {key}", highlight=False)
         return
 
     info = EXPLANATIONS[concept]
-    click.echo(f"\n{'=' * 70}")
-    click.echo(f"{info['title'].upper()}")
-    click.echo(f"{'=' * 70}")
-    click.echo(info["explanation"])
-    click.echo(f"{'=' * 70}\n")
+    console.print(f"\n{'=' * 70}", highlight=False)
+    console.print(f"{info['title'].upper()}", highlight=False)
+    console.print(f"{'=' * 70}", highlight=False)
+    console.print(info["explanation"], markup=False)
+    console.print(f"{'=' * 70}\n", highlight=False)

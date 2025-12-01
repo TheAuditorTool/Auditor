@@ -2,6 +2,7 @@
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -140,14 +141,22 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
 
     if result["success"]:
         if result["failures_found"] == 0:
-            click.echo("[OK] All tools passed - no failures detected")
+            console.print("[success]All tools passed - no failures detected[/success]")
         else:
-            click.echo(f"Found {result['failures_found']} failures")
+            console.print(f"Found {result['failures_found']} failures", highlight=False)
 
             if result.get("output_files") and len(result.get("output_files", [])) > 1:
-                click.echo(f"FCE report written to: {result['output_files'][1]}")
+                console.print(
+                    f"FCE report written to: {result['output_files'][1]}", highlight=False
+                )
             elif result.get("output_files") and len(result.get("output_files", [])) > 0:
-                click.echo(f"FCE report written to: {result['output_files'][0]}")
+                console.print(
+                    f"FCE report written to: {result['output_files'][0]}", highlight=False
+                )
     else:
-        click.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+        console.print(
+            f"[error]Error: {result.get('error', 'Unknown error')}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         raise click.ClickException(result.get("error", "FCE failed"))
