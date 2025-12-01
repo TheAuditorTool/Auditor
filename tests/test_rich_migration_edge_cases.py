@@ -444,10 +444,11 @@ console.print("[error]Something broke[/error]")
         before = """
 click.secho("Loading...", nl=False, fg="cyan")
 """
+        # Argument order: end="" comes before style="" (per Phase 6 logic)
         after = """
 from theauditor.pipeline.ui import console
 
-console.print("Loading...", style="cyan", end="")
+console.print("Loading...", end="", style="cyan")
 """
         self.assertCodemod(before, after)
 
@@ -528,6 +529,184 @@ click.echo("Prefix: " f"{value}")
 from theauditor.pipeline.ui import console
 
 console.print("Prefix: " f"{value}", highlight=False)
+"""
+        self.assertCodemod(before, after)
+
+    # =========================================================================
+    # NEW TESTS: Raw string handling (Windows paths, regex)
+    # =========================================================================
+
+    def test_raw_string_backslashes_preserved(self) -> None:
+        """
+        EDGE CASE FIX: Raw strings with backslashes must be preserved.
+        Windows paths like r"C:\\Users\\[Name]" should not break.
+        """
+        before = """
+click.echo(r"Path: C:\\Users\\Name")
+"""
+        # Raw string converted to standard string with escaped backslashes
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("Path: C:\\\\Users\\\\Name")
+"""
+        self.assertCodemod(before, after)
+
+    def test_raw_string_with_brackets(self) -> None:
+        """
+        Raw strings containing brackets should have both backslashes escaped
+        AND brackets escaped for Rich markup.
+        """
+        before = """
+click.echo(r"Path: C:\\Users\\[Username]")
+"""
+        # Backslashes doubled + brackets escaped with \\[
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("Path: C:\\\\Users\\\\\\\\[Username]")
+"""
+        self.assertCodemod(before, after)
+
+    def test_raw_string_regex_pattern(self) -> None:
+        """
+        Raw strings with regex patterns should preserve backslashes.
+        """
+        before = """
+click.echo(r"Pattern: \\d+\\.\\d+")
+"""
+        # Backslashes doubled for standard string
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("Pattern: \\\\d+\\\\.\\\\d+")
+"""
+        self.assertCodemod(before, after)
+
+    # =========================================================================
+    # NEW TESTS: BinaryOperation (explicit + concatenation)
+    # =========================================================================
+
+    def test_binary_concat_with_prefix_no_markup_false(self) -> None:
+        """
+        EDGE CASE: "[ERROR] " + message should NOT get markup=False.
+        The semantic prefix should be detected even in BinaryOperation.
+        Rich will interpret [ERROR] as markup (unknown tags pass through).
+        """
+        before = """
+click.echo("[ERROR] " + message)
+"""
+        # No markup=False because we detect [ERROR] prefix
+        # Note: The string content is NOT transformed (can't easily modify BinaryOp)
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("[ERROR] " + message)
+"""
+        self.assertCodemod(before, after)
+
+    def test_binary_concat_without_prefix_gets_markup_false(self) -> None:
+        """
+        Binary concatenation without semantic prefix should get markup=False.
+        "Status: " + value has no semantic prefix.
+        """
+        before = """
+click.echo("Status: " + value)
+"""
+        # No semantic prefix detected, so markup=False for safety
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("Status: " + value, markup=False)
+"""
+        self.assertCodemod(before, after)
+
+    def test_binary_concat_variable_only(self) -> None:
+        """
+        Pure variable concatenation (no string literals) gets markup=False.
+        """
+        before = """
+click.echo(prefix + message)
+"""
+        # Both sides are variables - treat as pure variable
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print(prefix + message, markup=False)
+"""
+        self.assertCodemod(before, after)
+
+    # =========================================================================
+    # NEW TESTS: Edge case fixes
+    # =========================================================================
+
+    def test_existing_style_kwarg_not_duplicated(self) -> None:
+        """
+        FIX: If original call already has style= kwarg, don't add another.
+        This would cause SyntaxError from duplicate keyword argument.
+        """
+        before = """
+click.echo(click.style("text", fg="red"), style="custom")
+"""
+        # Our extracted fg="red" should be DROPPED because style= already exists
+        # The original style="custom" is preserved in other_args
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("text", style="custom")
+"""
+        self.assertCodemod(before, after)
+
+    # =========================================================================
+    # VERIFICATION TESTS: Complex edge cases
+    # =========================================================================
+
+    def test_fstring_expression_brackets_not_escaped(self) -> None:
+        """
+        VERIFY: Brackets inside f-string EXPRESSIONS should NOT be escaped.
+        Only FormattedStringText parts get escaping, not FormattedStringExpression.
+        """
+        before = """
+click.echo(f"Values: {[x for x in data]}")
+"""
+        # The list comprehension brackets are inside {}, they must NOT be escaped
+        # But we add highlight=False because there's a variable expression
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print(f"Values: {[x for x in data]}", highlight=False)
+"""
+        self.assertCodemod(before, after)
+
+    def test_fstring_repr_with_brackets(self) -> None:
+        """
+        VERIFY: f-string with !r conversion containing brackets.
+        The repr output might have brackets, but highlight=False protects us.
+        """
+        before = """
+click.echo(f"Data: {value!r}")
+"""
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print(f"Data: {value!r}", highlight=False)
+"""
+        self.assertCodemod(before, after)
+
+    def test_raw_string_regex_digit_pattern(self) -> None:
+        """
+        VERIFY: Raw string regex patterns are correctly escaped.
+        r"\\d+" should become "\\\\d+" so Python sees \\d+ at runtime.
+        """
+        before = """
+click.echo(r"Pattern: \\d+")
+"""
+        # r"\\d+" in raw string = literal \d+
+        # After transformation: "\\\\d+" = Python sees \\d+ = prints \d+
+        after = """
+from theauditor.pipeline.ui import console
+
+console.print("Pattern: \\\\d+")
 """
         self.assertCodemod(before, after)
 
