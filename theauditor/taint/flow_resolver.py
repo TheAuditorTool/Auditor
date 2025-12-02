@@ -9,7 +9,6 @@ from functools import lru_cache
 
 from theauditor.utils.logging import logger
 
-
 # UNCAGED PROTOCOL: Replaced arbitrary effort limits with time budgets.
 # Old limits (25k nodes, 20 depth) were training wheels for dirty data.
 # With sanitized graph (Phase 3), we can traverse deep chains efficiently.

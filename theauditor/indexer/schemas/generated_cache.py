@@ -1,8 +1,9 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
 # SCHEMA_HASH: 77f3e7d8bcbe1727d56db5d35cb3690b770259377d495926b704e1060466ddf8
-from typing import Any
-from collections import defaultdict
 import sqlite3
+from collections import defaultdict
+from typing import Any
+
 from ..schema import TABLES, build_query
 
 

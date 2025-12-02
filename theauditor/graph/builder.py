@@ -414,10 +414,7 @@ class XGraphBuilder:
                 except ValueError:
                     rel_dir = str(source_dir).replace("\\", "/")
 
-                if rel_dir == ".":
-                    rel_dir = ""
-                else:
-                    rel_dir = f"{rel_dir}/"
+                rel_dir = "" if rel_dir == "." else f"{rel_dir}/"
 
                 candidates = [
                     f"{rel_dir}{module_path}.rs",
@@ -437,10 +434,7 @@ class XGraphBuilder:
                 except ValueError:
                     rel_dir = str(source_dir).replace("\\", "/")
 
-                if rel_dir == ".":
-                    rel_dir = ""
-                else:
-                    rel_dir = f"{rel_dir}/"
+                rel_dir = "" if rel_dir == "." else f"{rel_dir}/"
 
                 candidates = [
                     f"{rel_dir}{module_path}.rs",
