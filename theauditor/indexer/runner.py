@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -77,8 +78,13 @@ def run_repository_index(
     if _module_resolver_cache is not None:
         try:
             _module_resolver_cache._load_all_configs_from_db()
-        except Exception:
-            pass
+        except Exception as e:
+            # ZERO FALLBACK FIX: Log error visibly instead of silent pass
+            print(
+                f"[Indexer] WARNING: Module resolver config load failed: {e}",
+                file=sys.stderr,
+            )
+            # Continue without cached configs - resolution will use defaults
 
     orchestrator = IndexerOrchestrator(
         root_path=root,

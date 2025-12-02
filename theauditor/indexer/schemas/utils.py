@@ -88,6 +88,15 @@ class TableSchema:
 
     def create_table_sql(self) -> str:
         """Generate CREATE TABLE statement."""
+        # GUARD: Detect PRIMARY KEY conflict (column-level + table-level)
+        column_pks = [col.name for col in self.columns if col.primary_key]
+        if column_pks and self.primary_key:
+            raise ValueError(
+                f"PRIMARY KEY conflict in table '{self.name}': "
+                f"Column-level PRIMARY KEY on {column_pks} AND table-level PRIMARY KEY on {self.primary_key}. "
+                f"Use only ONE: either Column(primary_key=True) OR TableSchema(primary_key=[...])."
+            )
+
         col_defs = [col.to_sql() for col in self.columns]
 
         if self.primary_key:
@@ -132,14 +141,23 @@ class TableSchema:
         return stmts
 
     def validate_against_db(self, cursor: sqlite3.Cursor) -> tuple[bool, list[str]]:
-        """Validate that actual database table matches this schema."""
+        """Validate that actual database table matches this schema.
+
+        Checks:
+        1. Table exists
+        2. All columns exist with correct types
+        3. UNIQUE constraints exist (using PRAGMA, not string matching)
+        4. Foreign key constraints exist (using PRAGMA foreign_key_list)
+        """
         errors = []
 
+        # 1. Check table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.name,))
         if not cursor.fetchone():
             errors.append(f"Table {self.name} does not exist")
             return False, errors
 
+        # 2. Check columns exist with correct types
         cursor.execute(f"PRAGMA table_info({self.name})")
         actual_cols = {row[1]: row[2] for row in cursor.fetchall()}
 
@@ -152,23 +170,90 @@ class TableSchema:
                     f"expected {col.type}, got {actual_cols[col.name]}"
                 )
 
+        # 3. Check UNIQUE constraints using PRAGMA (not brittle string matching)
         if self.unique_constraints:
+            # Get all unique indexes from the database
+            cursor.execute(f"PRAGMA index_list({self.name})")
+            db_unique_sets: list[set[str]] = []
+
+            for idx_row in cursor.fetchall():
+                idx_name = idx_row[1]
+                is_unique = idx_row[2]
+
+                if is_unique:
+                    # Get columns in this unique index
+                    cursor.execute(f"PRAGMA index_info({idx_name})")
+                    idx_cols = {row[2] for row in cursor.fetchall()}  # row[2] is column name
+                    db_unique_sets.append(idx_cols)
+
+            # Also check for inline UNIQUE constraints in CREATE TABLE
+            # These show up in table_info with pk > 0 for composite PKs
+            # But for explicit UNIQUE(...) we need to parse - fall back to SQL check
             cursor.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (self.name,)
             )
             result = cursor.fetchone()
-            if result:
-                create_sql = result[0] or ""
+            create_sql = (result[0] or "").upper() if result else ""
 
-                for unique_cols in self.unique_constraints:
-                    unique_str = ", ".join(unique_cols)
+            for unique_cols in self.unique_constraints:
+                expected_set = set(unique_cols)
 
-                    if (
-                        f"UNIQUE({unique_str})" not in create_sql
-                        and f"UNIQUE ({unique_str})" not in create_sql
-                    ):
+                # Check if this constraint exists in any form
+                found = any(expected_set == db_set for db_set in db_unique_sets)
+
+                # Also check inline UNIQUE in CREATE TABLE SQL (normalized check)
+                if not found:
+                    # Normalize: strip quotes and spaces for comparison
+                    normalized_cols = [c.strip('"').strip("'") for c in unique_cols]
+                    for variant in [
+                        f"UNIQUE({', '.join(normalized_cols)})",
+                        f"UNIQUE ({', '.join(normalized_cols)})",
+                        f'UNIQUE("{"\", \"".join(normalized_cols)}")',
+                    ]:
+                        if variant.upper() in create_sql:
+                            found = True
+                            break
+
+                if not found:
+                    errors.append(
+                        f"UNIQUE constraint on ({', '.join(unique_cols)}) missing in database table {self.name}"
+                    )
+
+        # 4. Check FOREIGN KEY constraints (CRITICAL: was completely missing before)
+        if self.foreign_keys:
+            cursor.execute(f"PRAGMA foreign_key_list({self.name})")
+            # foreign_key_list returns: (id, seq, table, from, to, on_update, on_delete, match)
+            db_fks: dict[str, list[tuple[str, str]]] = {}  # foreign_table -> [(local_col, foreign_col), ...]
+
+            for fk_row in cursor.fetchall():
+                fk_id = fk_row[0]
+                foreign_table = fk_row[2]
+                local_col = fk_row[3]
+                foreign_col = fk_row[4]
+
+                key = (fk_id, foreign_table)
+                if key not in db_fks:
+                    db_fks[key] = []
+                db_fks[key].append((local_col, foreign_col))
+
+            for fk in self.foreign_keys:
+                if isinstance(fk, ForeignKey):
+                    expected_table = fk.foreign_table
+                    expected_pairs = list(zip(fk.local_columns, fk.foreign_columns))
+
+                    # Find matching FK in database
+                    found = False
+                    for (fk_id, db_table), db_pairs in db_fks.items():
+                        if db_table == expected_table and set(db_pairs) == set(expected_pairs):
+                            found = True
+                            break
+
+                    if not found:
+                        local_str = ", ".join(fk.local_columns)
+                        foreign_str = ", ".join(fk.foreign_columns)
                         errors.append(
-                            f"UNIQUE constraint on ({unique_str}) missing in database table {self.name}"
+                            f"FOREIGN KEY ({local_str}) REFERENCES {expected_table}({foreign_str}) "
+                            f"missing in database table {self.name}"
                         )
 
         return len(errors) == 0, errors
