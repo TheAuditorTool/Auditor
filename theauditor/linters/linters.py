@@ -135,7 +135,7 @@ class LinterOrchestrator:
 
         # Collect findings, handling exceptions
         all_findings: list[Finding] = []
-        for (name, linter, files), result in zip(linters, results):
+        for (name, linter, files), result in zip(linters, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed with exception: {result}")
                 continue

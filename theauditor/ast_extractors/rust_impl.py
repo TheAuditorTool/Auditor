@@ -43,10 +43,7 @@ def _has_modifier(node: Any, modifier: str) -> bool:
     modifiers = _get_child_by_type(node, "function_modifiers")
     if modifiers is None:
         return False
-    for child in modifiers.children:
-        if child.type == modifier:
-            return True
-    return False
+    return any(child.type == modifier for child in modifiers.children)
 
 
 def _extract_visibility(node: Any) -> str:

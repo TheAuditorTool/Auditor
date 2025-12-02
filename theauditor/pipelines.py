@@ -1265,7 +1265,7 @@ async def run_full_pipeline(
         if index_only:
             if failed_phases == 0:
                 write_summary(f"[bold green]INDEX COMPLETE[/bold green]  All {total_phases} phases successful")
-                write_summary(f"[dim]Database ready:[/dim] [cyan].pf/repo_index.db[/cyan] + [cyan].pf/graphs.db[/cyan]")
+                write_summary("[dim]Database ready:[/dim] [cyan].pf/repo_index.db[/cyan] + [cyan].pf/graphs.db[/cyan]")
                 write_summary("[dim]Run 'aud full' for complete analysis (taint, patterns, fce)[/dim]")
             else:
                 write_summary(f"[bold yellow]INDEX INCOMPLETE[/bold yellow]  {failed_phases} phases failed")
@@ -1291,19 +1291,19 @@ async def run_full_pipeline(
         write_summary("")
         write_summary("[bold]Key Artifacts[/bold]")
         if index_only:
-            write_summary(f"  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
-            write_summary(f"  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
-            write_summary(f"  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
+            write_summary("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
+            write_summary("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
+            write_summary("  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
         else:
-            write_summary(f"  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
-            write_summary(f"  [cyan].pf/allfiles.md[/cyan]       [dim]Complete file list[/dim]")
-            write_summary(f"  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
-            write_summary(f"  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
-            write_summary(f"  [cyan].pf/raw/patterns.json[/cyan] [dim]Pattern detection results[/dim]")
-            write_summary(f"  [cyan].pf/risk_scores.json[/cyan]  [dim]Risk analysis[/dim]")
+            write_summary("  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
+            write_summary("  [cyan].pf/allfiles.md[/cyan]       [dim]Complete file list[/dim]")
+            write_summary("  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
+            write_summary("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
+            write_summary("  [cyan].pf/raw/patterns.json[/cyan] [dim]Pattern detection results[/dim]")
+            write_summary("  [cyan].pf/risk_scores.json[/cyan]  [dim]Risk analysis[/dim]")
 
         write_summary("")
-        write_summary(f"[dim]File list saved to[/dim] [cyan].pf/allfiles.md[/cyan]")
+        write_summary("[dim]File list saved to[/dim] [cyan].pf/allfiles.md[/cyan]")
         write_summary(f"[dim]Full log saved to[/dim] [cyan]{log_file_path}[/cyan]")
 
         all_created_files.append(str(allfiles_path))

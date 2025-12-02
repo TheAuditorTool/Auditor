@@ -239,7 +239,7 @@ class TableSchema:
             for fk in self.foreign_keys:
                 if isinstance(fk, ForeignKey):
                     expected_table = fk.foreign_table
-                    expected_pairs = list(zip(fk.local_columns, fk.foreign_columns))
+                    expected_pairs = list(zip(fk.local_columns, fk.foreign_columns, strict=True))
 
                     # Find matching FK in database
                     found = False
