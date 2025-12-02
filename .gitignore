@@ -25,6 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+NodeSaaS-master/
+
 
 # PyInstaller
 *.manifest
