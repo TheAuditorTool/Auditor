@@ -91,6 +91,9 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
                     is_generator = True
                     break
 
+            # Build implemented_methods list for junction table
+            implemented_methods = [m for m in ITERATOR_METHODS if m in methods]
+
             iterator_data = {
                 "line": node.lineno,
                 "class_name": node.name,
@@ -98,6 +101,7 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "has_next": has_next,
                 "raises_stopiteration": raises_stopiteration,
                 "is_generator": is_generator,
+                "implemented_methods": implemented_methods,
             }
             iterator_protocols.append(iterator_data)
 
@@ -137,6 +141,9 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
                         is_sequence = has_len
                         is_mapping = not has_len
 
+            # Build implemented_methods list for junction table
+            implemented_methods = [m for m in CONTAINER_METHODS if m in methods]
+
             container_data = {
                 "line": node.lineno,
                 "class_name": node.name,
@@ -147,6 +154,7 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "has_contains": has_contains,
                 "is_sequence": is_sequence,
                 "is_mapping": is_mapping,
+                "implemented_methods": implemented_methods,
             }
             container_protocols.append(container_data)
 
@@ -177,6 +185,7 @@ def extract_callable_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "param_count": param_count,
                 "has_args": has_args,
                 "has_kwargs": has_kwargs,
+                "implemented_methods": ["__call__"],
             }
             callable_protocols.append(callable_data)
 
@@ -212,6 +221,7 @@ def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "methods": ", ".join(sorted(comparison_methods_found)),
                 "is_total_ordering": is_total_ordering,
                 "has_all_rich": has_all_rich,
+                "implemented_methods": comparison_methods_found,
             }
             comparison_protocols.append(comparison_data)
 
@@ -241,6 +251,7 @@ def extract_arithmetic_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "methods": ", ".join(sorted(arithmetic_methods_found)),
                 "has_reflected": has_reflected,
                 "has_inplace": has_inplace,
+                "implemented_methods": arithmetic_methods_found,
             }
             arithmetic_protocols.append(arithmetic_data)
 
@@ -263,6 +274,9 @@ def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
         has_reduce_ex = "__reduce_ex__" in methods
 
         if any([has_getstate, has_setstate, has_reduce, has_reduce_ex]):
+            # Build implemented_methods list for junction table
+            implemented_methods = [m for m in PICKLE_METHODS if m in methods]
+
             pickle_data = {
                 "line": node.lineno,
                 "class_name": node.name,
@@ -270,6 +284,7 @@ def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
                 "has_setstate": has_setstate,
                 "has_reduce": has_reduce,
                 "has_reduce_ex": has_reduce_ex,
+                "implemented_methods": implemented_methods,
             }
             pickle_protocols.append(pickle_data)
 

@@ -719,6 +719,7 @@ class PythonStorage(BaseStorage):
                 self.counts["python_framework_config"] = 0
             self.counts["python_framework_config"] += 1
 
+            # Get methods from extractor or derive from boolean flags
             methods = config.get("methods")
             if methods:
                 if isinstance(methods, str):
@@ -727,13 +728,27 @@ class PythonStorage(BaseStorage):
                     method_list = methods
                 else:
                     method_list = []
-                for idx, method_name in enumerate(method_list):
-                    self.db_manager.add_python_framework_method(
-                        file_path, config_id, method_name, idx
-                    )
-                    if "python_framework_methods" not in self.counts:
-                        self.counts["python_framework_methods"] = 0
-                    self.counts["python_framework_methods"] += 1
+            else:
+                # Derive methods from boolean flags (e.g., Django middleware)
+                method_list = []
+                if config.get("has_process_request"):
+                    method_list.append("process_request")
+                if config.get("has_process_response"):
+                    method_list.append("process_response")
+                if config.get("has_process_exception"):
+                    method_list.append("process_exception")
+                if config.get("has_process_view"):
+                    method_list.append("process_view")
+                if config.get("has_process_template_response"):
+                    method_list.append("process_template_response")
+
+            for idx, method_name in enumerate(method_list):
+                self.db_manager.add_python_framework_method(
+                    file_path, config_id, method_name, idx
+                )
+                if "python_framework_methods" not in self.counts:
+                    self.counts["python_framework_methods"] = 0
+                self.counts["python_framework_methods"] += 1
 
     def _store_python_validation_schemas(
         self, file_path: str, python_validation_schemas: list, jsx_pass: bool

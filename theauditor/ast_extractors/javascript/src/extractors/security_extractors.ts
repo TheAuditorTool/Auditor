@@ -736,6 +736,7 @@ export function extractCDKConstructs(
           cdk_construct_properties.push({
             construct_line: call.line,
             construct_class: className,
+            construct_name: constructName,
             property_name: prop.name,
             value_expr: prop.value_expr,
             property_line: prop.line,
@@ -759,6 +760,7 @@ export function extractCDKConstructs(
           cdk_construct_properties.push({
             construct_line: call.line,
             construct_class: constructClass,
+            construct_name: constructName,
             property_name: prop.name,
             value_expr: prop.value_expr,
             property_line: prop.line,

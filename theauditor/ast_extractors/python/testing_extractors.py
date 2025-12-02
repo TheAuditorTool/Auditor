@@ -66,20 +66,34 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
 
             if "parametrize" in decorator_name:
                 param_names = []
+                params = []  # List of {name, value} for junction table
+
                 if isinstance(dec, ast.Call) and dec.args:
+                    # First arg: parameter names (e.g., "x,y" or ["x", "y"])
                     first_arg = dec.args[0]
-                    if (
-                        isinstance(first_arg, ast.Constant)
-                        or isinstance(first_arg, ast.Constant)
-                        and isinstance(first_arg.value, str)
-                    ):
-                        param_names = [first_arg.value]
+                    if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                        # Split comma-separated names: "x,y" -> ["x", "y"]
+                        param_names = [n.strip() for n in first_arg.value.split(",")]
+
+                    # Second arg: parameter values list
+                    if len(dec.args) >= 2:
+                        second_arg = dec.args[1]
+                        if isinstance(second_arg, (ast.List, ast.Tuple)):
+                            for idx, elt in enumerate(second_arg.elts):
+                                try:
+                                    value_str = ast.unparse(elt)
+                                except Exception:
+                                    value_str = "<complex>"
+                                # Use param name if available, else index
+                                name = param_names[0] if param_names else str(idx)
+                                params.append({"name": name, "value": value_str})
 
                 parametrizes.append(
                     {
                         "line": node.lineno,
                         "test_name": node.name,
                         "param_names": param_names,
+                        "params": params,  # For junction table
                     }
                 )
 

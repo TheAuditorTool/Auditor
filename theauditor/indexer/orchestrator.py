@@ -443,10 +443,11 @@ class IndexerOrchestrator:
                 f"[Indexer] Normalization: {normalization_results['python_routes']} Python routes promoted to API endpoints",
             )
 
+        total_routes = self.counts['routes'] + self.counts.get('python_routes', 0)
         base_msg = (
             f"[Indexer] Indexed {self.counts['files']} files, "
             f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
-            f"{self.counts['routes']} routes"
+            f"{total_routes} routes"
         )
 
         if self.counts.get("react_components", 0) > 0:
@@ -753,11 +754,16 @@ class IndexerOrchestrator:
                 except Exception:
                     pass
 
-            # Record the syntax error in the findings table
+            # CRITICAL FIX 1: Flush pending batches to ensure 'files' table has the parent
+            # record before we insert a finding that references it (FK constraint).
+            self.db_manager.flush_batch()
+
+            # CRITICAL FIX 2: Use relative POSIX path (file_info["path"]), NOT absolute path.
+            # The files table stores relative paths, so findings must match.
             self.db_manager.write_findings_batch(
                 [
                     {
-                        "file": str(file_path),
+                        "file": file_info["path"],
                         "line": line_no,
                         "rule": "syntax_error",
                         "tool": "indexer",
