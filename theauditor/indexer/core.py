@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.utils import compute_file_hash, count_lines_in_file
+from theauditor.utils.logging import logger
 
 from .config import MONOREPO_ENTRY_FILES, SKIP_DIRS, STANDARD_MONOREPO_PATHS
 
@@ -42,6 +43,21 @@ def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
     except (FileNotFoundError, PermissionError, UnicodeDecodeError):
         pass
     return lines
+
+
+BASH_SHEBANGS = (
+    "#!/bin/bash",
+    "#!/usr/bin/env bash",
+    "#!/bin/sh",
+    "#!/usr/bin/env sh",
+)
+
+
+def _detect_bash_shebang(first_line: str) -> bool:
+    """Check if first line is a bash/shell shebang."""
+    if not first_line:
+        return False
+    return any(first_line.startswith(shebang) for shebang in BASH_SHEBANGS)
 
 
 def load_gitignore_patterns(root_path: Path) -> set[str]:
@@ -154,14 +170,23 @@ class FileWalker:
             relative_path = file.relative_to(self.root_path)
             posix_path = relative_path.as_posix()
 
+            first_lines = get_first_lines(file)
+
             file_info = {
                 "path": posix_path,
                 "sha256": compute_file_hash(file),
                 "ext": file.suffix,
                 "bytes": file_size,
                 "loc": count_lines_in_file(file),
-                "first_lines": get_first_lines(file),
+                "first_lines": first_lines,
             }
+
+            if not file.suffix or file.suffix in (".sh", ".bash"):
+                if first_lines and _detect_bash_shebang(first_lines[0]):
+                    file_info["detected_language"] = "bash"
+
+                    if not file.suffix:
+                        file_info["ext"] = ".sh"
 
             return file_info
 
@@ -176,7 +201,7 @@ class FileWalker:
         if self.exclude_patterns:
             for pattern in self.exclude_patterns:
                 if pattern.endswith("/**"):
-                    self.skip_dirs.add(pattern.rstrip("/**"))
+                    self.skip_dirs.add(pattern.removesuffix("/**"))
                 elif pattern.endswith("/"):
                     self.skip_dirs.add(pattern.rstrip("/"))
                 elif "/" in pattern and "*" not in pattern:
@@ -187,11 +212,11 @@ class FileWalker:
         monorepo_detected, monorepo_dirs, root_entry_files = self.detect_monorepo()
 
         if monorepo_detected:
-            print(
-                f"[Indexer] Monorepo detected ({len(monorepo_dirs)} src directories). Scanning ALL paths."
+            logger.info(
+                f"Monorepo detected ({len(monorepo_dirs)} src directories). Scanning ALL paths."
             )
         else:
-            print("[Indexer] Standard project structure detected.")
+            logger.info("Standard project structure detected.")
 
         for dirpath, dirnames, filenames in os.walk(
             self.root_path, followlinks=self.follow_symlinks

@@ -16,6 +16,7 @@ from typing import Any
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.refactor import (
     ProfileEvaluation,
     RefactorProfile,
@@ -236,24 +237,26 @@ def refactor(
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: No index found. Run 'aud full' first.", err=True)
+        console.print("[error]Error: No index found. Run 'aud full' first.[/error]", stderr=True)
         raise click.Abort()
 
-    click.echo("\n" + "=" * 70)
-    click.echo("REFACTORING IMPACT ANALYSIS - Schema Change Detection")
-    click.echo("=" * 70)
+    console.print("\n" + "=" * 70, markup=False)
+    console.print("REFACTORING IMPACT ANALYSIS - Schema Change Detection")
+    console.rule()
 
     profile_report = None
     if profile_file:
-        click.echo("\nPhase 1: Evaluating refactor profile (YAML rules)...")
+        console.print("\nPhase 1: Evaluating refactor profile (YAML rules)...")
         try:
             profile = RefactorProfile.load(Path(profile_file))
         except Exception as exc:
-            click.echo(f"Error loading profile: {exc}", err=True)
+            console.print(
+                f"[error]Error loading profile: {exc}[/error]", stderr=True, highlight=False
+            )
             raise click.Abort() from exc
 
-        click.echo(f"  Profile: {profile.refactor_name}")
-        click.echo(f"  Rules: {len(profile.rules)}")
+        console.print(f"  Profile: {profile.refactor_name}", highlight=False)
+        console.print(f"  Rules: {len(profile.rules)}", highlight=False)
 
         migration_glob = f"{migration_dir}/**"
         for rule in profile.rules:
@@ -261,14 +264,14 @@ def refactor(
                 rule.scope.setdefault("exclude", []).append(migration_glob)
 
         if in_file_filter:
-            click.echo(f"  Filter: *{in_file_filter}*")
+            console.print(f"  Filter: *{in_file_filter}*", highlight=False)
             for rule in profile.rules:
                 rule.scope["include"] = [f"*{in_file_filter}*"]
 
         with RefactorRuleEngine(db_path, repo_root) as engine:
             profile_report = engine.evaluate(profile)
 
-    click.echo("\nPhase 2: Analyzing database migrations...")
+    console.print("\nPhase 2: Analyzing database migrations...")
     schema_changes = _analyze_migrations(repo_root, migration_dir, migration_limit)
 
     has_schema_changes = bool(
@@ -278,8 +281,8 @@ def refactor(
     )
 
     if not has_schema_changes:
-        click.echo("\nNo schema changes detected in migrations.")
-        click.echo("Tip: This command looks for removeColumn, dropTable, renameColumn, etc.")
+        console.print("\nNo schema changes detected in migrations.")
+        console.print("Tip: This command looks for removeColumn, dropTable, renameColumn, etc.")
         if not profile_report:
             from datetime import datetime
 
@@ -300,14 +303,14 @@ def refactor(
             db.commit()
             return
 
-    click.echo("\nPhase 3: Searching codebase for references to removed schema...")
+    console.print("\nPhase 3: Searching codebase for references to removed schema...")
     mismatches = _find_code_references(db_path, schema_changes, repo_root, migration_dir)
 
     schema_counts = _aggregate_schema_counts(mismatches)
 
-    click.echo("\n" + "=" * 70)
-    click.echo("RESULTS")
-    click.echo("=" * 70)
+    console.print("\n" + "=" * 70, markup=False)
+    console.print("RESULTS")
+    console.rule()
 
     _print_impact_overview(profile_report, mismatches, schema_counts)
     if profile_report:
@@ -317,10 +320,10 @@ def refactor(
     total_issues = sum(len(v) for v in mismatches.values())
 
     if total_issues == 0:
-        click.echo("\nNo mismatches found!")
-        click.echo("All removed schema items appear to have been cleaned up from the codebase.")
+        console.print("\nNo mismatches found!")
+        console.print("All removed schema items appear to have been cleaned up from the codebase.")
     else:
-        click.echo(f"\nFound {total_issues} potential breaking references:")
+        console.print(f"\nFound {total_issues} potential breaking references:", highlight=False)
 
         _print_mismatch_summary(
             mismatches["removed_tables"],
@@ -342,7 +345,7 @@ def refactor(
         )
 
     risk = _assess_risk(mismatches)
-    click.echo(f"\nSchema Stability Risk: {risk}")
+    console.print(f"\nSchema Stability Risk: {risk}", highlight=False)
 
     if profile_report:
         debt_level = "NONE"
@@ -352,13 +355,16 @@ def refactor(
             debt_level = "MEDIUM"
         if profile_violations > 50:
             debt_level = "HIGH"
-        click.echo(f"Refactor Debt Level:   {debt_level} ({profile_violations} legacy patterns)")
+        console.print(
+            f"Refactor Debt Level:   {debt_level} ({profile_violations} legacy patterns)",
+            highlight=False,
+        )
 
     if output:
         report = _generate_report(schema_changes, mismatches, risk, profile_report)
         with open(output, "w") as f:
             json.dump(report, f, indent=2, default=str)
-        click.echo(f"\nDetailed report saved: {output}")
+        console.print(f"\nDetailed report saved: {output}", highlight=False)
 
     from datetime import datetime
 
@@ -381,7 +387,7 @@ def refactor(
     db.flush_batch()
     db.commit()
 
-    click.echo("")
+    console.print("")
 
 
 def _analyze_migrations(
@@ -413,11 +419,15 @@ def _analyze_migrations(
                     + glob.glob(str(test_path / "*.sql"))
                 ):
                     migration_path = test_path
-                    click.echo(f"Found migrations in: {common_path}")
+                    console.print(f"Found migrations in: {common_path}", highlight=False)
                     break
 
     if not migration_path.exists():
-        click.echo(f"WARNING: No migrations found at {migration_path}", err=True)
+        console.print(
+            f"[error]WARNING: No migrations found at {migration_path}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return {"removed_tables": [], "removed_columns": [], "renamed_items": []}
 
     import glob
@@ -433,9 +443,9 @@ def _analyze_migrations(
 
     if migration_limit > 0:
         migrations = migrations[-migration_limit:]
-        click.echo(f"Analyzing {len(migrations)} most recent migrations")
+        console.print(f"Analyzing {len(migrations)} most recent migrations", highlight=False)
     else:
-        click.echo(f"Analyzing ALL {len(migrations)} migrations")
+        console.print(f"Analyzing ALL {len(migrations)} migrations", highlight=False)
 
     removed_tables = set()
     removed_columns = []
@@ -480,11 +490,11 @@ def _analyze_migrations(
                 )
 
         except Exception as e:
-            click.echo(f"Warning: Could not read {mig_file}: {e}")
+            console.print(f"Warning: Could not read {mig_file}: {e}", highlight=False)
 
-    click.echo(f"  Removed tables: {len(removed_tables)}")
-    click.echo(f"  Removed columns: {len(removed_columns)}")
-    click.echo(f"  Renamed items: {len(renamed_items)}")
+    console.print(f"  Removed tables: {len(removed_tables)}", highlight=False)
+    console.print(f"  Removed columns: {len(removed_columns)}", highlight=False)
+    console.print(f"  Renamed items: {len(renamed_items)}", highlight=False)
 
     return {
         "removed_tables": list(removed_tables),
@@ -634,17 +644,17 @@ def _print_profile_report(
     report: ProfileEvaluation, schema_counts: dict[str, dict[str, int]] | None = None
 ) -> None:
     """Pretty-print YAML profile evaluation."""
-    click.echo(f"  Description: {report.profile.description}")
+    console.print(f"  Description: {report.profile.description}", highlight=False)
     if report.profile.version:
-        click.echo(f"  Version: {report.profile.version}")
+        console.print(f"  Version: {report.profile.version}", highlight=False)
 
     total_old = sum(len(r.violations) for r in report.rule_results)
     rules_with_old = [r for r in report.rule_results if r.violations]
 
-    click.echo("\n  PROFILE SUMMARY")
-    click.echo(f"    Rules evaluated: {len(report.rule_results)}")
-    click.echo(f"    Rules with old references: {len(rules_with_old)}")
-    click.echo(f"    Total old references: {total_old}")
+    console.print("\n  PROFILE SUMMARY")
+    console.print(f"    Rules evaluated: {len(report.rule_results)}", highlight=False)
+    console.print(f"    Rules with old references: {len(rules_with_old)}", highlight=False)
+    console.print(f"    Total old references: {total_old}", highlight=False)
 
     _print_rule_breakdown(report.rule_results, schema_counts)
     _print_top_files(report.rule_results, schema_counts)
@@ -738,38 +748,42 @@ def _print_impact_overview(
     schema_counts: dict[str, dict[str, int]],
 ) -> None:
     """Display high-level summary across profile + schema phases."""
-    click.echo("\nIMPACT OVERVIEW")
+    console.print("\nIMPACT OVERVIEW")
 
     if profile_report:
         rule_count = len(profile_report.rule_results)
         rules_with_old = sum(1 for r in profile_report.rule_results if r.violations)
         total_old = sum(len(r.violations) for r in profile_report.rule_results)
         files_with_old = len(_collect_profile_files(profile_report.rule_results))
-        click.echo(
+        console.print(
             f"  Profile coverage: {rule_count} rules | "
             f"{rules_with_old} with old refs | "
-            f"{total_old} old refs | files impacted: {files_with_old}"
+            f"{total_old} old refs | files impacted: {files_with_old}",
+            highlight=False,
         )
 
     tables_total = len(mismatches.get("removed_tables", []))
     columns_total = len(mismatches.get("removed_columns", []))
     renamed_total = len(mismatches.get("renamed_items", []))
-    click.echo(
+    console.print(
         f"  Schema mismatches: tables={tables_total}, columns={columns_total}, renamed={renamed_total} | "
-        f"files impacted: {len(schema_counts)}"
+        f"files impacted: {len(schema_counts)}",
+        highlight=False,
     )
 
     if profile_report:
         profile_files = _collect_profile_files(profile_report.rule_results)
         overlap = sum(1 for file in profile_files if schema_counts.get(file))
-        click.echo(f"  Files overlapping profile + schema mismatches: {overlap}")
+        console.print(
+            f"  Files overlapping profile + schema mismatches: {overlap}", highlight=False
+        )
 
 
 def _print_rule_breakdown(
     rule_results: list, schema_counts: dict[str, dict[str, int]] | None = None
 ) -> None:
     """Show per-rule stats sorted by severity and violation count."""
-    click.echo("\n  RULE BREAKDOWN")
+    console.print("\n  RULE BREAKDOWN")
     for result in sorted(
         rule_results,
         key=lambda r: (
@@ -782,9 +796,12 @@ def _print_rule_breakdown(
         new_count = len(result.expected_references)
         unique_files = len({item["file"] for item in result.violations})
         header = f"    [{result.rule.severity.upper()}] {result.rule.id}"
-        click.echo(header)
-        click.echo(f"      Description: {result.rule.description}")
-        click.echo(f"      Old refs: {old_count} (files: {unique_files}) | New refs: {new_count}")
+        console.print(header, markup=False)
+        console.print(f"      Description: {result.rule.description}", highlight=False)
+        console.print(
+            f"      Old refs: {old_count} (files: {unique_files}) | New refs: {new_count}",
+            highlight=False,
+        )
         if schema_counts and old_count:
             violation_files = {item["file"] for item in result.violations}
             overlapping = [
@@ -792,13 +809,14 @@ def _print_rule_breakdown(
             ]
             if overlapping:
                 overlap_refs = sum(entry["total"] for entry in overlapping)
-                click.echo(
+                console.print(
                     f"      Schema mismatches touching these files: "
-                    f"{overlap_refs} refs across {len(overlapping)} file(s)"
+                    f"{overlap_refs} refs across {len(overlapping)} file(s)",
+                    highlight=False,
                 )
 
         if old_count:
-            click.echo("      Files:")
+            console.print("      Files:")
 
             file_lines: dict[str, list[int]] = defaultdict(list)
             for item in result.violations:
@@ -821,18 +839,20 @@ def _print_rule_breakdown(
                         f" | schema refs: {schema_info['total']} "
                         f"(tables:{schema_info['tables']}, columns:{schema_info['columns']})"
                     )
-                click.echo(f"        - {file_path} (lines {line_str}){suffix}")
+                console.print(f"        - {file_path} (lines {line_str}){suffix}", highlight=False)
         else:
-            click.echo("      Files: clean")
+            console.print("      Files: clean")
 
         if new_count:
-            click.echo("      Confirmed new schema locations:")
+            console.print("      Confirmed new schema locations:")
             for item in result.expected_references[:3]:
-                click.echo(f"        + {item['file']}:{item['line']} :: {item['match']}")
+                console.print(
+                    f"        + {item['file']}:{item['line']} :: {item['match']}", highlight=False
+                )
             if new_count > 3:
-                click.echo(f"        ... {new_count - 3} more")
+                console.print(f"        ... {new_count - 3} more", highlight=False)
         elif not result.rule.expect.is_empty():
-            click.echo("      Confirmed new schema locations: missing")
+            console.print("      Confirmed new schema locations: missing")
 
 
 def _print_top_files(
@@ -842,7 +862,7 @@ def _print_top_files(
     queue = _build_file_priority_queue(rule_results, schema_counts, limit=limit)
     if not queue:
         return
-    click.echo("\n  FILE PRIORITY QUEUE")
+    console.print("\n  FILE PRIORITY QUEUE")
     for file_path, data in queue:
         rules_desc = ", ".join(f"{rule_id}({count})" for rule_id, count in data["rules"])
         schema_suffix = ""
@@ -852,9 +872,10 @@ def _print_top_files(
                 f" | schema refs: {schema['total']} "
                 f"(tables:{schema['tables']}, columns:{schema['columns']})"
             )
-        click.echo(
-            f"    - [{data['max_severity'].upper()}] {file_path}: "
-            f"{data['count']} refs across {data['rule_count']} rule(s) | {rules_desc}{schema_suffix}"
+        console.print(
+            f"    - \\[{data['max_severity'].upper()}] {file_path}: "
+            f"{data['count']} refs across {data['rule_count']} rule(s) | {rules_desc}{schema_suffix}",
+            highlight=False,
         )
 
 
@@ -924,10 +945,11 @@ def _print_missing_expectations(rule_results: list) -> None:
     ]
     if not missing:
         return
-    click.echo("\n  RULES WITH MISSING NEW SCHEMA REFERENCES")
+    console.print("\n  RULES WITH MISSING NEW SCHEMA REFERENCES")
     for result in missing:
-        click.echo(
-            f"    - [{result.rule.severity.upper()}] {result.rule.id}: expected patterns not observed"
+        console.print(
+            f"    - \\[{result.rule.severity.upper()}] {result.rule.id}: expected patterns not observed",
+            highlight=False,
         )
 
 
@@ -936,37 +958,37 @@ def _print_mismatch_summary(
 ) -> None:
     """Report aggregate info plus sample references for schema mismatches."""
     count = len(items)
-    click.echo(f"\n{label} ({count} issues):")
+    console.print(f"\n{label} ({count} issues):", highlight=False)
     if not items:
-        click.echo("  None")
+        console.print("  None")
         return
 
     top_keys = _top_counts((item.get(key_field) for item in items), limit=5)
     top_files = _top_counts((item.get("file") for item in items), limit=5)
 
-    click.echo(f"  Summary: {description}")
+    console.print(f"  Summary: {description}", highlight=False)
     if top_keys:
-        click.echo("  Most affected identifiers:")
+        console.print("  Most affected identifiers:")
         for key, key_count in top_keys:
-            click.echo(f"    - {key}: {key_count}")
+            console.print(f"    - {key}: {key_count}", highlight=False)
     if top_files:
-        click.echo("  Files with highest counts:")
+        console.print("  Files with highest counts:")
         for file_path, file_count in top_files:
-            click.echo(f"    - {file_path}: {file_count}")
+            console.print(f"    - {file_path}: {file_count}", highlight=False)
 
-    click.echo("  Sample references:")
+    console.print("  Sample references:")
     for issue in items[:10]:
         location = f"{issue['file']}:{issue.get('line', 0)}"
-        click.echo(f"    - {location}")
+        console.print(f"    - {location}", highlight=False)
         if "table" in issue and "column" in issue:
-            click.echo(f"      {issue['table']}.{issue['column']}")
+            console.print(f"      {issue['table']}.{issue['column']}", highlight=False)
         elif "table" in issue:
-            click.echo(f"      {issue['table']}")
+            console.print(f"      {issue['table']}", highlight=False)
         elif "old_name" in issue and "new_name" in issue:
-            click.echo(f"      {issue['old_name']} -> {issue['new_name']}")
+            console.print(f"      {issue['old_name']} -> {issue['new_name']}", highlight=False)
         snippet = issue.get("snippet")
         if snippet:
-            click.echo(f"      Snippet: {snippet[:80]}...")
+            console.print(f"      Snippet: {snippet[:80]}...", highlight=False)
 
 
 refactor_command = refactor

@@ -11,6 +11,7 @@ from typing import Any
 from theauditor.ast_parser import ASTParser
 from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RuleContext, RulesOrchestrator
+from theauditor.utils.logging import logger
 
 
 @dataclass
@@ -73,8 +74,7 @@ class UniversalPatternDetector:
         self.ast_parser = ASTParser()
 
         stats = self.orchestrator.get_rule_stats()
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DETECTOR] Orchestrator loaded {stats['total_rules']} rules")
+        logger.debug(f"[DETECTOR] Orchestrator loaded {stats['total_rules']} rules")
 
     def detect_patterns(
         self, categories: list[str] | None = None, file_filter: str | None = None
@@ -84,15 +84,15 @@ class UniversalPatternDetector:
 
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud full' first.")
+            logger.info("Error: Database not found. Run 'aud full' first.")
             return []
 
         files_to_scan = self._query_files(db_path, file_filter)
         if not files_to_scan:
-            print("No files to scan.")
+            logger.info("No files to scan.")
             return []
 
-        print(f"Found {len(files_to_scan)} files to scan...")
+        logger.info(f"Found {len(files_to_scan)} files to scan...")
 
         ast_files = []
         regex_files = []
@@ -105,18 +105,18 @@ class UniversalPatternDetector:
                 regex_files.append(file_info)
 
         if ast_files:
-            print(f"Processing {len(ast_files)} files with AST analysis...")
+            logger.info(f"Processing {len(ast_files)} files with AST analysis...")
             self._process_ast_files(ast_files)
 
         if regex_files:
-            print(f"Processing {len(regex_files)} config files with patterns...")
+            logger.info(f"Processing {len(regex_files)} config files with patterns...")
             self._process_regex_files(regex_files, categories)
 
-        print("Running database-aware rules...")
+        logger.info("Running database-aware rules...")
         db_findings = self._run_database_rules()
         self.findings.extend(db_findings)
 
-        print(f"Total findings: {len(self.findings)}")
+        logger.info(f"Total findings: {len(self.findings)}")
         return self.findings
 
     def detect_patterns_for_files(
@@ -138,7 +138,7 @@ class UniversalPatternDetector:
 
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud full' first.")
+            logger.info("Error: Database not found. Run 'aud full' first.")
             return []
 
         files_to_scan = self._query_specific_files(db_path, normalized_files)
@@ -183,7 +183,7 @@ class UniversalPatternDetector:
             conn.close()
 
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logger.info(f"Database error: {e}")
 
         return files
 
@@ -210,7 +210,7 @@ class UniversalPatternDetector:
             conn.close()
 
         except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logger.info(f"Database error: {e}")
 
         return files
 
@@ -237,9 +237,9 @@ class UniversalPatternDetector:
                     ast_tree = ast_result
                     if os.environ.get("THEAUDITOR_DEBUG", "").lower() == "true":
                         ast_type = ast_result.get("type", "unknown")
-                        print(f"[DEBUG] Parsed {file_path} as {ast_type}")
+                        logger.debug(f"Parsed {file_path} as {ast_type}")
                 else:
-                    print(f"[WARNING] Failed to parse AST for {file_path}")
+                    logger.warning(f"Failed to parse AST for {file_path}")
 
                 context = RuleContext(
                     file_path=file_path,
@@ -270,8 +270,7 @@ class UniversalPatternDetector:
                     )
 
             except Exception as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Error processing {file_path}: {e}")
+                logger.debug(f"Error processing {file_path}: {e}")
 
             return local_findings
 
@@ -283,8 +282,7 @@ class UniversalPatternDetector:
                     file_findings = future.result()
                     self.findings.extend(file_findings)
                 except Exception as e:
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"Worker error: {e}")
+                    logger.debug(f"Worker error: {e}")
 
     def _process_regex_files(self, files: list[tuple], categories: list[str] = None):
         """Process non-AST files with regex patterns."""
@@ -331,8 +329,7 @@ class UniversalPatternDetector:
                             )
 
             except Exception as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Error processing {file_path}: {e}")
+                logger.debug(f"Error processing {file_path}: {e}")
 
     def _run_database_rules(self) -> list[Finding]:
         """Run database-level rules through orchestrator."""
@@ -359,8 +356,7 @@ class UniversalPatternDetector:
                 )
 
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"Database rules error: {e}")
+            logger.debug(f"Database rules error: {e}")
 
         return findings
 
@@ -406,7 +402,7 @@ class UniversalPatternDetector:
             output_file = Path(output_file)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_text(json_str)
-            print(f"Findings written to {output_file}")
+            logger.info(f"Findings written to {output_file}")
 
         return json_str
 

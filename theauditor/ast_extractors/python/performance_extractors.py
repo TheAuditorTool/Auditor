@@ -1,15 +1,12 @@
 """Performance pattern extractors - Loop complexity, resource usage, memoization."""
 
 import ast
-import logging
-import os
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import get_node_name
-
-logger = logging.getLogger(__name__)
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
@@ -120,14 +117,10 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(lp)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(loop_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Loop complexity deduplication: {len(loop_patterns)} -> {len(deduped)} ({len(loop_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(loop_patterns) != len(deduped):
+        logger.debug(
+            f"Loop complexity deduplication: {len(loop_patterns)} -> {len(deduped)} ({len(loop_patterns) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -186,14 +179,10 @@ def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(rp)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(resource_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Resource usage deduplication: {len(resource_patterns)} -> {len(deduped)} ({len(resource_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(resource_patterns) != len(deduped):
+        logger.debug(
+            f"Resource usage deduplication: {len(resource_patterns)} -> {len(deduped)} ({len(resource_patterns) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -261,13 +250,9 @@ def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(mp)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(memoization_patterns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Memoization patterns deduplication: {len(memoization_patterns)} -> {len(deduped)} ({len(memoization_patterns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(memoization_patterns) != len(deduped):
+        logger.debug(
+            f"Memoization patterns deduplication: {len(memoization_patterns)} -> {len(deduped)} ({len(memoization_patterns) - len(deduped)} duplicates removed)"
+        )
 
     return deduped

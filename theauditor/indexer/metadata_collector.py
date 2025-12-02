@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 class MetadataCollector:
     """Collects temporal (churn) and quality (coverage) metadata as pure facts."""
@@ -119,16 +121,16 @@ class MetadataCollector:
                 db_manager = DatabaseManager(str(db_path))
                 db_manager.write_findings_batch(meta_findings, "churn-analysis")
                 db_manager.close()
-                print(f"[METADATA] Wrote {len(meta_findings)} churn findings to database")
+                logger.info(f"Wrote {len(meta_findings)} churn findings to database")
             except Exception as e:
-                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+                logger.info(f"Warning: Could not write findings to database: {e}")
 
         if output_path:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2)
-            print(f"[METADATA] Churn analysis saved to {output_path}")
+            logger.info(f"Churn analysis saved to {output_path}")
 
         return result
 
@@ -152,7 +154,7 @@ class MetadataCollector:
                 candidate_path = self.root_path / candidate
                 if candidate_path.exists():
                     coverage_file = str(candidate_path)
-                    print(f"[METADATA] Auto-detected coverage file: {candidate}")
+                    logger.info(f"Auto-detected coverage file: {candidate}")
                     break
 
         if not coverage_file:
@@ -270,16 +272,16 @@ class MetadataCollector:
                 db_manager = DatabaseManager(str(db_path))
                 db_manager.write_findings_batch(meta_findings, "coverage-analysis")
                 db_manager.close()
-                print(f"[METADATA] Wrote {len(meta_findings)} coverage findings to database")
+                logger.info(f"Wrote {len(meta_findings)} coverage findings to database")
             except Exception as e:
-                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+                logger.info(f"Warning: Could not write findings to database: {e}")
 
         if output_path:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2)
-            print(f"[METADATA] Coverage analysis saved to {output_path}")
+            logger.info(f"Coverage analysis saved to {output_path}")
 
         return result
 
@@ -292,9 +294,9 @@ def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == "churn":
         result = collector.collect_churn(output_path=".pf/raw/churn_analysis.json")
-        print(f"Analyzed {result.get('total_files_analyzed', 0)} files")
+        logger.info(f"Analyzed {result.get('total_files_analyzed', 0)} files")
         if result.get("files"):
-            print(
+            logger.info(
                 f"Most active file: {result['files'][0]['path']} "
                 f"({result['files'][0]['commits_90d']} commits)"
             )
@@ -305,15 +307,15 @@ def main():
             coverage_file=coverage_file, output_path=".pf/raw/coverage_analysis.json"
         )
         if result.get("files"):
-            print(f"Format: {result['format_detected']}")
-            print(f"Average coverage: {result['average_coverage']}%")
+            logger.info(f"Format: {result['format_detected']}")
+            logger.info(f"Average coverage: {result['average_coverage']}%")
             if result["files"]:
-                print(
+                logger.info(
                     f"Least covered: {result['files'][0]['path']} "
                     f"({result['files'][0]['line_coverage_percent']}%)"
                 )
     else:
-        print("Usage: python metadata_collector.py [churn|coverage] [coverage_file]")
+        logger.info("Usage: python metadata_collector.py [churn|coverage] [coverage_file]")
 
 
 if __name__ == "__main__":

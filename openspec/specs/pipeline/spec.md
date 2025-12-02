@@ -126,7 +126,7 @@ The Python storage layer SHALL iterate junction arrays directly without JSON par
 - **STATUS:** PENDING (Phase 9)
 
 ### Requirement: Console Output Rendering
-The pipeline SHALL render console output through a single RichRenderer instance that implements the PipelineObserver protocol.
+The pipeline SHALL render console output through a single RichRenderer instance that implements the PipelineObserver protocol. **Additionally, all CLI commands SHALL use the shared console singleton from `theauditor.pipeline.ui` for consistency.**
 
 #### Scenario: Single output authority
 - **WHEN** the pipeline executes any phase
@@ -147,6 +147,11 @@ The pipeline SHALL render console output through a single RichRenderer instance 
 - **WHEN** the pipeline runs with --quiet flag
 - **THEN** RichRenderer SHALL suppress all non-error output
 - **AND** errors SHALL still be displayed to stderr
+
+#### Scenario: Command output through shared console
+- **WHEN** any CLI command in `theauditor/commands/` outputs to console
+- **THEN** it SHALL use the `console` singleton from `theauditor.pipeline.ui`
+- **AND** it SHALL NOT use `click.echo()` or create separate Console instances
 
 ### Requirement: Parallel Track Buffering
 The pipeline SHALL buffer parallel track output and flush atomically when each track completes.
@@ -249,4 +254,150 @@ The pipeline SHALL NOT create or reference the .pf/readthis/ directory.
 - **WHEN** the pipeline displays summary or tips
 - **THEN** no mention of readthis directory SHALL appear
 - **AND** tips SHALL reference .pf/raw/ for artifacts instead
+
+### Requirement: Async Linter Orchestration
+The linter orchestration SHALL execute all linters in parallel using asyncio.
+
+#### Scenario: Parallel linter execution
+- **WHEN** the linter orchestrator runs with multiple linter types
+- **THEN** all applicable linters SHALL execute concurrently via asyncio.gather()
+- **AND** total execution time SHALL be approximately the duration of the slowest linter
+
+#### Scenario: Exception isolation per linter
+- **WHEN** one linter fails with an exception during parallel execution
+- **THEN** other linters SHALL continue to completion
+- **AND** the failed linter's exception SHALL be logged
+- **AND** partial results from successful linters SHALL be returned
+
+### Requirement: Typed Finding Results
+The linter pipeline SHALL return typed Finding dataclass objects instead of loose dictionaries.
+
+#### Scenario: Finding dataclass structure
+- **WHEN** a linter produces findings
+- **THEN** each finding SHALL be a Finding dataclass with: tool, file, line, column, rule, message, severity, category
+- **AND** severity SHALL be a Literal type constrained to "error", "warning", "info"
+
+#### Scenario: Backward compatible serialization
+- **WHEN** findings are written to database or JSON
+- **THEN** Finding.to_dict() SHALL produce the same structure as the previous dict format
+- **AND** lint.json output format SHALL remain unchanged
+
+### Requirement: Tool-Specific Batching Strategy
+The linter orchestrator SHALL apply appropriate batching strategies per tool type.
+
+#### Scenario: Ruff runs without batching
+- **WHEN** Ruff linter executes
+- **THEN** all Python files SHALL be passed in a single invocation
+- **AND** no Python-level batching loop SHALL be used
+
+#### Scenario: Mypy runs without batching
+- **WHEN** Mypy linter executes
+- **THEN** all Python files SHALL be passed in a single invocation
+- **AND** Mypy SHALL have full project context for cross-file type inference
+
+#### Scenario: ESLint uses dynamic batching
+- **WHEN** ESLint linter executes on many files
+- **THEN** files SHALL be chunked to avoid OS command line length limits
+- **AND** chunk size SHALL be calculated dynamically based on path lengths
+
+#### Scenario: Clippy runs at crate level
+- **WHEN** Clippy linter executes
+- **THEN** cargo clippy SHALL run on the entire crate
+- **AND** output SHALL be filtered to match requested file list
+
+#### Scenario: golangci-lint runs without batching
+- **WHEN** golangci-lint linter executes on Go files
+- **THEN** all Go files SHALL be processed in a single invocation
+- **AND** golangci-lint SHALL handle file discovery internally
+
+#### Scenario: shellcheck runs without batching
+- **WHEN** shellcheck linter executes on Bash files
+- **THEN** all .sh/.bash files SHALL be passed in a single invocation
+- **AND** shellcheck SHALL handle multiple files efficiently
+
+### Requirement: Go and Bash Linter Support
+The pipeline SHALL support linting for Go and Bash files when tools are available.
+
+#### Scenario: Go linting with golangci-lint
+- **WHEN** Go files exist in the project AND golangci-lint is available
+- **THEN** GolangciLinter SHALL execute golangci-lint with JSON output
+- **AND** findings SHALL be parsed into Finding objects
+
+#### Scenario: Bash linting with shellcheck
+- **WHEN** Bash files (.sh, .bash) exist in the project AND shellcheck is available
+- **THEN** ShellcheckLinter SHALL execute shellcheck with JSON output
+- **AND** findings SHALL be parsed into Finding objects
+
+#### Scenario: Optional tools graceful skip
+- **WHEN** golangci-lint or shellcheck is not installed
+- **THEN** the respective linter SHALL be silently skipped
+- **AND** no error SHALL be raised
+- **AND** other linters SHALL continue execution
+
+### Requirement: Toolbox Path Resolution
+The pipeline SHALL use a centralized Toolbox class for all runtime path resolution.
+
+#### Scenario: Binary path resolution
+- **WHEN** a linter needs to find its binary (ruff, eslint, mypy)
+- **THEN** Toolbox.get_binary(name) SHALL return the correct platform-specific path
+- **AND** Windows .exe extensions SHALL be handled automatically
+
+#### Scenario: Config path resolution
+- **WHEN** a linter needs its config file (pyproject.toml, eslint.config.cjs)
+- **THEN** Toolbox.get_config(name) SHALL return the path within .theauditor_tools
+
+#### Scenario: Health check
+- **WHEN** the orchestrator initializes
+- **THEN** Toolbox.is_healthy SHALL verify the venv and tools exist
+- **AND** a clear error message SHALL be displayed if setup is required
+
+### Requirement: Sync Wrapper Backward Compatibility
+The linter orchestrator SHALL provide a synchronous wrapper for the async implementation.
+
+#### Scenario: run_all_linters signature unchanged
+- **WHEN** external code calls LinterOrchestrator.run_all_linters(workset_files)
+- **THEN** the method SHALL accept the same parameters as before
+- **AND** the method SHALL return list[dict[str, Any]] for compatibility
+
+#### Scenario: asyncio.run used internally
+- **WHEN** run_all_linters() is called from sync context
+- **THEN** it SHALL wrap the async implementation with asyncio.run()
+- **AND** callers SHALL not need to use async/await
+
+### Requirement: AUDITOR_THEME Token Definitions
+The pipeline ui module SHALL define semantic style tokens in AUDITOR_THEME for consistent command output styling.
+
+#### Scenario: Status tokens defined
+- **WHEN** AUDITOR_THEME is loaded
+- **THEN** it SHALL define `success` as bold green
+- **AND** it SHALL define `warning` as bold yellow
+- **AND** it SHALL define `error` as bold red
+- **AND** it SHALL define `info` as bold cyan
+
+#### Scenario: Severity tokens defined
+- **WHEN** AUDITOR_THEME is loaded
+- **THEN** it SHALL define `critical` as bold red
+- **AND** it SHALL define `high` as bold yellow
+- **AND** it SHALL define `medium` as bold blue
+- **AND** it SHALL define `low` as cyan
+
+#### Scenario: UI element tokens defined
+- **WHEN** AUDITOR_THEME is loaded
+- **THEN** it SHALL define `cmd` as bold magenta (for command references)
+- **AND** it SHALL define `path` as bold cyan (for file paths)
+- **AND** it SHALL define `dim` as dim white (for secondary information)
+
+### Requirement: Console Singleton Export
+The pipeline ui module SHALL export a pre-configured Console singleton for use by all commands.
+
+#### Scenario: Console singleton configuration
+- **WHEN** `console` is imported from `theauditor.pipeline.ui`
+- **THEN** it SHALL be a Rich Console instance
+- **AND** it SHALL use AUDITOR_THEME for styling
+- **AND** it SHALL have `force_terminal` set based on `sys.stdout.isatty()`
+
+#### Scenario: Console singleton is reusable
+- **WHEN** multiple commands import `console` from `theauditor.pipeline.ui`
+- **THEN** they SHALL all receive the same Console instance
+- **AND** theme and configuration SHALL be consistent across all usages
 

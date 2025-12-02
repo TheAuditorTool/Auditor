@@ -3,6 +3,8 @@
 import os
 import platform
 
+from theauditor.utils.logging import logger
+
 from .constants import (
     DEFAULT_MEMORY_LIMIT_MB,
     ENV_MEMORY_LIMIT,
@@ -10,10 +12,6 @@ from .constants import (
     MEMORY_ALLOCATION_RATIO,
     MIN_MEMORY_LIMIT_MB,
 )
-from .logger import setup_logger
-
-logger = setup_logger(__name__)
-
 
 if platform.system() == "Windows":
     import ctypes

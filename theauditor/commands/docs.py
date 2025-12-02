@@ -5,6 +5,8 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command("docs")
 @click.argument("action", type=click.Choice(["fetch", "view", "list"]))
@@ -239,41 +241,45 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
 
             if not print_stats:
                 if result["mode"] == "offline":
-                    click.echo("Running in offline mode - no documentation fetched")
+                    console.print("Running in offline mode - no documentation fetched")
                 else:
-                    click.echo("Documentation fetch complete:")
-                    click.echo(f"  Fetched: {result['fetched']}")
-                    click.echo(f"  Cached: {result['cached']}")
-                    click.echo(f"  Skipped: {result['skipped']}")
+                    console.print("Documentation fetch complete:")
+                    console.print(f"  Fetched: {result['fetched']}", highlight=False)
+                    console.print(f"  Cached: {result['cached']}", highlight=False)
+                    console.print(f"  Skipped: {result['skipped']}", highlight=False)
                     if result["errors"]:
-                        click.echo(f"  Errors: {len(result['errors'])}")
+                        console.print(f"  Errors: {len(result['errors'])}", highlight=False)
 
         elif action == "list":
             docs_path = Path(docs_dir)
 
-            click.echo("\n[Docs] Available Documentation:\n")
+            console.print("\n\\[Docs] Available Documentation:\n")
 
             if docs_path.exists():
-                click.echo("Fetched Docs (.pf/context/docs/):")
+                console.print("Fetched Docs (.pf/context/docs/):")
                 for ecosystem in ["npm", "py"]:
                     ecosystem_dir = docs_path / ecosystem
                     if ecosystem_dir.exists():
                         packages = sorted([d.name for d in ecosystem_dir.iterdir() if d.is_dir()])
                         if packages:
-                            click.echo(f"\n  {ecosystem.upper()}:")
+                            console.print(f"\n  {ecosystem.upper()}:", highlight=False)
                             for pkg in packages[:20]:
-                                click.echo(f"    * {pkg}")
+                                console.print(f"    * {pkg}", highlight=False)
                             if len(packages) > 20:
-                                click.echo(f"    ... and {len(packages) - 20} more")
+                                console.print(
+                                    f"    ... and {len(packages) - 20} more", highlight=False
+                                )
 
-            click.echo("\n[TIP] Use 'aud docs view <package_name> --raw' to view a specific doc")
+            console.print(
+                "\n\\[TIP] Use 'aud docs view <package_name> --raw' to view a specific doc"
+            )
 
         elif action == "view":
             if not package_name:
-                click.echo("Error: Package name required for view action")
-                click.echo("Usage: aud docs view <package_name>")
-                click.echo("       aud docs view geopandas")
-                click.echo("       aud docs view numpy --raw")
+                console.print("Error: Package name required for view action")
+                console.print("Usage: aud docs view <package_name>")
+                console.print("       aud docs view geopandas")
+                console.print("       aud docs view numpy --raw")
                 raise click.ClickException("Package name required")
 
             docs_path = Path(docs_dir)
@@ -284,75 +290,88 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                     if pkg_dir.is_dir():
                         doc_file = pkg_dir / "doc.md"
                         if doc_file.exists():
-                            click.echo(f"\n[DOC] Documentation: {pkg_dir.name}\n")
-                            click.echo("=" * 80)
+                            console.print(
+                                f"\n\\[DOC] Documentation: {pkg_dir.name}\n", highlight=False
+                            )
+                            console.rule()
                             with open(doc_file, encoding="utf-8") as f:
                                 content = f.read()
 
                                 if not raw:
                                     lines = content.split("\n")
                                     if len(lines) > 200:
-                                        click.echo("\n".join(lines[:200]))
-                                        click.echo(
-                                            f"\n... (truncated, {len(lines) - 200} more lines)"
+                                        console.print("\n".join(lines[:200]), markup=False)
+                                        console.print(
+                                            f"\n... (truncated, {len(lines) - 200} more lines)",
+                                            highlight=False,
                                         )
-                                        click.echo("\nUse --raw to see full content")
+                                        console.print("\nUse --raw to see full content")
                                     else:
-                                        click.echo(content)
+                                        console.print(content, markup=False)
                                 else:
-                                    click.echo(content)
+                                    console.print(content, markup=False)
                             found = True
                             break
 
                         readme_file = pkg_dir / "README.md"
                         if readme_file.exists():
-                            click.echo(f"\n[DOC] Documentation: {pkg_dir.name}\n")
-                            click.echo("=" * 80)
+                            console.print(
+                                f"\n\\[DOC] Documentation: {pkg_dir.name}\n", highlight=False
+                            )
+                            console.rule()
 
                             md_files = sorted(pkg_dir.glob("*.md"))
-                            click.echo(f"Documentation files ({len(md_files)}):")
+                            console.print(
+                                f"Documentation files ({len(md_files)}):", highlight=False
+                            )
                             for md_file in md_files:
-                                click.echo(f"  - {md_file.name}")
-                            click.echo()
+                                console.print(f"  - {md_file.name}", highlight=False)
+                            console.print()
 
                             with open(readme_file, encoding="utf-8") as f:
                                 content = f.read()
                                 if not raw:
                                     lines = content.split("\n")
                                     if len(lines) > 100:
-                                        click.echo("\n".join(lines[:100]))
-                                        click.echo(
-                                            f"\n... (showing README preview, {len(md_files)} total files)"
+                                        console.print("\n".join(lines[:100]), markup=False)
+                                        console.print(
+                                            f"\n... (showing README preview, {len(md_files)} total files)",
+                                            highlight=False,
                                         )
-                                        click.echo(
-                                            f"\nFiles: {', '.join([f.name for f in md_files])}"
+                                        console.print(
+                                            f"\nFiles: {', '.join([f.name for f in md_files])}",
+                                            highlight=False,
                                         )
-                                        click.echo("\nUse --raw to see full content")
+                                        console.print("\nUse --raw to see full content")
                                     else:
-                                        click.echo(content)
+                                        console.print(content, markup=False)
                                 else:
                                     for md_file in md_files:
-                                        click.echo(f"\n--- {md_file.name} ---\n")
+                                        console.print(
+                                            f"\n--- {md_file.name} ---\n", highlight=False
+                                        )
                                         with open(md_file, encoding="utf-8") as mf:
-                                            click.echo(mf.read())
-                                        click.echo()
+                                            console.print(mf.read(), markup=False)
+                                        console.print()
                             found = True
                             break
                 if found:
                     break
 
             if not found:
-                click.echo(f"No documentation found for '{package_name}'")
-                click.echo("\nAvailable packages:")
+                console.print(f"No documentation found for '{package_name}'", highlight=False)
+                console.print("\nAvailable packages:")
 
                 for ecosystem in ["npm", "py"]:
                     ecosystem_dir = docs_path / ecosystem
                     if ecosystem_dir.exists():
                         packages = [d.name for d in ecosystem_dir.iterdir() if d.is_dir()][:5]
                         if packages:
-                            click.echo(f"  {ecosystem.upper()}: {', '.join(packages)}")
-                click.echo("\nUse 'aud docs list' to see all available docs")
+                            console.print(
+                                f"  {ecosystem.upper()}: {', '.join(packages)}", highlight=False
+                            )
+                console.print("\nUse 'aud docs list' to see all available docs")
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e

@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 from ..config import ROUTE_PATTERNS, SQL_PATTERNS
 
 
@@ -68,9 +70,11 @@ class BaseExtractor(ABC):
                 objects.append((kind, name))
         return objects
 
-    def cleanup(self) -> None:
-        """Clean up extractor resources after all files processed."""
-        pass
+    def cleanup(self) -> None:  # noqa: B027
+        """Clean up extractor resources after all files processed.
+
+        Default no-op. Override in subclasses that need cleanup.
+        """
 
 
 class ExtractorRegistry:
@@ -113,8 +117,7 @@ class ExtractorRegistry:
                         break
 
             except (ImportError, AttributeError) as e:
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"Debug: Failed to load extractor {module_name}: {e}")
+                logger.debug(f"Debug: Failed to load extractor {module_name}: {e}")
                 continue
 
     def get_extractor(self, file_path: str, file_extension: str) -> BaseExtractor | None:

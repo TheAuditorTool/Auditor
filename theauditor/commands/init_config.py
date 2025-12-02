@@ -2,6 +2,8 @@
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command("init-config", hidden=True)
 @click.option("--pyproject", default="pyproject.toml", help="Path to pyproject.toml")
@@ -53,9 +55,9 @@ def init_config(pyproject):
     NOTE: This command does NOT enable strict type checking by default. For
     strict mode, manually edit pyproject.toml and set strict = true.
     """
-    click.echo("WARNING: 'aud init-config' is deprecated and will be removed in v2.0.")
-    click.echo("         Mypy configuration is not part of security auditing.")
-    click.echo("")
+    console.print("WARNING: 'aud init-config' is deprecated and will be removed in v2.0.")
+    console.print("         Mypy configuration is not part of security auditing.")
+    console.print("")
 
     from theauditor.config import ensure_mypy_config
 
@@ -66,6 +68,6 @@ def init_config(pyproject):
             if res.get("status") == "created"
             else "mypy config already present"
         )
-        click.echo(msg)
+        console.print(msg, markup=False)
     except Exception as e:
         raise click.ClickException(f"Failed to init config: {e}") from e

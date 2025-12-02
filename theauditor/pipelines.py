@@ -1,6 +1,8 @@
 """Pipeline execution module for TheAuditor."""
 
 import asyncio
+import contextlib
+import io
 import os
 import platform
 import signal
@@ -10,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.pipeline import PhaseResult, RichRenderer, TaskStatus
+from theauditor.utils.logging import logger
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -65,7 +68,7 @@ def signal_handler(signum, frame):
     """Handle Ctrl+C by setting stop flag."""
     global _stop_requested
 
-    print("\n[INFO] Interrupt received, stopping pipeline gracefully...", file=sys.stderr)
+    logger.info("\n Interrupt received, stopping pipeline gracefully...")
     _stop_requested = True
 
 
@@ -176,7 +179,6 @@ async def run_chain_silent(
             or "cdk" in cmd_str
             or "terraform" in cmd_str
             or "workflows" in cmd_str
-            or "detect-patterns" in cmd_str
         )
 
         if is_findings_command:
@@ -252,7 +254,7 @@ async def run_full_pipeline(
 
         _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
     except Exception as e:
-        print(f"[WARNING] Archiving failed: {e}", file=sys.stderr)
+        logger.warning(f"Archiving failed: {e}")
         archive_success = False
 
     log_file_path = pf_dir / "pipeline.log"
@@ -815,169 +817,165 @@ async def run_full_pipeline(
                 if not use_subprocess_for_taint:
 
                     def run_taint_sync() -> PhaseResult:
-                        """Run taint analysis synchronously with live output to renderer."""
+                        """Run taint analysis synchronously with captured output."""
                         from theauditor.rules.orchestrator import RulesOrchestrator
                         from theauditor.taint import TaintRegistry, save_taint_analysis, trace_taint
                         from theauditor.utils.memory import get_recommended_memory_limit
 
                         start_time = time.time()
+                        stdout_capture = io.StringIO()
+                        stderr_capture = io.StringIO()
 
-                        renderer.on_log(
-                            "[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]"
-                        )
+                        with (
+                            contextlib.redirect_stdout(stdout_capture),
+                            contextlib.redirect_stderr(stderr_capture),
+                        ):
+                            logger.info("Track A (Taint Analysis): Running: Taint analysis [0/1]")
 
-                        memory_limit = get_recommended_memory_limit()
-                        db_path = Path(root) / ".pf" / "repo_index.db"
+                            memory_limit = get_recommended_memory_limit()
+                            db_path = Path(root) / ".pf" / "repo_index.db"
 
-                        renderer.on_log("[TAINT] Step 1/5: Initializing security analysis infrastructure...")
-                        registry = TaintRegistry()
-                        orchestrator = RulesOrchestrator(
-                            project_path=Path(root), db_path=db_path
-                        )
-                        orchestrator.collect_rule_patterns(registry)
-
-                        all_findings = []
-
-                        renderer.on_log("[TAINT] Step 2/5: Running infrastructure and configuration analysis...")
-                        infra_findings = orchestrator.run_standalone_rules()
-                        all_findings.extend(infra_findings)
-                        renderer.on_log(f"[TAINT]   Found {len(infra_findings)} infrastructure issues")
-
-                        renderer.on_log("[TAINT] Step 3/5: Discovering framework-specific patterns...")
-                        discovery_findings = orchestrator.run_discovery_rules(registry)
-                        all_findings.extend(discovery_findings)
-
-                        stats = registry.get_stats()
-                        renderer.on_log(
-                            f"[TAINT]   Registry: {stats['total_sinks']} sinks, {stats['total_sources']} sources"
-                        )
-
-                        renderer.on_log("[TAINT] Step 4/5: Performing data-flow taint analysis (IFDS + FlowResolver)...")
-                        graph_db_path = Path(root) / ".pf" / "graphs.db"
-                        result = trace_taint(
-                            db_path=str(db_path),
-                            max_depth=10,
-                            registry=registry,
-                            use_memory_cache=True,
-                            memory_limit_mb=memory_limit,
-                            graph_db_path=str(graph_db_path),
-                            mode="complete",
-                        )
-
-                        taint_paths = result.get("taint_paths", result.get("paths", []))
-
-                        if result.get("mode") == "complete":
-                            renderer.on_log("[TAINT]   IFDS backward traversal complete")
-                            renderer.on_log(
-                                f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths"
+                            logger.info("Initializing security analysis infrastructure...")
+                            registry = TaintRegistry()
+                            orchestrator = RulesOrchestrator(
+                                project_path=Path(root), db_path=db_path
                             )
-                            renderer.on_log(
-                                f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
-                            )
-                        else:
-                            renderer.on_log(
-                                f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities"
+                            orchestrator.collect_rule_patterns(registry)
+
+                            all_findings = []
+
+                            logger.info("Running infrastructure and configuration analysis...")
+                            infra_findings = orchestrator.run_standalone_rules()
+                            all_findings.extend(infra_findings)
+                            logger.info(f"Found {len(infra_findings)} infrastructure issues")
+
+                            logger.info("Discovering framework-specific patterns...")
+                            discovery_findings = orchestrator.run_discovery_rules(registry)
+                            all_findings.extend(discovery_findings)
+
+                            stats = registry.get_stats()
+                            logger.info(
+                                f"Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources"
                             )
 
-                        renderer.on_log("[TAINT] Step 5/5: Running advanced security analysis...")
+                            logger.info("Performing data-flow taint analysis...")
+                            graph_db_path = Path(root) / ".pf" / "graphs.db"
+                            result = trace_taint(
+                                db_path=str(db_path),
+                                max_depth=10,
+                                registry=registry,
+                                use_memory_cache=True,
+                                memory_limit_mb=memory_limit,
+                                graph_db_path=str(graph_db_path),
+                                mode="complete",
+                            )
 
-                        def taint_checker(var_name, line_num=None):
-                            for path in taint_paths:
-                                if path.get("source", {}).get("name") == var_name:
-                                    return True
-                                if path.get("sink", {}).get("name") == var_name:
-                                    return True
-                                for step in path.get("path", []):
-                                    if isinstance(step, dict) and step.get("name") == var_name:
+                            taint_paths = result.get("taint_paths", result.get("paths", []))
+
+                            if result.get("mode") == "complete":
+                                logger.info("COMPLETE MODE RESULTS:")
+                                logger.info(f"IFDS (backward): {len(taint_paths)} vulnerable paths")
+                                logger.info(
+                                    f"FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
+                                )
+                            else:
+                                logger.info(f"Found {len(taint_paths)} taint flow vulnerabilities")
+
+                            logger.info("Running advanced security analysis...")
+
+                            def taint_checker(var_name, line_num=None):
+                                for path in taint_paths:
+                                    if path.get("source", {}).get("name") == var_name:
                                         return True
-                            return False
+                                    if path.get("sink", {}).get("name") == var_name:
+                                        return True
+                                    for step in path.get("path", []):
+                                        if isinstance(step, dict) and step.get("name") == var_name:
+                                            return True
+                                return False
 
-                        advanced_findings = orchestrator.run_taint_dependent_rules(
-                            taint_checker
-                        )
-                        all_findings.extend(advanced_findings)
-                        renderer.on_log(
-                            f"[TAINT]   Found {len(advanced_findings)} advanced security issues"
-                        )
+                            advanced_findings = orchestrator.run_taint_dependent_rules(
+                                taint_checker
+                            )
+                            all_findings.extend(advanced_findings)
+                            logger.info(f"Found {len(advanced_findings)} advanced security issues")
 
-                        renderer.on_log(
-                            f"[TAINT] Total vulnerabilities found: {len(all_findings) + len(taint_paths)}"
-                        )
+                            logger.info(
+                                f"Total vulnerabilities found: {len(all_findings) + len(taint_paths)}"
+                            )
 
-                        result["infrastructure_issues"] = infra_findings
-                        result["discovery_findings"] = discovery_findings
-                        result["advanced_findings"] = advanced_findings
-                        result["all_rule_findings"] = all_findings
-                        result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
+                            result["infrastructure_issues"] = infra_findings
+                            result["discovery_findings"] = discovery_findings
+                            result["advanced_findings"] = advanced_findings
+                            result["all_rule_findings"] = all_findings
+                            result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
 
-                        output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        save_taint_analysis(result, str(output_path))
+                            output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            save_taint_analysis(result, str(output_path))
 
-                        if db_path.exists():
-                            from theauditor.indexer.database import DatabaseManager
+                            if db_path.exists():
+                                from theauditor.indexer.database import DatabaseManager
 
-                            db_manager = DatabaseManager(str(db_path))
-                            findings_dicts = []
+                                db_manager = DatabaseManager(str(db_path))
+                                findings_dicts = []
 
-                            for taint_path in result.get("taint_paths", []):
-                                sink = taint_path.get("sink", {})
-                                source = taint_path.get("source", {})
-                                vuln_type = taint_path.get("vulnerability_type", "Unknown")
-                                message = f"{vuln_type}: {source.get('name', 'unknown')} -> {sink.get('name', 'unknown')}"
+                                for taint_path in result.get("taint_paths", []):
+                                    sink = taint_path.get("sink", {})
+                                    source = taint_path.get("source", {})
+                                    vuln_type = taint_path.get("vulnerability_type", "Unknown")
+                                    message = f"{vuln_type}: {source.get('name', 'unknown')} -> {sink.get('name', 'unknown')}"
 
-                                findings_dicts.append(
-                                    {
-                                        "file": sink.get("file", ""),
-                                        "line": int(sink.get("line", 0)),
-                                        "column": sink.get("column"),
-                                        "rule": f"taint-{sink.get('category', 'unknown')}",
-                                        "tool": "taint",
-                                        "message": message,
-                                        "severity": "high",
-                                        "category": "injection",
-                                        "code_snippet": None,
-                                        "additional_info": taint_path,
-                                    }
-                                )
+                                    findings_dicts.append(
+                                        {
+                                            "file": sink.get("file", ""),
+                                            "line": int(sink.get("line", 0)),
+                                            "column": sink.get("column"),
+                                            "rule": f"taint-{sink.get('category', 'unknown')}",
+                                            "tool": "taint",
+                                            "message": message,
+                                            "severity": "high",
+                                            "category": "injection",
+                                            "code_snippet": None,
+                                            "additional_info": taint_path,
+                                        }
+                                    )
 
-                            for finding in all_findings:
-                                findings_dicts.append(
-                                    {
-                                        "file": finding.get("file", ""),
-                                        "line": int(finding.get("line", 0)),
-                                        "rule": finding.get("rule", "unknown"),
-                                        "tool": "taint",
-                                        "message": finding.get("message", ""),
-                                        "severity": finding.get("severity", "medium"),
-                                        "category": finding.get("category", "security"),
-                                    }
-                                )
+                                for finding in all_findings:
+                                    findings_dicts.append(
+                                        {
+                                            "file": finding.get("file", ""),
+                                            "line": int(finding.get("line", 0)),
+                                            "rule": finding.get("rule", "unknown"),
+                                            "tool": "taint",
+                                            "message": finding.get("message", ""),
+                                            "severity": finding.get("severity", "medium"),
+                                            "category": finding.get("category", "security"),
+                                        }
+                                    )
 
-                            if findings_dicts:
-                                db_manager.write_findings_batch(
-                                    findings_dicts, tool_name="taint"
-                                )
-                                db_manager.close()
-                                renderer.on_log(
-                                    f"[DB] Wrote {len(findings_dicts)} taint findings to database"
-                                )
+                                if findings_dicts:
+                                    db_manager.write_findings_batch(
+                                        findings_dicts, tool_name="taint"
+                                    )
+                                    db_manager.close()
+                                    logger.info(
+                                        f"Wrote {len(findings_dicts)} taint findings to database"
+                                    )
 
-                        renderer.on_log(
-                            "[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]"
-                        )
+                            logger.info("Track A (Taint Analysis): Completed: Taint analysis [1/1]")
 
-                        output_lines = [
-                            "[OK] Taint analysis completed",
-                            f"  Infrastructure issues: {len(infra_findings)}",
-                            f"  Framework patterns: {len(discovery_findings)}",
-                            f"  Taint sources: {result.get('sources_found', 0)}",
-                            f"  Security sinks: {result.get('sinks_found', 0)}",
-                            f"  Taint paths (IFDS): {len(taint_paths)}",
-                            f"  Advanced security issues: {len(advanced_findings)}",
-                            f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
-                            "  Results saved to .pf/raw/taint_analysis.json",
-                        ]
+                            output_lines = [
+                                "[OK] Taint analysis completed",
+                                f"  Infrastructure issues: {len(infra_findings)}",
+                                f"  Framework patterns: {len(discovery_findings)}",
+                                f"  Taint sources: {result.get('sources_found', 0)}",
+                                f"  Security sinks: {result.get('sinks_found', 0)}",
+                                f"  Taint paths (IFDS): {len(taint_paths)}",
+                                f"  Advanced security issues: {len(advanced_findings)}",
+                                f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
+                                "  Results saved to .pf/raw/taint_analysis.json",
+                            ]
 
                         elapsed = time.time() - start_time
                         return PhaseResult(
@@ -985,7 +983,7 @@ async def run_full_pipeline(
                             status=TaskStatus.SUCCESS,
                             elapsed=elapsed,
                             stdout="\n".join(output_lines),
-                            stderr="",
+                            stderr=stderr_capture.getvalue(),
                             exit_code=0,
                             findings_count=len(all_findings) + len(taint_paths),
                         )
@@ -1084,11 +1082,6 @@ async def run_full_pipeline(
                         for line in result.stdout.strip().split("\n")[:10]:
                             renderer.on_log(f"  {line}")
                             log_lines.append(f"  {line}")
-
-                    if not result.success and result.stderr:
-                        for line in result.stderr.strip().split("\n")[:10]:
-                            renderer.on_log(f"  [ERROR] {line}", is_error=True)
-                            log_lines.append(f"  [ERROR] {line}")
                     renderer.on_parallel_track_complete(track_name, result.elapsed)
 
                     if not result.success:
@@ -1152,7 +1145,6 @@ async def run_full_pipeline(
                     or "cdk" in cmd_str
                     or "terraform" in cmd_str
                     or "workflows" in cmd_str
-                    or "detect-patterns" in cmd_str
                 )
 
                 if is_findings_command:

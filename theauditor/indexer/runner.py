@@ -12,6 +12,7 @@ from theauditor.indexer.config import DEFAULT_BATCH_SIZE
 from theauditor.indexer.core import FileWalker
 from theauditor.indexer.database import create_database_schema
 from theauditor.indexer.orchestrator import IndexerOrchestrator
+from theauditor.utils.logging import logger
 
 try:
     from theauditor.js_semantic_parser import _module_resolver_cache
@@ -42,11 +43,11 @@ def run_repository_index(
     if dry_run:
         if print_stats:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            print(f"Files scanned: {walk_stats['total_files']}")
-            print(f"Text files indexed: {walk_stats['text_files']}")
-            print(f"Binary files skipped: {walk_stats['binary_files']}")
-            print(f"Large files skipped: {walk_stats['large_files']}")
-            print(f"Elapsed: {elapsed_ms}ms")
+            logger.info(f"Files scanned: {walk_stats['total_files']}")
+            logger.info(f"Text files indexed: {walk_stats['text_files']}")
+            logger.info(f"Binary files skipped: {walk_stats['binary_files']}")
+            logger.info(f"Large files skipped: {walk_stats['large_files']}")
+            logger.info(f"Elapsed: {elapsed_ms}ms")
         return {
             "success": True,
             "dry_run": True,
@@ -73,7 +74,7 @@ def run_repository_index(
     conn.close()
 
     if not db_exists:
-        print(f"[Indexer] Created database: {db_path}")
+        logger.info(f"Created database: {db_path}")
 
     if _module_resolver_cache is not None:
         try:
@@ -102,17 +103,17 @@ def run_repository_index(
 
     if print_stats:
         elapsed_ms = int(elapsed * 1000)
-        print(f"Files scanned: {walk_stats['total_files']}")
-        print(f"Text files indexed: {walk_stats['text_files']}")
-        print(f"Binary files skipped: {walk_stats['binary_files']}")
-        print(f"Large files skipped: {walk_stats['large_files']}")
-        print(f"Refs extracted: {extract_counts['refs']}")
-        print(f"Routes extracted: {extract_counts['routes']}")
-        print(f"SQL objects extracted: {extract_counts['sql']}")
-        print(f"SQL queries extracted: {extract_counts['sql_queries']}")
-        print(f"Docker images analyzed: {extract_counts['docker']}")
-        print(f"Symbols extracted: {extract_counts['symbols']}")
-        print(f"Elapsed: {elapsed_ms}ms")
+        logger.info(f"Files scanned: {walk_stats['total_files']}")
+        logger.info(f"Text files indexed: {walk_stats['text_files']}")
+        logger.info(f"Binary files skipped: {walk_stats['binary_files']}")
+        logger.info(f"Large files skipped: {walk_stats['large_files']}")
+        logger.info(f"Refs extracted: {extract_counts['refs']}")
+        logger.info(f"Routes extracted: {extract_counts['routes']}")
+        logger.info(f"SQL objects extracted: {extract_counts['sql']}")
+        logger.info(f"SQL queries extracted: {extract_counts['sql_queries']}")
+        logger.info(f"Docker images analyzed: {extract_counts['docker']}")
+        logger.info(f"Symbols extracted: {extract_counts['symbols']}")
+        logger.info(f"Elapsed: {elapsed_ms}ms")
 
     return {
         "success": True,

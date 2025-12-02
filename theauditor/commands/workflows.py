@@ -10,11 +10,11 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+from theauditor.utils.logging import logger
+
 from .. import __version__
 from ..utils.error_handler import handle_exceptions
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
 
 
 @click.group()
@@ -109,8 +109,13 @@ def analyze(root, workset, severity, output, db, chunk_size):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud full' first to extract GitHub Actions workflows.", err=True)
+            console.print(
+                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            )
+            console.print(
+                "[error]Run 'aud full' first to extract GitHub Actions workflows.[/error]",
+                stderr=True,
+            )
             raise click.Abort()
 
         conn = sqlite3.connect(str(db_path))
@@ -120,16 +125,21 @@ def analyze(root, workset, severity, output, db, chunk_size):
         if workset:
             workset_path = Path(".pf/workset.json")
             if not workset_path.exists():
-                click.echo("Error: Workset file not found. Run 'aud workset' first.", err=True)
+                console.print(
+                    "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
+                    stderr=True,
+                )
                 raise click.Abort()
 
             with open(workset_path) as f:
                 workset_data = json.load(f)
                 workset_files = {p["path"] for p in workset_data.get("paths", [])}
                 file_filter = workset_files
-                click.echo(f"Analyzing {len(workset_files)} workset workflows...")
+                console.print(
+                    f"Analyzing {len(workset_files)} workset workflows...", highlight=False
+                )
 
-        click.echo("Extracting GitHub Actions workflows from database...")
+        console.print("Extracting GitHub Actions workflows from database...")
         workflow_data = _extract_workflow_data(cursor, file_filter)
 
         findings = _extract_findings(cursor, severity)
@@ -160,39 +170,44 @@ def analyze(root, workset, severity, output, db, chunk_size):
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(analysis, f, indent=2)
 
-        click.echo(f"[OK] Workflows analysis saved to {output_path}")
+        console.print(f"[success]Workflows analysis saved to {output_path}[/success]")
 
-        click.echo("\nGitHub Actions Workflow Analysis:")
-        click.echo(f"  Workflows: {analysis['summary']['total_workflows']}")
-        click.echo(f"  Jobs: {analysis['summary']['total_jobs']}")
-        click.echo(f"  Steps: {analysis['summary']['total_steps']}")
+        console.print("\nGitHub Actions Workflow Analysis:")
+        console.print(f"  Workflows: {analysis['summary']['total_workflows']}", highlight=False)
+        console.print(f"  Jobs: {analysis['summary']['total_jobs']}", highlight=False)
+        console.print(f"  Steps: {analysis['summary']['total_steps']}", highlight=False)
 
         if findings:
-            click.echo(f"\n  Security Findings: {len(findings)}")
+            console.print(f"\n  Security Findings: {len(findings)}", highlight=False)
             for sev, count in analysis["summary"]["severity_counts"].items():
                 if count > 0:
-                    click.echo(f"    {sev.title()}: {count}")
+                    console.print(f"    {sev.title()}: {count}", highlight=False)
 
-        click.echo("\nOutput:")
-        click.echo(f"  Full report: {output_path}")
+        console.print("\nOutput:")
+        console.print(f"  Full report: {output_path}", highlight=False)
 
         critical_workflows = [
             w for w in workflow_data if "pull_request_target" in w.get("on_triggers", [])
         ]
         if critical_workflows:
-            click.echo(f"\nCritical Workflows Detected: {len(critical_workflows)}")
-            click.echo("  (Uses pull_request_target trigger)")
+            console.print(
+                f"\nCritical Workflows Detected: {len(critical_workflows)}", highlight=False
+            )
+            console.print("  (Uses pull_request_target trigger)")
             for workflow in critical_workflows[:3]:
-                click.echo(f"  - {workflow['workflow_name']} ({workflow['workflow_path']})")
+                console.print(
+                    f"  - {workflow['workflow_name']} ({workflow['workflow_path']})",
+                    highlight=False,
+                )
 
         conn.close()
 
     except sqlite3.Error as e:
-        click.echo(f"Database error: {e}", err=True)
+        console.print(f"[error]Database error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze workflows: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
 
 

@@ -9,9 +9,8 @@ from pathlib import Path
 
 import click
 
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.pipeline.ui import console
+from theauditor.utils.logging import logger
 
 
 @click.group()
@@ -119,8 +118,10 @@ def analyze(root, db, severity, output_format, output):
     db_path = Path(db) if Path(db).is_absolute() else (Path(root) / db).resolve()
 
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud full' first to extract CDK constructs.", err=True)
+        console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        )
+        console.print("[error]Run 'aud full' first to extract CDK constructs.[/error]", stderr=True)
         raise SystemExit(3)
 
     try:
@@ -166,9 +167,12 @@ def analyze(root, db, severity, output_format, output):
 
         if output:
             Path(output).write_text(output_text)
-            click.echo(f"CDK analysis complete: {len(findings)} findings written to {output}")
+            console.print(
+                f"CDK analysis complete: {len(findings)} findings written to {output}",
+                highlight=False,
+            )
         else:
-            click.echo(output_text)
+            console.print(output_text, markup=False)
 
         if not findings:
             raise SystemExit(0)
@@ -178,11 +182,13 @@ def analyze(root, db, severity, output_format, output):
             raise SystemExit(1)
 
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise SystemExit(3) from e
     except Exception as e:
         logger.error(f"CDK analysis failed: {e}", exc_info=True)
-        click.echo(f"Error during CDK analysis: {e}", err=True)
+        console.print(
+            f"[error]Error during CDK analysis: {e}[/error]", stderr=True, highlight=False
+        )
         raise SystemExit(3) from e
 
 

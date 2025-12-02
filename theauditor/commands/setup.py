@@ -5,6 +5,8 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 @click.command("setup-ai")
 @click.option("--target", required=True, help="Target project root (absolute or relative path)")
@@ -190,19 +192,19 @@ def setup_ai(target, sync, dry_run, show_versions):
     if not target_dir.exists():
         raise click.ClickException(f"Target directory does not exist: {target_dir}")
 
-    click.echo(f"\n{'=' * 60}")
-    click.echo("AI Development Setup - Zero-Optional Installation")
-    click.echo(f"{'=' * 60}")
-    click.echo(f"Target:  {target_dir}")
-    click.echo(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}")
-    click.echo(f"{'=' * 60}\n")
+    console.print(f"\n{'=' * 60}", highlight=False)
+    console.print("AI Development Setup - Zero-Optional Installation")
+    console.print(f"{'=' * 60}", highlight=False)
+    console.print(f"Target:  {target_dir}", highlight=False)
+    console.print(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}", highlight=False)
+    console.print(f"{'=' * 60}\n", highlight=False)
 
     if dry_run:
-        click.echo("DRY RUN - Plan of operations:")
-        click.echo(f"1. Create/verify venv at {target_dir}/.auditor_venv")
-        click.echo("2. Install TheAuditor (editable) into venv")
-        click.echo("3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
-        click.echo("\nNo files will be modified.")
+        console.print("DRY RUN - Plan of operations:")
+        console.print(f"1. Create/verify venv at {target_dir}/.auditor_venv", highlight=False)
+        console.print("2. Install TheAuditor (editable) into venv")
+        console.print("3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
+        console.print("\nNo files will be modified.")
         return
 
     if show_versions:
@@ -213,21 +215,23 @@ def setup_ai(target, sync, dry_run, show_versions):
 
         try:
             res = write_tools_report(str(out_dir))
-            click.echo(f"Tool versions (from {out_dir}):")
+            console.print(f"Tool versions (from {out_dir}):", highlight=False)
             python_found = sum(1 for v in res["python"].values() if v != "missing")
             node_found = sum(1 for v in res["node"].values() if v != "missing")
-            click.echo(f"  Python tools: {python_found}/4 found")
-            click.echo(f"  Node tools: {node_found}/3 found")
+            console.print(f"  Python tools: {python_found}/4 found", highlight=False)
+            console.print(f"  Node tools: {node_found}/3 found", highlight=False)
             for tool, version in res["python"].items():
-                click.echo(f"    {tool}: {version}")
+                console.print(f"    {tool}: {version}", highlight=False)
             for tool, version in res["node"].items():
-                click.echo(f"    {tool}: {version}")
+                console.print(f"    {tool}: {version}", highlight=False)
         except Exception as e:
-            click.echo(f"Error detecting tool versions: {e}", err=True)
+            console.print(
+                f"[error]Error detecting tool versions: {e}[/error]", stderr=True, highlight=False
+            )
         return
 
-    click.echo("Step 1: Setting up Python virtual environment...", nl=False)
-    click.echo()
+    console.print("Step 1: Setting up Python virtual environment...", end="")
+    console.print()
 
     try:
         venv_path, success = setup_project_venv(target_dir, force=sync)
@@ -238,15 +242,20 @@ def setup_ai(target, sync, dry_run, show_versions):
         is_windows = platform.system() == "Windows"
         check_mark = "[OK]" if is_windows else "✓"
 
-        click.echo(f"\n{'=' * 60}")
-        click.echo("Setup Complete - Summary:")
-        click.echo(f"{'=' * 60}")
-        click.echo(f"{check_mark} Sandboxed environment configured at: {target_dir}/.auditor_venv")
-        click.echo(
-            f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools"
+        console.print(f"\n{'=' * 60}", highlight=False)
+        console.print("Setup Complete - Summary:")
+        console.print(f"{'=' * 60}", highlight=False)
+        console.print(
+            f"{check_mark} Sandboxed environment configured at: {target_dir}/.auditor_venv",
+            highlight=False,
         )
-        click.echo(
-            f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)"
+        console.print(
+            f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools",
+            highlight=False,
+        )
+        console.print(
+            f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)",
+            highlight=False,
         )
 
     except Exception as e:

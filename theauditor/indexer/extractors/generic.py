@@ -99,10 +99,6 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(entrypoint, str):
                     entrypoint = [entrypoint]
 
-                depends_on_list = depends_on
-                if isinstance(depends_on, dict):
-                    depends_on_list = list(depends_on.keys())
-
                 if isinstance(user, int):
                     user = str(user)
 
@@ -167,7 +163,6 @@ class GenericExtractor(BaseExtractor):
                     )
 
                 if depends_on:
-                    deps_to_process = depends_on
                     if isinstance(depends_on, dict):
                         for dep_service, dep_config in depends_on.items():
                             condition = "service_started"

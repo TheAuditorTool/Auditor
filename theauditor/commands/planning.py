@@ -7,13 +7,10 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.planning import snapshots, verification
 from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
-
 
 TRIGGER_START = "<!-- THEAUDITOR:START -->"
 TRIGGER_END = "<!-- THEAUDITOR:END -->"
@@ -155,15 +152,15 @@ def init(name, description):
 
     if not db_path.exists():
         manager = PlanningManager.init_database(db_path)
-        click.echo(f"Initialized planning database: {db_path}")
+        console.print(f"Initialized planning database: {db_path}", highlight=False)
     else:
         manager = PlanningManager(db_path)
 
     plan_id = manager.create_plan(name, description)
 
-    click.echo(f"Created plan {plan_id}: {name}")
+    console.print(f"Created plan {plan_id}: {name}", highlight=False)
     if description:
-        click.echo(f"Description: {description}")
+        console.print(f"Description: {description}", highlight=False)
 
 
 @planning.command()
@@ -192,23 +189,25 @@ def show(plan_id, tasks, verbose, format):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        click.echo(f"Error: Plan {plan_id} not found", err=True)
+        console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        )
         return
 
-    click.echo("=" * 80)
-    click.echo(f"Plan {plan['id']}: {plan['name']}")
-    click.echo("=" * 80)
-    click.echo(f"Status: {plan['status']}")
-    click.echo(f"Created: {plan['created_at']}")
+    console.rule()
+    console.print(f"Plan {plan['id']}: {plan['name']}", highlight=False)
+    console.rule()
+    console.print(f"Status: {plan['status']}", highlight=False)
+    console.print(f"Created: {plan['created_at']}", highlight=False)
     if plan["description"]:
-        click.echo(f"Description: {plan['description']}")
-    click.echo(f"Database: {db_path}")
+        console.print(f"Description: {plan['description']}", highlight=False)
+    console.print(f"Database: {db_path}", highlight=False)
 
     if verbose and plan["metadata_json"]:
         metadata = json.loads(plan["metadata_json"])
-        click.echo("\nMetadata:")
+        console.print("\nMetadata:")
         for key, value in metadata.items():
-            click.echo(f"  {key}: {value}")
+            console.print(f"  {key}: {value}", highlight=False)
 
     if tasks:
         if format == "phases":
@@ -226,17 +225,19 @@ def show(plan_id, tasks, verbose, format):
             phases = cursor.fetchall()
 
             if phases:
-                click.echo("\nPhase → Task → Job Hierarchy:")
+                console.print("\nPhase -> Task -> Job Hierarchy:")
                 for phase in phases:
                     phase_id, phase_num, phase_title, phase_desc, success_criteria, phase_status = (
                         phase
                     )
                     status_icon = "[X]" if phase_status == "completed" else "[ ]"
-                    click.echo(f"\n{status_icon} PHASE {phase_num}: {phase_title}")
+                    console.print(
+                        f"\n{status_icon} PHASE {phase_num}: {phase_title}", highlight=False
+                    )
                     if success_criteria:
-                        click.echo(f"    Success Criteria: {success_criteria}")
+                        console.print(f"    Success Criteria: {success_criteria}", highlight=False)
                     if verbose and phase_desc:
-                        click.echo(f"    Description: {phase_desc}")
+                        console.print(f"    Description: {phase_desc}", highlight=False)
 
                     cursor.execute(
                         """
@@ -255,9 +256,12 @@ def show(plan_id, tasks, verbose, format):
                         audit_label = (
                             f" (audit: {audit_status})" if audit_status != "pending" else ""
                         )
-                        click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
+                        console.print(
+                            f"  {task_icon} Task {task_num}: {task_title}{audit_label}",
+                            highlight=False,
+                        )
                         if verbose and task_desc:
-                            click.echo(f"      Description: {task_desc}")
+                            console.print(f"      Description: {task_desc}", highlight=False)
 
                         cursor.execute(
                             """
@@ -274,7 +278,10 @@ def show(plan_id, tasks, verbose, format):
                             job_num, job_desc, completed, is_audit = job
                             job_icon = "[X]" if completed else "[ ]"
                             audit_marker = " [AUDIT]" if is_audit else ""
-                            click.echo(f"    {job_icon} Job {job_num}: {job_desc}{audit_marker}")
+                            console.print(
+                                f"    {job_icon} Job {job_num}: {job_desc}{audit_marker}",
+                                highlight=False,
+                            )
 
                 cursor.execute(
                     """
@@ -288,45 +295,50 @@ def show(plan_id, tasks, verbose, format):
                 orphaned_tasks = cursor.fetchall()
 
                 if orphaned_tasks:
-                    click.echo("\nOrphaned Tasks (not in any phase):")
+                    console.print("\nOrphaned Tasks (not in any phase):")
                     for task in orphaned_tasks:
                         task_id, task_num, task_title, task_status, audit_status = task
                         task_icon = "[X]" if task_status == "completed" else "[ ]"
                         audit_label = (
                             f" (audit: {audit_status})" if audit_status != "pending" else ""
                         )
-                        click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
+                        console.print(
+                            f"  {task_icon} Task {task_num}: {task_title}{audit_label}",
+                            highlight=False,
+                        )
             else:
-                click.echo(
+                console.print(
                     "\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'"
                 )
 
         else:
             task_list = manager.list_tasks(plan_id)
-            click.echo(f"\nTasks ({len(task_list)}):")
+            console.print(f"\nTasks ({len(task_list)}):", highlight=False)
             for task in task_list:
                 status_icon = "[X]" if task["status"] == "completed" else "[ ]"
-                click.echo(f"  {status_icon} Task {task['task_number']}: {task['title']}")
-                click.echo(f"    Status: {task['status']}")
+                console.print(
+                    f"  {status_icon} Task {task['task_number']}: {task['title']}", highlight=False
+                )
+                console.print(f"    Status: {task['status']}", highlight=False)
                 if task["assigned_to"]:
-                    click.echo(f"    Assigned: {task['assigned_to']}")
+                    console.print(f"    Assigned: {task['assigned_to']}", highlight=False)
                 if verbose and task["description"]:
-                    click.echo(f"    Description: {task['description']}")
+                    console.print(f"    Description: {task['description']}", highlight=False)
 
-    click.echo("\n" + "=" * 80)
-    click.echo("Commands:")
-    click.echo(
+    console.print("\n" + "=" * 80, markup=False)
+    console.print("Commands:")
+    console.print(
         '  aud planning add-phase {plan_id} --phase-number N --title "..." --description "..."'
     )
-    click.echo('  aud planning add-task {plan_id} --title "..." --description "..." --phase N')
-    click.echo('  aud planning add-job {plan_id} <task_number> --description "..."')
-    click.echo("  aud planning update-task {plan_id} <task_number> --status completed")
-    click.echo("  aud planning verify-task {plan_id} <task_number> --pass")
-    click.echo("  aud planning validate {plan_id}  # Validate against session logs")
-    click.echo("\nFiles:")
-    click.echo(f"  Database: {db_path}")
-    click.echo("  Agent prompts: agents/planning.md, agents/refactor.md, etc.")
-    click.echo("=" * 80)
+    console.print('  aud planning add-task {plan_id} --title "..." --description "..." --phase N')
+    console.print('  aud planning add-job {plan_id} <task_number> --description "..."')
+    console.print("  aud planning update-task {plan_id} <task_number> --status completed")
+    console.print("  aud planning verify-task {plan_id} <task_number> --pass")
+    console.print("  aud planning validate {plan_id}  # Validate against session logs")
+    console.print("\nFiles:")
+    console.print(f"  Database: {db_path}", highlight=False)
+    console.print("  Agent prompts: agents/planning.md, agents/refactor.md, etc.")
+    console.rule()
 
 
 @planning.command("list")
@@ -346,8 +358,8 @@ def list_plans(status, format):
     db_path = Path.cwd() / ".pf" / "planning.db"
 
     if not db_path.exists():
-        click.echo("No planning database found (.pf/planning.db)")
-        click.echo("Run 'aud planning init --name \"Plan Name\"' to create your first plan")
+        console.print("No planning database found (.pf/planning.db)")
+        console.print("Run 'aud planning init --name \"Plan Name\"' to create your first plan")
         return
 
     manager = PlanningManager(db_path)
@@ -365,23 +377,23 @@ def list_plans(status, format):
 
     if not plans:
         if status:
-            click.echo(f"No {status} plans found")
+            console.print(f"No {status} plans found", highlight=False)
         else:
-            click.echo("No plans found")
+            console.print("No plans found")
         return
 
     if format == "json":
         result = [{"id": p[0], "name": p[1], "status": p[2], "created_at": p[3]} for p in plans]
-        click.echo(json.dumps(result, indent=2))
+        console.print(json.dumps(result, indent=2), markup=False)
     else:
-        click.echo("=" * 80)
-        click.echo(f"{'ID':<5} {'Name':<40} {'Status':<15} {'Created':<20}")
-        click.echo("=" * 80)
+        console.rule()
+        console.print(f"{'ID':<5} {'Name':<40} {'Status':<15} {'Created':<20}", highlight=False)
+        console.rule()
         for plan in plans:
             pid, name, pstatus, created = plan
-            click.echo(f"{pid:<5} {name[:40]:<40} {pstatus:<15} {created:<20}")
-        click.echo("=" * 80)
-        click.echo(f"Total: {len(plans)} plans")
+            console.print(f"{pid:<5} {name[:40]:<40} {pstatus:<15} {created:<20}", highlight=False)
+        console.rule()
+        console.print(f"Total: {len(plans)} plans", highlight=False)
 
 
 @planning.command()
@@ -416,9 +428,9 @@ def add_phase(plan_id, phase_number, title, description, success_criteria):
     )
     manager.commit()
 
-    click.echo(f"Added phase {phase_number} to plan {plan_id}: {title}")
+    console.print(f"Added phase {phase_number} to plan {plan_id}: {title}", highlight=False)
     if success_criteria:
-        click.echo(f"Success Criteria: {success_criteria}")
+        console.print(f"Success Criteria: {success_criteria}", highlight=False)
 
 
 @planning.command()
@@ -456,7 +468,11 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         if phase_row:
             phase_id = phase_row[0]
         else:
-            click.echo(f"Warning: Phase {phase} not found in plan {plan_id}", err=True)
+            console.print(
+                f"[error]Warning: Phase {phase} not found in plan {plan_id}[/error]",
+                stderr=True,
+                highlight=False,
+            )
             return
 
     task_id = manager.add_task(
@@ -473,11 +489,11 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         manager.conn.commit()
 
     task_number = manager.get_task_number(task_id)
-    click.echo(f"Added task {task_number} to plan {plan_id}: {title}")
+    console.print(f"Added task {task_number} to plan {plan_id}: {title}", highlight=False)
     if phase is not None:
-        click.echo(f"Associated with phase {phase}")
+        console.print(f"Associated with phase {phase}", highlight=False)
     if spec:
-        click.echo(f"Verification spec: {spec}")
+        console.print(f"Verification spec: {spec}", highlight=False)
 
 
 @planning.command()
@@ -500,7 +516,11 @@ def add_job(plan_id, task_number, description, is_audit):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        console.print(
+            f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
     cursor = manager.conn.cursor()
@@ -521,7 +541,9 @@ def add_job(plan_id, task_number, description, is_audit):
     manager.commit()
 
     job_type = "audit job" if is_audit else "job"
-    click.echo(f"Added {job_type} {job_number} to task {task_number}: {description}")
+    console.print(
+        f"Added {job_type} {job_number} to task {task_number}: {description}", highlight=False
+    )
 
 
 @planning.command()
@@ -546,16 +568,20 @@ def update_task(plan_id, task_number, status, assigned_to):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        console.print(
+            f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
     if status:
         manager.update_task_status(task_id, status)
-        click.echo(f"Updated task {task_number} status: {status}")
+        console.print(f"Updated task {task_number} status: {status}", highlight=False)
 
     if assigned_to:
         manager.update_task_assignee(task_id, assigned_to)
-        click.echo(f"Reassigned task {task_number} to: {assigned_to}")
+        console.print(f"Reassigned task {task_number} to: {assigned_to}", highlight=False)
 
 
 @planning.command()
@@ -578,14 +604,20 @@ def verify_task(plan_id, task_number, verbose, auto_update):
     repo_index_db = Path.cwd() / ".pf" / "repo_index.db"
 
     if not repo_index_db.exists():
-        click.echo("Error: repo_index.db not found. Run 'aud full' first.", err=True)
+        console.print(
+            "[error]Error: repo_index.db not found. Run 'aud full' first.[/error]", stderr=True
+        )
         return
 
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        console.print(
+            f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
     cursor = manager.conn.cursor()
@@ -595,10 +627,14 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
     spec_yaml = manager.load_task_spec(task_id)
     if not spec_yaml:
-        click.echo(f"Error: No verification spec for task {task_number}", err=True)
+        console.print(
+            f"[error]Error: No verification spec for task {task_number}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
-    click.echo(f"Verifying task {task_number}...")
+    console.print(f"Verifying task {task_number}...", highlight=False)
 
     try:
         result = verification.verify_task_spec(spec_yaml, repo_index_db, Path.cwd())
@@ -607,26 +643,38 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
         is_regression = was_previously_completed and total_violations > 0
 
-        click.echo("\nVerification complete:")
-        click.echo(f"  Total violations: {total_violations}")
+        console.print("\nVerification complete:")
+        console.print(f"  Total violations: {total_violations}", highlight=False)
 
         if is_regression:
-            click.echo("\n  WARNING: REGRESSION DETECTED", err=True)
-            click.echo(
-                f"  Task {task_number} was previously completed but now has {total_violations} violation(s)",
-                err=True,
+            console.print("[error]\n  WARNING: REGRESSION DETECTED[/error]", stderr=True)
+            console.print(
+                f"[error]  Task {task_number} was previously completed but now has {total_violations} violation(s)[/error]",
+                stderr=True,
+                highlight=False,
             )
-            click.echo("  Code changes since completion have broken verification", err=True)
+            console.print(
+                "[error]  Code changes since completion have broken verification[/error]",
+                stderr=True,
+            )
 
         if verbose and total_violations > 0:
-            click.echo("\nViolations by rule:")
+            console.print("\nViolations by rule:")
             for rule_result in result.rule_results:
                 if rule_result.violations:
-                    click.echo(f"  {rule_result.rule.id}: {len(rule_result.violations)} violations")
+                    console.print(
+                        f"  {rule_result.rule.id}: {len(rule_result.violations)} violations",
+                        highlight=False,
+                    )
                     for violation in rule_result.violations[:5]:
-                        click.echo(f"    - {violation['file']}:{violation.get('line', '?')}")
+                        console.print(
+                            f"    - {violation['file']}:{violation.get('line', '?')}",
+                            highlight=False,
+                        )
                     if len(rule_result.violations) > 5:
-                        click.echo(f"    ... and {len(rule_result.violations) - 5} more")
+                        console.print(
+                            f"    ... and {len(rule_result.violations) - 5} more", highlight=False
+                        )
 
         cursor = manager.conn.cursor()
         audit_status = "pass" if total_violations == 0 else "fail"
@@ -636,7 +684,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
         )
         manager.conn.commit()
 
-        click.echo(f"\nAudit status: {audit_status}")
+        console.print(f"\nAudit status: {audit_status}", highlight=False)
 
         if auto_update:
             if total_violations == 0:
@@ -648,7 +696,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
             else:
                 new_status = "in_progress"
                 manager.update_task_status(task_id, new_status, None)
-            click.echo(f"Task status updated: {new_status}")
+            console.print(f"Task status updated: {new_status}", highlight=False)
 
         if total_violations > 0:
             snapshot = snapshots.create_snapshot(
@@ -658,14 +706,18 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                 task_id=task_id,
                 manager=manager,
             )
-            click.echo(f"Snapshot created: {snapshot['git_ref'][:8]}")
+            console.print(f"Snapshot created: {snapshot['git_ref'][:8]}", highlight=False)
             if snapshot.get("sequence"):
-                click.echo(f"Sequence: {snapshot['sequence']}")
+                console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
 
     except ValueError as e:
-        click.echo(f"Error: Invalid verification spec: {e}", err=True)
+        console.print(
+            f"[error]Error: Invalid verification spec: {e}[/error]", stderr=True, highlight=False
+        )
     except Exception as e:
-        click.echo(f"Error during verification: {e}", err=True)
+        console.print(
+            f"[error]Error during verification: {e}[/error]", stderr=True, highlight=False
+        )
         raise
 
 
@@ -687,27 +739,38 @@ def archive(plan_id, notes):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        click.echo(f"Error: Plan {plan_id} not found", err=True)
+        console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        )
         return
 
     all_tasks = manager.list_tasks(plan_id)
     incomplete_tasks = [t for t in all_tasks if t["status"] != "completed"]
 
     if incomplete_tasks:
-        click.echo(f"Warning: Plan has {len(incomplete_tasks)} incomplete task(s):", err=True)
+        console.print(
+            f"[error]Warning: Plan has {len(incomplete_tasks)} incomplete task(s):[/error]",
+            stderr=True,
+            highlight=False,
+        )
         for task in incomplete_tasks[:5]:
-            click.echo(
-                f"  - Task {task['task_number']}: {task['title']} (status: {task['status']})",
-                err=True,
+            console.print(
+                f"[error]  - Task {task['task_number']}: {task['title']} (status: {task['status']})[/error]",
+                stderr=True,
+                highlight=False,
             )
         if len(incomplete_tasks) > 5:
-            click.echo(f"  ... and {len(incomplete_tasks) - 5} more", err=True)
+            console.print(
+                f"[error]  ... and {len(incomplete_tasks) - 5} more[/error]",
+                stderr=True,
+                highlight=False,
+            )
 
         if not click.confirm("\nArchive plan anyway?"):
-            click.echo("Archive cancelled.")
+            console.print("Archive cancelled.")
             return
 
-    click.echo("Creating final snapshot...")
+    console.print("Creating final snapshot...")
     snapshot = snapshots.create_snapshot(
         plan_id=plan_id, checkpoint_name="archive", repo_root=Path.cwd(), manager=manager
     )
@@ -722,9 +785,9 @@ def archive(plan_id, notes):
 
     manager.update_plan_status(plan_id, "archived", json.dumps(metadata))
 
-    click.echo(f"\nPlan {plan_id} archived successfully")
-    click.echo(f"Final snapshot: {snapshot['git_ref'][:8]}")
-    click.echo(f"Files affected: {len(snapshot['files_affected'])}")
+    console.print(f"\nPlan {plan_id} archived successfully", highlight=False)
+    console.print(f"Final snapshot: {snapshot['git_ref'][:8]}", highlight=False)
+    console.print(f"Files affected: {len(snapshot['files_affected'])}", highlight=False)
 
 
 @planning.command()
@@ -757,7 +820,9 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        click.echo(f"Error: Plan {plan_id} not found", err=True)
+        console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        )
         return
 
     cursor = manager.conn.cursor()
@@ -765,7 +830,11 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
     if task_number is not None:
         task_id = manager.get_task_id(plan_id, task_number)
         if not task_id:
-            click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+            console.print(
+                f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+                stderr=True,
+                highlight=False,
+            )
             return
 
         if to_sequence:
@@ -782,28 +851,36 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             snapshots_to_apply = cursor.fetchall()
 
             if not snapshots_to_apply:
-                click.echo(f"Error: No checkpoints found up to sequence {to_sequence}", err=True)
+                console.print(
+                    f"[error]Error: No checkpoints found up to sequence {to_sequence}[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
                 return
 
-            click.echo(f"Granular rewind to sequence {to_sequence} for task {task_number}")
-            click.echo(f"This will apply {len(snapshots_to_apply)} checkpoint(s):")
-            click.echo()
+            console.print(
+                f"Granular rewind to sequence {to_sequence} for task {task_number}", highlight=False
+            )
+            console.print(
+                f"This will apply {len(snapshots_to_apply)} checkpoint(s):", highlight=False
+            )
+            console.print()
 
             for snapshot_row in snapshots_to_apply:
                 snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
-                click.echo(f"  [{seq}] {checkpoint_name} ({git_ref[:8]})")
+                console.print(f"  \\[{seq}] {checkpoint_name} ({git_ref[:8]})", highlight=False)
 
-            click.echo()
-            click.echo("WARNING: This requires applying diffs incrementally.")
-            click.echo("Current implementation shows git checkout only.")
-            click.echo()
+            console.print()
+            console.print("WARNING: This requires applying diffs incrementally.")
+            console.print("Current implementation shows git checkout only.")
+            console.print()
 
             target_snapshot = snapshots_to_apply[-1]
-            click.echo(f"To rewind to sequence {to_sequence}, run:")
-            click.echo(f"  git checkout {target_snapshot[4]}")
-            click.echo()
-            click.echo("NOTE: Full incremental diff application not yet implemented.")
-            click.echo("This will revert to the git state at checkpoint {target_snapshot[1]}")
+            console.print(f"To rewind to sequence {to_sequence}, run:", highlight=False)
+            console.print(f"  git checkout {target_snapshot[4]}", highlight=False)
+            console.print()
+            console.print("NOTE: Full incremental diff application not yet implemented.")
+            console.print("This will revert to the git state at checkpoint {target_snapshot\\[1]}")
 
         else:
             cursor.execute(
@@ -819,19 +896,19 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             task_snapshots = cursor.fetchall()
 
             if not task_snapshots:
-                click.echo(f"No checkpoints found for task {task_number}")
+                console.print(f"No checkpoints found for task {task_number}", highlight=False)
                 return
 
-            click.echo(f"Checkpoints for task {task_number}:\n")
+            console.print(f"Checkpoints for task {task_number}:\n", highlight=False)
             for snapshot_row in task_snapshots:
                 snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
-                click.echo(f"  [{seq}] {checkpoint_name}")
-                click.echo(f"      Git ref: {git_ref[:8]}")
-                click.echo(f"      Timestamp: {timestamp}")
-                click.echo()
+                console.print(f"  \\[{seq}] {checkpoint_name}", highlight=False)
+                console.print(f"      Git ref: {git_ref[:8]}", highlight=False)
+                console.print(f"      Timestamp: {timestamp}", highlight=False)
+                console.print()
 
-            click.echo("To rewind to a specific sequence:")
-            click.echo(f"  aud planning rewind {plan_id} {task_number} --to N")
+            console.print("To rewind to a specific sequence:")
+            console.print(f"  aud planning rewind {plan_id} {task_number} --to N", highlight=False)
 
     else:
         if checkpoint:
@@ -848,16 +925,22 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
             snapshot_row = cursor.fetchone()
             if not snapshot_row:
-                click.echo(f"Error: Checkpoint '{checkpoint}' not found", err=True)
+                console.print(
+                    f"[error]Error: Checkpoint '{checkpoint}' not found[/error]",
+                    stderr=True,
+                    highlight=False,
+                )
                 return
 
-            click.echo(f"Rewind to checkpoint: {snapshot_row[1]}")
-            click.echo(f"Timestamp: {snapshot_row[2]}")
-            click.echo(f"Git ref: {snapshot_row[3]}")
-            click.echo("\nTo revert to this state, run:")
-            click.echo(f"  git checkout {snapshot_row[3]}")
-            click.echo("\nOr to create a new branch from this state:")
-            click.echo(f"  git checkout -b rewind-{snapshot_row[1]} {snapshot_row[3]}")
+            console.print(f"Rewind to checkpoint: {snapshot_row[1]}", highlight=False)
+            console.print(f"Timestamp: {snapshot_row[2]}", highlight=False)
+            console.print(f"Git ref: {snapshot_row[3]}", highlight=False)
+            console.print("\nTo revert to this state, run:")
+            console.print(f"  git checkout {snapshot_row[3]}", highlight=False)
+            console.print("\nOr to create a new branch from this state:")
+            console.print(
+                f"  git checkout -b rewind-{snapshot_row[1]} {snapshot_row[3]}", highlight=False
+            )
         else:
             cursor.execute(
                 """
@@ -872,21 +955,23 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             snapshots_list = cursor.fetchall()
 
             if not snapshots_list:
-                click.echo(f"No plan-level snapshots found for plan {plan_id}")
-                click.echo(
+                console.print(f"No plan-level snapshots found for plan {plan_id}", highlight=False)
+                console.print(
                     "(Task-level checkpoints exist - use: aud planning rewind <plan_id> <task_number>)"
                 )
                 return
 
-            click.echo(f"Plan-level snapshots for plan {plan_id} ({plan['name']}):\n")
+            console.print(
+                f"Plan-level snapshots for plan {plan_id} ({plan['name']}):\n", highlight=False
+            )
             for snapshot in snapshots_list:
-                click.echo(f"  {snapshot[1]}")
-                click.echo(f"    Timestamp: {snapshot[2]}")
-                click.echo(f"    Git ref: {snapshot[3][:8]}")
-                click.echo()
+                console.print(f"  {snapshot[1]}", highlight=False)
+                console.print(f"    Timestamp: {snapshot[2]}", highlight=False)
+                console.print(f"    Git ref: {snapshot[3][:8]}", highlight=False)
+                console.print()
 
-            click.echo("To rewind to a specific checkpoint:")
-            click.echo(f"  aud planning rewind {plan_id} --checkpoint <name>")
+            console.print("To rewind to a specific checkpoint:")
+            console.print(f"  aud planning rewind {plan_id} --checkpoint <name>", highlight=False)
 
 
 @planning.command()
@@ -913,7 +998,11 @@ def checkpoint(plan_id, task_number, name):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        console.print(
+            f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
     if not name:
@@ -923,7 +1012,7 @@ def checkpoint(plan_id, task_number, name):
         next_seq = (max_seq or 0) + 1
         name = f"edit_{next_seq}"
 
-    click.echo(f"Creating checkpoint '{name}' for task {task_number}...")
+    console.print(f"Creating checkpoint '{name}' for task {task_number}...", highlight=False)
     snapshot = snapshots.create_snapshot(
         plan_id=plan_id,
         checkpoint_name=name,
@@ -932,15 +1021,15 @@ def checkpoint(plan_id, task_number, name):
         manager=manager,
     )
 
-    click.echo(f"Checkpoint created: {snapshot['git_ref'][:8]}")
+    console.print(f"Checkpoint created: {snapshot['git_ref'][:8]}", highlight=False)
     if snapshot.get("sequence"):
-        click.echo(f"Sequence: {snapshot['sequence']}")
-    click.echo(f"Files affected: {len(snapshot['files_affected'])}")
+        console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
+    console.print(f"Files affected: {len(snapshot['files_affected'])}", highlight=False)
     if snapshot["files_affected"]:
         for f in snapshot["files_affected"][:5]:
-            click.echo(f"  - {f}")
+            console.print(f"  - {f}", highlight=False)
         if len(snapshot["files_affected"]) > 5:
-            click.echo(f"  ... and {len(snapshot['files_affected']) - 5} more")
+            console.print(f"  ... and {len(snapshot['files_affected']) - 5} more", highlight=False)
 
 
 @planning.command()
@@ -965,7 +1054,11 @@ def show_diff(plan_id, task_number, sequence, file):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        console.print(
+            f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         return
 
     cursor = manager.conn.cursor()
@@ -982,15 +1075,19 @@ def show_diff(plan_id, task_number, sequence, file):
 
         snapshot_row = cursor.fetchone()
         if not snapshot_row:
-            click.echo(f"Error: No checkpoint with sequence {sequence} found", err=True)
+            console.print(
+                f"[error]Error: No checkpoint with sequence {sequence} found[/error]",
+                stderr=True,
+                highlight=False,
+            )
             return
 
         snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
 
-        click.echo(f"Checkpoint: {checkpoint_name} (sequence {seq})")
-        click.echo(f"Timestamp: {timestamp}")
-        click.echo(f"Git ref: {git_ref[:8]}")
-        click.echo()
+        console.print(f"Checkpoint: {checkpoint_name} (sequence {seq})", highlight=False)
+        console.print(f"Timestamp: {timestamp}", highlight=False)
+        console.print(f"Git ref: {git_ref[:8]}", highlight=False)
+        console.print()
 
         query = "SELECT file_path, diff_text, added_lines, removed_lines FROM code_diffs WHERE snapshot_id = ?"
         params = [snapshot_id]
@@ -1003,15 +1100,15 @@ def show_diff(plan_id, task_number, sequence, file):
         diffs = cursor.fetchall()
 
         if not diffs:
-            click.echo("No diffs found")
+            console.print("No diffs found")
             return
 
         for diff_row in diffs:
             file_path, diff_text, added, removed = diff_row
-            click.echo(f"File: {file_path} (+{added}/-{removed})")
-            click.echo("=" * 80)
-            click.echo(diff_text)
-            click.echo()
+            console.print(f"File: {file_path} (+{added}/-{removed})", highlight=False)
+            console.rule()
+            console.print(diff_text, markup=False)
+            console.print()
 
     else:
         cursor.execute(
@@ -1027,10 +1124,10 @@ def show_diff(plan_id, task_number, sequence, file):
         snapshots_list = cursor.fetchall()
 
         if not snapshots_list:
-            click.echo(f"No checkpoints found for task {task_number}")
+            console.print(f"No checkpoints found for task {task_number}", highlight=False)
             return
 
-        click.echo(f"Checkpoints for task {task_number}:\n")
+        console.print(f"Checkpoints for task {task_number}:\n", highlight=False)
 
         for snapshot_row in snapshots_list:
             snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
@@ -1041,14 +1138,16 @@ def show_diff(plan_id, task_number, sequence, file):
             )
             file_count = cursor.fetchone()[0]
 
-            click.echo(f"  [{seq}] {checkpoint_name}")
-            click.echo(f"      Timestamp: {timestamp}")
-            click.echo(f"      Git ref: {git_ref[:8]}")
-            click.echo(f"      Files: {file_count}")
-            click.echo()
+            console.print(f"  \\[{seq}] {checkpoint_name}", highlight=False)
+            console.print(f"      Timestamp: {timestamp}", highlight=False)
+            console.print(f"      Git ref: {git_ref[:8]}", highlight=False)
+            console.print(f"      Files: {file_count}", highlight=False)
+            console.print()
 
-        click.echo("To view a specific checkpoint's diff:")
-        click.echo(f"  aud planning show-diff {plan_id} {task_number} --sequence N")
+        console.print("To view a specific checkpoint's diff:")
+        console.print(
+            f"  aud planning show-diff {plan_id} {task_number} --sequence N", highlight=False
+        )
 
 
 @planning.command("validate")
@@ -1071,15 +1170,22 @@ def validate_plan(plan_id, session_id, format):
     session_db_path = Path.cwd() / ".pf" / "ml" / "session_history.db"
 
     if not session_db_path.exists():
-        click.echo("Error: Session database not found (.pf/ml/session_history.db)", err=True)
-        click.echo("Run 'aud session init' to enable session logging", err=True)
-        click.echo("Planning validation requires session logs", err=True)
+        console.print(
+            "[error]Error: Session database not found (.pf/ml/session_history.db)[/error]",
+            stderr=True,
+        )
+        console.print(
+            "[error]Run 'aud session init' to enable session logging[/error]", stderr=True
+        )
+        console.print("[error]Planning validation requires session logs[/error]", stderr=True)
         raise click.ClickException("Session logging not enabled")
 
     manager = PlanningManager(db_path)
     plan = manager.get_plan(plan_id)
     if not plan:
-        click.echo(f"Error: Plan {plan_id} not found", err=True)
+        console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        )
         raise click.ClickException(f"Plan {plan_id} not found")
 
     session_conn = sqlite3.connect(session_db_path)
@@ -1110,9 +1216,17 @@ def validate_plan(plan_id, session_id, format):
 
     session_row = session_cursor.fetchone()
     if not session_row:
-        click.echo(f"Error: No session found for plan '{plan['name']}'", err=True)
+        console.print(
+            f"[error]Error: No session found for plan '{plan['name']}'[/error]",
+            stderr=True,
+            highlight=False,
+        )
         if session_id:
-            click.echo(f"Session ID '{session_id}' not found in database", err=True)
+            console.print(
+                f"[error]Session ID '{session_id}' not found in database[/error]",
+                stderr=True,
+                highlight=False,
+            )
         raise click.ClickException("No matching session found")
 
     (
@@ -1175,54 +1289,63 @@ def validate_plan(plan_id, session_id, format):
             "deviation_score": deviation_score,
             "status": "completed" if validation_passed else "needs-revision",
         }
-        click.echo(json_module.dumps(result, indent=2))
+        console.print(json_module.dumps(result, indent=2), markup=False)
     else:
-        click.echo("=" * 80)
-        click.echo(f"Plan Validation Report: {plan['name']}")
-        click.echo("=" * 80)
-        click.echo(f"Plan ID:              {plan_id}")
-        click.echo(f"Session ID:           {session_id_val[:16]}...")
-        click.echo(f"Validation Status:    {'PASSED' if validation_passed else 'NEEDS REVISION'}")
-        click.echo()
-        click.echo(f"Planned files:        {len(planned_files)}")
-        click.echo(
-            f"Actually touched:     {len(actual_files)} (+{len(extra_files)} extra, -{len(missing_files)} missing)"
+        console.rule()
+        console.print(f"Plan Validation Report: {plan['name']}", highlight=False)
+        console.rule()
+        console.print(f"Plan ID:              {plan_id}", highlight=False)
+        console.print(f"Session ID:           {session_id_val[:16]}...", highlight=False)
+        console.print(
+            f"Validation Status:    {'PASSED' if validation_passed else 'NEEDS REVISION'}",
+            highlight=False,
         )
-        click.echo(f"Blind edits:          {len(blind_edits)}")
-        click.echo(f"Workflow compliant:   {'YES' if workflow_compliant else 'NO'}")
-        click.echo(
-            f"Compliance score:     {compliance_score:.2f} ({'above' if compliance_score >= 0.8 else 'below'} 0.8 threshold)"
+        console.print()
+        console.print(f"Planned files:        {len(planned_files)}", highlight=False)
+        console.print(
+            f"Actually touched:     {len(actual_files)} (+{len(extra_files)} extra, -{len(missing_files)} missing)",
+            highlight=False,
         )
-        click.echo(f"Deviation score:      {deviation_score:.2f}")
-        click.echo()
+        console.print(f"Blind edits:          {len(blind_edits)}", highlight=False)
+        console.print(
+            f"Workflow compliant:   {'YES' if workflow_compliant else 'NO'}", highlight=False
+        )
+        console.print(
+            f"Compliance score:     {compliance_score:.2f} ({'above' if compliance_score >= 0.8 else 'below'} 0.8 threshold)",
+            highlight=False,
+        )
+        console.print(f"Deviation score:      {deviation_score:.2f}", highlight=False)
+        console.print()
 
         if extra_files:
-            click.echo("Deviations - Extra files touched:")
+            console.print("Deviations - Extra files touched:")
             for f in extra_files:
-                click.echo(f"  + {f}")
-            click.echo()
+                console.print(f"  + {f}", highlight=False)
+            console.print()
 
         if missing_files:
-            click.echo("Deviations - Planned files not touched:")
+            console.print("Deviations - Planned files not touched:")
             for f in missing_files:
-                click.echo(f"  - {f}")
-            click.echo()
+                console.print(f"  - {f}", highlight=False)
+            console.print()
 
         if blind_edits:
-            click.echo("Blind edits (edited without reading first):")
+            console.print("Blind edits (edited without reading first):")
             for f in blind_edits:
-                click.echo(f"  ! {f}")
-            click.echo()
+                console.print(f"  ! {f}", highlight=False)
+            console.print()
 
-        click.echo(f"Status: {'COMPLETED' if validation_passed else 'NEEDS REVISION'}")
-        click.echo("=" * 80)
+        console.print(
+            f"Status: {'COMPLETED' if validation_passed else 'NEEDS REVISION'}", highlight=False
+        )
+        console.rule()
 
     if validation_passed:
         manager.update_task(plan_id, 1, status="completed")
-        click.echo("\nPlan status updated to: completed", err=True)
+        console.print("[error]\nPlan status updated to: completed[/error]", stderr=True)
     else:
         manager.update_task(plan_id, 1, status="needs-revision")
-        click.echo("\nPlan status updated to: needs-revision", err=True)
+        console.print("[error]\nPlan status updated to: needs-revision[/error]", stderr=True)
 
     session_conn.close()
 
@@ -1255,18 +1378,18 @@ def setup_agents(target):
         """Inject trigger block into file if not already present."""
         if not file_path.exists():
             file_path.write_text(TRIGGER_BLOCK + "\n")
-            click.echo(f"Created {file_path.name} with agent trigger block")
+            console.print(f"Created {file_path.name} with agent trigger block", highlight=False)
             return True
 
         content = file_path.read_text()
 
         if TRIGGER_START in content:
-            click.echo(f"Trigger block already exists in {file_path.name}")
+            console.print(f"Trigger block already exists in {file_path.name}", highlight=False)
             return False
 
         new_content = TRIGGER_BLOCK + "\n" + content
         file_path.write_text(new_content)
-        click.echo(f"Injected agent trigger block into {file_path.name}")
+        console.print(f"Injected agent trigger block into {file_path.name}", highlight=False)
         return True
 
     root = Path.cwd()
@@ -1279,10 +1402,10 @@ def setup_agents(target):
         claude_md = root / "CLAUDE.md"
         inject_into_file(claude_md)
 
-    click.echo("\nAgent trigger setup complete!")
-    click.echo("AI assistants will now automatically load specialized agent workflows.")
-    click.echo("\nNext steps:")
-    click.echo("  1. Run 'aud init' if .auditor_venv/ doesn't exist (copies agent files)")
-    click.echo(
+    console.print("\nAgent trigger setup complete!")
+    console.print("AI assistants will now automatically load specialized agent workflows.")
+    console.print("\nNext steps:")
+    console.print("  1. Run 'aud init' if .auditor_venv/ doesn't exist (copies agent files)")
+    console.print(
         "  2. Try triggering agents with keywords like 'refactor storage.py' or 'check for XSS'"
     )

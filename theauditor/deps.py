@@ -4,7 +4,6 @@ import json
 import platform
 import re
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,12 +11,14 @@ from typing import Any
 import yaml
 
 from theauditor import __version__
+from theauditor.pipeline.ui import console
 from theauditor.security import (
     SecurityError,
     sanitize_path,
     sanitize_url_component,
     validate_package_name,
 )
+from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -40,64 +41,71 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     db_path = root / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        print("Error: Index not found at .pf/repo_index.db")
-        print("Run 'aud full --index' first to index the project.")
+        console.print("Error: Index not found at .pf/repo_index.db")
+        console.print("Run 'aud full --index' first to index the project.")
         return []
 
     if debug:
-        print(f"Debug: Reading npm dependencies from database: {db_path}")
+        console.print(f"Debug: Reading npm dependencies from database: {db_path}", highlight=False)
 
     npm_deps = _read_npm_deps_from_database(db_path, root, debug)
     if npm_deps:
         if debug:
-            print(f"Debug: Loaded {len(npm_deps)} npm dependencies from database")
+            console.print(
+                f"Debug: Loaded {len(npm_deps)} npm dependencies from database", highlight=False
+            )
         deps.extend(npm_deps)
 
     if debug:
-        print(f"Debug: Reading Python dependencies from database: {db_path}")
+        console.print(
+            f"Debug: Reading Python dependencies from database: {db_path}", highlight=False
+        )
 
     python_deps = _read_python_deps_from_database(db_path, root, debug)
     if python_deps:
         if debug:
-            print(f"Debug: Loaded {len(python_deps)} Python dependencies from database")
+            console.print(
+                f"Debug: Loaded {len(python_deps)} Python dependencies from database",
+                highlight=False,
+            )
         deps.extend(python_deps)
 
     docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
         root.glob("docker-compose*.yaml")
     )
     if debug and docker_compose_files:
-        print(f"Debug: Found Docker Compose files: {docker_compose_files}")
+        console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
     for compose_file in docker_compose_files:
         try:
             safe_compose_file = sanitize_path(str(compose_file), root_path)
             deps.extend(_parse_docker_compose(safe_compose_file))
         except SecurityError as e:
             if debug:
-                print(f"Debug: Security error with {compose_file}: {e}")
+                console.print(f"Debug: Security error with {compose_file}: {e}", highlight=False)
 
     dockerfiles = list(root.glob("**/Dockerfile"))
     if debug and dockerfiles:
-        print(f"Debug: Found Dockerfiles: {dockerfiles}")
+        console.print(f"Debug: Found Dockerfiles: {dockerfiles}", highlight=False)
     for dockerfile in dockerfiles:
         try:
             safe_dockerfile = sanitize_path(str(dockerfile), root_path)
             deps.extend(_parse_dockerfile(safe_dockerfile))
         except SecurityError as e:
             if debug:
-                print(f"Debug: Security error with {dockerfile}: {e}")
+                console.print(f"Debug: Security error with {dockerfile}: {e}", highlight=False)
 
     try:
         cargo_toml = sanitize_path("Cargo.toml", root_path)
         if cargo_toml.exists():
             if debug:
-                print(f"Debug: Found {cargo_toml}")
+                console.print(f"Debug: Found {cargo_toml}", highlight=False)
             deps.extend(_parse_cargo_toml(cargo_toml))
     except SecurityError as e:
         if debug:
-            print(f"Debug: Security error checking Cargo.toml: {e}")
+            console.print(f"Debug: Security error checking Cargo.toml: {e}", highlight=False)
 
     if debug:
-        print(f"Debug: Total dependencies found: {len(deps)}")
+        console.print(f"Debug: Total dependencies found: {len(deps)}", highlight=False)
 
     return deps
 
@@ -144,7 +152,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
         if "no such table" in str(e):
             if debug:
-                print("Debug: package_dependencies table not found (run indexer first)")
+                console.print("Debug: package_dependencies table not found (run indexer first)")
             return []
 
         raise
@@ -221,7 +229,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
                         deps.append(dep_obj)
 
             except json.JSONDecodeError as e:
-                print(f"WARNING: Corrupted JSON in database for {file_path}: {e}", file=sys.stderr)
+                logger.error(f"WARNING: Corrupted JSON in database for {file_path}: {e}")
                 continue
 
         conn.close()
@@ -232,7 +240,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
         if "no such table" in str(e):
             if debug:
-                print("Debug: python_package_configs table not found (run indexer first)")
+                console.print("Debug: python_package_configs table not found (run indexer first)")
             return []
 
         raise
@@ -315,7 +323,7 @@ def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
                     }
                 )
     except (yaml.YAMLError, KeyError, AttributeError) as e:
-        print(f"Warning: Could not parse {path}: {e}")
+        console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
 
     return deps
 
@@ -368,7 +376,7 @@ def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
                         }
                     )
     except Exception as e:
-        print(f"Warning: Could not parse {path}: {e}")
+        console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
 
     return deps
 
@@ -547,7 +555,7 @@ async def _check_latest_batch_async(
     try:
         import httpx
     except ImportError:
-        print("Error: 'httpx' not installed. Run: pip install httpx")
+        console.print("Error: 'httpx' not installed. Run: pip install httpx")
         return {}
 
     results = {}
@@ -1311,10 +1319,14 @@ def _upgrade_pyproject_toml(
     for package, updates in updated_packages.items():
         total_occurrences += len(updates)
         if len(updates) == 1:
-            print(f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]}")
+            console.print(
+                f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]}",
+                highlight=False,
+            )
         else:
-            print(
-                f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]} ({len(updates)} occurrences)"
+            console.print(
+                f"  {check_mark} {package}: {updates[0][0]} {arrow} {updates[0][1]} ({len(updates)} occurrences)",
+                highlight=False,
             )
 
     return total_occurrences
@@ -1404,7 +1416,7 @@ def _upgrade_docker_compose(
     check_mark = "[OK]" if IS_WINDOWS else "✓"
     arrow = "->" if IS_WINDOWS else "→"
     for image, (old_tag, new_tag) in updated_images.items():
-        print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}")
+        console.print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}", highlight=False)
 
     return count
 
@@ -1507,7 +1519,7 @@ def _upgrade_dockerfile(
     check_mark = "[OK]" if IS_WINDOWS else "✓"
     arrow = "->" if IS_WINDOWS else "→"
     for image, (old_tag, new_tag) in updated_images.items():
-        print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}")
+        console.print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}", highlight=False)
 
     return count
 
@@ -1548,9 +1560,9 @@ def generate_grouped_report(
 
     sorted_files = sorted(files_map.keys(), key=sort_key)
 
-    print("\n" + "=" * 80)
-    print("DEPENDENCY HEALTH REPORT (GROUPED BY FILE)")
-    print("=" * 80)
+    console.print("\n" + "=" * 80, markup=False)
+    console.print("DEPENDENCY HEALTH REPORT (GROUPED BY FILE)")
+    console.rule()
 
     total_outdated = 0
     total_outdated_real = 0
@@ -1594,12 +1606,12 @@ def generate_grouped_report(
                 ghost_files_detected += 1
 
         if is_ghost:
-            print(f"\n{folder} {source_file} [TEST/FIXTURE]")
+            logger.info(f"\n{folder} {source_file}")
         else:
-            print(f"\n{folder} {source_file}")
+            console.print(f"\n{folder} {source_file}", highlight=False)
 
         if not outdated_in_file:
-            print(f"  {check} All dependencies up to date")
+            console.print(f"  {check} All dependencies up to date", highlight=False)
             continue
 
         for dep, info in outdated_in_file:
@@ -1622,24 +1634,33 @@ def generate_grouped_report(
                 label = ""
 
             if is_ghost:
-                print(f"    (test) {name}: {current} {arrow} {latest} {label}")
+                console.print(
+                    f"    (test) {name}: {current} {arrow} {latest} {label}", highlight=False
+                )
             else:
-                print(f"  - {name}: {current} {arrow} {latest} {label}")
+                console.print(f"  - {name}: {current} {arrow} {latest} {label}", highlight=False)
 
-    print("\n" + "-" * 80)
-    print("SUMMARY")
-    print("-" * 80)
+    console.print("\n" + "-" * 80, markup=False)
+    console.print("SUMMARY")
+    console.rule()
 
     if total_outdated == 0:
-        print("All dependencies are up to date!")
+        console.print("All dependencies are up to date!")
     else:
-        print(f"Total outdated: {total_outdated} packages across {files_with_issues} files")
+        console.print(
+            f"Total outdated: {total_outdated} packages across {files_with_issues} files",
+            highlight=False,
+        )
 
         if ghost_files_detected > 0:
             real_files = files_with_issues - ghost_files_detected
-            print(f"  - Real code: {total_outdated_real} packages in {real_files} files")
-            print(
-                f"  - Test fixtures: {total_outdated - total_outdated_real} packages in {ghost_files_detected} files"
+            console.print(
+                f"  - Real code: {total_outdated_real} packages in {real_files} files",
+                highlight=False,
+            )
+            console.print(
+                f"  - Test fixtures: {total_outdated - total_outdated_real} packages in {ghost_files_detected} files",
+                highlight=False,
             )
 
-    print("=" * 80 + "\n")
+    console.print("=" * 80 + "\n", markup=False)

@@ -2,9 +2,8 @@
 
 import click
 
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.pipeline.ui import console
+from theauditor.utils.logging import logger
 
 
 @click.group()
@@ -103,34 +102,35 @@ def analyze_churn(root, days, output):
     from theauditor.indexer.metadata_collector import MetadataCollector
 
     try:
-        click.echo(f"Analyzing git history for last {days} days...")
+        console.print(f"Analyzing git history for last {days} days...", highlight=False)
 
         collector = MetadataCollector(root_path=root)
         result = collector.collect_churn(days=days, output_path=output)
 
         if "error" in result:
-            click.echo(f"[WARNING] {result['error']}", err=True)
+            console.print(f"[warning]{result['error']}[/warning]", stderr=True)
             if not result.get("files"):
                 return
 
         total_files = result.get("total_files_analyzed", 0)
-        click.echo(f"[OK] Analyzed {total_files} files")
+        console.print(f"[success]Analyzed {total_files} files[/success]")
 
         if result.get("files"):
-            click.echo("\nTop 5 most active files:")
+            console.print("\nTop 5 most active files:")
             for i, file_data in enumerate(result["files"][:5], 1):
-                click.echo(f"  {i}. {file_data['path']}")
-                click.echo(
+                console.print(f"  {i}. {file_data['path']}", highlight=False)
+                console.print(
                     f"     Commits: {file_data['commits_90d']}, "
                     f"Authors: {file_data['unique_authors']}, "
-                    f"Last modified: {file_data['days_since_modified']} days ago"
+                    f"Last modified: {file_data['days_since_modified']} days ago",
+                    highlight=False,
                 )
 
-        click.echo(f"\n[SAVED] Churn analysis saved to {output}")
+        console.print(f"\n\\[SAVED] Churn analysis saved to {output}", highlight=False)
 
     except Exception as e:
         logger.error(f"Churn analysis failed: {e}")
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -166,15 +166,15 @@ def analyze_coverage(root, coverage_file, output):
 
     try:
         if coverage_file:
-            click.echo(f"Loading coverage from: {coverage_file}")
+            console.print(f"Loading coverage from: {coverage_file}", highlight=False)
         else:
-            click.echo("Auto-detecting coverage file...")
+            console.print("Auto-detecting coverage file...")
 
         collector = MetadataCollector(root_path=root)
         result = collector.collect_coverage(coverage_file=coverage_file, output_path=output)
 
         if "error" in result:
-            click.echo(f"[ERROR] {result['error']}", err=True)
+            console.print(f"[error]{result['error']}[/error]", stderr=True)
             if not result.get("files"):
                 raise click.ClickException(result["error"])
 
@@ -182,25 +182,32 @@ def analyze_coverage(root, coverage_file, output):
         total_files = result.get("total_files_analyzed", 0)
         avg_coverage = result.get("average_coverage", 0)
 
-        click.echo(f"[OK] Parsed {format_detected} coverage for {total_files} files")
-        click.echo(f"     Average coverage: {avg_coverage}%")
+        console.print(
+            f"[success]Parsed {format_detected} coverage for {total_files} files[/success]"
+        )
+        console.print(f"     Average coverage: {avg_coverage}%", highlight=False)
 
         if result.get("files"):
-            click.echo("\nLeast covered files:")
+            console.print("\nLeast covered files:")
             for i, file_data in enumerate(result["files"][:5], 1):
-                click.echo(f"  {i}. {file_data['path']}: {file_data['line_coverage_percent']}%")
+                console.print(
+                    f"  {i}. {file_data['path']}: {file_data['line_coverage_percent']}%",
+                    highlight=False,
+                )
                 if file_data.get("lines_missing") is not None:
-                    click.echo(f"     Missing: {file_data['lines_missing']} lines")
+                    console.print(
+                        f"     Missing: {file_data['lines_missing']} lines", highlight=False
+                    )
                 elif file_data.get("statements_total") is not None:
                     covered = file_data.get("statements_executed", 0)
                     total = file_data.get("statements_total", 0)
-                    click.echo(f"     Statements: {covered}/{total} covered")
+                    console.print(f"     Statements: {covered}/{total} covered", highlight=False)
 
-        click.echo(f"\n[SAVED] Coverage analysis saved to {output}")
+        console.print(f"\n\\[SAVED] Coverage analysis saved to {output}", highlight=False)
 
     except Exception as e:
         logger.error(f"Coverage analysis failed: {e}")
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -232,40 +239,47 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
         collector = MetadataCollector(root_path=root)
 
         if not skip_churn:
-            click.echo(f"[1/2] Analyzing git history for last {days} days...")
+            console.print(f"\\[1/2] Analyzing git history for last {days} days...", highlight=False)
             churn_result = collector.collect_churn(
                 days=days, output_path="./.pf/raw/churn_analysis.json"
             )
 
             if "error" in churn_result:
-                click.echo(f"  [WARNING] Churn: {churn_result['error']}", err=True)
+                console.print(
+                    f"[error]  \\[WARNING] Churn: {churn_result['error']}[/error]", stderr=True
+                )
             else:
                 total = churn_result.get("total_files_analyzed", 0)
-                click.echo(f"  [OK] Churn: Analyzed {total} files")
+                console.print(f"  \\[OK] Churn: Analyzed {total} files")
         else:
-            click.echo("[1/2] Skipping churn analysis")
+            console.print("\\[1/2] Skipping churn analysis")
 
         if not skip_coverage:
-            click.echo("[2/2] Analyzing test coverage...")
+            console.print("\\[2/2] Analyzing test coverage...")
             coverage_result = collector.collect_coverage(
                 coverage_file=coverage_file, output_path="./.pf/raw/coverage_analysis.json"
             )
 
             if "error" in coverage_result:
-                click.echo(f"  [WARNING] Coverage: {coverage_result['error']}", err=True)
+                console.print(
+                    f"[error]  \\[WARNING] Coverage: {coverage_result['error']}[/error]",
+                    stderr=True,
+                )
             else:
                 format_type = coverage_result.get("format_detected", "unknown")
                 total = coverage_result.get("total_files_analyzed", 0)
                 avg = coverage_result.get("average_coverage", 0)
-                click.echo(f"  [OK] Coverage: {format_type} format, {total} files, {avg}% average")
+                console.print(
+                    f"  \\[OK] Coverage: {format_type} format, {total} files, {avg}% average"
+                )
         else:
-            click.echo("[2/2] Skipping coverage analysis")
+            console.print("\\[2/2] Skipping coverage analysis")
 
-        click.echo("\n[COMPLETE] Metadata analysis finished")
-        click.echo("  Output: .pf/raw/churn_analysis.json")
-        click.echo("  Output: .pf/raw/coverage_analysis.json")
+        console.print("\n\\[COMPLETE] Metadata analysis finished")
+        console.print("  Output: .pf/raw/churn_analysis.json")
+        console.print("  Output: .pf/raw/coverage_analysis.json")
 
     except Exception as e:
         logger.error(f"Metadata analysis failed: {e}")
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e

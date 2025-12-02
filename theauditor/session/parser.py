@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 @dataclass
 class ToolCall:
@@ -200,7 +202,7 @@ class SessionParser:
             try:
                 sessions.append(self.parse_session(jsonl_file))
             except Exception as e:
-                print(f"Warning: Failed to parse {jsonl_file.name}: {e}")
+                logger.info(f"Warning: Failed to parse {jsonl_file.name}: {e}")
                 continue
         return sessions
 

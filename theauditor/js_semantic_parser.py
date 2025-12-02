@@ -4,12 +4,12 @@ import json
 import os
 import platform
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from theauditor.ast_extractors import js_helper_templates
+from theauditor.utils.logging import logger
 
 try:
     from theauditor.utils.temp_manager import TempManager
@@ -46,12 +46,12 @@ class JSSemanticParser:
             stack = traceback.extract_stack()
             caller = stack[-2] if len(stack) > 1 else None
             if caller:
-                print(
-                    f"[DEBUG] JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}"
+                logger.debug(
+                    f"JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}"
                 )
-            print(f"[DEBUG] Created JSSemanticParser for project: {self.project_root}")
+            logger.debug(f"Created JSSemanticParser for project: {self.project_root}")
             if self.project_module_type == "module":
-                print("[DEBUG] Detected ES module project (package.json has 'type': 'module')")
+                logger.debug("Detected ES module project (package.json has 'type': 'module')")
 
         global _module_resolver_cache
         if _module_resolver_cache is None:
@@ -114,8 +114,7 @@ class JSSemanticParser:
 
             return "commonjs"
         except (json.JSONDecodeError, OSError) as e:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(f"[DEBUG] Could not detect module type: {e}. Defaulting to CommonJS.")
+            logger.debug(f"Could not detect module type: {e}. Defaulting to CommonJS.")
             return "commonjs"
 
     def _convert_path_for_node(self, path: Path) -> str:
@@ -375,7 +374,7 @@ class JSSemanticParser:
                         }
                 else:
                     if os.environ.get("THEAUDITOR_DEBUG") and result.stderr:
-                        print(f"[DEBUG JS STDERR] {result.stderr}")
+                        logger.debug(f"{result.stderr}")
 
                     if Path(output_path).exists():
                         with open(output_path, encoding="utf-8") as f:
@@ -672,11 +671,7 @@ class JSSemanticParser:
                         resolved = self.module_resolver.resolve(import_path, current_file)
                         if resolved:
                             resolved_imports[import_path] = resolved
-                        elif os.environ.get("THEAUDITOR_DEBUG"):
-                            print(
-                                f"[RESOLVER_DEBUG] Failed to resolve '{import_path}' from '{current_file}'",
-                                file=sys.stderr,
-                            )
+                        logger.debug(f"Failed to resolve '{import_path}' from '{current_file}'")
 
             elif kind == "CallExpression":
                 expression = node.get("expression", {})
@@ -688,11 +683,9 @@ class JSSemanticParser:
                             resolved = self.module_resolver.resolve(import_path, current_file)
                             if resolved:
                                 resolved_imports[import_path] = resolved
-                            elif os.environ.get("THEAUDITOR_DEBUG"):
-                                print(
-                                    f"[RESOLVER_DEBUG] Failed to resolve require('{import_path}') from '{current_file}'",
-                                    file=sys.stderr,
-                                )
+                            logger.debug(
+                                f"Failed to resolve require('{import_path}') from '{current_file}'"
+                            )
 
             for child in node.get("children", []):
                 find_imports(child, depth + 1)
@@ -700,12 +693,9 @@ class JSSemanticParser:
         find_imports(ast_data.get("ast", {}))
 
         if os.environ.get("THEAUDITOR_DEBUG") and resolved_imports:
-            print(
-                f"[RESOLVER_DEBUG] Resolved {len(resolved_imports)} imports in {current_file}",
-                file=sys.stderr,
-            )
+            logger.debug(f"Resolved {len(resolved_imports)} imports in {current_file}")
             for imp, resolved in list(resolved_imports.items())[:3]:
-                print(f"[RESOLVER_DEBUG]   '{imp}' -> '{resolved}'", file=sys.stderr)
+                logger.debug(f"'{imp}' -> '{resolved}'")
 
         return resolved_imports
 
@@ -805,15 +795,15 @@ def get_semantic_ast(
         _cache_stats["misses"] += 1
         _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
         if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
-            print(
-                f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses"
+            logger.debug(f"Cache MISS - Created new JSSemanticParser for {cache_key}")
+            logger.debug(
+                f"Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses"
             )
     else:
         _cache_stats["hits"] += 1
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats["hits"] % 10 == 0:
-            print(
-                f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}"
+            logger.debug(
+                f"Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}"
             )
     parser = _parser_cache[cache_key]
     return parser.get_semantic_ast(file_path, jsx_mode, tsconfig_path)
@@ -832,15 +822,15 @@ def get_semantic_ast_batch(
         _cache_stats["misses"] += 1
         _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
         if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
-            print(
-                f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses"
+            logger.debug(f"Cache MISS - Created new JSSemanticParser for {cache_key}")
+            logger.debug(
+                f"Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses"
             )
     else:
         _cache_stats["hits"] += 1
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats["hits"] % 10 == 0:
-            print(
-                f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}"
+            logger.debug(
+                f"Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}"
             )
     parser = _parser_cache[cache_key]
     return parser.get_semantic_ast_batch(file_paths, jsx_mode, tsconfig_map)

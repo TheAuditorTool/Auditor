@@ -5,9 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 def normalize_path_for_db(file_path: str, project_root: Path | str | None = None) -> str:
