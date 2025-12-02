@@ -85,9 +85,10 @@ def graph():
 @click.option("--workset", help="Path to workset.json to limit scope")
 @click.option("--batch-size", default=200, type=int, help="Files per batch")
 @click.option("--resume", is_flag=True, help="Resume from checkpoint")
-@click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
+@click.option("--db", default="./.pf/graphs.db", help="SQLite database path for output graphs")
+@click.option("--repo-db", default="./.pf/repo_index.db", help="Repo index database for file list")
 @click.option("--out-json", default="./.pf/raw/", help="JSON output directory")
-def graph_build(root, langs, workset, batch_size, resume, db, out_json):
+def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json):
     """Build import and call graphs from your codebase.
 
     Constructs two types of graphs:
@@ -153,10 +154,10 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             builder.checkpoint_file.unlink()
 
         file_list = None
-        db_path = Path(db)
-        if db_path.exists():
-            console.print("Loading files from database...")
-            conn = sqlite3.connect(str(db_path))
+        repo_db_path = Path(repo_db)
+        if repo_db_path.exists():
+            console.print("Loading files from repo_index.db...")
+            conn = sqlite3.connect(str(repo_db_path))
             cursor = conn.cursor()
             cursor.execute("SELECT path, sha256, ext, bytes, loc FROM files")
             all_files = [{"path": row[0], "sha256": row[1], "ext": row[2], "bytes": row[3], "loc": row[4]} for row in cursor.fetchall()]
@@ -169,7 +170,8 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
                 file_list = all_files
                 console.print(f"  Found {len(file_list)} files in database", highlight=False)
         else:
-            console.print("No database found, using filesystem walk")
+            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False)
+            raise click.Abort()
 
         console.print("Building import graph...")
         import_graph = builder.build_import_graph(
@@ -198,7 +200,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         console.print(f"\nGraphs saved to database: {db}", highlight=False)
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -237,7 +239,7 @@ def graph_build_dfg(root, db, repo_db):
     try:
         repo_db_path = Path(repo_db)
         if not repo_db_path.exists():
-            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", stderr=True, highlight=False)
+            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False)
             raise click.Abort()
 
         console.print("Initializing DFG builder...")
@@ -268,10 +270,10 @@ def graph_build_dfg(root, db, repo_db):
         console.print(f"Data flow graph saved to {db}", highlight=False)
 
     except FileNotFoundError as e:
-        console.print(f"[error]ERROR: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]ERROR: {e}[/error]", highlight=False)
         raise click.Abort() from e
     except Exception as e:
-        console.print(f"[error]ERROR: Failed to build DFG: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]ERROR: Failed to build DFG: {e}[/error]", highlight=False)
         raise click.Abort() from e
 
 
@@ -458,7 +460,7 @@ def graph_analyze(root, db, out, max_depth, workset):
                 db_manager.close()
                 console.print(f"  Wrote {len(meta_findings)} graph findings to database", highlight=False)
             except Exception as e:
-                console.print(f"[error]  Warning: Could not write findings to database: {e}[/error]", stderr=True, highlight=False)
+                console.print(f"[error]  Warning: Could not write findings to database: {e}[/error]", highlight=False)
 
         with open(out, "w") as f:
             json.dump(analysis, f, indent=2)
@@ -482,7 +484,7 @@ def graph_analyze(root, db, out, max_depth, workset):
         console.print(f"  Saved graph summary to {summary_path}", highlight=False)
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -575,7 +577,7 @@ def graph_query(db, uses, calls, nearest_path, format):
             console.print(json.dumps(results, indent=2), markup=False)
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -856,5 +858,5 @@ def graph_viz(
                 console.print("  • Node Shape: box=module, ellipse=function")
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
