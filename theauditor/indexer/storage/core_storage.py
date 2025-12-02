@@ -120,8 +120,9 @@ class CoreStorage(BaseStorage):
                     handler_function=route.get("handler_function"),
                 )
             else:
+                # Legacy tuple format: (method, pattern, controls)
                 method, pattern, controls = route
-                self.db_manager.add_endpoint(file_path, method, pattern, controls)
+                self.db_manager.add_endpoint(file_path, method, pattern, controls, line=0)
             self.counts["routes"] += 1
 
     def _store_router_mounts(self, file_path: str, router_mounts: list, jsx_pass: bool):

@@ -1140,6 +1140,11 @@ class PythonFrameworkConfigRow(TypedDict):
     endpoint: str | None
     cache_type: str | None
     timeout: int | None
+    class_name: str | None
+    model_name: str | None
+    function_name: str | None
+    target_name: str | None
+    base_class: str | None
     has_process_request: int | None
     has_process_response: int | None
     has_process_exception: int | None

@@ -513,9 +513,10 @@ class BaseDatabaseManager:
                     cursor.execute(
                         """INSERT INTO python_framework_config (
                             file, line, config_kind, config_type, framework, name, endpoint,
-                            cache_type, timeout, has_process_request, has_process_response,
+                            cache_type, timeout, class_name, model_name, function_name,
+                            target_name, base_class, has_process_request, has_process_response,
                             has_process_exception, has_process_view, has_process_template_response
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         data,
                     )
                     id_map[temp_id] = cursor.lastrowid

@@ -367,6 +367,28 @@ TERRAFORM_OUTPUTS = TableSchema(
     ],
 )
 
+TERRAFORM_DATA_SOURCES = TableSchema(
+    name="terraform_data_sources",
+    columns=[
+        Column("data_id", "TEXT", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("data_type", "TEXT", nullable=False),
+        Column("data_name", "TEXT", nullable=False),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_data_sources_file", ["file_path"]),
+        ("idx_terraform_data_sources_type", ["data_type"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
 TERRAFORM_FINDINGS = TableSchema(
     name="terraform_findings",
     columns=[
@@ -627,6 +649,7 @@ INFRASTRUCTURE_TABLES: dict[str, TableSchema] = {
     "terraform_variables": TERRAFORM_VARIABLES,
     "terraform_variable_values": TERRAFORM_VARIABLE_VALUES,
     "terraform_outputs": TERRAFORM_OUTPUTS,
+    "terraform_data_sources": TERRAFORM_DATA_SOURCES,
     "terraform_findings": TERRAFORM_FINDINGS,
     "cdk_constructs": CDK_CONSTRUCTS,
     "cdk_construct_properties": CDK_CONSTRUCT_PROPERTIES,

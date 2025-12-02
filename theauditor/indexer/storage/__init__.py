@@ -111,7 +111,7 @@ class DataStorer:
             if handler:
                 handler(file_path, data, jsx_pass)
 
-                if isinstance(data, list):
+                if isinstance(data, (list, dict)):
                     receipt[data_type] = len(data)
                 else:
                     receipt[data_type] = 1 if data else 0

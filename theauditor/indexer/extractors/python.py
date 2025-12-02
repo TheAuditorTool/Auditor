@@ -53,6 +53,10 @@ class PythonExtractor(BaseExtractor):
         resolved = self._resolve_imports_from_context(file_info, context)
         if resolved:
             result["resolved_imports"] = resolved
+            # Update manifest to include resolved_imports (added after manifest was built)
+            if "_extraction_manifest" in result:
+                result["_extraction_manifest"]["resolved_imports"] = len(resolved)
+                result["_extraction_manifest"]["_total"] += len(resolved)
 
         return result
 

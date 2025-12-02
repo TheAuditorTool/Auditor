@@ -617,6 +617,13 @@ PYTHON_FRAMEWORK_CONFIG = TableSchema(
         Column("endpoint", "TEXT"),
         Column("cache_type", "TEXT"),
         Column("timeout", "INTEGER"),
+        # High-value columns for framework-specific data (Option A expansion)
+        Column("class_name", "TEXT"),  # form_class_name, admin_class_name, serializer_class_name
+        Column("model_name", "TEXT"),  # model references across django/flask/celery
+        Column("function_name", "TEXT"),  # handler functions, receivers, resolvers, tasks
+        Column("target_name", "TEXT"),  # signal targets, task names, blueprint names
+        Column("base_class", "TEXT"),  # inheritance info for managers, querysets, views
+        # Middleware-specific columns
         Column("has_process_request", "INTEGER", default="0"),
         Column("has_process_response", "INTEGER", default="0"),
         Column("has_process_exception", "INTEGER", default="0"),
@@ -628,6 +635,9 @@ PYTHON_FRAMEWORK_CONFIG = TableSchema(
         ("idx_python_framework_config_file", ["file"]),
         ("idx_python_framework_config_framework", ["framework"]),
         ("idx_python_framework_config_kind", ["config_kind"]),
+        ("idx_python_framework_config_class", ["class_name"]),
+        ("idx_python_framework_config_model", ["model_name"]),
+        ("idx_python_framework_config_function", ["function_name"]),
     ],
     foreign_keys=[
         ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),

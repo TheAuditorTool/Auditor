@@ -2874,30 +2874,51 @@ class PythonFrameworkConfigTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from python_framework_config."""
-        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'])
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'])
         cursor.execute(query)
-        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
         """Get rows by file."""
-        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="file = ?")
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="file = ?")
         cursor.execute(query, (file,))
-        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_framework(cursor: sqlite3.Cursor, framework: str) -> list[dict[str, Any]]:
         """Get rows by framework."""
-        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="framework = ?")
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="framework = ?")
         cursor.execute(query, (framework,))
-        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_config_kind(cursor: sqlite3.Cursor, config_kind: str) -> list[dict[str, Any]]:
         """Get rows by config_kind."""
-        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="config_kind = ?")
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="config_kind = ?")
         cursor.execute(query, (config_kind,))
-        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_class_name(cursor: sqlite3.Cursor, class_name: str) -> list[dict[str, Any]]:
+        """Get rows by class_name."""
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="class_name = ?")
+        cursor.execute(query, (class_name,))
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_model_name(cursor: sqlite3.Cursor, model_name: str) -> list[dict[str, Any]]:
+        """Get rows by model_name."""
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="model_name = ?")
+        cursor.execute(query, (model_name,))
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_function_name(cursor: sqlite3.Cursor, function_name: str) -> list[dict[str, Any]]:
+        """Get rows by function_name."""
+        query = build_query('python_framework_config', ['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], where="function_name = ?")
+        cursor.execute(query, (function_name,))
+        return [dict(zip(['id', 'file', 'line', 'config_kind', 'config_type', 'framework', 'name', 'endpoint', 'cache_type', 'timeout', 'class_name', 'model_name', 'function_name', 'target_name', 'base_class', 'has_process_request', 'has_process_response', 'has_process_exception', 'has_process_view', 'has_process_template_response'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class PythonFrameworkMethodsTable:

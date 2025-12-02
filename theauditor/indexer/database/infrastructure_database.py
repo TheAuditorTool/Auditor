@@ -172,6 +172,19 @@ class InfrastructureDatabaseMixin:
             (output_id, file_path, output_name, value_json, is_sensitive, description, line)
         )
 
+    def add_terraform_data_source(
+        self,
+        data_id: str,
+        file_path: str,
+        data_type: str,
+        data_name: str,
+        line: int | None = None,
+    ):
+        """Add a Terraform data source record to the batch."""
+        self.generic_batches["terraform_data_sources"].append(
+            (data_id, file_path, data_type, data_name, line)
+        )
+
     def add_terraform_finding(
         self,
         finding_id: str,
