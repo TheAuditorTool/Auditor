@@ -62,7 +62,8 @@ class IndexerOrchestrator:
             if hasattr(ext, "extract") and not hasattr(ext, "db_manager"):
                 import inspect
 
-                source = inspect.getsource(ext.extract)
+                # Check entire class source, not just extract() - helpers may use db_manager
+                source = inspect.getsource(type(ext))
                 if "self.db_manager" in source:
                     ext.db_manager = self.db_manager
 

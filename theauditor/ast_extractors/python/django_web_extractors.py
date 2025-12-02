@@ -228,10 +228,8 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
                             if isinstance(target, ast.Name) and target.id == "model":
                                 model_name = get_node_name(meta_item.value)
 
-            elif (
-                isinstance(item, ast.FunctionDef)
-                and item.name == "clean"
-                or item.name.startswith("clean_")
+            elif isinstance(item, ast.FunctionDef) and (
+                item.name == "clean" or item.name.startswith("clean_")
             ):
                 has_custom_clean = True
 
