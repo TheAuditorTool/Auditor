@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
@@ -311,22 +312,17 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
                 to_file = step.get("to_file")
 
                 if step_type == "cfg_call":
-                    print(f"[DEDUP] cfg_call step: from={from_file} to={to_file}", file=sys.stderr)
+                    logger.debug(f"cfg_call step: from={from_file} to={to_file}")
                 if from_file and to_file and from_file != to_file:
                     cross_hops += 1
-                    print(
-                        f"[DEDUP] Cross-file hop detected! cross_hops={cross_hops}", file=sys.stderr
-                    )
+                    logger.debug(f"Cross-file hop detected! cross_hops={cross_hops}")
 
         length = len(steps)
 
         length_component = length if cross_hops else -length
 
         if cross_hops > 0:
-            print(
-                f"[DEDUP] Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}",
-                file=sys.stderr,
-            )
+            logger.debug(f"Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}")
 
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
@@ -368,10 +364,7 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
         deduped_paths.append(best_path)
 
     multi_file_count = sum(1 for p in deduped_paths if p.source.get("file") != p.sink.get("file"))
-    print(
-        f"[DEDUP] Returning {len(deduped_paths)} paths ({multi_file_count} multi-file)",
-        file=sys.stderr,
-    )
+    logger.debug(f"Returning {len(deduped_paths)} paths ({multi_file_count} multi-file)")
 
     return deduped_paths
 
@@ -390,7 +383,7 @@ def trace_taint(
     import sqlite3
 
     if mode == "forward":
-        print("[TAINT] Using forward-only flow resolution mode", file=sys.stderr)
+        logger.info("Using forward-only flow resolution mode")
 
         if graph_db_path is None:
             db_dir = Path(db_path).parent
@@ -409,7 +402,7 @@ def trace_taint(
         total_flows = resolver.resolve_all_flows()
         resolver.close()
 
-        print(f"[TAINT] Flow resolution complete: {total_flows} flows resolved", file=sys.stderr)
+        logger.info(f"Flow resolution complete: {total_flows} flows resolved")
 
         return {
             "success": True,
@@ -433,12 +426,9 @@ def trace_taint(
         }
 
     if mode == "complete":
-        print(
-            "[TAINT] Using complete mode: IFDS (backward) + FlowResolver (forward)",
-            file=sys.stderr,
-        )
+        logger.info("Using complete mode: IFDS (backward) + FlowResolver (forward)")
 
-        print("[TAINT] STEP 1/2: Running FlowResolver (forward analysis)", file=sys.stderr)
+        logger.info("STEP 1/2: Running FlowResolver (forward analysis)")
 
         if graph_db_path is None:
             db_dir = Path(db_path).parent
@@ -457,7 +447,7 @@ def trace_taint(
         total_flows = resolver.resolve_all_flows()
         resolver.close()
 
-        print(f"[TAINT] FlowResolver complete: {total_flows} flows resolved", file=sys.stderr)
+        logger.info(f"FlowResolver complete: {total_flows} flows resolved")
 
         if registry is None:
             raise ValueError(
@@ -466,7 +456,7 @@ def trace_taint(
                 "NO FALLBACKS ALLOWED."
             )
 
-        print("[TAINT] STEP 2/2: Running IFDS (backward vulnerability analysis)", file=sys.stderr)
+        logger.info("STEP 2/2: Running IFDS (backward vulnerability analysis)")
 
     if registry is None:
         raise ValueError(
@@ -537,49 +527,41 @@ def trace_taint(
                     built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
         if current_hash != built_hash:
-            print(
-                "[SCHEMA STALE] Schema files have changed but generated code is out of date!",
-                file=sys.stderr,
-            )
-            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+            logger.error("[SCHEMA STALE] Schema files have changed but generated code is out of date!")
+            logger.error("[SCHEMA STALE] Regenerating code automatically...")
 
             try:
                 output_dir = Path(__file__).parent.parent / "indexer" / "schemas"
                 SchemaCodeGenerator.write_generated_code(output_dir)
-                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
-                print("[SCHEMA FIX] Please re-run the command", file=sys.stderr)
+                logger.error("[SCHEMA FIX] Generated code updated successfully")
+                logger.error("[SCHEMA FIX] Please re-run the command")
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
-                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                logger.error(f"[SCHEMA ERROR] Failed to regenerate code: {e}")
                 raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}") from e
 
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
 
-        print("[TAINT] Creating SchemaMemoryCache (mandatory for discovery)", file=sys.stderr)
+        logger.info("Creating SchemaMemoryCache (mandatory for discovery)")
         cache = SchemaMemoryCache(db_path)
-        print(
-            f"[TAINT] SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB",
-            file=sys.stderr,
-        )
+        logger.info(f"SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB")
     else:
-        print(
-            f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr
-        )
+        logger.info(f"Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB")
 
     try:
         from .discovery import TaintDiscovery
 
-        print("[TAINT] Using database-driven discovery", file=sys.stderr)
+        logger.info("Using database-driven discovery")
         discovery = TaintDiscovery(cache, registry=registry)
 
-        print("[TAINT] Discovering sanitizers from framework tables", file=sys.stderr)
+        logger.info("Discovering sanitizers from framework tables")
         sanitizers = discovery.discover_sanitizers()
         for sanitizer in sanitizers:
             lang = sanitizer.get("language", "global")
             pattern = sanitizer.get("pattern", "")
             if pattern:
                 registry.register_sanitizer(pattern, lang)
-        print(f"[TAINT] Registered {len(sanitizers)} sanitizers from frameworks", file=sys.stderr)
+        logger.info(f"Registered {len(sanitizers)} sanitizers from frameworks")
 
         sources = discovery.discover_sources(merged_sources)
         sinks = discovery.discover_sinks(merged_sinks)
@@ -621,14 +603,14 @@ def trace_taint(
                 f"NO FALLBACKS - Taint analysis requires pre-computed graphs."
             )
 
-        print("[TAINT] Using IFDS mode with graphs.db", file=sys.stderr)
+        logger.info("Using IFDS mode with graphs.db")
         sys.stderr.flush()
 
         # --- THE HANDSHAKE: Filter sinks based on FlowResolver results ---
         # In complete mode, FlowResolver already ran and identified reachable sinks.
         # IFDS should only analyze those, not the entire universe.
         if mode == "complete":
-            print("[TAINT] Handshake: Filtering sinks based on FlowResolver results...", file=sys.stderr)
+            logger.info("Handshake: Filtering sinks based on FlowResolver results...")
 
             handshake_conn = sqlite3.connect(db_path)
             handshake_cursor = handshake_conn.cursor()
@@ -644,7 +626,7 @@ def trace_taint(
 
             handshake_conn.close()
 
-            print(f"[TAINT] FlowResolver identified {len(reachable_targets)} reachable sinks.", file=sys.stderr)
+            logger.info(f"FlowResolver identified {len(reachable_targets)} reachable sinks.")
 
             # UNION STRATEGY: Tag sinks confirmed by FlowResolver, but let IFDS analyze ALL sinks
             # This ensures FlowResolver timeouts don't muzzle IFDS (backward, deterministic) analysis
@@ -655,11 +637,8 @@ def trace_taint(
                     sink["confirmed_by_forward_analysis"] = True
 
             confirmed_count = sum(1 for s in sinks if s.get("confirmed_by_forward_analysis"))
-            print(
-                f"[TAINT] Ensemble: {confirmed_count}/{len(sinks)} sinks confirmed by FlowResolver. "
-                f"IFDS will analyze ALL {len(sinks)} sinks (Union Strategy).",
-                file=sys.stderr,
-            )
+            logger.info(f"Ensemble: {confirmed_count}/{len(sinks)} sinks confirmed by FlowResolver. "
+                f"IFDS will analyze ALL {len(sinks)} sinks (Union Strategy).")
             sys.stderr.flush()
         # --- END HANDSHAKE ---
 
@@ -672,10 +651,7 @@ def trace_taint(
         repo_conn.row_factory = sqlite3.Row
         type_resolver = TypeResolver(graph_conn.cursor(), repo_conn.cursor())
 
-        print(
-            f"[TAINT] Analyzing {len(sinks)} sinks against {len(sources)} sources (demand-driven)",
-            file=sys.stderr,
-        )
+        logger.info(f"Analyzing {len(sinks)} sinks against {len(sources)} sources (demand-driven)")
         sys.stderr.flush()
 
         ifds_analyzer = IFDSTaintAnalyzer(
@@ -693,10 +669,7 @@ def trace_taint(
         for idx, sink in enumerate(sinks):
             if idx % progress_interval == 0:
                 total_found = len(all_vulnerable_paths) + len(all_sanitized_paths)
-                print(
-                    f"[TAINT] Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)",
-                    file=sys.stderr,
-                )
+                logger.info(f"Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)")
                 sys.stderr.flush()
 
             vulnerable, sanitized = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
@@ -707,10 +680,7 @@ def trace_taint(
 
         graph_conn.close()
         repo_conn.close()
-        print(
-            f"[TAINT] IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths",
-            file=sys.stderr,
-        )
+        logger.info(f"IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths")
 
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 
@@ -816,14 +786,8 @@ def trace_taint(
 
         conn.commit()
         conn.close()
-        print(
-            f"[TAINT] Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)",
-            file=sys.stderr,
-        )
-        print(
-            f"[TAINT] Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)",
-            file=sys.stderr,
-        )
+        logger.info(f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)")
+        logger.info(f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)")
 
         unique_paths = unique_vulnerable_paths
 
@@ -834,10 +798,7 @@ def trace_taint(
         path_dicts = [p.to_dict() for p in unique_paths]
 
         multi_file_in_dicts = sum(1 for p in path_dicts if p["source"]["file"] != p["sink"]["file"])
-        print(
-            f"[CORE] Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)",
-            file=sys.stderr,
-        )
+        logger.debug(f"Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)")
 
         summary = {
             "total_count": len(unique_paths),
@@ -880,13 +841,10 @@ def trace_taint(
             result["mode"] = "complete"
             result["engines_used"] = ["IFDS (backward)", "FlowResolver (forward)"]
 
-            print("[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
-            print(f"[TAINT]   IFDS found: {len(unique_paths)} vulnerable paths", file=sys.stderr)
-            print(f"[TAINT]   FlowResolver resolved: {total_flows} total flows", file=sys.stderr)
-            print(
-                f"[TAINT]   resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized",
-                file=sys.stderr,
-            )
+            logger.info("COMPLETE MODE RESULTS:")
+            logger.info(f"IFDS found: {len(unique_paths)} vulnerable paths")
+            logger.info(f"FlowResolver resolved: {total_flows} total flows")
+            logger.info(f"resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized")
 
         return result
 
@@ -938,8 +896,8 @@ def trace_taint(
 
         error_msg = f"[TAINT ERROR] {str(e)}"
         traceback_str = traceback.format_exc()
-        print(error_msg, file=sys.stderr)
-        print(traceback_str, file=sys.stderr)
+        logger.error(error_msg)
+        logger.error(traceback_str)
 
         return {
             "success": False,
@@ -1011,9 +969,6 @@ def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     src_file_after = path["source"]["file"]
     sink_file_after = path["sink"]["file"]
     if src_file_before != src_file_after or sink_file_before != sink_file_after:
-        print(
-            f"[NORMALIZE] Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}",
-            file=sys.stderr,
-        )
+        logger.debug(f"Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}")
 
     return path

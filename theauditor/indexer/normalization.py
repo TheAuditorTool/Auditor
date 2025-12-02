@@ -11,6 +11,7 @@ NO FALLBACKS. Single pass. Hard fail on errors.
 import os
 import sqlite3
 import sys
+from theauditor.utils.logging import logger
 
 
 def normalize_python_routes(db_path: str) -> int:
@@ -32,16 +33,11 @@ def normalize_python_routes(db_path: str) -> int:
     count = result[0] if result else 0
 
     if count == 0:
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[Normalization] No Python routes found to normalize.", file=sys.stderr)
+        logger.debug("[Normalization] No Python routes found to normalize.")
         conn.close()
         return 0
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        print(
-            f"[Normalization] Promoting {count} Python routes to API Endpoints...",
-            file=sys.stderr,
-        )
+    logger.debug(f"[Normalization] Promoting {count} Python routes to API Endpoints...")
 
     # The "Forklift" Query
     # Map python_routes fields to api_endpoints canonical schema
@@ -82,7 +78,7 @@ def normalize_python_routes(db_path: str) -> int:
     conn.close()
 
     if os.environ.get("THEAUDITOR_DEBUG") or promoted > 0:
-        print(f"[Normalization] Successfully promoted {promoted} Python routes.", file=sys.stderr)
+        logger.error(f"[Normalization] Successfully promoted {promoted} Python routes.")
 
     return promoted
 

@@ -2,6 +2,7 @@
 
 import os
 import sys
+from theauditor.utils.logging import logger
 
 
 class CoreDatabaseMixin:
@@ -35,11 +36,7 @@ class CoreDatabaseMixin:
         for s in reversed(self.generic_batches["symbols"]):
             if (s[0], s[1], s[2], s[3], s[4]) == symbol_key:
                 # Duplicate found in current batch - skip (extractor bug)
-                if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(
-                        f"[CoreDatabase] DEDUP: Dropping duplicate symbol: {path}:{line} {name} ({symbol_type})",
-                        file=sys.stderr,
-                    )
+                logger.debug(f"[CoreDatabase] DEDUP: Dropping duplicate symbol: {path}:{line} {name} ({symbol_type})")
                 return
 
         self.generic_batches["symbols"].append(
@@ -65,10 +62,7 @@ class CoreDatabaseMixin:
             batch_idx = len(self.generic_batches["assignments"])
             import sys
 
-            print(
-                f"[TRACE] add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}",
-                file=sys.stderr,
-            )
+            logger.trace(f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}")
 
         self.generic_batches["assignments"].append(
             (file_path, line, col, target_var, source_expr, in_function, property_path)

@@ -11,6 +11,7 @@ from theauditor.indexer.schema import build_query
 
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
+from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
     from theauditor.taint.memory_cache import MemoryCache
@@ -352,11 +353,11 @@ class PythonOrmStrategy(GraphStrategy):
             known_models = list(getattr(orm_context, "models", {}).keys())
 
         if not known_models:
-            print("[PythonOrmStrategy] No ORM models found, skipping")
+            logger.info("No ORM models found, skipping")
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 
-        print(f"[PythonOrmStrategy] Found {len(known_models)} ORM models: {known_models[:5]}...")
+        logger.info(f"Found {len(known_models)} ORM models: {known_models[:5]}...")
 
         model_patterns = set()
         for model in known_models:
@@ -384,9 +385,7 @@ class PythonOrmStrategy(GraphStrategy):
                 chunk,
             )
             potential_models.extend(cursor.fetchall())
-        print(
-            f"[PythonOrmStrategy] Found {len(potential_models)} potential ORM variable assignments"
-        )
+        logger.info(f"Found {len(potential_models)} potential ORM variable assignments")
 
         with click.progressbar(
             potential_models, label="Building Python ORM edges", show_pos=True

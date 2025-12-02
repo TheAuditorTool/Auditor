@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE
 from ..schema import FLUSH_ORDER, TABLES, get_table_schema
+from theauditor.utils.logging import logger
 
 
 def validate_table_name(table: str) -> str:
@@ -70,19 +71,16 @@ class BaseDatabaseManager:
         mismatches = validate_all_tables(cursor)
 
         if not mismatches:
-            print("[SCHEMA] All table schemas validated successfully", file=sys.stderr)
+            logger.debug("All table schemas validated successfully")
             return True
 
-        print("[SCHEMA] Schema validation warnings detected:", file=sys.stderr)
+        logger.debug("Schema validation warnings detected:")
         for table_name, errors in mismatches.items():
-            print(f"[SCHEMA]   Table: {table_name}", file=sys.stderr)
+            logger.debug(f"Table: {table_name}")
             for error in errors:
-                print(f"[SCHEMA]     - {error}", file=sys.stderr)
+                logger.debug(f"- {error}")
 
-        print(
-            "[SCHEMA] Note: Some mismatches may be due to migration columns (expected)",
-            file=sys.stderr,
-        )
+        logger.debug("Note: Some mismatches may be due to migration columns (expected)")
         return False
 
     def create_schema(self) -> None:
@@ -144,17 +142,17 @@ class BaseDatabaseManager:
         tuple_size = len(batch[0]) if batch else 0
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"[DEBUG] Flush: {table_name}", file=sys.stderr)
-            print(f"  all_cols count: {len(all_cols)}", file=sys.stderr)
-            print(f"  all_cols names: {[col.name for col in all_cols]}", file=sys.stderr)
-            print(f"  tuple_size from batch[0]: {tuple_size}", file=sys.stderr)
+            logger.debug(f"Flush: {table_name}")
+            logger.error(f"  all_cols count: {len(all_cols)}")
+            logger.error(f"  all_cols names: {[col.name for col in all_cols]}")
+            logger.error(f"  tuple_size from batch[0]: {tuple_size}")
             if batch:
-                print(f"  batch[0]: {batch[0]}", file=sys.stderr)
+                logger.error(f"  batch[0]: {batch[0]}")
 
         columns = [col.name for col in all_cols[:tuple_size]]
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"  columns taken (first {tuple_size}): {columns}", file=sys.stderr)
+            logger.error(f"  columns taken (first {tuple_size}): {columns}")
 
         if len(columns) != tuple_size:
             raise RuntimeError(
@@ -169,26 +167,26 @@ class BaseDatabaseManager:
         query = f"{insert_mode} INTO {table_name} ({column_list}) VALUES ({placeholders})"
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-            print(f"  query: {query}", file=sys.stderr)
+            logger.error(f"  query: {query}")
 
         cursor = self.conn.cursor()
         try:
             cursor.executemany(query, batch)
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-                print(f"[DEBUG] Flush: {table_name} SUCCESS", file=sys.stderr)
+                logger.debug(f"Flush: {table_name} SUCCESS")
         except sqlite3.IntegrityError as e:
             # FK VIOLATION DIAGNOSTIC: Print offending data before crash
-            print(f"\n[CRITICAL] FK VIOLATION in table '{table_name}'", file=sys.stderr)
-            print(f"  Error: {e}", file=sys.stderr)
-            print(f"  Query: {query}", file=sys.stderr)
-            print(f"  Batch size: {len(batch)}", file=sys.stderr)
-            print(f"  Sample rows (first 5):", file=sys.stderr)
+            logger.critical(f"\n FK VIOLATION in table '{table_name}'")
+            logger.error(f"  Error: {e}")
+            logger.error(f"  Query: {query}")
+            logger.error(f"  Batch size: {len(batch)}")
+            logger.error(f"  Sample rows (first 5):")
             for i, row in enumerate(batch[:5]):
-                print(f"    [{i}] {row}", file=sys.stderr)
+                logger.error(f"    [{i}] {row}")
             raise  # Re-raise: crash loud with forensics
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-                print(f"[DEBUG] Flush: {table_name} FAILED - {e}", file=sys.stderr)
+                logger.debug(f"Flush: {table_name} FAILED - {e}")
             raise
 
         self.generic_batches[table_name] = []
@@ -575,18 +573,18 @@ class BaseDatabaseManager:
             error_msg = str(e)
 
             # DIAGNOSTIC: Dump all pending batches to help identify the culprit
-            print(f"\n[CRITICAL] IntegrityError in flush_batch: {error_msg}", file=sys.stderr)
-            print(f"[CRITICAL] Pending batches with data:", file=sys.stderr)
+            logger.critical(f"\n IntegrityError in flush_batch: {error_msg}")
+            logger.critical(f"Pending batches with data:")
             for tbl, batch in self.generic_batches.items():
                 if batch:
-                    print(f"  {tbl}: {len(batch)} rows", file=sys.stderr)
+                    logger.error(f"  {tbl}: {len(batch)} rows")
                     if len(batch) <= 5:
                         for i, row in enumerate(batch):
-                            print(f"    [{i}] {row}", file=sys.stderr)
+                            logger.error(f"    [{i}] {row}")
                     else:
                         for i, row in enumerate(batch[:3]):
-                            print(f"    [{i}] {row}", file=sys.stderr)
-                        print(f"    ... ({len(batch) - 3} more)", file=sys.stderr)
+                            logger.error(f"    [{i}] {row}")
+                        logger.error(f"    ... ({len(batch) - 3} more)")
 
             if "UNIQUE constraint failed" in error_msg:
                 raise ValueError(
@@ -611,11 +609,11 @@ class BaseDatabaseManager:
 
         except sqlite3.Error as e:
             if os.environ.get("THEAUDITOR_DEBUG") == "1":
-                print(f"\n[DEBUG] SQL Error: {type(e).__name__}: {e}", file=sys.stderr)
-                print("[DEBUG] Tables with pending batches:", file=sys.stderr)
+                logger.debug(f"\n SQL Error: {type(e).__name__}: {e}")
+                logger.debug("Tables with pending batches:")
                 for table_name, batch in self.generic_batches.items():
                     if batch:
-                        print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
+                        logger.debug(f"{table_name}: {len(batch)} records")
 
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}") from e
@@ -804,4 +802,4 @@ class BaseDatabaseManager:
         self.conn.commit()
 
         if hasattr(self, "_debug") and self._debug:
-            print(f"[DB] Wrote {len(findings)} findings from {tool_name} to findings_consolidated")
+            logger.info(f"Wrote {len(findings)} findings from {tool_name} to findings_consolidated")

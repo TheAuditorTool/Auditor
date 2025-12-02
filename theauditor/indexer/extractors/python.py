@@ -8,6 +8,7 @@ from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python_impl import extract_all_python_data
 
 from . import BaseExtractor
+from theauditor.utils.logging import logger
 
 
 class PythonExtractor(BaseExtractor):
@@ -43,7 +44,7 @@ class PythonExtractor(BaseExtractor):
                 except Exception:
                     import traceback
 
-                    traceback.print_exc(file=sys.stderr)
+                    logger.exception("")
 
         if not context:
             return self._empty_result()

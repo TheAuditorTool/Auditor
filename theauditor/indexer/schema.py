@@ -11,6 +11,7 @@ from .schemas.planning_schema import PLANNING_TABLES
 from .schemas.python_schema import PYTHON_TABLES
 from .schemas.security_schema import SECURITY_TABLES
 from .schemas.utils import TableSchema
+from theauditor.utils.logging import logger
 
 TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,
@@ -544,36 +545,36 @@ def get_table_schema(table_name: str) -> TableSchema:
 
 
 if __name__ == "__main__":
-    print("=" * 80)
-    print("TheAuditor Database Schema Contract (STUB)")
-    print("=" * 80)
-    print(f"\nTotal tables defined: {len(TABLES)}")
-    print("\nTable breakdown:")
-    print(f"  Core tables:           {len(CORE_TABLES)} (language-agnostic)")
-    print(f"  Python tables:         {len(PYTHON_TABLES)} (Flask/Django/SQLAlchemy)")
-    print(f"  Node tables:           {len(NODE_TABLES)} (React/Vue/TypeScript)")
-    print(f"  Infrastructure tables: {len(INFRASTRUCTURE_TABLES)} (Docker/Terraform/CDK)")
-    print(f"  Planning tables:       {len(PLANNING_TABLES)} (Meta-system)")
-    print("\nAll tables:")
+    logger.info("=" * 80)
+    logger.info("TheAuditor Database Schema Contract (STUB)")
+    logger.info("=" * 80)
+    logger.info(f"\nTotal tables defined: {len(TABLES)}")
+    logger.info("\nTable breakdown:")
+    logger.info(f"  Core tables:           {len(CORE_TABLES)} (language-agnostic)")
+    logger.info(f"  Python tables:         {len(PYTHON_TABLES)} (Flask/Django/SQLAlchemy)")
+    logger.info(f"  Node tables:           {len(NODE_TABLES)} (React/Vue/TypeScript)")
+    logger.info(f"  Infrastructure tables: {len(INFRASTRUCTURE_TABLES)} (Docker/Terraform/CDK)")
+    logger.info(f"  Planning tables:       {len(PLANNING_TABLES)} (Meta-system)")
+    logger.info("\nAll tables:")
     for table_name in sorted(TABLES.keys()):
         schema = TABLES[table_name]
-        print(f"  - {table_name}: {len(schema.columns)} columns")
+        logger.info(f"  - {table_name}: {len(schema.columns)} columns")
 
-    print("\n" + "=" * 80)
-    print("Query Builder Examples:")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Query Builder Examples:")
+    logger.info("=" * 80)
 
     query1 = build_query("variable_usage", ["file", "line", "variable_name"])
-    print(f"\nExample 1:\n  {query1}")
+    logger.info(f"\nExample 1:\n  {query1}")
 
     query2 = build_query(
         "sql_queries", where="command != 'UNKNOWN'", order_by="file_path, line_number"
     )
-    print(f"\nExample 2:\n  {query2}")
+    logger.info(f"\nExample 2:\n  {query2}")
 
     query3 = build_query("function_returns")
-    print(f"\nExample 3 (all columns):\n  {query3}")
+    logger.info(f"\nExample 3 (all columns):\n  {query3}")
 
-    print("\n" + "=" * 80)
-    print("Schema stub loaded successfully!")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Schema stub loaded successfully!")
+    logger.info("=" * 80)

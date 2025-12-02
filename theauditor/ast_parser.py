@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.js_semantic_parser import get_semantic_ast_batch
+from theauditor.utils.logging import logger
 
 
 class ParseError(Exception):
@@ -53,14 +54,12 @@ class ASTParser:
             self.has_tree_sitter = True
             self._init_tree_sitter_parsers()
         except ImportError:
-            print("\n[WARNING] AST parsing dependencies not fully installed.")
-            print("  - Python analysis: ✓ Will work (uses built-in ast module)")
-            print(
-                "  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)"
-            )
-            print("  - Terraform/HCL analysis: ✗ Limited functionality")
-            print("\nTo enable full analysis capabilities, run:")
-            print("  aud setup-ai --target .\n")
+            logger.warning("\n AST parsing dependencies not fully installed.")
+            logger.info("  - Python analysis: ✓ Will work (uses built-in ast module)")
+            logger.info("  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)")
+            logger.info("  - Terraform/HCL analysis: ✗ Limited functionality")
+            logger.info("\nTo enable full analysis capabilities, run:")
+            logger.info("  aud setup-ai --target .\n")
 
     def _init_tree_sitter_parsers(self):
         """Initialize Tree-sitter language parsers with proper bindings."""
@@ -102,17 +101,15 @@ class ASTParser:
                 self.parsers["hcl"] = hcl_parser
                 self.languages["hcl"] = hcl_lang
             except Exception as e:
-                print(f"[INFO] HCL tree-sitter not available: {e}")
-                print(
-                    "[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
-                )
+                logger.info(f"HCL tree-sitter not available: {e}")
+                logger.info("Terraform analysis requires the tree-sitter HCL grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
         except ImportError as e:
-            print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
-            print("This means tree-sitter AST analysis cannot work properly.")
-            print("Please install with: pip install tree-sitter-language-pack")
-            print("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
+            logger.info(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
+            logger.info("This means tree-sitter AST analysis cannot work properly.")
+            logger.info("Please install with: pip install tree-sitter-language-pack")
+            logger.info("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
 
             self.has_tree_sitter = False
 
@@ -188,9 +185,7 @@ class ASTParser:
 
                     if os.environ.get("THEAUDITOR_DEBUG"):
                         cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
-                        print(
-                            f"[DEBUG] Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data"
-                        )
+                        logger.debug(f"Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data")
 
                 except Exception as e:
                     raise RuntimeError(
@@ -452,9 +447,7 @@ class ASTParser:
                     cfg_count = len(
                         semantic_result.get("extracted_data", {}).get("cfg", [])
                     )
-                    print(
-                        f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
-                    )
+                    logger.debug(f"Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data")
 
                 # Parsing MUST succeed
                 if not semantic_result.get("success"):

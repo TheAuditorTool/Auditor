@@ -7,6 +7,7 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from .access_path import AccessPath
+from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
     from .taint_path import TaintPath
@@ -45,10 +46,10 @@ class IFDSTaintAnalyzer:
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
         if self.debug:
-            print("[IFDS] ========================================", file=sys.stderr)
-            print("[IFDS] IFDS Analyzer Initialized (DEBUG MODE)", file=sys.stderr)
-            print(f"[IFDS] Database: {repo_db_path}", file=sys.stderr)
-            print("[IFDS] ========================================", file=sys.stderr)
+            logger.debug("========================================")
+            logger.debug("IFDS Analyzer Initialized (DEBUG MODE)")
+            logger.debug(f"Database: {repo_db_path}")
+            logger.debug("========================================")
 
         # Pre-load sanitizer data for path checking
         self._safe_sinks: set[str] = set()
@@ -72,16 +73,13 @@ class IFDSTaintAnalyzer:
             return ([], [])
 
         if self.debug:
-            print(f"\n[IFDS] Analyzing sink: {sink.get('pattern', '?')}", file=sys.stderr)
-            print(f"[IFDS] Checking against {len(source_aps)} sources", file=sys.stderr)
+            logger.debug(f"\n Analyzing sink: {sink.get('pattern', '?')}")
+            logger.debug(f"Checking against {len(source_aps)} sources")
 
         vulnerable, sanitized = self._trace_backward_to_any_source(sink, source_aps, max_depth)
 
         if self.debug:
-            print(
-                f"[IFDS] Found {len(vulnerable)} vulnerable paths, {len(sanitized)} sanitized paths",
-                file=sys.stderr,
-            )
+            logger.debug(f"Found {len(vulnerable)} vulnerable paths, {len(sanitized)} sanitized paths")
 
         return (vulnerable, sanitized)
 
@@ -105,7 +103,7 @@ class IFDSTaintAnalyzer:
             # Time budget check - stop if taking too long on this sink
             if time.time() - start_time > self.time_budget_seconds:
                 if self.debug:
-                    print(f"[IFDS] Time budget ({self.time_budget_seconds}s) exceeded for sink", file=sys.stderr)
+                    logger.debug(f"Time budget ({self.time_budget_seconds}s) exceeded for sink")
                 break
 
             current_ap, depth, hop_chain, matched_source = worklist.popleft()
@@ -151,19 +149,13 @@ class IFDSTaintAnalyzer:
                         sanitized_paths.append(path)
 
                         if self.debug:
-                            print(
-                                f"[IFDS] ✓ Recorded SANITIZED path at max_depth={depth}, {len(hop_chain)} hops",
-                                file=sys.stderr,
-                            )
+                            logger.debug(f"✓ Recorded SANITIZED path at max_depth={depth}, {len(hop_chain)} hops")
                     else:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
                         vulnerable_paths.append(path)
 
                         if self.debug:
-                            print(
-                                f"[IFDS] ✓ Recorded VULNERABLE path at max_depth={depth}, {len(hop_chain)} hops",
-                                file=sys.stderr,
-                            )
+                            logger.debug(f"✓ Recorded VULNERABLE path at max_depth={depth}, {len(hop_chain)} hops")
 
                 continue
 
@@ -181,19 +173,13 @@ class IFDSTaintAnalyzer:
                         sanitized_paths.append(path)
 
                         if self.debug:
-                            print(
-                                f"[IFDS] ✓ Recorded SANITIZED path at natural termination (no predecessors), {len(hop_chain)} hops",
-                                file=sys.stderr,
-                            )
+                            logger.debug(f"✓ Recorded SANITIZED path at natural termination (no predecessors), {len(hop_chain)} hops")
                     else:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
                         vulnerable_paths.append(path)
 
                         if self.debug:
-                            print(
-                                f"[IFDS] ✓ Recorded VULNERABLE path at natural termination (no predecessors), {len(hop_chain)} hops",
-                                file=sys.stderr,
-                            )
+                            logger.debug(f"✓ Recorded VULNERABLE path at natural termination (no predecessors), {len(hop_chain)} hops")
 
                 continue
 
@@ -256,10 +242,7 @@ class IFDSTaintAnalyzer:
             if source_ap:
                 predecessors.append((source_ap, edge_type, metadata))
             elif self.debug:
-                print(
-                    f"[IFDS] WARNING: Dropped malformed node ID: '{source_id}' (parse failed)",
-                    file=sys.stderr,
-                )
+                logger.debug(f"WARNING: Dropped malformed node ID: '{source_id}' (parse failed)")
 
         # Query 2: Forward edges traversed backwards (target = current, source = predecessor)
         # This catches edges where graph builder created forward but not reverse
@@ -295,10 +278,7 @@ class IFDSTaintAnalyzer:
                 if not any(p[0].node_id == pred_ap.node_id for p in predecessors):
                     predecessors.append((pred_ap, edge_type, metadata))
             elif self.debug:
-                print(
-                    f"[IFDS] WARNING: Dropped malformed node ID: '{pred_id}' (parse failed)",
-                    file=sys.stderr,
-                )
+                logger.debug(f"WARNING: Dropped malformed node ID: '{pred_id}' (parse failed)")
 
         # FIX #9: Exclude node_modules from call graph traversal too
         self.graph_cursor.execute(
@@ -330,18 +310,12 @@ class IFDSTaintAnalyzer:
                 predecessors.append((source_ap, edge_type, metadata))
 
                 if self.debug:
-                    print(
-                        f"[IFDS] Edge (Parse OK): {source_id} -> {ap.node_id} ({edge_type})",
-                        file=sys.stderr,
-                    )
+                    logger.debug(f"Edge (Parse OK): {source_id} -> {ap.node_id} ({edge_type})")
             elif self.debug:
-                print(
-                    f"[IFDS] WARNING: Dropped malformed node ID: '{source_id}' (parse failed)",
-                    file=sys.stderr,
-                )
+                logger.debug(f"WARNING: Dropped malformed node ID: '{source_id}' (parse failed)")
 
         if not predecessors and self.debug:
-            print(f"[IFDS] No predecessors for {ap.node_id} (termination point)", file=sys.stderr)
+            logger.debug(f"No predecessors for {ap.node_id} (termination point)")
 
         return predecessors
 
@@ -513,20 +487,17 @@ class IFDSTaintAnalyzer:
                 count = self.repo_cursor.fetchone()[0]
                 if count > 0:
                     if self.debug:
-                        print(
-                            f"[IFDS] TRUE ENTRY POINT (middleware chain): {node_id}",
-                            file=sys.stderr,
-                        )
+                        logger.debug(f"TRUE ENTRY POINT (middleware chain): {node_id}")
                     return True
 
         if "process.env" in variable or "env." in variable:
             if self.debug:
-                print(f"[IFDS] TRUE ENTRY POINT (env var): {node_id}", file=sys.stderr)
+                logger.debug(f"TRUE ENTRY POINT (env var): {node_id}")
             return True
 
         if "process.argv" in variable or "argv" in variable:
             if self.debug:
-                print(f"[IFDS] TRUE ENTRY POINT (CLI arg): {node_id}", file=sys.stderr)
+                logger.debug(f"TRUE ENTRY POINT (CLI arg): {node_id}")
             return True
 
         return False
@@ -585,12 +556,9 @@ class IFDSTaintAnalyzer:
                 self._call_args_cache[key].append(callee)
 
         if self.debug:
-            print(
-                f"[IFDS] Loaded {len(self._safe_sinks)} safe sinks, "
+            logger.debug(f"Loaded {len(self._safe_sinks)} safe sinks, "
                 f"{len(self._validation_sanitizers)} validators, "
-                f"{len(self._call_args_cache)} call locations",
-                file=sys.stderr,
-            )
+                f"{len(self._call_args_cache)} call locations")
 
     def _is_sanitizer(self, function_name: str) -> bool:
         """Check if function is a sanitizer. Uses registry if available."""

@@ -9,6 +9,7 @@ from collections import defaultdict
 from functools import lru_cache
 
 from theauditor.utils.logger import setup_logger
+from theauditor.utils.logging import logger
 
 logger = setup_logger(__name__)
 
@@ -261,11 +262,8 @@ class FlowResolver:
         ]
 
         if self.debug:
-            print(
-                f"[TAINT] Hybrid Entry Analysis: {len(filtered_entries)} roots "
-                f"(Authoritative: {authoritative_count}, Heuristic: {heuristic_count})",
-                file=sys.stderr,
-            )
+            logger.info(f"Hybrid Entry Analysis: {len(filtered_entries)} roots "
+                f"(Authoritative: {authoritative_count}, Heuristic: {heuristic_count})")
 
         return filtered_entries
 
