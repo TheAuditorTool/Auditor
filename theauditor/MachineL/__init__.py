@@ -1,6 +1,7 @@
-"""TheAuditor insights package - optional interpretive intelligence."""
+"""TheAuditor MachineL package - ML-based risk prediction and insights."""
 
-from theauditor.insights.impact_analyzer import (
+from theauditor.MachineL.cli import learn, suggest
+from theauditor.MachineL.impact_analyzer import (
     analyze_impact,
     calculate_transitive_impact,
     find_downstream_dependencies,
@@ -8,45 +9,26 @@ from theauditor.insights.impact_analyzer import (
     format_impact_report,
     trace_frontend_to_backend,
 )
-from theauditor.insights.ml import (
+from theauditor.MachineL.models import (
     build_feature_matrix,
     build_labels,
     check_ml_available,
-    extract_text_features,
-    fowler_noll_hash,
     is_source_file,
-    learn,
-    load_ast_complexity_metrics,
-    load_ast_stats,
-    load_git_churn,
-    load_graph_stats,
-    load_journal_stats,
     load_models,
-    load_rca_stats,
-    load_semantic_import_features,
     save_models,
-    suggest,
     train_models,
 )
+
 __all__ = [
-    "check_ml_available",
     "learn",
     "suggest",
+    "check_ml_available",
     "build_feature_matrix",
     "build_labels",
     "train_models",
     "save_models",
     "load_models",
     "is_source_file",
-    "load_journal_stats",
-    "load_rca_stats",
-    "load_ast_stats",
-    "load_graph_stats",
-    "load_git_churn",
-    "load_semantic_import_features",
-    "load_ast_complexity_metrics",
-    "extract_text_features",
-    "fowler_noll_hash",
     "analyze_impact",
     "find_upstream_dependencies",
     "find_downstream_dependencies",

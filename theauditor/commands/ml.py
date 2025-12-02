@@ -232,7 +232,7 @@ def learn(
     meaningful accuracy. Cold-start mode works with less data but predictions are
     unreliable. Re-train models weekly to incorporate new findings and patterns.
     """
-    from theauditor.insights.ml import learn as ml_learn
+    from theauditor.MachineL import learn as ml_learn
 
     console.print(
         f"\\[ML] Training models from audit artifacts (using {train_on} runs)...", highlight=False
@@ -581,7 +581,7 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
     of vulnerabilities. Use as a prioritization tool, not a replacement for thorough
     review. Re-train models weekly to keep predictions accurate as code evolves.
     """
-    from theauditor.insights.ml import suggest as ml_suggest
+    from theauditor.MachineL import suggest as ml_suggest
 
     console.print("\\[ML] Generating suggestions from trained models...")
 
@@ -813,7 +813,7 @@ def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
     50 guesses. Focus feedback on files where model predictions were confidently wrong
     (high-risk predictions that were clean, or low-risk predictions that had bugs).
     """
-    from theauditor.insights.ml import learn as ml_learn
+    from theauditor.MachineL import learn as ml_learn
 
     if not Path(feedback_file).exists():
         console.print(f"[error]Feedback file not found: {feedback_file}[/error]", stderr=True)
