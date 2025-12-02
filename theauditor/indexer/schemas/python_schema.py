@@ -98,9 +98,6 @@ PYTHON_PACKAGE_CONFIGS = TableSchema(
         Column("file_type", "TEXT", nullable=False),
         Column("project_name", "TEXT"),
         Column("project_version", "TEXT"),
-        Column("dependencies", "TEXT"),
-        Column("optional_dependencies", "TEXT"),
-        Column("build_system", "TEXT"),
         Column("indexed_at", "TIMESTAMP", default="CURRENT_TIMESTAMP"),
     ],
     primary_key=["file_path"],
@@ -108,6 +105,48 @@ PYTHON_PACKAGE_CONFIGS = TableSchema(
         ("idx_python_package_configs_file", ["file_path"]),
         ("idx_python_package_configs_type", ["file_type"]),
         ("idx_python_package_configs_project", ["project_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
+    ],
+)
+
+# Junction table for normalized Python package dependencies
+PYTHON_PACKAGE_DEPENDENCIES = TableSchema(
+    name="python_package_dependencies",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("version_spec", "TEXT"),
+        Column("is_dev", "INTEGER", default="0"),
+        Column("group_name", "TEXT"),  # optional-dependencies group name (e.g., "dev", "test")
+        Column("extras", "TEXT"),  # JSON array of extras like [security, socks]
+        Column("git_url", "TEXT"),  # for git+https:// dependencies
+    ],
+    primary_key=["file_path", "name", "group_name"],
+    indexes=[
+        ("idx_python_package_deps_file", ["file_path"]),
+        ("idx_python_package_deps_name", ["name"]),
+        ("idx_python_package_deps_dev", ["is_dev"]),
+        ("idx_python_package_deps_group", ["group_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
+    ],
+)
+
+# Junction table for build-system.requires from pyproject.toml
+PYTHON_BUILD_REQUIRES = TableSchema(
+    name="python_build_requires",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("version_spec", "TEXT"),
+    ],
+    primary_key=["file_path", "name"],
+    indexes=[
+        ("idx_python_build_requires_file", ["file_path"]),
+        ("idx_python_build_requires_name", ["name"]),
     ],
     foreign_keys=[
         ForeignKey(local_columns=["file_path"], foreign_table="files", foreign_columns=["path"]),
@@ -1030,6 +1069,8 @@ PYTHON_TABLES: dict[str, TableSchema] = {
     "python_routes": PYTHON_ROUTES,
     "python_validators": PYTHON_VALIDATORS,
     "python_package_configs": PYTHON_PACKAGE_CONFIGS,
+    "python_package_dependencies": PYTHON_PACKAGE_DEPENDENCIES,
+    "python_build_requires": PYTHON_BUILD_REQUIRES,
     "python_decorators": PYTHON_DECORATORS,
     "python_django_views": PYTHON_DJANGO_VIEWS,
     "python_django_middleware": PYTHON_DJANGO_MIDDLEWARE,

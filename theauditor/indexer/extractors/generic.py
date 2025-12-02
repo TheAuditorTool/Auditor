@@ -1,6 +1,5 @@
 """Generic configuration file extractor (Database-First Gold Standard)."""
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -33,13 +32,6 @@ NGINX_FILE_PATTERNS: frozenset = frozenset(
 )
 
 
-PACKAGE_FILE_PATTERNS: frozenset = frozenset(
-    [
-        "package.json",
-    ]
-)
-
-
 class GenericExtractor(BaseExtractor):
     """Extract config files directly to database (Gold Standard v1.2)."""
 
@@ -54,7 +46,6 @@ class GenericExtractor(BaseExtractor):
         return (
             file_name in COMPOSE_FILE_PATTERNS
             or file_name in NGINX_FILE_PATTERNS
-            or file_name in PACKAGE_FILE_PATTERNS
             or file_name.endswith(".conf")
         )
 
@@ -70,9 +61,6 @@ class GenericExtractor(BaseExtractor):
 
         elif file_name in NGINX_FILE_PATTERNS or file_name.endswith(".conf"):
             self._extract_nginx_direct(file_path_str, content)
-
-        elif file_name in PACKAGE_FILE_PATTERNS:
-            self._extract_package_direct(file_path_str, content)
 
         return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
 
@@ -346,73 +334,3 @@ class GenericExtractor(BaseExtractor):
             directives={"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
             level=0,
         )
-
-    def _extract_package_direct(self, file_path: str, content: str) -> None:
-        """Extract package.json to package_configs and junction tables."""
-        try:
-            pkg_data = json.loads(content)
-
-            self.db_manager.add_package_config(
-                file_path=file_path,
-                package_name=pkg_data.get("name", "unknown"),
-                version=pkg_data.get("version", "unknown"),
-                is_private=pkg_data.get("private", False),
-            )
-
-            deps = pkg_data.get("dependencies") or {}
-            for name, version_spec in deps.items():
-                self.db_manager.add_package_dependency(
-                    file_path=file_path,
-                    name=name,
-                    version_spec=version_spec,
-                    is_dev=False,
-                    is_peer=False,
-                )
-
-            dev_deps = pkg_data.get("devDependencies") or {}
-            for name, version_spec in dev_deps.items():
-                self.db_manager.add_package_dependency(
-                    file_path=file_path,
-                    name=name,
-                    version_spec=version_spec,
-                    is_dev=True,
-                    is_peer=False,
-                )
-
-            peer_deps = pkg_data.get("peerDependencies") or {}
-            for name, version_spec in peer_deps.items():
-                self.db_manager.add_package_dependency(
-                    file_path=file_path,
-                    name=name,
-                    version_spec=version_spec,
-                    is_dev=False,
-                    is_peer=True,
-                )
-
-            scripts = pkg_data.get("scripts") or {}
-            for script_name, script_command in scripts.items():
-                self.db_manager.add_package_script(
-                    file_path=file_path,
-                    script_name=script_name,
-                    script_command=script_command,
-                )
-
-            engines = pkg_data.get("engines") or {}
-            for engine_name, version_spec in engines.items():
-                self.db_manager.add_package_engine(
-                    file_path=file_path,
-                    engine_name=engine_name,
-                    version_spec=version_spec,
-                )
-
-            workspaces = pkg_data.get("workspaces") or []
-            if isinstance(workspaces, dict):
-                workspaces = workspaces.get("packages", [])
-            for workspace_path in workspaces:
-                self.db_manager.add_package_workspace(
-                    file_path=file_path,
-                    workspace_path=workspace_path,
-                )
-
-        except json.JSONDecodeError:
-            pass

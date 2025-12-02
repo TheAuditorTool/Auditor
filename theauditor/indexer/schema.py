@@ -55,6 +55,8 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("python_routes", "INSERT"),
     ("python_validators", "INSERT"),
     ("python_package_configs", "INSERT"),
+    ("python_package_dependencies", "INSERT"),
+    ("python_build_requires", "INSERT"),
     ("python_decorators", "INSERT"),
     ("python_django_views", "INSERT"),
     ("python_django_middleware", "INSERT"),

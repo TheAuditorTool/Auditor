@@ -92,9 +92,6 @@ class PythonDatabaseMixin:
         file_type: str,
         project_name: str | None,
         project_version: str | None,
-        dependencies: str,
-        optional_dependencies: str,
-        build_system: str | None,
     ):
         """Add a Python package configuration (pyproject.toml/requirements.txt) to the batch."""
         self.generic_batches["python_package_configs"].append(
@@ -103,9 +100,44 @@ class PythonDatabaseMixin:
                 file_type,
                 project_name,
                 project_version,
-                dependencies,
-                optional_dependencies,
-                build_system,
+            )
+        )
+
+    def add_python_package_dependency(
+        self,
+        file_path: str,
+        name: str,
+        version_spec: str | None,
+        is_dev: bool = False,
+        group_name: str | None = None,
+        extras: str | None = None,
+        git_url: str | None = None,
+    ):
+        """Add a Python package dependency to the junction table."""
+        self.generic_batches["python_package_dependencies"].append(
+            (
+                file_path,
+                name,
+                version_spec,
+                1 if is_dev else 0,
+                group_name,
+                extras,
+                git_url,
+            )
+        )
+
+    def add_python_build_requirement(
+        self,
+        file_path: str,
+        name: str,
+        version_spec: str | None,
+    ):
+        """Add a Python build requirement (build-system.requires) to the batch."""
+        self.generic_batches["python_build_requires"].append(
+            (
+                file_path,
+                name,
+                version_spec,
             )
         )
 

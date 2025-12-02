@@ -2569,6 +2569,31 @@ class PythonBranchesTable:
         return [dict(zip(['id', 'file', 'line', 'branch_kind', 'branch_type', 'has_else', 'has_elif', 'chain_length', 'has_complex_condition', 'nesting_level', 'case_count', 'has_guards', 'has_wildcard', 'pattern_types', 'exception_types', 'handling_strategy', 'variable_name', 'exception_type', 'is_re_raise', 'from_exception', 'message', 'condition', 'has_cleanup', 'cleanup_calls', 'in_function'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class PythonBuildRequiresTable:
+    """Accessor class for python_build_requires table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from python_build_requires."""
+        query = build_query('python_build_requires', ['file_path', 'name', 'version_spec'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'name', 'version_spec'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('python_build_requires', ['file_path', 'name', 'version_spec'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['file_path', 'name', 'version_spec'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('python_build_requires', ['file_path', 'name', 'version_spec'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'name', 'version_spec'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class PythonClassFeaturesTable:
     """Accessor class for python_class_features table."""
 
@@ -3201,30 +3226,69 @@ class PythonPackageConfigsTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from python_package_configs."""
-        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'])
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'])
         cursor.execute(query)
-        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
         """Get rows by file_path."""
-        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="file_path = ?")
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], where="file_path = ?")
         cursor.execute(query, (file_path,))
-        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file_type(cursor: sqlite3.Cursor, file_type: str) -> list[dict[str, Any]]:
         """Get rows by file_type."""
-        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="file_type = ?")
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], where="file_type = ?")
         cursor.execute(query, (file_type,))
-        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_project_name(cursor: sqlite3.Cursor, project_name: str) -> list[dict[str, Any]]:
         """Get rows by project_name."""
-        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="project_name = ?")
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], where="project_name = ?")
         cursor.execute(query, (project_name,))
-        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'indexed_at'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class PythonPackageDependenciesTable:
+    """Accessor class for python_package_dependencies table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from python_package_dependencies."""
+        query = build_query('python_package_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('python_package_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('python_package_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_is_dev(cursor: sqlite3.Cursor, is_dev: int) -> list[dict[str, Any]]:
+        """Get rows by is_dev."""
+        query = build_query('python_package_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], where="is_dev = ?")
+        cursor.execute(query, (is_dev,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_group_name(cursor: sqlite3.Cursor, group_name: str) -> list[dict[str, Any]]:
+        """Get rows by group_name."""
+        query = build_query('python_package_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], where="group_name = ?")
+        cursor.execute(query, (group_name,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'group_name', 'extras', 'git_url'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class PythonProtocolMethodsTable:
@@ -4116,6 +4180,31 @@ class TaintFlowsTable:
         query = build_query('taint_flows', ['id', 'source_file', 'source_line', 'source_pattern', 'sink_file', 'sink_line', 'sink_pattern', 'vulnerability_type', 'path_length', 'hops', 'path_json', 'flow_sensitive'], where="path_length = ?")
         cursor.execute(query, (path_length,))
         return [dict(zip(['id', 'source_file', 'source_line', 'source_pattern', 'sink_file', 'sink_line', 'sink_pattern', 'vulnerability_type', 'path_length', 'hops', 'path_json', 'flow_sensitive'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class TerraformDataSourcesTable:
+    """Accessor class for terraform_data_sources table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from terraform_data_sources."""
+        query = build_query('terraform_data_sources', ['data_id', 'file_path', 'data_type', 'data_name', 'line'])
+        cursor.execute(query)
+        return [dict(zip(['data_id', 'file_path', 'data_type', 'data_name', 'line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('terraform_data_sources', ['data_id', 'file_path', 'data_type', 'data_name', 'line'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['data_id', 'file_path', 'data_type', 'data_name', 'line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_data_type(cursor: sqlite3.Cursor, data_type: str) -> list[dict[str, Any]]:
+        """Get rows by data_type."""
+        query = build_query('terraform_data_sources', ['data_id', 'file_path', 'data_type', 'data_name', 'line'], where="data_type = ?")
+        cursor.execute(query, (data_type,))
+        return [dict(zip(['data_id', 'file_path', 'data_type', 'data_name', 'line'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class TerraformFilesTable:
