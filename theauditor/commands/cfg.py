@@ -12,79 +12,22 @@ from theauditor.utils.logging import logger
 @click.group()
 @click.help_option("-h", "--help")
 def cfg():
-    """Control Flow Graph complexity analysis for maintainability and testability assessment.
+    """Control Flow Graph complexity analysis.
 
-    Group command for analyzing function complexity via Control Flow Graphs (CFG) - directed
-    graphs mapping all possible execution paths through functions. Calculates cyclomatic
-    complexity (McCabe metric), identifies unreachable code blocks, measures nesting depth,
-    and visualizes control flow for refactoring candidates.
-
-    AI ASSISTANT CONTEXT:
-      Purpose: Measure function complexity for maintainability risk assessment
-      Input: .pf/repo_index.db (function definitions)
-      Output: Complexity metrics, dead code locations, visualizations
-      Prerequisites: aud index (populates functions/classes)
-      Integration: Code quality gates, refactoring prioritization, test planning
-      Performance: ~5-15 seconds (AST parsing + graph construction)
+    Analyzes function complexity via CFG - calculates cyclomatic complexity (McCabe),
+    identifies unreachable code, measures nesting depth.
 
     SUBCOMMANDS:
-      analyze: Calculate cyclomatic complexity and detect issues
-      viz:     Generate visual CFG diagrams (requires Graphviz)
+      analyze: Calculate complexity and detect dead code
+      viz:     Generate DOT diagrams (requires Graphviz)
 
-    KEY METRICS:
-      Cyclomatic Complexity:
-        - Number of linearly independent paths through code
-        - McCabe metric: edges - nodes + 2 * connected_components
-        - Higher = more complex = harder to test
-
-      Dead Code Blocks:
-        - Unreachable code after return/break/continue
-        - Conditions that can never be true
-
-      Nesting Depth:
-        - Maximum indentation level (nested if/for/while)
-        - Deep nesting indicates high cognitive load
-
-      Loop Complexity:
-        - Nested loops and nested conditions
-        - Contributes to overall complexity
-
-    MCCABE COMPLEXITY THRESHOLDS:
-      1-10:   Simple, low risk, easily testable
-      11-20:  Moderate, medium risk, needs attention
-      21-50:  Complex, high risk, refactor candidate
-      50+:    Untestable, very high risk, immediate refactor
+    COMPLEXITY THRESHOLDS:
+      1-10: Simple | 11-20: Moderate | 21-50: Complex | 50+: Refactor immediately
 
     EXAMPLES:
-      aud cfg analyze
       aud cfg analyze --complexity-threshold 15
-      aud cfg analyze --find-dead-code
-      aud cfg viz --function process_payment
-
-    PERFORMANCE: ~5-15 seconds
-
-    RELATED COMMANDS:
-      aud deadcode  # Module-level isolation
-      aud graph     # File-level dependencies
-
-    NOTE: CFG analysis is function-level (not module). For module-level dead
-    code detection, use 'aud deadcode'.
-
-    EXAMPLES:
-      aud cfg analyze --workset                  # Analyze changed files only
-      aud cfg viz --file auth.py --function login # Visualize login function
-
-    Output:
-      .pf/raw/cfg_analysis.json  # Complexity metrics and issues
-      .pf/repo_index.db          # CFG data stored in database
-        - cfg_blocks table        # Basic blocks
-        - cfg_edges table         # Control flow edges
-
-    Use Cases:
-      - Code review: Find overly complex functions
-      - Testing: Identify hard-to-test code
-      - Refactoring: Prioritize by complexity
-      - Security: Complex functions hide bugs
+      aud cfg analyze --find-dead-code --workset
+      aud cfg viz --file auth.py --function login
     """
     pass
 
@@ -117,8 +60,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
     try:
         db_path = Path(db)
         if not db_path.exists():
-            console.print(f"Database not found: {db}. Run 'aud full' first.", highlight=False)
-            return
+            raise click.ClickException(f"Database not found: {db}. Run 'aud full' first.")
 
         builder = CFGBuilder(str(db_path))
 
@@ -135,14 +77,12 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             functions = builder.get_all_functions()
             matching = [f for f in functions if f["function_name"] == function]
             if not matching:
-                console.print(f"Function '{function}' not found", highlight=False)
-                return
+                raise click.ClickException(f"Function '{function}' not found")
             functions = matching
         elif file:
             functions = builder.get_all_functions(file_path=file)
             if not functions:
-                console.print(f"No functions found in {file}", highlight=False)
-                return
+                raise click.ClickException(f"No functions found in {file}")
         else:
             functions = builder.get_all_functions()
 
@@ -227,19 +167,12 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
 
         repo_db_path = Path(".pf") / "repo_index.db"
         if repo_db_path.exists() and meta_findings:
-            try:
-                db_manager = DatabaseManager(str(repo_db_path.resolve()))
-                db_manager.write_findings_batch(meta_findings, "cfg-analysis")
-                db_manager.close()
-                console.print(
-                    f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False
-                )
-            except Exception as e:
-                console.print(
-                    f"[error]  Warning: Could not write findings to database: {e}[/error]",
-                    stderr=True,
-                    highlight=False,
-                )
+            db_manager = DatabaseManager(str(repo_db_path.resolve()))
+            db_manager.write_findings_batch(meta_findings, "cfg-analysis")
+            db_manager.close()
+            console.print(
+                f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False
+            )
 
         output_path = Path(".pf") / "raw" / "cfg.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,8 +235,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            console.print(f"Database not found: {db}. Run 'aud full' first.", highlight=False)
-            return
+            raise click.ClickException(f"Database not found: {db}. Run 'aud full' first.")
 
         builder = CFGBuilder(str(db_path))
 
@@ -311,9 +243,9 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         cfg = builder.get_function_cfg(file, function)
 
         if not cfg["blocks"]:
-            console.print(f"No CFG data found for {function} in {file}", highlight=False)
-            console.print("Make sure the function was indexed with 'aud full'")
-            return
+            raise click.ClickException(
+                f"No CFG data found for {function} in {file}. Run 'aud full' first."
+            )
 
         console.print(
             f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges", highlight=False
