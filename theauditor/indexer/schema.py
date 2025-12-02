@@ -103,6 +103,7 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("terraform_variables", "INSERT"),
     ("terraform_variable_values", "INSERT"),
     ("terraform_outputs", "INSERT"),
+    ("terraform_data_sources", "INSERT"),
     ("terraform_findings", "INSERT"),
     ("cdk_constructs", "INSERT"),
     ("cdk_construct_properties", "INSERT"),

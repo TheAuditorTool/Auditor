@@ -45,9 +45,11 @@ def normalize_python_routes(db_path: str) -> int:
 
     # The "Forklift" Query
     # Map python_routes fields to api_endpoints canonical schema
+    # ZERO FALLBACK: Skip rows with NULL line - do NOT fabricate data
     cursor.execute("""
         INSERT INTO api_endpoints (
             file,
+            line,
             method,
             pattern,
             path,
@@ -57,6 +59,7 @@ def normalize_python_routes(db_path: str) -> int:
         )
         SELECT
             file,
+            line,
             UPPER(COALESCE(method, 'GET')),
             pattern,
             pattern,
@@ -66,8 +69,9 @@ def normalize_python_routes(db_path: str) -> int:
         FROM python_routes
         WHERE handler_function IS NOT NULL
           AND pattern IS NOT NULL
-          AND (file, pattern, UPPER(COALESCE(method, 'GET'))) NOT IN (
-              SELECT file, pattern, method FROM api_endpoints
+          AND line IS NOT NULL
+          AND (file, line) NOT IN (
+              SELECT file, line FROM api_endpoints
           )
     """)
 

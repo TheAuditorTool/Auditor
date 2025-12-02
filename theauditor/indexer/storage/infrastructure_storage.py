@@ -17,6 +17,9 @@ class InfrastructureStorage(BaseStorage):
             "terraform_variables": self._store_terraform_variables,
             "terraform_variable_values": self._store_terraform_variable_values,
             "terraform_outputs": self._store_terraform_outputs,
+            "terraform_data": self._store_terraform_data,
+            "terraform_modules": self._store_terraform_modules,
+            "terraform_providers": self._store_terraform_providers,
             "graphql_schemas": self._store_graphql_schemas,
             "graphql_types": self._store_graphql_types,
             "graphql_fields": self._store_graphql_fields,
@@ -286,3 +289,33 @@ class InfrastructureStorage(BaseStorage):
             if "graphql_resolver_params" not in self.counts:
                 self.counts["graphql_resolver_params"] = 0
             self.counts["graphql_resolver_params"] += 1
+
+    def _store_terraform_data(self, file_path: str, terraform_data: list, jsx_pass: bool):
+        """Store Terraform data sources."""
+        if not terraform_data:
+            return
+        for data_source in terraform_data:
+            self.db_manager.add_terraform_data_source(
+                data_id=data_source["data_id"],
+                file_path=data_source["file_path"],
+                data_type=data_source["data_type"],
+                data_name=data_source["data_name"],
+                line=data_source.get("line"),
+            )
+            if "terraform_data_sources" not in self.counts:
+                self.counts["terraform_data_sources"] = 0
+            self.counts["terraform_data_sources"] += 1
+
+    def _store_terraform_modules(self, file_path: str, terraform_modules: list, jsx_pass: bool):
+        """Store Terraform modules (stub - modules not yet extracted)."""
+        # Extractor currently produces empty list for modules
+        # Handler exists to prevent "No handler" warnings
+        pass
+
+    def _store_terraform_providers(
+        self, file_path: str, terraform_providers: list, jsx_pass: bool
+    ):
+        """Store Terraform providers (stub - providers not yet extracted)."""
+        # Extractor currently produces empty list for providers
+        # Handler exists to prevent "No handler" warnings
+        pass

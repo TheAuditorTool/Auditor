@@ -314,7 +314,7 @@ class CoreDatabaseMixin:
                     continue
 
                 self.generic_batches["function_return_sources_jsx"].append(
-                    (file_path, line, function_name, jsx_mode, return_var)
+                    (file_path, line, function_name, jsx_mode, return_var, extraction_pass)
                 )
 
     def add_symbol_jsx(

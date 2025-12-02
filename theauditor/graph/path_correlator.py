@@ -53,11 +53,14 @@ class PathCorrelator:
         cursor = self.conn.cursor()
 
         for finding in findings:
-            file_path = finding.get("file", "")
+            raw_path = finding.get("file", "")
             line = finding.get("line", 0)
 
-            if not file_path or line <= 0:
+            if not raw_path or line <= 0:
                 continue
+
+            # Normalize path to forward slashes to match storage layer
+            file_path = raw_path.replace("\\", "/")
 
             cursor.execute(
                 """

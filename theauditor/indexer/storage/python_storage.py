@@ -658,6 +658,42 @@ class PythonStorage(BaseStorage):
         for config in python_framework_config:
             config_kind = config.get("config_kind") or config.get("config_type", "unknown")
 
+            # Option A expansion: map extractor fields to 5 high-value columns
+            # class_name: form/admin/serializer/schema/manager/queryset class names
+            class_name = (
+                config.get("form_class_name")
+                or config.get("admin_class_name")
+                or config.get("schema_class_name")
+                or config.get("serializer_class_name")
+                or config.get("queryset_name")
+                or config.get("manager_name")
+                or config.get("class_name")
+            )
+
+            # model_name: model references from forms, admin, CBVs
+            model_name = config.get("model_name")
+
+            # function_name: handlers, receivers, resolvers, factories
+            function_name = (
+                config.get("function_name")
+                or config.get("factory_name")
+                or config.get("resolver_name")
+                or config.get("receiver_function")
+            )
+
+            # target_name: task/signal/schedule/blueprint/event/command names
+            target_name = (
+                config.get("task_name")
+                or config.get("signal_name")
+                or config.get("schedule_name")
+                or config.get("blueprint_name")
+                or config.get("event_name")
+                or config.get("command_name")
+            )
+
+            # base_class: inheritance info for managers, querysets, views
+            base_class = config.get("base_class") or config.get("base_view_class")
+
             config_id = self.db_manager.add_python_framework_config(
                 file_path,
                 config.get("line", 0),
@@ -668,6 +704,11 @@ class PythonStorage(BaseStorage):
                 config.get("endpoint"),
                 config.get("cache_type"),
                 config.get("timeout"),
+                class_name,
+                model_name,
+                function_name,
+                target_name,
+                base_class,
                 config.get("has_process_request", False),
                 config.get("has_process_response", False),
                 config.get("has_process_exception", False),
