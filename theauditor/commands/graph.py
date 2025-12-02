@@ -1,11 +1,11 @@
 """Cross-project dependency and call graph analysis."""
 
 import json
+import sqlite3
 from pathlib import Path
 
 import click
 
-from theauditor.commands.config import MANIFEST_PATH
 from theauditor.pipeline.ui import console
 
 
@@ -116,8 +116,8 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
       --batch-size: Larger = faster but more memory, smaller = slower but safer
 
     TROUBLESHOOTING:
-      "No manifest found" error:
-        Solution: Run 'aud index' first to create manifest.json
+      "No database found" error:
+        Solution: Run 'aud full' first to build the database
 
       Graph build very slow (>10 minutes):
         Cause: Large codebase or small batch size
@@ -131,7 +131,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         Cause: Batch size too large for available RAM
         Solution: Reduce --batch-size to 100 or 50
 
-    Note: Must run 'aud index' first to build manifest."""
+    Note: Must run 'aud full' first to build the database."""
     from theauditor.graph.builder import XGraphBuilder
     from theauditor.graph.store import XGraphStore
 
@@ -153,20 +153,23 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             builder.checkpoint_file.unlink()
 
         file_list = None
-        manifest_path = Path(MANIFEST_PATH)
-        if manifest_path.exists():
-            console.print("Loading file manifest...")
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest_data = json.load(f)
+        db_path = Path(db)
+        if db_path.exists():
+            console.print("Loading files from database...")
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, sha256, ext, bytes, loc FROM files")
+            all_files = [{"path": row[0], "sha256": row[1], "ext": row[2], "bytes": row[3], "loc": row[4]} for row in cursor.fetchall()]
+            conn.close()
 
             if workset_files:
-                file_list = [f for f in manifest_data if f.get("path") in workset_files]
+                file_list = [f for f in all_files if f.get("path") in workset_files]
                 console.print(f"  Filtered to {len(file_list)} files from workset", highlight=False)
             else:
-                file_list = manifest_data
-                console.print(f"  Found {len(file_list)} files in manifest", highlight=False)
+                file_list = all_files
+                console.print(f"  Found {len(file_list)} files in database", highlight=False)
         else:
-            console.print("No manifest found, using filesystem walk")
+            console.print("No database found, using filesystem walk")
 
         console.print("Building import graph...")
         import_graph = builder.build_import_graph(

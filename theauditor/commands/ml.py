@@ -9,7 +9,6 @@ from theauditor.pipeline.ui import console
 
 @click.command(name="learn")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--enable-git", is_flag=True, help="Enable git churn features")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
 @click.option("--window", default=50, type=int, help="Journal window size")
@@ -30,7 +29,6 @@ from theauditor.pipeline.ui import console
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
 def learn(
     db_path,
-    manifest,
     enable_git,
     model_dir,
     window,
@@ -368,7 +366,6 @@ def learn(
 
     result = ml_learn(
         db_path=db_path,
-        manifest_path=manifest,
         enable_git=enable_git,
         model_dir=model_dir,
         window=window,
@@ -400,13 +397,12 @@ def learn(
 
 @click.command(name="suggest")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--workset", default="./.pf/workset.json", help="Workset file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model directory")
 @click.option("--topk", default=10, type=int, help="Top K files to suggest")
 @click.option("--out", default="./.pf/insights/ml_suggestions.json", help="Output file path")
 @click.option("--print-plan", is_flag=True, help="Print suggestions to console")
-def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
+def suggest(db_path, workset, model_dir, topk, out, print_plan):
     """Generate ML-powered priority list of files most likely to contain vulnerabilities.
 
     Uses trained ML models (from 'aud learn') to predict which files in the current
@@ -591,7 +587,6 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
 
     result = ml_suggest(
         db_path=db_path,
-        manifest_path=manifest,
         workset_path=workset,
         model_dir=model_dir,
         topk=topk,
@@ -622,7 +617,6 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
 @click.command(name="learn-feedback")
 @click.option("--feedback-file", required=True, help="Path to feedback JSON file")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
 @click.option(
     "--train-on",
@@ -631,7 +625,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     help="Type of historical runs to train on",
 )
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_stats):
+def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
     """Re-train ML models with human corrections to improve prediction accuracy via supervised learning.
 
     Human-in-the-loop machine learning workflow that incorporates expert feedback to correct
@@ -813,7 +807,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
       Feedback file paths don't match project files:
         -> Use relative paths from project root (e.g., "src/auth.py")
         -> Avoid absolute paths (e.g., "/home/user/project/src/auth.py")
-        -> Paths must match exactly as they appear in .pf/manifest.json
+        -> Paths must match exactly as they appear in the files table
 
     NOTE: Feedback quality matters more than quantity - 10 accurate corrections beat
     50 guesses. Focus feedback on files where model predictions were confidently wrong
@@ -849,7 +843,6 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
 
     result = ml_learn(
         db_path=db_path,
-        manifest_path=manifest,
         model_dir=model_dir,
         print_stats=print_stats,
         feedback_path=feedback_file,

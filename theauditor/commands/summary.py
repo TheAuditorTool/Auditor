@@ -170,14 +170,21 @@ def summary(root, raw_dir, out):
                 pass
         return {}
 
-    manifest_path = Path(root) / "manifest.json"
-    if manifest_path.exists():
-        manifest = load_json(manifest_path)
-        if isinstance(manifest, list):
+    # Load file count from database instead of manifest.json
+    db_path = Path(root) / ".pf" / "repo_index.db"
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*), SUM(bytes) FROM files")
+            file_count, total_bytes = cursor.fetchone()
+            conn.close()
             audit_summary["metrics_by_phase"]["index"] = {
-                "files_indexed": len(manifest),
-                "total_size_bytes": sum(f.get("size", 0) for f in manifest),
+                "files_indexed": file_count or 0,
+                "total_size_bytes": total_bytes or 0,
             }
+        except sqlite3.Error:
+            pass
 
     framework_list = _load_frameworks_from_db(Path(root))
     if framework_list:

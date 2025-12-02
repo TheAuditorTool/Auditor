@@ -16,7 +16,6 @@ from theauditor.utils.logging import logger
 def lint_command(
     root_path: str = ".",
     workset_path: str = "./.pf/workset.json",
-    manifest_path: str = "manifest.json",
     timeout: int = 300,
     print_plan: bool = False,
     auto_fix: bool = False,
@@ -93,10 +92,9 @@ def lint_command(
     "--workset", is_flag=True, help="Use workset mode (lint only files in .pf/workset.json)"
 )
 @click.option("--workset-path", default=None, help="Custom workset path (rarely needed)")
-@click.option("--manifest", default=None, help="Manifest file path")
 @click.option("--timeout", default=None, type=int, help="Timeout in seconds for each linter")
 @click.option("--print-plan", is_flag=True, help="Print lint plan without executing")
-def lint(root, workset, workset_path, manifest, timeout, print_plan):
+def lint(root, workset, workset_path, timeout, print_plan):
     """Run code quality checks with industry-standard linters.
 
     Automatically detects and runs available linters in your project,
@@ -159,10 +157,8 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
 
     Auto-fix is deprecated - use native linter fix commands instead:
       eslint --fix, ruff --fix, prettier --write, black ."""
-    from theauditor.commands.config import LINT_TIMEOUT, MANIFEST_PATH, WORKSET_PATH
+    from theauditor.commands.config import LINT_TIMEOUT, WORKSET_PATH
 
-    if manifest is None:
-        manifest = MANIFEST_PATH
     if timeout is None:
         timeout = LINT_TIMEOUT
     if workset_path is None and workset:
@@ -173,7 +169,6 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
     result = lint_command(
         root_path=root,
         workset_path=actual_workset_path,
-        manifest_path=manifest,
         timeout=timeout,
         print_plan=print_plan,
         auto_fix=False,

@@ -433,8 +433,6 @@ async def run_full_pipeline(
             """Collect all files created during execution."""
             files = []
 
-            if (Path(root) / "manifest.json").exists():
-                files.append("manifest.json")
             if (Path(root) / "repo_index.db").exists():
                 files.append("repo_index.db")
 
@@ -566,7 +564,6 @@ async def run_full_pipeline(
                         idx_result = await asyncio.to_thread(
                             run_repository_index,
                             root_path=root,
-                            manifest_path=".pf/manifest.json",
                             db_path=".pf/repo_index.db",
                             exclude_patterns=exclude_patterns,
                             print_stats=True,
@@ -1296,7 +1293,6 @@ async def run_full_pipeline(
         if index_only:
             write_summary(f"  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
             write_summary(f"  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
-            write_summary(f"  [cyan].pf/manifest.json[/cyan]     [dim]Project manifest[/dim]")
             write_summary(f"  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
         else:
             write_summary(f"  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")

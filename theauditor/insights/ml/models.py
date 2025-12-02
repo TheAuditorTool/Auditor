@@ -150,7 +150,7 @@ def extract_text_features(
 
 def build_feature_matrix(
     file_paths: list[str],
-    manifest_path: str,
+    db_path: str,
     db_features: dict,
     historical_data: dict,
     intelligent_features: dict = None,
@@ -159,14 +159,20 @@ def build_feature_matrix(
     if not ML_AVAILABLE:
         return None, {}
 
-    manifest_map = {}
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        for entry in manifest:
-            manifest_map[entry["path"]] = entry
-    except (ImportError, ValueError, AttributeError):
-        pass
+    import sqlite3
+    from pathlib import Path
+
+    file_metadata = {}
+    if Path(db_path).exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, ext, bytes, loc FROM files")
+            for row in cursor.fetchall():
+                file_metadata[row[0]] = {"path": row[0], "ext": row[1], "bytes": row[2], "loc": row[3]}
+            conn.close()
+        except Exception:
+            pass
 
     journal_stats = historical_data.get("journal_stats", {})
     rca_stats = historical_data.get("rca_stats", {})
@@ -180,7 +186,7 @@ def build_feature_matrix(
     for file_path in file_paths:
         feat = []
 
-        meta = manifest_map.get(file_path, {})
+        meta = file_metadata.get(file_path, {})
         feat.append(meta.get("bytes", 0) / 10000.0)
         feat.append(meta.get("loc", 0) / 100.0)
 

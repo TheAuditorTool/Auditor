@@ -43,11 +43,24 @@ def normalize_path(path: str) -> str:
     return path
 
 
-def load_manifest(manifest_path: str) -> dict[str, str]:
-    """Load manifest and create path -> sha256 mapping."""
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-    return {item["path"]: item["sha256"] for item in manifest}
+def load_files_from_db(db_path: str) -> dict[str, str]:
+    """Load file paths and hashes from database.
+
+    Args:
+        db_path: Path to repo_index.db
+
+    Returns:
+        Dict mapping path -> sha256
+    """
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT path, sha256 FROM files")
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
 
 
 def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
@@ -257,7 +270,6 @@ def apply_glob_filters(
 def compute_workset(
     root_path: str = ".",
     db_path: str = "repo_index.db",
-    manifest_path: str = "manifest.json",
     all_files: bool = False,
     diff_spec: str = None,
     file_list: list[str] = None,
@@ -275,18 +287,15 @@ def compute_workset(
         raise ValueError("Must specify either --all, --diff, or --files")
 
     try:
-        manifest_mapping = load_manifest(manifest_path)
-        manifest_paths = set(manifest_mapping.keys())
+        file_mapping = load_files_from_db(db_path)
+        indexed_paths = set(file_mapping.keys())
     except FileNotFoundError:
         cwd = Path.cwd()
-        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud full' first."
+        helpful_msg = f"Database not found at {db_path}. Run 'aud full' first."
         if cwd.name in ["Desktop", "Documents", "Downloads"]:
             helpful_msg += f"\n\nAre you in the right directory? You're in: {cwd}"
             helpful_msg += "\nTry: cd <your-project-folder> then run this command again"
         raise RuntimeError(helpful_msg) from None
-
-    if not Path(db_path).exists():
-        raise RuntimeError(f"Database not found at {db_path}. Run 'aud full' first.")
 
     conn = sqlite3.connect(db_path)
 
@@ -298,7 +307,7 @@ def compute_workset(
         seed_mode = "all"
         seed_value = "all_indexed_files"
 
-        seed_files = manifest_paths.copy()
+        seed_files = indexed_paths.copy()
 
         max_depth = 0
     elif diff_spec:
@@ -306,14 +315,14 @@ def compute_workset(
         seed_value = diff_spec
         diff_files = get_git_diff_files(diff_spec, root_path)
 
-        seed_files = {f for f in diff_files if f in manifest_paths}
+        seed_files = {f for f in diff_files if f in indexed_paths}
     else:
         seed_mode = "files"
         seed_value = ",".join(file_list)
 
-        seed_files = {normalize_path(f) for f in file_list if normalize_path(f) in manifest_paths}
+        seed_files = {normalize_path(f) for f in file_list if normalize_path(f) in indexed_paths}
 
-    expanded_files = expand_dependencies(conn, seed_files, manifest_paths, max_depth)
+    expanded_files = expand_dependencies(conn, seed_files, indexed_paths, max_depth)
 
     filtered_files = apply_glob_filters(
         expanded_files,
@@ -332,7 +341,7 @@ def compute_workset(
             "seed_files": len(seed_files),
             "expanded_files": len(sorted_files),
         },
-        "paths": [{"path": path, "sha256": manifest_mapping[path]} for path in sorted_files],
+        "paths": [{"path": path, "sha256": file_mapping[path]} for path in sorted_files],
     }
 
     output_dir = Path(output_path).parent

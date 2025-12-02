@@ -178,7 +178,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
       Missing dead code (known unused file not detected):
         → File might have no symbols (empty or only imports)
-        → Check if file was indexed: grep filename .pf/manifest.json
+        → Check if file was indexed: aud context query --path filename
         → Re-run 'aud index' to refresh database
 
     NOTE: This analysis is conservative - it detects modules never imported, not

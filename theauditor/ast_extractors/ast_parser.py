@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from theauditor.js_semantic_parser import get_semantic_ast_batch
+from .js_semantic_parser import get_semantic_ast_batch
 from theauditor.utils.logging import logger
 
 

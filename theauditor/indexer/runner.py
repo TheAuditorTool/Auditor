@@ -1,6 +1,5 @@
 """Indexer workflow runner."""
 
-import json
 import sqlite3
 import time
 from pathlib import Path
@@ -13,14 +12,13 @@ from theauditor.indexer.orchestrator import IndexerOrchestrator
 from theauditor.utils.logging import logger
 
 try:
-    from theauditor.js_semantic_parser import _module_resolver_cache
+    from theauditor.ast_extractors.js_semantic_parser import _module_resolver_cache
 except ImportError:
     _module_resolver_cache = None
 
 
 def run_repository_index(
     root_path: str = ".",
-    manifest_path: str = ".pf/manifest.json",
     db_path: str = ".pf/repo_index.db",
     dry_run: bool = False,
     follow_symlinks: bool = False,
@@ -51,11 +49,6 @@ def run_repository_index(
             "stats": walk_stats,
             "elapsed": time.time() - start_time,
         }
-
-    manifest_file = root / manifest_path
-    manifest_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(manifest_file, "w", encoding="utf-8") as f:
-        json.dump(files, f, indent=2, sort_keys=True)
 
     db_file = root / db_path
     db_file.parent.mkdir(parents=True, exist_ok=True)
