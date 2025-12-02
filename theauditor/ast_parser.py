@@ -11,6 +11,19 @@ from typing import Any
 from theauditor.js_semantic_parser import get_semantic_ast_batch
 
 
+class ParseError(Exception):
+    """Structured parse error with file and line info.
+
+    Use this instead of RuntimeError for parse failures so callers
+    can access .line and .file directly instead of regex-parsing error messages.
+    """
+
+    def __init__(self, message: str, file: str = "unknown", line: int = 1):
+        self.file = file
+        self.line = line
+        super().__init__(message)
+
+
 @dataclass
 class ASTMatch:
     """Represents an AST pattern match."""
@@ -270,10 +283,11 @@ class ASTParser:
         try:
             return ast.parse(content)
         except SyntaxError as e:
-            raise RuntimeError(
-                f"FATAL: Python syntax error in {file_path}\n"
-                f"Error: {e}\n"
-                f"NO FALLBACKS ALLOWED - fix the syntax error or exclude the file."
+            # Use ParseError with structured line info instead of regex-parseable strings
+            raise ParseError(
+                f"Python syntax error: {e.msg}",
+                file=file_path,
+                line=e.lineno or 1,
             ) from e
 
     def _parse_python_cached(self, content_hash: str, content: str, file_path: str = "unknown") -> ast.AST:

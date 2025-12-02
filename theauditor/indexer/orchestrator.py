@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from theauditor.ast_parser import ASTParser
+from theauditor.ast_parser import ASTParser, ParseError
 from theauditor.config_runtime import load_runtime_config
 
 from ..cache.ast_cache import ASTCache
@@ -777,44 +777,42 @@ class IndexerOrchestrator:
         try:
             tree = self.ast_parser.parse_file(file_path, root_path=str(self.root_path))
 
-        except RuntimeError as e:
-            # FIX: Catch the "FATAL" error from ast_parser and turn it into a finding
-            error_msg = str(e)
-
-            # Try to grab the line number if it's in the error message
-            line_no = 1
-            if "line " in error_msg:
-                try:
-                    import re
-
-                    match = re.search(r"line (\d+)", error_msg)
-                    if match:
-                        line_no = int(match.group(1))
-                except Exception:
-                    pass
-
-            # CRITICAL FIX 1: Flush pending batches to ensure 'files' table has the parent
-            # record before we insert a finding that references it (FK constraint).
+        except ParseError as e:
+            # Structured parse error - use e.line directly (no regex needed)
             self.db_manager.flush_batch()
-
-            # CRITICAL FIX 2: Use relative POSIX path (file_info["path"]), NOT absolute path.
-            # The files table stores relative paths, so findings must match.
             self.db_manager.write_findings_batch(
                 [
                     {
                         "file": file_info["path"],
-                        "line": line_no,
+                        "line": e.line,
                         "rule": "syntax_error",
                         "tool": "indexer",
                         "severity": "error",
-                        "message": f"Syntax Error: {error_msg}",
+                        "message": f"Syntax Error: {e}",
                         "category": "syntax",
                     }
                 ],
                 "indexer",
             )
+            return None
 
-            # Return None means "no AST available", but don't crash!
+        except RuntimeError as e:
+            # Legacy RuntimeError - line info not structured, default to line 1
+            self.db_manager.flush_batch()
+            self.db_manager.write_findings_batch(
+                [
+                    {
+                        "file": file_info["path"],
+                        "line": 1,
+                        "rule": "parse_error",
+                        "tool": "indexer",
+                        "severity": "error",
+                        "message": f"Parse Error: {e}",
+                        "category": "syntax",
+                    }
+                ],
+                "indexer",
+            )
             return None
 
         # 5. Cache successful results
