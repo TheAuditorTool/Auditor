@@ -441,6 +441,9 @@ CFG_BLOCK_STATEMENTS = TableSchema(
     indexes=[
         ("idx_cfg_statements_block", ["block_id"]),
     ],
+    foreign_keys=[
+        ForeignKey(local_columns=["block_id"], foreign_table="cfg_blocks", foreign_columns=["id"]),
+    ],
 )
 
 
@@ -501,6 +504,9 @@ CFG_BLOCK_STATEMENTS_JSX = TableSchema(
     ],
     indexes=[
         ("idx_jsx_cfg_statements_block", ["block_id"]),
+    ],
+    foreign_keys=[
+        ForeignKey(local_columns=["block_id"], foreign_table="cfg_blocks_jsx", foreign_columns=["id"]),
     ],
 )
 

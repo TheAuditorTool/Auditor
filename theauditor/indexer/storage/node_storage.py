@@ -1,6 +1,10 @@
 """Node.js storage handlers for JavaScript/TypeScript frameworks."""
 
+import logging
+
 from .base import BaseStorage
+
+logger = logging.getLogger(__name__)
 
 
 class NodeStorage(BaseStorage):
@@ -8,6 +12,9 @@ class NodeStorage(BaseStorage):
 
     def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
+
+        # Gatekeeper: Track valid parent keys to filter orphaned children
+        self._valid_react_hooks: set[tuple[str, int, str]] = set()
 
         self.handlers = {
             "react_hooks": self._store_react_hooks,
@@ -53,13 +60,38 @@ class NodeStorage(BaseStorage):
             "cfg_block_statements": self._noop_cfg_block_statements,
         }
 
+    def begin_file_processing(self) -> None:
+        """Reset per-file gatekeeper state.
+
+        Called by DataStorer.store() at the start of each file to prevent
+        cross-file contamination of the gatekeeper tracking sets.
+        """
+        self._valid_react_hooks.clear()
+
     def _store_react_hooks(self, file_path: str, react_hooks: list, jsx_pass: bool):
-        """Store React hooks."""
+        """Store React hooks with deduplication.
+
+        PK is (file, line, component_name), so we deduplicate on that key to prevent
+        UNIQUE constraint violations when extractor emits duplicates.
+
+        GATEKEEPER: Registers valid hook keys for child validation (react_hook_dependencies).
+        """
+        seen: set[tuple[str, int, str]] = set()
         for hook in react_hooks:
+            line = hook["line"]
+            component_name = hook["component_name"]
+
+            # Deduplication Key: Matches PRIMARY KEY (file, line, component_name)
+            key = (file_path, line, component_name)
+
+            if key in seen:
+                continue
+            seen.add(key)
+
             self.db_manager.add_react_hook(
                 file_path,
-                hook["line"],
-                hook["component_name"],
+                line,
+                component_name,
                 hook["hook_name"],
                 hook.get("dependency_array"),
                 hook.get("dependency_vars"),
@@ -67,6 +99,10 @@ class NodeStorage(BaseStorage):
                 hook.get("has_cleanup", False),
                 hook.get("cleanup_type"),
             )
+
+            # Gatekeeper: Register valid hook key for child validation
+            self._valid_react_hooks.add(key)
+
             self.counts["react_hooks"] += 1
 
     def _store_react_component_hooks(self, file_path: str, hooks: list, jsx_pass: bool):
@@ -80,12 +116,29 @@ class NodeStorage(BaseStorage):
             self.counts["react_component_hooks"] = self.counts.get("react_component_hooks", 0) + 1
 
     def _store_react_hook_dependencies(self, file_path: str, deps: list, jsx_pass: bool):
-        """Store React hook dependencies from flat junction array."""
+        """Store React hook dependencies from flat junction array.
+
+        GATEKEEPER: Only insert if parent hook exists in _valid_react_hooks.
+        Orphaned dependencies are logged and skipped to prevent FK violations.
+        """
         for dep in deps:
+            hook_line = dep.get("hook_line", 0)
+            hook_component = dep.get("component_name", "")
+
+            # Gatekeeper: Check if parent hook exists
+            parent_key = (file_path, hook_line, hook_component)
+            if parent_key not in self._valid_react_hooks:
+                logger.warning(
+                    f"GATEKEEPER: Skipping orphaned react_hook_dependency. "
+                    f"Parent hook not found: file={file_path!r}, line={hook_line}, "
+                    f"component={hook_component!r}"
+                )
+                continue
+
             self.db_manager.add_react_hook_dependency_flat(
                 file_path,  # Use clean path from Orchestrator, not dirty path from extractor
-                dep.get("hook_line", 0),
-                dep.get("hook_component", ""),
+                hook_line,
+                hook_component,
                 dep.get("dependency_name", ""),
             )
             self.counts["react_hook_dependencies"] = (
@@ -279,11 +332,24 @@ class NodeStorage(BaseStorage):
             self.counts["lock_analysis"] += 1
 
     def _store_import_styles(self, file_path: str, import_styles: list, jsx_pass: bool):
-        """Store import styles."""
+        """Store import styles with deduplication.
+
+        PK is (file, line), so we deduplicate on that key to prevent
+        UNIQUE constraint violations when extractor emits duplicates.
+        """
+        seen: set[tuple[str, int]] = set()
         for import_style in import_styles:
+            line = import_style["line"]
+            # Deduplication Key: file + line (matches PK)
+            key = (file_path, line)
+
+            if key in seen:
+                continue
+            seen.add(key)
+
             self.db_manager.add_import_style(
                 file_path,
-                import_style["line"],
+                line,
                 import_style["package"],
                 import_style["import_style"],
                 import_style.get("imported_names"),
@@ -558,6 +624,46 @@ class NodeStorage(BaseStorage):
             )
             self.counts["sequelize_model_fields"] = self.counts.get("sequelize_model_fields", 0) + 1
 
+    def _normalize_cfg_path(self, extracted_path: str, canonical_path: str) -> str:
+        """Normalize CFG path to match files table format.
+
+        The TS extractor returns absolute Windows paths in function_id strings,
+        but the files table uses relative POSIX paths. This method ensures FK integrity.
+
+        Args:
+            extracted_path: Path extracted from function_id (may be absolute)
+            canonical_path: The correct relative path from Orchestrator (Source of Truth)
+
+        Returns:
+            The canonical_path if extracted_path looks absolute or mismatched,
+            otherwise the extracted_path (for safety in edge cases).
+        """
+        # Normalize separators for comparison
+        normalized_extracted = extracted_path.replace("\\", "/")
+
+        # Check if extracted path is absolute (Windows or Unix)
+        # Windows: C:/ or D:/ etc.
+        # Unix: starts with /
+        is_absolute = (
+            (len(normalized_extracted) >= 2 and normalized_extracted[1] == ":")
+            or normalized_extracted.startswith("/")
+        )
+
+        if is_absolute:
+            # Absolute path detected - use canonical path from Orchestrator
+            return canonical_path
+
+        # If extracted path ends with canonical path, it's a prefix issue
+        if normalized_extracted.endswith(canonical_path):
+            return canonical_path
+
+        # If paths don't match at all but we're processing this file,
+        # trust the canonical path from Orchestrator
+        if normalized_extracted != canonical_path:
+            return canonical_path
+
+        return extracted_path
+
     def _store_cfg_flat(self, file_path: str, cfg_blocks: list, jsx_pass: bool):
         """Store CFG data from flat arrays (TypeScript extractor format).
 
@@ -568,6 +674,8 @@ class NodeStorage(BaseStorage):
         PHASE 1 FIX: Use None as sentinel instead of -1.
         add_cfg_block() returns negative temp_ids (-1, -2, etc.), so using -1 as
         "not found" sentinel caused the first block's edges/statements to be dropped.
+
+        FK FIX: Normalize absolute paths from extractor to relative paths matching files table.
         """
         if not cfg_blocks:
             return
@@ -581,10 +689,21 @@ class NodeStorage(BaseStorage):
             function_id = block.get("function_id", "")
             block_id = block.get("block_id", "")
 
+            # Parse function_id format: "path/to/file:functionName"
+            # WINDOWS FIX: rsplit(":", 2) splits drive letter colon too!
+            # "C:/path/file.ts:func" -> ['C', '/path/file.ts', 'func']
+            # So we need to handle 3-part case for Windows paths
             parts = function_id.rsplit(":", 2)
-            if len(parts) >= 2:
-                block_file_path = parts[0]
+            if len(parts) == 3:
+                # Windows path: reconstruct "C:" + "/path/file.ts"
+                raw_file_path = parts[0] + ":" + parts[1]
+                function_name = parts[2]
+                block_file_path = self._normalize_cfg_path(raw_file_path, file_path)
+            elif len(parts) == 2:
+                raw_file_path = parts[0]
                 function_name = parts[1]
+                # FK FIX: Normalize path to match files table format
+                block_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             else:
                 block_file_path = file_path
                 function_name = function_id
@@ -614,10 +733,19 @@ class NodeStorage(BaseStorage):
             from_block = edge.get("from_block", "")
             to_block = edge.get("to_block", "")
 
+            # Parse function_id format: "path/to/file:functionName"
+            # WINDOWS FIX: rsplit(":", 2) splits drive letter colon too!
             parts = function_id.rsplit(":", 2)
-            if len(parts) >= 2:
-                edge_file_path = parts[0]
+            if len(parts) == 3:
+                # Windows path: reconstruct "C:" + "/path/file.ts"
+                raw_file_path = parts[0] + ":" + parts[1]
+                function_name = parts[2]
+                edge_file_path = self._normalize_cfg_path(raw_file_path, file_path)
+            elif len(parts) == 2:
+                raw_file_path = parts[0]
                 function_name = parts[1]
+                # FK FIX: Normalize path to match files table format
+                edge_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             else:
                 edge_file_path = file_path
                 function_name = function_id

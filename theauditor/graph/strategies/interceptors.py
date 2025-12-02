@@ -7,6 +7,8 @@ from typing import Any
 
 from theauditor.graph.types import DFGEdge, DFGNode, create_bidirectional_edges
 
+from .resolution import path_matches
+
 
 class InterceptorStrategy:
     """Graph strategy to wire up interceptors (Middleware, Decorators)."""
@@ -286,7 +288,15 @@ class InterceptorStrategy:
         edges: list[DFGEdge],
         stats: dict[str, int],
     ) -> None:
-        """Build edges from Django global middleware to views."""
+        """Build edges from Django global middleware to views.
+
+        GRAPH FIX G12: Replaced Hub pattern with Sequential Chaining.
+        The Hub pattern (G8) caused taint explosion - if ONE middleware was tainted,
+        ALL views became tainted via the hub. Sequential chaining preserves:
+        - Correct taint flow: MW1 -> MW2 -> MW3 -> Views
+        - Edge efficiency: M + V edges (same as hub)
+        - Precision: Only downstream components are tainted
+        """
 
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='python_django_middleware'"
@@ -305,6 +315,7 @@ class InterceptorStrategy:
             SELECT file, middleware_class_name
             FROM python_django_middleware
             WHERE has_process_request = 1
+            ORDER BY file, middleware_class_name
         """)
         middlewares = cursor.fetchall()
 
@@ -320,21 +331,21 @@ class InterceptorStrategy:
         if not views:
             return
 
-        # GRAPH FIX G8: Hub node pattern to prevent M x V edge explosion.
-        # 20 middlewares x 500 views = 10,000 edges creates unusable hairball.
-        # Hub pattern: M + V edges (520) instead of M x V (10,000).
-        hub_node_id = "Django::Router::Dispatch"
-        if hub_node_id not in nodes:
-            nodes[hub_node_id] = DFGNode(
-                id=hub_node_id,
-                file="django.urls",
+        # Create entry point node for request pipeline
+        entry_node_id = "Django::Request::Entry"
+        if entry_node_id not in nodes:
+            nodes[entry_node_id] = DFGNode(
+                id=entry_node_id,
+                file="django.http",
                 variable_name="request",
-                scope="Router::Dispatch",
-                type="router_hub",
-                metadata={"is_hub": True, "framework": "django"},
+                scope="HttpRequest",
+                type="request_entry",
+                metadata={"is_entry": True, "framework": "django"},
             )
 
-        # Connect middlewares TO hub (M edges)
+        # Chain middlewares sequentially: Entry -> MW1 -> MW2 -> ... -> MWn
+        previous_node_id = entry_node_id
+
         for mw in middlewares:
             mw_file = mw["file"]
             mw_class = mw["middleware_class_name"]
@@ -350,20 +361,27 @@ class InterceptorStrategy:
                     metadata={"middleware_class": mw_class},
                 )
 
+            # Link previous node -> current middleware
             new_edges = create_bidirectional_edges(
-                source=mw_node_id,
-                target=hub_node_id,
-                edge_type="django_middleware_to_router",
+                source=previous_node_id,
+                target=mw_node_id,
+                edge_type="django_middleware_chain",
                 file=mw_file,
                 line=0,
                 expression=f"settings.MIDDLEWARE: {mw_class}",
-                function="dispatch",
+                function="process_request",
                 metadata={"middleware": mw_class},
             )
             edges.extend(new_edges)
             stats["django_middleware_edges_created"] += len(new_edges)
 
-        # Connect hub TO views (V edges)
+            # Update previous for next iteration
+            previous_node_id = mw_node_id
+
+        # Connect LAST middleware to all views (V edges)
+        # This preserves precision: only data that passed through ALL middlewares reaches views
+        last_middleware_node = previous_node_id
+
         for view in views:
             view_file = view["file"]
             view_name = view["view_name"]
@@ -380,7 +398,7 @@ class InterceptorStrategy:
                 )
 
             new_edges = create_bidirectional_edges(
-                source=hub_node_id,
+                source=last_middleware_node,
                 target=view_node_id,
                 edge_type="django_router_to_view",
                 file=view_file,
@@ -395,56 +413,10 @@ class InterceptorStrategy:
     def _path_matches(self, import_package: str, symbol_path: str) -> bool:
         """Check if import package matches symbol path.
 
-        GRAPH FIX G11: Qualifier-Aware Suffix Matching.
-        Fixes G10 regression where TypeScript conventions (auth.guard.ts) broke matching.
-        1. Normalizes paths.
-        2. Strips extensions (.ts, .js).
-        3. Strips framework qualifiers (.guard, .service) to align 'auth' with 'auth.guard'.
-        4. Performs directory-sensitive suffix match.
+        GRAPH FIX G13: Delegated to shared resolution module to eliminate duplication.
+        See resolution.py for full implementation and GRAPH FIX G11 details.
         """
-        if not import_package or not symbol_path:
-            return False
-
-        def clean_path(path: str) -> str:
-            # 1. Normalize
-            p = path.replace("\\", "/").lower()
-
-            # 2. Remove Extensions
-            for ext in [".ts", ".tsx", ".js", ".jsx", ".py"]:
-                if p.endswith(ext):
-                    p = p[:-len(ext)]
-
-            # 3. Remove Framework Qualifiers (TypeScript/NestJS/Angular conventions)
-            qualifiers = [
-                ".guard", ".service", ".controller", ".interceptor",
-                ".middleware", ".module", ".entity", ".dto",
-                ".resolver", ".strategy", ".pipe", ".component", ".directive"
-            ]
-            for q in qualifiers:
-                if p.endswith(q):
-                    p = p[:-len(q)]
-            return p
-
-        clean_import = clean_path(import_package)
-        clean_symbol = clean_path(symbol_path)
-
-        # 4. Extract Segments (Fingerprint)
-        parts = [p for p in clean_import.split("/") if p not in (".", "..", "")]
-        if not parts:
-            return False
-
-        import_fingerprint = "/".join(parts)
-
-        # 5. Suffix Check with Boundary Enforcement
-        # "src/guards/auth" (was auth.guard.ts) ends with "guards/auth" -> MATCH
-        # "src/interceptors/auth" (was auth.interceptor.ts) ends with "guards/auth" -> NO MATCH
-        if clean_symbol.endswith(import_fingerprint):
-            match_index = clean_symbol.rfind(import_fingerprint)
-            # Ensure boundary is a slash or start of string (prevents "unauth" matching "auth")
-            if match_index == 0 or clean_symbol[match_index - 1] == "/":
-                return True
-
-        return False
+        return path_matches(import_package, symbol_path)
 
     def _resolve_controller_info(
         self,

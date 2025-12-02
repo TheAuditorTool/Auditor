@@ -60,9 +60,33 @@ class XGraphStore:
             # Explicit BEGIN causes OperationalError when nested.
 
             if file_path:
+                # GRAPH FIX G9: Delete orphaned incoming edges before deleting nodes.
+                # When file A is re-indexed, we must delete:
+                # 1. Nodes from file A
+                # 2. Edges FROM file A (outgoing)
+                # 3. Edges TO nodes in file A from OTHER files (incoming)
+                # Without #3, we get dangling edges pointing to deleted nodes.
+
+                # First, get all node IDs in this file that will be deleted
+                cursor.execute(
+                    "SELECT id FROM nodes WHERE graph_type = ? AND file = ?",
+                    (graph_type, file_path)
+                )
+                node_ids_to_delete = [row[0] for row in cursor.fetchall()]
+
+                # Delete incoming edges from other files pointing to these nodes
+                if node_ids_to_delete:
+                    placeholders = ",".join("?" * len(node_ids_to_delete))
+                    cursor.execute(
+                        f"DELETE FROM edges WHERE graph_type = ? AND target IN ({placeholders})",
+                        [graph_type] + node_ids_to_delete
+                    )
+
+                # Delete nodes from this file
                 cursor.execute(
                     "DELETE FROM nodes WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
+                # Delete outgoing edges from this file
                 cursor.execute(
                     "DELETE FROM edges WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
