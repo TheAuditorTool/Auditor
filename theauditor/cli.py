@@ -165,7 +165,6 @@ from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
 from theauditor.commands.impact import impact
 from theauditor.commands.index import index
-from theauditor.commands.init import init
 from theauditor.commands.lint import lint
 from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
@@ -176,16 +175,13 @@ from theauditor.commands.refactor import refactor_command
 from theauditor.commands.rules import rules_command
 from theauditor.commands.session import session
 from theauditor.commands.setup import setup_ai
-from theauditor.commands.summary import summary
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.terraform import terraform
 from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
 
-init.hidden = True
 index.hidden = True
-cli.add_command(init)
 cli.add_command(index)
 cli.add_command(_archive)
 
@@ -219,7 +215,6 @@ cli.add_command(graphql)
 cli.add_command(deadcode)
 
 
-cli.add_command(summary)
 cli.add_command(fce)
 cli.add_command(metadata)
 cli.add_command(blueprint)
