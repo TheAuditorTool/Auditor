@@ -323,7 +323,7 @@ class InterceptorStrategy:
             return
 
         cursor.execute("""
-            SELECT file, view_name
+            SELECT file, view_class_name
             FROM python_django_views
         """)
         views = cursor.fetchall()
@@ -384,7 +384,7 @@ class InterceptorStrategy:
 
         for view in views:
             view_file = view["file"]
-            view_name = view["view_name"]
+            view_name = view["view_class_name"]
             view_node_id = f"{view_file}::{view_name}::request"
 
             if view_node_id not in nodes:

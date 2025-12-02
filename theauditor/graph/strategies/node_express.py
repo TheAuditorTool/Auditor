@@ -24,6 +24,15 @@ class NodeExpressStrategy(GraphStrategy):
         """
         return path_matches(import_package, symbol_path)
 
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path to forward-slash format for consistent dictionary lookups.
+
+        GRAPH FIX G14: Prevents path format mismatches between tables causing
+        lookup failures when import_styles uses forward slashes but
+        express_middleware_chains uses backslashes (or vice versa).
+        """
+        return path.replace("\\", "/") if path else ""
+
     def build(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges for Express middleware and controllers."""
 
@@ -181,7 +190,9 @@ class NodeExpressStrategy(GraphStrategy):
         import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
         cursor.execute("SELECT file, package, alias_name FROM import_styles")
         for row in cursor.fetchall():
-            import_styles_map[row["file"]][row["alias_name"]] = row["package"]
+            # GRAPH FIX G14: Normalize path for consistent lookups across tables
+            normalized_file = self._normalize_path(row["file"])
+            import_styles_map[normalized_file][row["alias_name"]] = row["package"]
 
         symbols_by_name: dict[str, list[dict]] = defaultdict(list)
         cursor.execute("""
@@ -208,7 +219,8 @@ class NodeExpressStrategy(GraphStrategy):
         stats["handlers_processed"] = len(handlers)
 
         for handler in handlers:
-            route_file = handler["file"]
+            # GRAPH FIX G14: Normalize path for consistent lookups
+            route_file = self._normalize_path(handler["file"])
             handler_expr = handler["handler_expr"]
 
             object_name = None

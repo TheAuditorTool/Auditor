@@ -564,7 +564,15 @@ def _resolve_parent_path(from_dir: str, import_path: str) -> str:
 
 
 def _normalize_path(path: str) -> str:
-    """Normalize path by resolving . and .. segments."""
+    """Normalize path by resolving . and .. segments.
+
+    GRAPH FIX G17: Convert backslashes to forward slashes BEFORE splitting.
+    Without this, Windows-style paths like '..\\utils\\helper.ts' pass through
+    unchanged because split("/") returns a single element, and the .. resolution
+    logic never executes.
+    """
+    # Convert backslashes to forward slashes first
+    path = path.replace("\\", "/")
     parts = path.split("/")
     result = []
     for part in parts:

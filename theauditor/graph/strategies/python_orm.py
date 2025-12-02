@@ -338,13 +338,10 @@ class PythonOrmStrategy(GraphStrategy):
 
         stats = {"orm_expansions": 0, "edges_created": 0}
 
-        try:
-            orm_context = PythonOrmContext.from_database(cursor)
-            if not orm_context.enabled:
-                conn.close()
-                return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
-        except Exception as e:
-            print(f"[PythonOrmStrategy] ORM Context init failed: {e}")
+        # ZERO FALLBACK: ORM Context init failures must CRASH, not return empty
+        # If the database schema is wrong or missing tables, we need to know immediately
+        orm_context = PythonOrmContext.from_database(cursor)
+        if not orm_context.enabled:
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 

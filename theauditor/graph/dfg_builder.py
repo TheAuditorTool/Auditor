@@ -609,13 +609,11 @@ class DFGBuilder:
 
         for strategy in self.strategies:
             print(f"Running strategy: {strategy.name}...")
-            try:
-                result = strategy.build(str(self.db_path), root)
-                strategy_graphs.append(result)
-                strategy_stats[strategy.name] = result.get("metadata", {}).get("stats", {})
-            except Exception as e:
-                print(f"  WARNING: Strategy {strategy.name} failed: {e}")
-                strategy_stats[strategy.name] = {"error": str(e)}
+            # ZERO FALLBACK: Strategy failures must CRASH, not silently continue
+            # A "successful" build with missing strategy data is worse than a crash
+            result = strategy.build(str(self.db_path), root)
+            strategy_graphs.append(result)
+            strategy_stats[strategy.name] = result.get("metadata", {}).get("stats", {})
 
         nodes = {}
         for graph in core_graphs + strategy_graphs:

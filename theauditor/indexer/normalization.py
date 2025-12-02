@@ -46,6 +46,8 @@ def normalize_python_routes(db_path: str) -> int:
     # The "Forklift" Query
     # Map python_routes fields to api_endpoints canonical schema
     # ZERO FALLBACK: Skip rows with NULL line - do NOT fabricate data
+    # GRAPH FIX G15: Normalize file paths (backslash -> forward slash) during migration
+    # to ensure consistent path format for Graph Builder lookups
     cursor.execute("""
         INSERT INTO api_endpoints (
             file,
@@ -58,7 +60,7 @@ def normalize_python_routes(db_path: str) -> int:
             handler_function
         )
         SELECT
-            file,
+            REPLACE(file, '\\', '/'),
             line,
             UPPER(COALESCE(method, 'GET')),
             pattern,
@@ -70,7 +72,7 @@ def normalize_python_routes(db_path: str) -> int:
         WHERE handler_function IS NOT NULL
           AND pattern IS NOT NULL
           AND line IS NOT NULL
-          AND (file, line) NOT IN (
+          AND (REPLACE(file, '\\', '/'), line) NOT IN (
               SELECT file, line FROM api_endpoints
           )
     """)
