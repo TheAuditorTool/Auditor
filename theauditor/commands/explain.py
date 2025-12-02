@@ -171,7 +171,7 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
          -> Just use: aud explain foo (auto-detects target type)
 
       X  aud explain .
-         -> Use 'aud structure' for project overview
+         -> Use 'aud blueprint' for project overview
 
       X  Running 'aud query' before 'aud explain'
          -> Always try 'explain' first - it returns more comprehensive context

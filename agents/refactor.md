@@ -91,7 +91,7 @@ Only read files directly if `aud explain` output is insufficient.
 
 ### T2.1: Run Blueprint
 - `aud blueprint --structure`
-- `aud structure --monoliths`
+- `aud blueprint --monoliths`
 - Store outputs
 - **Audit:** Both successful
 

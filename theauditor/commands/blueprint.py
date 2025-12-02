@@ -34,8 +34,17 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
     type=click.Choice(["text", "json"]),
     help="Output format: text (visual tree), json (structured)",
 )
+@click.option(
+    "--monoliths", is_flag=True, help="Find files >threshold lines (too large for AI)"
+)
+@click.option(
+    "--threshold",
+    default=2150,
+    type=int,
+    help="Line count threshold for --monoliths (default: 2150)",
+)
 @handle_exceptions
-def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format):
+def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format, monoliths, threshold):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
     Truth-courier mode visualization that presents pure architectural facts extracted from
@@ -93,7 +102,6 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
     PERFORMANCE: ~2-5 seconds
 
     RELATED COMMANDS:
-      aud structure  # Alternative visualization
       aud graph      # Dedicated graph analysis
 
     NOTE: This command shows FACTS ONLY - no recommendations, no prescriptive
@@ -118,8 +126,6 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         - Import relationships (internal vs external)
         - NO recommendations, NO "should be", NO prescriptive language
     """
-    from pathlib import Path
-
     pf_dir = Path.cwd() / ".pf"
     repo_db = pf_dir / "repo_index.db"
     graphs_db = pf_dir / "graphs.db"
@@ -128,6 +134,9 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         console.print("[error]\nERROR: No indexed database found[/error]", stderr=True)
         console.print("[error]Run: aud full[/error]", stderr=True)
         raise click.Abort()
+
+    if monoliths:
+        return _find_monoliths(str(repo_db), threshold, output_format)
 
     conn = sqlite3.connect(repo_db)
     conn.row_factory = sqlite3.Row
@@ -961,7 +970,6 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         console.print("  [success]No migration or legacy paths detected[/success]")
 
     console.print("\nCross-Reference Commands:")
-    console.print("  -> Use 'aud structure' for full markdown report with LOC details")
     console.print("  -> Use 'aud query --file <path> --show-dependents' for impact analysis")
     console.print("  -> Use 'aud graph viz' for visual dependency map")
 
@@ -1635,3 +1643,86 @@ def _show_boundaries_drilldown(data: dict, cursor):
     console.print("  -> aud blueprint --security            # Security surface overview")
 
     console.print("\n" + "=" * 80 + "\n", markup=False)
+
+
+def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
+    """Find monolithic files (>threshold lines) that require chunked reading.
+
+    Args:
+        db_path: Path to repo_index.db
+        threshold: Line count threshold (default 2150)
+        output_format: 'text' or 'json'
+
+    Returns:
+        Exit code (0 for success)
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            path,
+            MAX(line) as line_count,
+            COUNT(DISTINCT name) as symbol_count
+        FROM symbols
+        WHERE path NOT LIKE '%test%'
+          AND path NOT LIKE '%/tests/%'
+          AND path NOT LIKE '%/__pycache__/%'
+          AND path NOT LIKE '%/node_modules/%'
+        GROUP BY path
+        HAVING line_count > ?
+        ORDER BY line_count DESC
+    """,
+        (threshold,),
+    )
+
+    results = cursor.fetchall()
+    conn.close()
+
+    if not results:
+        if output_format == "json":
+            console.print(
+                json.dumps({"monoliths": [], "total": 0, "threshold": threshold}, indent=2),
+                markup=False,
+            )
+        else:
+            console.print(
+                f"No monolithic files found (threshold: {threshold} lines)", highlight=False
+            )
+            console.print("\nAll files are below the AI readability threshold!")
+        return 0
+
+    if output_format == "json":
+        output_data = {
+            "monoliths": [
+                {
+                    "path": path,
+                    "lines": lines,
+                    "symbols": symbols,
+                }
+                for path, lines, symbols in results
+            ],
+            "total": len(results),
+            "threshold": threshold,
+        }
+        console.print(json.dumps(output_data, indent=2), markup=False)
+    else:
+        console.rule()
+        console.print(f"Monolithic Files (>{threshold} lines)", highlight=False)
+        console.rule()
+        console.print(f"Found {len(results)} files requiring chunked reading\n", highlight=False)
+
+        for path, lines, symbols in results:
+            console.print(f"\\[MONOLITH] {path}", highlight=False)
+            console.print(f"  Lines: {lines:,} (>{threshold})", highlight=False)
+            console.print(f"  Symbols: {symbols:,} functions/classes", highlight=False)
+            console.print()
+
+        console.rule()
+        console.print(
+            f"Total: {len(results)} monolithic files", highlight=False
+        )
+        console.rule()
+
+    return 0

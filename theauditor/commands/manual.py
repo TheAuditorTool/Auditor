@@ -570,14 +570,14 @@ SECURITY AUDIT:
 PERFORMANCE OPTIMIZATION:
     aud cfg analyze --threshold 20    # Find complex functions
     aud graph analyze                 # Find circular dependencies
-    aud structure                     # Understand architecture
+    aud blueprint                     # Understand architecture
 
 CI/CD PIPELINE:
     aud full --quiet || exit $?       # Fail on critical issues
 
 UNDERSTANDING RESULTS:
     aud manual taint                  # Learn about concepts
-    aud structure                     # Project overview
+    aud blueprint                     # Project overview
     aud report --print-stats          # Summary statistics
 """,
     },

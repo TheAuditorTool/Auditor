@@ -176,7 +176,6 @@ from theauditor.commands.refactor import refactor_command
 from theauditor.commands.rules import rules_command
 from theauditor.commands.session import session
 from theauditor.commands.setup import setup_ai
-from theauditor.commands.structure import structure
 from theauditor.commands.summary import summary
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.terraform import terraform
@@ -222,7 +221,6 @@ cli.add_command(deadcode)
 
 cli.add_command(summary)
 cli.add_command(fce)
-cli.add_command(structure)
 cli.add_command(metadata)
 cli.add_command(blueprint)
 
