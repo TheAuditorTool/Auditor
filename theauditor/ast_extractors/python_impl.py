@@ -62,7 +62,6 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
         "python_decorators": [],
         "python_django_views": [],
         "python_django_middleware": [],
-        "python_package_configs": [],
         "python_loops": [],
         "python_branches": [],
         "python_functions_advanced": [],
