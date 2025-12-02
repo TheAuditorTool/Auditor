@@ -1,6 +1,5 @@
 # Auto-generated TypedDict definitions from schema
-from typing import Any, TypedDict
-
+from typing import TypedDict, Any
 
 class AngularComponentStylesRow(TypedDict):
     """Row type for angular_component_styles table."""

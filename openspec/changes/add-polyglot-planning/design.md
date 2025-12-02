@@ -2,7 +2,7 @@
 
 ## Context
 
-TheAuditor indexes code from multiple languages (Python, JavaScript, TypeScript, Go, Rust, Bash) into a unified SQLite database. The planning commands (`aud blueprint`, `aud explain`) query this database but currently only consume Python/JS/TS data due to hardcoded extension checks and language-specific queries.
+TheAuditor indexes code from multiple languages (Python, JavaScript, TypeScript, Go, Rust, Bash) into a unified SQLite database. Multiple analysis commands query this database but currently only consume Python/JS/TS data due to hardcoded extension checks and language-specific queries.
 
 **Stakeholders:**
 - Developers using TheAuditor on polyglot codebases
@@ -19,12 +19,17 @@ TheAuditor indexes code from multiple languages (Python, JavaScript, TypeScript,
 - Surface Go/Rust/Bash data in `aud blueprint --structure` output
 - Surface Go/Rust/Bash dependencies in `aud blueprint --deps` output
 - Surface Go/Rust handler info in `aud explain <file>` output
+- Detect Go/Rust/Bash entry points in `aud deadcode` analysis
+- Detect Go/Rust entry points and validation patterns in `aud boundaries`
 - Maintain performance (<100ms for typical queries)
 
 **Non-Goals:**
 - Changing output format (additive only)
 - Wiring ORM detection to refactor command (future work)
 - Adding Bash handler detection (Bash doesn't have HTTP handlers)
+- Adding Bash boundary detection (Bash isn't used for web services)
+
+---
 
 ## Schema Reference
 
@@ -65,6 +70,21 @@ GO_FUNC_PARAMS = TableSchema(
 )
 ```
 
+**go_functions** (`theauditor/indexer/schemas/go_schema.py`):
+```python
+GO_FUNCTIONS = TableSchema(
+    name="go_functions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("receiver_type", "TEXT"),
+        Column("is_exported", "BOOLEAN", default="0"),
+        Column("doc_comment", "TEXT"),
+    ],
+)
+```
+
 **rust_macro_invocations** (`theauditor/indexer/schemas/rust_schema.py:197-210`):
 ```python
 RUST_MACRO_INVOCATIONS = TableSchema(
@@ -90,6 +110,20 @@ RUST_FUNCTIONS = TableSchema(
         Column("is_async", "BOOLEAN", default="0"),
         Column("return_type", "TEXT"),
         Column("params_json", "TEXT"),  # JSON array of params
+    ],
+)
+```
+
+**bash_functions** (`theauditor/indexer/schemas/bash_schema.py`):
+```python
+BASH_FUNCTIONS = TableSchema(
+    name="bash_functions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("body_start", "INTEGER"),
+        Column("body_end", "INTEGER"),
     ],
 )
 ```
@@ -132,6 +166,29 @@ GO_MODULE_CONFIGS = TableSchema(
 )
 ```
 
+**rust_attributes** (add to `theauditor/indexer/schemas/rust_schema.py`):
+```python
+RUST_ATTRIBUTES = TableSchema(
+    name="rust_attributes",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("attribute_name", "TEXT", nullable=False),  # "get", "derive", "serde"
+        Column("args", "TEXT"),  # '"/users"', 'Debug, Serialize'
+        Column("target_type", "TEXT"),  # "function", "struct", "field", "module"
+        Column("target_name", "TEXT"),  # name of the item the attribute is on
+        Column("target_line", "INTEGER"),  # line of the item
+    ],
+    primary_key=["file_path", "line"],
+    indexes=[
+        ("idx_rust_attrs_name", ["attribute_name"]),
+        ("idx_rust_attrs_target", ["target_type", "target_name"]),
+    ],
+)
+```
+
+---
+
 ## Decisions
 
 ### Decision 1: Query `symbols` table for naming conventions
@@ -152,26 +209,7 @@ SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' AND s.name REGEXP '^[a-z][a-
 SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_func_pascal,
 SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' THEN 1 ELSE 0 END) AS go_func_total,
 
--- Go structs
-SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS go_struct_snake,
-SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_struct_pascal,
-SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' THEN 1 ELSE 0 END) AS go_struct_total,
-
--- Rust functions (snake_case standard)
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS rs_func_snake,
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_func_camel,
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_func_pascal,
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' THEN 1 ELSE 0 END) AS rs_func_total,
-
--- Rust structs (PascalCase standard)
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS rs_struct_snake,
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_struct_pascal,
-SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' THEN 1 ELSE 0 END) AS rs_struct_total,
-
--- Bash functions (snake_case standard)
-SUM(CASE WHEN f.ext = '.sh' AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS bash_func_snake,
-SUM(CASE WHEN f.ext = '.sh' AND s.type = 'function' AND s.name REGEXP '^[A-Z_][A-Z0-9_]*$' THEN 1 ELSE 0 END) AS bash_func_screaming,
-SUM(CASE WHEN f.ext = '.sh' AND s.type = 'function' THEN 1 ELSE 0 END) AS bash_func_total,
+-- Rust/Bash similar patterns...
 ```
 
 ### Decision 2: Create new tables for Cargo/Go dependencies
@@ -214,26 +252,6 @@ if ext == "go":
         result["routes"] = routes
 ```
 
-**Fallback for files without routes** (use `go_func_params` for handler detection):
-```python
-if not routes:
-    cursor.execute(
-        """
-        SELECT DISTINCT f.name, f.line, p.param_type
-        FROM go_functions f
-        JOIN go_func_params p ON f.file = p.file AND f.name = p.func_name
-        WHERE f.file LIKE ?
-          AND (p.param_type LIKE '%gin.Context%'
-            OR p.param_type LIKE '%echo.Context%'
-            OR p.param_type LIKE '%http.ResponseWriter%')
-        """,
-        (f"%{normalized_path}",),
-    )
-    handlers = [dict(row) for row in cursor.fetchall()]
-    if handlers:
-        result["handlers"] = handlers
-```
-
 ### Decision 4: Create `rust_attributes` table for Rust handler detection
 
 **What:** Add new `rust_attributes` table and use it for route attribute detection.
@@ -244,51 +262,149 @@ if not routes:
 - These are **different AST node types** - macros vs attributes
 - Verified via tree-sitter: `#[get("/")]` parses as `attribute_item`, NOT `macro_invocation`
 
-**BLOCKER:** Must implement `rust_attributes` table before this task. See task 0.3 in tasks.md.
+**BLOCKER:** Must implement `rust_attributes` table before these tasks:
+- Task 3.2: Explain Rust handlers
+- Task 4.x: Deadcode Rust entry points
+- Task 5.x: Boundaries Rust entry points
 
-**Schema** (add to `theauditor/indexer/schemas/rust_schema.py`):
+### Decision 5: Add Go/Rust entry points to deadcode detection
+
+**What:** Modify `deadcode_graph.py` to query Go/Rust tables for entry point detection.
+
+**Why:**
+- Current implementation only queries Python/JS tables
+- Go main packages, web handlers are being reported as dead code
+- Rust main.rs, route handlers are being reported as dead code
+
+**Implementation** (`theauditor/context/deadcode_graph.py:255-268`):
 ```python
-RUST_ATTRIBUTES = TableSchema(
-    name="rust_attributes",
-    columns=[
-        Column("file_path", "TEXT", nullable=False),
-        Column("line", "INTEGER", nullable=False),
-        Column("attribute_name", "TEXT", nullable=False),  # "get", "derive", "serde"
-        Column("args", "TEXT"),  # '"/users"', 'Debug, Serialize'
-        Column("target_type", "TEXT"),  # "function", "struct", "field", "module"
-        Column("target_name", "TEXT"),  # name of the item the attribute is on
-        Column("target_line", "INTEGER"),  # line of the item
-    ],
-    primary_key=["file_path", "line"],
-    indexes=[
-        ("idx_rust_attrs_name", ["attribute_name"]),
-        ("idx_rust_attrs_target", ["target_type", "target_name"]),
-    ],
-)
+def _find_framework_entry_points(self) -> set[str]:
+    """Query repo_index.db for framework-specific entry points."""
+    cursor = self.repo_conn.cursor()
+    entry_points = set()
+
+    # Existing Python/JS queries...
+    cursor.execute("SELECT DISTINCT file FROM react_components")
+    entry_points.update(row[0] for row in cursor.fetchall())
+
+    # ADD: Go routes
+    cursor.execute("SELECT DISTINCT file FROM go_routes")
+    entry_points.update(row[0] for row in cursor.fetchall())
+
+    # ADD: Go main functions
+    cursor.execute("""
+        SELECT DISTINCT file FROM go_functions
+        WHERE name = 'main'
+    """)
+    entry_points.update(row[0] for row in cursor.fetchall())
+
+    # ADD: Rust route attributes (requires rust_attributes table)
+    cursor.execute("""
+        SELECT DISTINCT file_path FROM rust_attributes
+        WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'route')
+    """)
+    entry_points.update(row[0] for row in cursor.fetchall())
+
+    # ADD: Rust main functions
+    cursor.execute("""
+        SELECT DISTINCT file_path FROM rust_functions
+        WHERE name = 'main'
+    """)
+    entry_points.update(row[0] for row in cursor.fetchall())
+
+    return entry_points
 ```
 
-**Implementation** (after rust_attributes exists):
+### Decision 6: Add Go/Rust entry points to boundaries detection
+
+**What:** Modify `boundaries.py` to detect Go/Rust HTTP entry points.
+
+**Why:**
+- Current implementation only detects Python/JS routes
+- Go gin/echo handlers need to be detected as entry points
+- Rust actix-web/axum handlers need to be detected as entry points
+
+**Implementation:**
 ```python
-if ext == "rs":
-    cursor.execute(
-        """
-        SELECT f.name, f.line, a.attribute_name, a.args
-        FROM rust_functions f
-        JOIN rust_attributes a
-          ON f.file_path = a.file_path
-          AND f.line = a.target_line
-        WHERE f.file_path LIKE ?
-          AND a.attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route', 'head', 'options')
-        """,
-        (f"%{normalized_path}",),
-    )
-    handlers = [dict(row) for row in cursor.fetchall()]
-    if handlers:
-        result["framework"] = "actix-web"  # or detect from attributes
-        result["handlers"] = handlers
+def _get_entry_points(self, db_path: str, boundary_type: str) -> list[dict]:
+    """Get entry points for boundary analysis."""
+    entry_points = []
+
+    # Existing Python/JS detection...
+
+    # ADD: Go routes
+    cursor.execute("""
+        SELECT file, line, framework, method, path, handler_func
+        FROM go_routes
+    """)
+    for row in cursor.fetchall():
+        entry_points.append({
+            "file": row[0],
+            "line": row[1],
+            "language": "go",
+            "framework": row[2],
+            "method": row[3],
+            "path": row[4],
+            "handler": row[5],
+        })
+
+    # ADD: Rust routes (requires rust_attributes)
+    cursor.execute("""
+        SELECT a.file_path, a.line, a.attribute_name, a.args, f.name
+        FROM rust_attributes a
+        JOIN rust_functions f ON a.file_path = f.file_path AND a.target_line = f.line
+        WHERE a.attribute_name IN ('get', 'post', 'put', 'delete', 'route')
+    """)
+    for row in cursor.fetchall():
+        entry_points.append({
+            "file": row[0],
+            "line": row[1],
+            "language": "rust",
+            "framework": "actix-web",  # or detect from imports
+            "method": row[2].upper(),
+            "path": row[3],
+            "handler": row[4],
+        })
+
+    return entry_points
 ```
 
-### Decision 5: Extension-based language detection in explain
+### Decision 7: Add Go/Rust validation pattern detection
+
+**What:** Detect Go/Rust validation patterns as control points in boundaries.
+
+**Why:**
+- Go uses `ShouldBindJSON`, `validator.Struct` patterns
+- Rust uses `web::Json<T>` extractors, `#[validate]` derives
+- These need to be detected to measure boundary distance
+
+**Go validation patterns:**
+```python
+GO_VALIDATION_PATTERNS = [
+    "ShouldBindJSON",
+    "ShouldBindQuery",
+    "ShouldBindUri",
+    "BindJSON",
+    "Bind",
+    "validator.Struct",
+    "validate.Struct",
+]
+```
+
+**Rust validation patterns:**
+```python
+RUST_VALIDATION_PATTERNS = [
+    "web::Json",
+    "web::Path",
+    "web::Query",
+    "Json<",
+    "Path<",
+    "Query<",
+    ".validate()",
+]
+```
+
+### Decision 8: Extension-based language detection in explain
 
 **What:** Add `.go` and `.rs` to the extension check in `get_file_framework_info()`.
 
@@ -299,6 +415,8 @@ if ext == "rs":
 
 **Code location:** `theauditor/context/query.py:1439-1478`
 
+---
+
 ## Risks / Trade-offs
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -307,21 +425,28 @@ if ext == "rs":
 | SQL REGEXP not supported | Low | Query fails | SQLite supports REGEXP via extension, already used for Py/JS |
 | Performance degradation | Low | Slow queries | Single JOIN query, not N+1 pattern |
 | go_routes not populated | Medium | Fall back to param detection | Use go_func_params as secondary source |
+| rust_attributes missing | HIGH | Rust detection fails | BLOCKER - must implement first |
+
+---
 
 ## Migration Plan
 
 **Schema additions required:**
 1. Add `CARGO_PACKAGE_CONFIGS` to `infrastructure_schema.py`
 2. Add `GO_MODULE_CONFIGS` to `go_schema.py`
-3. Add both to their respective `*_TABLES` dicts
-4. Run `aud full` to create new tables
+3. Add `RUST_ATTRIBUTES` to `rust_schema.py`
+4. Add all to their respective `*_TABLES` dicts
+5. Run `aud full` to create new tables
 
 **No data migration needed.** All changes are additive:
 - New CASE clauses in existing SQL query
 - New dict keys in return values
 - New extension checks in existing if-else chain
+- New table queries in deadcode/boundaries
 
 **Rollback:** Revert commits. Drop new tables if created.
+
+---
 
 ## Resolved Questions
 
@@ -333,8 +458,20 @@ if ext == "rs":
    - **ANSWER: NO** - `rust_macro_invocations` only captures macro calls like `println!()`
    - Route attributes like `#[get("/")]` are `attribute_item` nodes in tree-sitter, NOT `macro_invocation`
    - **Action:** Create `rust_attributes` table and extraction function (see task 0.3)
-   - **BLOCKER for task 3.2** - Cannot detect Rust handlers without this
+   - **BLOCKER for tasks 3.2, 4.x, 5.x** - Cannot detect Rust handlers without this
 
 3. **Should Bash be included in deps output?**
    - **ANSWER: NO** - Bash has no package manager (no Cargo.toml/go.mod/package.json equivalent)
    - **Action:** Only show Go and Rust in addition to existing npm/pip
+
+4. **Should Bash be included in boundaries output?**
+   - **ANSWER: NO** - Bash scripts are not HTTP services
+   - **Action:** Deadcode only for Bash (shebang-based entry point detection)
+
+5. **How to detect Go main packages?**
+   - **ANSWER:** Query `go_functions` where `name = 'main'`
+   - Alternatively: Check `package main` declaration, but function query is simpler
+
+6. **How to detect Rust main functions?**
+   - **ANSWER:** Query `rust_functions` where `name = 'main'`
+   - Also detect `src/bin/*.rs` files as binary entry points
