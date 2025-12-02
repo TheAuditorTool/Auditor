@@ -147,9 +147,7 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
                         validator_type = "field"
                         if "validates_schema" in dec_name:
                             validator_type = "schema"
-                        elif "pre_load" in dec_name or "post_load" in dec_name:
-                            validator_type = "hook"
-                        elif "pre_dump" in dec_name or "post_dump" in dec_name:
+                        elif "pre_load" in dec_name or "post_load" in dec_name or "pre_dump" in dec_name or "post_dump" in dec_name:
                             validator_type = "hook"
                         validators.append({"name": item.name, "type": validator_type})
                         break

@@ -101,7 +101,7 @@ else:
         sys.stderr,
         level=_log_level,
         format=_human_format,
-        colorize=True,
+        colorize=None,  # Auto-detect: colors if TTY, plain if piped
     )
 
 # Optional file handler (always NDJSON for machine parsing)
@@ -190,12 +190,12 @@ def swap_to_rich_sink(rich_sink_fn) -> int | None:
     logger.remove(_human_handler_id)
     _human_handler_id = None
 
-    # Add the Rich sink (format is handled by Rich, so use simple format)
+    # Add the Rich sink - NO colorize, Rich handles all formatting
     new_handler_id = logger.add(
         rich_sink_fn,
         level=_log_level,
-        format=_human_format,
-        colorize=True,
+        format="{message}",  # Plain text only - Rich will style it
+        colorize=False,      # Never ANSI codes - avoids [32m garbage
     )
 
     return new_handler_id
@@ -225,7 +225,7 @@ def restore_stderr_sink(rich_handler_id: int | None) -> None:
         sys.stderr,
         level=_log_level,
         format=_human_format,
-        colorize=True,
+        colorize=None,  # Auto-detect: colors if TTY, plain if piped
     )
 
 

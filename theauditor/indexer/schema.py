@@ -2,6 +2,8 @@
 
 import sqlite3
 
+from theauditor.utils.logging import logger
+
 from .schemas.bash_schema import BASH_TABLES
 from .schemas.core_schema import CORE_TABLES
 from .schemas.frameworks_schema import FRAMEWORKS_TABLES
@@ -14,7 +16,6 @@ from .schemas.python_schema import PYTHON_TABLES
 from .schemas.rust_schema import RUST_TABLES
 from .schemas.security_schema import SECURITY_TABLES
 from .schemas.utils import TableSchema
-from theauditor.utils.logging import logger
 
 TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,
@@ -209,7 +210,7 @@ def validate_schema_contract() -> list[str]:
 _contract_errors = validate_schema_contract()
 if _contract_errors:
     raise RuntimeError(
-        f"Schema contract violation:\n" + "\n".join(f"  - {e}" for e in _contract_errors)
+        "Schema contract violation:\n" + "\n".join(f"  - {e}" for e in _contract_errors)
     )
 
 

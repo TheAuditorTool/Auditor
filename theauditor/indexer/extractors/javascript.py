@@ -5,13 +5,11 @@ import os
 from datetime import datetime
 from typing import Any
 
-from theauditor.utils.logging import logger
-
 from . import BaseExtractor
-
-logger = logging.getLogger(__name__)
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
+
+logger = logging.getLogger(__name__)
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
@@ -400,26 +398,6 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             normalized_imports.append(imp)
 
         imports_data = normalized_imports
-        logger.debug(f"JS extractor for {file_info['path']}: tree_type = {tree_type}")
-        logger.debug(
-            f"JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}"
-        )
-        logger.debug(
-            f"JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}"
-        )
-        if isinstance(actual_tree, dict):
-            logger.debug(f"JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
-            for key in list(actual_tree.keys())[:10]:
-                val = actual_tree[key]
-                if isinstance(val, list):
-                    logger.debug(f"{key}: list with {len(val)} items")
-                    if val and len(val) < 5:
-                        logger.debug(f"items: {val}")
-                elif isinstance(val, dict):
-                    logger.debug(f"{key}: dict with keys {list(val.keys())[:5]}")
-                else:
-                    logger.debug(f"{key}: {type(val).__name__}")
-        logger.debug(f"JS extractor: imports_data = {imports_data}")
 
         if imports_data:
             for imp in imports_data:

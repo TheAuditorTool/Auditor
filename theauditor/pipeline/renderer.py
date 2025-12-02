@@ -9,11 +9,11 @@ from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
 
-from theauditor.utils.logging import logger, swap_to_rich_sink, restore_stderr_sink
+from theauditor.utils.logging import logger, restore_stderr_sink, swap_to_rich_sink
 
 from .events import PipelineObserver
 from .structures import PhaseResult
-from .ui import AUDITOR_THEME, console as shared_console
+from .ui import console as shared_console
 
 
 class DynamicTable:

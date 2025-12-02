@@ -1,13 +1,10 @@
 """GraphQL Querier - Query GraphQL metadata from database."""
 
-import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from theauditor.utils.logging import logger
-
-logger = logging.getLogger(__name__)
 
 
 class GraphQLQuerier:

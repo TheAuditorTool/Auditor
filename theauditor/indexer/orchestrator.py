@@ -1,6 +1,5 @@
 """Indexer orchestration logic."""
 
-import logging
 import os
 import sys
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any
 
 from theauditor.ast_parser import ASTParser, ParseError
 from theauditor.config_runtime import load_runtime_config
+from theauditor.utils.logging import logger
 
 from ..cache.ast_cache import ASTCache
 from .config import DEFAULT_BATCH_SIZE, JS_BATCH_SIZE, SUPPORTED_AST_EXTENSIONS
@@ -22,9 +22,6 @@ from .fidelity import reconcile_fidelity
 from .js_build_guard import JavaScriptBuildGuard, get_js_project_path
 from .normalization import run_normalization_pass
 from .storage import DataStorer
-from theauditor.utils.logging import logger
-
-logger = logging.getLogger(__name__)
 
 
 class IndexerOrchestrator:

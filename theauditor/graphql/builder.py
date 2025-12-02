@@ -1,14 +1,11 @@
 """GraphQL Builder - Correlates SDL schemas with resolver implementations."""
 
 import json
-import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.utils.logging import logger
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

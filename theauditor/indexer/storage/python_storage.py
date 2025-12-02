@@ -1,7 +1,6 @@
 """Python storage handlers for framework-specific patterns."""
 
 import json
-import sys
 
 from .base import BaseStorage
 

@@ -10,7 +10,7 @@ NO FALLBACKS. Single pass. Hard fail on errors.
 
 import os
 import sqlite3
-import sys
+
 from theauditor.utils.logging import logger
 
 

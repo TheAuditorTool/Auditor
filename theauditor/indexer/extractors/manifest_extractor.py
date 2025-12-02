@@ -10,13 +10,13 @@ All extracted data is normalized into proper junction tables, not JSON blobs.
 
 import json
 import re
-import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from . import BaseExtractor
 from theauditor.utils.logging import logger
+
+from . import BaseExtractor
 
 
 def _parse_python_dep_spec(spec: str) -> dict[str, Any]:

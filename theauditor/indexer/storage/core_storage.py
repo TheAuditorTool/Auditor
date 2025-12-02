@@ -1,16 +1,13 @@
 """Core storage handlers for language-agnostic patterns."""
 
 import json
-import logging
 import os
 import sqlite3
-import sys
 from pathlib import Path
 
-from .base import BaseStorage
 from theauditor.utils.logging import logger
 
-logger = logging.getLogger(__name__)
+from .base import BaseStorage
 
 
 class CoreStorage(BaseStorage):

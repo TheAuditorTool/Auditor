@@ -11,8 +11,8 @@ NO FALLBACKS. If build fails, it fails loud.
 import hashlib
 import os
 import subprocess
-import sys
 from pathlib import Path
+
 from theauditor.utils.logging import logger
 
 
