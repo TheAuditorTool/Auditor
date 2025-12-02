@@ -3,10 +3,13 @@
 import logging
 from typing import Any
 
+from .bash_storage import BashStorage
 from .core_storage import CoreStorage
+from .go_storage import GoStorage
 from .infrastructure_storage import InfrastructureStorage
 from .node_storage import NodeStorage
 from .python_storage import PythonStorage
+from .rust_storage import RustStorage
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +55,18 @@ class DataStorer:
         self.python = PythonStorage(db_manager, counts)
         self.node = NodeStorage(db_manager, counts)
         self.infrastructure = InfrastructureStorage(db_manager, counts)
+        self.rust = RustStorage(db_manager, counts)
+        self.go = GoStorage(db_manager, counts)
+        self.bash = BashStorage(db_manager, counts)
 
         self.handlers = {
             **self.core.handlers,
             **self.python.handlers,
             **self.node.handlers,
             **self.infrastructure.handlers,
+            **self.rust.handlers,
+            **self.go.handlers,
+            **self.bash.handlers,
         }
 
     def store(
@@ -76,6 +85,9 @@ class DataStorer:
         self.python.begin_file_processing()
         self.node.begin_file_processing()
         self.infrastructure.begin_file_processing()
+        self.rust.begin_file_processing()
+        self.go.begin_file_processing()
+        self.bash.begin_file_processing()
 
         self._current_extracted = extracted
 
@@ -83,6 +95,9 @@ class DataStorer:
         self.python._current_extracted = extracted
         self.node._current_extracted = extracted
         self.infrastructure._current_extracted = extracted
+        self.rust._current_extracted = extracted
+        self.go._current_extracted = extracted
+        self.bash._current_extracted = extracted
 
         jsx_only_types = {
             "symbols",
