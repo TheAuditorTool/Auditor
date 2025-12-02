@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import BaseExtractor
+from theauditor.utils.logging import logger
 
 
 def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
@@ -130,7 +131,7 @@ class ManifestExtractor(BaseExtractor):
             pkg_data = json.loads(content)
         except json.JSONDecodeError as e:
             # ZERO FALLBACK: Log parse errors visibly
-            print(f"[ManifestExtractor] Failed to parse {file_path}: {e}", file=sys.stderr)
+            logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
             return
 
         # Main package config
@@ -208,7 +209,7 @@ class ManifestExtractor(BaseExtractor):
             data = tomllib.loads(content)
         except tomllib.TOMLDecodeError as e:
             # ZERO FALLBACK: Log parse errors visibly
-            print(f"[ManifestExtractor] Failed to parse {file_path}: {e}", file=sys.stderr)
+            logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
             return
 
         project = data.get("project", {})

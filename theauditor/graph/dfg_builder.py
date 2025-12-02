@@ -13,6 +13,7 @@ from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
 from .strategies.python_orm import PythonOrmStrategy
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
+from theauditor.utils.logging import logger
 
 
 class DFGBuilder:
@@ -386,7 +387,7 @@ class DFGBuilder:
             "skipped_no_match": 0,
         }
 
-        print("[DFG Builder] Loading backend API endpoints...")
+        logger.info("Loading backend API endpoints...")
         cursor.execute("""
             SELECT file, method, full_path, handler_function
             FROM api_endpoints
@@ -414,7 +415,7 @@ class DFGBuilder:
         for method in suffix_candidates:
             suffix_candidates[method].sort(key=lambda r: len(r["path"]), reverse=True)
 
-        print("[DFG Builder] Loading frontend API calls...")
+        logger.info("Loading frontend API calls...")
         cursor.execute("""
             SELECT file, line, method, url_literal, body_variable, function_name
             FROM frontend_api_calls
@@ -425,9 +426,7 @@ class DFGBuilder:
 
         frontend_calls = cursor.fetchall()
 
-        print(
-            f"[DFG Builder] Matching {len(frontend_calls)} frontend calls to backend endpoints..."
-        )
+        logger.info(f"Matching {len(frontend_calls)} frontend calls to backend endpoints...")
 
         with click.progressbar(
             frontend_calls,
@@ -590,16 +589,16 @@ class DFGBuilder:
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types."""
 
-        print("Building assignment flow graph...")
+        logger.info("Building assignment flow graph...")
         assignment_graph = self.build_assignment_flow_graph(root)
 
-        print("Building return flow graph...")
+        logger.info("Building return flow graph...")
         return_graph = self.build_return_flow_graph(root)
 
-        print("Building parameter binding edges...")
+        logger.info("Building parameter binding edges...")
         parameter_graph = self.build_parameter_binding_edges(root)
 
-        print("Building cross-boundary API edges...")
+        logger.info("Building cross-boundary API edges...")
         cross_boundary_graph = self.build_cross_boundary_edges(root)
 
         core_graphs = [assignment_graph, return_graph, parameter_graph, cross_boundary_graph]
@@ -608,7 +607,7 @@ class DFGBuilder:
         strategy_stats = {}
 
         for strategy in self.strategies:
-            print(f"Running strategy: {strategy.name}...")
+            logger.info(f"Running strategy: {strategy.name}...")
             # ZERO FALLBACK: Strategy failures must CRASH, not silently continue
             # A "successful" build with missing strategy data is worse than a crash
             result = strategy.build(str(self.db_path), root)
@@ -634,7 +633,7 @@ class DFGBuilder:
             "total_edges": len(edges),
         }
 
-        print(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
+        logger.info(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
 
         return {
             "nodes": list(nodes.values()),

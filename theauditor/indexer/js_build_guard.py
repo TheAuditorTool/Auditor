@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from theauditor.utils.logging import logger
 
 
 class JavaScriptBuildGuard:
@@ -85,7 +86,7 @@ class JavaScriptBuildGuard:
         - If npm install needed, build will fail with clear error
         - User must run 'npm install' manually if needed
         """
-        print("[JS GUARD] TypeScript sources changed. Rebuilding extractor...", file=sys.stderr)
+        logger.error("[JS GUARD] TypeScript sources changed. Rebuilding extractor...")
 
         npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
 
@@ -98,22 +99,19 @@ class JavaScriptBuildGuard:
         )
 
         if result.returncode != 0:
-            print(f"[JS GUARD] Build FAILED (exit code {result.returncode})", file=sys.stderr)
-            print(f"[JS GUARD] STDERR:\n{result.stderr}", file=sys.stderr)
-            print(f"[JS GUARD] STDOUT:\n{result.stdout}", file=sys.stderr)
+            logger.error(f"[JS GUARD] Build FAILED (exit code {result.returncode})")
+            logger.error(f"[JS GUARD] STDERR:\n{result.stderr}")
+            logger.error(f"[JS GUARD] STDOUT:\n{result.stdout}")
 
             if "Cannot find module" in result.stderr or "node_modules" in result.stderr:
-                print(
-                    "[JS GUARD] HINT: Run 'npm install' in theauditor/ast_extractors/javascript",
-                    file=sys.stderr,
-                )
+                logger.error("[JS GUARD] HINT: Run 'npm install' in theauditor/ast_extractors/javascript")
 
             raise RuntimeError(
                 f"JavaScript extractor build failed. Fix the error and re-run. "
                 f"Exit code: {result.returncode}"
             )
 
-        print("[JS GUARD] Build successful.", file=sys.stderr)
+        logger.error("[JS GUARD] Build successful.")
 
     def ensure_up_to_date(self) -> bool:
         """
@@ -131,7 +129,7 @@ class JavaScriptBuildGuard:
         current_hash = self.get_source_hash()
 
         if not self.artifact_file.exists():
-            print("[JS GUARD] Extractor artifact missing. Building...", file=sys.stderr)
+            logger.error("[JS GUARD] Extractor artifact missing. Building...")
             self.rebuild()
             self.signature_file.write_text(current_hash)
             return True
@@ -139,19 +137,14 @@ class JavaScriptBuildGuard:
         stored_hash = self.get_stored_signature()
 
         if current_hash != stored_hash:
-            if os.environ.get("THEAUDITOR_DEBUG"):
-                print(
-                    f"[JS GUARD] Hash mismatch. Current: {current_hash[:12]}..., "
-                    f"Stored: {stored_hash[:12] if stored_hash else 'None'}...",
-                    file=sys.stderr,
-                )
+            logger.debug(f"[JS GUARD] Hash mismatch. Current: {current_hash[:12]}..., "
+                f"Stored: {stored_hash[:12] if stored_hash else 'None'}...")
 
             self.rebuild()
             self.signature_file.write_text(current_hash)
             return True
 
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print("[JS GUARD] TypeScript extractor is up-to-date.", file=sys.stderr)
+        logger.debug("[JS GUARD] TypeScript extractor is up-to-date.")
 
         return False
 

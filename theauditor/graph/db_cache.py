@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+from theauditor.utils.logging import logger
 
 
 class GraphDatabaseCache:
@@ -51,7 +52,7 @@ class GraphDatabaseCache:
 
         conn.close()
 
-        print(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
+        logger.info(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
 
     @lru_cache(maxsize=IMPORTS_CACHE_SIZE)
     def get_imports(self, file_path: str) -> tuple[MappingProxyType, ...]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.config_runtime import load_runtime_config
+from theauditor.pipeline.ui import console
 
 
 @click.group()
@@ -146,7 +147,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
                     workset_data = json.load(f)
 
                     workset_files = {p["path"] for p in workset_data.get("paths", [])}
-                    click.echo(f"Loaded workset with {len(workset_files)} files")
+                    console.print(f"Loaded workset with {len(workset_files)} files", highlight=False)
 
         if not resume and builder.checkpoint_file.exists():
             builder.checkpoint_file.unlink()
@@ -155,20 +156,20 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         config = load_runtime_config(root)
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
-            click.echo("Loading file manifest...")
+            console.print("Loading file manifest...")
             with open(manifest_path, encoding="utf-8") as f:
                 manifest_data = json.load(f)
 
             if workset_files:
                 file_list = [f for f in manifest_data if f.get("path") in workset_files]
-                click.echo(f"  Filtered to {len(file_list)} files from workset")
+                console.print(f"  Filtered to {len(file_list)} files from workset", highlight=False)
             else:
                 file_list = manifest_data
-                click.echo(f"  Found {len(file_list)} files in manifest")
+                console.print(f"  Found {len(file_list)} files in manifest", highlight=False)
         else:
-            click.echo("No manifest found, using filesystem walk")
+            console.print("No manifest found, using filesystem walk")
 
-        click.echo("Building import graph...")
+        console.print("Building import graph...")
         import_graph = builder.build_import_graph(
             root=root,
             langs=list(langs) if langs else None,
@@ -177,10 +178,10 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
 
         store.save_import_graph(import_graph)
 
-        click.echo(f"  Nodes: {len(import_graph['nodes'])}")
-        click.echo(f"  Edges: {len(import_graph['edges'])}")
+        console.print(f"  Nodes: {len(import_graph['nodes'])}", highlight=False)
+        console.print(f"  Edges: {len(import_graph['edges'])}", highlight=False)
 
-        click.echo("Building call graph...")
+        console.print("Building call graph...")
         call_graph = builder.build_call_graph(
             root=root,
             langs=list(langs) if langs else None,
@@ -189,13 +190,13 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
 
         store.save_call_graph(call_graph)
 
-        click.echo(f"  Functions: {len(call_graph.get('nodes', []))}")
-        click.echo(f"  Calls: {len(call_graph.get('edges', []))}")
+        console.print(f"  Functions: {len(call_graph.get('nodes', []))}", highlight=False)
+        console.print(f"  Calls: {len(call_graph.get('edges', []))}", highlight=False)
 
-        click.echo(f"\nGraphs saved to database: {db}")
+        console.print(f"\nGraphs saved to database: {db}", highlight=False)
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -234,43 +235,41 @@ def graph_build_dfg(root, db, repo_db):
     try:
         repo_db_path = Path(repo_db)
         if not repo_db_path.exists():
-            click.echo(f"ERROR: {repo_db} not found. Run 'aud full' first.", err=True)
+            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", stderr=True, highlight=False)
             raise click.Abort()
 
-        click.echo("Initializing DFG builder...")
+        console.print("Initializing DFG builder...")
         builder = DFGBuilder(db_path=repo_db)
         store = XGraphStore(db_path=db)
 
-        click.echo("Building data flow graph...")
+        console.print("Building data flow graph...")
 
         graph = builder.build_unified_flow_graph(root)
 
         stats = graph["metadata"]["stats"]
-        click.echo("\nData Flow Graph Statistics:")
-        click.echo("  Assignment Stats:")
-        click.echo(f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}")
-        click.echo(
-            f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}"
-        )
-        click.echo(f"    Edges created:     {stats['assignment_stats']['edges_created']:,}")
-        click.echo("  Return Stats:")
-        click.echo(f"    Total returns:     {stats['return_stats']['total_returns']:,}")
-        click.echo(f"    With variables:    {stats['return_stats']['returns_with_vars']:,}")
-        click.echo(f"    Edges created:     {stats['return_stats']['edges_created']:,}")
-        click.echo("  Totals:")
-        click.echo(f"    Total nodes:       {stats['total_nodes']:,}")
-        click.echo(f"    Total edges:       {stats['total_edges']:,}")
+        console.print("\nData Flow Graph Statistics:")
+        console.print("  Assignment Stats:")
+        console.print(f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}", highlight=False)
+        console.print(f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}", highlight=False)
+        console.print(f"    Edges created:     {stats['assignment_stats']['edges_created']:,}", highlight=False)
+        console.print("  Return Stats:")
+        console.print(f"    Total returns:     {stats['return_stats']['total_returns']:,}", highlight=False)
+        console.print(f"    With variables:    {stats['return_stats']['returns_with_vars']:,}", highlight=False)
+        console.print(f"    Edges created:     {stats['return_stats']['edges_created']:,}", highlight=False)
+        console.print("  Totals:")
+        console.print(f"    Total nodes:       {stats['total_nodes']:,}", highlight=False)
+        console.print(f"    Total edges:       {stats['total_edges']:,}", highlight=False)
 
-        click.echo(f"\nSaving to {db}...")
+        console.print(f"\nSaving to {db}...", highlight=False)
         store.save_data_flow_graph(graph)
 
-        click.echo(f"Data flow graph saved to {db}")
+        console.print(f"Data flow graph saved to {db}", highlight=False)
 
     except FileNotFoundError as e:
-        click.echo(f"ERROR: {e}", err=True)
+        console.print(f"[error]ERROR: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
     except Exception as e:
-        click.echo(f"ERROR: Failed to build DFG: {e}", err=True)
+        console.print(f"[error]ERROR: Failed to build DFG: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
 
 
@@ -339,35 +338,35 @@ def graph_analyze(root, db, out, max_depth, workset):
         call_graph = store.load_call_graph()
 
         if not import_graph["nodes"]:
-            click.echo("No graphs found. Run 'aud graph build' first.")
+            console.print("No graphs found. Run 'aud graph build' first.")
             return
 
         analyzer = XGraphAnalyzer()
 
-        click.echo("Detecting cycles...")
+        console.print("Detecting cycles...")
         cycles = analyzer.detect_cycles(import_graph)
-        click.echo(f"  Found {len(cycles)} cycles")
+        console.print(f"  Found {len(cycles)} cycles", highlight=False)
         if cycles and len(cycles) > 0:
-            click.echo(f"  Largest cycle: {cycles[0]['size']} nodes")
+            console.print(f"  Largest cycle: {cycles[0]['size']} nodes", highlight=False)
 
         hotspots = []
         if insights:
-            click.echo("Ranking hotspots...")
+            console.print("Ranking hotspots...")
             hotspots = insights.rank_hotspots(import_graph, call_graph)
-            click.echo("  Top 10 hotspots:")
+            console.print("  Top 10 hotspots:")
             for i, hotspot in enumerate(hotspots[:10], 1):
-                click.echo(f"    {i}. {hotspot['id'][:50]} (score: {hotspot['score']})")
+                console.print(f"    {i}. {hotspot['id'][:50]} (score: {hotspot['score']})", highlight=False)
         else:
-            click.echo("Finding most connected nodes...")
+            console.print("Finding most connected nodes...")
             degrees = analyzer.calculate_node_degrees(import_graph)
             connected = sorted(
                 [(k, v["in_degree"] + v["out_degree"]) for k, v in degrees.items()],
                 key=lambda x: x[1],
                 reverse=True,
             )[:10]
-            click.echo("  Top 10 most connected nodes:")
+            console.print("  Top 10 most connected nodes:")
             for i, (node, connections) in enumerate(connected, 1):
-                click.echo(f"    {i}. {node[:50]} ({connections} connections)")
+                console.print(f"    {i}. {node[:50]} ({connections} connections)", highlight=False)
 
         impact = None
         if workset:
@@ -378,20 +377,20 @@ def graph_analyze(root, db, out, max_depth, workset):
                     targets = workset_data.get("seed_files", [])
 
                     if targets:
-                        click.echo(f"\nCalculating impact for {len(targets)} targets...")
+                        console.print(f"\nCalculating impact for {len(targets)} targets...", highlight=False)
                         impact = analyzer.impact_of_change(
                             targets=targets,
                             import_graph=import_graph,
                             call_graph=call_graph,
                             max_depth=max_depth,
                         )
-                        click.echo(f"  Upstream impact: {len(impact['upstream'])} files")
-                        click.echo(f"  Downstream impact: {len(impact['downstream'])} files")
-                        click.echo(f"  Total impacted: {impact['total_impacted']}")
+                        console.print(f"  Upstream impact: {len(impact['upstream'])} files", highlight=False)
+                        console.print(f"  Downstream impact: {len(impact['downstream'])} files", highlight=False)
+                        console.print(f"  Total impacted: {impact['total_impacted']}", highlight=False)
 
         summary = {}
         if insights:
-            click.echo("\nGenerating interpreted summary...")
+            console.print("\nGenerating interpreted summary...")
             summary = insights.summarize(
                 import_graph=import_graph,
                 call_graph=call_graph,
@@ -399,13 +398,11 @@ def graph_analyze(root, db, out, max_depth, workset):
                 hotspots=hotspots,
             )
 
-            click.echo(f"  Graph density: {summary['import_graph'].get('density', 0):.4f}")
-            click.echo(f"  Health grade: {summary['health_metrics'].get('health_grade', 'N/A')}")
-            click.echo(
-                f"  Fragility score: {summary['health_metrics'].get('fragility_score', 0):.2f}"
-            )
+            console.print(f"  Graph density: {summary['import_graph'].get('density', 0):.4f}", highlight=False)
+            console.print(f"  Health grade: {summary['health_metrics'].get('health_grade', 'N/A')}", highlight=False)
+            console.print(f"  Fragility score: {summary['health_metrics'].get('fragility_score', 0):.2f}", highlight=False)
         else:
-            click.echo("\nGenerating basic summary...")
+            console.print("\nGenerating basic summary...")
             nodes_count = len(import_graph.get("nodes", []))
             edges_count = len(import_graph.get("edges", []))
             density = edges_count / (nodes_count * (nodes_count - 1)) if nodes_count > 1 else 0
@@ -428,10 +425,10 @@ def graph_analyze(root, db, out, max_depth, workset):
                     "edges": len(call_graph.get("edges", [])),
                 }
 
-            click.echo(f"  Nodes: {nodes_count}")
-            click.echo(f"  Edges: {edges_count}")
-            click.echo(f"  Density: {density:.4f}")
-            click.echo(f"  Cycles: {len(cycles)}")
+            console.print(f"  Nodes: {nodes_count}", highlight=False)
+            console.print(f"  Edges: {edges_count}", highlight=False)
+            console.print(f"  Density: {density:.4f}", highlight=False)
+            console.print(f"  Cycles: {len(cycles)}", highlight=False)
 
         analysis = {
             "cycles": cycles,
@@ -457,14 +454,14 @@ def graph_analyze(root, db, out, max_depth, workset):
                 db_manager = DatabaseManager(str(repo_db_path.resolve()))
                 db_manager.write_findings_batch(meta_findings, "graph-analysis")
                 db_manager.close()
-                click.echo(f"  Wrote {len(meta_findings)} graph findings to database")
+                console.print(f"  Wrote {len(meta_findings)} graph findings to database", highlight=False)
             except Exception as e:
-                click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
+                console.print(f"[error]  Warning: Could not write findings to database: {e}[/error]", stderr=True, highlight=False)
 
         with open(out, "w") as f:
             json.dump(analysis, f, indent=2)
 
-        click.echo(f"\nAnalysis saved to {out}")
+        console.print(f"\nAnalysis saved to {out}", highlight=False)
 
         if insights and hotspots:
             metrics = {}
@@ -474,16 +471,16 @@ def graph_analyze(root, db, out, max_depth, workset):
             metrics_path = Path(root) / ".pf" / "raw" / "graph_metrics.json"
             with open(metrics_path, "w") as f:
                 json.dump(metrics, f, indent=2)
-            click.echo(f"  Saved graph metrics to {metrics_path}")
+            console.print(f"  Saved graph metrics to {metrics_path}", highlight=False)
 
         graph_summary = analyzer.get_graph_summary(import_graph)
         summary_path = Path(root) / ".pf" / "raw" / "graph_summary.json"
         with open(summary_path, "w") as f:
             json.dump(graph_summary, f, indent=2)
-        click.echo(f"  Saved graph summary to {summary_path}")
+        console.print(f"  Saved graph summary to {summary_path}", highlight=False)
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -501,11 +498,11 @@ def graph_query(db, uses, calls, nearest_path, format):
     from theauditor.graph.store import XGraphStore
 
     if not any([uses, calls, nearest_path]):
-        click.echo("Please specify a query option:")
-        click.echo("  --uses MODULE     Find who uses a module")
-        click.echo("  --calls FUNC      Find what a function calls")
-        click.echo("  --nearest-path SOURCE TARGET  Find path between nodes")
-        click.echo("\nExample: aud graph query --uses theauditor.cli")
+        console.print("Please specify a query option:")
+        console.print("  --uses MODULE     Find who uses a module")
+        console.print("  --calls FUNC      Find what a function calls")
+        console.print("  --nearest-path SOURCE TARGET  Find path between nodes")
+        console.print("\nExample: aud graph query --uses theauditor.cli")
         return
 
     try:
@@ -525,11 +522,11 @@ def graph_query(db, uses, calls, nearest_path, format):
             }
 
             if format == "table":
-                click.echo(f"\n{uses} is used by {len(all_users)} nodes:")
+                console.print(f"\n{uses} is used by {len(all_users)} nodes:", highlight=False)
                 for user in all_users[:20]:
-                    click.echo(f"  - {user}")
+                    console.print(f"  - {user}", highlight=False)
                 if len(all_users) > 20:
-                    click.echo(f"  ... and {len(all_users) - 20} more")
+                    console.print(f"  ... and {len(all_users) - 20} more", highlight=False)
 
         if calls:
             deps = store.query_dependencies(calls, direction="downstream")
@@ -543,11 +540,11 @@ def graph_query(db, uses, calls, nearest_path, format):
             }
 
             if format == "table":
-                click.echo(f"\n{calls} depends on {len(all_deps)} nodes:")
+                console.print(f"\n{calls} depends on {len(all_deps)} nodes:", highlight=False)
                 for dep in all_deps[:20]:
-                    click.echo(f"  - {dep}")
+                    console.print(f"  - {dep}", highlight=False)
                 if len(all_deps) > 20:
-                    click.echo(f"  ... and {len(all_deps) - 20} more")
+                    console.print(f"  ... and {len(all_deps) - 20} more", highlight=False)
 
         if nearest_path:
             source, target = nearest_path
@@ -565,18 +562,18 @@ def graph_query(db, uses, calls, nearest_path, format):
 
             if format == "table":
                 if path:
-                    click.echo(f"\nPath from {source} to {target} ({len(path)} steps):")
+                    console.print(f"\nPath from {source} to {target} ({len(path)} steps):", highlight=False)
                     for i, node in enumerate(path):
                         prefix = "  " + ("-> " if i > 0 else "")
-                        click.echo(f"{prefix}{node}")
+                        console.print(f"{prefix}{node}", highlight=False)
                 else:
-                    click.echo(f"\nNo path found from {source} to {target}")
+                    console.print(f"\nNo path found from {source} to {target}", highlight=False)
 
         if format == "json":
-            click.echo(json.dumps(results, indent=2))
+            console.print(json.dumps(results, indent=2), markup=False)
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -682,7 +679,7 @@ def graph_viz(
             default_title = "Function Call Graph"
 
         if not graph or not graph.get("nodes"):
-            click.echo(f"No {graph_type} graph found. Run 'aud graph build' first.")
+            console.print(f"No {graph_type} graph found. Run 'aud graph build' first.", highlight=False)
             return
 
         analysis = {}
@@ -696,13 +693,9 @@ def graph_viz(
                         "hotspots": analysis_data.get("hotspots", []),
                         "impact": analysis_data.get("impact", {}),
                     }
-                click.echo(
-                    f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots"
-                )
+                console.print(f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots", highlight=False)
             else:
-                click.echo(
-                    "No analysis found. Run 'aud graph analyze' first for richer visualization."
-                )
+                console.print("No analysis found. Run 'aud graph analyze' first for richer visualization.")
 
         out_path = Path(out_dir)
         out_path.mkdir(parents=True, exist_ok=True)
@@ -712,8 +705,8 @@ def graph_viz(
             with open(json_file, "w") as f:
                 json.dump({"nodes": graph["nodes"], "edges": graph["edges"]}, f, indent=2)
 
-            click.echo(f"[OK] JSON saved to: {json_file}")
-            click.echo(f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}")
+            console.print(f"[success]JSON saved to: {json_file}[/success]")
+            console.print(f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}", highlight=False)
         else:
             visualizer = GraphVisualizer()
 
@@ -723,22 +716,20 @@ def graph_viz(
                 "show_self_loops": show_self_loops,
             }
 
-            click.echo(f"Generating {format.upper()} visualization (view: {view})...")
+            console.print(f"Generating {format.upper()} visualization (view: {view})...", highlight=False)
 
             if view == "cycles":
                 cycles = analysis.get("cycles", [])
                 if not cycles:
                     if "cycles" in analysis:
-                        click.echo(
-                            "[INFO] No dependency cycles detected in the codebase (good architecture!)."
-                        )
-                        click.echo("       Showing full graph instead...")
+                        console.print("[info]No dependency cycles detected in the codebase (good architecture!).[/info]")
+                        console.print("       Showing full graph instead...")
                     else:
-                        click.echo("[WARN] No cycles data found. Run 'aud graph analyze' first.")
-                        click.echo("       Falling back to full view...")
+                        console.print("[warning]No cycles data found. Run 'aud graph analyze' first.[/warning]")
+                        console.print("       Falling back to full view...")
                     dot_content = visualizer.generate_dot(graph, analysis, options)
                 else:
-                    click.echo(f"  Showing {len(cycles)} cycles")
+                    console.print(f"  Showing {len(cycles)} cycles", highlight=False)
                     dot_content = visualizer.generate_cycles_only_view(graph, cycles, options)
 
             elif view == "hotspots":
@@ -747,11 +738,11 @@ def graph_viz(
 
                     analyzer = XGraphAnalyzer()
                     hotspots = analyzer.identify_hotspots(graph, top_n=top_hotspots)
-                    click.echo(f"  Calculated {len(hotspots)} hotspots")
+                    console.print(f"  Calculated {len(hotspots)} hotspots", highlight=False)
                 else:
                     hotspots = analysis["hotspots"]
 
-                click.echo(f"  Showing top {top_hotspots} hotspots")
+                console.print(f"  Showing top {top_hotspots} hotspots", highlight=False)
                 dot_content = visualizer.generate_hotspots_only_view(
                     graph, hotspots, options, top_n=top_hotspots
                 )
@@ -761,16 +752,16 @@ def graph_viz(
 
                 analyzer = XGraphAnalyzer()
                 layers = analyzer.identify_layers(graph)
-                click.echo(f"  Found {len(layers)} architectural layers")
+                console.print(f"  Found {len(layers)} architectural layers", highlight=False)
 
                 for layer_num, nodes in layers.items():
                     if layer_num is not None:
-                        click.echo(f"    Layer {layer_num}: {len(nodes)} nodes")
+                        console.print(f"    Layer {layer_num}: {len(nodes)} nodes", highlight=False)
                 dot_content = visualizer.generate_dot_with_layers(graph, layers, analysis, options)
 
             elif view == "impact":
                 if not impact_target:
-                    click.echo("[ERROR] --impact-target required for impact view")
+                    console.print("[error]--impact-target required for impact view[/error]")
                     raise click.ClickException("Missing --impact-target for impact view")
 
                 from theauditor.graph.analyzer import XGraphAnalyzer
@@ -779,19 +770,19 @@ def graph_viz(
                 impact = analyzer.analyze_impact(graph, [impact_target])
 
                 if not impact["targets"]:
-                    click.echo(f"[WARN] Target '{impact_target}' not found in graph")
-                    click.echo("       Showing full graph instead...")
+                    console.print(f"[warning]Target '{impact_target}' not found in graph[/warning]")
+                    console.print("       Showing full graph instead...")
                     dot_content = visualizer.generate_dot(graph, analysis, options)
                 else:
-                    click.echo(f"  Target: {impact_target}")
-                    click.echo(f"  Upstream: {len(impact['upstream'])} nodes")
-                    click.echo(f"  Downstream: {len(impact['downstream'])} nodes")
-                    click.echo(f"  Total impact: {len(impact['all_impacted'])} nodes")
+                    console.print(f"  Target: {impact_target}", highlight=False)
+                    console.print(f"  Upstream: {len(impact['upstream'])} nodes", highlight=False)
+                    console.print(f"  Downstream: {len(impact['downstream'])} nodes", highlight=False)
+                    console.print(f"  Total impact: {len(impact['all_impacted'])} nodes", highlight=False)
                     dot_content = visualizer.generate_impact_visualization(graph, impact, options)
 
             else:
-                click.echo(f"  Nodes: {len(graph['nodes'])} (limit: {limit_nodes})")
-                click.echo(f"  Edges: {len(graph['edges'])}")
+                console.print(f"  Nodes: {len(graph['nodes'])} (limit: {limit_nodes})", highlight=False)
+                console.print(f"  Edges: {len(graph['edges'])}", highlight=False)
                 dot_content = visualizer.generate_dot(graph, analysis, options)
 
             output_filename = f"{output_name}_{view}" if view != "full" else output_name
@@ -799,7 +790,7 @@ def graph_viz(
             dot_file = out_path / f"{output_filename}.dot"
             with open(dot_file, "w") as f:
                 f.write(dot_content)
-            click.echo(f"[OK] DOT file saved to: {dot_file}")
+            console.print(f"[success]DOT file saved to: {dot_file}[/success]")
 
             if format in ["svg", "png"]:
                 try:
@@ -813,61 +804,55 @@ def graph_viz(
                             ["dot", f"-T{format}", str(dot_file), "-o", str(output_file)],
                             check=True,
                         )
-                        click.echo(f"[OK] {format.upper()} image saved to: {output_file}")
+                        console.print(f"[success]{format.upper()} image saved to: {output_file}[/success]")
 
                         if format == "svg":
-                            click.echo("  ✓ SVG is AI-readable and can be analyzed for patterns")
+                            console.print("  [success]SVG is AI-readable and can be analyzed for patterns[/success]")
                     else:
-                        click.echo(
-                            f"[WARN] Graphviz not found. Install it to generate {format.upper()} images:"
-                        )
-                        click.echo("  Ubuntu/Debian: apt install graphviz")
-                        click.echo("  macOS: brew install graphviz")
-                        click.echo("  Windows: choco install graphviz")
-                        click.echo(
-                            f"\n  Manual generation: dot -T{format} {dot_file} -o {output_filename}.{format}"
-                        )
+                        console.print(f"[warning]Graphviz not found. Install it to generate {format.upper()} images:[/warning]")
+                        console.print("  Ubuntu/Debian: apt install graphviz")
+                        console.print("  macOS: brew install graphviz")
+                        console.print("  Windows: choco install graphviz")
+                        console.print(f"\n  Manual generation: dot -T{format} {dot_file} -o {output_filename}.{format}", highlight=False)
 
                 except FileNotFoundError:
-                    click.echo(f"[WARN] Graphviz not installed. Cannot generate {format.upper()}.")
-                    click.echo(
-                        f"  Install graphviz and run: dot -T{format} {dot_file} -o {output_filename}.{format}"
-                    )
+                    console.print(f"[warning]Graphviz not installed. Cannot generate {format.upper()}.[/warning]")
+                    console.print(f"  Install graphviz and run: dot -T{format} {dot_file} -o {output_filename}.{format}", highlight=False)
                 except subprocess.CalledProcessError as e:
-                    click.echo(f"[ERROR] Failed to generate {format.upper()}: {e}")
+                    console.print(f"[error]Failed to generate {format.upper()}: {e}[/error]")
 
-            click.echo("\nVisual Encoding:")
+            console.print("\nVisual Encoding:")
 
             if view == "cycles":
-                click.echo("  • Red Nodes: Part of dependency cycles")
-                click.echo("  • Red Edges: Cycle connections")
-                click.echo("  • Subgraphs: Individual cycles grouped")
+                console.print("  • Red Nodes: Part of dependency cycles")
+                console.print("  • Red Edges: Cycle connections")
+                console.print("  • Subgraphs: Individual cycles grouped")
 
             elif view == "hotspots":
-                click.echo("  • Node Color: Red gradient (darker = higher rank)")
-                click.echo("  • Node Size: Total connections")
-                click.echo("  • Gray Nodes: Connected but not hotspots")
-                click.echo("  • Labels: Show in/out degree counts")
+                console.print("  • Node Color: Red gradient (darker = higher rank)")
+                console.print("  • Node Size: Total connections")
+                console.print("  • Gray Nodes: Connected but not hotspots")
+                console.print("  • Labels: Show in/out degree counts")
 
             elif view == "layers":
-                click.echo("  • Subgraphs: Architectural layers")
-                click.echo("  • Node Color: Programming language")
-                click.echo("  • Border Width: Code churn (thicker = more changes)")
-                click.echo("  • Node Size: Importance (in-degree)")
+                console.print("  • Subgraphs: Architectural layers")
+                console.print("  • Node Color: Programming language")
+                console.print("  • Border Width: Code churn (thicker = more changes)")
+                console.print("  • Node Size: Importance (in-degree)")
 
             elif view == "impact":
-                click.echo("  • Red Nodes: Impact targets")
-                click.echo("  • Orange Nodes: Upstream dependencies")
-                click.echo("  • Blue Nodes: Downstream dependencies")
-                click.echo("  • Purple Nodes: Both upstream and downstream")
-                click.echo("  • Gray Nodes: Unaffected")
+                console.print("  • Red Nodes: Impact targets")
+                console.print("  • Orange Nodes: Upstream dependencies")
+                console.print("  • Blue Nodes: Downstream dependencies")
+                console.print("  • Purple Nodes: Both upstream and downstream")
+                console.print("  • Gray Nodes: Unaffected")
 
             else:
-                click.echo("  • Node Color: Programming language")
-                click.echo("  • Node Size: Importance (larger = more dependencies)")
-                click.echo("  • Red Edges: Part of dependency cycles")
-                click.echo("  • Node Shape: box=module, ellipse=function")
+                console.print("  • Node Color: Programming language")
+                console.print("  • Node Size: Importance (larger = more dependencies)")
+                console.print("  • Red Edges: Part of dependency cycles")
+                console.print("  • Node Shape: box=module, ellipse=function")
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.ClickException(str(e)) from e
