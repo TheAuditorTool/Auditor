@@ -1,6 +1,7 @@
 """Node.js/TypeScript/React/Vue database operations."""
 
 import json
+import sys
 
 
 class NodeDatabaseMixin:
@@ -311,8 +312,15 @@ class NodeDatabaseMixin:
             if isinstance(style_paths, str):
                 try:
                     paths_list = json.loads(style_paths)
-                except (json.JSONDecodeError, TypeError):
-                    paths_list = [style_paths]
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid style_paths JSON.\n"
+                        f"  File: {file}\n"
+                        f"  Component: {component_name}\n"
+                        f"  Raw data: {repr(style_paths)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
             if isinstance(paths_list, list):
                 for style_path in paths_list:
                     if style_path:

@@ -754,6 +754,11 @@ class NodeStorage(BaseStorage):
             target_id = block_id_map.get((function_id, to_block))
 
             if source_id is None or target_id is None:
+                # ZERO FALLBACK: Log orphaned edges (prevents silent data loss)
+                logger.warning(
+                    f"GATEKEEPER: Skipping orphaned CFG edge. "
+                    f"function_id={function_id!r}, from={from_block!r}, to={to_block!r}"
+                )
                 continue
 
             if jsx_pass:
@@ -772,6 +777,11 @@ class NodeStorage(BaseStorage):
 
             real_block_id = block_id_map.get((function_id, block_id))
             if real_block_id is None:
+                # ZERO FALLBACK: Log orphaned statements (prevents silent data loss)
+                logger.warning(
+                    f"GATEKEEPER: Skipping orphaned CFG statement. "
+                    f"function_id={function_id!r}, block_id={block_id!r}"
+                )
                 continue
 
             if jsx_pass:

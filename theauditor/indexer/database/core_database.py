@@ -1,5 +1,8 @@
 """Core database operations for language-agnostic patterns."""
 
+import os
+import sys
+
 
 class CoreDatabaseMixin:
     """Mixin providing add_* methods for CORE_TABLES."""
@@ -31,7 +34,12 @@ class CoreDatabaseMixin:
 
         for s in reversed(self.generic_batches["symbols"]):
             if (s[0], s[1], s[2], s[3], s[4]) == symbol_key:
-                # Duplicate found in current batch - skip
+                # Duplicate found in current batch - skip (extractor bug)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(
+                        f"[CoreDatabase] DEDUP: Dropping duplicate symbol: {path}:{line} {name} ({symbol_type})",
+                        file=sys.stderr,
+                    )
                 return
 
         self.generic_batches["symbols"].append(

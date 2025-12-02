@@ -1,6 +1,7 @@
 """Python storage handlers for framework-specific patterns."""
 
 import json
+import sys
 
 from .base import BaseStorage
 
@@ -394,12 +395,17 @@ class PythonStorage(BaseStorage):
 
             implemented_methods = protocol.get("implemented_methods") or []
             if isinstance(implemented_methods, str):
-                import json
-
                 try:
                     implemented_methods = json.loads(implemented_methods)
-                except (json.JSONDecodeError, TypeError):
-                    implemented_methods = []
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid implemented_methods JSON.\n"
+                        f"  File: {file_path}\n"
+                        f"  Protocol: {protocol.get('class_name')}\n"
+                        f"  Raw data: {repr(implemented_methods)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
 
             for order, method_name in enumerate(implemented_methods):
                 self.db_manager.add_python_protocol_method(
@@ -446,12 +452,17 @@ class PythonStorage(BaseStorage):
         for typedef in python_type_definitions:
             type_params = typedef.get("type_params") or []
             if isinstance(type_params, str):
-                import json
-
                 try:
                     type_params = json.loads(type_params)
-                except (json.JSONDecodeError, TypeError):
-                    type_params = []
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid type_params JSON.\n"
+                        f"  File: {file_path}\n"
+                        f"  TypeDef: {typedef.get('name')}\n"
+                        f"  Raw data: {repr(type_params)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
 
             type_param_count = len(type_params) if type_params else None
             type_param_1 = type_params[0] if len(type_params) > 0 else None
@@ -482,12 +493,17 @@ class PythonStorage(BaseStorage):
             if typedef.get("type_kind") == "typed_dict":
                 fields = typedef.get("fields") or []
                 if isinstance(fields, str):
-                    import json
-
                     try:
                         fields = json.loads(fields)
-                    except (json.JSONDecodeError, TypeError):
-                        fields = []
+                    except (json.JSONDecodeError, TypeError) as e:
+                        # ZERO FALLBACK: CRASH with full context
+                        raise ValueError(
+                            f"DATA CORRUPTION: Invalid TypedDict fields JSON.\n"
+                            f"  File: {file_path}\n"
+                            f"  TypeDef: {typedef.get('name')}\n"
+                            f"  Raw data: {repr(fields)[:200]}\n"
+                            f"  Error: {e}"
+                        ) from e
 
                 if isinstance(fields, list):
                     for order, field_info in enumerate(fields):
@@ -532,12 +548,17 @@ class PythonStorage(BaseStorage):
         for lit in python_literals:
             literal_values = lit.get("literal_values") or lit.get("values") or []
             if isinstance(literal_values, str):
-                import json
-
                 try:
                     literal_values = json.loads(literal_values)
-                except (json.JSONDecodeError, TypeError):
-                    literal_values = []
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid literal_values JSON.\n"
+                        f"  File: {file_path}\n"
+                        f"  Literal: {lit.get('name')}\n"
+                        f"  Raw data: {repr(literal_values)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
 
             def to_str(v):
                 return str(v) if v is not None else None
