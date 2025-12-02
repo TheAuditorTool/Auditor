@@ -1,4 +1,10 @@
-"""Model training, evaluation, and persistence."""
+"""Model training, evaluation, and persistence.
+
+2025 Edition: Uses sklearn Pipeline with HistGradientBoostingClassifier.
+- Pipeline bundles scaler + classifier so they travel together
+- HistGradientBoostingClassifier is faster and handles NaNs natively
+- Probability calibration for reliable risk scores
+"""
 
 import json
 from collections import defaultdict
@@ -15,9 +21,10 @@ ML_AVAILABLE = False
 try:
     import joblib
     import numpy as np
-    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.isotonic import IsotonicRegression
     from sklearn.linear_model import Ridge
+    from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
     ML_AVAILABLE = True
@@ -171,8 +178,8 @@ def build_feature_matrix(
             for row in cursor.fetchall():
                 file_metadata[row[0]] = {"path": row[0], "ext": row[1], "bytes": row[2], "loc": row[3]}
             conn.close()
-        except Exception:
-            pass
+        except sqlite3.Error as e:
+            logger.debug(f"DB error loading file metadata: {e}")
 
     journal_stats = historical_data.get("journal_stats", {})
     rca_stats = historical_data.get("rca_stats", {})
@@ -250,6 +257,16 @@ def build_feature_matrix(
         feat.append(db_feat.get("cfg_edge_count", 0) / 30.0)
         feat.append(db_feat.get("cyclomatic_complexity", 0) / 10.0)
 
+        # 2025: Blast radius features from impact_analyzer
+        feat.append(db_feat.get("blast_radius", 0.0))  # Already log-scaled
+        feat.append(db_feat.get("coupling_score", 0.0))  # Already 0-1 normalized
+        feat.append(db_feat.get("direct_upstream", 0) / 10.0)
+        feat.append(db_feat.get("direct_downstream", 0) / 10.0)
+        feat.append(db_feat.get("transitive_impact", 0) / 20.0)
+        feat.append(db_feat.get("affected_files", 0) / 10.0)
+        feat.append(1.0 if db_feat.get("is_api_endpoint") else 0.0)
+        feat.append(db_feat.get("prod_dependency_count", 0) / 10.0)
+
         feat.append(db_feat.get("agent_blind_edit_count", 0) / 5.0)
         feat.append(db_feat.get("agent_duplicate_impl_rate", 0.0))
         feat.append(db_feat.get("agent_missed_search_count", 0) / 10.0)
@@ -317,6 +334,16 @@ def build_feature_matrix(
         "cfg_block_count",
         "cfg_edge_count",
         "cyclomatic_complexity",
+        # 2025: Blast radius features
+        "blast_radius",
+        "coupling_score",
+        "direct_upstream",
+        "direct_downstream",
+        "transitive_impact",
+        "affected_files",
+        "is_api_endpoint",
+        "prod_dependency_count",
+        # Agent behavior features
         "agent_blind_edit_count",
         "agent_duplicate_impl_rate",
         "agent_missed_search_count",
@@ -371,7 +398,13 @@ def train_models(
     seed: int = 13,
     sample_weight: np.ndarray = None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
-    """Train the three models with optional sample weighting for human feedback"""
+    """Train the three models with optional sample weighting for human feedback.
+
+    2025 Edition:
+    - Uses HistGradientBoostingClassifier (faster, handles NaNs natively)
+    - Wraps in Pipeline for portable train/predict (scaler travels with model)
+    - Probability calibration for reliable risk scores
+    """
     if not ML_AVAILABLE:
         return None, None, None, None, None, None
 
@@ -380,43 +413,53 @@ def train_models(
     if len(np.unique(next_edit_labels)) < 2:
         next_edit_labels[0] = 1 - next_edit_labels[0]
 
+    # 2025: Use Pipeline to bundle scaler with classifier
+    # This ensures scaling is always applied consistently
+    root_cause_pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', HistGradientBoostingClassifier(
+            learning_rate=0.1,
+            max_iter=100,
+            max_depth=5,
+            random_state=seed,
+            class_weight='balanced',  # Handles class imbalance automatically
+        ))
+    ])
+
+    next_edit_pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', HistGradientBoostingClassifier(
+            learning_rate=0.1,
+            max_iter=100,
+            max_depth=5,
+            random_state=seed,
+            class_weight='balanced',
+        ))
+    ])
+
+    # Risk regression still uses Ridge with manual scaling
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
-    root_cause_clf = GradientBoostingClassifier(
-        n_estimators=50,
-        learning_rate=0.1,
-        max_depth=3,
-        random_state=seed,
-        subsample=0.8,
-        min_samples_split=5,
-    )
-    root_cause_clf.fit(features_scaled, root_cause_labels, sample_weight=sample_weight)
-
-    next_edit_clf = GradientBoostingClassifier(
-        n_estimators=50,
-        learning_rate=0.1,
-        max_depth=3,
-        random_state=seed,
-        subsample=0.8,
-        min_samples_split=5,
-    )
-    next_edit_clf.fit(features_scaled, next_edit_labels, sample_weight=sample_weight)
+    # Train pipelines (they handle scaling internally)
+    root_cause_pipeline.fit(features, root_cause_labels)
+    next_edit_pipeline.fit(features, next_edit_labels)
 
     risk_reg = Ridge(alpha=1.0, random_state=seed)
     risk_reg.fit(features_scaled, risk_labels, sample_weight=sample_weight)
 
+    # Probability calibration for reliable risk scores
     root_cause_calibrator = IsotonicRegression(out_of_bounds="clip")
-    root_cause_probs = root_cause_clf.predict_proba(features_scaled)[:, 1]
+    root_cause_probs = root_cause_pipeline.predict_proba(features)[:, 1]
     root_cause_calibrator.fit(root_cause_probs, root_cause_labels)
 
     next_edit_calibrator = IsotonicRegression(out_of_bounds="clip")
-    next_edit_probs = next_edit_clf.predict_proba(features_scaled)[:, 1]
+    next_edit_probs = next_edit_pipeline.predict_proba(features)[:, 1]
     next_edit_calibrator.fit(next_edit_probs, next_edit_labels)
 
     return (
-        root_cause_clf,
-        next_edit_clf,
+        root_cause_pipeline,
+        next_edit_pipeline,
         risk_reg,
         scaler,
         root_cause_calibrator,

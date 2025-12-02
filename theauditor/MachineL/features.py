@@ -1,8 +1,16 @@
-"""Database feature extraction for ML training."""
+"""Database feature extraction for ML training.
+
+2025 Edition: Integrates blast radius from impact_analyzer into ML features.
+"""
 
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from theauditor.utils.logging import logger
 
 HTTP_LIBS = frozenset(
     {
@@ -158,8 +166,8 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
             stats[file_path]["sql_query_count"] = count
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_security_pattern_features: {e}")
 
     return dict(stats)
 
@@ -217,8 +225,8 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
             stats[file_path]["unique_cwe_count"] = unique_cwes
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_vulnerability_flow_features: {e}")
 
     return dict(stats)
 
@@ -267,8 +275,8 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
             stats[file_path]["type_coverage_ratio"] = typed / total if total > 0 else 0.0
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_type_coverage_features: {e}")
 
     return dict(stats)
 
@@ -321,8 +329,8 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
             stats[file_path]["cyclomatic_complexity"] = edge_count - blocks + 2
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_cfg_complexity_features: {e}")
 
     return dict(stats)
 
@@ -398,8 +406,8 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
             stats[file_path]["has_sql"] = True
 
         conn.close()
-    except (ImportError, ValueError, AttributeError):
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_graph_stats: {e}")
 
     return dict(stats)
 
@@ -455,8 +463,8 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
                 stats[file_path]["has_test_import"] = True
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_semantic_import_features: {e}")
 
     return dict(stats)
 
@@ -531,8 +539,8 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
             stats[file_path]["try_except_count"] = count
 
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_ast_complexity_metrics: {e}")
 
     return dict(stats)
 
@@ -566,8 +574,10 @@ def load_comment_hallucination_features(
                 if file_path:
                     normalized = file_path.replace("\\", "/")
                     graveyard_files.add(normalized)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except json.JSONDecodeError as e:
+            logger.debug(f"Corrupt graveyard JSON: {e}")
+        except OSError as e:
+            logger.debug(f"Could not read graveyard file: {e}")
 
     for file_path in file_paths:
         normalized = file_path.replace("\\", "/")
@@ -603,7 +613,8 @@ def load_comment_hallucination_features(
                         if file_path_obj.is_absolute():
                             file_path_obj = file_path_obj.relative_to(project_root)
                         normalized_file = str(file_path_obj).replace("\\", "/")
-                    except (ValueError, Exception):
+                    except ValueError:
+                        # Path not relative to project root
                         normalized_file = file.replace("\\", "/")
 
                     if normalized_file not in file_paths:
@@ -622,8 +633,7 @@ def load_comment_hallucination_features(
 
         analyzer.close()
     except ImportError:
-        pass
-    except Exception:
+        # Session analyzer not available
         pass
 
     return dict(stats)
@@ -704,8 +714,7 @@ def load_agent_behavior_features(
 
         analyzer.close()
     except ImportError:
-        pass
-    except Exception:
+        # Session analyzer not available
         pass
 
     return dict(stats)
@@ -791,7 +800,8 @@ def load_session_execution_features(
                             if diff_path_obj.is_absolute():
                                 diff_path_obj = diff_path_obj.relative_to(project_root)
                             normalized_diff = str(diff_path_obj.as_posix())
-                        except (ValueError, Exception):
+                        except ValueError:
+                            # Path not relative to project root
                             normalized_diff = str(Path(diff_file).as_posix())
 
                         if normalized_diff == normalized_path:
@@ -815,10 +825,114 @@ def load_session_execution_features(
             )
 
         conn.close()
-    except sqlite3.Error:
-        pass
-    except Exception:
-        pass
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in load_session_execution_features: {e}")
+
+    return dict(stats)
+
+
+def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
+    """Extract blast radius features by integrating impact_analyzer.
+
+    This is the 2025 "feature fusion" - the ML model now knows about
+    the theoretical maximum impact if each file were touched.
+
+    Returns raw counts without formatting (headless mode for ML).
+    """
+    if not Path(db_path).exists() or not file_paths:
+        return {}
+
+    stats = defaultdict(
+        lambda: {
+            "blast_radius": 0.0,
+            "coupling_score": 0.0,
+            "direct_upstream": 0,
+            "direct_downstream": 0,
+            "transitive_impact": 0,
+            "affected_files": 0,
+            "is_api_endpoint": False,
+            "prod_dependency_count": 0,
+        }
+    )
+
+    try:
+        from . import impact_analyzer
+
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # Check which files are API endpoints (high-value targets)
+            placeholders = ",".join("?" * len(file_paths))
+            cursor.execute(
+                f"SELECT DISTINCT file FROM api_endpoints WHERE file IN ({placeholders})",
+                file_paths,
+            )
+            api_files = {row[0] for row in cursor.fetchall()}
+
+            for fp in file_paths:
+                if fp in api_files:
+                    stats[fp]["is_api_endpoint"] = True
+
+                # Find first function/class to analyze impact
+                cursor.execute(
+                    """
+                    SELECT name, type, line
+                    FROM symbols
+                    WHERE path = ? AND type IN ('function', 'class')
+                    LIMIT 1
+                    """,
+                    (fp,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    continue
+
+                name, sym_type, line = row
+
+                # Calculate upstream (who calls this)
+                upstream = impact_analyzer.find_upstream_dependencies(
+                    cursor, fp, name, sym_type
+                )
+
+                # Calculate downstream (what this calls)
+                downstream = impact_analyzer.find_downstream_dependencies(
+                    cursor, fp, line, name
+                )
+
+                # Calculate transitive impact
+                downstream_transitive = impact_analyzer.calculate_transitive_impact(
+                    cursor, downstream, "downstream", max_depth=2
+                )
+
+                # Risk classification
+                all_impacts = upstream + downstream + downstream_transitive
+                risk_data = impact_analyzer.classify_risk(all_impacts)
+
+                # Populate features
+                stats[fp]["direct_upstream"] = len(upstream)
+                stats[fp]["direct_downstream"] = len(downstream)
+                stats[fp]["transitive_impact"] = len(downstream_transitive)
+
+                total_impact = len(upstream) + len(downstream) + len(downstream_transitive)
+                affected_files = len(
+                    {item["file"] for item in all_impacts if item.get("file") != "external"}
+                )
+
+                stats[fp]["affected_files"] = affected_files
+
+                # Log-scale blast radius (stability for large values)
+                stats[fp]["blast_radius"] = float(np.log1p(total_impact))
+
+                # Coupling score: normalized 0-1
+                stats[fp]["coupling_score"] = min(total_impact / 50.0, 1.0)
+
+                # Production dependency count (most actionable)
+                stats[fp]["prod_dependency_count"] = risk_data["metrics"]["prod_count"]
+
+    except ImportError:
+        logger.debug("impact_analyzer not available for feature extraction")
+    except sqlite3.Error as e:
+        logger.debug(f"DB error in impact features: {e}")
 
     return dict(stats)
 
@@ -839,6 +953,9 @@ def load_all_db_features(
     graph = load_graph_stats(db_path, file_paths)
     semantic = load_semantic_import_features(db_path, file_paths)
     complexity = load_ast_complexity_metrics(db_path, file_paths)
+
+    # 2025: Blast radius features from impact_analyzer
+    impact_features = load_impact_features(db_path, file_paths)
 
     session_execution_features = load_session_execution_features(None, file_paths)
 
@@ -862,6 +979,9 @@ def load_all_db_features(
         combined_features[file_path].update(graph.get(file_path, {}))
         combined_features[file_path].update(semantic.get(file_path, {}))
         combined_features[file_path].update(complexity.get(file_path, {}))
+
+        # 2025: Blast radius features
+        combined_features[file_path].update(impact_features.get(file_path, {}))
 
         combined_features[file_path].update(session_execution_features.get(file_path, {}))
 
