@@ -622,8 +622,27 @@ class IndexerOrchestrator:
                 try:
                     extracted = extractor.extract(file_info, content, tree)
                 except Exception as e:
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        print(f"[DEBUG] JSX extraction failed for {file_path}: {e}")
+                    # ZERO FALLBACK FIX: Always log errors visibly and record in database
+                    print(
+                        f"[Indexer] JSX extraction FAILED for {file_path}: {e}",
+                        file=sys.stderr,
+                    )
+                    # Record the failure as a finding (visible evidence, not silent)
+                    self.db_manager.flush_batch()
+                    self.db_manager.write_findings_batch(
+                        [
+                            {
+                                "file": file_info["path"],
+                                "line": 1,
+                                "rule": "jsx_extraction_error",
+                                "tool": "indexer",
+                                "severity": "error",
+                                "message": f"JSX Extraction Failed: {e}",
+                                "category": "extraction",
+                            }
+                        ],
+                        "indexer",
+                    )
                     continue
 
                 file_path_str = file_info["path"]
