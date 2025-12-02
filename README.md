@@ -31,9 +31,6 @@ pip install theauditor
 
 # Run complete security audit (auto-creates .pf/ directory)
 aud full
-
-# View findings summary
-aud summary
 ```
 
 **Output**: `.pf/raw/` contains all analysis artifacts (patterns, lint, terraform, etc.)
@@ -321,9 +318,6 @@ aud init
 
 # Run complete audit
 aud full
-
-# View findings summary
-aud summary
 ```
 
 ### Incremental Analysis (10-100x faster)

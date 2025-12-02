@@ -75,7 +75,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
 
     Output Files:
       .pf/raw/*.json              # All analysis artifacts (patterns, lint, terraform, etc.)
-      .pf/raw/audit_summary.json  # Executive summary with severity counts
       .pf/pipeline.log            # Detailed execution trace
       .pf/fce.log                 # Factual Correlation Engine output
 
@@ -219,9 +218,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         if low > 0:
             console.print(f"  - [low]Low:      {low}[/low]")
 
-    console.print(
-        "\nReview the findings in [path].pf/raw/[/path] or run [cmd]aud summary[/cmd] for overview."
-    )
+    console.print("\nReview the findings in [path].pf/raw/[/path]")
     console.rule()
 
     if exit_code != ExitCodes.SUCCESS:

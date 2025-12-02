@@ -1562,22 +1562,6 @@ aud report --print-stats
 
 ---
 
-#### `aud summary`
-
-**Purpose**: Generate executive summary of findings
-
-**Synopsis**:
-```bash
-aud summary [OPTIONS]
-```
-
-**Example**:
-```bash
-aud summary
-```
-
----
-
 ### Query & Utilities Commands (6)
 
 #### `aud query`
