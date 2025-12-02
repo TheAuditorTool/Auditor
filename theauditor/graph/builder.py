@@ -363,6 +363,105 @@ class XGraphBuilder:
                 return import_str
 
             return import_str
+
+        elif lang == "go":
+            # Go imports: "github.com/user/repo/pkg" or "./internal/pkg"
+            if import_str.startswith("./") or import_str.startswith("../"):
+                # Relative import - resolve against source file
+                source_dir = source_file.parent
+                try:
+                    up_count = import_str.count("../")
+                    current_dir = source_dir
+                    for _ in range(up_count):
+                        current_dir = current_dir.parent
+
+                    rel_import = import_str.replace("../", "").lstrip("./")
+                    target_path = current_dir / rel_import
+
+                    # Go packages are directories, look for .go files
+                    try:
+                        rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
+                    except ValueError:
+                        rel_target = str(target_path).replace("\\", "/")
+
+                    # Check if any .go file exists in that directory
+                    for suffix in ["", ".go"]:
+                        candidate = f"{rel_target}{suffix}"
+                        if self.db_cache.file_exists(candidate):
+                            return candidate
+
+                    return rel_target
+                except (ValueError, OSError):
+                    pass
+
+            # External or standard library import
+            return import_str
+
+        elif lang == "rust":
+            # Rust use: crate::module, super::sibling, self::child, or external
+            if import_str.startswith("crate::"):
+                # crate:: refers to root of current crate
+                module_path = import_str[7:].replace("::", "/")  # Remove "crate::"
+                candidates = [
+                    f"src/{module_path}.rs",
+                    f"src/{module_path}/mod.rs",
+                    f"{module_path}.rs",
+                    f"{module_path}/mod.rs",
+                ]
+                for candidate in candidates:
+                    if self.db_cache.file_exists(candidate):
+                        return candidate
+                return candidates[0]  # Default to src/path.rs
+
+            elif import_str.startswith("super::"):
+                # super:: refers to parent module
+                module_path = import_str[7:].replace("::", "/")  # Remove "super::"
+                source_dir = source_file.parent.parent  # Go up one level
+                try:
+                    rel_dir = str(source_dir.relative_to(self.project_root)).replace("\\", "/")
+                except ValueError:
+                    rel_dir = str(source_dir).replace("\\", "/")
+
+                if rel_dir == ".":
+                    rel_dir = ""
+                else:
+                    rel_dir = f"{rel_dir}/"
+
+                candidates = [
+                    f"{rel_dir}{module_path}.rs",
+                    f"{rel_dir}{module_path}/mod.rs",
+                ]
+                for candidate in candidates:
+                    if self.db_cache.file_exists(candidate):
+                        return candidate
+                return candidates[0]
+
+            elif import_str.startswith("self::"):
+                # self:: refers to current module
+                module_path = import_str[6:].replace("::", "/")  # Remove "self::"
+                source_dir = source_file.parent
+                try:
+                    rel_dir = str(source_dir.relative_to(self.project_root)).replace("\\", "/")
+                except ValueError:
+                    rel_dir = str(source_dir).replace("\\", "/")
+
+                if rel_dir == ".":
+                    rel_dir = ""
+                else:
+                    rel_dir = f"{rel_dir}/"
+
+                candidates = [
+                    f"{rel_dir}{module_path}.rs",
+                    f"{rel_dir}{module_path}/mod.rs",
+                ]
+                for candidate in candidates:
+                    if self.db_cache.file_exists(candidate):
+                        return candidate
+                return candidates[0]
+
+            # External crate import
+            return import_str
+
         else:
             return import_str
 

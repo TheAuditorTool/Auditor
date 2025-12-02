@@ -30,7 +30,8 @@ class GoExtractor(BaseExtractor):
 
         if not (tree and tree.get("type") == "tree_sitter" and tree.get("tree")):
             logger.error(
-                "Tree-sitter Go parser unavailable for %s. Run 'aud setup-ai' to install language support.",
+                "Tree-sitter failed to parse Go file: %s. "
+                "Check tree-sitter-language-pack installation or file syntax.",
                 file_path,
             )
             return {}

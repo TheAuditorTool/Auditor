@@ -37,8 +37,8 @@ class RustExtractor(BaseExtractor):
 
         if not tree or tree.get("type") != "tree_sitter" or not tree.get("tree"):
             logger.error(
-                "Tree-sitter Rust parser unavailable for %s. "
-                "Run 'aud setup-ai' to install language support.",
+                "Tree-sitter failed to parse Rust file: %s. "
+                "Check tree-sitter-language-pack installation or file syntax.",
                 file_path,
             )
             return {}

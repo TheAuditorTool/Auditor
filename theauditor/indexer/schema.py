@@ -2,13 +2,16 @@
 
 import sqlite3
 
+from .schemas.bash_schema import BASH_TABLES
 from .schemas.core_schema import CORE_TABLES
 from .schemas.frameworks_schema import FRAMEWORKS_TABLES
+from .schemas.go_schema import GO_TABLES
 from .schemas.graphql_schema import GRAPHQL_TABLES
 from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
 from .schemas.node_schema import NODE_TABLES
 from .schemas.planning_schema import PLANNING_TABLES
 from .schemas.python_schema import PYTHON_TABLES
+from .schemas.rust_schema import RUST_TABLES
 from .schemas.security_schema import SECURITY_TABLES
 from .schemas.utils import TableSchema
 from theauditor.utils.logging import logger
@@ -19,6 +22,9 @@ TABLES: dict[str, TableSchema] = {
     **FRAMEWORKS_TABLES,
     **PYTHON_TABLES,
     **NODE_TABLES,
+    **RUST_TABLES,
+    **GO_TABLES,
+    **BASH_TABLES,
     **INFRASTRUCTURE_TABLES,
     **PLANNING_TABLES,
     **GRAPHQL_TABLES,
