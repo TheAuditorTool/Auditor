@@ -1,6 +1,7 @@
 """Infrastructure storage handlers for IaC and GraphQL."""
 
 import json
+import sys
 
 from .base import BaseStorage
 
@@ -213,8 +214,15 @@ class InfrastructureStorage(BaseStorage):
                                     directive_name=directive.get("name", ""),
                                     directive_args=json.dumps(directive.get("args", {})),
                                 )
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid GraphQL field directives JSON.\n"
+                        f"  File: {file_path}\n"
+                        f"  Field: {field['field_name']}\n"
+                        f"  Raw data: {repr(directives_json)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
 
             if "graphql_fields" not in self.counts:
                 self.counts["graphql_fields"] = 0
@@ -248,8 +256,15 @@ class InfrastructureStorage(BaseStorage):
                                     directive_name=directive.get("name", ""),
                                     directive_args=json.dumps(directive.get("args", {})),
                                 )
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    # ZERO FALLBACK: CRASH with full context
+                    raise ValueError(
+                        f"DATA CORRUPTION: Invalid GraphQL arg directives JSON.\n"
+                        f"  File: {file_path}\n"
+                        f"  Arg: {arg_name}\n"
+                        f"  Raw data: {repr(directives_json)[:200]}\n"
+                        f"  Error: {e}"
+                    ) from e
 
             if "graphql_field_args" not in self.counts:
                 self.counts["graphql_field_args"] = 0
