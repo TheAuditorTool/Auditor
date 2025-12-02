@@ -4,16 +4,11 @@ import asyncio
 import hashlib
 import json
 import re
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from theauditor.security import (
-    SecurityError,
-    sanitize_path,
-    sanitize_url_component,
-    validate_package_name,
-)
 from theauditor.utils.rate_limiter import (
     RATE_LIMIT_BACKOFF,
     TIMEOUT_CRAWL,
@@ -58,6 +53,19 @@ DEFAULT_ALLOWLIST = [
 ]
 
 
+def _validate_package_name(name: str, manager: str) -> bool:
+    """Validate package name format for a package manager."""
+    if not name or len(name) > 214:
+        return False
+    if manager == "npm":
+        return bool(re.match(r"^(@[a-z0-9][\w.-]*/)?[a-z0-9][\w.-]*$", name))
+    elif manager == "py":
+        return bool(re.match(r"^[a-zA-Z0-9][\w.-]*$", name))
+    elif manager == "docker":
+        return bool(re.match(r"^[a-z0-9][\w./:-]*$", name))
+    return False
+
+
 def fetch_docs(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
@@ -88,18 +96,8 @@ def fetch_docs(
     if allowlist is None:
         allowlist = DEFAULT_ALLOWLIST
 
-    try:
-        output_path = sanitize_path(output_dir, ".")
-        output_path.mkdir(parents=True, exist_ok=True)
-    except SecurityError as e:
-        return {
-            "mode": "error",
-            "error": f"Invalid output directory: {e}",
-            "fetched": 0,
-            "cached": 0,
-            "skipped": len(deps),
-            "errors": [str(e)],
-        }
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     return asyncio.run(_fetch_docs_async(deps, output_path, allowlist))
 
@@ -239,7 +237,7 @@ async def _fetch_npm_docs_async(
     name = dep["name"]
     version = dep["version"]
 
-    if not validate_package_name(name, "npm"):
+    if not _validate_package_name(name, "npm"):
         return "skipped"
 
     pkg_dir = _get_pkg_dir(output_dir, "npm", name, version)
@@ -247,8 +245,8 @@ async def _fetch_npm_docs_async(
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
 
-    safe_name = sanitize_url_component(name)
-    safe_version = sanitize_url_component(version)
+    safe_name = urllib.parse.quote(name, safe="")
+    safe_version = urllib.parse.quote(version, safe="")
     url = f"https://registry.npmjs.org/{safe_name}/{safe_version}"
 
     if not _is_url_allowed(url, allowlist):
@@ -302,7 +300,7 @@ async def _fetch_pypi_docs_async(
     name = dep["name"].strip()
     version = dep["version"]
 
-    if not validate_package_name(name, "py"):
+    if not _validate_package_name(name, "py"):
         return "skipped"
 
     pkg_dir = _get_pkg_dir(output_dir, "py", name, version)
@@ -310,13 +308,13 @@ async def _fetch_pypi_docs_async(
     doc_file = pkg_dir / "doc.md"
     meta_file = pkg_dir / "meta.json"
 
-    safe_name = sanitize_url_component(name)
+    safe_name = urllib.parse.quote(name, safe="")
     if version in ["latest", "git"]:
         if version == "git":
             return "skipped"
         url = f"https://pypi.org/pypi/{safe_name}/json"
     else:
-        safe_version = sanitize_url_component(version)
+        safe_version = urllib.parse.quote(version, safe="")
         url = f"https://pypi.org/pypi/{safe_name}/{safe_version}/json"
 
     if not _is_url_allowed(url, allowlist):
@@ -396,8 +394,8 @@ async def _fetch_github_readme_async(
 
         owner, repo = match.groups()
         repo = repo.replace(".git", "").rstrip("/")
-        safe_owner = sanitize_url_component(owner)
-        safe_repo = sanitize_url_component(repo)
+        safe_owner = urllib.parse.quote(owner, safe="")
+        safe_repo = urllib.parse.quote(repo, safe="")
 
         for branch in ["main", "master"]:
             raw_url = (
@@ -635,16 +633,7 @@ def check_latest(
     latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline, root_path=".")
 
     if latest_info:
-        try:
-            safe_output_path = str(sanitize_path(output_path, "."))
-            write_deps_latest_json(latest_info, safe_output_path)
-        except SecurityError as e:
-            return {
-                "mode": "error",
-                "error": f"Invalid output path: {e}",
-                "checked": 0,
-                "outdated": 0,
-            }
+        write_deps_latest_json(latest_info, str(output_path))
 
     outdated = sum(1 for info in latest_info.values() if info.get("is_outdated"))
 
