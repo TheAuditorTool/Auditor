@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.ast_parser import ASTParser, ParseError
-from theauditor.config_runtime import load_runtime_config
 from theauditor.utils.logging import logger
 
 from ..cache.ast_cache import ASTCache
@@ -18,6 +17,7 @@ from .extractors import ExtractorRegistry
 from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
 from .extractors.github_actions import GitHubWorkflowExtractor
+from .extractors.rust_resolver import resolve_rust_modules
 from .fidelity import reconcile_fidelity
 from .js_build_guard import JavaScriptBuildGuard, get_js_project_path
 from .normalization import run_normalization_pass
@@ -37,7 +37,6 @@ class IndexerOrchestrator:
     ):
         """Initialize the indexer orchestrator."""
         self.root_path = root_path
-        self.config = load_runtime_config(str(root_path))
 
         self.ast_parser = ASTParser()
 
@@ -45,7 +44,7 @@ class IndexerOrchestrator:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self.ast_cache = ASTCache(cache_dir)
         self.db_manager = DatabaseManager(db_path, batch_size)
-        self.file_walker = FileWalker(root_path, self.config, follow_symlinks, exclude_patterns)
+        self.file_walker = FileWalker(root_path, follow_symlinks, exclude_patterns)
         self.extractor_registry = ExtractorRegistry(root_path, self.ast_parser)
 
         self.docker_extractor = DockerExtractor(root_path, self.ast_parser)
@@ -414,6 +413,13 @@ class IndexerOrchestrator:
 
         logger.debug("[INDEXER] PHASE 6.10: Resolving import paths...")
         JavaScriptExtractor.resolve_import_paths(self.db_manager.db_path)
+        self.db_manager.commit()
+
+        logger.debug("[INDEXER] PHASE 6.11: Resolving Rust module paths...")
+        rust_stats = resolve_rust_modules(self.db_manager.db_path)
+        if rust_stats.get("use_statements", {}).get("updated", 0) > 0:
+            logger.info(f"Rust resolution: {rust_stats['use_statements']['updated']} use statements, "
+                       f"{rust_stats['impl_blocks']['updated']} impl blocks resolved")
         self.db_manager.commit()
 
         # PHASE 7: Schema Normalization
