@@ -423,12 +423,11 @@ class CoreStorage(BaseStorage):
         One bad assignment should not crash entire file's storage. Log and skip.
         """
         if assignments:
-            logger.info(f"[DEBUG] Found {len(assignments)} assignments in {file_path}")
-            if assignments:
-                first = assignments[0]
-                logger.info(
-                    f"[DEBUG] First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}"
-                )
+            logger.debug(f"Found {len(assignments)} assignments in {file_path}")
+            first = assignments[0]
+            logger.debug(
+                f"First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}"
+            )
 
         seen = set()
         skipped_count = 0

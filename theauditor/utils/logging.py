@@ -190,12 +190,12 @@ def swap_to_rich_sink(rich_sink_fn) -> int | None:
     logger.remove(_human_handler_id)
     _human_handler_id = None
 
-    # Add the Rich sink - NO colorize, Rich handles all formatting
+    # Add the Rich sink - full format but NO ANSI codes (colorize=False strips tags)
     new_handler_id = logger.add(
         rich_sink_fn,
         level=_log_level,
-        format="{message}",  # Plain text only - Rich will style it
-        colorize=False,      # Never ANSI codes - avoids [32m garbage
+        format=_human_format,  # Full format: timestamp | level | location - message
+        colorize=False,        # Strip color tags to plain text (no [32m garbage)
     )
 
     return new_handler_id
