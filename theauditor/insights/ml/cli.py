@@ -1,6 +1,7 @@
 """Slim CLI orchestrator for ML training and inference."""
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,6 @@ from . import features, loaders, models
 
 def learn(
     db_path: str = "./.pf/repo_index.db",
-    manifest_path: str = "./.pf/manifest.json",
     enable_git: bool = False,
     model_dir: str = "./.pf/ml",
     window: int = 50,
@@ -28,9 +28,13 @@ def learn(
         return {"success": False, "error": "ML not available"}
 
     try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        all_file_paths = [entry["path"] for entry in manifest]
+        if not Path(db_path).exists():
+            return {"success": False, "error": f"Database not found: {db_path}"}
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT path FROM files")
+        all_file_paths = [row[0] for row in cursor.fetchall()]
+        conn.close()
         file_paths = [fp for fp in all_file_paths if models.is_source_file(fp)]
 
         if print_stats:
@@ -39,10 +43,10 @@ def learn(
                 logger.info(f"Excluded {excluded_count} non-source files (tests, docs, configs)")
 
     except Exception as e:
-        return {"success": False, "error": f"Failed to load manifest: {e}"}
+        return {"success": False, "error": f"Failed to load files from database: {e}"}
 
     if not file_paths:
-        return {"success": False, "error": "No source files found in manifest"}
+        return {"success": False, "error": "No source files found in database"}
 
     history_dir = Path("./.pf/history")
     historical_data = loaders.load_all_historical_data(history_dir, train_on, window, enable_git)
@@ -60,7 +64,7 @@ def learn(
 
     feature_matrix, feature_name_map = models.build_feature_matrix(
         file_paths,
-        manifest_path,
+        db_path,
         db_features,
         historical_data,
     )
@@ -162,7 +166,6 @@ def learn(
 
 def suggest(
     db_path: str = "./.pf/repo_index.db",
-    manifest_path: str = "./.pf/manifest.json",
     workset_path: str = "./.pf/workset.json",
     model_dir: str = "./.pf/ml",
     topk: int = 10,
@@ -208,7 +211,7 @@ def suggest(
 
     feature_matrix, _ = models.build_feature_matrix(
         file_paths,
-        manifest_path,
+        db_path,
         db_features,
         {
             "journal_stats": {},

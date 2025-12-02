@@ -938,7 +938,6 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
 
 def build_feature_matrix(
     file_paths: list[str],
-    manifest_path: str,
     db_path: str,
     journal_stats: dict = None,
     rca_stats: dict = None,
@@ -949,13 +948,15 @@ def build_feature_matrix(
     if not ML_AVAILABLE:
         return None, {}
 
-    manifest_map = {}
+    file_metadata = {}
     try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        for entry in manifest:
-            manifest_map[entry["path"]] = entry
-    except (ImportError, ValueError, AttributeError):
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT path, sha256, ext, bytes, loc FROM files")
+        for row in cursor.fetchall():
+            file_metadata[row[0]] = {"path": row[0], "sha256": row[1], "ext": row[2], "bytes": row[3], "loc": row[4]}
+        conn.close()
+    except (sqlite3.Error, FileNotFoundError):
         pass
 
     journal_stats = journal_stats if journal_stats is not None else {}
@@ -1004,7 +1005,7 @@ def build_feature_matrix(
     for file_path in file_paths:
         feat = []
 
-        meta = manifest_map.get(file_path, {})
+        meta = file_metadata.get(file_path, {})
         feat.append(meta.get("bytes", 0) / 10000.0)
         feat.append(meta.get("loc", 0) / 100.0)
 
@@ -1417,7 +1418,6 @@ def load_models(model_dir: str) -> tuple[Any, Any, Any, Any, Any, Any, dict]:
 
 def learn(
     db_path: str = "./.pf/repo_index.db",
-    manifest_path: str = "./.pf/manifest.json",
     journal_path: str = "./.pf/journal.ndjson",
     fce_path: str = "./.pf/fce.json",
     ast_path: str = "./.pf/ast_proofs.json",
@@ -1434,9 +1434,11 @@ def learn(
         return {"success": False, "error": "ML not available"}
 
     try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        all_file_paths = [entry["path"] for entry in manifest]
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT path FROM files")
+        all_file_paths = [row[0] for row in cursor.fetchall()]
+        conn.close()
 
         file_paths = [fp for fp in all_file_paths if is_source_file(fp)]
 
@@ -1446,10 +1448,10 @@ def learn(
                 logger.info(f"Excluded {excluded_count} non-source files (tests, docs, configs)")
 
     except Exception as e:
-        return {"success": False, "error": f"Failed to load manifest: {e}"}
+        return {"success": False, "error": f"Failed to load files from database: {e}"}
 
     if not file_paths:
-        return {"success": False, "error": "No source files found in manifest"}
+        return {"success": False, "error": "No source files found in database"}
 
     history_dir = Path("./.pf/history")
 
@@ -1459,7 +1461,6 @@ def learn(
 
     features, feature_name_map = build_feature_matrix(
         file_paths,
-        manifest_path,
         db_path,
         journal_stats,
         rca_stats,
@@ -1561,7 +1562,6 @@ def learn(
 
 def suggest(
     db_path: str = "./.pf/repo_index.db",
-    manifest_path: str = "./.pf/manifest.json",
     workset_path: str = "./.pf/workset.json",
     fce_path: str = "./.pf/fce.json",
     ast_path: str = "./.pf/ast_proofs.json",
@@ -1653,7 +1653,6 @@ def suggest(
 
     features, _ = build_feature_matrix(
         file_paths,
-        manifest_path,
         db_path,
         None,
         current_fce_stats,

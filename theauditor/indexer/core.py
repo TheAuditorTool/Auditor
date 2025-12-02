@@ -172,7 +172,6 @@ class FileWalker:
                 "ext": file.suffix,
                 "bytes": file_size,
                 "loc": count_lines_in_file(file),
-                "first_lines": first_lines,
             }
 
             if not file.suffix or file.suffix in (".sh", ".bash"):

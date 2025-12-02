@@ -10,7 +10,6 @@ from theauditor.utils.error_handler import handle_exceptions
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option("--db", default=None, help="Input SQLite database path")
-@click.option("--manifest", default=None, help="Input manifest file path")
 @click.option("--all", is_flag=True, help="Include all source files (ignores common directories)")
 @click.option("--diff", help="Git diff range (e.g., main..HEAD)")
 @click.option("--files", multiple=True, help="Explicit file list")
@@ -19,7 +18,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--max-depth", default=10, type=int, help="Maximum dependency depth")
 @click.option("--out", default=None, help="Output workset file path")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
-def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, out, print_stats):
+def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_stats):
     """Compute targeted file subset for incremental analysis based on git changes or patterns.
 
     Performance optimization tool that creates a focused subset of files for analysis instead
@@ -62,7 +61,7 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
          - Git diff: Run `git diff --name-only <range>` for changed files
          - Explicit: Use --files list directly
          - Glob: Expand --include patterns to matching files
-         - All: Query manifest.json for all indexed files
+         - All: Query database for all indexed files
 
       2. Dependency Expansion (Graph Traversal):
          - Query refs table for files importing seed files
@@ -160,7 +159,7 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
 
       Optional:
         Git repository         # For --diff flag (not needed for --files/--all)
-        .pf/manifest.json      # For --all flag (lists all indexed files)
+        .pf/repo_index.db      # For --all flag (queries files table)
 
     EXIT CODES:
       0 = Success, workset created
@@ -190,7 +189,7 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
 
       Workset empty (no files matched):
         -> Check git diff output: git diff --name-only <range>
-        -> Verify files exist in .pf/manifest.json (run 'aud index')
+        -> Verify files exist in database (run 'aud full --index')
         -> Check --include/--exclude patterns are correct
 
       Missing dependencies (analysis incomplete):
@@ -202,20 +201,17 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
     behavior, only which files are analyzed. For maximum confidence, run full analysis
     periodically even if using workset for daily development.
     """
-    from theauditor.commands.config import DB_PATH, MANIFEST_PATH, WORKSET_PATH
+    from theauditor.commands.config import DB_PATH, WORKSET_PATH
     from theauditor.workset import compute_workset
 
     if db is None:
         db = DB_PATH
-    if manifest is None:
-        manifest = MANIFEST_PATH
     if out is None:
         out = WORKSET_PATH
 
     result = compute_workset(
         root_path=root,
         db_path=db,
-        manifest_path=manifest,
         all_files=all,
         diff_spec=diff,
         file_list=list(files) if files else None,

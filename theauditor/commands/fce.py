@@ -10,11 +10,10 @@ from theauditor.utils.error_handler import handle_exceptions
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option("--capsules", default="./.pf/capsules", help="Capsules directory")
-@click.option("--manifest", default="manifest.json", help="Manifest file path")
 @click.option("--workset", default="./.pf/workset.json", help="Workset file path")
 @click.option("--timeout", default=600, type=int, help="Timeout in seconds")
 @click.option("--print-plan", is_flag=True, help="Print detected tools without running")
-def fce(root, capsules, manifest, workset, timeout, print_plan):
+def fce(root, capsules, workset, timeout, print_plan):
     """Cross-reference findings to identify compound vulnerabilities.
 
     The Factual Correlation Engine (FCE) is TheAuditor's advanced analysis
@@ -130,7 +129,6 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
     result = run_fce(
         root_path=root,
         capsules_dir=capsules,
-        manifest_path=manifest,
         workset_path=workset,
         timeout=timeout,
         print_plan=print_plan,

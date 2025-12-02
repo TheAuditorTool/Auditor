@@ -623,7 +623,6 @@ def load_capsule(capsules_dir: str, file_hash: str) -> dict | None:
 
 def correlate_failures(
     errors: list[dict[str, Any]],
-    manifest_path: str,
     workset_path: str,
     capsules_dir: str,
     db_path: str,
@@ -631,11 +630,14 @@ def correlate_failures(
     """Correlate failures with capsules for factual enrichment."""
 
     file_hashes = {}
-    if Path(manifest_path).exists():
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        for entry in manifest:
-            file_hashes[entry["path"]] = entry.get("sha256")
+    if Path(db_path).exists():
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("SELECT path, sha256 FROM files")
+        for path, sha256 in cursor.fetchall():
+            file_hashes[path] = sha256
+        conn.close()
 
     if Path(workset_path).exists():
         with open(workset_path) as f:
@@ -668,7 +670,6 @@ def generate_rca_json(failures: list[dict[str, Any]]) -> dict[str, Any]:
 def run_fce(
     root_path: str = ".",
     capsules_dir: str = "./.pf/capsules",
-    manifest_path: str = "manifest.json",
     workset_path: str = "./.pf/workset.json",
     db_path: str = ".pf/repo_index.db",
     timeout: int = 600,
@@ -857,7 +858,6 @@ def run_fce(
 
     all_failures = correlate_failures(
         all_failures,
-        Path(root_path) / manifest_path,
         Path(root_path) / workset_path,
         Path(root_path) / capsules_dir,
         Path(root_path) / db_path,
