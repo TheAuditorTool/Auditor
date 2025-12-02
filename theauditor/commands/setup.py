@@ -208,26 +208,25 @@ def setup_ai(target, sync, dry_run, show_versions):
         return
 
     if show_versions:
-        from theauditor.tools import write_tools_report
+        from theauditor.commands.tools import detect_all_tools
 
-        out_dir = target_dir / ".pf" / "raw"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        results = detect_all_tools()
+        console.print("Tool versions:", highlight=False)
 
-        try:
-            res = write_tools_report(str(out_dir))
-            console.print(f"Tool versions (from {out_dir}):", highlight=False)
-            python_found = sum(1 for v in res["python"].values() if v != "missing")
-            node_found = sum(1 for v in res["node"].values() if v != "missing")
-            console.print(f"  Python tools: {python_found}/4 found", highlight=False)
-            console.print(f"  Node tools: {node_found}/3 found", highlight=False)
-            for tool, version in res["python"].items():
-                console.print(f"    {tool}: {version}", highlight=False)
-            for tool, version in res["node"].items():
-                console.print(f"    {tool}: {version}", highlight=False)
-        except Exception as e:
-            console.print(
-                f"[error]Error detecting tool versions: {e}[/error]", stderr=True, highlight=False
-            )
+        python_found = sum(1 for t in results["python"] if t.available)
+        node_found = sum(1 for t in results["node"] if t.available)
+        rust_found = sum(1 for t in results["rust"] if t.available)
+
+        console.print(f"  Python tools: {python_found}/{len(results['python'])} found", highlight=False)
+        console.print(f"  Node tools: {node_found}/{len(results['node'])} found", highlight=False)
+        console.print(f"  Rust tools: {rust_found}/{len(results['rust'])} found", highlight=False)
+
+        for category, tools_list in results.items():
+            console.print(f"\n  [{category.upper()}]", highlight=False)
+            for tool in tools_list:
+                status = tool.display_version
+                source_tag = f" ({tool.source})" if tool.available and tool.source != "system" else ""
+                console.print(f"    {tool.name}: {status}{source_tag}", highlight=False)
         return
 
     console.print("Step 1: Setting up Python virtual environment...", end="")
