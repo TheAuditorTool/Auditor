@@ -38,7 +38,7 @@ Every recommendation cites a database query. No exceptions.
 | Dependency info (packages, versions) | `aud blueprint --deps` |
 | Taint summary (from DB) | `aud blueprint --taint` |
 | Boundary summary (from DB) | `aud blueprint --boundaries` |
-| Large files (>2150 lines) | `aud structure --monoliths` |
+| Large files (>2150 lines) | `aud blueprint --monoliths` |
 | List symbols in file | `aud query --file X --list all` |
 | Who calls this? | `aud query --symbol X --show-callers` |
 | What does this call? | `aud query --symbol X --show-callees` |

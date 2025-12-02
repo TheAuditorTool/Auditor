@@ -98,7 +98,7 @@ Jobs MUST include exact identifiers:
 
 ### T1.2: Blueprint Analysis
 - `aud blueprint --structure`
-- `aud structure --monoliths`
+- `aud blueprint --monoliths`
 - Store outputs
 - **Audit:** Both successful
 

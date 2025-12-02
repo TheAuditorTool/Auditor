@@ -67,7 +67,7 @@ def detect_frameworks(project_path, output_json):
 
     COMMON WORKFLOWS:
       Architecture Documentation:
-        aud index && aud detect-frameworks && aud structure
+        aud index && aud detect-frameworks && aud blueprint
 
       Security Audit (framework-specific CVEs):
         aud detect-frameworks && aud deps --vuln-scan
@@ -120,7 +120,6 @@ def detect_frameworks(project_path, output_json):
 
     RELATED COMMANDS:
       aud index              # Populates frameworks table (run first)
-      aud structure          # Uses framework data for architecture map
       aud blueprint          # Visual architecture including frameworks
       aud deps               # Analyzes framework dependencies for CVEs
 
