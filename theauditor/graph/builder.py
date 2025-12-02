@@ -158,30 +158,22 @@ class XGraphBuilder:
         return self._find_tsconfig_context(folder_path.parent)
 
     def detect_language(self, file_path: Path) -> str | None:
-        """Detect language from file extension."""
+        """Detect language from file extension.
+
+        Only languages with import resolution support in resolve_import_path.
+        Bash/HCL have extractors but no meaningful import graphs.
+        """
         ext_map = {
             ".py": "python",
             ".js": "javascript",
             ".jsx": "javascript",
             ".ts": "typescript",
             ".tsx": "typescript",
-            ".java": "java",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".vue": "javascript",
             ".go": "go",
-            ".cs": "c#",
-            ".php": "php",
-            ".rb": "ruby",
-            ".c": "c",
-            ".cpp": "c++",
-            ".h": "c",
-            ".hpp": "c++",
             ".rs": "rust",
-            ".swift": "swift",
-            ".kt": "kotlin",
-            ".scala": "scala",
-            ".r": "r",
-            ".R": "r",
-            ".m": "objective-c",
-            ".mm": "objective-c++",
         }
         return ext_map.get(file_path.suffix.lower())
 
