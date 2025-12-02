@@ -198,8 +198,18 @@ class BaseDatabaseManager:
         cursor = self.conn.cursor()
 
         try:
-            # FLUSH_ORDER is defined in schema.py - single source of truth
-            # validated at import time to ensure all tables have schemas
+            # === CRITICAL ARCHITECTURE FIX: FILES MUST EXIST FIRST ===
+            # We must flush 'files' and 'config_files' before processing any complex
+            # logic (CFG, Python parent tables) because those tables have FK to 'files'.
+            # Without this, FK violations occur because children reference non-existent parents.
+
+            if "files" in self.generic_batches and self.generic_batches["files"]:
+                self.flush_generic_batch("files", "INSERT OR REPLACE")
+
+            if "config_files" in self.generic_batches and self.generic_batches["config_files"]:
+                self.flush_generic_batch("config_files", "INSERT OR REPLACE")
+
+            # Now that parent files exist, we can proceed with complex logic.
             self._flush_jwt_patterns()
 
             if "cfg_blocks" in self.generic_batches and self.generic_batches["cfg_blocks"]:
@@ -392,7 +402,171 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["cfg_block_statements_jsx"] = []
 
+            # --- PYTHON SPECIAL HANDLING (Parent-Child Temp IDs) ---
+            # 1. Python Protocols -> python_protocol_methods
+            if (
+                "python_protocols" in self.generic_batches
+                and self.generic_batches["python_protocols"]
+            ):
+                id_map = {}
+                for item in self.generic_batches["python_protocols"]:
+                    data = item[:-1]  # All but last element (temp_id)
+                    temp_id = item[-1]
+                    cursor.execute(
+                        """INSERT INTO python_protocols (
+                            file, line, protocol_kind, protocol_type, class_name, in_function,
+                            has_iter, has_next, is_generator, raises_stopiteration,
+                            has_contains, has_getitem, has_setitem, has_delitem,
+                            has_len, is_mapping, is_sequence,
+                            has_args, has_kwargs, param_count,
+                            has_getstate, has_setstate, has_reduce, has_reduce_ex,
+                            context_expr, resource_type, variable_name,
+                            is_async, has_copy, has_deepcopy
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        data,
+                    )
+                    id_map[temp_id] = cursor.lastrowid
+                self.generic_batches["python_protocols"] = []
+
+                if "python_protocol_methods" in self.generic_batches:
+                    updated = []
+                    for row in self.generic_batches["python_protocol_methods"]:
+                        # (file, protocol_id, method_name, method_order)
+                        pid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
+                        updated.append((row[0], pid, row[2], row[3]))
+                    cursor.executemany(
+                        "INSERT INTO python_protocol_methods (file, protocol_id, method_name, method_order) VALUES (?, ?, ?, ?)",
+                        updated,
+                    )
+                    self.generic_batches["python_protocol_methods"] = []
+
+            # 2. Python Type Definitions -> python_typeddict_fields
+            if (
+                "python_type_definitions" in self.generic_batches
+                and self.generic_batches["python_type_definitions"]
+            ):
+                id_map = {}
+                for item in self.generic_batches["python_type_definitions"]:
+                    data = item[:-1]
+                    temp_id = item[-1]
+                    cursor.execute(
+                        """INSERT INTO python_type_definitions (
+                            file, line, type_kind, name, type_param_count, type_param_1, type_param_2,
+                            type_param_3, type_param_4, type_param_5, is_runtime_checkable, methods
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        data,
+                    )
+                    id_map[temp_id] = cursor.lastrowid
+                self.generic_batches["python_type_definitions"] = []
+
+                if "python_typeddict_fields" in self.generic_batches:
+                    updated = []
+                    for row in self.generic_batches["python_typeddict_fields"]:
+                        # (file, typeddict_id, field_name, field_type, required, field_order)
+                        tid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
+                        updated.append((row[0], tid, row[2], row[3], row[4], row[5]))
+                    cursor.executemany(
+                        "INSERT INTO python_typeddict_fields (file, typeddict_id, field_name, field_type, required, field_order) VALUES (?, ?, ?, ?, ?, ?)",
+                        updated,
+                    )
+                    self.generic_batches["python_typeddict_fields"] = []
+
+            # 3. Python Test Fixtures -> python_fixture_params
+            if (
+                "python_test_fixtures" in self.generic_batches
+                and self.generic_batches["python_test_fixtures"]
+            ):
+                id_map = {}
+                for item in self.generic_batches["python_test_fixtures"]:
+                    data = item[:-1]
+                    temp_id = item[-1]
+                    cursor.execute(
+                        """INSERT INTO python_test_fixtures (
+                            file, line, fixture_kind, fixture_type, name, scope, autouse, in_function
+                        ) VALUES (?,?,?,?,?,?,?,?)""",
+                        data,
+                    )
+                    id_map[temp_id] = cursor.lastrowid
+                self.generic_batches["python_test_fixtures"] = []
+
+                if "python_fixture_params" in self.generic_batches:
+                    updated = []
+                    for row in self.generic_batches["python_fixture_params"]:
+                        # (file, fixture_id, param_name, param_value, param_order)
+                        fid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
+                        updated.append((row[0], fid, row[2], row[3], row[4]))
+                    cursor.executemany(
+                        "INSERT INTO python_fixture_params (file, fixture_id, param_name, param_value, param_order) VALUES (?, ?, ?, ?, ?)",
+                        updated,
+                    )
+                    self.generic_batches["python_fixture_params"] = []
+
+            # 4. Python Framework Config -> python_framework_methods
+            if (
+                "python_framework_config" in self.generic_batches
+                and self.generic_batches["python_framework_config"]
+            ):
+                id_map = {}
+                for item in self.generic_batches["python_framework_config"]:
+                    data = item[:-1]
+                    temp_id = item[-1]
+                    cursor.execute(
+                        """INSERT INTO python_framework_config (
+                            file, line, config_kind, config_type, framework, name, endpoint,
+                            cache_type, timeout, has_process_request, has_process_response,
+                            has_process_exception, has_process_view, has_process_template_response
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        data,
+                    )
+                    id_map[temp_id] = cursor.lastrowid
+                self.generic_batches["python_framework_config"] = []
+
+                if "python_framework_methods" in self.generic_batches:
+                    updated = []
+                    for row in self.generic_batches["python_framework_methods"]:
+                        # (file, config_id, method_name, method_order)
+                        cid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
+                        updated.append((row[0], cid, row[2], row[3]))
+                    cursor.executemany(
+                        "INSERT INTO python_framework_methods (file, config_id, method_name, method_order) VALUES (?, ?, ?, ?)",
+                        updated,
+                    )
+                    self.generic_batches["python_framework_methods"] = []
+
+            # 5. Python Validation Schemas -> python_schema_validators
+            if (
+                "python_validation_schemas" in self.generic_batches
+                and self.generic_batches["python_validation_schemas"]
+            ):
+                id_map = {}
+                for item in self.generic_batches["python_validation_schemas"]:
+                    data = item[:-1]
+                    temp_id = item[-1]
+                    cursor.execute(
+                        """INSERT INTO python_validation_schemas (
+                            file, line, schema_kind, schema_type, framework, name, field_type, required
+                        ) VALUES (?,?,?,?,?,?,?,?)""",
+                        data,
+                    )
+                    id_map[temp_id] = cursor.lastrowid
+                self.generic_batches["python_validation_schemas"] = []
+
+                if "python_schema_validators" in self.generic_batches:
+                    updated = []
+                    for row in self.generic_batches["python_schema_validators"]:
+                        # (file, schema_id, validator_name, validator_type, validator_order)
+                        sid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
+                        updated.append((row[0], sid, row[2], row[3], row[4]))
+                    cursor.executemany(
+                        "INSERT INTO python_schema_validators (file, schema_id, validator_name, validator_type, validator_order) VALUES (?, ?, ?, ?, ?)",
+                        updated,
+                    )
+                    self.generic_batches["python_schema_validators"] = []
+
+            # Process remaining tables in FLUSH_ORDER (files/config_files already flushed at top)
             for table_name, insert_mode in FLUSH_ORDER:
+                if table_name in {"files", "config_files"}:
+                    continue  # Already flushed at top of method
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
                     self.flush_generic_batch(table_name, insert_mode)
 

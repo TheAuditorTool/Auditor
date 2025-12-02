@@ -446,7 +446,9 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
         total_items = 0
 
         for key, value in result.items():
-            if key.startswith("_") or not isinstance(value, list):
+            if key.startswith("_"):
+                continue
+            if not isinstance(value, (list, dict)):
                 continue
 
             count = len(value)

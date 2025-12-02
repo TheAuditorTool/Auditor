@@ -41,6 +41,11 @@ PYTHON_ORM_FIELDS = TableSchema(
     ],
     foreign_keys=[
         ForeignKey(local_columns=["file"], foreign_table="files", foreign_columns=["path"]),
+        ForeignKey(
+            local_columns=["file", "model_name"],
+            foreign_table="python_orm_models",
+            foreign_columns=["file", "model_name"],
+        ),
     ],
 )
 

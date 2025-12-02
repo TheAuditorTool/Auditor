@@ -9,6 +9,14 @@ class BaseStorage:
         self.counts = counts
         self._current_extracted = {}
 
+    def begin_file_processing(self) -> None:
+        """Reset per-file state before processing a new file.
+
+        Override in subclasses to clear gatekeeper tracking sets.
+        Called by DataStorer.store() at the start of each file.
+        """
+        pass
+
     def _debug(self, message: str):
         """Debug logging helper."""
         import os

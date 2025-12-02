@@ -18,6 +18,9 @@ class CoreStorage(BaseStorage):
     def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
+        # Gatekeeper: Track valid parent IDs to filter orphaned children
+        self._valid_construct_ids: set[str] = set()
+
         self.handlers = {
             "imports": self._store_imports,
             "refs": self._store_imports,  # Alias: extractor sends 'refs'
@@ -48,6 +51,14 @@ class CoreStorage(BaseStorage):
             "package_configs": self._store_package_configs,
             "python_package_configs": self._store_package_configs,  # Alias: Python extractor sends this
         }
+
+    def begin_file_processing(self) -> None:
+        """Reset per-file gatekeeper state.
+
+        Called by DataStorer.store() at the start of each file to prevent
+        cross-file contamination of the gatekeeper tracking sets.
+        """
+        self._valid_construct_ids.clear()
 
     def _store_imports(self, file_path: str, imports: list, jsx_pass: bool):
         """Store imports/references."""
@@ -84,15 +95,26 @@ class CoreStorage(BaseStorage):
                 raise  # Re-raise: crash loud, don't suppress
 
     def _store_routes(self, file_path: str, routes: list, jsx_pass: bool):
-        """Store api_endpoints with all 8 fields."""
+        """Store api_endpoints with all 8 fields.
+
+        INPUT VALIDATION: Skip routes missing required 'line' field.
+        """
         for route in routes:
             if isinstance(route, dict):
+                line = route.get("line")
+                if line is None:
+                    logger.warning(
+                        f"EXTRACTOR BUG: Route missing 'line' field. "
+                        f"File: {file_path}, Pattern: {route.get('pattern', 'unknown')}. Skipping."
+                    )
+                    continue
+
                 self.db_manager.add_endpoint(
                     file_path=file_path,
                     method=route.get("method", "GET"),
                     pattern=route.get("pattern", ""),
                     controls=route.get("controls", []),
-                    line=route.get("line"),
+                    line=line,
                     path=route.get("path"),
                     has_auth=route.get("has_auth", False),
                     handler_function=route.get("handler_function"),
@@ -185,6 +207,9 @@ class CoreStorage(BaseStorage):
                 construct_id=construct_id,
             )
 
+            # Gatekeeper: Register valid construct_id for child validation
+            self._valid_construct_ids.add(construct_id)
+
             for prop in construct.get("properties", []):
                 self.db_manager.add_cdk_construct_property(
                     construct_id=construct_id,
@@ -198,14 +223,36 @@ class CoreStorage(BaseStorage):
             self.counts["cdk_constructs"] += 1
 
     def _store_cdk_construct_properties(self, file_path: str, properties: list, jsx_pass: bool):
-        """Store CDK construct properties from flat junction array (JS format)."""
+        """Store CDK construct properties from flat junction array (JS format).
+
+        GATEKEEPER: Only insert if parent construct_id exists in _valid_construct_ids.
+        Orphaned properties are logged and skipped to prevent FK violations.
+        """
         for prop in properties:
             if not isinstance(prop, dict):
                 continue
 
             construct_line = prop.get("construct_line", 0)
             construct_class = prop.get("construct_class", "")
-            construct_id = f"{file_path}::L{construct_line}::{construct_class}::unnamed"
+            construct_name = prop.get("construct_name", "unnamed")
+
+            # Try to find matching parent construct_id
+            # First try with actual construct_name, then fallback to "unnamed"
+            construct_id = f"{file_path}::L{construct_line}::{construct_class}::{construct_name}"
+
+            if construct_id not in self._valid_construct_ids:
+                # Try unnamed fallback
+                fallback_id = f"{file_path}::L{construct_line}::{construct_class}::unnamed"
+                if fallback_id in self._valid_construct_ids:
+                    construct_id = fallback_id
+                else:
+                    # Gatekeeper: Orphaned property - skip and warn
+                    logger.warning(
+                        f"GATEKEEPER: Skipping orphaned cdk_construct_property. "
+                        f"construct_id={construct_id!r} not in valid set. "
+                        f"File: {file_path}, Line: {construct_line}"
+                    )
+                    continue
 
             self.db_manager.add_cdk_construct_property(
                 construct_id=construct_id,

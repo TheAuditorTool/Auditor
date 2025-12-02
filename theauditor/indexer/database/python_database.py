@@ -505,21 +505,14 @@ class PythonDatabaseMixin:
         has_copy: bool,
         has_deepcopy: bool,
     ) -> int:
-        """Add a Python protocol - returns row ID for junction table FK."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO python_protocols (
-                file, line, protocol_kind, protocol_type, class_name, in_function,
-                has_iter, has_next, is_generator, raises_stopiteration,
-                has_contains, has_getitem, has_setitem, has_delitem,
-                has_len, is_mapping, is_sequence,
-                has_args, has_kwargs, param_count,
-                has_getstate, has_setstate, has_reduce, has_reduce_ex,
-                context_expr, resource_type, variable_name,
-                is_async, has_copy, has_deepcopy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """Add a Python protocol - returns temp ID for junction table FK.
+
+        Uses batch+temp_id pattern: queues for later flush, returns negative temp ID.
+        base_database.py maps temp IDs to real IDs during flush_batch().
+        """
+        batch = self.generic_batches["python_protocols"]
+        temp_id = -(len(batch) + 1)
+        batch.append(
             (
                 file_path,
                 line,
@@ -551,9 +544,10 @@ class PythonDatabaseMixin:
                 1 if is_async else 0,
                 1 if has_copy else 0,
                 1 if has_deepcopy else 0,
-            ),
+                temp_id,  # Last element is temp_id for mapping
+            )
         )
-        return cursor.lastrowid
+        return temp_id
 
     def add_python_protocol_method(
         self, file_path: str, protocol_id: int, method_name: str, method_order: int = 0
@@ -621,16 +615,14 @@ class PythonDatabaseMixin:
         is_runtime_checkable: bool,
         methods: str | None,
     ) -> int:
-        """Add a Python type definition - returns row ID for junction table FK."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO python_type_definitions (
-                file, line, type_kind, name,
-                type_param_count, type_param_1, type_param_2, type_param_3, type_param_4, type_param_5,
-                is_runtime_checkable, methods
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """Add a Python type definition - returns temp ID for junction table FK.
+
+        Uses batch+temp_id pattern: queues for later flush, returns negative temp ID.
+        base_database.py maps temp IDs to real IDs during flush_batch().
+        """
+        batch = self.generic_batches["python_type_definitions"]
+        temp_id = -(len(batch) + 1)
+        batch.append(
             (
                 file_path,
                 line,
@@ -644,9 +636,10 @@ class PythonDatabaseMixin:
                 type_param_5,
                 1 if is_runtime_checkable else 0,
                 methods,
-            ),
+                temp_id,  # Last element is temp_id for mapping
+            )
         )
-        return cursor.lastrowid
+        return temp_id
 
     def add_python_typeddict_field(
         self,
@@ -768,14 +761,14 @@ class PythonDatabaseMixin:
         autouse: bool,
         in_function: str | None,
     ) -> int:
-        """Add a Python test fixture - returns row ID for junction table FK."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO python_test_fixtures (
-                file, line, fixture_kind, fixture_type, name, scope, autouse, in_function
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """Add a Python test fixture - returns temp ID for junction table FK.
+
+        Uses batch+temp_id pattern: queues for later flush, returns negative temp ID.
+        base_database.py maps temp IDs to real IDs during flush_batch().
+        """
+        batch = self.generic_batches["python_test_fixtures"]
+        temp_id = -(len(batch) + 1)
+        batch.append(
             (
                 file_path,
                 line,
@@ -785,9 +778,10 @@ class PythonDatabaseMixin:
                 scope,
                 1 if autouse else 0,
                 in_function,
-            ),
+                temp_id,  # Last element is temp_id for mapping
+            )
         )
-        return cursor.lastrowid
+        return temp_id
 
     def add_python_fixture_param(
         self,
@@ -819,17 +813,14 @@ class PythonDatabaseMixin:
         has_process_view: bool,
         has_process_template_response: bool,
     ) -> int:
-        """Add a Python framework configuration - returns row ID for junction table FK."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO python_framework_config (
-                file, line, config_kind, config_type, framework, name, endpoint,
-                cache_type, timeout,
-                has_process_request, has_process_response, has_process_exception,
-                has_process_view, has_process_template_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """Add a Python framework configuration - returns temp ID for junction table FK.
+
+        Uses batch+temp_id pattern: queues for later flush, returns negative temp ID.
+        base_database.py maps temp IDs to real IDs during flush_batch().
+        """
+        batch = self.generic_batches["python_framework_config"]
+        temp_id = -(len(batch) + 1)
+        batch.append(
             (
                 file_path,
                 line,
@@ -845,9 +836,10 @@ class PythonDatabaseMixin:
                 1 if has_process_exception else 0,
                 1 if has_process_view else 0,
                 1 if has_process_template_response else 0,
-            ),
+                temp_id,  # Last element is temp_id for mapping
+            )
         )
-        return cursor.lastrowid
+        return temp_id
 
     def add_python_framework_method(
         self, file_path: str, config_id: int, method_name: str, method_order: int = 0
@@ -868,14 +860,14 @@ class PythonDatabaseMixin:
         field_type: str | None,
         required: bool,
     ) -> int:
-        """Add a Python validation schema - returns row ID for junction table FK."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO python_validation_schemas (
-                file, line, schema_kind, schema_type, framework, name, field_type, required
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """Add a Python validation schema - returns temp ID for junction table FK.
+
+        Uses batch+temp_id pattern: queues for later flush, returns negative temp ID.
+        base_database.py maps temp IDs to real IDs during flush_batch().
+        """
+        batch = self.generic_batches["python_validation_schemas"]
+        temp_id = -(len(batch) + 1)
+        batch.append(
             (
                 file_path,
                 line,
@@ -885,9 +877,10 @@ class PythonDatabaseMixin:
                 name,
                 field_type,
                 1 if required else 0,
-            ),
+                temp_id,  # Last element is temp_id for mapping
+            )
         )
-        return cursor.lastrowid
+        return temp_id
 
     def add_python_schema_validator(
         self,
