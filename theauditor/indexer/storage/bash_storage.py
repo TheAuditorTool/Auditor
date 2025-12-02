@@ -17,6 +17,8 @@ class BashStorage(BaseStorage):
             "bash_pipes": self._store_bash_pipes,
             "bash_subshells": self._store_bash_subshells,
             "bash_redirections": self._store_bash_redirections,
+            "bash_control_flows": self._store_bash_control_flows,
+            "bash_set_options": self._store_bash_set_options,
         }
 
     def _store_bash_functions(self, file_path: str, bash_functions: list, jsx_pass: bool) -> None:
@@ -151,3 +153,41 @@ class BashStorage(BaseStorage):
             if "bash_redirections" not in self.counts:
                 self.counts["bash_redirections"] = 0
             self.counts["bash_redirections"] += 1
+
+    def _store_bash_control_flows(
+        self, file_path: str, bash_control_flows: list, jsx_pass: bool
+    ) -> None:
+        """Store Bash control flow statements (if, case, for, while, until)."""
+        for cf in bash_control_flows:
+            self.db_manager.add_bash_control_flow(
+                file_path,
+                cf.get("line", 0),
+                cf.get("end_line", 0),
+                cf.get("type", ""),
+                cf.get("condition"),
+                cf.get("has_else"),
+                cf.get("case_value"),
+                cf.get("num_patterns"),
+                cf.get("loop_variable"),
+                cf.get("iterable"),
+                cf.get("loop_expression"),
+                cf.get("containing_function"),
+            )
+            if "bash_control_flows" not in self.counts:
+                self.counts["bash_control_flows"] = 0
+            self.counts["bash_control_flows"] += 1
+
+    def _store_bash_set_options(
+        self, file_path: str, bash_set_options: list, jsx_pass: bool
+    ) -> None:
+        """Store Bash set command options."""
+        for opt in bash_set_options:
+            self.db_manager.add_bash_set_option(
+                file_path,
+                opt.get("line", 0),
+                opt.get("options", ""),
+                opt.get("containing_function"),
+            )
+            if "bash_set_options" not in self.counts:
+                self.counts["bash_set_options"] = 0
+            self.counts["bash_set_options"] += 1
