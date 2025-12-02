@@ -1,16 +1,12 @@
 """Data flow extractors - I/O operations, parameter flows, closures, nonlocal."""
 
 import ast
-import logging
-import os
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import get_node_name
-
-logger = logging.getLogger(__name__)
-
 
 FILE_OPS = {
     "open": "FILE_WRITE",
@@ -225,14 +221,10 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(io_op)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(io_operations) != len(deduped):
-            print(
-                f"[AST_DEBUG] I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(io_operations) != len(deduped):
+        logger.debug(
+            f"I/O operations deduplication: {len(io_operations)} -> {len(deduped)} ({len(io_operations) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -319,14 +311,10 @@ def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(pf)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(param_flows) != len(deduped):
-            print(
-                f"[AST_DEBUG] Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(param_flows) != len(deduped):
+        logger.debug(
+            f"Parameter flows deduplication: {len(param_flows)} -> {len(deduped)} ({len(param_flows) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -440,14 +428,10 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(closure)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(closures) != len(deduped):
-            print(
-                f"[AST_DEBUG] Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(closures) != len(deduped):
+        logger.debug(
+            f"Closure captures deduplication: {len(closures)} -> {len(deduped)} ({len(closures) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -509,14 +493,10 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(nl)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(nonlocal_accesses) != len(deduped):
-            print(
-                f"[AST_DEBUG] Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(nonlocal_accesses) != len(deduped):
+        logger.debug(
+            f"Nonlocal accesses deduplication: {len(nonlocal_accesses)} -> {len(deduped)} ({len(nonlocal_accesses) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -642,13 +622,9 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(call)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(conditional_calls) != len(deduped):
-            print(
-                f"[AST_DEBUG] Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(conditional_calls) != len(deduped):
+        logger.debug(
+            f"Conditional calls deduplication: {len(conditional_calls)} -> {len(deduped)} ({len(conditional_calls) - len(deduped)} duplicates removed)"
+        )
 
     return deduped

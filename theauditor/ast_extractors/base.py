@@ -256,3 +256,38 @@ def detect_language(file_path: Path) -> str:
         ".rs": "rust",
     }
     return ext_map.get(file_path.suffix.lower(), "")
+
+
+def check_tree_sitter_parse_quality(root_node: Any, file_path: str, logger: Any) -> None:
+    """Log warning if tree-sitter parse has high error rate.
+
+    Tree-sitter is forgiving - it returns partial trees with ERROR nodes
+    instead of failing. This function detects when >10% of the tree is
+    errors, which indicates extraction will be incomplete.
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the file being parsed (for logging)
+        logger: Logger instance for warnings
+    """
+    error_count = 0
+    total_count = 0
+
+    def count_nodes(node: Any) -> None:
+        nonlocal error_count, total_count
+        total_count += 1
+        if node.type == "ERROR":
+            error_count += 1
+        for child in node.children:
+            count_nodes(child)
+
+    count_nodes(root_node)
+
+    if total_count > 0 and error_count / total_count > 0.1:
+        logger.warning(
+            "High parse error rate (%d/%d nodes, %.1f%%) in %s - extraction may be incomplete",
+            error_count,
+            total_count,
+            100 * error_count / total_count,
+            file_path,
+        )

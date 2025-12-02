@@ -1,11 +1,10 @@
 """Python core AST extractors - Language fundamentals."""
 
 import ast
-import logging
-import os
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import (
     extract_vars_from_expr,
@@ -13,8 +12,6 @@ from ..base import (
     find_containing_function_python,
     get_node_name,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _get_type_annotation(node: ast.AST | None) -> str | None:
@@ -370,14 +367,9 @@ def extract_python_exports(context: FileContext) -> list[dict[str, Any]]:
 
 def extract_python_assignments(context: FileContext) -> list[dict[str, Any]]:
     """Extract variable assignments from Python AST for data flow analysis."""
-    import os
 
     assignments = []
-
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        print("[AST_DEBUG] extract_python_assignments called", file=sys.stderr)
+    logger.debug("[AST_DEBUG] extract_python_assignments called")
 
     if not context.tree:
         return assignments
@@ -410,14 +402,10 @@ def extract_python_assignments(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(a)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(assignments) != len(deduped):
-            print(
-                f"[AST_DEBUG] Python deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(assignments) != len(deduped):
+        logger.debug(
+            f"Python deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 
@@ -564,14 +552,10 @@ def extract_python_returns(context: FileContext) -> list[dict[str, Any]]:
             seen.add(key)
             deduped.append(r)
 
-    if os.environ.get("THEAUDITOR_DEBUG"):
-        import sys
-
-        if len(returns) != len(deduped):
-            print(
-                f"[AST_DEBUG] Python returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)",
-                file=sys.stderr,
-            )
+    if len(returns) != len(deduped):
+        logger.debug(
+            f"Python returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)"
+        )
 
     return deduped
 

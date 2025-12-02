@@ -21,6 +21,7 @@ import click
 
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
+from theauditor.pipeline.ui import console
 from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
 
@@ -250,7 +251,9 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         elif target_type == "symbol":
             data = engine.get_symbol_context_bundle(target, limit=limit, depth=depth)
             if "error" in data:
-                click.echo(f"Error: {data['error']}", err=True)
+                console.print(
+                    f"[error]Error: {data['error']}[/error]", stderr=True, highlight=False
+                )
                 return
 
             for key in ["callers", "callees"]:
@@ -274,7 +277,9 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         else:
             data = engine.get_component_tree(target)
             if isinstance(data, dict) and "error" in data:
-                click.echo(f"Error: {data['error']}", err=True)
+                console.print(
+                    f"[error]Error: {data['error']}[/error]", stderr=True, highlight=False
+                )
                 return
             data["target"] = target
             data["target_type"] = "component"
@@ -287,10 +292,10 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         }
 
         if output_format == "json":
-            click.echo(json.dumps(data, indent=2, default=str))
+            console.print(json.dumps(data, indent=2, default=str), markup=False)
         else:
-            click.echo(output)
-            click.echo(f"\n(Query time: {elapsed_ms:.1f}ms)")
+            console.print(output, markup=False)
+            console.print(f"\n(Query time: {elapsed_ms:.1f}ms)", highlight=False)
 
     finally:
         engine.close()

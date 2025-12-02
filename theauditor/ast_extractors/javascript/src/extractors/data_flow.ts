@@ -1,5 +1,6 @@
 import * as path from "path";
 import type * as ts from "typescript";
+import { logger } from "../utils/logger";
 import type {
   CallSymbol as ICallSymbol,
   Assignment as IAssignment,
@@ -188,15 +189,11 @@ export function extractCalls(
 
   traverse(sourceFile);
 
-  if (process.env.THEAUDITOR_DEBUG) {
-    console.error(
-      `[DEBUG JS] extractCalls: Extracted ${calls.length} calls/properties from ${sourceFile.fileName}`,
+  logger.debug(`extractCalls: Extracted ${calls.length} calls/properties from ${sourceFile.fileName}`);
+  if (calls.length > 0 && calls.length <= 5) {
+    calls.forEach((s) =>
+      logger.debug(`  - ${s.name} (${s.type}) at line ${s.line}`),
     );
-    if (calls.length > 0 && calls.length <= 5) {
-      calls.forEach((s) =>
-        console.error(`[DEBUG JS]   - ${s.name} (${s.type}) at line ${s.line}`),
-      );
-    }
   }
 
   return calls;

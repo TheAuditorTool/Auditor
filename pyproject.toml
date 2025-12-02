@@ -45,6 +45,8 @@ runtime = [
     "networkx==3.5",
     # Git object database (shadow snapshots)
     "pygit2>=1.14.0",
+    # Structured logging with Pino-compatible output
+    "loguru==0.7.3",
 ]
 
 # Development tools (for developing TheAuditor itself)
@@ -57,6 +59,8 @@ dev = [
     "mypy==1.18.2",
     "bandit==1.9.1",
     "pylint==4.0.3",
+    # Codemod for logging migration
+    "libcst==1.8.6",
 ]
 
 # Complete install (for sandbox)

@@ -7,10 +7,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..graph.store import XGraphStore
-from ..utils.logger import setup_logger
+from theauditor.utils.logging import logger
 
-logger = setup_logger(__name__)
+from ..graph.store import XGraphStore
 
 
 @dataclass

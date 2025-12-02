@@ -1,5 +1,7 @@
 """Base class for domain-specific storage modules."""
 
+from theauditor.utils.logging import logger
+
 
 class BaseStorage:
     """Base class for domain-specific storage handlers."""
@@ -19,7 +21,4 @@ class BaseStorage:
 
     def _debug(self, message: str):
         """Debug logging helper."""
-        import os
-
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG STORAGE] {message}")
+        logger.debug(f"[DEBUG STORAGE] {message}")

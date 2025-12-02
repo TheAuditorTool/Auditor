@@ -3,6 +3,8 @@
 import json
 import sys
 
+from theauditor.utils.logging import logger
+
 from .base import BaseStorage
 
 
@@ -159,21 +161,14 @@ class InfrastructureStorage(BaseStorage):
     def _store_graphql_types(self, file_path: str, graphql_types: list, jsx_pass: bool):
         """Store GraphQL type definition records."""
         import os
-        import sys
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
-            print(
-                f"[DEBUG] Storage: _store_graphql_types called with {len(graphql_types)} types",
-                file=sys.stderr,
-            )
+            logger.debug(f"Storage: _store_graphql_types called with {len(graphql_types)} types")
 
         for i, type_def in enumerate(graphql_types):
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and i == 0:
-                print(
-                    f"[DEBUG] Storage: First type_def keys: {list(type_def.keys())}",
-                    file=sys.stderr,
-                )
-                print(f"[DEBUG] Storage: First type_def values: {type_def}", file=sys.stderr)
+                logger.debug(f"Storage: First type_def keys: {list(type_def.keys())}")
+                logger.debug(f"Storage: First type_def values: {type_def}")
 
             self.db_manager.add_graphql_type(
                 schema_path=type_def["schema_path"],

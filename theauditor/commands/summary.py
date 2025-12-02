@@ -8,6 +8,8 @@ from typing import Any
 
 import click
 
+from theauditor.pipeline.ui import console
+
 
 def _get_findings_by_tools(db_path: Path, tools: tuple[str, ...]) -> dict[str, dict[str, int]]:
     """Query findings_consolidated for counts grouped by tool and severity.
@@ -386,11 +388,14 @@ def summary(root, raw_dir, out):
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(audit_summary, f, indent=2)
 
-    click.echo(f"[OK] Audit summary generated in {elapsed:.1f}s")
-    click.echo(f"  Overall status: {audit_summary['overall_status']}")
-    click.echo(f"  Total findings: {audit_summary['key_statistics']['total_findings']}")
-    click.echo(
-        f"  Critical: {severity_counts['critical']}, High: {severity_counts['high']}, Medium: {severity_counts['medium']}, Low: {severity_counts['low']}"
+    console.print(f"[success]Audit summary generated in {elapsed:.1f}s[/success]")
+    console.print(f"  Overall status: {audit_summary['overall_status']}", highlight=False)
+    console.print(
+        f"  Total findings: {audit_summary['key_statistics']['total_findings']}", highlight=False
+    )
+    console.print(
+        f"  Critical: {severity_counts['critical']}, High: {severity_counts['high']}, Medium: {severity_counts['medium']}, Low: {severity_counts['low']}",
+        highlight=False,
     )
 
 

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import networkx as nx
 
+from theauditor.utils.logging import logger
+
 DEFAULT_EXCLUSIONS = [
     "__init__.py",
     "test",
@@ -126,22 +128,22 @@ class GraphDeadCodeDetector:
         findings = []
 
         if self.debug:
-            print("[Phase 1/2] Building import graph...")
+            logger.info("Building import graph...")
 
         self.import_graph = self._build_import_graph(path_filter)
         entry_points = self._find_entry_points(self.import_graph)
 
         if self.debug:
-            print(f"  Nodes: {self.import_graph.number_of_nodes()}")
-            print(f"  Edges: {self.import_graph.number_of_edges()}")
-            print(f"  Entry points: {len(entry_points)}")
+            logger.info(f"  Nodes: {self.import_graph.number_of_nodes()}")
+            logger.info(f"  Edges: {self.import_graph.number_of_edges()}")
+            logger.info(f"  Entry points: {len(entry_points)}")
 
         dead_modules = self._find_dead_nodes(self.import_graph, entry_points, exclude_patterns)
         findings.extend(dead_modules)
 
         if analyze_symbols:
             if self.debug:
-                print("[Phase 2/2] Building call graph for symbol analysis...")
+                logger.info("Building call graph for symbol analysis...")
 
             live_modules = {
                 n for n in self.import_graph.nodes() if n not in {f.path for f in dead_modules}
@@ -423,8 +425,8 @@ class GraphDeadCodeDetector:
         write_dot(subgraph, output_path)
 
         if self.debug:
-            print(f"[OK] Cluster #{cluster_id} exported to {output_path}")
-            print(f"    Visualize with: dot -Tpng {output_path} -o cluster_{cluster_id}.png")
+            logger.info(f"Cluster #{cluster_id} exported to {output_path}")
+            logger.info(f"    Visualize with: dot -Tpng {output_path} -o cluster_{cluster_id}.png")
 
     def __del__(self):
         """Close database connections."""

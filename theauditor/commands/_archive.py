@@ -1,11 +1,13 @@
 """Internal archive command for segregating history by run type."""
 
 import shutil
-import sys
 from datetime import datetime
 from pathlib import Path
 
 import click
+
+from theauditor.pipeline.ui import console
+from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
 
@@ -43,7 +45,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     history_dir = pf_dir / "history"
 
     if not pf_dir.exists() or not any(pf_dir.iterdir()):
-        print("[ARCHIVE] No previous run artifacts found to archive", file=sys.stderr)
+        logger.info("No previous run artifacts found to archive")
         return
 
     dest_base = history_dir / "full" if run_type == "full" else history_dir / "diff"
@@ -77,7 +79,7 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             continue
 
         if item.name in CACHE_DIRS and not wipe_cache:
-            print(f"[ARCHIVE] Preserving cache: {item.name}/", file=sys.stderr)
+            logger.info(f"Preserving cache: {item.name}/")
             preserved_count += 1
             continue
 
@@ -85,20 +87,27 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             shutil.move(str(item), str(archive_dest))
             archived_count += 1
         except Exception as e:
-            print(f"[WARNING] Could not archive {item.name}: {e}", file=sys.stderr)
+            logger.warning(f"Could not archive {item.name}: {e}")
             skipped_count += 1
 
     if archived_count > 0:
-        click.echo(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
+        console.print(
+            f"\\[ARCHIVE] Archived {archived_count} items to {archive_dest}", highlight=False
+        )
         if preserved_count > 0:
-            click.echo(f"[ARCHIVE] Preserved {preserved_count} cache directories for reuse")
+            console.print(
+                f"\\[ARCHIVE] Preserved {preserved_count} cache directories for reuse",
+                highlight=False,
+            )
         if skipped_count > 0:
-            click.echo(f"[ARCHIVE] Skipped {skipped_count} items due to errors")
+            console.print(
+                f"\\[ARCHIVE] Skipped {skipped_count} items due to errors", highlight=False
+            )
     else:
         if preserved_count > 0:
-            click.echo("[ARCHIVE] No artifacts to archive (only caches remain)")
+            console.print("\\[ARCHIVE] No artifacts to archive (only caches remain)")
         else:
-            click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
+            console.print("\\[ARCHIVE] No artifacts archived (directory was empty)")
 
     metadata = {
         "run_type": run_type,
@@ -118,4 +127,4 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
     except Exception as e:
-        print(f"[WARNING] Could not write metadata file: {e}", file=sys.stderr)
+        logger.warning(f"Could not write metadata file: {e}")

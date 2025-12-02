@@ -1,5 +1,7 @@
 """GraphQL-specific database operations."""
 
+from theauditor.utils.logging import logger
+
 
 class GraphQLDatabaseMixin:
     """Mixin providing add_* methods for GRAPHQL_TABLES."""
@@ -23,7 +25,6 @@ class GraphQLDatabaseMixin:
     ):
         """Add a GraphQL type definition record to the batch."""
         import os
-        import sys
 
         tuple_data = (schema_path, type_name, kind, implements, description, line)
 
@@ -31,9 +32,9 @@ class GraphQLDatabaseMixin:
             "graphql_types" not in self.generic_batches
             or len(self.generic_batches["graphql_types"]) == 0
         ):
-            print("[DEBUG] Database: add_graphql_type - First tuple", file=sys.stderr)
-            print(f"  Tuple length: {len(tuple_data)}", file=sys.stderr)
-            print(f"  Tuple data: {tuple_data}", file=sys.stderr)
+            logger.debug("Database: add_graphql_type - First tuple")
+            logger.error(f"  Tuple length: {len(tuple_data)}")
+            logger.error(f"  Tuple data: {tuple_data}")
 
         self.generic_batches["graphql_types"].append(tuple_data)
 

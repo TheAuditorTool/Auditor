@@ -9,15 +9,17 @@ from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
 
+from theauditor.utils.logging import logger
+
 from .events import PipelineObserver
-from .structures import PhaseResult, TaskStatus
+from .structures import PhaseResult
 from .ui import AUDITOR_THEME
 
 
 class DynamicTable:
     """Wrapper that builds a fresh table on each Rich render cycle."""
 
-    def __init__(self, renderer: "RichRenderer"):
+    def __init__(self, renderer: RichRenderer):
         self.renderer = renderer
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
@@ -32,7 +34,7 @@ class RichRenderer(PipelineObserver):
         self.quiet = quiet
         self.log_file: TextIO | None = None
         if log_file:
-            self.log_file = open(log_file, "w", encoding="utf-8", buffering=1)
+            self.log_file = open(log_file, "w", encoding="utf-8", buffering=1)  # noqa: SIM115
 
         self.is_tty = sys.stdout.isatty()
 
@@ -103,7 +105,9 @@ class RichRenderer(PipelineObserver):
             style = "bold red" if is_error else None
             self._live.console.print(text, style=style)
         else:
-            print(text, file=sys.stderr if is_error else sys.stdout, flush=True)
+            # Non-TTY fallback (CI/CD mode) - use console with stderr routing
+            style = "bold red" if is_error else None
+            self.console.print(text, style=style, stderr=is_error)
 
     def start(self):
         """Start the live display (call before pipeline runs)."""
@@ -168,9 +172,9 @@ class RichRenderer(PipelineObserver):
                 for line in buffer:
                     self._live.console.print(line)
             else:
-                print(header, flush=True)
+                logger.info(header)
                 for line in buffer:
-                    print(line, flush=True)
+                    logger.info(line)
 
         if not self._parallel_buffers:
             self._in_parallel_mode = False

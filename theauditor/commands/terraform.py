@@ -9,9 +9,8 @@ from pathlib import Path
 
 import click
 
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.pipeline.ui import console
+from theauditor.utils.logging import logger
 
 
 @click.group()
@@ -114,24 +113,33 @@ def provision(root, workset, output, db, graphs_db):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
+            console.print(
+                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            )
+            console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]", stderr=True
+            )
             raise click.Abort()
 
         file_filter = None
         if workset:
             workset_path = Path(".pf/workset.json")
             if not workset_path.exists():
-                click.echo("Error: Workset file not found. Run 'aud workset' first.", err=True)
+                console.print(
+                    "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
+                    stderr=True,
+                )
                 raise click.Abort()
 
             with open(workset_path) as f:
                 workset_data = json.load(f)
                 workset_files = {p["path"] for p in workset_data.get("paths", [])}
                 file_filter = workset_files
-                click.echo(f"Building graph for {len(workset_files)} workset files...")
+                console.print(
+                    f"Building graph for {len(workset_files)} workset files...", highlight=False
+                )
 
-        click.echo("Building Terraform provisioning flow graph...")
+        console.print("Building Terraform provisioning flow graph...")
         builder = TerraformGraphBuilder(db_path=str(db_path))
         graph = builder.build_provisioning_flow_graph(root=root)
 
@@ -154,35 +162,39 @@ def provision(root, workset, output, db, graphs_db):
 
         stats = graph["metadata"]["stats"]
 
-        click.echo("\nProvisioning Graph Built:")
-        click.echo(f"  Variables: {stats['total_variables']}")
-        click.echo(f"  Resources: {stats['total_resources']}")
-        click.echo(f"  Outputs: {stats['total_outputs']}")
-        click.echo(f"  Edges: {stats['edges_created']}")
-        click.echo(f"  Files: {stats['files_processed']}")
-        click.echo(f"\nGraph stored in: {graphs_db}")
-        click.echo(f"JSON export: {output_path}")
+        console.print("\nProvisioning Graph Built:")
+        console.print(f"  Variables: {stats['total_variables']}", highlight=False)
+        console.print(f"  Resources: {stats['total_resources']}", highlight=False)
+        console.print(f"  Outputs: {stats['total_outputs']}", highlight=False)
+        console.print(f"  Edges: {stats['edges_created']}", highlight=False)
+        console.print(f"  Files: {stats['files_processed']}", highlight=False)
+        console.print(f"\nGraph stored in: {graphs_db}", highlight=False)
+        console.print(f"JSON export: {output_path}", highlight=False)
 
         sensitive_nodes = [n for n in graph["nodes"] if n.get("is_sensitive")]
         if sensitive_nodes:
-            click.echo(f"\nSensitive Data Nodes Detected: {len(sensitive_nodes)}")
+            console.print(
+                f"\nSensitive Data Nodes Detected: {len(sensitive_nodes)}", highlight=False
+            )
             for node in sensitive_nodes[:3]:
-                click.echo(f"  - {node['name']} ({node['node_type']})")
+                console.print(f"  - {node['name']} ({node['node_type']})", highlight=False)
             if len(sensitive_nodes) > 3:
-                click.echo(f"  ... and {len(sensitive_nodes) - 3} more")
+                console.print(f"  ... and {len(sensitive_nodes) - 3} more", highlight=False)
 
         public_nodes = [n for n in graph["nodes"] if n.get("has_public_exposure")]
         if public_nodes:
-            click.echo(f"\nPublic Exposure Detected: {len(public_nodes)} resources")
+            console.print(
+                f"\nPublic Exposure Detected: {len(public_nodes)} resources", highlight=False
+            )
             for node in public_nodes[:3]:
-                click.echo(f"  - {node['name']} ({node['terraform_type']})")
+                console.print(f"  - {node['name']} ({node['terraform_type']})", highlight=False)
 
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to build provisioning graph: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
 
 
@@ -229,17 +241,21 @@ def analyze(root, severity, categories, output, db):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
+            console.print(
+                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            )
+            console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]", stderr=True
+            )
             raise click.Abort()
 
-        click.echo("Analyzing Terraform configurations for security issues...")
+        console.print("Analyzing Terraform configurations for security issues...")
         analyzer = TerraformAnalyzer(db_path=str(db_path), severity_filter=severity)
         findings = analyzer.analyze()
 
         if categories:
             findings = [f for f in findings if f.category in categories]
-            click.echo(f"Filtered to categories: {', '.join(categories)}")
+            console.print(f"Filtered to categories: {', '.join(categories)}", highlight=False)
 
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,37 +278,39 @@ def analyze(root, severity, categories, output, db):
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(findings_json, f, indent=2)
 
-        click.echo("\nTerraform Security Analysis Complete:")
-        click.echo(f"  Total findings: {len(findings)}")
+        console.print("\nTerraform Security Analysis Complete:")
+        console.print(f"  Total findings: {len(findings)}", highlight=False)
 
         from collections import Counter
 
         severity_counts = Counter(f.severity for f in findings)
         for sev in ["critical", "high", "medium", "low", "info"]:
             if severity_counts[sev] > 0:
-                click.echo(f"  {sev.capitalize()}: {severity_counts[sev]}")
+                console.print(f"  {sev.capitalize()}: {severity_counts[sev]}", highlight=False)
 
         category_counts = Counter(f.category for f in findings)
-        click.echo("\nFindings by category:")
+        console.print("\nFindings by category:")
         for cat, count in category_counts.most_common():
-            click.echo(f"  {cat}: {count}")
+            console.print(f"  {cat}: {count}", highlight=False)
 
-        click.echo(f"\nFindings exported to: {output_path}")
-        click.echo("Findings stored in terraform_findings table for FCE correlation")
+        console.print(f"\nFindings exported to: {output_path}", highlight=False)
+        console.print("Findings stored in terraform_findings table for FCE correlation")
 
         if findings:
-            click.echo("\nSample findings (first 3):")
+            console.print("\nSample findings (first 3):")
             for finding in findings[:3]:
-                click.echo(f"\n  [{finding.severity.upper()}] {finding.title}")
-                click.echo(f"  File: {finding.file_path}:{finding.line}")
-                click.echo(f"  {finding.description}")
+                console.print(
+                    f"\n  \\[{finding.severity.upper()}] {finding.title}", highlight=False
+                )
+                console.print(f"  File: {finding.file_path}:{finding.line}", highlight=False)
+                console.print(f"  {finding.description}", highlight=False)
 
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze Terraform: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
         raise click.Abort() from e
 
 
@@ -328,6 +346,10 @@ def report(format, output, severity):
 
     This command will be implemented in Phase 7.
     """
-    click.echo("Error: 'terraform report' not yet implemented (Phase 7)", err=True)
-    click.echo("Run 'aud terraform provision' to build provisioning graph.", err=True)
+    console.print(
+        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]", stderr=True
+    )
+    console.print(
+        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]", stderr=True
+    )
     raise click.Abort()

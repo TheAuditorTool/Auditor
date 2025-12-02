@@ -6,10 +6,7 @@ from pathlib import Path
 
 from theauditor.rules.base import Severity, StandardRuleContext
 from theauditor.rules.terraform.terraform_analyze import find_terraform_issues
-
-from ..utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 @dataclass

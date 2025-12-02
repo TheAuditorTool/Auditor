@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.framework_detector import FrameworkDetector
+from theauditor.utils.logging import logger
 from theauditor.utils.temp_manager import TempManager
 
 
@@ -348,15 +349,15 @@ def scan_all_findings(db_path: str) -> tuple[list[dict[str, Any]], dict[str, Any
 
     if all_findings:
         if dedupe_stats["duplicates_collapsed"] > 0:
-            print(
+            logger.info(
                 "[FCE] Loaded "
                 f"{dedupe_stats['unique_rows']} unique findings from database "
                 f"(collapsed {dedupe_stats['duplicates_collapsed']} duplicates)"
             )
         else:
-            print(f"[FCE] Loaded {len(all_findings)} findings from database (database-first)")
+            logger.info(f"Loaded {len(all_findings)} findings from database (database-first)")
     else:
-        print("[FCE] No findings in database - tools may need to run first")
+        logger.info("No findings in database - tools may need to run first")
 
     if dedupe_stats["duplicates_collapsed"] > 0:
         top_duplicates = sorted(
@@ -380,7 +381,7 @@ def scan_all_findings(db_path: str) -> tuple[list[dict[str, Any]], dict[str, Any
                 f"{d['rule']}@{d['file']}:{d['line']}×{d['duplicate_count']}"
                 for d in top_duplicates[:3]
             )
-            print(f"[FCE] Top duplicate clusters: {sample}")
+            logger.info(f"Top duplicate clusters: {sample}")
 
     return all_findings, dedupe_stats
 
@@ -689,8 +690,8 @@ def run_fce(
         findings, dedupe_stats = scan_all_findings(full_db_path)
         results["all_findings"] = findings
     else:
-        print(f"[FCE] Warning: Database not found at {full_db_path}")
-        print("[FCE] Run 'aud index' to create database")
+        logger.info(f"Warning: Database not found at {full_db_path}")
+        logger.info("Run 'aud index' to create database")
 
     if not dedupe_stats:
         dedupe_stats = {
@@ -701,23 +702,23 @@ def run_fce(
         }
 
     hotspot_files, cycles = load_graph_data_from_db(full_db_path)
-    print(f"[FCE] Loaded from database: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
+    logger.info(f"Loaded from database: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
 
     complex_functions = load_cfg_data_from_db(full_db_path)
-    print(f"[FCE] Loaded from database: {len(complex_functions)} complex functions")
+    logger.info(f"Loaded from database: {len(complex_functions)} complex functions")
 
     churn_files = {}
 
     coverage_files = {}
 
     taint_paths = load_taint_data_from_db(full_db_path)
-    print(f"[FCE] Loaded from database: {len(taint_paths)} taint flow paths")
+    logger.info(f"Loaded from database: {len(taint_paths)} taint flow paths")
 
     workflow_findings = load_workflow_data_from_db(full_db_path)
-    print(f"[FCE] Loaded from database: {len(workflow_findings)} workflow security findings")
+    logger.info(f"Loaded from database: {len(workflow_findings)} workflow security findings")
 
     graphql_findings = load_graphql_findings_from_db(full_db_path)
-    print(f"[FCE] Loaded from database: {len(graphql_findings)} GraphQL security findings")
+    logger.info(f"Loaded from database: {len(graphql_findings)} GraphQL security findings")
 
     insights_data = {}
     insights_dir = Path(root_path) / ".pf" / "insights"
@@ -728,18 +729,18 @@ def run_fce(
                 file_data = json.load(f)
 
             insights_data[insight_file.stem] = file_data
-            print(f"[FCE] Loaded insights module: {insight_file.stem}")
+            logger.info(f"Loaded insights module: {insight_file.stem}")
 
         if insights_data:
             results["insights"] = insights_data
-            print(f"[FCE] Loaded {len(insights_data)} insights modules into results['insights']")
+            logger.info(f"Loaded {len(insights_data)} insights modules into results['insights']")
 
             modules_loaded = list(insights_data.keys())
-            print(f"[FCE] Available insights: {', '.join(modules_loaded)}")
+            logger.info(f"Available insights: {', '.join(modules_loaded)}")
         else:
-            print("[FCE] No insights data found in .pf/insights/")
+            logger.info("No insights data found in .pf/insights/")
     else:
-        print("[FCE] Insights directory not found - skipping optional insights loading")
+        logger.info("Insights directory not found - skipping optional insights loading")
 
     detector = FrameworkDetector(Path(root_path))
     framework_info = detector.detect_test_framework()
@@ -769,12 +770,12 @@ def run_fce(
                 {"name": "npm build", "command": "npm run build --silent", "type": "build"}
             )
     elif package_json.exists() and not run_build:
-        print("[FCE] Skipping npm build (set THEAUDITOR_FCE_RUN_BUILD=1 to enable)")
+        logger.info("Skipping npm build (set THEAUDITOR_FCE_RUN_BUILD=1 to enable)")
 
     if print_plan:
-        print("Detected tools:")
+        logger.info("Detected tools:")
         for tool in tools:
-            print(f"  - {tool['name']}: {tool['command']}")
+            logger.info(f"  - {tool['name']}: {tool['command']}")
         return {"success": True, "printed_plan": True}
 
     if not tools:
@@ -783,7 +784,7 @@ def run_fce(
     all_failures = []
 
     for tool in tools:
-        print(f"Running {tool['name']}...")
+        logger.info(f"Running {tool['name']}...")
         exit_code, stdout, stderr = run_tool(tool["command"], root_path, timeout)
 
         if exit_code != 0:
@@ -791,7 +792,7 @@ def run_fce(
             errors = parse_errors(output, tool["name"])
 
             if tool["name"] == "pytest" and exit_code == 2 and "ERROR collecting" in output:
-                print("Pytest collection failed. Falling back to Python compilation check...")
+                logger.info("Pytest collection failed. Falling back to Python compilation check...")
 
                 py_files = []
                 for py_file in Path(root_path).rglob("*.py"):
@@ -801,7 +802,7 @@ def run_fce(
                         py_files.append(str(py_file.relative_to(root_path)))
 
                 if py_files:
-                    print(f"Checking {len(py_files)} Python files for compilation errors...")
+                    logger.info(f"Checking {len(py_files)} Python files for compilation errors...")
                     compile_errors = []
 
                     for py_file in py_files[:50]:
@@ -838,7 +839,7 @@ def run_fce(
                                 )
 
                     if compile_errors:
-                        print(f"Found {len(compile_errors)} compilation errors")
+                        logger.info(f"Found {len(compile_errors)} compilation errors")
                         errors.extend(compile_errors)
 
             if not errors and exit_code != 0:
@@ -973,7 +974,7 @@ def run_fce(
         meta_findings.append(entry)
         meta_stats["added"] += 1
         if log_fn:
-            print(log_fn(entry))
+            logger.info(log_fn(entry))
         return True
 
     if hotspot_files and consolidated_findings:
@@ -1293,18 +1294,18 @@ def run_fce(
     }
 
     if meta_stats.get("merged"):
-        print(f"[FCE] Deduplicated {meta_stats['merged']} overlapping meta correlations")
+        logger.info(f"Deduplicated {meta_stats['merged']} overlapping meta correlations")
 
     if meta_findings:
-        print(f"[FCE] Generated {len(meta_findings)} architectural meta-findings")
+        logger.info(f"Generated {len(meta_findings)} architectural meta-findings")
         type_counts: dict[str, int] = {}
         for mf in meta_findings:
             mf_type = mf.get("type", "unknown")
             type_counts[mf_type] = type_counts.get(mf_type, 0) + 1
         for mf_type, count in type_counts.items():
-            print(f"[FCE]   - {mf_type}: {count}")
+            logger.info(f"- {mf_type}: {count}")
     else:
-        print("[FCE] No architectural meta-findings generated (good architecture!)")
+        logger.info("No architectural meta-findings generated (good architecture!)")
 
     max_complexity = (
         max((func.get("complexity", 0) for func in complex_functions.values()), default=0)
@@ -1339,7 +1340,7 @@ def run_fce(
     workflow_taint_correlations = []
 
     if workflow_findings and taint_paths:
-        print("[FCE] Correlating workflow findings with taint paths...")
+        logger.info("Correlating workflow findings with taint paths...")
 
         workflow_by_file = {}
         for wf in workflow_findings:
@@ -1395,14 +1396,14 @@ def run_fce(
     results["correlations"]["total_workflow_taint_correlations"] = len(workflow_taint_correlations)
 
     if workflow_taint_correlations:
-        print(
-            f"[FCE] Found {len(workflow_taint_correlations)} workflow + taint correlations (CRITICAL compound risks)"
+        logger.info(
+            f"Found {len(workflow_taint_correlations)} workflow + taint correlations (CRITICAL compound risks)"
         )
 
     path_clusters = []
     from theauditor.graph.path_correlator import PathCorrelator
 
-    print("[FCE] Running CFG-based path correlation...")
+    logger.info("Running CFG-based path correlation...")
 
     full_db_path = Path(root_path) / db_path
     if full_db_path.exists():
@@ -1410,10 +1411,10 @@ def run_fce(
         path_clusters = path_correlator.correlate(consolidated_findings)
         path_correlator.close()
 
-        print(f"[FCE] Found {len(path_clusters)} high-confidence path clusters")
+        logger.info(f"Found {len(path_clusters)} high-confidence path clusters")
 
         if path_clusters and path_clusters[0].get("conditions"):
-            print(f"[FCE] Example cluster conditions: {path_clusters[0]['conditions']}")
+            logger.info(f"Example cluster conditions: {path_clusters[0]['conditions']}")
 
         results["correlations"]["path_clusters"] = path_clusters
         results["correlations"]["total_path_clusters"] = len(path_clusters)
@@ -1431,11 +1432,11 @@ def run_fce(
 
             false_positives_removed = len(hotspot_findings - path_findings)
             if false_positives_removed > 0:
-                print(
-                    f"[FCE] Path correlation filtered {false_positives_removed} potential false positives"
+                logger.info(
+                    f"Path correlation filtered {false_positives_removed} potential false positives"
                 )
     else:
-        print("[FCE] Skipping path correlation - database not found")
+        logger.info("Skipping path correlation - database not found")
 
     from theauditor.utils.finding_priority import normalize_severity, sort_findings
 
@@ -1448,18 +1449,18 @@ def run_fce(
                 if isinstance(original_severity, int):
                     pass
                 else:
-                    print(
-                        f"[FCE] Normalized severity: {original_severity} -> {finding['severity']}"
+                    logger.info(
+                        f"Normalized severity: {original_severity} -> {finding['severity']}"
                     )
 
         results["all_findings"] = sort_findings(results["all_findings"])
 
         if results["all_findings"]:
-            print(f"[FCE] Sorted {len(results['all_findings'])} findings")
+            logger.info(f"Sorted {len(results['all_findings'])} findings")
             first = results["all_findings"][0]
             last = results["all_findings"][-1] if len(results["all_findings"]) > 1 else first
-            print(f"[FCE] First: {first.get('severity')} from {first.get('tool')}")
-            print(f"[FCE] Last: {last.get('severity')} from {last.get('tool')}")
+            logger.info(f"First: {first.get('severity')} from {first.get('tool')}")
+            logger.info(f"Last: {last.get('severity')} from {last.get('tool')}")
 
     meta_count = len(meta_findings)
     factual_count = len(factual_clusters)

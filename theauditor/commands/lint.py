@@ -7,11 +7,10 @@ from typing import Any
 import click
 
 from theauditor.linters import LinterOrchestrator
+from theauditor.pipeline.ui import console
 from theauditor.utils import load_json_file
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 
 def lint_command(
@@ -39,14 +38,14 @@ def lint_command(
             workset_files = None
 
     if print_plan:
-        print("Lint Plan:")
-        print("  Mode: CHECK-ONLY")
+        console.print("Lint Plan:")
+        console.print("  Mode: CHECK-ONLY")
         if workset_files:
-            print(f"  Workset: {len(workset_files)} files")
+            console.print(f"  Workset: {len(workset_files)} files", highlight=False)
         else:
-            print("  Scope: All source files")
-        print("  Linters: ESLint, Ruff, Mypy")
-        print("  Output: .pf/raw/lint.json + findings_consolidated table")
+            console.print("  Scope: All source files")
+        console.print("  Linters: ESLint, Ruff, Mypy")
+        console.print("  Output: .pf/raw/lint.json + findings_consolidated table")
         return {"success": True, "printed_plan": True}
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
@@ -72,12 +71,12 @@ def lint_command(
         "warnings": sum(1 for f in findings if f.get("severity") == "warning"),
     }
 
-    print("\nLint complete:")
-    print(f"  Total findings: {stats['total_findings']}")
-    print(f"  Errors: {stats['errors']}")
-    print(f"  Warnings: {stats['warnings']}")
-    print("  Output: .pf/raw/lint.json")
-    print("  Database: findings written to findings_consolidated table")
+    console.print("\nLint complete:")
+    console.print(f"  Total findings: {stats['total_findings']}", highlight=False)
+    console.print(f"  Errors: {stats['errors']}", highlight=False)
+    console.print(f"  Warnings: {stats['warnings']}", highlight=False)
+    console.print("  Output: .pf/raw/lint.json")
+    console.print("  Database: findings written to findings_consolidated table")
 
     return {
         "success": True,
@@ -186,5 +185,9 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
         return
 
     if not result["success"]:
-        click.echo(f"Error: {result.get('error', 'Lint failed')}", err=True)
+        console.print(
+            f"[error]Error: {result.get('error', 'Lint failed')}[/error]",
+            stderr=True,
+            highlight=False,
+        )
         raise click.ClickException(result.get("error", "Lint failed"))

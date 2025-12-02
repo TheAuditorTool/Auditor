@@ -5,10 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ...utils.logger import setup_logger
-from . import BaseExtractor
+from theauditor.utils.logging import logger
 
-logger = setup_logger(__name__)
+from . import BaseExtractor
 
 
 class TerraformExtractor(BaseExtractor):

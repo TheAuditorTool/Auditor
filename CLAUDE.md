@@ -268,13 +268,9 @@ if not result:
 
 **repo_index.db** - Raw extracted facts from AST parsing (symbols, calls, assignments, etc.)
 - Used by: Everything (rules, taint, FCE, context queries)
-- Tables: 144 normalized tables across 8 schema domains (Python: 35, Node: 37, Core: 24, others)
-- Note: Python tables expanded in 2025-11-26 "Data Fidelity Control" initiative to capture previously lost data
-- Note: Node tables expanded in 2025-11-26 "Node Schema Normalization" - 8 junction tables replace JSON blobs
 
 **graphs.db** - Pre-computed graph structures built FROM repo_index.db
 - Used by: Graph commands only (`aud graph query`, `aud graph viz`)
-- Tables: 4 polymorphic tables (nodes, edges, analysis_results, metadata)
 
 **Why separate?** Different query patterns (point lookups vs graph traversal). Separate files allow selective loading. Standard data warehouse design: fact tables vs computed aggregates.
 

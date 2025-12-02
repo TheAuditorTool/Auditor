@@ -1,17 +1,18 @@
 """
-LibCST Codemod: Migrate click.echo() to console.print() with Rich tokens.
+LibCST Codemod: Migrate click.echo() AND print() to console.print() with Rich tokens.
 
-This script transforms TheAuditor command files from click.echo to the new
+This script transforms TheAuditor files from click.echo/print to the new
 Rich-based console.print system defined in theauditor.pipeline.ui.
+
+TRAINING WHEELS OFF: This script now handles ALL print() statements, not just
+click.echo. Every print() in the codebase will be converted to console.print().
 
 Usage:
     # Dry run (preview changes)
-    python -m libcst.tool codemod scripts.rich_migration.ClickEchoToConsoleCodemod \
-        --no-format theauditor/commands/
+    python scripts/rich_migration.py theauditor/ --dry-run
 
-    # Apply changes
-    python -m libcst.tool codemod scripts.rich_migration.ClickEchoToConsoleCodemod \
-        theauditor/commands/
+    # Apply changes to entire codebase
+    python scripts/rich_migration.py theauditor/
 
     # Single file test
     python scripts/rich_migration.py theauditor/commands/lint.py --dry-run
@@ -19,14 +20,17 @@ Usage:
 Patterns transformed:
     click.echo("text")              -> console.print("text")
     click.echo("text", err=True)    -> console.print("[error]text[/error]")
-    click.echo(f"[OK] {msg}")       -> console.print(f"[success]{msg}[/success]")
-    click.echo(f"[WARN] {msg}")     -> console.print(f"[warning]{msg}[/warning]")
-    click.echo(f"[ERROR] {msg}")    -> console.print(f"[error]{msg}[/error]")
-    click.echo("=" * 60)            -> console.rule()
-    click.echo(f"Path: {path}")     -> console.print(f"Path: [path]{path}[/path]")
+    print("text")                   -> console.print("text")
+    print("a", "b", sep=", ")       -> console.print("a", "b", sep=", ")
+    print(f"[OK] {msg}")            -> console.print(f"[success]{msg}[/success]")
+    print(f"[WARN] {msg}")          -> console.print(f"[warning]{msg}[/warning]")
+    print(f"[ERROR] {msg}")         -> console.print(f"[error]{msg}[/error]")
+    print("=" * 60)                 -> console.rule()
+    print("msg", file=sys.stderr)   -> console.print("msg", stderr=True)
+    print("msg", end="")            -> console.print("msg", end="")
 
 Author: TheAuditor Team
-Version: 1.0.0
+Version: 2.0.0 (TRAINING WHEELS OFF)
 """
 
 import argparse
@@ -579,10 +583,11 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
         self, original_node: cst.Call, updated_node: cst.Call
     ) -> Union[cst.Call, cst.BaseExpression]:
         """
-        Transform click.echo() and click.secho() calls to console.print().
+        Transform click.echo(), click.secho(), and print() calls to console.print().
 
         Handles:
         - click.echo(...) and click.secho(...)
+        - print(...) - bare print statements (TRAINING WHEELS OFF)
         - err=True -> stderr=True
         - nl=False -> end=""
         - file=sys.stderr -> stderr=True
@@ -594,7 +599,7 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
         - F-strings with variables -> highlight=False for markup injection safety
         """
 
-        # Match: click.echo(...) OR click.secho(...)
+        # Match: click.echo(...) OR click.secho(...) OR print(...)
         is_echo = m.matches(
             updated_node.func,
             m.Attribute(value=m.Name("click"), attr=m.Name("echo"))
@@ -603,8 +608,12 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
             updated_node.func,
             m.Attribute(value=m.Name("click"), attr=m.Name("secho"))
         )
+        is_print = m.matches(
+            updated_node.func,
+            m.Name("print")
+        )
 
-        if not (is_echo or is_secho):
+        if not (is_echo or is_secho or is_print):
             return updated_node
 
         # =====================================================================
@@ -643,6 +652,11 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                     # If nl=True (default), just drop it - console.print adds newline by default
                     continue
 
+                # Handle print()'s end= kwarg - pass through to console.print
+                if kw == "end":
+                    end_arg = arg  # Use the arg directly, already has end= keyword
+                    continue
+
                 # CRITICAL FIX #4: Handle file=... redirection
                 if kw == "file":
                     # file=sys.stderr -> stderr=True
@@ -657,7 +671,7 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                     # without creating a new Console instance - skip this call
                     self.skipped_file_redirects += 1
                     print(
-                        f"[WARN] Skipping click.echo with custom file= argument "
+                        f"[WARN] Skipping output call with custom file= argument "
                         f"(console.print cannot write to arbitrary streams). "
                         f"Manual migration required.",
                         file=sys.stderr
@@ -668,6 +682,16 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                 # Rich handles this via Console(force_terminal=...), not per print
                 # Drop it to prevent TypeError
                 if kw == "color":
+                    continue
+
+                # Handle print-specific kwargs: sep= and flush=
+                # sep= is passed through to console.print (same behavior)
+                if kw == "sep":
+                    other_args.append(arg)  # Pass through sep= to console.print
+                    continue
+
+                # flush= is print-specific, console.print doesn't have it - DROP
+                if kw == "flush":
                     continue
 
                 # For click.secho(): capture style kwargs (fg, bg, bold, etc.)
@@ -696,6 +720,10 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
                 # Positional argument - first one is the text
                 if text_arg is None:
                     text_arg = arg
+                elif is_print:
+                    # print() can have multiple positional args: print("a", "b", "c")
+                    # console.print supports this too, so pass them through
+                    other_args.append(arg)
                 else:
                     # click.echo only takes one positional arg
                     # If there's more, keep them to be safe
@@ -983,10 +1011,15 @@ class ClickEchoToConsoleCodemod(VisitorBasedCodemodCommand):
 
 class NameConflictVisitor(cst.CSTVisitor):
     """
-    Scan for existing uses of a variable name to detect potential shadowing.
+    Scan for SHADOWING of a variable name (not just usage).
 
-    Used to warn when 'console' is already defined in a file before we add
-    the import, which could cause AttributeError at runtime.
+    Only flags actual conflicts that would shadow our import:
+    - Function parameters: def foo(console): ...
+    - Local variable assignments: console = Console()
+
+    Does NOT flag (these are fine):
+    - Existing correct imports: from theauditor.pipeline.ui import console
+    - Attribute access: console.print() (this is USING the import, not shadowing)
     """
 
     def __init__(self, target_name: str = "console"):
@@ -994,20 +1027,19 @@ class NameConflictVisitor(cst.CSTVisitor):
         self.found = False
         self.locations: list[str] = []  # Track where conflicts are found
 
-    def visit_Name(self, node: cst.Name) -> bool:
-        if node.value == self.target_name:
-            self.found = True
-        return True  # Continue visiting
+    # DON'T check visit_Name - that catches console.print() which is fine
 
     def visit_Param(self, node: cst.Param) -> bool:
         # Check function parameters: def foo(console): ...
+        # This shadows module-level console import within the function
         if node.name.value == self.target_name:
             self.found = True
             self.locations.append("function parameter")
         return True
 
     def visit_AssignTarget(self, node: cst.AssignTarget) -> bool:
-        # Check assignments: console = ...
+        # Check assignments: console = Console()
+        # This shadows module-level console import
         if isinstance(node.target, cst.Name) and node.target.value == self.target_name:
             self.found = True
             self.locations.append("variable assignment")
@@ -1042,7 +1074,7 @@ def transform_file(file_path: str, dry_run: bool = False) -> tuple[str, int]:
     if transformer.transformations > 0:
         # SAFETY: Check for variable shadowing before adding import
         conflict_check = NameConflictVisitor(transformer.CONSOLE_NAME)
-        module.walk(conflict_check)
+        module.visit(conflict_check)
         if conflict_check.found:
             locations = ", ".join(set(conflict_check.locations)) if conflict_check.locations else "unknown"
             print(
@@ -1075,15 +1107,62 @@ def transform_file(file_path: str, dry_run: bool = False) -> tuple[str, int]:
     return modified.code, transformer.transformations
 
 
+DEFAULT_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "dist",
+    "build",
+    ".eggs",
+    ".pf",
+    ".auditor_venv",
+    "scripts",  # Don't transform the migration scripts themselves!
+}
+
+
+def process_directory(directory: str, skip_dirs: set, dry_run: bool = False) -> tuple:
+    """Walk directory and transform all Python files. Returns (files_modified, total_transforms)."""
+    import os
+
+    files_modified = 0
+    total_transforms = 0
+
+    for root, dirs, files in os.walk(directory):
+        # Filter out skip directories
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+
+        for file in files:
+            if file.endswith(".py"):
+                filepath = os.path.join(root, file).replace("\\", "/")
+
+                with open(filepath, "r", encoding="utf-8") as f:
+                    original = f.read()
+
+                new_code, count = transform_file(filepath, dry_run=dry_run)
+
+                if count > 0:
+                    files_modified += 1
+                    total_transforms += count
+                    mode = "[DRY-RUN]" if dry_run else "[OK]"
+                    print(f"  {mode} {filepath}: {count} transformations")
+
+    return files_modified, total_transforms
+
+
 def main():
     """CLI entry point for standalone usage."""
     parser = argparse.ArgumentParser(
-        description="Migrate click.echo() to console.print() with Rich tokens"
+        description="Migrate click.echo() AND print() to console.print() with Rich tokens (TRAINING WHEELS OFF)"
     )
     parser.add_argument(
-        "files",
+        "paths",
         nargs="+",
-        help="Python files to transform"
+        help="Python files or directories to transform"
     )
     parser.add_argument(
         "--dry-run",
@@ -1095,55 +1174,79 @@ def main():
         action="store_true",
         help="Show unified diff of changes"
     )
+    parser.add_argument(
+        "--skip",
+        type=str,
+        default="",
+        help="Additional directories to skip (comma-separated)"
+    )
 
     args = parser.parse_args()
+
+    skip_dirs = DEFAULT_SKIP_DIRS.copy()
+    if args.skip:
+        for d in args.skip.split(","):
+            skip_dirs.add(d.strip())
 
     total_transformations = 0
     files_modified = 0
 
-    for file_path in args.files:
+    mode_str = "[DRY RUN] " if args.dry_run else ""
+    print(f"{mode_str}Rich Migration v2.0 - click.echo() AND print() -> console.print()")
+    print("=" * 70)
+
+    for file_path in args.paths:
         path = Path(file_path)
-        if not path.exists():
-            print(f"[ERROR] File not found: {file_path}", file=sys.stderr)
-            continue
 
-        if not path.suffix == ".py":
-            print(f"[SKIP] Not a Python file: {file_path}", file=sys.stderr)
-            continue
+        if path.is_dir():
+            print(f"\nProcessing directory: {file_path}")
+            files, transforms = process_directory(str(path), skip_dirs, dry_run=args.dry_run)
+            files_modified += files
+            total_transformations += transforms
+        elif path.exists():
+            if not path.suffix == ".py":
+                print(f"[SKIP] Not a Python file: {file_path}", file=sys.stderr)
+                continue
 
-        with open(file_path, "r", encoding="utf-8") as f:
-            original = f.read()
+            with open(file_path, "r", encoding="utf-8") as f:
+                original = f.read()
 
-        new_code, count = transform_file(file_path, dry_run=args.dry_run)
+            new_code, count = transform_file(file_path, dry_run=args.dry_run)
 
-        if count > 0:
-            files_modified += 1
-            total_transformations += count
+            if count > 0:
+                files_modified += 1
+                total_transformations += count
 
-            if args.dry_run:
-                print(f"[DRY-RUN] {file_path}: {count} transformations")
+                if args.dry_run:
+                    print(f"[DRY-RUN] {file_path}: {count} transformations")
+                else:
+                    print(f"[OK] {file_path}: {count} transformations")
+
+                if args.diff and original != new_code:
+                    import difflib
+                    diff = difflib.unified_diff(
+                        original.splitlines(keepends=True),
+                        new_code.splitlines(keepends=True),
+                        fromfile=f"a/{file_path}",
+                        tofile=f"b/{file_path}"
+                    )
+                    # Encode with 'replace' to handle Unicode chars that crash CP1252
+                    diff_text = "".join(diff)
+                    sys.stdout.buffer.write(diff_text.encode('utf-8', errors='replace'))
+                    sys.stdout.buffer.write(b'\n')
             else:
-                print(f"[OK] {file_path}: {count} transformations")
-
-            if args.diff and original != new_code:
-                import difflib
-                diff = difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    new_code.splitlines(keepends=True),
-                    fromfile=f"a/{file_path}",
-                    tofile=f"b/{file_path}"
-                )
-                # Encode with 'replace' to handle Unicode chars that crash CP1252
-                diff_text = "".join(diff)
-                sys.stdout.buffer.write(diff_text.encode('utf-8', errors='replace'))
-                sys.stdout.buffer.write(b'\n')
+                print(f"[SKIP] {file_path}: no print/click.echo calls found")
         else:
-            print(f"[SKIP] {file_path}: no click.echo calls found")
+            print(f"[ERROR] Path not found: {file_path}", file=sys.stderr)
 
-    print(f"\n[SUMMARY] {files_modified} files, {total_transformations} transformations")
+    print("")
+    print("=" * 70)
+    print(f"{mode_str}COMPLETED")
+    print(f"Files modified: {files_modified}")
+    print(f"Transformations: {total_transformations}")
 
     if args.dry_run:
-        print("[INFO] Dry run - no files were modified")
+        print("\n[INFO] Dry run - no files were modified")
 
 
 if __name__ == "__main__":

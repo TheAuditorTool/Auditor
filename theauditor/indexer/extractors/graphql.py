@@ -21,6 +21,8 @@ from graphql.language.ast import (
     UnionTypeDefinitionNode,
 )
 
+from theauditor.utils.logging import logger
+
 from . import BaseExtractor
 
 
@@ -40,7 +42,7 @@ class GraphQLExtractor(BaseExtractor):
         try:
             document = parse(content)
         except Exception as e:
-            print(f"GraphQL parse error in {file_path}: {e}")
+            logger.info(f"GraphQL parse error in {file_path}: {e}")
             raise
 
         schema_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -99,16 +101,14 @@ class GraphQLExtractor(BaseExtractor):
         }
 
         if os.environ.get("THEAUDITOR_DEBUG") == "1":
-            import sys
-
-            print(f"[DEBUG] GraphQL Extractor Output for {file_path}:", file=sys.stderr)
-            print(f"  Schemas: {len(graphql_schemas)}", file=sys.stderr)
-            print(f"  Types: {len(graphql_types)}", file=sys.stderr)
-            print(f"  Fields: {len(graphql_fields)}", file=sys.stderr)
-            print(f"  Args: {len(graphql_field_args)}", file=sys.stderr)
+            logger.debug(f"GraphQL Extractor Output for {file_path}:")
+            logger.error(f"  Schemas: {len(graphql_schemas)}")
+            logger.error(f"  Types: {len(graphql_types)}")
+            logger.error(f"  Fields: {len(graphql_fields)}")
+            logger.error(f"  Args: {len(graphql_field_args)}")
             if graphql_types:
-                print(f"  First type keys: {list(graphql_types[0].keys())}", file=sys.stderr)
-                print(f"  First type data: {graphql_types[0]}", file=sys.stderr)
+                logger.error(f"  First type keys: {list(graphql_types[0].keys())}")
+                logger.error(f"  First type data: {graphql_types[0]}")
 
         return result
 

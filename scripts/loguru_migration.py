@@ -1,4 +1,7 @@
-"""LibCST codemod: Migrate print('[TAG]...') statements to Loguru logger calls.
+"""LibCST codemod: Migrate ALL print() statements to Loguru logger calls.
+
+TRAINING WHEELS OFF: This script now converts ALL print() statements, not just
+tagged ones. Untagged prints default to logger.info().
 
 This script automates the migration of TheAuditor's logging infrastructure from
 scattered print() statements to centralized Loguru logging.
@@ -82,6 +85,7 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         "[RESOLVER_DEBUG]": "debug",
         "[INDEXER_DEBUG]": "debug",
         "[AST_DEBUG]": "debug",
+        "[DEBUG JS STDERR]": "debug",
         "[DEBUG]": "debug",
         "[TRACE]": "trace",
         "[DEDUP]": "debug",
@@ -89,6 +93,22 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         "[NORMALIZE]": "debug",
         "[IFDS]": "debug",
         "[CORE]": "debug",
+        # Resolution/extraction debug tags
+        "[MOUNT RESOLUTION]": "debug",
+        "[IMPORT RESOLUTION]": "debug",
+        "[HANDLER FILE RESOLUTION]": "debug",
+        "[PARAM RESOLUTION]": "debug",
+        "[PYTHON_IMPL ENTRY]": "debug",
+        "[PYTHON.PY ENTRY]": "debug",
+        "[PhaseResult]": "debug",
+        "[ToolCall]": "debug",
+        "[Track A]": "debug",
+        "[Track B]": "debug",
+        # Component debug tags
+        "[DEBUG EXTRACTOR]": "debug",
+        "[DEBUG INDEXER]": "debug",
+        "[DEBUG ORCHESTRATOR]": "debug",
+        "[DEBUG STORAGE]": "debug",
         # Info-level tags (operational messages)
         "[ORCHESTRATOR]": "info",
         "[METADATA]": "info",
@@ -104,6 +124,17 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         "[TIP]": "info",
         "[DB]": "info",
         "[ML]": "info",
+        # Builder/Strategy info tags
+        "[Graph Builder]": "info",
+        "[DFG Builder]": "info",
+        "[PythonOrmStrategy]": "info",
+        "[NodeExpressStrategy]": "info",
+        "[GoOrmStrategy]": "info",
+        "[CDK-INDEX]": "info",
+        "[CDK-DB]": "info",
+        "[TEST/FIXTURE]": "info",
+        "[Phase 1/2]": "info",
+        "[Phase 2/2]": "info",
         # Warning-level tags
         "[WARNING]": "warning",
         "[WARN]": "warning",
@@ -349,9 +380,8 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         elif has_stderr:
             # AUDIT FIX 2: No tag, but printing to stderr -> ERROR level
             level = "error"
-        else:
-            # No tag found, no force, no stderr -> Don't transform
-            return None
+        # TRAINING WHEELS OFF: Untagged prints default to logger.info()
+        # No more skipping - every print() gets converted
 
         # ---------------------------------------------------------------------
         # AUDIT FIX 3: Extract 'sep' argument for format string

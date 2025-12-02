@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 import yaml
 
+from theauditor.pipeline.ui import console
 from theauditor.utils import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -114,11 +115,8 @@ def rules_command(summary: bool) -> None:
     It only generates a capability inventory from pattern definitions.
     """
     if not summary:
-        click.echo(
-            click.style(
-                "[ERROR] Please specify --summary to generate a capability report", fg="red"
-            ),
-            err=True,
+        console.print(
+            "[error]Please specify --summary to generate a capability report[/error]", stderr=True
         )
         raise SystemExit(ExitCodes.TASK_INCOMPLETE)
 
@@ -133,9 +131,9 @@ def rules_command(summary: bool) -> None:
     output_lines = []
     output_lines.append("# TheAuditor Detection Capabilities\n")
 
-    print("# TheAuditor Detection Capabilities\n")
+    console.print("# TheAuditor Detection Capabilities\n")
 
-    print("## YAML Patterns\n")
+    console.print("## YAML Patterns\n")
     output_lines.append("## YAML Patterns\n")
     yaml_patterns = scan_yaml_patterns(patterns_path)
     total_patterns = 0
@@ -143,20 +141,20 @@ def rules_command(summary: bool) -> None:
     for category, files in yaml_patterns.items():
         if files:
             category_display = "patterns/" if category == "." else f"patterns/{category}/"
-            print(f"### {category_display}\n")
+            console.print(f"### {category_display}\n", highlight=False)
             output_lines.append(f"### {category_display}\n")
             for file_name, patterns in files.items():
                 if patterns:
-                    print(f"**{file_name}** ({len(patterns)} patterns)")
+                    console.print(f"**{file_name}** ({len(patterns)} patterns)", highlight=False)
                     output_lines.append(f"**{file_name}** ({len(patterns)} patterns)")
                     for pattern in patterns:
-                        print(f"- `{pattern}`")
+                        console.print(f"- `{pattern}`", highlight=False)
                         output_lines.append(f"- `{pattern}`")
-                    print()
+                    console.print()
                     output_lines.append("")
                     total_patterns += len(patterns)
 
-    print("## Python AST Rules\n")
+    console.print("## Python AST Rules\n")
     output_lines.append("## Python AST Rules\n")
     python_rules = scan_python_rules(rules_path)
     total_rules = 0
@@ -164,29 +162,31 @@ def rules_command(summary: bool) -> None:
     for module_path, functions in python_rules.items():
         if functions:
             display_path = module_path.replace(str(rules_path) + os.sep, "")
-            print(f"### {display_path}")
+            console.print(f"### {display_path}", highlight=False)
             output_lines.append(f"### {display_path}")
             for func in functions:
-                print(f"- `{func}()`")
+                console.print(f"- `{func}()`", highlight=False)
                 output_lines.append(f"- `{func}()`")
-            print()
+            console.print()
             output_lines.append("")
             total_rules += len(functions)
 
-    print("## Summary Statistics\n")
+    console.print("## Summary Statistics\n")
     output_lines.append("## Summary Statistics\n")
-    print(f"- **Total YAML Patterns**: {total_patterns}")
+    console.print(f"- **Total YAML Patterns**: {total_patterns}", highlight=False)
     output_lines.append(f"- **Total YAML Patterns**: {total_patterns}")
-    print(f"- **Total Python Rules**: {total_rules}")
+    console.print(f"- **Total Python Rules**: {total_rules}", highlight=False)
     output_lines.append(f"- **Total Python Rules**: {total_rules}")
-    print(f"- **Combined Detection Capabilities**: {total_patterns + total_rules}")
+    console.print(
+        f"- **Combined Detection Capabilities**: {total_patterns + total_rules}", highlight=False
+    )
     output_lines.append(f"- **Combined Detection Capabilities**: {total_patterns + total_rules}")
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(output_lines))
 
-    click.echo(click.style("\n[SUCCESS] Capability report generated successfully", fg="green"))
-    click.echo(f"[INFO] Report saved to: {output_file}")
+    console.print("\n[success]Capability report generated successfully[/success]")
+    console.print(f"[info]Report saved to: {output_file}[/info]")
     raise SystemExit(ExitCodes.SUCCESS)
 
 

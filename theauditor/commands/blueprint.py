@@ -11,6 +11,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
@@ -124,8 +125,8 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
     graphs_db = pf_dir / "graphs.db"
 
     if not pf_dir.exists() or not repo_db.exists():
-        click.echo("\nERROR: No indexed database found", err=True)
-        click.echo("Run: aud full", err=True)
+        console.print("[error]\nERROR: No indexed database found[/error]", stderr=True)
+        console.print("[error]Run: aud full[/error]", stderr=True)
         raise click.Abort()
 
     conn = sqlite3.connect(repo_db)
@@ -153,7 +154,7 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         data = _gather_all_data(cursor, graphs_db, flags)
 
         if all:
-            click.echo(json.dumps(data, indent=2))
+            console.print(json.dumps(data, indent=2), markup=False)
             return
 
         if structure:
@@ -178,7 +179,7 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
                     "import_graph": data["import_graph"],
                     "performance": data["performance"],
                 }
-                click.echo(json.dumps(summary, indent=2))
+                console.print(json.dumps(summary, indent=2), markup=False)
             else:
                 _show_top_level_overview(data)
 
@@ -680,7 +681,7 @@ def _show_top_level_overview(data: dict):
     lines = []
 
     lines.append("")
-    lines.append("🏗️  TheAuditor Code Blueprint")
+    lines.append("TheAuditor Code Blueprint")
     lines.append("")
     lines.append("━" * 80)
     lines.append("ARCHITECTURAL ANALYSIS (100% Accurate, 0% Inference)")
@@ -688,7 +689,7 @@ def _show_top_level_overview(data: dict):
     lines.append("")
 
     struct = data["structure"]
-    lines.append("📊 Codebase Structure:")
+    lines.append("[STRUCTURE] Codebase Structure:")
 
     by_dir = struct["by_directory"]
     if "backend" in by_dir and "frontend" in by_dir:
@@ -717,7 +718,7 @@ def _show_top_level_overview(data: dict):
 
     hot = data["hot_files"][:5]
     if hot:
-        lines.append("🔥 Hot Files (by call count):")
+        lines.append("[HOT] Hot Files (by call count):")
         for i, hf in enumerate(hot, 1):
             lines.append(f"  {i}. {hf['file']}")
             lines.append(
@@ -726,7 +727,7 @@ def _show_top_level_overview(data: dict):
         lines.append("")
 
     sec = data["security_surface"]
-    lines.append("🔒 Security Surface:")
+    lines.append("[SECURITY] Security Surface:")
     lines.append(
         f"  ├─ JWT Usage: {sec['jwt']['sign']} sign operations, {sec['jwt']['verify']} verify operations"
     )
@@ -742,7 +743,7 @@ def _show_top_level_overview(data: dict):
 
     df = data["data_flow"]
     if df["taint_paths"] > 0 or df["taint_sources"] > 0:
-        lines.append("🌊 Data Flow (Junction Table Analysis):")
+        lines.append("[DATAFLOW] Data Flow (Junction Table Analysis):")
         lines.append(f"  ├─ Taint Sources: {df['taint_sources']:,} (unique variables)")
         lines.append(
             f"  ├─ Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)"
@@ -752,14 +753,14 @@ def _show_top_level_overview(data: dict):
 
     if data["import_graph"]:
         imp = data["import_graph"]
-        lines.append("📦 Import Graph:")
+        lines.append("[IMPORTS] Import Graph:")
         lines.append(f"  ├─ Total imports: {imp['total']:,}")
         lines.append(f"  ├─ External deps: {imp['external']:,}")
         lines.append(f"  └─ Internal imports: {imp['internal']:,}")
         lines.append("")
 
     perf = data["performance"]
-    lines.append("⚡ Analysis Metrics:")
+    lines.append("[METRICS] Analysis Metrics:")
     lines.append(f"  ├─ Files indexed: {perf['files_indexed']:,}")
     lines.append(f"  ├─ Symbols extracted: {perf['symbols_extracted']:,}")
     lines.append(f"  ├─ Database size: {perf['db_size_mb']} MB")
@@ -772,7 +773,7 @@ def _show_top_level_overview(data: dict):
     lines.append("━" * 80)
     lines.append("")
 
-    click.echo("\n".join(lines))
+    console.print("\n".join(lines), markup=False)
 
 
 def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
@@ -784,39 +785,40 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     """
     struct = data["structure"]
 
-    click.echo("\n🏗️  STRUCTURE DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo("Scope Understanding: What's the scope? Where are boundaries? What's orphaned?")
-    click.echo("=" * 80)
+    console.print("\n️  STRUCTURE DRILL-DOWN")
+    console.rule()
+    console.print("Scope Understanding: What's the scope? Where are boundaries? What's orphaned?")
+    console.rule()
 
-    click.echo("\nMonorepo Detection:")
+    console.print("\nMonorepo Detection:")
     by_dir = struct["by_directory"]
     has_backend = any("backend" in d for d in by_dir)
     has_frontend = any("frontend" in d for d in by_dir)
     has_packages = any("packages" in d for d in by_dir)
 
     if has_backend or has_frontend or has_packages:
-        click.echo(
-            f"  ✓ Detected: {'backend/' if has_backend else ''}{'frontend/' if has_frontend else ''}{'packages/' if has_packages else ''} split"
+        console.print(
+            f"  \\[OK] Detected: {'backend/' if has_backend else ''}{'frontend/' if has_frontend else ''}{'packages/' if has_packages else ''} split",
+            highlight=False,
         )
         if has_backend:
             backend_files = sum(
                 count for dir_name, count in by_dir.items() if "backend" in dir_name
             )
-            click.echo(f"  Backend: {backend_files} files")
+            console.print(f"  Backend: {backend_files} files", highlight=False)
         if has_frontend:
             frontend_files = sum(
                 count for dir_name, count in by_dir.items() if "frontend" in dir_name
             )
-            click.echo(f"  Frontend: {frontend_files} files")
+            console.print(f"  Frontend: {frontend_files} files", highlight=False)
     else:
-        click.echo("  ✗ No monorepo structure detected (single-directory project)")
+        console.print("  \\[X] No monorepo structure detected (single-directory project)")
 
-    click.echo("\nFiles by Directory:")
+    console.print("\nFiles by Directory:")
     for dir_name, count in sorted(struct["by_directory"].items(), key=lambda x: -x[1])[:15]:
-        click.echo(f"  {dir_name:50s} {count:6,} files")
+        console.print(f"  {dir_name:50s} {count:6,} files", highlight=False)
 
-    click.echo("\nFiles by Language:")
+    console.print("\nFiles by Language:")
     lang_map = {
         ".ts": "TypeScript",
         ".js": "JavaScript",
@@ -826,16 +828,16 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     }
     for ext, count in sorted(struct["by_language"].items(), key=lambda x: -x[1]):
         lang = lang_map.get(ext, ext)
-        click.echo(f"  {lang:50s} {count:6,} files")
+        console.print(f"  {lang:50s} {count:6,} files", highlight=False)
 
     if struct["by_type"]:
-        click.echo("\nSymbols by Type:")
+        console.print("\nSymbols by Type:")
         for sym_type, count in sorted(struct["by_type"].items(), key=lambda x: -x[1]):
-            click.echo(f"  {sym_type:50s} {count:6,} symbols")
+            console.print(f"  {sym_type:50s} {count:6,} symbols", highlight=False)
 
     naming = data.get("naming_conventions", {})
     if naming:
-        click.echo("\nCode Style Analysis (Naming Conventions):")
+        console.print("\nCode Style Analysis (Naming Conventions):")
 
         for lang in ["python", "javascript", "typescript"]:
             lang_data = naming.get(lang, {})
@@ -843,7 +845,7 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
                 continue
 
             lang_name = lang.capitalize()
-            click.echo(f"\n  {lang_name}:")
+            console.print(f"\n  {lang_name}:", highlight=False)
 
             for symbol_type in ["functions", "classes"]:
                 patterns = lang_data.get(symbol_type, {})
@@ -852,14 +854,17 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
 
                 dominant = patterns["dominant"]
                 consistency = patterns["consistency"]
-                click.echo(
-                    f"    {symbol_type.capitalize()}: {dominant} ({consistency}% consistency)"
+                console.print(
+                    f"    {symbol_type.capitalize()}: {dominant} ({consistency}% consistency)",
+                    highlight=False,
                 )
 
     precedents = data.get("architectural_precedents", [])
     if precedents:
-        click.echo("\nArchitectural Precedents (Plugin Loader Patterns):")
-        click.echo("  (Files importing 3+ modules from same directory - architectural conventions)")
+        console.print("\nArchitectural Precedents (Plugin Loader Patterns):")
+        console.print(
+            "  (Files importing 3+ modules from same directory - architectural conventions)"
+        )
 
         for prec in precedents[:15]:
             consumer = prec["consumer"]
@@ -867,22 +872,22 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
             count = prec["count"]
             imports = prec["imports"]
 
-            click.echo(f"\n  {consumer}")
-            click.echo(f"    -> {directory}/ ({count} modules)")
+            console.print(f"\n  {consumer}", highlight=False)
+            console.print(f"    -> {directory}/ ({count} modules)", highlight=False)
 
             for imp in imports[:5]:
                 display = Path(imp).name if "/" in imp else imp
-                click.echo(f"       - {display}")
+                console.print(f"       - {display}", highlight=False)
 
             if count > 5:
-                click.echo(f"       ... and {count - 5} more")
+                console.print(f"       ... and {count - 5} more", highlight=False)
 
         if len(precedents) > 15:
-            click.echo(f"\n  ... and {len(precedents) - 15} more patterns")
+            console.print(f"\n  ... and {len(precedents) - 15} more patterns", highlight=False)
 
-        click.echo(f"\n  Total patterns found: {len(precedents)}")
+        console.print(f"\n  Total patterns found: {len(precedents)}", highlight=False)
     else:
-        click.echo("\nArchitectural Precedents: None detected")
+        console.print("\nArchitectural Precedents: None detected")
 
     try:
         cursor.execute("""
@@ -894,14 +899,14 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         frameworks = cursor.fetchall()
 
         if frameworks:
-            click.echo("\nFramework Detection:")
+            console.print("\nFramework Detection:")
             for lang, fw, ver, count in frameworks:
                 version_str = f"v{ver}" if ver else "(version unknown)"
-                click.echo(f"  {fw} {version_str} ({lang}) - {count} file(s)")
+                console.print(f"  {fw} {version_str} ({lang}) - {count} file(s)", highlight=False)
         else:
-            click.echo("\nFramework Detection: None detected")
+            console.print("\nFramework Detection: None detected")
     except sqlite3.OperationalError:
-        click.echo("\nFramework Detection: (Table not found - run 'aud full')")
+        console.print("\nFramework Detection: (Table not found - run 'aud full')")
 
     try:
         cursor.execute("""
@@ -914,111 +919,123 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
         refactor_history = cursor.fetchall()
 
         if refactor_history:
-            click.echo("\nRefactor History (Recent Checks):")
+            console.print("\nRefactor History (Recent Checks):")
             for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
                 date = ts.split("T")[0] if "T" in ts else ts
                 consistent = "consistent" if schema_ok == 1 else "inconsistent"
                 complete = "complete" if mig_complete == 1 else "incomplete"
-                click.echo(f"  {date}: {target}")
-                click.echo(
-                    f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})"
+                console.print(f"  {date}: {target}", highlight=False)
+                console.print(
+                    f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})",
+                    highlight=False,
                 )
-                click.echo(f"    Schema: {consistent}")
+                console.print(f"    Schema: {consistent}", highlight=False)
         else:
-            click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
+            console.print("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
     except sqlite3.OperationalError:
-        click.echo("\nRefactor History: (Table not found - run 'aud full')")
+        console.print("\nRefactor History: (Table not found - run 'aud full')")
 
-    click.echo("\nToken Estimates (for context planning):")
+    console.print("\nToken Estimates (for context planning):")
     total_files = struct["total_files"]
 
     estimated_tokens = total_files * 400
-    click.echo(f"  Total files: {total_files:,}")
-    click.echo(f"  Estimated tokens: ~{estimated_tokens:,} tokens")
+    console.print(f"  Total files: {total_files:,}", highlight=False)
+    console.print(f"  Estimated tokens: ~{estimated_tokens:,} tokens", highlight=False)
     if estimated_tokens > 100000:
-        click.echo("  ⚠ Exceeds single LLM context window")
-        click.echo("  → Use 'aud query' for targeted analysis instead of reading all files")
+        console.print("  [warning]Exceeds single LLM context window[/warning]")
+        console.print("  -> Use 'aud query' for targeted analysis instead of reading all files")
 
-    click.echo("\nMigration Paths Detected:")
+    console.print("\nMigration Paths Detected:")
     migration_paths = [d for d in by_dir if "migration" in d.lower()]
     legacy_paths = [d for d in by_dir if "legacy" in d.lower() or "deprecated" in d.lower()]
 
     if migration_paths:
         for path in migration_paths:
-            click.echo(f"  ⚠ {path}/ ({by_dir[path]} files)")
+            console.print(f"  \\[WARN] {path}/ ({by_dir[path]} files)", highlight=False)
     if legacy_paths:
         for path in legacy_paths:
-            click.echo(f"  ⚠ {path}/ ({by_dir[path]} files marked DEPRECATED)")
+            console.print(
+                f"  \\[WARN] {path}/ ({by_dir[path]} files marked DEPRECATED)", highlight=False
+            )
     if not migration_paths and not legacy_paths:
-        click.echo("  ✓ No migration or legacy paths detected")
+        console.print("  [success]No migration or legacy paths detected[/success]")
 
-    click.echo("\nCross-Reference Commands:")
-    click.echo("  → Use 'aud structure' for full markdown report with LOC details")
-    click.echo("  → Use 'aud query --file <path> --show-dependents' for impact analysis")
-    click.echo("  → Use 'aud graph viz' for visual dependency map")
+    console.print("\nCross-Reference Commands:")
+    console.print("  -> Use 'aud structure' for full markdown report with LOC details")
+    console.print("  -> Use 'aud query --file <path> --show-dependents' for impact analysis")
+    console.print("  -> Use 'aud graph viz' for visual dependency map")
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
 
 
 def _show_graph_drilldown(data: dict):
     """Drill down: SURGICAL dependency mapping - what depends on what."""
-    click.echo("\n📊 GRAPH DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo(
+    console.print("\n GRAPH DRILL-DOWN")
+    console.rule()
+    console.print(
         "Dependency Mapping: What depends on what? Where are bottlenecks? What breaks if I change X?"
     )
-    click.echo("=" * 80)
+    console.rule()
 
     if data["import_graph"]:
         imp = data["import_graph"]
-        click.echo("\nImport Graph Summary:")
-        click.echo(f"  Total imports: {imp['total']:,}")
-        click.echo(f"  External dependencies: {imp['external']:,}")
-        click.echo(f"  Internal imports: {imp['internal']:,}")
-        click.echo(f"  Circular dependencies: {imp['circular']} cycles detected")
+        console.print("\nImport Graph Summary:")
+        console.print(f"  Total imports: {imp['total']:,}", highlight=False)
+        console.print(f"  External dependencies: {imp['external']:,}", highlight=False)
+        console.print(f"  Internal imports: {imp['internal']:,}", highlight=False)
+        console.print(
+            f"  Circular dependencies: {imp['circular']} cycles detected", highlight=False
+        )
     else:
-        click.echo("\n⚠ No graph data available")
-        click.echo("  Run: aud graph build")
-        click.echo("\n" + "=" * 80 + "\n")
+        console.print("\n[warning]No graph data available[/warning]")
+        console.print("  Run: aud graph build")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
-    click.echo("\nGateway Files (high betweenness centrality):")
-    click.echo("  These are bottlenecks - changing them breaks many dependents")
+    console.print("\nGateway Files (high betweenness centrality):")
+    console.print("  These are bottlenecks - changing them breaks many dependents")
     hot = data["hot_files"]
     if hot:
         for i, hf in enumerate(hot[:10], 1):
-            click.echo(f"\n  {i}. {hf['file']}")
-            click.echo(f"     Symbol: {hf['symbol']}")
-            click.echo(
-                f"     Called by: {hf['caller_count']} files | Total calls: {hf['total_calls']}"
+            console.print(f"\n  {i}. {hf['file']}", highlight=False)
+            console.print(f"     Symbol: {hf['symbol']}", highlight=False)
+            console.print(
+                f"     Called by: {hf['caller_count']} files | Total calls: {hf['total_calls']}",
+                highlight=False,
             )
             if hf["caller_count"] > 20:
-                click.echo(f"     ⚠ HIGH IMPACT - changes affect {hf['caller_count']} files")
-                click.echo(
-                    f"     → Use 'aud query --symbol {hf['symbol']} --show-callers' for full list"
+                console.print(
+                    f"     \\[WARN] HIGH IMPACT - changes affect {hf['caller_count']} files",
+                    highlight=False,
+                )
+                console.print(
+                    f"     -> Use 'aud query --symbol {hf['symbol']} --show-callers' for full list",
+                    highlight=False,
                 )
     else:
-        click.echo("  ✓ No high-centrality files detected (good - decoupled architecture)")
+        console.print(
+            "  [success]No high-centrality files detected (good - decoupled architecture)[/success]"
+        )
 
-    click.echo("\nCircular Dependencies:")
+    console.print("\nCircular Dependencies:")
     if imp["circular"] > 0:
-        click.echo(f"  ⚠ {imp['circular']} cycles detected")
-        click.echo("  → Use 'aud graph analyze' for cycle detection")
-        click.echo("  → Use 'aud graph viz --view cycles' for visual diagram")
+        console.print(f"  \\[WARN] {imp['circular']} cycles detected", highlight=False)
+        console.print("  -> Use 'aud graph analyze' for cycle detection")
+        console.print("  -> Use 'aud graph viz --view cycles' for visual diagram")
     else:
-        click.echo("  ✓ No circular dependencies detected (clean architecture)")
+        console.print("  [success]No circular dependencies detected (clean architecture)[/success]")
 
-    click.echo("\nExternal Dependencies:")
-    click.echo(f"  Total: {imp['external']:,} external imports")
-    click.echo("  → Use 'aud deps --check-latest' for version analysis")
-    click.echo("  → Use 'aud deps --vuln-scan' for security vulnerabilities")
+    console.print("\nExternal Dependencies:")
+    console.print(f"  Total: {imp['external']:,} external imports", highlight=False)
+    console.print("  -> Use 'aud deps --check-latest' for version analysis")
+    console.print("  -> Use 'aud deps --vuln-scan' for security vulnerabilities")
 
-    click.echo("\nCross-Reference Commands:")
-    click.echo("  → Use 'aud query --file <path> --show-dependents' to see impact radius")
-    click.echo("  → Use 'aud graph viz --view full' for complete dependency graph")
-    click.echo("  → Use 'aud graph analyze' for health metrics and cycle detection")
+    console.print("\nCross-Reference Commands:")
+    console.print("  -> Use 'aud query --file <path> --show-dependents' to see impact radius")
+    console.print("  -> Use 'aud graph viz --view full' for complete dependency graph")
+    console.print("  -> Use 'aud graph analyze' for health metrics and cycle detection")
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
 
 
 def _show_security_drilldown(data: dict, cursor):
@@ -1030,27 +1047,31 @@ def _show_security_drilldown(data: dict, cursor):
     """
     sec = data["security_surface"]
 
-    click.echo("\n🔒 SECURITY DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo(
+    console.print("\n SECURITY DRILL-DOWN")
+    console.rule()
+    console.print(
         "Attack Surface Mapping: What's the attack surface? What's protected? What needs fixing?"
     )
-    click.echo("=" * 80)
+    console.rule()
 
-    click.echo(f"\nAPI Endpoint Security Coverage ({sec['api_endpoints']['total']} endpoints):")
+    console.print(
+        f"\nAPI Endpoint Security Coverage ({sec['api_endpoints']['total']} endpoints):",
+        highlight=False,
+    )
     total_endpoints = sec["api_endpoints"]["total"]
     protected = sec["api_endpoints"]["protected"]
     unprotected = sec["api_endpoints"]["unprotected"]
 
     if total_endpoints > 0:
         protected_pct = int((protected / total_endpoints) * 100)
-        click.echo(f"  Protected: {protected} ({protected_pct}%)")
-        click.echo(
-            f"  Unprotected: {unprotected} ({100 - protected_pct}%) {'← SECURITY RISK' if unprotected > 0 else ''}"
+        console.print(f"  Protected: {protected} ({protected_pct}%)", highlight=False)
+        console.print(
+            f"  Unprotected: {unprotected} ({100 - protected_pct}%) {'← SECURITY RISK' if unprotected > 0 else ''}",
+            highlight=False,
         )
 
     if unprotected > 0:
-        click.echo("\n  Unprotected Endpoints (showing first 10):")
+        console.print("\n  Unprotected Endpoints (showing first 10):")
         cursor.execute("""
             SELECT ae.method, ae.path, ae.file, ae.line, ae.handler_function
             FROM api_endpoints ae
@@ -1066,75 +1087,87 @@ def _show_security_drilldown(data: dict, cursor):
             file = row["file"]
             line = row["line"]
             handler = row["handler_function"] or "(unknown)"
-            click.echo(f"    {i}. {method:7s} {path:40s} ({file}:{line})")
-            click.echo(f"       Handler: {handler}")
+            console.print(f"    {i}. {method:7s} {path:40s} ({file}:{line})", highlight=False)
+            console.print(f"       Handler: {handler}", highlight=False)
 
         if unprotected > 10:
-            click.echo(f"    ... {unprotected - 10} more unprotected endpoints")
-            click.echo("    -> Use 'aud query --show-api-coverage | grep \"[OPEN]\"' for full list")
+            console.print(f"    ... {unprotected - 10} more unprotected endpoints", highlight=False)
+            console.print(
+                "    -> Use 'aud query --show-api-coverage | grep \"\\[OPEN]\"' for full list"
+            )
 
-    click.echo("\nAuthentication Patterns Detected:")
+    console.print("\nAuthentication Patterns Detected:")
     jwt_total = sec["jwt"]["sign"] + sec["jwt"]["verify"]
     oauth_total = sec["oauth"]
 
-    click.echo(f"\n  JWT: {jwt_total} usages")
-    click.echo(f"    ├─ jwt.sign: {sec['jwt']['sign']} locations (token generation)")
-    click.echo(f"    └─ jwt.verify/decode: {sec['jwt']['verify']} locations (token validation)")
+    console.print(f"\n  JWT: {jwt_total} usages", highlight=False)
+    console.print(
+        f"    ├─ jwt.sign: {sec['jwt']['sign']} locations (token generation)", highlight=False
+    )
+    console.print(
+        f"    └─ jwt.verify/decode: {sec['jwt']['verify']} locations (token validation)",
+        highlight=False,
+    )
 
-    click.echo(f"\n  OAuth: {oauth_total} usages")
+    console.print(f"\n  OAuth: {oauth_total} usages", highlight=False)
 
-    click.echo(f"\n  Password Handling: {sec['password']} operations")
+    console.print(f"\n  Password Handling: {sec['password']} operations", highlight=False)
 
     if jwt_total > 0 and oauth_total > 0:
-        click.echo("\n  ⚠ MIGRATION IN PROGRESS?")
-        click.echo("    Both JWT and OAuth detected - possible auth migration")
-        click.echo("    → Use 'aud context --file auth_migration.yaml' to track progress")
+        console.print("\n  [warning]MIGRATION IN PROGRESS?[/warning]")
+        console.print("    Both JWT and OAuth detected - possible auth migration")
+        console.print("    -> Use 'aud context --file auth_migration.yaml' to track progress")
 
-    click.echo("\nHardcoded Secrets:")
+    console.print("\nHardcoded Secrets:")
     cursor.execute(
         "SELECT COUNT(*) FROM findings_consolidated WHERE rule LIKE '%secret%' OR rule LIKE '%hardcoded%'"
     )
     secret_count = cursor.fetchone()[0]
     if secret_count > 0:
-        click.echo(f"  (!) {secret_count} potential hardcoded secrets detected")
-        click.echo("  -> Use 'aud query --symbol <func> --show-code' for details")
+        console.print(f"  (!) {secret_count} potential hardcoded secrets detected", highlight=False)
+        console.print("  -> Use 'aud query --symbol <func> --show-code' for details")
     else:
-        click.echo("  [OK] No hardcoded secrets detected")
+        console.print("  [success]No hardcoded secrets detected[/success]")
 
-    click.echo("\nSQL Injection Risk:")
+    console.print("\nSQL Injection Risk:")
     sql_total = sec["sql_queries"]["total"]
     sql_raw = sec["sql_queries"]["raw"]
 
     if sql_total > 0:
         raw_pct = int((sql_raw / sql_total) * 100) if sql_total > 0 else 0
-        click.echo(f"  Total queries: {sql_total}")
-        click.echo(
-            f"  Raw/dynamic queries: {sql_raw} ({raw_pct}%) {'← Potential SQLi' if sql_raw > 0 else ''}"
+        console.print(f"  Total queries: {sql_total}", highlight=False)
+        console.print(
+            f"  Raw/dynamic queries: {sql_raw} ({raw_pct}%) {'← Potential SQLi' if sql_raw > 0 else ''}",
+            highlight=False,
         )
-        click.echo(f"  Parameterized queries: {sql_total - sql_raw} ({100 - raw_pct}%)")
+        console.print(
+            f"  Parameterized queries: {sql_total - sql_raw} ({100 - raw_pct}%)", highlight=False
+        )
 
         if sql_raw > 0:
-            click.echo(f"\n  ⚠ High Risk: {sql_raw} dynamic SQL queries detected")
-            click.echo("  → Use 'aud query --category sql --format json' for full analysis")
+            console.print(
+                f"\n  \\[WARN] High Risk: {sql_raw} dynamic SQL queries detected", highlight=False
+            )
+            console.print("  -> Use 'aud query --category sql --format json' for full analysis")
     else:
-        click.echo("  ✓ No SQL queries detected (or using ORM)")
+        console.print("  [success]No SQL queries detected (or using ORM)[/success]")
 
     cursor.execute("SELECT COUNT(*) FROM api_endpoints WHERE method = 'POST'")
     post_count = cursor.fetchone()[0]
     if post_count > 0:
-        click.echo("\nCSRF Protection:")
-        click.echo(f"  POST endpoints: {post_count}")
-        click.echo("  -> Manual review required for CSRF token validation")
+        console.print("\nCSRF Protection:")
+        console.print(f"  POST endpoints: {post_count}", highlight=False)
+        console.print("  -> Manual review required for CSRF token validation")
 
-    click.echo("\nCross-Reference Commands:")
-    click.echo("  → Use 'aud query --show-api-coverage' for full endpoint security matrix")
-    click.echo("  → Use 'aud taint-analyze' for data flow security analysis")
-    click.echo("  → Use 'aud deps --vuln-scan' for dependency CVEs (OSV-Scanner)")
-    click.echo(
-        "  → Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage"
+    console.print("\nCross-Reference Commands:")
+    console.print("  -> Use 'aud query --show-api-coverage' for full endpoint security matrix")
+    console.print("  -> Use 'aud taint-analyze' for data flow security analysis")
+    console.print("  -> Use 'aud deps --vuln-scan' for dependency CVEs (OSV-Scanner)")
+    console.print(
+        "  -> Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage"
     )
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
 
 
 def _show_taint_drilldown(data: dict, cursor):
@@ -1146,18 +1179,20 @@ def _show_taint_drilldown(data: dict, cursor):
     """
     df = data["data_flow"]
 
-    click.echo("\n🌊 TAINT DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo("Data Flow Mapping: Where does user data flow? What's sanitized? What's vulnerable?")
-    click.echo("=" * 80)
+    console.print("\n TAINT DRILL-DOWN")
+    console.rule()
+    console.print(
+        "Data Flow Mapping: Where does user data flow? What's sanitized? What's vulnerable?"
+    )
+    console.rule()
 
     if df["taint_paths"] == 0:
-        click.echo("\n⚠ No taint analysis data available")
-        click.echo("  Run: aud taint-analyze")
-        click.echo("\n" + "=" * 80 + "\n")
+        console.print("\n[warning]No taint analysis data available[/warning]")
+        console.print("  Run: aud taint-analyze")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
-    click.echo("\nTop Taint Sources (user-controlled data):")
+    console.print("\nTop Taint Sources (user-controlled data):")
     cursor.execute("""
         SELECT source_var_name, COUNT(*) as usage_count
         FROM assignment_sources
@@ -1171,14 +1206,19 @@ def _show_taint_drilldown(data: dict, cursor):
     sources = cursor.fetchall()
     if sources:
         for i, row in enumerate(sources, 1):
-            click.echo(f"  {i}. {row['source_var_name']} ({row['usage_count']} locations)")
+            console.print(
+                f"  {i}. {row['source_var_name']} ({row['usage_count']} locations)", highlight=False
+            )
     else:
-        click.echo("  (No common taint sources detected in junction tables)")
+        console.print("  (No common taint sources detected in junction tables)")
 
-    click.echo(f"\nTaint Paths Detected: {df['taint_paths']}")
-    click.echo(f"Cross-Function Flows: {df['cross_function_flows']:,} (via return→assignment)")
+    console.print(f"\nTaint Paths Detected: {df['taint_paths']}", highlight=False)
+    console.print(
+        f"Cross-Function Flows: {df['cross_function_flows']:,} (via return->assignment)",
+        highlight=False,
+    )
 
-    click.echo("\nVulnerable Data Flows (showing first 5):")
+    console.print("\nVulnerable Data Flows (showing first 5):")
     cursor.execute("""
         SELECT rule, category, file, line, message, severity
         FROM findings_consolidated
@@ -1205,17 +1245,17 @@ def _show_taint_drilldown(data: dict, cursor):
             if len(message) > 80:
                 message = message[:77] + "..."
 
-            click.echo(f"\n  {i}. [{severity.upper()}] {category}")
-            click.echo(f"     Location: {file}:{line}")
-            click.echo(f"     Issue: {message}")
+            console.print(f"\n  {i}. \\[{severity.upper()}] {category}", highlight=False)
+            console.print(f"     Location: {file}:{line}", highlight=False)
+            console.print(f"     Issue: {message}", highlight=False)
 
         if df["taint_paths"] > 5:
-            click.echo(f"\n  ... {df['taint_paths'] - 5} more taint paths")
-            click.echo("  -> Use 'aud taint-analyze --json' for full vulnerability details")
+            console.print(f"\n  ... {df['taint_paths'] - 5} more taint paths", highlight=False)
+            console.print("  -> Use 'aud taint-analyze --json' for full vulnerability details")
     else:
-        click.echo("  (No taint findings in findings_consolidated table)")
+        console.print("  (No taint findings in findings_consolidated table)")
 
-    click.echo("\nSanitization Coverage:")
+    console.print("\nSanitization Coverage:")
     cursor.execute("""
         SELECT COUNT(*) as sanitizer_count
         FROM function_call_args
@@ -1227,16 +1267,18 @@ def _show_taint_drilldown(data: dict, cursor):
     sanitizer_count = cursor.fetchone()["sanitizer_count"]
 
     if sanitizer_count > 0:
-        click.echo(f"  Sanitization functions called: {sanitizer_count} times")
-        click.echo(f"  -> Compare with {df['taint_paths']} taint paths")
+        console.print(f"  Sanitization functions called: {sanitizer_count} times", highlight=False)
+        console.print(f"  -> Compare with {df['taint_paths']} taint paths", highlight=False)
         if df["taint_paths"] > 0 and sanitizer_count < df["taint_paths"]:
             coverage_pct = int((sanitizer_count / df["taint_paths"]) * 100)
-            click.echo(f"  (!) LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized")
+            console.print(
+                f"  (!) LOW COVERAGE (~{coverage_pct}%) - many flows unsanitized", highlight=False
+            )
     else:
-        click.echo("  (!) No sanitization functions detected")
-        click.echo(f"  -> {df['taint_paths']} taint paths with NO sanitization")
+        console.print("  (!) No sanitization functions detected")
+        console.print(f"  -> {df['taint_paths']} taint paths with NO sanitization", highlight=False)
 
-    click.echo("\nDynamic Dispatch Vulnerabilities:")
+    console.print("\nDynamic Dispatch Vulnerabilities:")
     cursor.execute("""
         SELECT COUNT(*) as dispatch_count
         FROM findings_consolidated
@@ -1247,18 +1289,22 @@ def _show_taint_drilldown(data: dict, cursor):
     dispatch_count = cursor.fetchone()["dispatch_count"]
 
     if dispatch_count > 0:
-        click.echo(f"  (!) {dispatch_count} dynamic dispatch vulnerabilities detected")
-        click.echo("  -> User can control which function executes (RCE risk)")
-        click.echo("  -> Use 'aud query --category dynamic_dispatch' for locations")
+        console.print(
+            f"  (!) {dispatch_count} dynamic dispatch vulnerabilities detected", highlight=False
+        )
+        console.print("  -> User can control which function executes (RCE risk)")
+        console.print("  -> Use 'aud query --category dynamic_dispatch' for locations")
     else:
-        click.echo("  [OK] No dynamic dispatch vulnerabilities detected")
+        console.print("  [success]No dynamic dispatch vulnerabilities detected[/success]")
 
-    click.echo("\nCross-Reference Commands:")
-    click.echo("  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows")
-    click.echo("  -> Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
-    click.echo("  -> Use 'aud taint-analyze --json' to re-run analysis with fresh data")
+    console.print("\nCross-Reference Commands:")
+    console.print(
+        "  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows"
+    )
+    console.print("  -> Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
+    console.print("  -> Use 'aud taint-analyze --json' to re-run analysis with fresh data")
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
 
 
 def _get_dependencies(cursor) -> dict:
@@ -1375,44 +1421,44 @@ def _show_deps_drilldown(data: dict, cursor):
     """
     deps = data.get("dependencies", {})
 
-    click.echo("\nDEPS DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo("Dependency Analysis: What packages? What versions? What managers?")
-    click.echo("=" * 80)
+    console.print("\nDEPS DRILL-DOWN")
+    console.rule()
+    console.print("Dependency Analysis: What packages? What versions? What managers?")
+    console.rule()
 
     if deps["total"] == 0:
-        click.echo("\n(!) No dependencies found in database")
-        click.echo("  Run: aud full (indexes package.json, pyproject.toml, requirements.txt)")
-        click.echo("\n" + "=" * 80 + "\n")
+        console.print("\n(!) No dependencies found in database")
+        console.print("  Run: aud full (indexes package.json, pyproject.toml, requirements.txt)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
-    click.echo(f"\nTotal Dependencies: {deps['total']}")
-    click.echo("\nBy Package Manager:")
+    console.print(f"\nTotal Dependencies: {deps['total']}", highlight=False)
+    console.print("\nBy Package Manager:")
     for manager, count in sorted(deps["by_manager"].items(), key=lambda x: -x[1]):
-        click.echo(f"  {manager}: {count} packages")
+        console.print(f"  {manager}: {count} packages", highlight=False)
 
-    click.echo("\nProjects/Workspaces:")
+    console.print("\nProjects/Workspaces:")
     for ws in deps["workspaces"]:
-        click.echo(f"\n  {ws['file']}")
-        click.echo(f"    Name: {ws['name'] or '(unnamed)'}")
-        click.echo(f"    Version: {ws['version'] or '(no version)'}")
-        click.echo(f"    Manager: {ws['manager']}")
-        click.echo(f"    Production deps: {ws['prod_count']}")
-        click.echo(f"    Dev deps: {ws['dev_count']}")
+        console.print(f"\n  {ws['file']}", highlight=False)
+        console.print(f"    Name: {ws['name'] or '(unnamed)'}", highlight=False)
+        console.print(f"    Version: {ws['version'] or '(no version)'}", highlight=False)
+        console.print(f"    Manager: {ws['manager']}", highlight=False)
+        console.print(f"    Production deps: {ws['prod_count']}", highlight=False)
+        console.print(f"    Dev deps: {ws['dev_count']}", highlight=False)
 
         if ws.get("prod_deps"):
-            click.echo("    Top dependencies:")
+            console.print("    Top dependencies:")
             for _i, (name, ver) in enumerate(list(ws["prod_deps"].items())[:5]):
-                click.echo(f"      - {name}: {ver}")
+                console.print(f"      - {name}: {ver}", highlight=False)
             if len(ws["prod_deps"]) > 5:
-                click.echo(f"      ... and {len(ws['prod_deps']) - 5} more")
+                console.print(f"      ... and {len(ws['prod_deps']) - 5} more", highlight=False)
 
-    click.echo("\nOutdated Package Check:")
+    console.print("\nOutdated Package Check:")
     try:
         cursor.execute("SELECT COUNT(*) FROM dependency_versions WHERE is_outdated = 1")
         outdated_count = cursor.fetchone()[0]
         if outdated_count > 0:
-            click.echo(f"  (!) {outdated_count} outdated packages detected")
+            console.print(f"  (!) {outdated_count} outdated packages detected", highlight=False)
             cursor.execute("""
                 SELECT package_name, locked_version, latest_version, manager
                 FROM dependency_versions
@@ -1420,20 +1466,21 @@ def _show_deps_drilldown(data: dict, cursor):
                 LIMIT 10
             """)
             for row in cursor.fetchall():
-                click.echo(
-                    f"    {row['package_name']}: {row['locked_version']} -> {row['latest_version']} ({row['manager']})"
+                console.print(
+                    f"    {row['package_name']}: {row['locked_version']} -> {row['latest_version']} ({row['manager']})",
+                    highlight=False,
                 )
         else:
-            click.echo("  (No outdated package data - run 'aud deps --check-latest')")
+            console.print("  (No outdated package data - run 'aud deps --check-latest')")
     except sqlite3.OperationalError:
-        click.echo("  (No version check data - run 'aud deps --check-latest')")
+        console.print("  (No version check data - run 'aud deps --check-latest')")
 
-    click.echo("\nRelated Commands:")
-    click.echo("  -> aud deps --check-latest   # Check for outdated packages")
-    click.echo("  -> aud deps --vuln-scan      # Scan for CVEs (OSV-Scanner)")
-    click.echo("  -> aud deps --upgrade-all    # YOLO mode: upgrade everything")
+    console.print("\nRelated Commands:")
+    console.print("  -> aud deps --check-latest   # Check for outdated packages")
+    console.print("  -> aud deps --vuln-scan      # Scan for CVEs (OSV-Scanner)")
+    console.print("  -> aud deps --upgrade-all    # YOLO mode: upgrade everything")
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
 
 
 def _get_boundaries(cursor, graphs_db_path: Path) -> dict:
@@ -1510,49 +1557,63 @@ def _show_boundaries_drilldown(data: dict, cursor):
     """
     bounds = data.get("boundaries", {})
 
-    click.echo("\nBOUNDARIES DRILL-DOWN")
-    click.echo("=" * 80)
-    click.echo("Boundary Distance Analysis: How far is validation from entry points?")
-    click.echo("=" * 80)
+    console.print("\nBOUNDARIES DRILL-DOWN")
+    console.rule()
+    console.print("Boundary Distance Analysis: How far is validation from entry points?")
+    console.rule()
 
     if bounds.get("error"):
-        click.echo(f"\n(!) Analysis error: {bounds['error']}")
-        click.echo("  Run: aud full (to index routes and handlers)")
-        click.echo("\n" + "=" * 80 + "\n")
+        console.print(f"\n(!) Analysis error: {bounds['error']}", highlight=False)
+        console.print("  Run: aud full (to index routes and handlers)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
     total = bounds.get("total_entries", 0)
     if total == 0:
-        click.echo("\n(!) No entry points found in database")
-        click.echo("  Run: aud full (indexes routes and handlers)")
-        click.echo("\n" + "=" * 80 + "\n")
+        console.print("\n(!) No entry points found in database")
+        console.print("  Run: aud full (indexes routes and handlers)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
-    click.echo(f"\nEntry Points Analyzed: {total}")
+    console.print(f"\nEntry Points Analyzed: {total}", highlight=False)
 
     by_quality = bounds.get("by_quality", {})
 
-    click.echo("\nBoundary Quality Breakdown:")
-    click.echo(f"  Clear (dist 0):      {by_quality.get('clear', 0):4d} - Validation at entry")
-    click.echo(f"  Acceptable (1-2):    {by_quality.get('acceptable', 0):4d} - Validation nearby")
-    click.echo(
-        f"  Fuzzy (3+ or multi): {by_quality.get('fuzzy', 0):4d} - Late or scattered validation"
+    console.print("\nBoundary Quality Breakdown:")
+    console.print(
+        f"  Clear (dist 0):      {by_quality.get('clear', 0):4d} - Validation at entry",
+        highlight=False,
     )
-    click.echo(f"  Missing:             {by_quality.get('missing', 0):4d} - No validation found")
+    console.print(
+        f"  Acceptable (1-2):    {by_quality.get('acceptable', 0):4d} - Validation nearby",
+        highlight=False,
+    )
+    console.print(
+        f"  Fuzzy (3+ or multi): {by_quality.get('fuzzy', 0):4d} - Late or scattered validation",
+        highlight=False,
+    )
+    console.print(
+        f"  Missing:             {by_quality.get('missing', 0):4d} - No validation found",
+        highlight=False,
+    )
 
     missing = bounds.get("missing_controls", 0)
     late = bounds.get("late_validation", 0)
 
     if missing > 0 or late > 0:
-        click.echo("\nRisk Summary:")
+        console.print("\nRisk Summary:")
         if missing > 0:
-            click.echo(f"  (!) {missing} entry points have NO validation control")
+            console.print(
+                f"  (!) {missing} entry points have NO validation control", highlight=False
+            )
         if late > 0:
-            click.echo(f"  (!) {late} entry points have LATE validation (distance 3+)")
+            console.print(
+                f"  (!) {late} entry points have LATE validation (distance 3+)", highlight=False
+            )
 
     entries = bounds.get("entries", [])
     if entries:
-        click.echo("\nTop Issues (by severity):")
+        console.print("\nTop Issues (by severity):")
         for i, entry in enumerate(entries[:10], 1):
             quality = entry.get("quality", "unknown")
             distance = entry.get("distance")
@@ -1563,14 +1624,14 @@ def _show_boundaries_drilldown(data: dict, cursor):
 
             dist_str = f"dist={distance}" if distance is not None else "no path"
 
-            click.echo(f"\n  {i}. [{quality.upper()}] {ep}")
-            click.echo(f"     Location: {file}:{line}")
-            click.echo(f"     Distance: {dist_str}, Controls found: {controls}")
+            console.print(f"\n  {i}. \\[{quality.upper()}] {ep}", highlight=False)
+            console.print(f"     Location: {file}:{line}", highlight=False)
+            console.print(f"     Distance: {dist_str}, Controls found: {controls}", highlight=False)
 
-    click.echo("\nRelated Commands:")
-    click.echo("  -> aud boundaries --format json        # Full analysis as JSON")
-    click.echo("  -> aud boundaries --type input-validation  # Focus on input validation")
-    click.echo("  -> aud blueprint --taint               # Data flow analysis")
-    click.echo("  -> aud blueprint --security            # Security surface overview")
+    console.print("\nRelated Commands:")
+    console.print("  -> aud boundaries --format json        # Full analysis as JSON")
+    console.print("  -> aud boundaries --type input-validation  # Focus on input validation")
+    console.print("  -> aud blueprint --taint               # Data flow analysis")
+    console.print("  -> aud blueprint --security            # Security surface overview")
 
-    click.echo("\n" + "=" * 80 + "\n")
+    console.print("\n" + "=" * 80 + "\n", markup=False)
