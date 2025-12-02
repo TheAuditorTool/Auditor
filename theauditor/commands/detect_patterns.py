@@ -114,18 +114,15 @@ def detect_patterns(
 
     Note: Use --with-ast for comprehensive analysis (default).
     Disable with --no-ast for quick scans."""
-    from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
 
     try:
         project_path = Path(project_path).resolve()
-        pattern_loader = PatternLoader()
 
         exclude_patterns = get_self_exclusion_patterns(exclude_self)
 
         detector = UniversalPatternDetector(
             project_path,
-            pattern_loader,
             with_ast=with_ast,
             with_frameworks=with_frameworks,
             exclude_patterns=exclude_patterns,

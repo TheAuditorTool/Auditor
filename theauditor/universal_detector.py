@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.ast_extractors.ast_parser import ASTParser
-from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RuleContext, RulesOrchestrator
 from theauditor.utils.logging import logger
 
@@ -38,32 +37,15 @@ class UniversalPatternDetector:
 
     AST_SUPPORTED = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 
-    REGEX_ONLY = {
-        ".yml",
-        ".yaml",
-        ".json",
-        ".conf",
-        ".ini",
-        ".sh",
-        ".bash",
-        ".dockerfile",
-        ".sql",
-        ".xml",
-        ".toml",
-        ".env",
-    }
-
     def __init__(
         self,
         project_path: Path,
-        pattern_loader: PatternLoader | None = None,
         with_ast: bool = True,
         with_frameworks: bool = True,
         exclude_patterns: list[str] = None,
     ):
         """Initialize detector."""
         self.project_path = Path(project_path).resolve()
-        self.pattern_loader = pattern_loader or PatternLoader()
         self.findings: list[Finding] = []
         self.exclude_patterns = exclude_patterns or []
 
@@ -94,23 +76,11 @@ class UniversalPatternDetector:
 
         logger.info(f"Found {len(files_to_scan)} files to scan...")
 
-        ast_files = []
-        regex_files = []
-
-        for file_info in files_to_scan:
-            file_path, ext, sha256_hash = file_info
-            if ext in self.AST_SUPPORTED:
-                ast_files.append(file_info)
-            elif ext in self.REGEX_ONLY:
-                regex_files.append(file_info)
+        ast_files = [f for f in files_to_scan if f[1] in self.AST_SUPPORTED]
 
         if ast_files:
             logger.info(f"Processing {len(ast_files)} files with AST analysis...")
             self._process_ast_files(ast_files)
-
-        if regex_files:
-            logger.info(f"Processing {len(regex_files)} config files with patterns...")
-            self._process_regex_files(regex_files, categories)
 
         logger.info("Running database-aware rules...")
         db_findings = self._run_database_rules()
@@ -143,20 +113,10 @@ class UniversalPatternDetector:
 
         files_to_scan = self._query_specific_files(db_path, normalized_files)
 
-        ast_files = []
-        regex_files = []
-
-        for file_info in files_to_scan:
-            file_path, ext, sha256_hash = file_info
-            if ext in self.AST_SUPPORTED:
-                ast_files.append(file_info)
-            elif ext in self.REGEX_ONLY:
-                regex_files.append(file_info)
+        ast_files = [f for f in files_to_scan if f[1] in self.AST_SUPPORTED]
 
         if ast_files:
             self._process_ast_files(ast_files)
-        if regex_files:
-            self._process_regex_files(regex_files, categories)
 
         return self.findings
 
@@ -283,53 +243,6 @@ class UniversalPatternDetector:
                     self.findings.extend(file_findings)
                 except Exception as e:
                     logger.debug(f"Worker error: {e}")
-
-    def _process_regex_files(self, files: list[tuple], categories: list[str] = None):
-        """Process non-AST files with regex patterns."""
-
-        patterns_by_category = self.pattern_loader.load_patterns(categories)
-
-        if not patterns_by_category:
-            return
-
-        for file_path, ext, _ in files:
-            try:
-                with open(file_path, encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                    lines = content.splitlines()
-
-                for category, patterns in patterns_by_category.items():
-                    for pattern in patterns:
-                        if not pattern.compiled_regex:
-                            continue
-
-                        file_language = ext.lstrip(".")
-                        if not pattern.matches_language(file_language):
-                            continue
-
-                        for match in pattern.compiled_regex.finditer(content):
-                            line_num = content.count("\n", 0, match.start()) + 1
-
-                            snippet = ""
-                            if line_num <= len(lines):
-                                snippet = lines[line_num - 1].strip()[:200]
-
-                            self.findings.append(
-                                Finding(
-                                    pattern_name=pattern.name,
-                                    message=pattern.description,
-                                    file=str(file_path.relative_to(self.project_path)),
-                                    line=line_num,
-                                    column=match.start() - content.rfind("\n", 0, match.start()),
-                                    severity=pattern.severity,
-                                    snippet=snippet,
-                                    category=category,
-                                    match_type="regex",
-                                )
-                            )
-
-            except Exception as e:
-                logger.debug(f"Error processing {file_path}: {e}")
 
     def _run_database_rules(self) -> list[Finding]:
         """Run database-level rules through orchestrator."""
