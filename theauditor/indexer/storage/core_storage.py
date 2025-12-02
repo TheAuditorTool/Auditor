@@ -79,6 +79,10 @@ class CoreStorage(BaseStorage):
                 line = None
 
             resolved = self._current_extracted.get("refs", {}).get(value, value)
+            # GRAPH FIX G16: Normalize resolved paths (backslash -> forward slash)
+            # to ensure consistent path format for Graph Builder joins
+            if resolved and isinstance(resolved, str):
+                resolved = resolved.replace("\\", "/")
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved} (line {line})")
             # Diagnostic trap: reveal offending path on FK crash, then re-raise
