@@ -424,6 +424,206 @@ class AssignmentsJsxTable:
         return [dict(zip(['file', 'line', 'target_var', 'source_expr', 'in_function', 'property_path', 'jsx_mode', 'extraction_pass'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class BashCommandArgsTable:
+    """Accessor class for bash_command_args table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_command_args."""
+        query = build_query('bash_command_args', ['file', 'command_line', 'command_pipeline_position', 'arg_index', 'arg_value', 'is_quoted', 'quote_type', 'has_expansion', 'expansion_vars', 'normalized_flags'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'command_line', 'command_pipeline_position', 'arg_index', 'arg_value', 'is_quoted', 'quote_type', 'has_expansion', 'expansion_vars', 'normalized_flags'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_has_expansion(cursor: sqlite3.Cursor, has_expansion: int) -> list[dict[str, Any]]:
+        """Get rows by has_expansion."""
+        query = build_query('bash_command_args', ['file', 'command_line', 'command_pipeline_position', 'arg_index', 'arg_value', 'is_quoted', 'quote_type', 'has_expansion', 'expansion_vars', 'normalized_flags'], where="has_expansion = ?")
+        cursor.execute(query, (has_expansion,))
+        return [dict(zip(['file', 'command_line', 'command_pipeline_position', 'arg_index', 'arg_value', 'is_quoted', 'quote_type', 'has_expansion', 'expansion_vars', 'normalized_flags'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashCommandsTable:
+    """Accessor class for bash_commands table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_commands."""
+        query = build_query('bash_commands', ['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_commands', ['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_command_name(cursor: sqlite3.Cursor, command_name: str) -> list[dict[str, Any]]:
+        """Get rows by command_name."""
+        query = build_query('bash_commands', ['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], where="command_name = ?")
+        cursor.execute(query, (command_name,))
+        return [dict(zip(['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_wrapped_command(cursor: sqlite3.Cursor, wrapped_command: str) -> list[dict[str, Any]]:
+        """Get rows by wrapped_command."""
+        query = build_query('bash_commands', ['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], where="wrapped_command = ?")
+        cursor.execute(query, (wrapped_command,))
+        return [dict(zip(['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashFunctionsTable:
+    """Accessor class for bash_functions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_functions."""
+        query = build_query('bash_functions', ['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_functions', ['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('bash_functions', ['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'end_line', 'name', 'style', 'body_start_line', 'body_end_line'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashPipesTable:
+    """Accessor class for bash_pipes table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_pipes."""
+        query = build_query('bash_pipes', ['file', 'line', 'pipeline_id', 'position', 'command_text', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'pipeline_id', 'position', 'command_text', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_pipes', ['file', 'line', 'pipeline_id', 'position', 'command_text', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'pipeline_id', 'position', 'command_text', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashRedirectionsTable:
+    """Accessor class for bash_redirections table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_redirections."""
+        query = build_query('bash_redirections', ['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_redirections', ['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_direction(cursor: sqlite3.Cursor, direction: str) -> list[dict[str, Any]]:
+        """Get rows by direction."""
+        query = build_query('bash_redirections', ['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], where="direction = ?")
+        cursor.execute(query, (direction,))
+        return [dict(zip(['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashSourcesTable:
+    """Accessor class for bash_sources table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_sources."""
+        query = build_query('bash_sources', ['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_sources', ['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_sourced_path(cursor: sqlite3.Cursor, sourced_path: str) -> list[dict[str, Any]]:
+        """Get rows by sourced_path."""
+        query = build_query('bash_sources', ['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'], where="sourced_path = ?")
+        cursor.execute(query, (sourced_path,))
+        return [dict(zip(['file', 'line', 'sourced_path', 'syntax', 'has_variable_expansion', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashSubshellsTable:
+    """Accessor class for bash_subshells table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_subshells."""
+        query = build_query('bash_subshells', ['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_subshells', ['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_capture_target(cursor: sqlite3.Cursor, capture_target: str) -> list[dict[str, Any]]:
+        """Get rows by capture_target."""
+        query = build_query('bash_subshells', ['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'], where="capture_target = ?")
+        cursor.execute(query, (capture_target,))
+        return [dict(zip(['file', 'line', 'col', 'syntax', 'command_text', 'capture_target', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashVariablesTable:
+    """Accessor class for bash_variables table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_variables."""
+        query = build_query('bash_variables', ['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_variables', ['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('bash_variables', ['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_scope(cursor: sqlite3.Cursor, scope: str) -> list[dict[str, Any]]:
+        """Get rows by scope."""
+        query = build_query('bash_variables', ['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], where="scope = ?")
+        cursor.execute(query, (scope,))
+        return [dict(zip(['file', 'line', 'name', 'scope', 'readonly', 'value_expr', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class BullmqQueuesTable:
     """Accessor class for bullmq_queues table."""
 
@@ -1701,6 +1901,528 @@ class GithubWorkflowsTable:
         query = build_query('github_workflows', ['workflow_path', 'workflow_name', 'on_triggers', 'permissions', 'concurrency', 'env'], where="workflow_name = ?")
         cursor.execute(query, (workflow_name,))
         return [dict(zip(['workflow_path', 'workflow_name', 'on_triggers', 'permissions', 'concurrency', 'env'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoCapturedVarsTable:
+    """Accessor class for go_captured_vars table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_captured_vars."""
+        query = build_query('go_captured_vars', ['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_captured_vars', ['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_goroutine_id(cursor: sqlite3.Cursor, goroutine_id: int) -> list[dict[str, Any]]:
+        """Get rows by goroutine_id."""
+        query = build_query('go_captured_vars', ['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'], where="goroutine_id = ?")
+        cursor.execute(query, (goroutine_id,))
+        return [dict(zip(['file', 'line', 'goroutine_id', 'var_name', 'var_type', 'is_loop_var'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoChannelOpsTable:
+    """Accessor class for go_channel_ops table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_channel_ops."""
+        query = build_query('go_channel_ops', ['file', 'line', 'channel_name', 'operation', 'containing_func'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'channel_name', 'operation', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_channel_ops', ['file', 'line', 'channel_name', 'operation', 'containing_func'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'channel_name', 'operation', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_channel_name(cursor: sqlite3.Cursor, channel_name: str) -> list[dict[str, Any]]:
+        """Get rows by channel_name."""
+        query = build_query('go_channel_ops', ['file', 'line', 'channel_name', 'operation', 'containing_func'], where="channel_name = ?")
+        cursor.execute(query, (channel_name,))
+        return [dict(zip(['file', 'line', 'channel_name', 'operation', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoChannelsTable:
+    """Accessor class for go_channels table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_channels."""
+        query = build_query('go_channels', ['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_channels', ['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_channels', ['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'element_type', 'direction', 'buffer_size'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoConstantsTable:
+    """Accessor class for go_constants table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_constants."""
+        query = build_query('go_constants', ['file', 'line', 'name', 'value', 'type', 'is_exported'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'value', 'type', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_constants', ['file', 'line', 'name', 'value', 'type', 'is_exported'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'value', 'type', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_constants', ['file', 'line', 'name', 'value', 'type', 'is_exported'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'value', 'type', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoDeferStatementsTable:
+    """Accessor class for go_defer_statements table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_defer_statements."""
+        query = build_query('go_defer_statements', ['file', 'line', 'containing_func', 'deferred_expr'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'containing_func', 'deferred_expr'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_defer_statements', ['file', 'line', 'containing_func', 'deferred_expr'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'containing_func', 'deferred_expr'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_containing_func(cursor: sqlite3.Cursor, containing_func: str) -> list[dict[str, Any]]:
+        """Get rows by containing_func."""
+        query = build_query('go_defer_statements', ['file', 'line', 'containing_func', 'deferred_expr'], where="containing_func = ?")
+        cursor.execute(query, (containing_func,))
+        return [dict(zip(['file', 'line', 'containing_func', 'deferred_expr'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoErrorReturnsTable:
+    """Accessor class for go_error_returns table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_error_returns."""
+        query = build_query('go_error_returns', ['file', 'line', 'func_name', 'returns_error'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'func_name', 'returns_error'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_error_returns', ['file', 'line', 'func_name', 'returns_error'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'func_name', 'returns_error'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_func_name(cursor: sqlite3.Cursor, func_name: str) -> list[dict[str, Any]]:
+        """Get rows by func_name."""
+        query = build_query('go_error_returns', ['file', 'line', 'func_name', 'returns_error'], where="func_name = ?")
+        cursor.execute(query, (func_name,))
+        return [dict(zip(['file', 'line', 'func_name', 'returns_error'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoFuncParamsTable:
+    """Accessor class for go_func_params table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_func_params."""
+        query = build_query('go_func_params', ['file', 'func_name', 'func_line', 'param_index', 'param_name', 'param_type', 'is_variadic'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'func_name', 'func_line', 'param_index', 'param_name', 'param_type', 'is_variadic'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_func_name(cursor: sqlite3.Cursor, func_name: str) -> list[dict[str, Any]]:
+        """Get rows by func_name."""
+        query = build_query('go_func_params', ['file', 'func_name', 'func_line', 'param_index', 'param_name', 'param_type', 'is_variadic'], where="func_name = ?")
+        cursor.execute(query, (func_name,))
+        return [dict(zip(['file', 'func_name', 'func_line', 'param_index', 'param_name', 'param_type', 'is_variadic'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoFuncReturnsTable:
+    """Accessor class for go_func_returns table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_func_returns."""
+        query = build_query('go_func_returns', ['file', 'func_name', 'func_line', 'return_index', 'return_name', 'return_type'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'func_name', 'func_line', 'return_index', 'return_name', 'return_type'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_func_name(cursor: sqlite3.Cursor, func_name: str) -> list[dict[str, Any]]:
+        """Get rows by func_name."""
+        query = build_query('go_func_returns', ['file', 'func_name', 'func_line', 'return_index', 'return_name', 'return_type'], where="func_name = ?")
+        cursor.execute(query, (func_name,))
+        return [dict(zip(['file', 'func_name', 'func_line', 'return_index', 'return_name', 'return_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoFunctionsTable:
+    """Accessor class for go_functions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_functions."""
+        query = build_query('go_functions', ['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_functions', ['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_functions', ['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'signature', 'is_exported', 'is_async', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoGoroutinesTable:
+    """Accessor class for go_goroutines table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_goroutines."""
+        query = build_query('go_goroutines', ['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_goroutines', ['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_containing_func(cursor: sqlite3.Cursor, containing_func: str) -> list[dict[str, Any]]:
+        """Get rows by containing_func."""
+        query = build_query('go_goroutines', ['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'], where="containing_func = ?")
+        cursor.execute(query, (containing_func,))
+        return [dict(zip(['file', 'line', 'containing_func', 'spawned_expr', 'is_anonymous'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoImportsTable:
+    """Accessor class for go_imports table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_imports."""
+        query = build_query('go_imports', ['file', 'line', 'path', 'alias', 'is_dot_import'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'path', 'alias', 'is_dot_import'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_imports', ['file', 'line', 'path', 'alias', 'is_dot_import'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'path', 'alias', 'is_dot_import'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_path(cursor: sqlite3.Cursor, path: str) -> list[dict[str, Any]]:
+        """Get rows by path."""
+        query = build_query('go_imports', ['file', 'line', 'path', 'alias', 'is_dot_import'], where="path = ?")
+        cursor.execute(query, (path,))
+        return [dict(zip(['file', 'line', 'path', 'alias', 'is_dot_import'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoInterfaceMethodsTable:
+    """Accessor class for go_interface_methods table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_interface_methods."""
+        query = build_query('go_interface_methods', ['file', 'interface_name', 'method_name', 'signature'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'interface_name', 'method_name', 'signature'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_interface_name(cursor: sqlite3.Cursor, interface_name: str) -> list[dict[str, Any]]:
+        """Get rows by interface_name."""
+        query = build_query('go_interface_methods', ['file', 'interface_name', 'method_name', 'signature'], where="interface_name = ?")
+        cursor.execute(query, (interface_name,))
+        return [dict(zip(['file', 'interface_name', 'method_name', 'signature'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoInterfacesTable:
+    """Accessor class for go_interfaces table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_interfaces."""
+        query = build_query('go_interfaces', ['file', 'line', 'name', 'is_exported', 'doc_comment'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_interfaces', ['file', 'line', 'name', 'is_exported', 'doc_comment'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_interfaces', ['file', 'line', 'name', 'is_exported', 'doc_comment'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoMethodsTable:
+    """Accessor class for go_methods table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_methods."""
+        query = build_query('go_methods', ['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_methods', ['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_receiver_type(cursor: sqlite3.Cursor, receiver_type: str) -> list[dict[str, Any]]:
+        """Get rows by receiver_type."""
+        query = build_query('go_methods', ['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], where="receiver_type = ?")
+        cursor.execute(query, (receiver_type,))
+        return [dict(zip(['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_methods', ['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'receiver_type', 'receiver_name', 'is_pointer_receiver', 'name', 'signature', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoMiddlewareTable:
+    """Accessor class for go_middleware table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_middleware."""
+        query = build_query('go_middleware', ['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_middleware', ['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_framework(cursor: sqlite3.Cursor, framework: str) -> list[dict[str, Any]]:
+        """Get rows by framework."""
+        query = build_query('go_middleware', ['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], where="framework = ?")
+        cursor.execute(query, (framework,))
+        return [dict(zip(['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoPackagesTable:
+    """Accessor class for go_packages table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_packages."""
+        query = build_query('go_packages', ['file', 'line', 'name', 'import_path'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'import_path'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_packages', ['file', 'line', 'name', 'import_path'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'import_path'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoRoutesTable:
+    """Accessor class for go_routes table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_routes."""
+        query = build_query('go_routes', ['file', 'line', 'framework', 'method', 'path', 'handler_func'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'framework', 'method', 'path', 'handler_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_routes', ['file', 'line', 'framework', 'method', 'path', 'handler_func'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'framework', 'method', 'path', 'handler_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_framework(cursor: sqlite3.Cursor, framework: str) -> list[dict[str, Any]]:
+        """Get rows by framework."""
+        query = build_query('go_routes', ['file', 'line', 'framework', 'method', 'path', 'handler_func'], where="framework = ?")
+        cursor.execute(query, (framework,))
+        return [dict(zip(['file', 'line', 'framework', 'method', 'path', 'handler_func'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoStructFieldsTable:
+    """Accessor class for go_struct_fields table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_struct_fields."""
+        query = build_query('go_struct_fields', ['file', 'struct_name', 'field_name', 'field_type', 'tag', 'is_embedded', 'is_exported'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'struct_name', 'field_name', 'field_type', 'tag', 'is_embedded', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_struct_name(cursor: sqlite3.Cursor, struct_name: str) -> list[dict[str, Any]]:
+        """Get rows by struct_name."""
+        query = build_query('go_struct_fields', ['file', 'struct_name', 'field_name', 'field_type', 'tag', 'is_embedded', 'is_exported'], where="struct_name = ?")
+        cursor.execute(query, (struct_name,))
+        return [dict(zip(['file', 'struct_name', 'field_name', 'field_type', 'tag', 'is_embedded', 'is_exported'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoStructsTable:
+    """Accessor class for go_structs table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_structs."""
+        query = build_query('go_structs', ['file', 'line', 'name', 'is_exported', 'doc_comment'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_structs', ['file', 'line', 'name', 'is_exported', 'doc_comment'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_structs', ['file', 'line', 'name', 'is_exported', 'doc_comment'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'is_exported', 'doc_comment'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoTypeAssertionsTable:
+    """Accessor class for go_type_assertions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_type_assertions."""
+        query = build_query('go_type_assertions', ['file', 'line', 'expr', 'asserted_type', 'is_type_switch', 'containing_func'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'expr', 'asserted_type', 'is_type_switch', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_type_assertions', ['file', 'line', 'expr', 'asserted_type', 'is_type_switch', 'containing_func'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'expr', 'asserted_type', 'is_type_switch', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoTypeParamsTable:
+    """Accessor class for go_type_params table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_type_params."""
+        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_parent_name(cursor: sqlite3.Cursor, parent_name: str) -> list[dict[str, Any]]:
+        """Get rows by parent_name."""
+        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], where="parent_name = ?")
+        cursor.execute(query, (parent_name,))
+        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoVariablesTable:
+    """Accessor class for go_variables table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_variables."""
+        query = build_query('go_variables', ['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('go_variables', ['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('go_variables', ['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_is_package_level(cursor: sqlite3.Cursor, is_package_level: bool) -> list[dict[str, Any]]:
+        """Get rows by is_package_level."""
+        query = build_query('go_variables', ['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], where="is_package_level = ?")
+        cursor.execute(query, (is_package_level,))
+        return [dict(zip(['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_containing_func(cursor: sqlite3.Cursor, containing_func: str) -> list[dict[str, Any]]:
+        """Get rows by containing_func."""
+        query = build_query('go_variables', ['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], where="containing_func = ?")
+        cursor.execute(query, (containing_func,))
+        return [dict(zip(['file', 'line', 'name', 'type', 'initial_value', 'is_exported', 'is_package_level', 'containing_func'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class GraphqlArgDirectivesTable:
@@ -3948,6 +4670,359 @@ class RouterMountsTable:
         query = build_query('router_mounts', ['file', 'line', 'mount_path_expr', 'router_variable', 'is_literal'], where="router_variable = ?")
         cursor.execute(query, (router_variable,))
         return [dict(zip(['file', 'line', 'mount_path_expr', 'router_variable', 'is_literal'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustAsyncFunctionsTable:
+    """Accessor class for rust_async_functions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_async_functions."""
+        query = build_query('rust_async_functions', ['file_path', 'line', 'function_name', 'return_type', 'has_await', 'await_count'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'function_name', 'return_type', 'has_await', 'await_count'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustAwaitPointsTable:
+    """Accessor class for rust_await_points table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_await_points."""
+        query = build_query('rust_await_points', ['file_path', 'line', 'containing_function', 'awaited_expression'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'containing_function', 'awaited_expression'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_containing_function(cursor: sqlite3.Cursor, containing_function: str) -> list[dict[str, Any]]:
+        """Get rows by containing_function."""
+        query = build_query('rust_await_points', ['file_path', 'line', 'containing_function', 'awaited_expression'], where="containing_function = ?")
+        cursor.execute(query, (containing_function,))
+        return [dict(zip(['file_path', 'line', 'containing_function', 'awaited_expression'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustEnumVariantsTable:
+    """Accessor class for rust_enum_variants table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_enum_variants."""
+        query = build_query('rust_enum_variants', ['file_path', 'enum_line', 'variant_index', 'variant_name', 'variant_kind', 'fields_json', 'discriminant'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'enum_line', 'variant_index', 'variant_name', 'variant_kind', 'fields_json', 'discriminant'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustEnumsTable:
+    """Accessor class for rust_enums table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_enums."""
+        query = build_query('rust_enums', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'derives_json'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'derives_json'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_enums', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'derives_json'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'derives_json'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustExternBlocksTable:
+    """Accessor class for rust_extern_blocks table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_extern_blocks."""
+        query = build_query('rust_extern_blocks', ['file_path', 'line', 'end_line', 'abi'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'abi'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustExternFunctionsTable:
+    """Accessor class for rust_extern_functions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_extern_functions."""
+        query = build_query('rust_extern_functions', ['file_path', 'line', 'name', 'abi', 'return_type', 'params_json', 'is_variadic'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'name', 'abi', 'return_type', 'params_json', 'is_variadic'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_extern_functions', ['file_path', 'line', 'name', 'abi', 'return_type', 'params_json', 'is_variadic'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'name', 'abi', 'return_type', 'params_json', 'is_variadic'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustFunctionsTable:
+    """Accessor class for rust_functions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_functions."""
+        query = build_query('rust_functions', ['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_functions', ['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_is_async(cursor: sqlite3.Cursor, is_async: bool) -> list[dict[str, Any]]:
+        """Get rows by is_async."""
+        query = build_query('rust_functions', ['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], where="is_async = ?")
+        cursor.execute(query, (is_async,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_is_unsafe(cursor: sqlite3.Cursor, is_unsafe: bool) -> list[dict[str, Any]]:
+        """Get rows by is_unsafe."""
+        query = build_query('rust_functions', ['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], where="is_unsafe = ?")
+        cursor.execute(query, (is_unsafe,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'is_async', 'is_unsafe', 'is_const', 'is_extern', 'abi', 'return_type', 'params_json', 'generics', 'where_clause'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustGenericsTable:
+    """Accessor class for rust_generics table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_generics."""
+        query = build_query('rust_generics', ['file_path', 'parent_line', 'parent_type', 'param_name', 'param_kind', 'bounds', 'default_value'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'parent_line', 'parent_type', 'param_name', 'param_kind', 'bounds', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_parent_type(cursor: sqlite3.Cursor, parent_type: str) -> list[dict[str, Any]]:
+        """Get rows by parent_type."""
+        query = build_query('rust_generics', ['file_path', 'parent_line', 'parent_type', 'param_name', 'param_kind', 'bounds', 'default_value'], where="parent_type = ?")
+        cursor.execute(query, (parent_type,))
+        return [dict(zip(['file_path', 'parent_line', 'parent_type', 'param_name', 'param_kind', 'bounds', 'default_value'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustImplBlocksTable:
+    """Accessor class for rust_impl_blocks table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_impl_blocks."""
+        query = build_query('rust_impl_blocks', ['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_target_type_raw(cursor: sqlite3.Cursor, target_type_raw: str) -> list[dict[str, Any]]:
+        """Get rows by target_type_raw."""
+        query = build_query('rust_impl_blocks', ['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], where="target_type_raw = ?")
+        cursor.execute(query, (target_type_raw,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_target_type_resolved(cursor: sqlite3.Cursor, target_type_resolved: str) -> list[dict[str, Any]]:
+        """Get rows by target_type_resolved."""
+        query = build_query('rust_impl_blocks', ['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], where="target_type_resolved = ?")
+        cursor.execute(query, (target_type_resolved,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_trait_name(cursor: sqlite3.Cursor, trait_name: str) -> list[dict[str, Any]]:
+        """Get rows by trait_name."""
+        query = build_query('rust_impl_blocks', ['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], where="trait_name = ?")
+        cursor.execute(query, (trait_name,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'target_type_raw', 'target_type_resolved', 'trait_name', 'trait_resolved', 'generics', 'where_clause', 'is_unsafe'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustLifetimesTable:
+    """Accessor class for rust_lifetimes table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_lifetimes."""
+        query = build_query('rust_lifetimes', ['file_path', 'parent_line', 'lifetime_name', 'is_static'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'parent_line', 'lifetime_name', 'is_static'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustMacroInvocationsTable:
+    """Accessor class for rust_macro_invocations table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_macro_invocations."""
+        query = build_query('rust_macro_invocations', ['file_path', 'line', 'macro_name', 'containing_function', 'args_sample'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'macro_name', 'containing_function', 'args_sample'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_macro_name(cursor: sqlite3.Cursor, macro_name: str) -> list[dict[str, Any]]:
+        """Get rows by macro_name."""
+        query = build_query('rust_macro_invocations', ['file_path', 'line', 'macro_name', 'containing_function', 'args_sample'], where="macro_name = ?")
+        cursor.execute(query, (macro_name,))
+        return [dict(zip(['file_path', 'line', 'macro_name', 'containing_function', 'args_sample'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustMacrosTable:
+    """Accessor class for rust_macros table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_macros."""
+        query = build_query('rust_macros', ['file_path', 'line', 'name', 'macro_type', 'visibility'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'name', 'macro_type', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_macros', ['file_path', 'line', 'name', 'macro_type', 'visibility'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'name', 'macro_type', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustModulesTable:
+    """Accessor class for rust_modules table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_modules."""
+        query = build_query('rust_modules', ['file_path', 'module_name', 'line', 'visibility', 'is_inline', 'parent_module'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'module_name', 'line', 'visibility', 'is_inline', 'parent_module'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_name(cursor: sqlite3.Cursor, module_name: str) -> list[dict[str, Any]]:
+        """Get rows by module_name."""
+        query = build_query('rust_modules', ['file_path', 'module_name', 'line', 'visibility', 'is_inline', 'parent_module'], where="module_name = ?")
+        cursor.execute(query, (module_name,))
+        return [dict(zip(['file_path', 'module_name', 'line', 'visibility', 'is_inline', 'parent_module'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustStructFieldsTable:
+    """Accessor class for rust_struct_fields table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_struct_fields."""
+        query = build_query('rust_struct_fields', ['file_path', 'struct_line', 'field_index', 'field_name', 'field_type', 'visibility', 'is_pub'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'struct_line', 'field_index', 'field_name', 'field_type', 'visibility', 'is_pub'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustStructsTable:
+    """Accessor class for rust_structs table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_structs."""
+        query = build_query('rust_structs', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'is_tuple_struct', 'is_unit_struct', 'derives_json'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'is_tuple_struct', 'is_unit_struct', 'derives_json'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_structs', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'is_tuple_struct', 'is_unit_struct', 'derives_json'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'is_tuple_struct', 'is_unit_struct', 'derives_json'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustTraitMethodsTable:
+    """Accessor class for rust_trait_methods table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_trait_methods."""
+        query = build_query('rust_trait_methods', ['file_path', 'trait_line', 'method_line', 'method_name', 'return_type', 'params_json', 'has_default', 'is_async'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'trait_line', 'method_line', 'method_name', 'return_type', 'params_json', 'has_default', 'is_async'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustTraitsTable:
+    """Accessor class for rust_traits table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_traits."""
+        query = build_query('rust_traits', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'supertraits', 'is_unsafe', 'is_auto'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'supertraits', 'is_unsafe', 'is_auto'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('rust_traits', ['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'supertraits', 'is_unsafe', 'is_auto'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'line', 'end_line', 'name', 'visibility', 'generics', 'supertraits', 'is_unsafe', 'is_auto'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustUnsafeBlocksTable:
+    """Accessor class for rust_unsafe_blocks table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_unsafe_blocks."""
+        query = build_query('rust_unsafe_blocks', ['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_containing_function(cursor: sqlite3.Cursor, containing_function: str) -> list[dict[str, Any]]:
+        """Get rows by containing_function."""
+        query = build_query('rust_unsafe_blocks', ['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'], where="containing_function = ?")
+        cursor.execute(query, (containing_function,))
+        return [dict(zip(['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_has_safety_comment(cursor: sqlite3.Cursor, has_safety_comment: bool) -> list[dict[str, Any]]:
+        """Get rows by has_safety_comment."""
+        query = build_query('rust_unsafe_blocks', ['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'], where="has_safety_comment = ?")
+        cursor.execute(query, (has_safety_comment,))
+        return [dict(zip(['file_path', 'line_start', 'line_end', 'containing_function', 'reason', 'safety_comment', 'has_safety_comment', 'operations_json'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustUnsafeTraitsTable:
+    """Accessor class for rust_unsafe_traits table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_unsafe_traits."""
+        query = build_query('rust_unsafe_traits', ['file_path', 'line', 'trait_name', 'impl_type'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'trait_name', 'impl_type'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class RustUseStatementsTable:
+    """Accessor class for rust_use_statements table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_use_statements."""
+        query = build_query('rust_use_statements', ['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_local_name(cursor: sqlite3.Cursor, local_name: str) -> list[dict[str, Any]]:
+        """Get rows by local_name."""
+        query = build_query('rust_use_statements', ['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], where="local_name = ?")
+        cursor.execute(query, (local_name,))
+        return [dict(zip(['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_canonical_path(cursor: sqlite3.Cursor, canonical_path: str) -> list[dict[str, Any]]:
+        """Get rows by canonical_path."""
+        query = build_query('rust_use_statements', ['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], where="canonical_path = ?")
+        cursor.execute(query, (canonical_path,))
+        return [dict(zip(['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class SequelizeAssociationsTable:

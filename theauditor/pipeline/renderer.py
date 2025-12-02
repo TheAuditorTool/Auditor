@@ -9,11 +9,11 @@ from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
 
-from theauditor.utils.logging import logger
+from theauditor.utils.logging import logger, swap_to_rich_sink, restore_stderr_sink
 
 from .events import PipelineObserver
 from .structures import PhaseResult
-from .ui import AUDITOR_THEME
+from .ui import AUDITOR_THEME, console as shared_console
 
 
 class DynamicTable:
@@ -38,7 +38,8 @@ class RichRenderer(PipelineObserver):
 
         self.is_tty = sys.stdout.isatty()
 
-        self.console = Console(theme=AUDITOR_THEME, force_terminal=self.is_tty)
+        # Use shared console from ui.py - One Console to Rule Them All
+        self.console = shared_console
 
         self._parallel_buffers: dict[str, list[str]] = {}
         self._in_parallel_mode = False
@@ -52,6 +53,9 @@ class RichRenderer(PipelineObserver):
         self._table: Table | None = None
 
         self._pipeline_start_time: float | None = None
+
+        # Handler ID for loguru sink swap (for Rich Live integration)
+        self._loguru_handler_id: int | None = None
 
     def _build_live_table(self) -> Table:
         """Build fresh table with current elapsed times (called on each refresh)."""
@@ -105,9 +109,31 @@ class RichRenderer(PipelineObserver):
             style = "bold red" if is_error else None
             self._live.console.print(text, style=style)
         else:
-            # Non-TTY fallback (CI/CD mode) - use console with stderr routing
+            # Live not active - print directly to console
             style = "bold red" if is_error else None
-            self.console.print(text, style=style, stderr=is_error)
+            self.console.print(text, style=style)
+
+    def log_message(self, message):
+        """Loguru sink that routes logs through Rich console safely.
+
+        This is the bridge between loguru and Rich Live display.
+        When Live is active, logs appear ABOVE the live table.
+        When Live is inactive, logs go directly to console.
+
+        Usage:
+            logger.add(renderer.log_message, format="{message}", level="INFO")
+        """
+        # Extract the formatted message text (loguru passes the full message object)
+        text = str(message).rstrip("\n")
+
+        if self.quiet:
+            return
+
+        if self._live:
+            # Live.console.print() knows how to print ABOVE the live display
+            self._live.console.print(text)
+        else:
+            self.console.print(text)
 
     def start(self):
         """Start the live display (call before pipeline runs)."""
@@ -117,11 +143,19 @@ class RichRenderer(PipelineObserver):
             self._live = Live(dynamic_table, refresh_per_second=4, console=self.console)
             self._live.__enter__()
 
+            # Swap loguru sink to route through Rich console (logs appear above Live table)
+            self._loguru_handler_id = swap_to_rich_sink(self.log_message)
+
     def stop(self):
         """Stop the live display (call after pipeline completes)."""
         if self._live:
             self._live.__exit__(None, None, None)
             self._live = None
+
+            # Restore loguru to use stderr now that Live is done
+            restore_stderr_sink(self._loguru_handler_id)
+            self._loguru_handler_id = None
+
         if self.log_file:
             self.log_file.close()
 

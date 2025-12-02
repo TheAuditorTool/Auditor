@@ -72,8 +72,10 @@ def pino_compatible_sink(message):
             "message": str(record["exception"].value) if record["exception"].value else "",
         }
 
-    # Write to stderr (no emojis - Windows CP1252 compatibility)
-    logger.error(json.dumps(pino_log))
+    # Write to stdout (Pino convention: machine logs to stdout)
+    # CRITICAL: Never call logger.* inside a sink - causes infinite recursion
+    sys.stdout.write(json.dumps(pino_log) + "\n")
+    sys.stdout.flush()
 
 
 # Human-readable format (no emojis - Windows CP1252 compatibility)
@@ -84,6 +86,9 @@ _human_format = (
     "<level>{message}</level>"
 )
 
+# Track the human-mode handler ID so it can be swapped for Rich integration
+_human_handler_id: int | None = None
+
 # Console handler - choose format based on JSON mode
 if _json_mode:
     logger.add(
@@ -92,7 +97,7 @@ if _json_mode:
         colorize=False,
     )
 else:
-    logger.add(
+    _human_handler_id = logger.add(
         sys.stderr,
         level=_log_level,
         format=_human_format,
@@ -101,8 +106,30 @@ else:
 
 # Optional file handler (always NDJSON for machine parsing)
 if _log_file:
+    def _file_pino_sink(message):
+        """Write Pino-format JSON to the configured log file."""
+        record = message.record
+        pino_log = {
+            "level": PINO_LEVELS.get(record["level"].name, 30),
+            "time": int(record["time"].timestamp() * 1000),
+            "msg": record["message"],
+            "pid": record["process"].id,
+            "request_id": record["extra"].get("request_id", _request_id),
+        }
+        for key, value in record["extra"].items():
+            if key not in ("request_id",):
+                pino_log[key] = value
+        if record["exception"]:
+            pino_log["err"] = {
+                "type": record["exception"].type.__name__ if record["exception"].type else "Error",
+                "message": str(record["exception"].value) if record["exception"].value else "",
+            }
+        # Write directly to file - never call logger.* inside a sink
+        with open(_log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(pino_log) + "\n")
+
     logger.add(
-        pino_compatible_sink,
+        _file_pino_sink,
         level="DEBUG",  # File always captures everything
     )
 
@@ -132,6 +159,76 @@ def get_request_id() -> str:
     return _request_id
 
 
+def swap_to_rich_sink(rich_sink_fn) -> int | None:
+    """Swap stderr handler to a Rich-compatible sink for Live display integration.
+
+    When Rich Live is active, logs to stderr get overwritten by Live's refresh.
+    This function removes the stderr handler and adds a custom sink that routes
+    logs through Rich's console (which knows how to print above Live displays).
+
+    Args:
+        rich_sink_fn: A callable that accepts loguru message objects.
+                      Typically renderer.log_message from RichRenderer.
+
+    Returns:
+        The new handler ID, or None if in JSON mode (no swap needed).
+
+    Usage:
+        # In renderer.start():
+        self._loguru_handler_id = swap_to_rich_sink(self.log_message)
+
+        # In renderer.stop():
+        restore_stderr_sink(self._loguru_handler_id)
+    """
+    global _human_handler_id
+
+    # In JSON mode, we don't use stderr for human output - no swap needed
+    if _json_mode or _human_handler_id is None:
+        return None
+
+    # Remove the stderr handler
+    logger.remove(_human_handler_id)
+    _human_handler_id = None
+
+    # Add the Rich sink (format is handled by Rich, so use simple format)
+    new_handler_id = logger.add(
+        rich_sink_fn,
+        level=_log_level,
+        format=_human_format,
+        colorize=True,
+    )
+
+    return new_handler_id
+
+
+def restore_stderr_sink(rich_handler_id: int | None) -> None:
+    """Restore the default stderr handler after Rich Live display ends.
+
+    Args:
+        rich_handler_id: The handler ID returned by swap_to_rich_sink().
+    """
+    global _human_handler_id
+
+    # In JSON mode, nothing to restore
+    if _json_mode:
+        return
+
+    # Remove the Rich handler if it exists
+    if rich_handler_id is not None:
+        try:
+            logger.remove(rich_handler_id)
+        except ValueError:
+            pass  # Already removed
+
+    # Restore stderr handler
+    _human_handler_id = logger.add(
+        sys.stderr,
+        level=_log_level,
+        format=_human_format,
+        colorize=True,
+    )
+
+
 def get_subprocess_env() -> dict:
     """Get environment dict with REQUEST_ID for subprocess calls.
 
@@ -147,4 +244,11 @@ def get_subprocess_env() -> dict:
     return env
 
 
-__all__ = ["logger", "configure_file_logging", "get_request_id", "get_subprocess_env"]
+__all__ = [
+    "logger",
+    "configure_file_logging",
+    "get_request_id",
+    "get_subprocess_env",
+    "swap_to_rich_sink",
+    "restore_stderr_sink",
+]

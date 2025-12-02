@@ -13,10 +13,10 @@ authors = [
     {name = "TheAuditor Team"}
 ]
 dependencies = [
-    # BOOTSTRAP ONLY: Minimal CLI to trigger sandbox setup
-    # ALL actual analysis runs in .auditor_venv/ sandbox
+    # Core CLI and output
     "click==8.3.1",
     "rich>=13.0.0",
+    "loguru==0.7.3",
 ]
 
 [project.optional-dependencies]
@@ -45,8 +45,6 @@ runtime = [
     "networkx==3.5",
     # Git object database (shadow snapshots)
     "pygit2>=1.14.0",
-    # Structured logging with Pino-compatible output
-    "loguru==0.7.3",
 ]
 
 # Development tools (for developing TheAuditor itself)
