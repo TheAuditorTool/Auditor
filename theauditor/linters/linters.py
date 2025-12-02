@@ -81,8 +81,20 @@ class LinterOrchestrator:
             findings.extend(self._run_clippy())
 
         if findings:
-            logger.info(f"Writing {len(findings)} findings to database")
-            self.db.write_findings_batch(findings, "lint")
+            # Filter out findings for files not in the database (e.g., venv, node_modules, typeshed stubs)
+            # These cause FK violations since they weren't indexed
+            excluded_prefixes = (".auditor_venv", ".venv", "node_modules", "__pycache__")
+            original_count = len(findings)
+            findings = [
+                f for f in findings
+                if not f.get("file", "").startswith(excluded_prefixes)
+            ]
+            if len(findings) < original_count:
+                logger.info(f"Filtered {original_count - len(findings)} findings from excluded paths")
+
+            if findings:
+                logger.info(f"Writing {len(findings)} findings to database")
+                self.db.write_findings_batch(findings, "lint")
 
         self._write_json_output(findings)
 
