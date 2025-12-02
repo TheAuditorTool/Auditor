@@ -474,6 +474,31 @@ class BashCommandsTable:
         return [dict(zip(['file', 'line', 'command_name', 'pipeline_position', 'containing_function', 'wrapped_command'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class BashControlFlowsTable:
+    """Accessor class for bash_control_flows table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_control_flows."""
+        query = build_query('bash_control_flows', ['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_control_flows', ['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_type(cursor: sqlite3.Cursor, type: str) -> list[dict[str, Any]]:
+        """Get rows by type."""
+        query = build_query('bash_control_flows', ['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'], where="type = ?")
+        cursor.execute(query, (type,))
+        return [dict(zip(['file', 'line', 'end_line', 'type', 'condition', 'has_else', 'case_value', 'num_patterns', 'loop_variable', 'iterable', 'loop_expression', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class BashFunctionsTable:
     """Accessor class for bash_functions table."""
 
@@ -540,6 +565,24 @@ class BashRedirectionsTable:
         query = build_query('bash_redirections', ['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], where="direction = ?")
         cursor.execute(query, (direction,))
         return [dict(zip(['file', 'line', 'direction', 'target', 'fd_number', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class BashSetOptionsTable:
+    """Accessor class for bash_set_options table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from bash_set_options."""
+        query = build_query('bash_set_options', ['file', 'line', 'options', 'containing_function'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'options', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> list[dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('bash_set_options', ['file', 'line', 'options', 'containing_function'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'options', 'containing_function'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class BashSourcesTable:
@@ -2374,16 +2417,16 @@ class GoTypeParamsTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from go_type_params."""
-        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'])
+        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'type_constraint'])
         cursor.execute(query)
-        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'type_constraint'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_parent_name(cursor: sqlite3.Cursor, parent_name: str) -> list[dict[str, Any]]:
         """Get rows by parent_name."""
-        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], where="parent_name = ?")
+        query = build_query('go_type_params', ['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'type_constraint'], where="parent_name = ?")
         cursor.execute(query, (parent_name,))
-        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'constraint'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file', 'line', 'parent_name', 'parent_kind', 'param_index', 'param_name', 'type_constraint'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class GoVariablesTable:

@@ -151,6 +151,21 @@ class BashCommandsRow(TypedDict):
     containing_function: str | None
     wrapped_command: str | None
 
+class BashControlFlowsRow(TypedDict):
+    """Row type for bash_control_flows table."""
+    file: str
+    line: int
+    end_line: int
+    type: str
+    condition: str | None
+    has_else: int | None
+    case_value: str | None
+    num_patterns: int | None
+    loop_variable: str | None
+    iterable: str | None
+    loop_expression: str | None
+    containing_function: str | None
+
 class BashFunctionsRow(TypedDict):
     """Row type for bash_functions table."""
     file: str
@@ -177,6 +192,13 @@ class BashRedirectionsRow(TypedDict):
     direction: str
     target: str
     fd_number: int | None
+    containing_function: str | None
+
+class BashSetOptionsRow(TypedDict):
+    """Row type for bash_set_options table."""
+    file: str
+    line: int
+    options: str
     containing_function: str | None
 
 class BashSourcesRow(TypedDict):
@@ -914,7 +936,7 @@ class GoTypeParamsRow(TypedDict):
     parent_kind: str
     param_index: int
     param_name: str
-    constraint: str | None
+    type_constraint: str | None
 
 class GoVariablesRow(TypedDict):
     """Row type for go_variables table."""

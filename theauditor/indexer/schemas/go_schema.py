@@ -317,7 +317,7 @@ GO_TYPE_PARAMS = TableSchema(
         Column("parent_kind", "TEXT", nullable=False),
         Column("param_index", "INTEGER", nullable=False),
         Column("param_name", "TEXT", nullable=False),
-        Column("constraint", "TEXT"),
+        Column("type_constraint", "TEXT"),
     ],
     primary_key=["file", "parent_name", "param_index"],
     indexes=[

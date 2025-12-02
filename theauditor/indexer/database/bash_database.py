@@ -185,3 +185,53 @@ class BashDatabaseMixin:
                 containing_function,
             )
         )
+
+    def add_bash_control_flow(
+        self,
+        file_path: str,
+        line: int,
+        end_line: int,
+        flow_type: str,
+        condition: str | None,
+        has_else: bool | None,
+        case_value: str | None,
+        num_patterns: int | None,
+        loop_variable: str | None,
+        iterable: str | None,
+        loop_expression: str | None,
+        containing_function: str | None,
+    ) -> None:
+        """Add a Bash control flow statement to the batch."""
+        self.generic_batches["bash_control_flows"].append(
+            (
+                file_path,
+                line,
+                end_line,
+                flow_type,
+                condition,
+                1 if has_else else (0 if has_else is not None else None),
+                case_value,
+                num_patterns,
+                loop_variable,
+                iterable,
+                loop_expression,
+                containing_function,
+            )
+        )
+
+    def add_bash_set_option(
+        self,
+        file_path: str,
+        line: int,
+        options: str,
+        containing_function: str | None,
+    ) -> None:
+        """Add a Bash set command options to the batch."""
+        self.generic_batches["bash_set_options"].append(
+            (
+                file_path,
+                line,
+                options,
+                containing_function,
+            )
+        )

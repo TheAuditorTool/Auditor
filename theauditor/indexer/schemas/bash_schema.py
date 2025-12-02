@@ -155,6 +155,45 @@ BASH_REDIRECTIONS = TableSchema(
 )
 
 
+BASH_CONTROL_FLOWS = TableSchema(
+    name="bash_control_flows",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("end_line", "INTEGER", nullable=False),
+        Column("type", "TEXT", nullable=False),  # if, case, for, c_for, while, until
+        Column("condition", "TEXT", nullable=True),  # for if/while/until
+        Column("has_else", "INTEGER", nullable=True),  # for if statements
+        Column("case_value", "TEXT", nullable=True),  # for case statements
+        Column("num_patterns", "INTEGER", nullable=True),  # for case statements
+        Column("loop_variable", "TEXT", nullable=True),  # for for loops
+        Column("iterable", "TEXT", nullable=True),  # for for loops
+        Column("loop_expression", "TEXT", nullable=True),  # for c_for loops
+        Column("containing_function", "TEXT", nullable=True),
+    ],
+    primary_key=["file", "line"],
+    indexes=[
+        ("idx_bash_control_flows_file", ["file"]),
+        ("idx_bash_control_flows_type", ["type"]),
+    ],
+)
+
+
+BASH_SET_OPTIONS = TableSchema(
+    name="bash_set_options",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("options", "TEXT", nullable=False),  # comma-separated options
+        Column("containing_function", "TEXT", nullable=True),
+    ],
+    primary_key=["file", "line"],
+    indexes=[
+        ("idx_bash_set_options_file", ["file"]),
+    ],
+)
+
+
 BASH_TABLES: dict[str, TableSchema] = {
     "bash_functions": BASH_FUNCTIONS,
     "bash_variables": BASH_VARIABLES,
@@ -164,4 +203,6 @@ BASH_TABLES: dict[str, TableSchema] = {
     "bash_pipes": BASH_PIPES,
     "bash_subshells": BASH_SUBSHELLS,
     "bash_redirections": BASH_REDIRECTIONS,
+    "bash_control_flows": BASH_CONTROL_FLOWS,
+    "bash_set_options": BASH_SET_OPTIONS,
 }

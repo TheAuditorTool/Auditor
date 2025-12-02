@@ -319,11 +319,11 @@ class GoDatabaseMixin:
         parent_kind: str,
         param_index: int,
         param_name: str,
-        constraint: str | None = None,
+        type_constraint: str | None = None,
     ):
         """Add a Go type parameter (generics) to the batch."""
         self.generic_batches["go_type_params"].append(
-            (file_path, line, parent_name, parent_kind, param_index, param_name, constraint)
+            (file_path, line, parent_name, parent_kind, param_index, param_name, type_constraint)
         )
 
     def add_go_captured_var(
