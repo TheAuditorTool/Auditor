@@ -13,7 +13,9 @@ from .constants import (
     MIN_MEMORY_LIMIT_MB,
 )
 
-if platform.system() == "Windows":
+_SYSTEM = platform.system()
+
+if _SYSTEM == "Windows":
     import ctypes
 
     class MEMORYSTATUSEX(ctypes.Structure):
@@ -35,73 +37,85 @@ else:
     ctypes = None
 
 
+def _get_total_memory_windows() -> int:
+    """Get total memory on Windows using ctypes."""
+    memory_status = MEMORYSTATUSEX()
+    memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
+    return memory_status.ullTotalPhys // (1024 * 1024)
+
+
+def _get_total_memory_linux() -> int:
+    """Get total memory on Linux from /proc/meminfo."""
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemTotal:"):
+                kb = int(line.split()[1])
+                return kb // 1024
+    raise RuntimeError("MemTotal not found in /proc/meminfo")
+
+
+def _get_total_memory_darwin() -> int:
+    """Get total memory on macOS using sysctl."""
+    import subprocess
+
+    result = subprocess.run(
+        ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=True
+    )
+    bytes_total = int(result.stdout.strip())
+    return bytes_total // (1024 * 1024)
+
+
+def _get_available_memory_windows() -> int:
+    """Get available memory on Windows using ctypes."""
+    memory_status = MEMORYSTATUSEX()
+    memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
+    return memory_status.ullAvailPhys // (1024 * 1024)
+
+
+def _get_available_memory_linux() -> int:
+    """Get available memory on Linux from /proc/meminfo."""
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                kb = int(line.split()[1])
+                return kb // 1024
+    raise RuntimeError("MemAvailable not found in /proc/meminfo")
+
+
 def get_recommended_memory_limit() -> int:
     """Get recommended memory limit based on system RAM."""
-
     env_limit = os.environ.get(ENV_MEMORY_LIMIT)
     if env_limit:
         try:
             limit = int(env_limit)
-
             if limit < 1000:
                 logger.warning(f"Memory limit {limit}MB is very low, performance will suffer")
             return limit
         except ValueError:
             logger.warning(f"Invalid {ENV_MEMORY_LIMIT} value: {env_limit}")
 
+    total_mb = None
     try:
-        if platform.system() == "Windows":
-            memory_status = MEMORYSTATUSEX()
-            memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            kernel32 = ctypes.windll.kernel32
-            kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
-
-            total_mb = memory_status.ullTotalPhys // (1024 * 1024)
-
+        if _SYSTEM == "Windows":
+            total_mb = _get_total_memory_windows()
+        elif _SYSTEM == "Linux":
+            total_mb = _get_total_memory_linux()
+        elif _SYSTEM == "Darwin":
+            total_mb = _get_total_memory_darwin()
         else:
-            total_mb = None
-
-            try:
-                import psutil
-
-                total_mb = psutil.virtual_memory().total // (1024 * 1024)
-            except ImportError:
-                pass
-
-            if not total_mb and platform.system() == "Linux":
-                try:
-                    with open("/proc/meminfo") as f:
-                        for line in f:
-                            if line.startswith("MemTotal:"):
-                                kb = int(line.split()[1])
-                                total_mb = kb // 1024
-                                break
-                except Exception:
-                    pass
-
-            if not total_mb and platform.system() == "Darwin":
-                try:
-                    import subprocess
-
-                    result = subprocess.run(
-                        ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
-                    )
-                    if result.returncode == 0:
-                        bytes_total = int(result.stdout.strip())
-                        total_mb = bytes_total // (1024 * 1024)
-                except Exception:
-                    pass
-
-            if not total_mb:
-                raise Exception("Could not detect system memory")
-
+            logger.warning(f"Unsupported platform: {_SYSTEM}")
     except Exception as e:
         logger.warning(f"Could not detect system RAM: {e}")
-        logger.info(f"Using fallback memory limit of {DEFAULT_MEMORY_LIMIT_MB}MB")
+
+    if not total_mb:
+        logger.info(f"Using default memory limit of {DEFAULT_MEMORY_LIMIT_MB}MB")
         return DEFAULT_MEMORY_LIMIT_MB
 
     recommended = int(total_mb * MEMORY_ALLOCATION_RATIO)
-
     final_limit = max(MIN_MEMORY_LIMIT_MB, min(MAX_MEMORY_LIMIT_MB, recommended))
 
     logger.info(
@@ -112,30 +126,12 @@ def get_recommended_memory_limit() -> int:
 
 
 def get_available_memory() -> int:
-    """Get currently available system memory in MB."""
+    """Get currently available system memory in MB. Returns -1 on failure."""
     try:
-        if platform.system() == "Windows":
-            memory_status = MEMORYSTATUSEX()
-            memory_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            kernel32 = ctypes.windll.kernel32
-            kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status))
-
-            return memory_status.ullAvailPhys // (1024 * 1024)
-        else:
-            try:
-                import psutil
-
-                return psutil.virtual_memory().available // (1024 * 1024)
-            except ImportError:
-                pass
-
-            if platform.system() == "Linux":
-                with open("/proc/meminfo") as f:
-                    for line in f:
-                        if line.startswith("MemAvailable:"):
-                            kb = int(line.split()[1])
-                            return kb // 1024
+        if _SYSTEM == "Windows":
+            return _get_available_memory_windows()
+        elif _SYSTEM == "Linux":
+            return _get_available_memory_linux()
     except Exception:
         pass
-
     return -1

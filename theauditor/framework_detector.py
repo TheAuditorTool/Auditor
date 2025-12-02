@@ -9,7 +9,6 @@ from typing import Any
 from theauditor.framework_registry import FRAMEWORK_REGISTRY
 from theauditor.manifest_parser import ManifestParser
 from theauditor.utils.logging import logger
-from theauditor.utils.validation_debug import log_validation
 
 
 class FrameworkDetector:
@@ -68,25 +67,6 @@ class FrameworkDetector:
                 seen[key] = fw
 
         final_frameworks = list(seen.values())
-
-        validation_frameworks = [
-            fw
-            for fw in final_frameworks
-            if FRAMEWORK_REGISTRY.get(fw["framework"], {}).get("category") == "validation"
-        ]
-        if validation_frameworks:
-            for fw in validation_frameworks:
-                log_validation(
-                    "L1-DETECT",
-                    f"Detected validation framework: {fw['framework']}",
-                    {
-                        "framework": fw["framework"],
-                        "version": fw["version"],
-                        "language": fw["language"],
-                        "source": fw["source"],
-                        "path": fw.get("path", "."),
-                    },
-                )
 
         return final_frameworks
 
@@ -206,18 +186,6 @@ class FrameworkDetector:
                                         "source": manifest_key,
                                     }
                                     self.detected_frameworks.append(fw_info)
-
-                                    if fw_config.get("category") == "validation":
-                                        log_validation(
-                                            "L1-DETECT",
-                                            f"Found validation framework: {fw_name}",
-                                            {
-                                                "framework": fw_name,
-                                                "version": version or "unknown",
-                                                "source": manifest_key,
-                                                "path": dir_path,
-                                            },
-                                        )
                                     break
                     elif isinstance(manifest_data, str):
                         if fw_name in manifest_data or (

@@ -1,7 +1,6 @@
 """Centralized tool path management for TheAuditor's sandboxed tools."""
 
 import platform
-import shutil
 from pathlib import Path
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -115,21 +114,16 @@ class Toolbox:
         return None
 
     def get_osv_scanner(self, required: bool = True) -> str | None:
-        """Get path to OSV-Scanner binary."""
+        """Get path to OSV-Scanner binary in sandbox."""
         osv_dir = self.sandbox / "osv-scanner"
-
         bundled = osv_dir / "osv-scanner.exe" if IS_WINDOWS else osv_dir / "osv-scanner"
 
         if bundled.exists():
             return str(bundled)
 
-        system_osv = shutil.which("osv-scanner")
-        if system_osv:
-            return system_osv
-
         if required:
             raise FileNotFoundError(
-                f"osv-scanner not found at {bundled} or in system PATH. "
+                f"osv-scanner not found at {bundled}. "
                 f"Run 'aud setup-ai --target {self.root}' to install vulnerability scanners."
             )
 
@@ -152,9 +146,8 @@ class Toolbox:
         return self.sandbox / "tsconfig.json"
 
     def get_golangci_lint(self, required: bool = False) -> Path | None:
-        """Get path to golangci-lint binary.
+        """Get path to golangci-lint binary in sandbox.
 
-        Checks sandbox first, then falls back to system PATH.
         Optional by default since not all projects use Go.
 
         Args:
@@ -169,22 +162,18 @@ class Toolbox:
         if bundled.exists():
             return bundled
 
-        system_binary = shutil.which("golangci-lint")
-        if system_binary:
-            return Path(system_binary)
-
         if required:
             raise FileNotFoundError(
-                f"golangci-lint not found at {bundled} or in system PATH. "
-                f"Install via: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+                f"golangci-lint not found at {bundled}. "
+                f"Run 'aud setup-ai --target {self.root}' or install via: "
+                f"go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
             )
 
         return None
 
     def get_shellcheck(self, required: bool = False) -> Path | None:
-        """Get path to shellcheck binary.
+        """Get path to shellcheck binary in sandbox.
 
-        Checks sandbox first, then falls back to system PATH.
         Optional by default since not all projects use Bash.
 
         Args:
@@ -199,14 +188,11 @@ class Toolbox:
         if bundled.exists():
             return bundled
 
-        system_binary = shutil.which("shellcheck")
-        if system_binary:
-            return Path(system_binary)
-
         if required:
             raise FileNotFoundError(
-                f"shellcheck not found at {bundled} or in system PATH. "
-                f"Install via: apt install shellcheck / brew install shellcheck / scoop install shellcheck"
+                f"shellcheck not found at {bundled}. "
+                f"Run 'aud setup-ai --target {self.root}' or install via: "
+                f"apt install shellcheck / brew install shellcheck / scoop install shellcheck"
             )
 
         return None
