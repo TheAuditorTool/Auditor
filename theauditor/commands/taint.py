@@ -278,7 +278,7 @@ def taint_analyze(
     """
     import json as json_lib
 
-    from theauditor.config_runtime import load_runtime_config
+    from theauditor.commands.config import DB_PATH
     from theauditor.rules.orchestrator import RulesOrchestrator
     from theauditor.taint import TaintRegistry, normalize_taint_path, trace_taint
     from theauditor.utils.memory import get_recommended_memory_limit
@@ -289,10 +289,8 @@ def taint_analyze(
             f"\\[MEMORY] Using auto-detected memory limit: {memory_limit}MB", highlight=False
         )
 
-    config = load_runtime_config(".")
-
     if db is None:
-        db = config["paths"]["db"]
+        db = DB_PATH
 
     db_path = Path(db)
     if not db_path.exists():

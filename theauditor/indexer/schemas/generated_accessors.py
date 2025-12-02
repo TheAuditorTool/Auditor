@@ -5054,13 +5054,6 @@ class RustUseStatementsTable:
         return [dict(zip(['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
-    def get_by_local_name(cursor: sqlite3.Cursor, local_name: str) -> list[dict[str, Any]]:
-        """Get rows by local_name."""
-        query = build_query('rust_use_statements', ['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], where="local_name = ?")
-        cursor.execute(query, (local_name,))
-        return [dict(zip(['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], row, strict=True)) for row in cursor.fetchall()]
-
-    @staticmethod
     def get_by_canonical_path(cursor: sqlite3.Cursor, canonical_path: str) -> list[dict[str, Any]]:
         """Get rows by canonical_path."""
         query = build_query('rust_use_statements', ['file_path', 'line', 'import_path', 'local_name', 'canonical_path', 'is_glob', 'visibility'], where="canonical_path = ?")

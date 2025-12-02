@@ -150,12 +150,10 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
     import json as json_lib
     import sqlite3
 
-    from theauditor.config_runtime import load_runtime_config
-
-    config = load_runtime_config(".")
+    from theauditor.commands.config import DB_PATH
 
     if db is None:
-        db = config["paths"]["db"]
+        db = DB_PATH
 
     db_path = Path(db)
     if not db_path.exists():

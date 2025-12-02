@@ -110,7 +110,7 @@ def graphql_build(root, db, verbose):
       Updates graphql_execution_edges table
       Creates execution graph for taint analysis
     """
-    from theauditor.graphql.builder import GraphQLBuilder
+    from theauditor.graph.graphql.builder import GraphQLBuilder
 
     db_path = Path(root) / db
     if not db_path.exists():
@@ -180,7 +180,7 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
       aud graphql query --type Mutation --show-args
       aud graphql query --json > schema.json
     """
-    from theauditor.graphql.querier import GraphQLQuerier
+    from theauditor.graph.graphql.querier import GraphQLQuerier
 
     db_path = Path(db)
     if not db_path.exists():
@@ -227,7 +227,7 @@ def graphql_viz(db, output, format, type_filter):
       aud graphql viz --format png -o schema.png
       aud graphql viz --type Query              # Only Query type
     """
-    from theauditor.graphql.visualizer import GraphQLVisualizer
+    from theauditor.graph.graphql.visualizer import GraphQLVisualizer
 
     db_path = Path(db)
     if not db_path.exists():

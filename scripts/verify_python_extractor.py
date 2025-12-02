@@ -151,7 +151,7 @@ def verify_python_extractor() -> int:
     # 1. Import required modules
     print("\n[1] Loading extractor modules...")
     try:
-        from theauditor.ast_parser import ASTParser
+        from theauditor.ast_extractors.ast_parser import ASTParser
         from theauditor.indexer.extractors.python import PythonExtractor
         from pathlib import Path as PathLib
 

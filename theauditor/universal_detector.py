@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from theauditor.ast_parser import ASTParser
+from theauditor.ast_extractors.ast_parser import ASTParser
 from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RuleContext, RulesOrchestrator
 from theauditor.utils.logging import logger
