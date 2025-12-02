@@ -160,8 +160,8 @@ class RichRenderer(PipelineObserver):
             self.log_file.close()
 
     def on_stage_start(self, stage_name: str, stage_num: int) -> None:
-        header = f"\n{'=' * 60}\n[STAGE {stage_num}] {stage_name}\n{'=' * 60}"
-        self._write(header)
+        self._write("")
+        self._write(f"[bold]Stage {stage_num}[/bold]  {stage_name}")
 
     def on_phase_start(self, name: str, index: int, total: int) -> None:
         self._current_phase = index
@@ -175,12 +175,12 @@ class RichRenderer(PipelineObserver):
         self._phases[name] = {"status": "success", "elapsed": elapsed}
 
         if not self._live:
-            self._write(f"[OK] {name} completed in {elapsed:.1f}s")
+            self._write(f"[green]OK[/green]  {name}  [dim]{elapsed:.1f}s[/dim]")
 
     def on_phase_failed(self, name: str, error: str, exit_code: int) -> None:
         self._phases[name] = {"status": "FAILED", "elapsed": 0}
 
-        self._write(f"[FAILED] {name} (exit code {exit_code})", is_error=True)
+        self._write(f"[bold red]FAILED[/bold red]  {name}  [dim]exit {exit_code}[/dim]", is_error=True)
         if error:
             truncated = error[:200] + "..." if len(error) > 200 else error
             self._write(f"  Error: {truncated}", is_error=True)
@@ -223,11 +223,10 @@ class RichRenderer(PipelineObserver):
         total_time = ""
         if self._pipeline_start_time:
             elapsed = time.time() - self._pipeline_start_time
-            total_time = f" in {elapsed:.1f}s"
+            total_time = f"[dim]{elapsed:.1f}s[/dim]"
 
-        self._write(f"\n{'=' * 60}")
+        self._write("")
         if failed == 0:
-            self._write(f"[OK] AUDIT COMPLETE - All {total} phases successful{total_time}")
+            self._write(f"[bold green]AUDIT COMPLETE[/bold green]  All {total} phases successful  {total_time}")
         else:
-            self._write(f"[WARN] AUDIT COMPLETE - {failed} phases failed{total_time}")
-        self._write("=" * 60)
+            self._write(f"[bold yellow]AUDIT COMPLETE[/bold yellow]  {failed} phases failed  {total_time}")

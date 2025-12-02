@@ -10,7 +10,7 @@ from typing import Any
 
 import click
 
-from theauditor.ast_parser import ASTParser
+from theauditor.ast_extractors.ast_parser import ASTParser
 from theauditor.indexer.config import SKIP_DIRS
 from theauditor.module_resolver import ModuleResolver
 from theauditor.utils.logging import logger

@@ -34,14 +34,13 @@ RUST_USE_STATEMENTS = TableSchema(
         Column("file_path", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("import_path", "TEXT", nullable=False),
-        Column("local_name", "TEXT"),
+        Column("local_name", "TEXT", nullable=False),
         Column("canonical_path", "TEXT"),
         Column("is_glob", "BOOLEAN", default="0"),
         Column("visibility", "TEXT"),
     ],
-    primary_key=["file_path", "line"],
+    primary_key=["file_path", "line", "local_name"],
     indexes=[
-        ("idx_rust_use_local", ["local_name"]),
         ("idx_rust_use_canonical", ["canonical_path"]),
     ],
 )

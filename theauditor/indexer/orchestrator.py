@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from theauditor.ast_parser import ASTParser, ParseError
+from theauditor.ast_extractors.ast_parser import ASTParser, ParseError
 from theauditor.utils.logging import logger
 
 from ..cache.ast_cache import ASTCache

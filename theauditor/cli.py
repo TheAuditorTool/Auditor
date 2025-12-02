@@ -166,8 +166,6 @@ from theauditor.commands.graphql import graphql
 from theauditor.commands.impact import impact
 from theauditor.commands.index import index
 from theauditor.commands.init import init
-from theauditor.commands.init_config import init_config
-from theauditor.commands.init_js import init_js
 from theauditor.commands.lint import lint
 from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
@@ -191,8 +189,6 @@ index.hidden = True
 cli.add_command(init)
 cli.add_command(index)
 cli.add_command(_archive)
-cli.add_command(init_js)
-cli.add_command(init_config)
 
 
 cli.add_command(setup_ai)

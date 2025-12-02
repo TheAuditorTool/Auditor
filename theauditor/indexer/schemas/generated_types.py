@@ -2100,7 +2100,7 @@ class RustUseStatementsRow(TypedDict):
     file_path: str
     line: int
     import_path: str
-    local_name: str | None
+    local_name: str
     canonical_path: str | None
     is_glob: bool | None
     visibility: str | None

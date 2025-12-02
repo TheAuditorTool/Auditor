@@ -207,10 +207,15 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
                 expanded = _expand_grouped_import(import_path, line, visibility)
                 uses.extend(expanded)
             else:
-                local_name = None
-                if "::" in import_path and not is_glob:
+                if is_glob:
+                    # Glob imports get "*" as local_name for uniqueness in composite key
+                    local_name = "*"
+                elif "::" in import_path:
                     parts = import_path.split("::")
                     local_name = parts[-1].strip()
+                else:
+                    # Simple import like `use foo;`
+                    local_name = import_path.strip()
 
                 uses.append(
                     {

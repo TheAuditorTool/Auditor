@@ -16,7 +16,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--files", multiple=True, help="Explicit file list")
 @click.option("--include", multiple=True, help="Include glob patterns")
 @click.option("--exclude", multiple=True, help="Exclude glob patterns")
-@click.option("--max-depth", default=None, type=int, help="Maximum dependency depth")
+@click.option("--max-depth", default=10, type=int, help="Maximum dependency depth")
 @click.option("--out", default=None, help="Output workset file path")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
 def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, out, print_stats):
@@ -202,19 +202,15 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
     behavior, only which files are analyzed. For maximum confidence, run full analysis
     periodically even if using workset for daily development.
     """
-    from theauditor.config_runtime import load_runtime_config
+    from theauditor.commands.config import DB_PATH, MANIFEST_PATH, WORKSET_PATH
     from theauditor.workset import compute_workset
 
-    config = load_runtime_config(root)
-
     if db is None:
-        db = config["paths"]["db"]
+        db = DB_PATH
     if manifest is None:
-        manifest = config["paths"]["manifest"]
+        manifest = MANIFEST_PATH
     if out is None:
-        out = config["paths"]["workset"]
-    if max_depth is None:
-        max_depth = config["limits"]["max_graph_depth"]
+        out = WORKSET_PATH
 
     result = compute_workset(
         root_path=root,

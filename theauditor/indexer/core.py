@@ -87,13 +87,11 @@ class FileWalker:
     def __init__(
         self,
         root_path: Path,
-        config: dict[str, Any],
         follow_symlinks: bool = False,
         exclude_patterns: list[str] | None = None,
     ):
         """Initialize the file walker."""
         self.root_path = root_path
-        self.config = config
         self.follow_symlinks = follow_symlinks
         self.exclude_patterns = exclude_patterns or []
 
@@ -156,10 +154,6 @@ class FileWalker:
 
         try:
             file_size = file.stat().st_size
-
-            if file_size >= self.config["limits"]["max_file_size"]:
-                self.stats["large_files"] += 1
-                return None
 
             if not is_text_file(file):
                 self.stats["binary_files"] += 1

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from theauditor.config_runtime import load_runtime_config
+from theauditor.commands.config import MANIFEST_PATH
 from theauditor.pipeline.ui import console
 
 
@@ -153,8 +153,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
             builder.checkpoint_file.unlink()
 
         file_list = None
-        config = load_runtime_config(root)
-        manifest_path = Path(config["paths"]["manifest"])
+        manifest_path = Path(MANIFEST_PATH)
         if manifest_path.exists():
             console.print("Loading file manifest...")
             with open(manifest_path, encoding="utf-8") as f:

@@ -159,16 +159,14 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
 
     Auto-fix is deprecated - use native linter fix commands instead:
       eslint --fix, ruff --fix, prettier --write, black ."""
-    from theauditor.config_runtime import load_runtime_config
-
-    config = load_runtime_config(root)
+    from theauditor.commands.config import LINT_TIMEOUT, MANIFEST_PATH, WORKSET_PATH
 
     if manifest is None:
-        manifest = config["paths"]["manifest"]
+        manifest = MANIFEST_PATH
     if timeout is None:
-        timeout = config["timeouts"]["lint_timeout"]
+        timeout = LINT_TIMEOUT
     if workset_path is None and workset:
-        workset_path = config["paths"]["workset"]
+        workset_path = WORKSET_PATH
 
     actual_workset_path = workset_path if workset else None
 

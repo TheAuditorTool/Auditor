@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from theauditor.config_runtime import load_runtime_config
 from theauditor.indexer.config import DEFAULT_BATCH_SIZE
 from theauditor.indexer.core import FileWalker
 from theauditor.indexer.database import create_database_schema
@@ -35,8 +34,7 @@ def run_repository_index(
     if not root.exists():
         raise FileNotFoundError(f"Root path does not exist: {root_path}")
 
-    config = load_runtime_config(str(root))
-    walker = FileWalker(root, config, follow_symlinks, exclude_patterns)
+    walker = FileWalker(root, follow_symlinks, exclude_patterns)
     files, walk_stats = walker.walk()
 
     if dry_run:

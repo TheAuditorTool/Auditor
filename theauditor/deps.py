@@ -4,6 +4,7 @@ import json
 import platform
 import re
 import shutil
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,14 +13,21 @@ import yaml
 
 from theauditor import __version__
 from theauditor.pipeline.ui import console
-from theauditor.security import (
-    SecurityError,
-    sanitize_path,
-    sanitize_url_component,
-    validate_package_name,
-)
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
+
+
+def _validate_package_name(name: str, manager: str) -> bool:
+    """Validate package name format for a package manager."""
+    if not name or len(name) > 214:
+        return False
+    if manager == "npm":
+        return bool(re.match(r"^(@[a-z0-9][\w.-]*/)?[a-z0-9][\w.-]*$", name))
+    elif manager == "py":
+        return bool(re.match(r"^[a-zA-Z0-9][\w.-]*$", name))
+    elif manager == "docker":
+        return bool(re.match(r"^[a-z0-9][\w./:-]*$", name))
+    return False
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -76,33 +84,19 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     if debug and docker_compose_files:
         console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
     for compose_file in docker_compose_files:
-        try:
-            safe_compose_file = sanitize_path(str(compose_file), root_path)
-            deps.extend(_parse_docker_compose(safe_compose_file))
-        except SecurityError as e:
-            if debug:
-                console.print(f"Debug: Security error with {compose_file}: {e}", highlight=False)
+        deps.extend(_parse_docker_compose(compose_file))
 
     dockerfiles = list(root.glob("**/Dockerfile"))
     if debug and dockerfiles:
         console.print(f"Debug: Found Dockerfiles: {dockerfiles}", highlight=False)
     for dockerfile in dockerfiles:
-        try:
-            safe_dockerfile = sanitize_path(str(dockerfile), root_path)
-            deps.extend(_parse_dockerfile(safe_dockerfile))
-        except SecurityError as e:
-            if debug:
-                console.print(f"Debug: Security error with {dockerfile}: {e}", highlight=False)
+        deps.extend(_parse_dockerfile(dockerfile))
 
-    try:
-        cargo_toml = sanitize_path("Cargo.toml", root_path)
-        if cargo_toml.exists():
-            if debug:
-                console.print(f"Debug: Found {cargo_toml}", highlight=False)
-            deps.extend(_parse_cargo_toml(cargo_toml))
-    except SecurityError as e:
+    cargo_toml = root / "Cargo.toml"
+    if cargo_toml.exists():
         if debug:
-            console.print(f"Debug: Security error checking Cargo.toml: {e}", highlight=False)
+            console.print(f"Debug: Found {cargo_toml}", highlight=False)
+        deps.extend(_parse_cargo_toml(cargo_toml))
 
     if debug:
         console.print(f"Debug: Total dependencies found: {len(deps)}", highlight=False)
@@ -441,21 +435,17 @@ def _parse_cargo_toml(path: Path) -> list[dict[str, Any]]:
 
 def write_deps_json(deps: list[dict[str, Any]], output_path: str = "./.pf/deps.json") -> None:
     """Write dependencies to JSON file."""
-    try:
-        output = sanitize_path(output_path, ".")
-        output.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output, "w", encoding="utf-8") as f:
-            json.dump(deps, f, indent=2, sort_keys=True)
-    except SecurityError as e:
-        raise SecurityError(f"Invalid output path: {e}") from e
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(deps, f, indent=2, sort_keys=True)
 
 
 async def _fetch_npm_async(client, name: str) -> str | None:
     """Fetch latest version from npm registry (async)."""
-    if not validate_package_name(name, "npm"):
+    if not _validate_package_name(name, "npm"):
         return None
-    url = f"https://registry.npmjs.org/{sanitize_url_component(name)}"
+    url = f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='')}"
     try:
         resp = await client.get(url)
         if resp.status_code == 200:
@@ -467,10 +457,10 @@ async def _fetch_npm_async(client, name: str) -> str | None:
 
 async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | None:
     """Fetch latest version from PyPI (async)."""
-    if not validate_package_name(name, "py"):
+    if not _validate_package_name(name, "py"):
         return None
 
-    safe_name = sanitize_url_component(_canonicalize_name(name))
+    safe_name = urllib.parse.quote(_canonicalize_name(name), safe="")
     url = f"https://pypi.org/pypi/{safe_name}/json"
 
     try:
@@ -497,7 +487,7 @@ async def _fetch_docker_async(
     client, name: str, current_tag: str, allow_prerelease: bool
 ) -> str | None:
     """Fetch latest Docker tag from Docker Hub (async)."""
-    if not validate_package_name(name, "docker"):
+    if not _validate_package_name(name, "docker"):
         return None
     if "/" not in name:
         name = f"library/{name}"
@@ -992,14 +982,10 @@ def write_deps_latest_json(
     latest_info: dict[str, dict[str, Any]], output_path: str = "./.pf/deps_latest.json"
 ) -> None:
     """Write latest version info to JSON file."""
-    try:
-        output = sanitize_path(output_path, ".")
-        output.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output, "w", encoding="utf-8") as f:
-            json.dump(latest_info, f, indent=2, sort_keys=True)
-    except SecurityError as e:
-        raise SecurityError(f"Invalid output path: {e}") from e
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(latest_info, f, indent=2, sort_keys=True)
 
 
 def _create_versioned_backup(path: Path) -> Path:
@@ -1162,15 +1148,9 @@ def _upgrade_requirements_txt(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade a requirements.txt file to latest versions."""
+    _create_versioned_backup(path)
 
-    try:
-        safe_path = sanitize_path(str(path), ".")
-    except SecurityError:
-        return 0
-
-    _create_versioned_backup(safe_path)
-
-    with open(safe_path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     latest_versions = {}
@@ -1198,7 +1178,7 @@ def _upgrade_requirements_txt(
         else:
             updated_lines.append(original_line)
 
-    with open(safe_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.writelines(updated_lines)
 
     return count
@@ -1208,15 +1188,9 @@ def _upgrade_package_json(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade package.json to latest versions."""
+    _create_versioned_backup(path)
 
-    try:
-        safe_path = sanitize_path(str(path), ".")
-    except SecurityError:
-        return 0
-
-    _create_versioned_backup(safe_path)
-
-    with open(safe_path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     count = 0
@@ -1235,7 +1209,7 @@ def _upgrade_package_json(
                 data["devDependencies"][name] = latest_info[key]["latest"]
                 count += 1
 
-    with open(safe_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
 
@@ -1246,15 +1220,9 @@ def _upgrade_pyproject_toml(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade pyproject.toml to latest versions - handles ALL sections."""
+    _create_versioned_backup(path)
 
-    try:
-        safe_path = sanitize_path(str(path), ".")
-    except SecurityError:
-        return 0
-
-    _create_versioned_backup(safe_path)
-
-    with open(safe_path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         content = f.read()
 
     count = 0
@@ -1309,7 +1277,7 @@ def _upgrade_pyproject_toml(
             count += 1
             content = new_content
 
-    with open(safe_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
     total_occurrences = 0
@@ -1336,15 +1304,9 @@ def _upgrade_docker_compose(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade docker-compose.yml to latest Docker image versions."""
+    _create_versioned_backup(path)
 
-    try:
-        safe_path = sanitize_path(str(path), ".")
-    except SecurityError:
-        return 0
-
-    _create_versioned_backup(safe_path)
-
-    with open(safe_path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     latest_versions = {}
@@ -1410,7 +1372,7 @@ def _upgrade_docker_compose(
         else:
             updated_lines.append(original_line)
 
-    with open(safe_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.writelines(updated_lines)
 
     check_mark = "[OK]" if IS_WINDOWS else "✓"
@@ -1425,15 +1387,9 @@ def _upgrade_dockerfile(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade Dockerfile to latest Docker base image versions."""
+    _create_versioned_backup(path)
 
-    try:
-        safe_path = sanitize_path(str(path), ".")
-    except SecurityError:
-        return 0
-
-    _create_versioned_backup(safe_path)
-
-    with open(safe_path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
     latest_versions = {}
@@ -1513,7 +1469,7 @@ def _upgrade_dockerfile(
         else:
             updated_lines.append(original_line)
 
-    with open(safe_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.writelines(updated_lines)
 
     check_mark = "[OK]" if IS_WINDOWS else "✓"
