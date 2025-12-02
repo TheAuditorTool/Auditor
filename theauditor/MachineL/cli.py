@@ -223,10 +223,14 @@ def suggest(
 
     import numpy as np
 
+    # 2025: Pipelines handle scaling internally for classifiers
+    # Only need explicit scaling for the risk regressor
     features_scaled = scaler.transform(feature_matrix)
 
-    root_cause_scores = root_cause_clf.predict_proba(features_scaled)[:, 1]
-    next_edit_scores = next_edit_clf.predict_proba(features_scaled)[:, 1]
+    # Classifiers (pipelines) take raw features
+    root_cause_scores = root_cause_clf.predict_proba(feature_matrix)[:, 1]
+    next_edit_scores = next_edit_clf.predict_proba(feature_matrix)[:, 1]
+    # Risk regressor needs scaled features
     risk_scores = np.clip(risk_reg.predict(features_scaled), 0, 1)
 
     if root_cause_calibrator is not None:
@@ -234,20 +238,10 @@ def suggest(
     if next_edit_calibrator is not None:
         next_edit_scores = next_edit_calibrator.transform(next_edit_scores)
 
+    # Note: HistGradientBoostingClassifier doesn't expose estimators_ for uncertainty
+    # We'll use score variance as a simpler uncertainty proxy in the future
     root_cause_std = np.zeros(len(file_paths))
     next_edit_std = np.zeros(len(file_paths))
-
-    if hasattr(root_cause_clf, "estimators_"):
-        tree_preds = np.array(
-            [tree.predict_proba(features_scaled)[:, 1] for tree in root_cause_clf.estimators_]
-        )
-        root_cause_std = np.std(tree_preds, axis=0)
-
-    if hasattr(next_edit_clf, "estimators_"):
-        tree_preds = np.array(
-            [tree.predict_proba(features_scaled)[:, 1] for tree in next_edit_clf.estimators_]
-        )
-        next_edit_std = np.std(tree_preds, axis=0)
 
     root_cause_ranked = sorted(
         zip(file_paths, root_cause_scores, root_cause_std, strict=False),

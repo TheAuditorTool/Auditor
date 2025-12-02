@@ -5,6 +5,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from theauditor.utils.logging import logger
+
 
 def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
     """Extract phase-level execution data from pipeline.log."""
@@ -88,8 +90,10 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
                     current_phase = None
                     continue
 
-    except Exception:
-        pass
+    except PermissionError:
+        logger.warning(f"Permission denied reading pipeline log: {log_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading pipeline log {log_path}: {e}")
 
     return phase_stats
 
@@ -178,10 +182,13 @@ def parse_journal_events(journal_path: Path) -> dict:
                         }
 
                 except json.JSONDecodeError:
+                    # Malformed line in ndjson - skip it
                     continue
 
-    except Exception:
-        pass
+    except PermissionError:
+        logger.warning(f"Permission denied reading journal: {journal_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading journal {journal_path}: {e}")
 
     return {
         "phase_timing": dict(phase_timing),
@@ -236,8 +243,12 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
             if path_length > stats[file]["max_taint_path_length"]:
                 stats[file]["max_taint_path_length"] = path_length
 
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning(f"Corrupt JSON in taint_analysis.json: {e}")
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading {file_path}: {e}")
 
     return dict(stats)
 
@@ -376,8 +387,12 @@ def parse_fce(raw_path: Path) -> dict[str, dict]:
             if source:
                 stats[source]["cross_file_dependencies"] += 1
 
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning(f"Corrupt JSON in fce.json: {e}")
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading {file_path}: {e}")
 
     return dict(stats)
 
@@ -423,8 +438,12 @@ def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
                 sum(complexities) / len(complexities) if complexities else 0.0
             )
 
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning(f"Corrupt JSON in cfg_analysis.json: {e}")
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading {file_path}: {e}")
 
     return dict(stats)
 
@@ -456,8 +475,12 @@ def parse_frameworks(raw_path: Path) -> dict[str, dict]:
             if detection.get("vulnerable", False):
                 stats[file]["has_vulnerable_version"] = True
 
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning(f"Corrupt JSON in frameworks.json: {e}")
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+    except OSError as e:
+        logger.warning(f"OS error reading {file_path}: {e}")
 
     return dict(stats)
 
@@ -471,7 +494,14 @@ def parse_graph_metrics(raw_path: Path) -> dict[str, float]:
     try:
         with open(file_path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError as e:
+        logger.warning(f"Corrupt JSON in graph_metrics.json: {e}")
+        return {}
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+        return {}
+    except OSError as e:
+        logger.warning(f"OS error reading {file_path}: {e}")
         return {}
 
 
@@ -520,7 +550,11 @@ def parse_git_churn(
 
         return git_stats
 
-    except Exception:
+    except ImportError:
+        # MetadataCollector not available
+        return {}
+    except OSError as e:
+        logger.warning(f"Git churn collection failed: {e}")
         return {}
 
 
