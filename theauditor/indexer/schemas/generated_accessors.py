@@ -1,9 +1,7 @@
 # Auto-generated accessor classes from schema
-import sqlite3
 from typing import Any
-
+import sqlite3
 from ..schema import build_query
-
 
 class AngularComponentStylesTable:
     """Accessor class for angular_component_styles table."""
