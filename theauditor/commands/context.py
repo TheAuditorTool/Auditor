@@ -180,7 +180,7 @@ def context(context_file: str, output: str | None, verbose: bool):
     enforcement. "Transitional" findings are still real issues that must be fixed
     eventually - classification just provides temporary exception tracking.
     """
-    from theauditor.insights import SemanticContext
+    from theauditor.context import SemanticContext
 
     pf_dir = Path.cwd() / ".pf"
     db_path = pf_dir / "repo_index.db"

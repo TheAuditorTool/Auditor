@@ -28,13 +28,6 @@ from theauditor.insights.ml import (
     suggest,
     train_models,
 )
-from theauditor.insights.semantic_context import (
-    ClassificationResult,
-    ContextPattern,
-    SemanticContext,
-    load_semantic_context,
-)
-
 __all__ = [
     "check_ml_available",
     "learn",
@@ -54,10 +47,6 @@ __all__ = [
     "load_ast_complexity_metrics",
     "extract_text_features",
     "fowler_noll_hash",
-    "SemanticContext",
-    "ContextPattern",
-    "ClassificationResult",
-    "load_semantic_context",
     "analyze_impact",
     "find_upstream_dependencies",
     "find_downstream_dependencies",

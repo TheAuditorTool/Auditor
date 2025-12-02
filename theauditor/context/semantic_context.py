@@ -370,7 +370,7 @@ class SemanticContext:
 
         if result.obsolete:
             lines.append("\n" + "=" * 80)
-            lines.append(f"❌ OBSOLETE PATTERNS ({len(result.obsolete)} occurrences)")
+            lines.append(f"[X] OBSOLETE PATTERNS ({len(result.obsolete)} occurrences)")
             lines.append("=" * 80)
 
             by_severity = {"critical": [], "high": [], "medium": [], "low": []}
@@ -388,7 +388,7 @@ class SemanticContext:
                     for item in display_items:
                         finding = item["finding"]
                         lines.append(
-                            f"  • {finding['file']}:{finding.get('line', '?')} "
+                            f"  * {finding['file']}:{finding.get('line', '?')} "
                             f"[{item['pattern_id']}]"
                         )
                         lines.append(f"    Reason: {item['reason']}")
@@ -400,18 +400,18 @@ class SemanticContext:
                     if not verbose and len(items) > 5:
                         lines.append(f"  ... and {len(items) - 5} more")
         else:
-            lines.append("\n✅ No obsolete patterns found!")
+            lines.append("\n[OK] No obsolete patterns found!")
 
         if result.current:
             lines.append("\n" + "=" * 80)
-            lines.append(f"✅ CURRENT PATTERNS ({len(result.current)} occurrences)")
+            lines.append(f"[OK] CURRENT PATTERNS ({len(result.current)} occurrences)")
             lines.append("=" * 80)
 
             if verbose:
                 for item in result.current[:10]:
                     finding = item["finding"]
                     lines.append(
-                        f"  • {finding['file']}:{finding.get('line', '?')} [{item['pattern_id']}]"
+                        f"  * {finding['file']}:{finding.get('line', '?')} [{item['pattern_id']}]"
                     )
                     lines.append(f"    {item['reason']}")
             else:
@@ -420,29 +420,29 @@ class SemanticContext:
 
         if result.transitional:
             lines.append("\n" + "=" * 80)
-            lines.append(f"⏳ TRANSITIONAL PATTERNS ({len(result.transitional)} occurrences)")
+            lines.append(f"[~] TRANSITIONAL PATTERNS ({len(result.transitional)} occurrences)")
             lines.append("=" * 80)
 
             for item in result.transitional:
                 finding = item["finding"]
                 lines.append(
-                    f"  • {finding['file']}:{finding.get('line', '?')} [{item['pattern_id']}]"
+                    f"  * {finding['file']}:{finding.get('line', '?')} [{item['pattern_id']}]"
                 )
                 lines.append(
                     f"    Expires: {item['expires']} "
-                    f"{'⚠️ EXPIRED' if item.get('expired') else '✓ Valid'}"
+                    f"{'[!] EXPIRED' if item.get('expired') else '[OK] Valid'}"
                 )
                 if item.get("warning"):
-                    lines.append(f"    ⚠️  {item['warning']}")
+                    lines.append(f"    [!] {item['warning']}")
 
         if result.mixed_files:
             lines.append("\n" + "=" * 80)
-            lines.append(f"⚠️  MIXED FILES ({len(result.mixed_files)} files need attention)")
+            lines.append(f"[!] MIXED FILES ({len(result.mixed_files)} files need attention)")
             lines.append("=" * 80)
             lines.append("\nThese files have both obsolete and current patterns:")
 
             for file_path, stats in sorted(result.mixed_files.items())[:10]:
-                lines.append(f"  • {file_path}")
+                lines.append(f"  * {file_path}")
                 lines.append(
                     f"    Obsolete: {stats['obsolete']} | "
                     f"Current: {stats['current']} | "
@@ -455,11 +455,11 @@ class SemanticContext:
         high_priority = result.get_high_priority_files()
         if high_priority:
             lines.append("\n" + "=" * 80)
-            lines.append(f"🔥 HIGH PRIORITY FILES ({len(high_priority)} files)")
+            lines.append(f"[!!] HIGH PRIORITY FILES ({len(high_priority)} files)")
             lines.append("=" * 80)
             lines.append("\nFiles with CRITICAL or HIGH severity obsolete patterns:")
             for file_path in high_priority[:10]:
-                lines.append(f"  • {file_path}")
+                lines.append(f"  * {file_path}")
             if len(high_priority) > 10:
                 lines.append(f"  ... and {len(high_priority) - 10} more")
 
