@@ -955,6 +955,12 @@ class PythonBranchesRow(TypedDict):
     cleanup_calls: str | None
     in_function: str | None
 
+class PythonBuildRequiresRow(TypedDict):
+    """Row type for python_build_requires table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+
 class PythonClassFeaturesRow(TypedDict):
     """Row type for python_class_features table."""
     id: int | None
@@ -1305,10 +1311,17 @@ class PythonPackageConfigsRow(TypedDict):
     file_type: str
     project_name: str | None
     project_version: str | None
-    dependencies: str | None
-    optional_dependencies: str | None
-    build_system: str | None
     indexed_at: Any | None
+
+class PythonPackageDependenciesRow(TypedDict):
+    """Row type for python_package_dependencies table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: int | None
+    group_name: str | None
+    extras: str | None
+    git_url: str | None
 
 class PythonProtocolMethodsRow(TypedDict):
     """Row type for python_protocol_methods table."""
@@ -1686,6 +1699,14 @@ class TaintFlowsRow(TypedDict):
     hops: int
     path_json: str
     flow_sensitive: int
+
+class TerraformDataSourcesRow(TypedDict):
+    """Row type for terraform_data_sources table."""
+    data_id: str
+    file_path: str
+    data_type: str
+    data_name: str
+    line: int | None
 
 class TerraformFilesRow(TypedDict):
     """Row type for terraform_files table."""

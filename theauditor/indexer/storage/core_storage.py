@@ -48,8 +48,6 @@ class CoreStorage(BaseStorage):
             "orm_relationships": self._store_orm_relationships,
             "variable_usage": self._store_variable_usage,
             "object_literals": self._store_object_literals,
-            "package_configs": self._store_package_configs,
-            "python_package_configs": self._store_package_configs,  # Alias: Python extractor sends this
         }
 
     def begin_file_processing(self) -> None:
@@ -940,20 +938,3 @@ class CoreStorage(BaseStorage):
                 obj_lit.get("in_function", ""),
             )
             self.counts["object_literals"] += 1
-
-    def _store_package_configs(self, file_path: str, package_configs: list, jsx_pass: bool):
-        """Store build analysis data."""
-        for pkg_config in package_configs:
-            self.db_manager.add_package_config(
-                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
-                pkg_config["package_name"],
-                pkg_config["version"],
-                pkg_config.get("dependencies"),
-                pkg_config.get("dev_dependencies"),
-                pkg_config.get("peer_dependencies"),
-                pkg_config.get("scripts"),
-                pkg_config.get("engines"),
-                pkg_config.get("workspaces"),
-                pkg_config.get("is_private", False),
-            )
-            self.counts["package_configs"] += 1
