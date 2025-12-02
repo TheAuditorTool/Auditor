@@ -1,7 +1,6 @@
 """Node.js/TypeScript/React/Vue database operations."""
 
 import json
-import sys
 
 
 class NodeDatabaseMixin:

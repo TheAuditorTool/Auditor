@@ -1,13 +1,13 @@
 """IFDS-based taint analyzer using pre-computed graphs."""
 
 import sqlite3
-import sys
 import time
 from collections import deque
 from typing import TYPE_CHECKING
 
-from .access_path import AccessPath
 from theauditor.utils.logging import logger
+
+from .access_path import AccessPath
 
 if TYPE_CHECKING:
     from .taint_path import TaintPath

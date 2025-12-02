@@ -1,7 +1,6 @@
 """Infrastructure storage handlers for IaC and GraphQL."""
 
 import json
-import sys
 
 from theauditor.utils.logging import logger
 

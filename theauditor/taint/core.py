@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:

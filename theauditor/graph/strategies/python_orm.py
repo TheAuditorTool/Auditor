@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from theauditor.indexer.schema import build_query
+from theauditor.utils.logging import logger
 
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
-from theauditor.utils.logging import logger
 
 if TYPE_CHECKING:
     from theauditor.taint.memory_cache import MemoryCache

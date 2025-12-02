@@ -10,7 +10,6 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
 from theauditor.utils.logging import logger
 
 

@@ -1,10 +1,7 @@
 """AST Data Extraction Engine - Language-specific implementation modules."""
 
+from . import bash_impl, go_impl, hcl_impl, rust_impl
 from . import python as python_impl
-from . import rust_impl
-from . import go_impl
-from . import bash_impl
-from . import hcl_impl
 from .base import detect_language
 
 try:

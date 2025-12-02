@@ -2,12 +2,12 @@
 
 import os
 import sqlite3
-import sys
 from collections import defaultdict
+
+from theauditor.utils.logging import logger
 
 from ..config import DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE
 from ..schema import FLUSH_ORDER, TABLES, get_table_schema
-from theauditor.utils.logging import logger
 
 
 def validate_table_name(table: str) -> str:
@@ -180,7 +180,7 @@ class BaseDatabaseManager:
             logger.error(f"  Error: {e}")
             logger.error(f"  Query: {query}")
             logger.error(f"  Batch size: {len(batch)}")
-            logger.error(f"  Sample rows (first 5):")
+            logger.error("  Sample rows (first 5):")
             for i, row in enumerate(batch[:5]):
                 logger.error(f"    [{i}] {row}")
             raise  # Re-raise: crash loud with forensics
@@ -574,7 +574,7 @@ class BaseDatabaseManager:
 
             # DIAGNOSTIC: Dump all pending batches to help identify the culprit
             logger.critical(f"\n IntegrityError in flush_batch: {error_msg}")
-            logger.critical(f"Pending batches with data:")
+            logger.critical("Pending batches with data:")
             for tbl, batch in self.generic_batches.items():
                 if batch:
                     logger.error(f"  {tbl}: {len(batch)} rows")

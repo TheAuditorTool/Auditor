@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sqlite3
+
 from theauditor.utils.logging import logger
 
 

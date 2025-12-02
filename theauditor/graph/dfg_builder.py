@@ -8,12 +8,13 @@ from typing import Any
 
 import click
 
+from theauditor.utils.logging import logger
+
 from .strategies.interceptors import InterceptorStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
 from .strategies.python_orm import PythonOrmStrategy
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
-from theauditor.utils.logging import logger
 
 
 class DFGBuilder:

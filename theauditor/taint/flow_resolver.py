@@ -3,15 +3,11 @@
 import json
 import os
 import sqlite3
-import sys
 import time
 from collections import defaultdict
 from functools import lru_cache
 
-from theauditor.utils.logger import setup_logger
 from theauditor.utils.logging import logger
-
-logger = setup_logger(__name__)
 
 
 # UNCAGED PROTOCOL: Replaced arbitrary effort limits with time budgets.

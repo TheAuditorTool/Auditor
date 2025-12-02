@@ -29,7 +29,7 @@ class TaintDiscovery:
     hardcoding pattern lists.
     """
 
-    def __init__(self, cache, registry: "TaintRegistry | None" = None):
+    def __init__(self, cache, registry: TaintRegistry | None = None):
         """Initialize with cache and optional registry for vuln type lookup."""
         self.cache = cache
         self.registry = registry

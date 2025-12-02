@@ -6,9 +6,9 @@ from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python_impl import extract_all_python_data
+from theauditor.utils.logging import logger
 
 from . import BaseExtractor
-from theauditor.utils.logging import logger
 
 
 class PythonExtractor(BaseExtractor):
@@ -23,7 +23,6 @@ class PythonExtractor(BaseExtractor):
     ) -> dict[str, Any]:
         """Extract all relevant information from a Python file."""
 
-        import sys
 
         if not hasattr(self.__class__, "_processed_files"):
             self.__class__._processed_files = set()
@@ -42,7 +41,6 @@ class PythonExtractor(BaseExtractor):
                     context = build_file_context(actual_tree, content, str(file_info["path"]))
 
                 except Exception:
-                    import traceback
 
                     logger.exception("")
 

@@ -1,7 +1,7 @@
 """Core database operations for language-agnostic patterns."""
 
 import os
-import sys
+
 from theauditor.utils.logging import logger
 
 
@@ -56,11 +56,9 @@ class CoreDatabaseMixin:
     ):
         """Add a variable assignment record to the batch."""
 
-        import os
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             batch_idx = len(self.generic_batches["assignments"])
-            import sys
 
             logger.trace(f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}")
 
