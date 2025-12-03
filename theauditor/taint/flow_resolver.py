@@ -36,7 +36,7 @@ class FlowResolver:
         self.max_depth = 100              # Was 20 - capture full framework lifecycles
         self.max_flows = 10_000_000       # Was 100,000 - no arbitrary cap
         self.max_flows_per_entry = 50_000 # Was 1,000 - allow deep exploration
-        self.time_budget_seconds = 30     # NEW: Wall clock limit replaces effort counting
+        self.time_budget_seconds = 45     # NEW: Wall clock limit replaces effort counting
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
         # Sanitizer data for path checking

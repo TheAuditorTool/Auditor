@@ -7,10 +7,61 @@ import asyncio
 import sys
 
 import click
+from rich.panel import Panel
+from rich.text import Text
 
 from theauditor.pipeline.ui import console, print_status_panel
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
+
+
+def print_audit_complete_panel(
+    total_phases: int,
+    failed_phases: int,
+    phases_with_warnings: int,
+    elapsed_time: float,
+    index_only: bool = False,
+) -> None:
+    """Print the AUDIT COMPLETE panel with styled border."""
+    minutes = elapsed_time / 60
+
+    if index_only:
+        if failed_phases == 0:
+            title = "INDEX COMPLETE"
+            status_line = f"All {total_phases} phases successful"
+            detail = f"Total time: {elapsed_time:.1f}s ({minutes:.1f} minutes)"
+            border_style = "green"
+        else:
+            title = "INDEX INCOMPLETE"
+            status_line = f"{failed_phases} phases failed"
+            detail = f"Total time: {elapsed_time:.1f}s ({minutes:.1f} minutes)"
+            border_style = "yellow"
+    elif failed_phases == 0 and phases_with_warnings == 0:
+        title = "AUDIT COMPLETE"
+        status_line = f"All {total_phases} phases successful"
+        detail = f"Total time: {elapsed_time:.1f}s ({minutes:.1f} minutes)"
+        border_style = "green"
+    elif phases_with_warnings > 0 and failed_phases == 0:
+        title = "AUDIT COMPLETE"
+        status_line = f"{phases_with_warnings} phases completed with warnings"
+        detail = f"Total time: {elapsed_time:.1f}s ({minutes:.1f} minutes)"
+        border_style = "yellow"
+    else:
+        title = "AUDIT COMPLETE"
+        status_line = f"{failed_phases} phases failed, {phases_with_warnings} with warnings"
+        detail = f"Total time: {elapsed_time:.1f}s ({minutes:.1f} minutes)"
+        border_style = "yellow"
+
+    panel = Panel(
+        Text.assemble(
+            (status_line + "\n", "bold " + border_style),
+            (detail, "dim"),
+        ),
+        title=f"[bold]{title}[/bold]",
+        border_style=border_style,
+        expand=False,
+    )
+    console.print(panel)
 
 
 @click.command()
@@ -153,27 +204,76 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     high = findings.get("high", 0)
     medium = findings.get("medium", 0)
     low = findings.get("low", 0)
+    is_index_only = result.get("index_only", False)
 
+    # === AUDIT COMPLETE Panel (fancy box) ===
+    console.print()
+    print_audit_complete_panel(
+        total_phases=result["total_phases"],
+        failed_phases=result["failed_phases"],
+        phases_with_warnings=result["phases_with_warnings"],
+        elapsed_time=result["elapsed_time"],
+        index_only=is_index_only,
+    )
+
+    # === Files Created Stats ===
+    created_files = result.get("created_files", [])
+    pf_files = [f for f in created_files if f.startswith(".pf/")]
+    raw_files = [f for f in created_files if f.startswith(".pf/raw/")]
+
+    console.print()
+    console.print(
+        f"[bold]Files Created[/bold]  "
+        f"[dim]Total:[/dim] [bold cyan]{len(created_files)}[/bold cyan]  "
+        f"[dim].pf/:[/dim] [cyan]{len(pf_files)}[/cyan]  "
+        f"[dim].pf/raw/:[/dim] [cyan]{len(raw_files)}[/cyan]"
+    )
+
+    # === Key Artifacts ===
+    console.print()
+    console.print("[bold]Key Artifacts[/bold]")
+    if is_index_only:
+        console.print("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
+        console.print("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
+        console.print("  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
+        console.print()
+        console.print("[dim]Database ready. Run 'aud full' for complete analysis (taint, patterns, fce)[/dim]")
+    else:
+        console.print("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
+        console.print("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
+        console.print("  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
+        console.print("  [cyan].pf/allfiles.md[/cyan]       [dim]Complete file list[/dim]")
+        console.print("  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
+        console.print("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
+
+    # === AUDIT FINAL STATUS Section ===
     console.print()
     console.rule("[bold]AUDIT FINAL STATUS[/bold]")
     console.print()
 
     exit_code = ExitCodes.SUCCESS
+    failed_phase_names = result.get("failed_phase_names", [])
 
     if result["failed_phases"] > 0:
-        console.print(
-            f"[bold red][WARNING] Pipeline completed with {result['failed_phases']} phase failures[/bold red]"
-        )
-        console.print("Some analysis phases could not complete successfully.")
+        # Build a concise description of what failed
+        if failed_phase_names:
+            # Extract just the phase description (strip "N. " prefix)
+            phase_descs = []
+            for name in failed_phase_names[:3]:  # Max 3 to keep it brief
+                desc = name.split(". ", 1)[-1] if ". " in name else name
+                phase_descs.append(desc)
+            failed_summary = ", ".join(phase_descs)
+            if len(failed_phase_names) > 3:
+                failed_summary += f" (+{len(failed_phase_names) - 3} more)"
+        else:
+            failed_summary = f"{result['failed_phases']} phase(s)"
+
         exit_code = ExitCodes.TASK_INCOMPLETE
-
-    if result["failed_phases"] > 0:
-        # Pipeline failed - show FAILED status, NOT clean
         print_status_panel(
-            "INCOMPLETE",
-            f"Pipeline failed with {result['failed_phases']} phase(s) not completing.",
-            "Fix pipeline errors and re-run. Results are partial.",
-            level="high",
+            "PIPELINE FAILED",
+            f"Crashed during: {failed_summary}",
+            "Check errors above. Fix and re-run. Results are partial.",
+            level="critical",
         )
     elif critical > 0:
         print_status_panel(
