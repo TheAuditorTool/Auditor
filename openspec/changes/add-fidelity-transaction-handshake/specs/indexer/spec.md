@@ -193,12 +193,13 @@ The fidelity control system SHALL ensure Python and Node extractors generate man
 - **AND** orchestrator does NOT rebuild manifest from Node output
 - **AND** log indicates "Using Node-generated manifest"
 
-#### Scenario: Fallback for legacy Node architecture
+#### Scenario: Interim compatibility for pre-Phase-5 Node output (DEPRECATED after Phase 5)
 - **WHEN** Node extraction output does NOT contain `_extraction_manifest`
 - **OR** manifest values are int format (legacy)
 - **THEN** Python orchestrator builds manifest from Node output
-- **AND** log indicates "Building manifest from Node output (legacy)"
+- **AND** log indicates "Building manifest from Node output (legacy) - upgrade to Phase 5"
 - **AND** this provides PARTIAL fidelity (cannot catch Node-internal loss)
+- **NOTE**: This interim behavior SHALL be removed after Phase 5 completion. It exists only for backward compatibility during the rollout period.
 
 ---
 
@@ -227,18 +228,44 @@ Node-generated manifests SHALL match Python manifest format exactly for interope
 
 ---
 
-### Requirement: Blocking Dependency on new-architecture-js
+### Requirement: Logging Integration
 
-Phase 5 (Node-side manifest generation) SHALL NOT proceed until the `new-architecture-js` ticket completes.
+The fidelity control system SHALL integrate with the unified logging infrastructure.
 
-#### Scenario: Prerequisite check for Phase 5
-- **WHEN** implementer begins Phase 5 tasks
-- **THEN** implementer MUST verify `new-architecture-js` is archived
-- **OR** verify `ast_extractors/javascript/dist/extractor.js` exists
-- **AND** if neither condition is met, Phase 5 MUST NOT proceed
+#### Scenario: Python fidelity uses Loguru
+- **WHEN** `reconcile_fidelity()` logs a warning or error
+- **THEN** logging uses `from theauditor.utils.logging import logger`
+- **AND** logs include `request_id` for correlation
 
-#### Scenario: Rationale for blocking
-- **GIVEN** current Node architecture uses runtime JS concatenation
-- **AND** this architecture is fragile and error-prone
-- **THEN** bolting manifest generation onto fragile architecture is rejected
-- **AND** manifest generation MUST be added during TypeScript refactor
+#### Scenario: Node fidelity uses Pino
+- **WHEN** Node manifest generation logs debug info
+- **THEN** logging uses `import { logger } from './utils/logger'`
+- **AND** logs go to stderr (not stdout)
+- **AND** logs include `request_id` from environment
+
+#### Scenario: Rich displays fidelity errors
+- **WHEN** `DataFidelityError` is raised during pipeline execution
+- **AND** Rich Live display is active
+- **THEN** error renders correctly via `swap_to_rich_sink()` integration
+- **AND** error message is visible above Live display
+
+---
+
+### Requirement: TypeScript Bundle Architecture Dependency
+
+Phase 5 (Node-side manifest generation) SHALL require the TypeScript bundle architecture to be operational.
+
+The system SHALL verify bundle existence before Phase 5 implementation begins.
+
+#### Scenario: Bundle exists before Phase 5 work
+- **WHEN** implementer begins Phase 5 implementation
+- **THEN** `ast_extractors/javascript/dist/extractor.cjs` SHALL exist
+- **AND** `ast_extractors/javascript/src/main.ts` SHALL be the entry point
+- **AND** Zod validation SHALL exist in `src/schema.ts`
+- **AND** Pino logging SHALL exist in `src/utils/logger.ts`
+
+#### Scenario: TypeScript build process validates changes
+- **WHEN** implementer modifies `src/fidelity.ts` or `src/main.ts`
+- **THEN** `npm run typecheck` SHALL validate types before build
+- **AND** `npm run build` SHALL produce updated `dist/extractor.cjs`
+- **AND** `js_build_guard.py` SHALL detect source changes on next `aud full`

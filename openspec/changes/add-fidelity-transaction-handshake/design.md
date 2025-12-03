@@ -18,6 +18,86 @@ The Data Fidelity Control system was introduced after discovering ~22MB of silen
 - No database schema changes
 - Zero performance regression on main path
 
+## Infrastructure Context (VERIFIED 2025-12-03)
+
+### Logging Architecture
+
+**Python** (`theauditor/utils/logging.py`):
+- Loguru with Pino-compatible NDJSON output
+- `THEAUDITOR_LOG_LEVEL` environment variable (DEBUG|INFO|WARNING|ERROR)
+- `THEAUDITOR_REQUEST_ID` for cross-language correlation
+- Rich integration via `swap_to_rich_sink()` for Live displays
+
+**Node** (`src/utils/logger.ts`):
+- Pino writing to stderr (fd 2)
+- stdout reserved for JSON data output
+- Same `THEAUDITOR_REQUEST_ID` for correlation
+
+**Pipeline UI** (`theauditor/pipeline/`):
+- Rich-based rendering with `RichRenderer`
+- Phase/task status tracking
+- Console utilities (`print_error`, `print_warning`, `print_success`)
+
+**Implication**: Fidelity errors will render correctly through the Rich pipeline UI, and logs can be correlated across Python/Node boundaries.
+
+### Storage Architecture
+
+**Handler-based design** (`storage/__init__.py`):
+```python
+class DataStorer:
+    def __init__(self, db_manager, counts):
+        self.core = CoreStorage(db_manager, counts)
+        self.python = PythonStorage(db_manager, counts)
+        self.node = NodeStorage(db_manager, counts)
+        # ... more domain handlers
+
+        self.handlers = {
+            **self.core.handlers,
+            **self.python.handlers,
+            **self.node.handlers,
+            # ...
+        }
+
+    def store(self, file_path, extracted, jsx_pass=False):
+        # PRIORITY_ORDER ensures parents before children
+        for priority_key in PRIORITY_ORDER:
+            if priority_key in extracted:
+                process_key(priority_key, extracted[priority_key])
+        # Then remaining keys
+        for data_type, data in extracted.items():
+            if data_type not in priority_set:
+                process_key(data_type, data)
+        return receipt
+```
+
+**Implication**: Receipt generation happens in `process_key()` helper at line 117-136, not directly in `store()`.
+
+### Node Extraction Architecture
+
+**TypeScript bundle** (`ast_extractors/javascript/`):
+- Source in `src/` directory (TypeScript)
+- Built via esbuild to `dist/extractor.cjs`
+- Zod validation in `src/schema.ts` before output
+- File-based I/O (not fragile stdout)
+
+**Entry point** (`src/main.ts:918-929`):
+```typescript
+const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
+try {
+  const validated = ExtractionReceiptSchema.parse(sanitizedResults);
+  fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
+} catch (e) {
+  if (e instanceof z.ZodError) {
+    console.error("[BATCH ERROR] Zod validation failed");
+    process.exit(1);
+  }
+}
+```
+
+**Implication**: Adding fidelity is inserting `attachManifest()` call before Zod validation.
+
+---
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -107,65 +187,32 @@ if dropped_cols:
 - **Inside fidelity.py**: Rejected - creates circular import risk with extractors
 - **Inside extractors base**: Rejected - Storage also needs it
 
-### Decision 5: Receipt Columns Reflect Actual Storage Behavior (Receipt Integrity)
+### Decision 5: Receipt Columns Reflect Actual Storage Behavior
 
-**What**: Receipt `columns` are derived from the **columns actually passed to SQL builders**, not from raw input `data[0].keys()`.
+**What**: Receipt `columns` are derived from the **columns actually passed to handlers**, which forward dict keys to `db_manager.add_*` methods.
 
 **Why (The Receipt Integrity Trap)**:
-If Storage has a hardcoded SQL bug that drops columns, looking at the *input data* for the receipt will hide the bug:
+If Storage has a hardcoded SQL bug that drops columns, looking at the *input data* for the receipt will hide the bug.
 
-```
-Scenario: Extractor sends {'id': 1, 'email': 'x'}
-Buggy Storage: Hardcoded SQL is `INSERT INTO users (id) ...` (drops email)
-WRONG Receipt: columns = data[0].keys() -> ['id', 'email']
-Result: Manifest says ['id', 'email']. Receipt says ['id', 'email'].
-        Fidelity check PASSES, but data was lost!
-```
-
-**The Fix**: Receipt must reflect what Storage *executed*, not what it *received*.
-
-**Implementation Pattern**:
-
-The storage layer uses a handler-based architecture where `DataStorer` aggregates domain-specific handlers (CoreStorage, PythonStorage, NodeStorage, InfrastructureStorage). Each handler is a function that calls `db_manager.add_*` methods.
-
+**Implementation** (`storage/__init__.py:117-136`, `process_key()` helper):
 ```python
-# Current architecture (storage/__init__.py:32-75)
-# DataStorer.store() iterates data types and dispatches to handlers:
-for data_type, data in extracted.items():
-    handler = self.handlers.get(data_type)  # e.g., self._store_symbols
+def process_key(data_type: str, data: Any) -> None:
+    if data_type.startswith("_"):
+        return
+    if jsx_pass and data_type not in jsx_only_types:
+        return
+
+    handler = self.handlers.get(data_type)
     if handler:
         handler(file_path, data, jsx_pass)
-        receipt[data_type] = len(data)  # Current: count only
+        # Current: count only
+        if isinstance(data, (list, dict)):
+            receipt[data_type] = len(data)
+        else:
+            receipt[data_type] = 1 if data else 0
 ```
 
-**Optimistic Receipt (Current)**:
-Receipt uses `len(data)` which only counts what was RECEIVED, not what was WRITTEN.
-
-```python
-# WRONG (Optimistic - hides storage bugs):
-receipt[data_type] = len(data)  # Just counting input
-```
-
-**Verified Receipt (Proposed)**:
-Receipt should reflect data that handlers actually processed. Since handlers call `db_manager.add_*` methods, we derive columns from the input data keys (which handlers pass through to db_manager):
-
-```python
-# CORRECT (Verified - catches schema mismatches):
-if isinstance(data, list) and data and isinstance(data[0], dict):
-    receipt[data_type] = FidelityToken.create_receipt(
-        count=len(data),
-        columns=sorted(data[0].keys()),  # Columns handler will use
-        tx_id=manifest.get(data_type, {}).get("tx_id"),
-        data_bytes=sum(len(str(v)) for row in data for v in row.values())
-    )
-```
-
-**Note on Receipt Integrity Scope**:
-The current handler architecture doesn't modify columns before passing to `db_manager`. Handlers forward the dict keys directly to `db_manager.add_*` methods. Therefore, `data[0].keys()` accurately reflects what gets written to the database. True "verified receipt" (reading back from db_manager) would require refactoring all handlers to return confirmation - deferred to future enhancement if needed.
-
-**Implication**: Fidelity now verifies extractor->storage->SQL handoff, catching bugs in all three layers.
-
----
+**Note**: The current handler architecture forwards dict keys directly to `db_manager`. Therefore `data[0].keys()` reflects what gets written.
 
 ### Decision 6: Byte Size as Warning, Not Hard Fail
 
@@ -185,66 +232,40 @@ if m_count == r_count and m_bytes > 1000 and r_bytes < m_bytes * 0.1:
 - **Hard fail on collapse**: Rejected - too many false positives initially
 - **Skip byte check entirely**: Rejected - loses "Empty Envelope" detection
 
-### Decision 7: Node-Side Manifest Generation (POLYGLOT PARITY)
+### Decision 7: Node-Side Manifest Generation (UNBLOCKED)
 
-**What**: Node extractors MUST generate `_extraction_manifest` inside the JavaScript/TypeScript bundle, not in the Python orchestrator.
+**What**: Node extractors generate `_extraction_manifest` inside the TypeScript bundle.
 
-**Why (The Manifest Provenance Problem)**:
+**Status**: UNBLOCKED. The `new-architecture-js` ticket is COMPLETE.
 
-Currently, Node extraction works like this:
+**Evidence**:
+- `dist/extractor.cjs` exists (built bundle)
+- `src/main.ts` has clean entry point with Zod validation
+- `src/utils/logger.ts` uses Pino for proper log separation
+- File-based I/O (not fragile stdout parsing)
+
+**Implementation Location** (`src/main.ts:916-929`):
+```typescript
+// Current flow:
+const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
+const validated = ExtractionReceiptSchema.parse(sanitizedResults);
+fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
+
+// New flow (Phase 5):
+const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
+const withManifest = attachManifest(sanitizedResults);  // NEW
+const validated = ExtractionReceiptSchema.parse(withManifest);
+fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
 ```
-batch_templates.js → raw JSON → javascript.py → builds manifest → reconcile_fidelity
-```
-
-The manifest is built FROM Node's output, not BY Node. If Node silently drops data (fragile extraction), the manifest just counts what arrived—it doesn't know what SHOULD have arrived.
-
-**Example of the Bug**:
-```
-Node extracts 500 symbols, but bug drops 200 silently
-Node outputs: {symbols: [...300 items...]}
-Python orchestrator builds: manifest = {symbols: {count: 300, ...}}
-Storage writes: 300 symbols
-Receipt returns: {symbols: {count: 300, ...}}
-Fidelity: manifest(300) == receipt(300) → PASS
-Result: 200 symbols lost, fidelity check PASSES
-```
-
-**The Fix**: Node must generate its own manifest BEFORE outputting JSON:
-```
-batch_templates.js → extracts data → generates manifest → outputs JSON with manifest
-javascript.py → passes through Node's manifest (does NOT rebuild)
-reconcile_fidelity → compares Node's manifest to receipt
-```
-
-**Implication for Architecture**:
-| Component | Current | Required |
-|-----------|---------|----------|
-| Node extractors | Output raw JSON | Output JSON + `_extraction_manifest` |
-| Python orchestrator | Builds manifest from Node output | Passes through Node's manifest |
-| Fidelity check | Works but blind to Node-side loss | Catches Node-side loss |
-
-**Blocked By**: `new-architecture-js` ticket which converts JS concatenation to TypeScript bundle with Zod validation. Node-side manifest generation should be added DURING that refactor, not bolted on to fragile current architecture.
 
 **Format Requirement**: Node's manifest MUST match Python's format exactly:
 ```typescript
-// Inside Node extractor (TypeScript)
-const manifest: Record<string, {
+interface FidelityManifest {
   tx_id: string;
   columns: string[];
   count: number;
   bytes: number;
-}> = {};
-
-for (const [table, rows] of Object.entries(extractedData)) {
-  manifest[table] = {
-    tx_id: crypto.randomUUID(),
-    columns: Object.keys(rows[0] ?? {}).sort(),
-    count: rows.length,
-    bytes: JSON.stringify(rows).length
-  };
 }
-
-output._extraction_manifest = manifest;
 ```
 
 ---
@@ -257,42 +278,33 @@ output._extraction_manifest = manifest;
 | Column list memory | Sorted list, typically <20 columns, ~200 bytes |
 | False positives on byte collapse | Use as warning only, threshold at 90% collapse |
 | Extractor adoption friction | Provide `FidelityToken.attach_manifest()` one-liner |
-| Python version compat | Uses `list[str]` (3.9+), `str \| None` (3.10+); project requires 3.9+ |
-| Byte calculation perf | O(N) string alloc acceptable for <1000 rows; add threshold guard if needed |
-| **Node parity delayed** | **Phase 5 blocked until new-architecture-js; document explicitly** |
+| Node TypeScript changes break build | Run `npm run typecheck` before `npm run build` |
+| Byte calculation perf | O(N) string alloc acceptable for <1000 rows |
 
 ## Migration Plan
 
-**Phase 1: Infrastructure** (this proposal)
+**Phase 1: Infrastructure**
 1. Add `fidelity_utils.py` with `FidelityToken` class
-2. Upgrade `reconcile_fidelity()` for rich tokens
-3. Upgrade `DataStorer.store()` to return rich receipts
 
-**Phase 2: Python Extractor Adoption** (this proposal)
-1. Update Python extractor manifest generation (`python_impl.py`)
-2. Full fidelity operational for Python files
+**Phase 2: Reconciliation Logic**
+1. Upgrade `reconcile_fidelity()` for rich tokens
+2. Add tx_id, columns, bytes verification
 
-**Phase 3: JavaScript Orchestrator** (this proposal - INTERIM)
-1. Update `javascript.py` to use `FidelityToken` for manifest generation
-2. **NOTE**: This is still Python-side manifest generation (counts what arrived, not what Node intended)
-3. Provides SOME protection but cannot catch Node-internal data loss
+**Phase 3: Storage Receipts**
+1. Upgrade `DataStorer.store()` to return rich receipts
+2. Modify `process_key()` helper
 
-**Phase 4: Node-Side Manifest Generation** (BLOCKED - requires `new-architecture-js`)
-1. **BLOCKED BY**: `new-architecture-js` ticket must complete first
-2. Convert Node extractors to TypeScript bundle
-3. Add Zod schema validation inside Node
-4. Generate `_extraction_manifest` inside Node BEFORE JSON output
-5. Update `javascript.py` to PASS THROUGH Node's manifest instead of rebuilding
-6. Full fidelity operational for JavaScript/TypeScript files
+**Phase 4: Python Extractor**
+1. Update `python_impl.py` manifest generation
+2. Update `javascript.py` orchestrator (interim Python-side manifest)
+
+**Phase 5: Node-Side Manifest** (UNBLOCKED)
+1. Create `src/fidelity.ts` with TypeScript `attachManifest()`
+2. Update `src/main.ts` to call `attachManifest()` before Zod validation
+3. Update `javascript.py` to detect and pass through Node manifest
+4. Run `npm run build`
 
 **Rollback**: Each phase independently revertable via git checkout.
-
-**Parity Timeline**:
-| Milestone | Python Fidelity | Node Fidelity |
-|-----------|-----------------|---------------|
-| Phase 1-2 complete | FULL | NONE |
-| Phase 3 complete | FULL | PARTIAL (counts only) |
-| Phase 4 complete | FULL | FULL |
 
 ## Resolved Questions
 
@@ -301,10 +313,10 @@ output._extraction_manifest = manifest;
 **Decision**: NO - Each pass generates its own tx_id.
 
 **Rationale**:
-- JSX pass is a separate extraction cycle with different data (symbols, assignments, etc.)
+- JSX pass is a separate extraction cycle with different data
 - Cross-referencing tx_ids between passes adds complexity without value
 - Fidelity check runs after EACH pass independently
-- Orchestrator flow (`orchestrator.py:712-721`) calls `reconcile_fidelity()` per pass
+- Orchestrator flow (`orchestrator.py:807-811`) calls `reconcile_fidelity()` per pass
 
 ### Question 2: Should bytes include nested object serialization?
 
@@ -312,8 +324,8 @@ output._extraction_manifest = manifest;
 
 **Rationale**:
 - `sum(len(str(v)) for row in rows for v in row.values())` serializes all values
-- Nested dicts/lists become string representations, contributing to byte count
-- Approximation is acceptable - the 90% collapse threshold provides margin for serialization variance
+- Nested dicts/lists become string representations
+- Approximation is acceptable - 90% collapse threshold provides margin
 - False positives are warnings, not hard fails (Decision 6)
 
 ### Question 3: What is the default strictness mode?
@@ -321,7 +333,16 @@ output._extraction_manifest = manifest;
 **Decision**: `strict=True` by default in orchestrator.
 
 **Rationale**:
-- A fidelity check that only logs warnings to a log file is functionally useless
-- The existing `reconcile_fidelity(strict=True)` call in `orchestrator.py:716-718` already uses strict mode
-- In strict mode, fidelity violations raise `DataFidelityError`, halting the pipeline
-- Non-strict mode (for debugging/migration) only logs warnings without halting
+- Fidelity check that only logs warnings is functionally useless
+- Existing `reconcile_fidelity(strict=True)` at `orchestrator.py:809` uses strict mode
+- In strict mode, violations raise `DataFidelityError`, halting pipeline
+- Non-strict mode (for debugging) only logs warnings
+
+### Question 4: How do fidelity errors render in CLI?
+
+**Decision**: Use existing `DataFidelityError` exception with Rich formatting.
+
+**Rationale**:
+- `theauditor/pipeline/ui.py` provides `print_error()` for styled errors
+- Loguru logs will appear correctly via `swap_to_rich_sink()` integration
+- Exception message includes full reconciliation report via `details` attribute
