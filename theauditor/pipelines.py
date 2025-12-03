@@ -117,7 +117,9 @@ def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> li
         seen = set()
         for metric in metrics_found[:5]:  # Max 5 metrics
             if metric not in seen:
-                output.append(f"  [dim]{metric}[/dim]")
+                # Colorize numbers to make them pop
+                colored_metric = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', metric)
+                output.append(f"  [dim]{colored_metric}[/dim]")
                 seen.add(metric)
         return output
 
@@ -125,14 +127,16 @@ def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> li
     shown = 0
     for line in lines:
         if line.strip() and not line.strip().startswith("="):
-            output.append(f"  {line.strip()}")
+            # Colorize numbers in fallback output too
+            colored_line = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', line.strip())
+            output.append(f"  {colored_line}")
             shown += 1
             if shown >= max_lines:
                 break
 
     remaining = len([l for l in lines if l.strip()]) - shown
     if remaining > 0:
-        output.append(f"  [dim]... ({remaining} more lines)[/dim]")
+        output.append(f"  [dim]... ([cyan]{remaining}[/cyan] more lines)[/dim]")
 
     return output
 
@@ -178,20 +182,54 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
         )
 
         try:
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
+            # Poll for completion while checking for interrupt
+            stdout_chunks = []
+            stderr_chunks = []
 
-            return PhaseResult(
-                name=cmd_name,
-                status=TaskStatus.SUCCESS if process.returncode == 0 else TaskStatus.FAILED,
-                elapsed=time.time() - start_time,
-                stdout=stdout_data.decode("utf-8", errors="replace"),
-                stderr=stderr_data.decode("utf-8", errors="replace"),
-                exit_code=process.returncode or 0,
-            )
+            while True:
+                # Check for interrupt every 0.5 seconds
+                if is_stop_requested():
+                    process.kill()
+                    await process.wait()
+                    return PhaseResult(
+                        name=cmd_name,
+                        status=TaskStatus.FAILED,
+                        elapsed=time.time() - start_time,
+                        stdout="",
+                        stderr="[INTERRUPTED] Process killed by user",
+                        exit_code=-2,
+                    )
 
-        except TimeoutError:
+                # Check if process finished
+                try:
+                    stdout_data, stderr_data = await asyncio.wait_for(
+                        process.communicate(), timeout=0.5
+                    )
+                    return PhaseResult(
+                        name=cmd_name,
+                        status=TaskStatus.SUCCESS if process.returncode == 0 else TaskStatus.FAILED,
+                        elapsed=time.time() - start_time,
+                        stdout=stdout_data.decode("utf-8", errors="replace"),
+                        stderr=stderr_data.decode("utf-8", errors="replace"),
+                        exit_code=process.returncode or 0,
+                    )
+                except TimeoutError:
+                    # Process still running, check elapsed time
+                    if time.time() - start_time > timeout:
+                        process.kill()
+                        await process.wait()
+                        return PhaseResult(
+                            name=cmd_name,
+                            status=TaskStatus.FAILED,
+                            elapsed=time.time() - start_time,
+                            stdout="",
+                            stderr=f"Command timed out after {timeout}s",
+                            exit_code=-1,
+                        )
+                    # Continue polling
+                    continue
+
+        except asyncio.CancelledError:
             process.kill()
             await process.wait()
             return PhaseResult(
@@ -199,8 +237,8 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
                 status=TaskStatus.FAILED,
                 elapsed=time.time() - start_time,
                 stdout="",
-                stderr=f"Command timed out after {timeout}s",
-                exit_code=-1,
+                stderr="[CANCELLED] Process killed",
+                exit_code=-2,
             )
 
     except Exception as e:
@@ -624,6 +662,13 @@ async def run_full_pipeline(
         log_lines.append("=" * 60)
 
         for phase_name, cmd in foundation_commands:
+            # Check for interrupt before starting each phase
+            if is_stop_requested():
+                renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
+                log_lines.append("[INTERRUPTED] Pipeline stopped by user")
+                failed_phases += 1
+                break
+
             current_phase += 1
             renderer.on_phase_start(phase_name, current_phase, total_phases)
             log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
@@ -766,6 +811,13 @@ async def run_full_pipeline(
             log_lines.append("Preparing data structures for parallel analysis...")
 
             for phase_name, cmd in data_prep_commands:
+                # Check for interrupt before starting each phase
+                if is_stop_requested():
+                    renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
+                    log_lines.append("[INTERRUPTED] Pipeline stopped by user")
+                    failed_phases += 1
+                    break
+
                 current_phase += 1
                 renderer.on_phase_start(phase_name, current_phase, total_phases)
                 log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
@@ -1200,7 +1252,7 @@ async def run_full_pipeline(
 
             # Display track summaries with Rich formatting
             renderer.on_log("")
-            renderer.on_log("[bold]Stage 3 Results[/bold]")
+            renderer.on_log("[bold magenta]Stage 3[/bold magenta]  [bold cyan]Results[/bold cyan]")
             for summary in track_summaries:
                 track_name = summary["name"]
                 elapsed = summary["elapsed"]
@@ -1217,23 +1269,25 @@ async def run_full_pipeline(
                     continue
 
                 # Main track line
-                findings_str = f"  [dim]({findings} findings)[/dim]" if findings > 0 else ""
+                findings_str = f"  [dim]([cyan]{findings}[/cyan] findings)[/dim]" if findings > 0 else ""
                 renderer.on_log(f"{status}  {track_name}  [dim]{elapsed:.1f}s[/dim]{findings_str}")
 
                 # Show phase breakdown for multi-phase tracks (Track B/C)
                 if summary["phases"]:
                     for phase in summary["phases"]:
                         phase_status = "[green]OK[/green]" if phase["success"] else "[red]FAIL[/red]"
-                        phase_findings = f" ({phase['findings']})" if phase["findings"] > 0 else ""
+                        phase_findings = f" ([cyan]{phase['findings']}[/cyan])" if phase["findings"] > 0 else ""
                         # Extract short name from "N. Description" format
                         short_name = phase["name"].split(". ", 1)[-1] if ". " in phase["name"] else phase["name"]
-                        renderer.on_log(f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s{phase_findings}[/dim]")
+                        renderer.on_log(f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s[/dim]{phase_findings}")
 
                 # Show Track A (taint) details from stdout
                 elif summary.get("stdout"):
                     for line in summary["stdout"].strip().split("\n"):
                         if line.strip():
-                            renderer.on_log(f"    [dim]{line.strip()}[/dim]")
+                            # Colorize numbers in cyan, keep rest dim
+                            colored_line = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', line.strip())
+                            renderer.on_log(f"    [dim]{colored_line}[/dim]")
 
                 # Show error for failed tracks
                 if not summary["success"] and summary.get("stderr"):
@@ -1249,6 +1303,13 @@ async def run_full_pipeline(
             log_lines.append("=" * 60)
 
             for phase_name, cmd in final_commands:
+                # Check for interrupt before starting each phase
+                if is_stop_requested():
+                    renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
+                    log_lines.append("[INTERRUPTED] Pipeline stopped by user")
+                    failed_phases += 1
+                    break
+
                 current_phase += 1
                 renderer.on_phase_start(phase_name, current_phase, total_phases)
                 log_lines.append(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
@@ -1280,7 +1341,7 @@ async def run_full_pipeline(
                         name=result.name,
                         status=result.status,
                         elapsed=result.elapsed,
-                        stdout="FCE output written to .pf/fce.log",
+                        stdout="FCE output written to [cyan].pf/fce.log[/cyan]",
                         stderr=result.stderr,
                         exit_code=result.exit_code,
                     )
