@@ -671,6 +671,11 @@ class BaseDatabaseManager:
             file_path = f.get("file", "")
             if not isinstance(file_path, str):
                 file_path = str(file_path or "")
+            # Normalize path to forward slashes (match files table format)
+            file_path = file_path.replace("\\", "/")
+            # Strip leading ./ (linters often prefix with this)
+            if file_path.startswith("./"):
+                file_path = file_path[2:]
 
             cfg_function = None
             cfg_complexity = None
@@ -802,4 +807,4 @@ class BaseDatabaseManager:
         self.conn.commit()
 
         if hasattr(self, "_debug") and self._debug:
-            logger.info(f"Wrote {len(findings)} findings from {tool_name} to findings_consolidated")
+            logger.info(f"Wrote {len(normalized)} findings from {tool_name} to findings_consolidated")
