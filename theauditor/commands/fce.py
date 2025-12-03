@@ -2,11 +2,12 @@
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command(name="fce")
+@click.command(name="fce", cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option("--capsules", default="./.pf/capsules", help="Capsules directory")
@@ -122,7 +123,21 @@ def fce(root, capsules, workset, timeout, print_plan):
         Cause: Loading all findings into memory for correlation
         Solution: Run on workset or split into multiple runs
 
-    Note: FCE is most effective after running 'aud full' to ensure
+    EXIT CODES:
+      0 = Success, correlations complete (may or may not have findings)
+      1 = FCE error (missing input files, timeout, malformed data)
+
+    RELATED COMMANDS:
+      aud full           # Run complete pipeline including FCE
+      aud taint-analyze  # Provides taint findings for correlation
+      aud detect-patterns # Provides pattern findings for correlation
+      aud lint           # Provides lint findings for correlation
+
+    SEE ALSO:
+      aud manual fce       # Deep dive into correlation engine concepts
+      aud manual severity  # Understand severity escalation
+
+    NOTE: FCE is most effective after running 'aud full' to ensure
     all analysis data is available for correlation."""
     from theauditor.fce import run_fce
 

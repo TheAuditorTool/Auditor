@@ -6,10 +6,11 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def graph():
     """Dependency and call graph analysis for architecture understanding and impact assessment.
@@ -71,15 +72,17 @@ def graph():
     EXAMPLE:
       aud graph query --calls api.send_email # What does send_email call?
 
-    Output:
+    OUTPUT FILES:
       .pf/graphs.db                   # SQLite database with graphs
       .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
       .pf/raw/graph_summary.json      # AI-readable summary
+
+    See: aud manual graph, aud manual callgraph, aud manual dependencies
     """
     pass
 
 
-@graph.command("build")
+@graph.command("build", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--langs", multiple=True, help="Languages to process (e.g., python, javascript)")
 @click.option("--workset", help="Path to workset.json to limit scope")
@@ -89,22 +92,38 @@ def graph():
 @click.option("--repo-db", default="./.pf/repo_index.db", help="Repo index database for file list")
 @click.option("--out-json", default="./.pf/raw/", help="JSON output directory")
 def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json):
-    """Build import and call graphs from your codebase.
+    """Build import and call graphs from indexed codebase.
 
-    Constructs two types of graphs:
-    1. Import Graph: Shows module/file dependencies (who imports what)
-    2. Call Graph: Shows function relationships (who calls what)
+    Constructs two graph types from the indexed database for architectural analysis,
+    cycle detection, and impact measurement. Supports incremental builds and workset
+    filtering for large codebases.
 
-    These graphs are the foundation for architectural analysis,
-    cycle detection, and impact measurement.
+    AI ASSISTANT CONTEXT:
+      Purpose: Construct dependency and call graphs from indexed code
+      Input: .pf/repo_index.db (refs and calls tables from 'aud full')
+      Output: .pf/graphs.db (import_nodes, import_edges, call_nodes, call_edges)
+      Prerequisites: aud full (populates refs and calls tables)
+      Integration: Required before 'aud graph analyze' or 'aud graph query'
+      Performance: ~5-30 seconds depending on codebase size
 
-    Examples:
+    GRAPH TYPES:
+      Import Graph (File-level):
+        - Nodes: Files and modules
+        - Edges: Import/require relationships
+        - Use: Circular dependency detection, module structure analysis
+
+      Call Graph (Function-level):
+        - Nodes: Functions and methods
+        - Edges: Call relationships (who calls what)
+        - Use: Execution path tracing, dead code detection
+
+    EXAMPLES:
       aud graph build                         # Full codebase
       aud graph build --langs python          # Python only
       aud graph build --workset workset.json  # Specific files
       aud graph build --resume                # Resume interrupted build
 
-    Output:
+    OUTPUT FILES:
       .pf/graphs.db - SQLite database containing:
         - import_nodes: Files and modules
         - import_edges: Import relationships
@@ -114,25 +133,29 @@ def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json)
     FLAG INTERACTIONS:
       --workset + --langs: Analyze specific files in specific languages only
       --resume: Safe to use after interrupted builds (preserves partial progress)
-      --batch-size: Larger = faster but more memory, smaller = slower but safer
+      --batch-size: Larger = faster but more memory (default 200)
 
     TROUBLESHOOTING:
       "No database found" error:
-        Solution: Run 'aud full' first to build the database
+        -> Run 'aud full' first to build the repo_index.db
 
       Graph build very slow (>10 minutes):
-        Cause: Large codebase or small batch size
-        Solution: Increase --batch-size to 500, use --workset for subset
+        -> Increase --batch-size to 500
+        -> Use --workset for subset analysis
 
       Missing edges in graph:
-        Cause: Dynamic imports or conditional requires not detected
-        Solution: This is expected - only static imports captured
+        -> Expected: only static imports captured
+        -> Dynamic imports/conditional requires not detected
 
       Memory errors during build:
-        Cause: Batch size too large for available RAM
-        Solution: Reduce --batch-size to 100 or 50
+        -> Reduce --batch-size to 100 or 50
 
-    Note: Must run 'aud full' first to build the database."""
+    RELATED COMMANDS:
+      aud full            Build the repo_index.db first
+      aud graph analyze   Detect cycles and hotspots from built graph
+      aud graph query     Query relationships in the graph
+
+    See: aud manual graph, aud manual callgraph, aud manual dependencies"""
     from theauditor.graph.builder import XGraphBuilder
     from theauditor.graph.store import XGraphStore
 
@@ -204,33 +227,68 @@ def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json)
         raise click.ClickException(str(e)) from e
 
 
-@graph.command("build-dfg")
+@graph.command("build-dfg", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--repo-db", default="./.pf/repo_index.db", help="Repo index database")
 def graph_build_dfg(root, db, repo_db):
     """Build data flow graph from indexed assignments and returns.
 
-    Constructs a data flow graph showing how data flows through variable
-    assignments and function returns. Uses normalized junction tables
-    (assignment_sources, function_return_sources) for accurate tracking.
+    Constructs a data flow graph (DFG) showing how data flows through variable
+    assignments and function returns. Essential for taint analysis and tracking
+    how user input propagates through the codebase.
 
-    Must run 'aud index' first to populate junction tables.
+    AI ASSISTANT CONTEXT:
+      Purpose: Build data flow graph for tracking variable assignments
+      Input: .pf/repo_index.db (assignments and function_return_sources tables)
+      Output: .pf/graphs.db (nodes/edges with graph_type='data_flow')
+      Prerequisites: aud full (populates assignment_sources, function_return_sources)
+      Integration: Used by taint analysis for data propagation tracking
+      Performance: ~5-20 seconds depending on assignment count
 
-    Examples:
+    DATA FLOW TRACKING:
+      Assignment Flow:
+        - Tracks: x = y (x gets value from y)
+        - Captures: variable-to-variable assignments
+        - Uses: assignment_sources junction table
+
+      Return Flow:
+        - Tracks: return value propagation
+        - Captures: which variables influence function returns
+        - Uses: function_return_sources junction table
+
+    EXAMPLES:
       aud graph build-dfg                  # Build DFG from current project
 
-    Output:
-      .pf/graphs.db - SQLite database with:
-        - nodes (graph_type='data_flow'): Variables and return values
-        - edges (graph_type='data_flow'): Assignment and return relationships
+    OUTPUT:
+      .pf/graphs.db with graph_type='data_flow':
+        - nodes: Variables and return values
+        - edges: Assignment and return relationships
 
-    Stats shown:
+    STATISTICS SHOWN:
       - Total assignments processed
-      - Assignments with source variables
+      - Assignments with source variables (tracked edges)
       - Edges created
-      - Unique variables tracked
-    """
+      - Total nodes (unique variables)
+
+    TROUBLESHOOTING:
+      "No database found" error:
+        -> Run 'aud full' first to build repo_index.db
+
+      Very few edges created:
+        -> Expected for simple variable assignments (x = 5)
+        -> DFG tracks variable-to-variable flow only
+
+      Missing data flow edges:
+        -> Complex expressions may not be fully tracked
+        -> Only direct assignments captured
+
+    RELATED COMMANDS:
+      aud full            Build the repo_index.db first
+      aud taint-analyze   Uses DFG for taint propagation
+      aud graph build     Build import/call graphs (separate from DFG)
+
+    See: aud manual graph, aud manual taint"""
     from pathlib import Path
 
     from theauditor.graph.dfg_builder import DFGBuilder
@@ -277,7 +335,7 @@ def graph_build_dfg(root, db, repo_db):
         raise click.Abort() from e
 
 
-@graph.command("analyze")
+@graph.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
@@ -326,11 +384,19 @@ def graph_analyze(root, db, out, max_depth, workset):
 
     TROUBLESHOOTING:
       No graphs found:
-        Solution: Run 'aud graph build' first
+        -> Run 'aud graph build' first
 
       Slow analysis (>30 seconds):
-        Cause: Very large graph (>10K nodes)
-        Solution: Use --workset to analyze subset, increase --max-depth cautiously"""
+        -> Very large graph (>10K nodes)
+        -> Use --workset to analyze subset, reduce --max-depth
+
+    RELATED COMMANDS:
+      aud graph build     Build the graph database first
+      aud graph query     Query specific relationships
+      aud graph viz       Visualize cycles and hotspots
+      aud impact          Focused change impact analysis
+
+    See: aud manual graph, aud manual dependencies"""
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
 
@@ -488,7 +554,7 @@ def graph_analyze(root, db, out, max_depth, workset):
         raise click.ClickException(str(e)) from e
 
 
-@graph.command("query")
+@graph.command("query", cls=RichCommand)
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--uses", help="Find who uses/imports this module or calls this function")
 @click.option("--calls", help="Find what this module/function calls or depends on")
@@ -497,7 +563,41 @@ def graph_analyze(root, db, out, max_depth, workset):
     "--format", type=click.Choice(["table", "json"]), default="table", help="Output format"
 )
 def graph_query(db, uses, calls, nearest_path, format):
-    """Query graph relationships."""
+    """Query dependency and call graph relationships interactively.
+
+    Find who uses a module, what a function calls, or trace paths between nodes.
+    Returns upstream (callers/importers) or downstream (callees/dependencies)
+    relationships from the pre-built graph database.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Interactive graph relationship queries
+      Input: .pf/graphs.db (from 'aud graph build')
+      Output: List of related nodes (table or JSON format)
+      Prerequisites: aud full, aud graph build
+      Integration: Architecture exploration, impact analysis
+      Performance: <1 second (indexed graph lookups)
+
+    EXAMPLES:
+      aud graph query --uses auth.py           # Who imports auth.py?
+      aud graph query --calls send_email       # What does send_email call?
+      aud graph query --nearest-path a.py b.py # Shortest path between files
+      aud graph query --uses api --format json # JSON output for scripting
+
+    TROUBLESHOOTING:
+      No results found:
+        -> Check node name matches exactly (case-sensitive)
+        -> Run 'aud graph build' to rebuild graph
+        -> Use partial name - graph may store full paths
+
+      Graph database not found:
+        -> Run 'aud graph build' first
+
+    RELATED COMMANDS:
+      aud graph build     Build the graph database
+      aud graph analyze   Find cycles and hotspots
+      aud impact          Change impact analysis
+
+    See: aud manual graph, aud manual callgraph"""
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
 
@@ -581,7 +681,7 @@ def graph_query(db, uses, calls, nearest_path, format):
         raise click.ClickException(str(e)) from e
 
 
-@graph.command("viz")
+@graph.command("viz", cls=RichCommand)
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option(
     "--graph-type",
@@ -630,43 +730,64 @@ def graph_viz(
     impact_target,
     show_self_loops,
 ):
-    """Visualize graphs with rich visual encoding (Graphviz).
+    """Generate visual graph representations with Graphviz.
 
-    Creates visually intelligent graphs with multiple view modes:
+    Creates visually intelligent graphs with multiple view modes and rich visual
+    encoding. Outputs DOT format by default; can generate SVG/PNG if Graphviz
+    is installed.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Visualize dependency and call graphs for architecture understanding
+      Input: .pf/graphs.db (from 'aud graph build')
+      Output: .pf/raw/*.dot (and optionally .svg/.png)
+      Prerequisites: aud graph build (optionally aud graph analyze for cycles/hotspots)
+      Integration: Architecture documentation, code review presentations
+      Performance: ~1-5 seconds (graph rendering)
 
     VIEW MODES:
-    - full: Complete graph with all nodes and edges
-    - cycles: Only nodes/edges involved in dependency cycles
-    - hotspots: Top N most connected nodes with neighbors
-    - layers: Architectural layers as subgraphs
-    - impact: Highlight impact radius of changes
+      full:     Complete graph with all nodes and edges
+      cycles:   Only nodes/edges involved in dependency cycles
+      hotspots: Top N most connected nodes with neighbors
+      layers:   Architectural layers as subgraphs
+      impact:   Highlight impact radius of changes (requires --impact-target)
 
     VISUAL ENCODING:
-    - Node Color: Programming language (Python=blue, JS=yellow, TS=blue)
-    - Node Size: Importance/connectivity (larger = more dependencies)
-    - Edge Color: Red for cycles, gray for normal
-    - Border Width: Code churn (thicker = more changes)
-    - Node Shape: box=module, ellipse=function, diamond=class
+      Node Color:   Programming language (Python=blue, JS=yellow, TS=blue)
+      Node Size:    Importance/connectivity (larger = more dependencies)
+      Edge Color:   Red for cycles, gray for normal
+      Border Width: Code churn (thicker = more changes)
+      Node Shape:   box=module, ellipse=function, diamond=class
 
-    Examples:
-        # Basic visualization
-        aud graph viz
+    EXAMPLES:
+      aud graph viz                                    # Basic visualization
+      aud graph viz --view cycles --include-analysis  # Show dependency cycles
+      aud graph viz --view hotspots --top-hotspots 5  # Top 5 hotspots
+      aud graph viz --view layers --include-analysis  # Architectural layers
+      aud graph viz --view impact --impact-target "src/auth.py"  # Impact radius
+      aud graph viz --format svg --view full          # SVG for AI analysis
 
-        # Show only dependency cycles
-        aud graph viz --view cycles --include-analysis
+    FLAG INTERACTIONS:
+      --view cycles + --include-analysis: Requires 'aud graph analyze' first
+      --view impact + --impact-target: Must specify target file/module
+      --format svg/png: Requires Graphviz installed (apt install graphviz)
 
-        # Top 5 hotspots with connections
-        aud graph viz --view hotspots --top-hotspots 5
+    TROUBLESHOOTING:
+      "No graph found" error:
+        -> Run 'aud graph build' first
 
-        # Architectural layers
-        aud graph viz --view layers --include-analysis
+      "Graphviz not found" warning:
+        -> Install: apt install graphviz (Linux), brew install graphviz (Mac)
+        -> DOT file still generated - use online viewer
 
-        # Impact analysis for a specific file
-        aud graph viz --view impact --impact-target "src/auth.py"
+      Empty cycles view:
+        -> No cycles exist (good architecture!) or run 'aud graph analyze' first
 
-        # Generate SVG for AI analysis
-        aud graph viz --format svg --view full --include-analysis
-    """
+    RELATED COMMANDS:
+      aud graph build     Build the graph database first
+      aud graph analyze   Generate cycles/hotspots data for richer viz
+      aud graph query     Query specific relationships
+
+    See: aud manual graph, aud manual dependencies"""
     from theauditor.graph.store import XGraphStore
     from theauditor.graph.visualizer import GraphVisualizer
 

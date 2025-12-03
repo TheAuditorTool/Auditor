@@ -11,11 +11,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.option(
     "--file",
     "-f",
@@ -157,8 +158,8 @@ def context(context_file: str, output: str | None, verbose: bool):
       aud refactor           # Detects schema-code mismatches
 
     SEE ALSO:
+      aud manual context     # Deep dive into semantic context concepts
       aud full --help        # Understand full analysis pipeline
-      aud explain workset    # Learn about targeted analysis
 
     TROUBLESHOOTING:
       Error: "YAML parse error":

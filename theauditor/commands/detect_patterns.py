@@ -4,11 +4,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
-@click.command("detect-patterns")
+@click.command("detect-patterns", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
 @click.option(
     "--patterns", multiple=True, help="Pattern categories to use (e.g., runtime_issues, db_issues)"
@@ -39,81 +40,82 @@ def detect_patterns(
 ):
     """Detect security vulnerabilities and code quality issues.
 
-    Runs 100+ security pattern rules across your codebase using both
-    regex and AST-based detection. Covers OWASP Top 10, CWE Top 25,
-    and framework-specific vulnerabilities.
+    DESCRIPTION:
+      Runs 100+ security pattern rules across your codebase using both
+      regex and AST-based detection. Covers OWASP Top 10, CWE Top 25,
+      and framework-specific vulnerabilities.
 
-    Pattern Categories:
-      Authentication:
-        - Hardcoded credentials and API keys
-        - Weak password validation
-        - Missing authentication checks
-        - Insecure session management
+      Detection Methods:
+        1. Pattern Matching: Fast regex-based detection
+        2. AST Analysis: Semantic understanding of code structure
+        3. Framework Detection: Django, Flask, React-specific rules
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect security vulnerabilities via pattern matching
+      Input: Source code files (Python, JavaScript, TypeScript, etc.)
+      Output: .pf/raw/patterns.json (findings with severity and CWE)
+      Prerequisites: None (can run standalone or after aud full)
+      Integration: Runs in 'aud full' pipeline Stage 3 Track B
+      Performance: 30 seconds to 5 minutes depending on codebase size
+
+    WHAT IT DETECTS:
+      Authentication Issues:
+        Hardcoded credentials, API keys, weak passwords, missing auth checks
 
       Injection Attacks:
-        - SQL injection vulnerabilities
-        - Command injection risks
-        - XSS (Cross-Site Scripting)
-        - Template injection
-        - LDAP/NoSQL injection
+        SQL injection, command injection, XSS, template injection, LDAP/NoSQL
 
       Data Security:
-        - Exposed sensitive data
-        - Insecure cryptography
-        - Weak random number generation
-        - Missing encryption
+        Exposed secrets, insecure crypto, weak RNG, missing encryption
 
       Infrastructure:
-        - Debug mode in production
-        - Insecure CORS configuration
-        - Missing security headers
-        - Exposed admin interfaces
+        Debug mode, insecure CORS, missing headers, exposed admin
 
       Code Quality:
-        - Race conditions
-        - Resource leaks
-        - Infinite loops
-        - Dead code blocks
+        Race conditions, resource leaks, infinite loops, dead code
 
-    Detection Methods:
-      1. Pattern Matching: Fast regex-based detection
-      2. AST Analysis: Semantic understanding of code structure
-      3. Framework Detection: Django, Flask, React-specific rules
-
-    Examples:
+    EXAMPLES:
       aud detect-patterns                           # Run all patterns
       aud detect-patterns --patterns auth_issues    # Specific category
       aud detect-patterns --file-filter "*.py"      # Python files only
       aud detect-patterns --no-ast                  # Regex only (faster)
       aud detect-patterns --exclude-self            # Skip TheAuditor files
 
-    Output:
-      .pf/raw/patterns.json       # All findings in JSON
+    OUTPUT FILES:
+      .pf/raw/patterns.json       All findings in JSON format
 
-    Finding Format:
-      {
-        "file": "src/auth.py",
-        "line": 42,
-        "pattern": "hardcoded_secret",
-        "severity": "critical",
-        "message": "Hardcoded API key detected",
-        "code_snippet": "api_key = 'sk_live_...'",
-        "cwe": "CWE-798"
-      }
+      Finding Format:
+        {
+          "file": "src/auth.py",
+          "line": 42,
+          "pattern": "hardcoded_secret",
+          "severity": "critical",
+          "message": "Hardcoded API key detected",
+          "cwe": "CWE-798"
+        }
 
-    Severity Levels:
-      critical - Immediate security risk
-      high     - Serious vulnerability
-      medium   - Potential issue
-      low      - Code quality concern
+    PERFORMANCE:
+      Small project (<5K LOC):    ~30 seconds
+      Large project (50K+ LOC):   2-5 minutes
+      With --no-ast:              2-3x faster but less accurate
 
-    Performance:
-      Small project:  < 30 seconds
-      Large project:  2-5 minutes
-      With AST:       2-3x slower but more accurate
+    EXIT CODES:
+      0 = Success (findings may still exist - check output)
+      1 = Error during analysis
 
-    Note: Use --with-ast for comprehensive analysis (default).
-    Disable with --no-ast for quick scans."""
+    RELATED COMMANDS:
+      aud full               # Runs this as part of complete pipeline
+      aud taint-analyze      # Complementary data flow analysis
+      aud fce                # Cross-references pattern findings
+
+    SEE ALSO:
+      aud manual patterns    # Learn about pattern detection concepts
+      aud manual severity    # Understand severity classifications
+
+    NOTE:
+      Use --with-ast for comprehensive analysis (default).
+      Disable with --no-ast for quick scans.
+      Findings are written to database for FCE correlation if repo_index.db exists."""
     from theauditor.universal_detector import UniversalPatternDetector
 
     try:

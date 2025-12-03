@@ -9,11 +9,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.option("--symbol", help="Query symbol by exact name (functions, classes, variables)")
 @click.option("--file", help="Query file by path (partial match supported)")
 @click.option("--api", help="Query API endpoint by route pattern (supports wildcards)")

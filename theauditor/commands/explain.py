@@ -19,6 +19,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
 from theauditor.pipeline.ui import console
@@ -75,7 +76,7 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
     return "symbol"
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.argument("target")
 @click.option(
     "--depth", default=1, type=int, help="Call graph depth for callers/callees (1-5, default=1)"

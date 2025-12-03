@@ -8,12 +8,13 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.context.deadcode_graph import detect_isolated_modules
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command("deadcode")
+@click.command("deadcode", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
 @click.option("--path-filter", help="Only analyze paths matching filter (e.g., 'theauditor/%')")
 @click.option(

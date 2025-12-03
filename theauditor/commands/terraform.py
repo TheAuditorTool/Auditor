@@ -9,11 +9,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def terraform():
     """Infrastructure-as-Code security analysis for Terraform configurations and provisioning flows.
@@ -62,11 +63,14 @@ def terraform():
 
     NOTE: Terraform analysis requires .tf files in project. For AWS CDK
     (Python/TypeScript), use 'aud cdk' instead.
+
+    SEE ALSO:
+      aud manual terraform   Learn about IaC security analysis
     """
     pass
 
 
-@terraform.command("provision")
+@terraform.command("provision", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--workset", is_flag=True, help="Build graph for workset files only")
 @click.option("--output", default="./.pf/raw/terraform_graph.json", help="Output JSON path")
@@ -198,7 +202,7 @@ def provision(root, workset, output, db, graphs_db):
         raise click.Abort() from e
 
 
-@terraform.command("analyze")
+@terraform.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option(
     "--severity",
@@ -314,7 +318,7 @@ def analyze(root, severity, categories, output, db):
         raise click.Abort() from e
 
 
-@terraform.command("report")
+@terraform.command("report", cls=RichCommand)
 @click.option(
     "--format",
     type=click.Choice(["text", "json", "markdown"]),

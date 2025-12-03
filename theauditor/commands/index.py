@@ -4,11 +4,12 @@ import time
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--quiet", is_flag=True, help="Minimal output")
@@ -104,8 +105,8 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
 
     For more information:
       aud full --help              # See complete pipeline documentation
-      aud explain workset          # Learn about incremental analysis
-      aud explain fce              # Understand finding correlation
+      aud manual workset           # Learn about incremental analysis
+      aud manual fce               # Understand finding correlation
 
     ════════════════════════════════════════════════════════════════════════════════
     """

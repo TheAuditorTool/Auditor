@@ -2,11 +2,12 @@
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def metadata():
     """Collect temporal and quality metadata for FCE correlation and risk analysis.
@@ -65,6 +66,7 @@ def metadata():
       aud metadata analyze
 
     SEE ALSO:
+      aud manual metadata        # Learn about churn and coverage analysis
       aud fce --help             # Understand FCE correlation engine
       aud metadata churn --help  # Detailed churn analysis options
       aud metadata coverage --help  # Coverage parsing options
@@ -75,7 +77,7 @@ def metadata():
     pass
 
 
-@metadata.command("churn")
+@metadata.command("churn", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--days", default=90, type=int, help="Number of days to analyze")
 @click.option("--output", default="./.pf/raw/churn_analysis.json", help="Output JSON path")
@@ -134,7 +136,7 @@ def analyze_churn(root, days, output):
         raise click.ClickException(str(e)) from e
 
 
-@metadata.command("coverage")
+@metadata.command("coverage", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--coverage-file", help="Path to coverage file (auto-detects if not specified)")
 @click.option("--output", default="./.pf/raw/coverage_analysis.json", help="Output JSON path")
@@ -211,7 +213,7 @@ def analyze_coverage(root, coverage_file, output):
         raise click.ClickException(str(e)) from e
 
 
-@metadata.command("analyze")
+@metadata.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--days", default=90, type=int, help="Number of days for churn analysis")
 @click.option("--coverage-file", help="Path to coverage file (optional)")

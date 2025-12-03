@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
@@ -17,7 +18,7 @@ from .. import __version__
 from ..utils.error_handler import handle_exceptions
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def workflows():
     """GitHub Actions CI/CD pipeline security analysis (supply chain attacks, permission escalation).
@@ -60,11 +61,14 @@ def workflows():
 
     NOTE: GitHub Actions security requires understanding CI/CD attack vectors.
     See GitHub Security Lab for vulnerability research and patterns.
+
+    SEE ALSO:
+      aud manual workflows   Learn about common analysis workflows
     """
     pass
 
 
-@workflows.command("analyze")
+@workflows.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--workset", is_flag=True, help="Analyze workset files only")
 @click.option(

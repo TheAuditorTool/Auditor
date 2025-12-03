@@ -9,11 +9,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def cdk():
     """AWS CDK Infrastructure-as-Code security analysis for Python/TypeScript/JavaScript.
@@ -65,11 +66,14 @@ def cdk():
 
     NOTE: CDK analysis requires CDK imports (aws_cdk library). For Terraform
     configurations (.tf files), use 'aud terraform' instead.
+
+    SEE ALSO:
+      aud manual cdk   Learn about AWS CDK security analysis
     """
     pass
 
 
-@click.command("analyze")
+@click.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--db", default="./.pf/repo_index.db", help="Source database path")
 @click.option(

@@ -5,11 +5,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def cfg():
     """Control Flow Graph complexity analysis.
@@ -28,11 +29,14 @@ def cfg():
       aud cfg analyze --complexity-threshold 15
       aud cfg analyze --find-dead-code --workset
       aud cfg viz --file auth.py --function login
+
+    SEE ALSO:
+      aud manual cfg   Learn about control flow graph analysis
     """
     pass
 
 
-@cfg.command("analyze")
+@cfg.command("analyze", cls=RichCommand)
 @click.option("--db", default=".pf/repo_index.db", help="Path to repository database")
 @click.option("--file", help="Analyze specific file only")
 @click.option("--function", help="Analyze specific function only")
@@ -207,7 +211,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         raise click.ClickException(str(e)) from e
 
 
-@cfg.command("viz")
+@cfg.command("viz", cls=RichCommand)
 @click.option("--db", default=".pf/repo_index.db", help="Path to repository database")
 @click.option("--file", required=True, help="File containing the function")
 @click.option("--function", required=True, help="Function name to visualize")

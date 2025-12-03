@@ -10,6 +10,7 @@ import click
 from rich.panel import Panel
 from rich.text import Text
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console, print_status_panel
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
@@ -64,7 +65,7 @@ def print_audit_complete_panel(
     console.print(panel)
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--quiet", is_flag=True, help="Minimal output")
@@ -93,91 +94,102 @@ def print_audit_complete_panel(
 def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_only):
     """Run comprehensive security audit pipeline (20 phases).
 
-    Executes TheAuditor's complete analysis pipeline in 4 optimized stages
-    with intelligent parallelization. This is your main command for full
-    codebase auditing.
+    DESCRIPTION:
+      Executes TheAuditor's complete analysis pipeline in 4 optimized stages
+      with intelligent parallelization. This is your main command for full
+      codebase auditing.
 
-    Pipeline Stages:
-      Stage 1: Foundation (Sequential)
-        - Index repository (build symbol database)
-        - Detect frameworks (Django, Flask, React, etc.)
+      Stage 1 - Foundation (Sequential):
+        Index repository, detect frameworks (Django, Flask, React, etc.)
 
-      Stage 2: Data Preparation (Sequential)
-        - Create workset (identify analysis targets)
-        - Build dependency graph
-        - Extract control flow graphs
+      Stage 2 - Data Preparation (Sequential):
+        Create workset, build dependency graph, extract control flow graphs
 
-      Stage 3: Heavy Analysis (3 Parallel Tracks)
-        Track A: Taint analysis (isolated for performance)
-        Track B: Static analysis & offline security (lint, patterns, graph, vuln-scan)
-        Track C: Network I/O (version checks, docs) - skipped if --offline
+      Stage 3 - Heavy Analysis (3 Parallel Tracks):
+        Track A: Taint analysis (isolated for memory)
+        Track B: Static analysis (lint, patterns, graph, vuln-scan)
+        Track C: Network I/O (version checks, docs) - skipped with --offline
 
-      Stage 4: Aggregation (Sequential)
-        - Factual Correlation Engine (cross-reference findings)
-        - Generate final report
+      Stage 4 - Aggregation (Sequential):
+        Factual Correlation Engine, generate final report
 
-    Examples:
+    AI ASSISTANT CONTEXT:
+      Purpose: Run complete security audit with 20 analysis phases
+      Input: Source code directory (any language: Python, JS/TS, Go, Rust, Bash)
+      Output: .pf/ directory with databases, findings, and reports
+      Prerequisites: None (creates .pf/ directory if missing)
+      Integration: Primary entry point - runs all other analysis tools
+      Performance: 2-20 minutes depending on codebase size
+
+    EXAMPLES:
       aud full                    # Complete audit with network operations
       aud full --index            # Fast reindex (Stage 1+2 only, ~1-3 min)
       aud full --offline          # Air-gapped analysis (no npm/pip checks)
-      aud full --exclude-self     # Skip TheAuditor's own files
       aud full --quiet            # Minimal output for CI/CD pipelines
-      aud full --wipecache        # Force cache rebuild (for corruption recovery)
+      aud full --wipecache        # Force cache rebuild (corruption recovery)
 
-    Output Files:
-      .pf/raw/*.json              # All analysis artifacts (patterns, lint, terraform, etc.)
-      .pf/pipeline.log            # Detailed execution trace
-      .pf/fce.log                 # Factual Correlation Engine output
+    COMMON WORKFLOWS:
+      First time setup:
+        aud full                  # Creates .pf/ and runs complete audit
 
-    Exit Codes:
-      0 = No issues found
-      1 = High severity findings
-      2 = Critical vulnerabilities
-      3 = Pipeline failed
+      After code changes:
+        aud full --index          # Fast reindex, then run specific analysis
 
-    Performance (with current tree-sitter architecture):
+      CI/CD pipeline:
+        aud full --quiet --offline  # Minimal output, no network
+
+      Cache problems:
+        aud full --wipecache      # Delete all caches, fresh start
+
+    OUTPUT FILES:
+      .pf/repo_index.db           Symbol database (queryable with aud query)
+      .pf/graphs.db               Call and data flow graphs
+      .pf/raw/*.json              All analysis artifacts
+      .pf/pipeline.log            Detailed execution trace
+      .pf/fce.log                 Factual Correlation Engine output
+
+    PERFORMANCE:
       Small project (<5K LOC):     ~2-3 minutes
       Medium project (20K LOC):    ~5-10 minutes
       Large monorepo (100K+ LOC):  ~15-20 minutes
+      Second run (cached):         5-10x faster
 
-      If pipeline takes >30 minutes, something is likely broken.
-      Check .pf/pipeline.log for the stuck phase.
+    EXIT CODES:
+      0 = Success, no critical or high severity issues
+      1 = High severity findings detected
+      2 = Critical vulnerabilities found
+      3 = Pipeline failed (check .pf/pipeline.log)
 
-    Cache Behavior:
-      By default, caches are PRESERVED between runs for speed:
-        - AST parsing cache (.pf/.cache/)
-        - Documentation cache (.pf/context/docs/)
+    RELATED COMMANDS:
+      aud taint-analyze           Run taint analysis separately
+      aud detect-patterns         Run pattern detection separately
+      aud workset                 Create focused file subset for analysis
+      aud fce                     Run correlation engine separately
 
-      Use --wipecache to force a complete cache rebuild.
-      This is useful for recovering from cache corruption.
-
-    FLAG INTERACTIONS:
-      --index: Run Stage 1 (index, detect-frameworks) + Stage 2 (workset, graphs, cfg, metadata)
-               Skips Stage 3 (taint, patterns, lint) and Stage 4 (fce, report)
-               Use when you just need to reindex after code changes (~1-3 min vs 30-60 min)
-      --offline + --subprocess-taint: Air-gapped taint analysis
-      --wipecache: Overrides all caching (slowest, cleanest run)
-      --quiet + --offline: Minimal output for CI/CD (fastest)
-      --exclude-self: Must be used when testing TheAuditor on itself
+    SEE ALSO:
+      aud manual pipeline         Learn about the 4-stage pipeline architecture
+      aud manual severity         Understand severity classifications
 
     TROUBLESHOOTING:
       Pipeline hangs during taint phase:
-        Solution: Use --subprocess-taint to isolate taint analysis
+        -> Use --subprocess-taint to isolate taint analysis
 
       Cache corruption errors:
-        Solution: Run with --wipecache to rebuild all caches
+        -> Run with --wipecache to rebuild all caches
 
       Network timeouts in CI:
-        Solution: Use --offline to skip version checks and docs
+        -> Use --offline to skip version checks and docs
 
       Memory errors on large codebase:
-        Solution: Run individual phases separately, not full pipeline
+        -> Run individual phases separately, not full pipeline
 
       Exit code 3 (pipeline failed):
-        Cause: One or more phases failed to complete
-        Solution: Check .pf/pipeline.log for specific phase errors
+        -> Check .pf/pipeline.log for specific phase errors
 
-    Note: Uses intelligent caching - second run is 5-10x faster"""
+    NOTE:
+      Uses intelligent caching - second run is 5-10x faster.
+      By default, caches (.pf/.cache/, .pf/context/docs/) are preserved.
+      Use --wipecache to force complete rebuild if you suspect corruption."""
     from theauditor.pipelines import run_full_pipeline
 
     if sys.platform == "win32":
