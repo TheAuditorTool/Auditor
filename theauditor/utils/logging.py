@@ -79,12 +79,21 @@ def pino_compatible_sink(message):
 
 
 # Human-readable format (no emojis - Windows CP1252 compatibility)
+# Note: <level> tag uses loguru's default colors (INFO=white, ERROR=red, etc.)
 _human_format = (
     "<green>{time:HH:mm:ss}</green> | "
     "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<cyan>{name}:{function}:{line}</cyan> - "
     "<level>{message}</level>"
 )
+
+# Custom level colors - make ERROR/WARNING more visible
+# This overrides loguru's defaults
+logger.level("DEBUG", color="<blue>")
+logger.level("INFO", color="<white>")
+logger.level("WARNING", color="<yellow>")
+logger.level("ERROR", color="<red>")
+logger.level("CRITICAL", color="<red><bold>")
 
 # Track the human-mode handler ID so it can be swapped for Rich integration
 _human_handler_id: int | None = None
@@ -190,12 +199,13 @@ def swap_to_rich_sink(rich_sink_fn) -> int | None:
     logger.remove(_human_handler_id)
     _human_handler_id = None
 
-    # Add the Rich sink - full format but NO ANSI codes (colorize=False strips tags)
+    # Add the Rich sink with ANSI color codes preserved
+    # Rich's Console.print() can render ANSI escape sequences
     new_handler_id = logger.add(
         rich_sink_fn,
         level=_log_level,
-        format=_human_format,  # Full format: timestamp | level | location - message
-        colorize=False,        # Strip color tags to plain text (no [32m garbage)
+        format=_human_format,
+        colorize=True,  # Preserve ANSI codes - Rich handles them
     )
 
     return new_handler_id

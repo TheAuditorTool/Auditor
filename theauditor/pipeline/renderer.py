@@ -197,18 +197,8 @@ class RichRenderer(PipelineObserver):
     def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
         self._phases[track_name] = {"status": "success", "elapsed": elapsed}
 
-        buffer = self._parallel_buffers.pop(track_name, [])
-        if buffer:
-            header = f"\n{'=' * 60}\n[{track_name}] Complete ({elapsed:.1f}s)\n{'=' * 60}"
-
-            if self._live:
-                self._live.console.print(header)
-                for line in buffer:
-                    self._live.console.print(line)
-            else:
-                logger.info(header)
-                for line in buffer:
-                    logger.info(line)
+        # Discard buffer - output is handled by pipelines.py track summaries
+        self._parallel_buffers.pop(track_name, None)
 
         if not self._parallel_buffers:
             self._in_parallel_mode = False

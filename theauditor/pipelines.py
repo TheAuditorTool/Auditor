@@ -3,6 +3,7 @@
 import asyncio
 import os
 import platform
+import re
 import signal
 import sys
 import time
@@ -57,6 +58,83 @@ def get_command_timeout(cmd: list[str]) -> int:
             return int(os.environ.get(env_key, timeout))
 
     return DEFAULT_TIMEOUT
+
+
+def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> list[str]:
+    """Extract and format key output from phase stdout.
+
+    Returns list of formatted lines ready for renderer.on_log().
+    Extracts metrics, suppresses noise, and keeps output clean.
+    """
+    if not stdout or not stdout.strip():
+        return []
+
+    lines = stdout.strip().split("\n")
+    output: list[str] = []
+
+    # Known patterns to extract metrics from
+    metric_patterns = [
+        # Counts and totals
+        (r'(?:total|found|wrote|detected|analyzed|indexed)\s*[:\s]*(\d+)', None),
+        # Key-value style: "Key: value"
+        (r'^[\s]*([A-Z][a-zA-Z\s]+):\s*(\d+)', lambda m: f"{m.group(1).strip()}: {m.group(2)}"),
+        # Findings breakdown
+        (r'(critical|high|medium|low|error|warning)s?\s*[:\s]*(\d+)', lambda m: f"{m.group(1).title()}: {m.group(2)}"),
+    ]
+
+    # Check if this is a table output (has --- separators or | columns)
+    is_table = any("---" in line or line.count("|") >= 2 for line in lines[:10])
+
+    # For tables (like detect-frameworks), show the whole thing
+    if is_table and len(lines) <= 30:
+        return [f"  {line}" for line in lines]
+
+    # Extract key metrics
+    metrics_found: list[str] = []
+    for line in lines:
+        line_lower = line.lower().strip()
+
+        # Skip empty lines and headers
+        if not line_lower or line_lower.startswith("=") or line_lower.startswith("-"):
+            continue
+
+        # Look for metric patterns
+        for pattern, formatter in metric_patterns:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                if formatter:
+                    metrics_found.append(formatter(match))
+                else:
+                    # Use original line if it's short enough
+                    clean_line = line.strip()
+                    if len(clean_line) <= 60:
+                        metrics_found.append(clean_line)
+                break
+
+    # If we found metrics, show them
+    if metrics_found:
+        # Dedupe while preserving order
+        seen = set()
+        for metric in metrics_found[:5]:  # Max 5 metrics
+            if metric not in seen:
+                output.append(f"  [dim]{metric}[/dim]")
+                seen.add(metric)
+        return output
+
+    # Fallback: show first few non-empty lines
+    shown = 0
+    for line in lines:
+        if line.strip() and not line.strip().startswith("="):
+            output.append(f"  {line.strip()}")
+            shown += 1
+            if shown >= max_lines:
+                break
+
+    remaining = len([l for l in lines if l.strip()]) - shown
+    if remaining > 0:
+        output.append(f"  [dim]... ({remaining} more lines)[/dim]")
+
+    return output
 
 
 _stop_requested = False
@@ -512,13 +590,24 @@ async def run_full_pipeline(
         phase_num = 1
         phase_num = renumber_phases(foundation_commands, phase_num)
         phase_num = renumber_phases(data_prep_commands, phase_num)
-        # Track A, B, C run in parallel - they don't get individual numbered phases shown
-        # Their internal phases are not shown in the main table
+
+        # Track numbering - each track gets a phase number
+        track_phase_numbers: dict[str, int] = {}
+        if track_a_commands:
+            track_phase_numbers["Track A (Taint Analysis)"] = phase_num
+            phase_num += 1
+        if track_b_commands:
+            track_phase_numbers["Track B (Static & Graph)"] = phase_num
+            phase_num += 1
+        if track_c_commands or (offline and not track_c_commands):
+            track_phase_numbers["Track C (Network I/O)"] = phase_num
+            phase_num += 1
+
         phase_num = renumber_phases(final_commands, phase_num)
 
         # Recalculate total_phases based on what actually runs
         sequential_count = len(foundation_commands) + len(data_prep_commands) + len(final_commands)
-        track_count = (1 if track_a_commands else 0) + (1 if track_b_commands else 0) + (1 if track_c_commands else 0)
+        track_count = len(track_phase_numbers)
         total_phases = sequential_count + track_count
 
         if index_only:
@@ -620,31 +709,11 @@ async def run_full_pipeline(
                     renderer.on_phase_complete(phase_name, elapsed)
                     log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
 
-                    if result.stdout:
-                        lines = result.stdout.strip().split("\n")
-
-                        if "Detect frameworks" in phase_name and len(lines) > 3:
-                            has_table = any("---" in line for line in lines[:5])
-                            if has_table:
-                                for line in lines:
-                                    renderer.on_log(f"  {line}")
-                                    log_lines.append(f"  {line}")
-                            else:
-                                for line in lines[:3]:
-                                    renderer.on_log(f"  {line}")
-                                    log_lines.append(f"  {line}")
-                                if len(lines) > 3:
-                                    truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                    renderer.on_log(truncate_msg)
-                                    log_lines.append(truncate_msg)
-                        else:
-                            for line in lines[:3]:
-                                renderer.on_log(f"  {line}")
-                                log_lines.append(f"  {line}")
-                            if len(lines) > 3:
-                                truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                renderer.on_log(truncate_msg)
-                                log_lines.append(truncate_msg)
+                    # Format and display phase output
+                    for line in _format_phase_output(result.stdout, phase_name):
+                        renderer.on_log(line)
+                        # Strip Rich markup for log file
+                        log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                 else:
                     failed_phases += 1
                     renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
@@ -737,15 +806,10 @@ async def run_full_pipeline(
                         renderer.on_phase_complete(phase_name, elapsed)
                         log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
 
-                        if result.stdout:
-                            lines = result.stdout.strip().split("\n")
-                            for line in lines[:3]:
-                                renderer.on_log(f"  {line}")
-                                log_lines.append(f"  {line}")
-                            if len(lines) > 3:
-                                truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                renderer.on_log(truncate_msg)
-                                log_lines.append(truncate_msg)
+                        # Format and display phase output
+                        for line in _format_phase_output(result.stdout, phase_name):
+                            renderer.on_log(line)
+                            log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                     else:
                         failed_phases += 1
                         renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
@@ -1000,101 +1064,183 @@ async def run_full_pipeline(
                                 exit_code=1,
                             )
 
-                    renderer.on_parallel_track_start("Track A (Taint Analysis)")
+                    track_a_num = track_phase_numbers.get("Track A (Taint Analysis)", 0)
+                    track_a_display = f"{track_a_num}. Track A (Taint Analysis)"
+                    renderer.on_parallel_track_start(track_a_display)
                     tasks.append(run_taint_async())
-                    track_names.append("Track A (Taint Analysis)")
-                    current_phase += len(track_a_commands)
+                    track_names.append(track_a_display)
+                    current_phase += 1
                 else:
-                    renderer.on_parallel_track_start("Track A (Taint Analysis)")
+                    track_a_num = track_phase_numbers.get("Track A (Taint Analysis)", 0)
+                    track_a_display = f"{track_a_num}. Track A (Taint Analysis)"
+                    renderer.on_parallel_track_start(track_a_display)
                     tasks.append(
-                        run_chain_silent(track_a_commands, root, "Track A (Taint Analysis)")
+                        run_chain_silent(track_a_commands, root, track_a_display)
                     )
-                    track_names.append("Track A (Taint Analysis)")
-                    current_phase += len(track_a_commands)
+                    track_names.append(track_a_display)
+                    current_phase += 1
 
             if track_b_commands:
-                renderer.on_parallel_track_start("Track B (Static & Graph)")
-                tasks.append(run_chain_silent(track_b_commands, root, "Track B (Static & Graph)"))
-                track_names.append("Track B (Static & Graph)")
-                current_phase += len(track_b_commands)
+                track_b_num = track_phase_numbers.get("Track B (Static & Graph)", 0)
+                track_b_display = f"{track_b_num}. Track B (Static & Graph)"
+                renderer.on_parallel_track_start(track_b_display)
+                tasks.append(run_chain_silent(track_b_commands, root, track_b_display))
+                track_names.append(track_b_display)
+                current_phase += 1
 
             if track_c_commands:
-                renderer.on_parallel_track_start("Track C (Network I/O)")
-                tasks.append(run_chain_silent(track_c_commands, root, "Track C (Network I/O)"))
-                track_names.append("Track C (Network I/O)")
-                current_phase += len(track_c_commands)
+                track_c_num = track_phase_numbers.get("Track C (Network I/O)", 0)
+                track_c_display = f"{track_c_num}. Track C (Network I/O)"
+                renderer.on_parallel_track_start(track_c_display)
+                tasks.append(run_chain_silent(track_c_commands, root, track_c_display))
+                track_names.append(track_c_display)
+                current_phase += 1
 
-            renderer.on_log("")
-            renderer.on_log("[dim]Launching parallel tracks...[/dim]")
             log_lines.append("\n[SYNC] Launching parallel tracks with asyncio.gather()...")
 
             parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
 
+            # Process results and collect summaries for display
+            track_summaries: list[dict] = []
+
+            # Add placeholder for skipped Track C in offline mode
+            if offline and not track_c_commands:
+                track_c_num = track_phase_numbers.get("Track C (Network I/O)", 0)
+                track_summaries.append({
+                    "name": f"{track_c_num}. Track C (Network I/O)",
+                    "success": True,
+                    "elapsed": 0.0,
+                    "phases": [],
+                    "findings": 0,
+                    "skipped": True,
+                    "skip_reason": "offline mode",
+                })
+
             for i, result in enumerate(parallel_results):
                 track_name = track_names[i] if i < len(track_names) else f"Track {i}"
+                summary: dict = {"name": track_name, "success": True, "elapsed": 0.0, "phases": [], "findings": 0}
 
                 if isinstance(result, Exception):
-                    renderer.on_log(f"[bold red]Error:[/bold red] {track_name} failed: {result}", is_error=True)
                     log_lines.append(f"[ERROR] {track_name} failed with exception: {result}")
+                    summary["success"] = False
+                    summary["error"] = str(result)
                     failed_phases += 1
-                    renderer.on_parallel_track_complete(track_name, 0.0)
 
                     try:
                         with open(error_log_path, "a", encoding="utf-8") as ef:
-                            ef.write(
-                                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] {track_name} exception: {result}\n"
-                            )
-                            ef.write("-" * 40 + "\n")
+                            ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] {track_name} exception: {result}\n")
                     except Exception:
                         pass
 
                 elif isinstance(result, list):
+                    # Track B/C - list of PhaseResults from run_chain_silent
                     total_elapsed = sum(r.elapsed for r in result)
                     all_success = all(r.success for r in result)
+                    summary["elapsed"] = total_elapsed
+                    summary["success"] = all_success
 
                     for phase_result in result:
-                        if phase_result.success:
-                            renderer.on_log(
-                                f"[green]OK[/green]  {phase_result.name}  [dim]{phase_result.elapsed:.1f}s[/dim]"
-                            )
-                        else:
-                            renderer.on_log(
-                                f"[bold red]FAILED[/bold red]  {phase_result.name}  [dim]{phase_result.elapsed:.1f}s[/dim]"
-                            )
-                        log_lines.append(
-                            f"{'[OK]' if phase_result.success else '[FAILED]'} {phase_result.name} ({phase_result.elapsed:.1f}s)"
-                        )
+                        phase_info = {
+                            "name": phase_result.name,
+                            "success": phase_result.success,
+                            "elapsed": phase_result.elapsed,
+                            "findings": 0,
+                        }
 
+                        # Extract findings count from stdout if present
                         if phase_result.stdout:
-                            for line in phase_result.stdout.strip().split("\n")[:5]:
-                                renderer.on_log(f"  {line}")
-                                log_lines.append(f"  {line}")
+                            stdout_lower = phase_result.stdout.lower()
+                            # Look for common patterns in security tool output
+                            patterns = [
+                                r'total findings[:\s]*(\d+)',
+                                r'found\s+(\d+)\s+(?:issue|finding|vulnerabilit|security)',
+                                r'(\d+)\s+(?:issue|finding|vulnerabilit|security)',
+                                r'wrote\s+(\d+)\s+findings',
+                                r'critical[:\s]*(\d+)',  # severity counts
+                                r'high[:\s]*(\d+)',
+                            ]
+                            for pattern in patterns:
+                                findings_match = re.search(pattern, stdout_lower)
+                                if findings_match:
+                                    count = int(findings_match.group(1))
+                                    if count > phase_info["findings"]:
+                                        phase_info["findings"] = count
+                            summary["findings"] += phase_info["findings"]
 
-                    renderer.on_parallel_track_complete(track_name, total_elapsed)
+                        summary["phases"].append(phase_info)
+                        log_lines.append(f"{'[OK]' if phase_result.success else '[FAILED]'} {phase_result.name} ({phase_result.elapsed:.1f}s)")
+
+                        # Register sub-phase with renderer for progress table (indented)
+                        # Extract short name from "N. Description" format
+                        short_name = phase_result.name.split(". ", 1)[-1] if ". " in phase_result.name else phase_result.name
+                        subphase_display = f"    - {short_name}"
+                        renderer._phases[subphase_display] = {
+                            "status": "success" if phase_result.success else "FAILED",
+                            "elapsed": phase_result.elapsed,
+                        }
 
                     if not all_success:
                         failed_phases += 1
 
                 elif isinstance(result, PhaseResult):
-                    if result.success:
-                        renderer.on_log(f"[green]OK[/green]  {result.name}  [dim]{result.elapsed:.1f}s[/dim]")
-                    else:
-                        renderer.on_log(f"[bold red]FAILED[/bold red]  {result.name}  [dim]{result.elapsed:.1f}s[/dim]")
+                    # Track A - single PhaseResult from run_taint_async
+                    summary["elapsed"] = result.elapsed
+                    summary["success"] = result.success
+                    summary["findings"] = result.findings_count
+                    summary["stdout"] = result.stdout  # Store for display
+                    summary["stderr"] = result.stderr if not result.success else ""
+
                     log_lines.append(f"{'[OK]' if result.success else '[FAILED]'} {result.name} ({result.elapsed:.1f}s)")
-                    if result.stdout:
-                        for line in result.stdout.strip().split("\n")[:10]:
-                            renderer.on_log(f"  {line}")
-                            log_lines.append(f"  {line}")
-                    renderer.on_parallel_track_complete(track_name, result.elapsed)
 
                     if not result.success:
                         failed_phases += 1
 
+                track_summaries.append(summary)
+                renderer.on_parallel_track_complete(track_name, summary["elapsed"])
+
+            # Display track summaries with Rich formatting
             renderer.on_log("")
-            renderer.on_log("[bold]Stage 3 Results[/bold]  Parallel Track Outputs")
-            log_lines.append("\n" + "=" * 60)
-            log_lines.append("[STAGE 3 RESULTS] Parallel Track Outputs")
-            log_lines.append("=" * 60)
+            renderer.on_log("[bold]Stage 3 Results[/bold]")
+            for summary in track_summaries:
+                track_name = summary["name"]
+                elapsed = summary["elapsed"]
+                findings = summary["findings"]
+
+                if summary["success"]:
+                    status = "[green]OK[/green]"
+                else:
+                    status = "[bold red]FAILED[/bold red]"
+
+                # Handle skipped tracks
+                if summary.get("skipped"):
+                    renderer.on_log(f"[dim]SKIP[/dim]  {track_name}  [dim]({summary.get('skip_reason', 'skipped')})[/dim]")
+                    continue
+
+                # Main track line
+                findings_str = f"  [dim]({findings} findings)[/dim]" if findings > 0 else ""
+                renderer.on_log(f"{status}  {track_name}  [dim]{elapsed:.1f}s[/dim]{findings_str}")
+
+                # Show phase breakdown for multi-phase tracks (Track B/C)
+                if summary["phases"]:
+                    for phase in summary["phases"]:
+                        phase_status = "[green]OK[/green]" if phase["success"] else "[red]FAIL[/red]"
+                        phase_findings = f" ({phase['findings']})" if phase["findings"] > 0 else ""
+                        # Extract short name from "N. Description" format
+                        short_name = phase["name"].split(". ", 1)[-1] if ". " in phase["name"] else phase["name"]
+                        renderer.on_log(f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s{phase_findings}[/dim]")
+
+                # Show Track A (taint) details from stdout
+                elif summary.get("stdout"):
+                    for line in summary["stdout"].strip().split("\n"):
+                        if line.strip():
+                            renderer.on_log(f"    [dim]{line.strip()}[/dim]")
+
+                # Show error for failed tracks
+                if not summary["success"] and summary.get("stderr"):
+                    error_preview = summary["stderr"][:150]
+                    if len(summary["stderr"]) > 150:
+                        error_preview += "..."
+                    renderer.on_log(f"    [red]Error: {error_preview}[/red]")
 
         if failed_phases == 0 and not index_only and final_commands:
             renderer.on_stage_start("FINAL AGGREGATION - AsyncIO Sequential Execution", 4)
@@ -1176,31 +1322,10 @@ async def run_full_pipeline(
                     renderer.on_phase_complete(phase_name, elapsed)
                     log_lines.append(ok_msg)
 
-                    if result.stdout:
-                        lines = result.stdout.strip().split("\n")
-
-                        if "Detect frameworks" in phase_name and len(lines) > 3:
-                            has_table = any("---" in line for line in lines[:5])
-                            if has_table:
-                                for line in lines:
-                                    renderer.on_log(f"  {line}")
-                                    log_lines.append(f"  {line}")
-                            else:
-                                for line in lines[:3]:
-                                    renderer.on_log(f"  {line}")
-                                    log_lines.append(f"  {line}")
-                                if len(lines) > 3:
-                                    truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                    renderer.on_log(truncate_msg)
-                                    log_lines.append(truncate_msg)
-                        else:
-                            for line in lines[:3]:
-                                renderer.on_log(f"  {line}")
-                                log_lines.append(f"  {line}")
-                            if len(lines) > 3:
-                                truncate_msg = f"  ... ({len(lines) - 3} more lines)"
-                                renderer.on_log(truncate_msg)
-                                log_lines.append(truncate_msg)
+                    # Format and display phase output
+                    for line in _format_phase_output(result.stdout, phase_name):
+                        renderer.on_log(line)
+                        log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                 else:
                     failed_phases += 1
                     renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
