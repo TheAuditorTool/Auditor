@@ -88,7 +88,7 @@ The FCE SHALL use a Semantic Table Registry to categorize the 226 database table
   - RISK_SOURCES (7 tables): `findings_consolidated`, `taint_flows`, `*_findings`
   - CONTEXT_PROCESS (4 tables): `code_diffs`, `code_snapshots`, `refactor_*`
   - CONTEXT_STRUCTURAL (6 tables): `cfg_*`
-  - CONTEXT_FRAMEWORK (29 tables): `react_*`, `angular_*`, `vue_*`, `prisma_*`
+  - CONTEXT_FRAMEWORK (36 tables): `react_*`, `angular_*`, `vue_*`, `prisma_*`, `graphql_*`, `sequelize_*`, `bullmq_*`, `express_*`
   - CONTEXT_SECURITY (6 tables): `jwt_patterns`, `sql_queries`, `api_endpoints`
   - CONTEXT_LANGUAGE (86 tables): `go_*`, `rust_*`, `python_*`, `bash_*`
 

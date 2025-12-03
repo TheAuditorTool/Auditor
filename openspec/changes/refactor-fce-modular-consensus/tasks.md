@@ -51,8 +51,8 @@
   python_security_findings, framework_taint_patterns
   ```
 - [ ] 2.3 Populate CONTEXT_PROCESS set (4 tables)
-- [ ] 2.4 Populate CONTEXT_STRUCTURAL set (15 tables)
-- [ ] 2.5 Populate CONTEXT_FRAMEWORK set (29 tables)
+- [ ] 2.4 Populate CONTEXT_STRUCTURAL set (6 tables)
+- [ ] 2.5 Populate CONTEXT_FRAMEWORK set (36 tables)
 - [ ] 2.6 Populate CONTEXT_SECURITY set (6 tables)
 - [ ] 2.7 Populate CONTEXT_LANGUAGE set (86 tables)
 - [ ] 2.8 Implement `get_context_tables_for_file(file_path)` method

@@ -65,7 +65,7 @@ Rust entry point patterns:
 - **THEN** files containing functions with route attributes are marked as entry points
 - **AND** these files are NOT reported as dead code
 
-**DEPENDS ON:** `rust_attributes` table (from polyglot-planning task 0.3)
+**DEPENDS ON:** `rust_attributes` table (BLOCKER 1 - Task 0.3)
 
 #### Scenario: Rust main.rs excluded from dead code
 

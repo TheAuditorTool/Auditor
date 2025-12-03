@@ -6,6 +6,9 @@
 - Tasks 3.2, 4.4-4.6, 5.3-5.6 (waiting on rust_attributes - Task 0.3)
 - Tasks 1.x, 6.x (waiting on unified table population - Task 0.5)
 
+**Unblocked (2025-12-03):**
+- Tasks 3.1, 4.1-4.3, 5.1-5.2 (Go route extraction now implemented)
+
 ---
 
 ## 0. Verification & Blockers (Pre-Implementation Checks)
@@ -18,12 +21,13 @@
   ```
 - [ ] 0.1.2 Document results in verification.md
 
-### 0.2 Verify `go_routes` table has data
-- [ ] 0.2.1 Run verification query
+### 0.2 ~~Verify `go_routes` table has data~~ DONE (2025-12-03)
+- [x] 0.2.1 Run verification query
   ```sql
   SELECT framework, COUNT(*) FROM go_routes GROUP BY framework
+  -- Result: gin: 5 routes
   ```
-- [ ] 0.2.2 If empty, verify Go extractor is populating routes
+- [x] 0.2.2 Go extractor IS populating routes via `_detect_routes()` at `go.py:106-131`
 
 ### 0.3 **BLOCKER:** Implement rust_attributes table
 **Problem:** `rust_macro_invocations` only captures macro calls like `println!()`.
@@ -357,9 +361,9 @@ Current row indices end at 23. New indices:
 ## 5. Boundaries Entry Point Detection
 
 ### 5.1 Add Go entry point detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
-- [ ] 5.1.1 Locate entry point detection function (likely `_get_entry_points` or similar)
+- [ ] 5.1.1 Locate entry point detection in `analyze_input_validation_boundaries()` (line 10+)
 - [ ] 5.1.2 Add Go routes query:
   ```python
   cursor.execute("""
@@ -370,7 +374,7 @@ Current row indices end at 23. New indices:
 - [ ] 5.1.3 Format Go entry points with language="go" field
 
 ### 5.2 Add Go validation pattern detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
 - [ ] 5.2.1 Locate control point detection function
 - [ ] 5.2.2 Add Go validation patterns:
@@ -384,7 +388,7 @@ Current row indices end at 23. New indices:
 - [ ] 5.2.4 Calculate distance from entry to validation
 
 ### 5.3 Add Rust entry point detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
 **DEPENDS ON:** Task 0.3 (rust_attributes table)
 
@@ -401,7 +405,7 @@ Current row indices end at 23. New indices:
 - [ ] 5.3.3 Format Rust entry points with language="rust" field
 
 ### 5.4 Add Rust validation pattern detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
 **DEPENDS ON:** Task 0.3 (rust_attributes table)
 
@@ -416,7 +420,7 @@ Current row indices end at 23. New indices:
 - [ ] 5.4.3 Calculate distance from entry to validation
 
 ### 5.5 Add Go multi-tenant boundary detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
 **DEPENDS ON:** Task 5.1, 5.2
 
@@ -430,7 +434,7 @@ Current row indices end at 23. New indices:
 - [ ] 5.5.3 Calculate distance from entry to tenant check
 
 ### 5.6 Add Rust multi-tenant boundary detection
-**File:** `theauditor/commands/boundaries.py`
+**File:** `theauditor/boundaries/boundary_analyzer.py`
 
 **DEPENDS ON:** Task 0.3, 5.3, 5.4
 
