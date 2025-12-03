@@ -7,6 +7,11 @@ from pathlib import Path
 import click
 
 from theauditor.pipeline.ui import console
+from theauditor.session.activity_metrics import (
+    ActivityClassifier,
+    analyze_activity,
+    analyze_multiple_sessions as analyze_activity_multiple,
+)
 from theauditor.session.analysis import SessionAnalysis
 from theauditor.session.analyzer import SessionAnalyzer
 from theauditor.session.detector import detect_agent_type, detect_session_directory
@@ -218,6 +223,18 @@ def inspect(session_file, db_path):
     console.print(f"Bash commands: {stats.bash_commands}", highlight=False)
     console.print(f"Avg tokens/turn: {stats.avg_tokens_per_turn:.0f}", highlight=False)
 
+    # Activity metrics (talk vs work vs planning)
+    activity = analyze_activity(session_obj)
+    console.print("\n=== Activity Breakdown ===")
+    console.print(f"Planning:     {activity.planning_turns:3d} turns ({activity.planning_ratio:5.1%})  |  {activity.planning_tokens:,} tokens ({activity.planning_token_ratio:5.1%})", highlight=False)
+    console.print(f"Working:      {activity.working_turns:3d} turns ({activity.working_ratio:5.1%})  |  {activity.working_tokens:,} tokens ({activity.working_token_ratio:5.1%})", highlight=False)
+    console.print(f"Research:     {activity.research_turns:3d} turns ({activity.research_ratio:5.1%})  |  {activity.research_tokens:,} tokens ({activity.research_token_ratio:5.1%})", highlight=False)
+    console.print(f"Conversation: {activity.conversation_turns:3d} turns ({activity.conversation_ratio:5.1%})  |  {activity.conversation_tokens:,} tokens ({activity.conversation_token_ratio:5.1%})", highlight=False)
+    console.print(f"\nEfficiency:", highlight=False)
+    console.print(f"  Work/Talk ratio:    {activity.work_to_talk_ratio:.2f}", highlight=False)
+    console.print(f"  Research/Work ratio: {activity.research_to_work_ratio:.2f}", highlight=False)
+    console.print(f"  Tokens per edit:    {activity.tokens_per_edit:.0f}", highlight=False)
+
     if findings:
         console.print(f"\n=== Findings ({len(findings)}) ===", highlight=False)
         for finding in findings:
@@ -229,6 +246,91 @@ def inspect(session_file, db_path):
                 )
 
     analyzer.close()
+
+
+@session.command()
+@click.option("--project-path", default=None, help="Project path (defaults to current directory)")
+@click.option("--limit", type=int, default=20, help="Number of recent sessions to analyze")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+@handle_exceptions
+def activity(project_path, limit, json_output):
+    """Analyze talk vs work vs planning ratios across sessions.
+
+    Classifies AI turns into four categories:
+    - PLANNING: Discussion, approach design (no tools, substantial text)
+    - WORKING: Actual code changes (Edit, Write, Bash)
+    - RESEARCH: Information gathering (Read, Grep, Glob, Task)
+    - CONVERSATION: Questions, clarifications, short exchanges
+
+    Shows token distribution and efficiency metrics.
+    """
+    if project_path is None:
+        project_path = str(Path.cwd())
+
+    parser = SessionParser()
+    session_dir = parser.find_project_sessions(project_path)
+
+    if not session_dir.exists():
+        console.print(f"[warning]No sessions found for: {project_path}[/warning]")
+        return
+
+    session_files = parser.list_sessions(session_dir)
+    if not session_files:
+        console.print("[warning]No session files found[/warning]")
+        return
+
+    # Take most recent sessions
+    recent_files = session_files[-limit:] if limit else session_files
+    console.print(f"Analyzing {len(recent_files)} sessions...", highlight=False)
+
+    sessions = []
+    for sf in recent_files:
+        try:
+            sessions.append(parser.parse_session(sf))
+        except Exception:
+            continue
+
+    if not sessions:
+        console.print("[warning]No valid sessions to analyze[/warning]")
+        return
+
+    results = analyze_activity_multiple(sessions)
+
+    if json_output:
+        # Remove per_session for cleaner output
+        output = {k: v for k, v in results.items() if k != "per_session"}
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Pretty print
+    console.rule("Activity Analysis")
+    console.print(f"Sessions analyzed: {results['session_count']}", highlight=False)
+
+    console.print("\n[bold]Token Distribution[/bold]")
+    ratios = results["ratios"]
+    agg = results["aggregate"]
+    console.print(f"  Planning:     {ratios['planning']:5.1%}  ({agg['planning_tokens']:,} tokens)", highlight=False)
+    console.print(f"  Working:      {ratios['working']:5.1%}  ({agg['working_tokens']:,} tokens)", highlight=False)
+    console.print(f"  Research:     {ratios['research']:5.1%}  ({agg['research_tokens']:,} tokens)", highlight=False)
+    console.print(f"  Conversation: {ratios['conversation']:5.1%}  ({agg['conversation_tokens']:,} tokens)", highlight=False)
+    console.print(f"  [dim]Total: {agg['total_tokens']:,} tokens[/dim]", highlight=False)
+
+    console.print("\n[bold]Efficiency Averages[/bold]")
+    avgs = results["averages"]
+    console.print(f"  Work/Talk ratio:    {avgs['work_to_talk_ratio']:.2f}", highlight=False)
+    console.print(f"  Tokens per edit:    {avgs['tokens_per_edit']:.0f}", highlight=False)
+
+    # Interpretation
+    console.print("\n[bold]Interpretation[/bold]")
+    work_pct = ratios["working"] * 100
+    talk_pct = (ratios["planning"] + ratios["conversation"]) * 100
+
+    if work_pct > 50:
+        console.print(f"  [green]Highly productive[/green] - {work_pct:.0f}% of tokens go to actual work", highlight=False)
+    elif work_pct > 30:
+        console.print(f"  [yellow]Balanced[/yellow] - {work_pct:.0f}% work, {talk_pct:.0f}% planning/conversation", highlight=False)
+    else:
+        console.print(f"  [red]High overhead[/red] - Only {work_pct:.0f}% of tokens produce code changes", highlight=False)
 
 
 @session.command()

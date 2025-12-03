@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 
+from theauditor.session.activity_metrics import ActivityClassifier, ActivityMetrics
 from theauditor.session.diff_scorer import DiffScorer
 from theauditor.session.parser import Session
 from theauditor.session.store import SessionExecution, SessionExecutionStore
@@ -25,14 +26,20 @@ class SessionAnalysis:
 
         self.diff_scorer = DiffScorer(self.db_path, self.project_root)
         self.workflow_checker = WorkflowChecker(workflow_path)
+        self.activity_classifier = ActivityClassifier()
 
         self.store = SessionExecutionStore()
 
         logger.info("SessionAnalysis orchestrator initialized")
 
-    def analyze_session(self, session: Session) -> SessionExecution:
-        """Analyze complete session: score diffs + check workflow + store."""
+    def analyze_session(
+        self, session: Session
+    ) -> tuple[SessionExecution, ActivityMetrics]:
+        """Analyze complete session: score diffs + check workflow + activity + store."""
         logger.info(f"Analyzing session: {session.session_id}")
+
+        # Activity classification (talk vs work vs planning)
+        activity_metrics = self.activity_classifier.classify_session(session)
 
         files_read = set()
         for call in session.all_tool_calls:
@@ -95,20 +102,27 @@ class SessionAnalysis:
         logger.info(
             f"Session analysis complete: "
             f"risk={avg_risk:.2f}, compliance={compliance.score:.2f}, "
-            f"engagement={user_engagement_rate:.2f}"
+            f"engagement={user_engagement_rate:.2f}, "
+            f"planning={activity_metrics.planning_ratio:.1%}, "
+            f"working={activity_metrics.working_ratio:.1%}, "
+            f"research={activity_metrics.research_ratio:.1%}"
         )
 
-        return execution
+        return execution, activity_metrics
 
-    def analyze_multiple_sessions(self, sessions: list) -> list:
+    def analyze_multiple_sessions(
+        self, sessions: list
+    ) -> tuple[list[SessionExecution], list[ActivityMetrics]]:
         """Analyze multiple sessions in batch."""
         logger.info(f"Analyzing {len(sessions)} sessions...")
 
         executions = []
+        all_activity_metrics = []
         for i, session in enumerate(sessions, 1):
             try:
-                execution = self.analyze_session(session)
+                execution, activity_metrics = self.analyze_session(session)
                 executions.append(execution)
+                all_activity_metrics.append(activity_metrics)
 
                 if i % 10 == 0:
                     logger.info(f"Progress: {i}/{len(sessions)} sessions analyzed")
@@ -117,7 +131,45 @@ class SessionAnalysis:
                 continue
 
         logger.info(f"Batch analysis complete: {len(executions)} sessions analyzed")
-        return executions
+        return executions, all_activity_metrics
+
+    def get_activity_summary(self, activity_metrics: list[ActivityMetrics]) -> dict:
+        """Get aggregated activity summary across sessions."""
+        if not activity_metrics:
+            return {}
+
+        total_planning = sum(m.planning_tokens for m in activity_metrics)
+        total_working = sum(m.working_tokens for m in activity_metrics)
+        total_research = sum(m.research_tokens for m in activity_metrics)
+        total_conversation = sum(m.conversation_tokens for m in activity_metrics)
+        total_all = total_planning + total_working + total_research + total_conversation
+
+        return {
+            "session_count": len(activity_metrics),
+            "token_distribution": {
+                "planning": total_planning,
+                "working": total_working,
+                "research": total_research,
+                "conversation": total_conversation,
+                "total": total_all,
+            },
+            "ratios": {
+                "planning": total_planning / total_all if total_all > 0 else 0,
+                "working": total_working / total_all if total_all > 0 else 0,
+                "research": total_research / total_all if total_all > 0 else 0,
+                "conversation": total_conversation / total_all if total_all > 0 else 0,
+            },
+            "averages": {
+                "work_to_talk_ratio": (
+                    sum(m.work_to_talk_ratio for m in activity_metrics)
+                    / len(activity_metrics)
+                ),
+                "tokens_per_edit": (
+                    sum(m.tokens_per_edit for m in activity_metrics)
+                    / len(activity_metrics)
+                ),
+            },
+        }
 
     def get_correlation_statistics(self) -> dict:
         """Get correlation statistics (workflow compliance vs outcomes)."""
