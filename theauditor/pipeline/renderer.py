@@ -8,6 +8,7 @@ from typing import TextIO
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.table import Table
+from rich.text import Text
 
 from theauditor.utils.logging import logger, restore_stderr_sink, swap_to_rich_sink
 
@@ -123,17 +124,32 @@ class RichRenderer(PipelineObserver):
         Usage:
             logger.add(renderer.log_message, format="{message}", level="INFO")
         """
+        import re
+
         # Extract the formatted message text (loguru passes the full message object)
         text = str(message).rstrip("\n")
 
         if self.quiet:
             return
 
+        # Colorize numbers in the message portion (after the " - " separator)
+        # This makes counts like "250 files", "6787 symbols" pop with cyan
+        if " - " in text:
+            prefix, msg = text.split(" - ", 1)
+            # Colorize numbers in message, but preserve existing ANSI codes
+            # Use lambda to insert actual ANSI escape sequences (not regex escapes)
+            msg = re.sub(r'(?<!\x1b\[)(\d+)(?!\d*m)', lambda m: f'\x1b[36m{m.group(1)}\x1b[0m', msg)
+            text = f"{prefix} - {msg}"
+
+        # Convert ANSI escape codes from loguru to Rich Text
+        # Loguru outputs ANSI codes, Rich expects Rich markup - Text.from_ansi() bridges them
+        rich_text = Text.from_ansi(text)
+
         if self._live:
             # Live.console.print() knows how to print ABOVE the live display
-            self._live.console.print(text)
+            self._live.console.print(rich_text)
         else:
-            self.console.print(text)
+            self.console.print(rich_text)
 
     def start(self):
         """Start the live display (call before pipeline runs)."""
@@ -161,7 +177,7 @@ class RichRenderer(PipelineObserver):
 
     def on_stage_start(self, stage_name: str, stage_num: int) -> None:
         self._write("")
-        self._write(f"[bold]Stage {stage_num}[/bold]  {stage_name}")
+        self._write(f"[bold magenta]Stage {stage_num}[/bold magenta]  [bold cyan]{stage_name}[/bold cyan]")
 
     def on_phase_start(self, name: str, index: int, total: int) -> None:
         self._current_phase = index
