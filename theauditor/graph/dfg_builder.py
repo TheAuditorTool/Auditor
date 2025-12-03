@@ -10,6 +10,7 @@ import click
 
 from theauditor.utils.logging import logger
 
+from .strategies.bash_pipes import BashPipeStrategy
 from .strategies.interceptors import InterceptorStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
@@ -31,6 +32,7 @@ class DFGBuilder:
             NodeOrmStrategy(),
             NodeExpressStrategy(),
             InterceptorStrategy(),
+            BashPipeStrategy(),
         ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
