@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.session.activity_metrics import (
     ActivityClassifier,
@@ -19,28 +20,93 @@ from theauditor.session.parser import SessionParser, load_session
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.group()
+@click.group(cls=RichGroup)
 def session():
-    """Analyze Claude Code session interactions and agent behavior."""
+    """Analyze AI agent session interactions for quality insights and ML training.
+
+    Parses and analyzes Claude Code, Codex, and other AI agent session logs to extract
+    metrics, detect patterns, and store data for machine learning. Provides activity
+    classification (planning vs working vs research) and efficiency measurements.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Analyze AI agent session logs for quality and ML training
+      Input: Session directory (~/.claude/projects/ or ~/.codex/sessions/)
+      Output: .pf/ml/session_history.db, activity metrics, findings
+      Prerequisites: AI agent sessions in standard locations
+      Integration: ML training pipeline, agent behavior analysis
+      Performance: ~1-5 seconds per session
+
+    SUBCOMMANDS:
+      analyze:   Parse sessions and store to ML database
+      report:    Generate detailed session analysis report
+      inspect:   Inspect a single session file in detail
+      activity:  Analyze talk vs work vs planning ratios
+      list:      List all sessions for this project
+
+    WHAT IT DETECTS:
+      - Agent efficiency (work/talk ratio, tokens per edit)
+      - Activity breakdown (planning, working, research, conversation)
+      - Tool usage patterns (reads, edits, bash commands)
+      - Session quality indicators and anti-patterns
+
+    TYPICAL WORKFLOW:
+      aud session list                    # See available sessions
+      aud session analyze                 # Store to ML database
+      aud session activity --limit 20    # Check efficiency trends
+      aud session inspect path/to/session.jsonl
+
+    EXAMPLES:
+      aud session analyze                 # Auto-detect and analyze
+      aud session report --limit 5        # Last 5 sessions report
+      aud session activity --json-output  # JSON for scripting
+      aud session list --project-path .   # List sessions for current project
+
+    RELATED COMMANDS:
+      aud learn       ML training on session data
+      aud suggest     Get suggestions from learned patterns
+
+    See: aud manual session, aud manual ml
+    """
     pass
 
 
-@session.command(name="analyze")
+@session.command(name="analyze", cls=RichCommand)
 @click.option("--session-dir", help="Path to session directory (auto-detects if omitted)")
 @handle_exceptions
 def analyze(session_dir):
-    """Analyze AI agent sessions and store to .pf/ml/session_history.db.
+    """Parse AI agent sessions and store to ML database for training.
 
-    Auto-detects session directories for:
-    - Claude Code: ~/.claude/projects/<project-name>/
-    - Codex: ~/.codex/sessions/ (filtered by cwd)
+    Auto-detects and analyzes Claude Code, Codex, and other AI agent session logs.
+    Extracts metrics, tool usage, and quality indicators. Stores results to
+    persistent database for ML training and trend analysis.
 
-    Runs 3-layer analysis pipeline:
-    1. Parse session logs (.jsonl files)
-    2. Score diffs through SAST pipeline
-    3. Check workflow compliance (planning.md)
+    AI ASSISTANT CONTEXT:
+      Purpose: Parse session logs and store to ML database
+      Input: Session directory (auto-detected or specified)
+      Output: .pf/ml/session_history.db
+      Prerequisites: AI agent sessions in standard locations
+      Integration: ML training pipeline (aud learn, aud suggest)
+      Performance: ~1-5 seconds per session, batch processes all found
 
-    Stores results to persistent .pf/ml/session_history.db for ML training.
+    EXAMPLES:
+      aud session analyze                       # Auto-detect and analyze
+      aud session analyze --session-dir ~/.claude/projects/myapp/
+
+    TROUBLESHOOTING:
+      No sessions found:
+        -> Check ~/.claude/projects/ for Claude Code sessions
+        -> Check ~/.codex/sessions/ for Codex sessions
+        -> Use --session-dir to specify custom location
+
+      Analysis fails:
+        -> Ensure .jsonl files are valid JSON Lines format
+        -> Check session file permissions
+
+    RELATED COMMANDS:
+      aud session list      List available sessions
+      aud learn             Train ML on session data
+
+    See: aud manual session, aud manual ml
     """
     from pathlib import Path
 
@@ -96,14 +162,45 @@ def analyze(session_dir):
         raise
 
 
-@session.command(name="report")
+@session.command(name="report", cls=RichCommand)
 @click.option("--project-path", default=None, help="Project path (defaults to current directory)")
 @click.option("--db-path", default=".pf/repo_index.db", help="Path to repo_index.db")
 @click.option("--limit", type=int, default=10, help="Limit number of sessions to analyze")
 @click.option("--show-findings/--no-findings", default=True, help="Show individual findings")
 @handle_exceptions
 def report(project_path, db_path, limit, show_findings):
-    """Generate detailed report of Claude Code sessions (legacy analyzer)."""
+    """Generate detailed aggregate report of AI agent sessions.
+
+    Analyzes multiple sessions and produces aggregate statistics including
+    tool call counts, read/edit ratios, and cross-session findings. Uses
+    the legacy analyzer for compatibility with older session formats.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Generate aggregate session analysis report
+      Input: Session logs from project directory
+      Output: Terminal report with stats and findings
+      Prerequisites: Sessions in ~/.claude/projects/
+      Integration: Cross-references with repo_index.db if available
+      Performance: 1-2 seconds per session
+
+    EXAMPLES:
+      aud session report                     # Last 10 sessions
+      aud session report --limit 5           # Last 5 sessions
+      aud session report --no-findings       # Stats only, no findings
+
+    OUTPUT INCLUDES:
+      - Sessions analyzed count
+      - Total tool calls, reads, edits
+      - Edit-to-read ratio
+      - Findings by category
+      - Top findings with evidence
+
+    RELATED COMMANDS:
+      aud session activity   More detailed activity breakdown
+      aud session inspect    Single session deep dive
+
+    See: aud manual session
+    """
     if project_path is None:
         project_path = str(Path.cwd())
 
@@ -182,12 +279,44 @@ def report(project_path, db_path, limit, show_findings):
     analyzer.close()
 
 
-@session.command()
+@session.command(cls=RichCommand)
 @click.argument("session_file", type=click.Path(exists=True))
 @click.option("--db-path", default=".pf/repo_index.db", help="Path to repo_index.db")
 @handle_exceptions
 def inspect(session_file, db_path):
-    """Inspect a single session file in detail."""
+    """Deep-dive inspection of a single session file.
+
+    Loads and analyzes a specific session file, showing detailed breakdown
+    of session metadata, files touched, tool usage statistics, and activity
+    classification. Most comprehensive view of a single agent session.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Detailed inspection of a single session file
+      Input: Path to .jsonl session file
+      Output: Terminal report with all session details
+      Prerequisites: Valid session file
+      Integration: Cross-references with repo_index.db if available
+      Performance: <1 second
+
+    EXAMPLES:
+      aud session inspect path/to/session.jsonl
+      aud session inspect ~/.claude/projects/myapp/session123.jsonl
+
+    OUTPUT INCLUDES:
+      - Session metadata (ID, agent, cwd, branch)
+      - Message counts (user, assistant, tool calls)
+      - Files touched by tool type
+      - Session stats (turns, reads, edits, bash)
+      - Activity breakdown (planning, working, research, conversation)
+      - Efficiency metrics (work/talk ratio, tokens per edit)
+      - Findings and anti-patterns
+
+    RELATED COMMANDS:
+      aud session list      Find sessions to inspect
+      aud session activity  Aggregate activity across sessions
+
+    See: aud manual session
+    """
     console.print(f"Loading session: {session_file}", highlight=False)
 
     session_obj = load_session(session_file)
@@ -248,7 +377,7 @@ def inspect(session_file, db_path):
     analyzer.close()
 
 
-@session.command()
+@session.command(cls=RichCommand)
 @click.option("--project-path", default=None, help="Project path (defaults to current directory)")
 @click.option("--limit", type=int, default=20, help="Number of recent sessions to analyze")
 @click.option("--json-output", is_flag=True, help="Output as JSON")
@@ -256,13 +385,44 @@ def inspect(session_file, db_path):
 def activity(project_path, limit, json_output):
     """Analyze talk vs work vs planning ratios across sessions.
 
-    Classifies AI turns into four categories:
-    - PLANNING: Discussion, approach design (no tools, substantial text)
-    - WORKING: Actual code changes (Edit, Write, Bash)
-    - RESEARCH: Information gathering (Read, Grep, Glob, Task)
-    - CONVERSATION: Questions, clarifications, short exchanges
+    Classifies AI assistant turns into four activity categories and calculates
+    token distribution and efficiency metrics. Key metric for understanding
+    agent productivity patterns and identifying inefficiencies.
 
-    Shows token distribution and efficiency metrics.
+    AI ASSISTANT CONTEXT:
+      Purpose: Activity classification and efficiency analysis
+      Input: Session logs from project directory
+      Output: Token distribution and efficiency metrics
+      Prerequisites: Sessions in ~/.claude/projects/
+      Integration: ML training, productivity analysis
+      Performance: ~1 second for 20 sessions
+
+    ACTIVITY CATEGORIES:
+      PLANNING:     Discussion, approach design (no tools, substantial text)
+      WORKING:      Actual code changes (Edit, Write, Bash)
+      RESEARCH:     Information gathering (Read, Grep, Glob, Task)
+      CONVERSATION: Questions, clarifications, short exchanges
+
+    EXAMPLES:
+      aud session activity                    # Default 20 sessions
+      aud session activity --limit 50         # More sessions
+      aud session activity --json-output      # JSON for scripting
+
+    EFFICIENCY METRICS:
+      Work/Talk ratio:    Higher = more productive
+      Research/Work ratio: Lower = less thrashing
+      Tokens per edit:    Lower = more efficient
+
+    INTERPRETATION:
+      >50% working:  Highly productive
+      30-50% working: Balanced
+      <30% working:  High overhead, consider improving prompts
+
+    RELATED COMMANDS:
+      aud session inspect   Detailed single session analysis
+      aud session report    Aggregate findings report
+
+    See: aud manual session, aud manual ml
     """
     if project_path is None:
         project_path = str(Path.cwd())
@@ -333,11 +493,42 @@ def activity(project_path, limit, json_output):
         console.print(f"  [red]High overhead[/red] - Only {work_pct:.0f}% of tokens produce code changes", highlight=False)
 
 
-@session.command()
+@session.command(cls=RichCommand)
 @click.option("--project-path", default=None, help="Project path (defaults to current directory)")
 @handle_exceptions
 def list(project_path):
-    """List all sessions for this project."""
+    """List all AI agent sessions for this project.
+
+    Discovers and lists all session files in the project's session directory,
+    showing timestamp, git branch, message counts, and a preview of the first
+    user message. Use this to find sessions for inspection or debugging.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Discover and list available session files
+      Input: Project path (defaults to cwd)
+      Output: Terminal list with session metadata
+      Prerequisites: Sessions in ~/.claude/projects/
+      Integration: Use before inspect or activity commands
+      Performance: ~1-2 seconds (parses all session files)
+
+    EXAMPLES:
+      aud session list                       # Current project
+      aud session list --project-path /path/to/project
+
+    OUTPUT PER SESSION:
+      - Filename
+      - Timestamp (first message)
+      - Git branch
+      - Turn count (user + assistant messages)
+      - Tool call count
+      - Preview of first user message
+
+    RELATED COMMANDS:
+      aud session inspect   Deep dive on a specific session
+      aud session analyze   Bulk analyze to ML database
+
+    See: aud manual session
+    """
     if project_path is None:
         project_path = str(Path.cwd())
 

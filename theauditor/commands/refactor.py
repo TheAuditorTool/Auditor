@@ -16,6 +16,7 @@ from typing import Any
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.refactor import (
     ProfileEvaluation,
@@ -41,7 +42,7 @@ RENAME_COLUMN = re.compile(
 )
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.option(
     "--migration-dir",
     "-m",

@@ -5,12 +5,13 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
 
-@click.command("docker-analyze")
+@click.command("docker-analyze", cls=RichCommand)
 @handle_exceptions
 @click.option("--db-path", default="./.pf/repo_index.db", help="Path to repo_index.db")
 @click.option("--output", help="Output file for findings (JSON format)")
@@ -171,8 +172,8 @@ def docker_analyze(db_path, output, severity, check_vulns):
       aud terraform          # Analyzes infrastructure-as-code security
 
     SEE ALSO:
-      aud explain taint      # Understand data flow analysis
-      aud explain severity   # Learn about severity classifications
+      aud manual docker      # Deep dive into Docker security analysis
+      aud manual severity    # Learn about severity classifications
 
     TROUBLESHOOTING:
       Error: "Database not found"

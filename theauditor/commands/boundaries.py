@@ -10,11 +10,12 @@ from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
     generate_report,
 )
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command("boundaries")
+@click.command("boundaries", cls=RichCommand)
 @handle_exceptions
 @click.option("--db", default=None, help="Path to repo_index.db (default: .pf/repo_index.db)")
 @click.option(
@@ -190,6 +191,32 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         Observation: Entry point accepts external data without validation control
         Fact: No validation control detected within search depth
         Implication: External data flows to downstream functions without validation gate
+
+    EXIT CODES:
+      0 = Success, no critical boundary violations detected
+      1 = Critical boundary violations found (missing controls at entry points)
+
+    RELATED COMMANDS:
+      aud taint-analyze      # Track data flow from sources to sinks
+      aud blueprint --boundaries  # Show boundary architecture overview
+      aud full               # Complete analysis including boundaries
+
+    SEE ALSO:
+      aud manual boundaries  # Deep dive into boundary analysis concepts
+      aud manual taint       # Understand taint tracking relationship
+
+    TROUBLESHOOTING:
+      Error: "Database not found":
+        -> Run 'aud full' first to populate repo_index.db
+        -> Check .pf/repo_index.db exists
+
+      No entry points found:
+        -> Ensure routes/endpoints are indexed (Python/JS routes)
+        -> Run 'aud full' with appropriate language support
+
+      Analysis is slow (>60s):
+        -> Reduce --max-entries to limit entry point count
+        -> Large call graphs increase traversal time
     """
 
     db = Path.cwd() / ".pf" / "repo_index.db" if db is None else Path(db)

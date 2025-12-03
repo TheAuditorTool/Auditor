@@ -8,12 +8,13 @@ from pathlib import Path
 import click
 import yaml
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
 
-@click.command(name="rules")
+@click.command(name="rules", cls=RichCommand)
 @click.option(
     "--summary",
     is_flag=True,
@@ -110,6 +111,21 @@ def rules_command(summary: bool) -> None:
     EXIT CODES:
       0 = Success, report generated
       3 = Task incomplete (must use --summary flag)
+
+    SEE ALSO:
+      aud manual rules     # Deep dive into rule system concepts
+      aud manual patterns  # Pattern matching fundamentals
+
+    TROUBLESHOOTING:
+      No patterns found:
+        -> Check theauditor/patterns/ directory exists
+        -> YAML files must have .yml or .yaml extension
+        -> Pattern format: list of dicts with 'name' key
+
+      Python rules not appearing:
+        -> Functions must start with 'find_' prefix
+        -> Check theauditor/rules/*.py files exist
+        -> Syntax errors prevent rule scanning
 
     NOTE: This command does not modify any files or perform analysis.
     It only generates a capability inventory from pattern definitions.

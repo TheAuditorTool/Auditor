@@ -5,11 +5,12 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def graphql():
     """GraphQL schema analysis and resolver-to-field mapping for security and taint analysis.
@@ -73,11 +74,14 @@ def graphql():
 
     Output:
       Query.user → UserResolver.resolve_user() → getUserById() → db.query()
+
+    SEE ALSO:
+      aud manual graphql   Learn about GraphQL schema and resolver analysis
     """
     pass
 
 
-@graphql.command("build")
+@graphql.command("build", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
@@ -164,7 +168,7 @@ def graphql_build(root, db, verbose):
         return 1
 
 
-@graphql.command("query")
+@graphql.command("query", cls=RichCommand)
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--type", "type_name", help="Query specific GraphQL type")
 @click.option("--field", "field_name", help="Query specific field")
@@ -214,7 +218,7 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
         return 1
 
 
-@graphql.command("viz")
+@graphql.command("viz", cls=RichCommand)
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--output", "-o", default="graphql_schema.svg", help="Output file path")
 @click.option("--format", default="svg", help="Output format (svg, png, dot)")

@@ -5,12 +5,13 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 IS_WINDOWS = platform.system() == "Windows"
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.option("--file", default=None, help="Path to the file containing the code to analyze")
 @click.option("--line", default=None, type=int, help="Line number of the code to analyze")
 @click.option(

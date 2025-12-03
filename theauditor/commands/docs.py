@@ -5,10 +5,11 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 
-@click.command("docs")
+@click.command("docs", cls=RichCommand)
 @click.argument("action", type=click.Choice(["fetch", "view", "list"]))
 @click.argument("package_name", required=False)
 @click.option("--deps", default="./.pf/deps.json", help="Input dependencies file")
@@ -171,8 +172,8 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
       aud context            # Uses documentation for semantic analysis
 
     SEE ALSO:
-      aud deps --help        # Understand dependency detection
-      aud explain workset    # Learn about filtering documentation by workset
+      aud manual docs        # Deep dive into documentation caching concepts
+      aud manual deps        # Understand dependency detection
 
     TROUBLESHOOTING:
       Error: "Network error" or "Failed to fetch":

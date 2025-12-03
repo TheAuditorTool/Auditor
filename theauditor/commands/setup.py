@@ -8,10 +8,11 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 
-@click.command("setup-ai")
+@click.command("setup-ai", cls=RichCommand)
 @click.option("--target", required=True, help="Target project root (absolute or relative path)")
 @click.option("--sync", is_flag=True, help="Force update (reinstall packages)")
 @click.option("--dry-run", is_flag=True, help="Print plan without executing")
@@ -156,8 +157,8 @@ def setup_ai(target, sync, dry_run, show_versions):
       aud lint               # Uses sandboxed ESLint/TypeScript
 
     SEE ALSO:
-      aud init --help        # Understand project initialization
-      aud deps --help        # Learn about vulnerability scanning
+      aud manual setup       # Deep dive into sandboxed environment concepts
+      aud manual tools       # Understand tool detection and management
 
     TROUBLESHOOTING:
       Error: "Permission denied" creating venv:

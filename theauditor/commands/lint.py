@@ -6,6 +6,7 @@ from typing import Any
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.linters import LinterOrchestrator
 from theauditor.pipeline.ui import console
 from theauditor.utils import load_json_file
@@ -85,7 +86,7 @@ def lint_command(
     }
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option(
@@ -95,13 +96,21 @@ def lint_command(
 @click.option("--timeout", default=None, type=int, help="Timeout in seconds for each linter")
 @click.option("--print-plan", is_flag=True, help="Print lint plan without executing")
 def lint(root, workset, workset_path, timeout, print_plan):
-    """Run code quality checks with industry-standard linters.
+    """Run code quality checks with industry-standard linters and normalize output.
 
-    Automatically detects and runs available linters in your project,
-    normalizing all output into a unified format for analysis. Supports
-    both full codebase and targeted workset analysis.
+    Automatically detects and runs available linters in your project, normalizing
+    all output into a unified format for analysis. Supports both full codebase
+    and targeted workset analysis for efficient CI/CD integration.
 
-    Supported Linters (Auto-Detected):
+    AI ASSISTANT CONTEXT:
+      Purpose: Run static analysis linters and normalize findings to unified format
+      Input: Source files (Python, JS/TS, Go, Docker), .pf/workset.json (optional)
+      Output: .pf/raw/lint.json (normalized findings), findings_consolidated table
+      Prerequisites: aud full (for workset mode), linters installed in project
+      Integration: Part of full pipeline, works with workset for targeted analysis
+      Performance: ~10-60 seconds depending on codebase size and linters installed
+
+    SUPPORTED LINTERS (Auto-Detected):
       Python:
         - ruff       # Fast, comprehensive Python linter
         - mypy       # Static type checker
@@ -121,37 +130,68 @@ def lint(root, workset, workset_path, timeout, print_plan):
       Docker:
         - hadolint   # Dockerfile linter
 
-    Examples:
-      aud lint                        # Lint entire codebase
-      aud lint --workset              # Lint only changed files
-      aud lint --print-plan           # Preview what would run
-      aud lint --timeout 600          # Increase timeout for large projects
+    EXAMPLES:
+      # Lint entire codebase
+      aud lint
 
-    Common Workflows:
-      After changes:  aud workset --diff HEAD~1 && aud lint --workset
-      PR review:      aud workset --diff main && aud lint --workset
-      CI pipeline:    aud lint || exit 1
+      # Lint only changed files (requires workset)
+      aud workset --diff HEAD~1 && aud lint --workset
 
-    Output:
+      # Preview what would run
+      aud lint --print-plan
+
+      # Increase timeout for large projects
+      aud lint --timeout 600
+
+    COMMON WORKFLOWS:
+      After Changes:
+        aud workset --diff HEAD~1 && aud lint --workset
+
+      PR Review:
+        aud workset --diff main && aud lint --workset
+
+      CI Pipeline:
+        aud lint || exit 1
+
+    OUTPUT FILES:
       .pf/raw/lint.json               # Normalized findings
       .pf/raw/ast_cache/eslint/*.json # Cached ASTs from ESLint
 
-    Finding Format:
-      {
-        "file": "src/auth.py",
-        "line": 42,
-        "column": 10,
-        "severity": "error",      # error | warning | info
-        "rule": "undefined-var",
-        "message": "Variable 'user' is not defined",
-        "tool": "eslint"
-      }
+    PERFORMANCE:
+      Small (<1K files):     ~10-20 seconds
+      Medium (5K files):     ~30-60 seconds
+      Large (20K+ files):    ~2-5 minutes
+      With --workset:        ~5-15 seconds (only changed files)
 
-    Exit Behavior:
-      - Always exits with code 0 (findings don't fail the command)
-      - Check stats['errors'] in output to determine CI/CD failure
+    EXIT CODES:
+      0 = Success (findings don't fail the command)
+      1 = Linter execution error or database missing
 
-    Note: Install linters in your project for best results:
+    RELATED COMMANDS:
+      aud workset        # Create file list for targeted linting
+      aud full           # Complete pipeline including lint
+      aud detect-patterns # Pattern-based security analysis
+
+    SEE ALSO:
+      aud manual lint    # Deep dive into linting workflow
+      aud manual workset # Understand workset targeting
+
+    TROUBLESHOOTING:
+      Error: "Database not found":
+        -> Run 'aud full' first to create .pf/repo_index.db
+
+      No linters found:
+        -> Install linters: npm install eslint, pip install ruff
+
+      Timeout during linting:
+        -> Increase timeout: aud lint --timeout 600
+        -> Use workset mode: aud lint --workset
+
+      ESLint not running:
+        -> Check node_modules exists
+        -> Verify eslint is in PATH or node_modules/.bin
+
+    NOTE: Install linters in your project for best results:
       npm install --save-dev eslint prettier
       pip install ruff mypy black pylint bandit
 

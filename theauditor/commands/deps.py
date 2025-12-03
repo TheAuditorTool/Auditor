@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
@@ -12,7 +13,7 @@ from theauditor.utils.exit_codes import ExitCodes
 IS_WINDOWS = platform.system() == "Windows"
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option("--check-latest", is_flag=True, help="Check for latest versions from registries")

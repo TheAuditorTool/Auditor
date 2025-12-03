@@ -11,13 +11,14 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @click.option("--structure", is_flag=True, help="Drill down into codebase structure details")
 @click.option("--graph", is_flag=True, help="Drill down into import/call graph analysis")
 @click.option("--security", is_flag=True, help="Drill down into security surface details")

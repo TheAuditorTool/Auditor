@@ -5,13 +5,14 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 IS_WINDOWS = platform.system() == "Windows"
 
 
-@click.command("taint-analyze")
+@click.command("taint-analyze", cls=RichCommand)
 @handle_exceptions
 @click.option("--db", default=None, help="Path to the SQLite database (default: repo_index.db)")
 @click.option(
@@ -59,7 +60,7 @@ def taint_analyze(
       Purpose: Detects injection vulnerabilities via taint propagation analysis
       Input: .pf/repo_index.db (function calls, assignments, control flow)
       Output: .pf/raw/taint_analysis.json (taint paths with severity)
-      Prerequisites: aud index (populates database with call graph + CFG)
+      Prerequisites: aud full (populates database with call graph + CFG)
       Integration: Core security analysis, runs in 'aud full' pipeline
       Performance: ~30s-5min depending on codebase size (CFG+memory optimization)
 
@@ -127,8 +128,8 @@ def taint_analyze(
       7. Output: JSON with taint paths source→sink with line numbers
 
     EXAMPLES:
-      # Use Case 1: Complete security audit after indexing
-      aud index && aud taint-analyze
+      # Use Case 1: Complete security audit (includes taint analysis)
+      aud full
 
       # Use Case 2: Only show critical/high severity findings
       aud taint-analyze --severity high
@@ -150,7 +151,7 @@ def taint_analyze(
 
     COMMON WORKFLOWS:
       Pre-Commit Security Check:
-        aud index && aud taint-analyze --severity critical
+        aud full --index && aud taint-analyze --severity critical
 
       Pull Request Review:
         aud workset --diff main..feature && aud taint-analyze --workset
@@ -226,7 +227,7 @@ def taint_analyze(
 
     PREREQUISITES:
       Required:
-        aud index              # Populates database with call graph + CFG
+        aud full               # Populates database with call graph + CFG
 
       Optional:
         aud workset            # Limits analysis to changed files only
@@ -238,18 +239,18 @@ def taint_analyze(
       3 = Analysis incomplete (database missing or parse error)
 
     RELATED COMMANDS:
-      aud index              # Builds call graph and CFG (run first)
+      aud full               # Builds database and runs full pipeline
       aud detect-patterns    # Pattern-based security rules (complementary)
       aud fce                # Cross-references taint findings with patterns
       aud workset            # Limits scope to changed files
 
     SEE ALSO:
-      aud explain taint      # Learn about taint analysis concepts
-      aud explain severity   # Understand severity classifications
+      aud manual taint       # Learn about taint analysis concepts
+      aud manual severity    # Understand severity classifications
 
     TROUBLESHOOTING:
       Error: "Database not found"
-        → Run 'aud index' first to create .pf/repo_index.db
+        -> Run 'aud full' first to create .pf/repo_index.db
 
       Analysis too slow (>10 minutes):
         → Use --no-cfg for 3-5x speedup (less accurate)

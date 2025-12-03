@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 
 if TYPE_CHECKING:
@@ -182,7 +183,7 @@ def detect_all_tools() -> dict[str, list[ToolStatus]]:
     return results
 
 
-@click.group("tools", invoke_without_command=True)
+@click.group("tools", cls=RichGroup, invoke_without_command=True)
 @click.pass_context
 def tools(ctx: click.Context) -> None:
     """Manage analysis tool dependencies.
@@ -201,12 +202,15 @@ def tools(ctx: click.Context) -> None:
       aud tools              # List all tools
       aud tools check        # Verify installation
       aud tools report       # Generate .pf/raw/tools.json
+
+    SEE ALSO:
+      aud manual tools   Learn about analysis tool dependencies
     """
     if ctx.invoked_subcommand is None:
         ctx.invoke(tools_list)
 
 
-@tools.command("list")
+@tools.command("list", cls=RichCommand)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @click.option(
     "--category",
@@ -255,7 +259,7 @@ def tools_list(as_json: bool, category: str) -> None:
     console.print()
 
 
-@tools.command("check")
+@tools.command("check", cls=RichCommand)
 @click.option("--strict", is_flag=True, help="Fail if any tool is missing")
 @click.option("--required", multiple=True, help="Specific tools to require (can be repeated)")
 def tools_check(strict: bool, required: tuple[str, ...]) -> None:
@@ -311,7 +315,7 @@ def tools_check(strict: bool, required: tuple[str, ...]) -> None:
         sys.exit(0)
 
 
-@tools.command("report")
+@tools.command("report", cls=RichCommand)
 @click.option("--out-dir", default=".pf/raw", type=click.Path(), help="Output directory")
 @click.option(
     "--format",

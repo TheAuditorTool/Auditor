@@ -4,10 +4,11 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 
-@click.command(name="learn")
+@click.command(name="learn", cls=RichCommand)
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--enable-git", is_flag=True, help="Enable git churn features")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
@@ -204,7 +205,7 @@ def learn(
       aud learn-feedback         # Re-train with human corrections
 
     SEE ALSO:
-      aud explain fce            # Understand root cause vs symptom distinction
+      aud manual ml              # Deep dive into machine learning concepts
       aud suggest --help         # Learn how models are used for predictions
 
     TROUBLESHOOTING:
@@ -395,7 +396,7 @@ def learn(
         raise click.ClickException(result.get("error"))
 
 
-@click.command(name="suggest")
+@click.command(name="suggest", cls=RichCommand)
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--workset", default="./.pf/workset.json", help="Workset file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model directory")
@@ -553,8 +554,8 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
       aud full                   # Creates training data for 'aud learn'
 
     SEE ALSO:
+      aud manual ml              # Deep dive into machine learning concepts
       aud learn --help           # Understand model training process
-      aud explain fce            # Learn about root cause vs symptom
 
     TROUBLESHOOTING:
       Error: "Models not found" or "No such file":
@@ -614,7 +615,7 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
         raise click.ClickException(result.get("error"))
 
 
-@click.command(name="learn-feedback")
+@click.command(name="learn-feedback", cls=RichCommand)
 @click.option("--feedback-file", required=True, help="Path to feedback JSON file")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
@@ -785,8 +786,8 @@ def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
       aud full                   # Creates training data in .pf/history/
 
     SEE ALSO:
+      aud manual ml              # Deep dive into machine learning concepts
       aud learn --help           # Understand base training process
-      aud suggest --help         # Learn how models make predictions
 
     TROUBLESHOOTING:
       Error: "Feedback file not found":

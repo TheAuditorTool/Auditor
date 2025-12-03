@@ -10,10 +10,11 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 
-@click.command("detect-frameworks")
+@click.command("detect-frameworks", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
 @click.option("--output-json", help="Path to output JSON file (default: .pf/raw/frameworks.json)")
 def detect_frameworks(project_path, output_json):
@@ -124,7 +125,8 @@ def detect_frameworks(project_path, output_json):
       aud deps               # Analyzes framework dependencies for CVEs
 
     SEE ALSO:
-      aud explain workset    # Understand how to filter framework detection
+      aud manual frameworks  # Deep dive into framework detection concepts
+      aud manual deps        # Understand dependency analysis
 
     TROUBLESHOOTING:
       Error: "Database not found"

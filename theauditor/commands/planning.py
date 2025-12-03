@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 from theauditor.planning import snapshots, verification
 from theauditor.planning.manager import PlanningManager
@@ -43,7 +44,7 @@ Run `aud init` to install the venv if agents are missing.
 """
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def planning():
     """Planning and Verification System - Database-Centric Task Management
@@ -131,11 +132,14 @@ def planning():
       rewind       Show git commands to rollback
 
     For detailed help: aud planning <command> --help
+
+    SEE ALSO:
+      aud manual planning   Learn about database-centric task management
     """
     pass
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.option("--name", required=True, help="Plan name")
 @click.option("--description", default="", help="Plan description")
 @handle_exceptions
@@ -163,7 +167,7 @@ def init(name, description):
         console.print(f"Description: {description}", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.option("--tasks/--no-tasks", default=True, help="Show task list (default: True)")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed information")
@@ -341,7 +345,7 @@ def show(plan_id, tasks, verbose, format):
     console.rule()
 
 
-@planning.command("list")
+@planning.command("list", cls=RichCommand)
 @click.option("--status", help="Filter by status (active/completed/archived)")
 @click.option(
     "--format", type=click.Choice(["table", "json"]), default="table", help="Output format"
@@ -396,7 +400,7 @@ def list_plans(status, format):
         console.print(f"Total: {len(plans)} plans", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.option("--phase-number", type=int, required=True, help="Phase number")
 @click.option("--title", required=True, help="Phase title")
@@ -433,7 +437,7 @@ def add_phase(plan_id, phase_number, title, description, success_criteria):
         console.print(f"Success Criteria: {success_criteria}", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.option("--title", required=True, help="Task title")
 @click.option("--description", default="", help="Task description")
@@ -496,7 +500,7 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         console.print(f"Verification spec: {spec}", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int)
 @click.option("--description", required=True, help="Job description (checkbox item)")
@@ -546,7 +550,7 @@ def add_job(plan_id, task_number, description, is_audit):
     )
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int)
 @click.option(
@@ -584,7 +588,7 @@ def update_task(plan_id, task_number, status, assigned_to):
         console.print(f"Reassigned task {task_number} to: {assigned_to}", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed violations")
@@ -721,7 +725,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
         raise
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.option("--notes", help="Archive notes")
 @handle_exceptions
@@ -790,7 +794,7 @@ def archive(plan_id, notes):
     console.print(f"Files affected: {len(snapshot['files_affected'])}", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int, required=False)
 @click.option("--checkpoint", help="Specific checkpoint name to rewind to")
@@ -974,7 +978,7 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             console.print(f"  aud planning rewind {plan_id} --checkpoint <name>", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int)
 @click.option("--name", help="Checkpoint name (optional, auto-generates if not provided)")
@@ -1032,7 +1036,7 @@ def checkpoint(plan_id, task_number, name):
             console.print(f"  ... and {len(snapshot['files_affected']) - 5} more", highlight=False)
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.argument("task_number", type=int)
 @click.option("--sequence", type=int, help="Show specific checkpoint by sequence number")
@@ -1150,7 +1154,7 @@ def show_diff(plan_id, task_number, sequence, file):
         )
 
 
-@planning.command("validate")
+@planning.command("validate", cls=RichCommand)
 @click.argument("plan_id", type=int)
 @click.option("--session-id", help="Specific session ID to validate against (defaults to latest)")
 @click.option("--format", type=click.Choice(["text", "json"]), default="text", help="Output format")
@@ -1350,7 +1354,7 @@ def validate_plan(plan_id, session_id, format):
     session_conn.close()
 
 
-@planning.command()
+@planning.command(cls=RichCommand)
 @click.option(
     "--target",
     type=click.Choice(["AGENTS.md", "CLAUDE.md", "both"]),
