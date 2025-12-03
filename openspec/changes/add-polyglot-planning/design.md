@@ -70,7 +70,7 @@ GO_FUNC_PARAMS = TableSchema(
 )
 ```
 
-**go_functions** (`theauditor/indexer/schemas/go_schema.py`):
+**go_functions** (`theauditor/indexer/schemas/go_schema.py:97-113`):
 ```python
 GO_FUNCTIONS = TableSchema(
     name="go_functions",
@@ -78,11 +78,14 @@ GO_FUNCTIONS = TableSchema(
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("name", "TEXT", nullable=False),
-        Column("receiver_type", "TEXT"),
+        Column("signature", "TEXT"),
         Column("is_exported", "BOOLEAN", default="0"),
+        Column("is_async", "BOOLEAN", default="0"),
         Column("doc_comment", "TEXT"),
     ],
+    primary_key=["file", "name", "line"],
 )
+# NOTE: Receivers are in go_methods table, NOT go_functions
 ```
 
 **rust_macro_invocations** (`theauditor/indexer/schemas/rust_schema.py:197-210`):
@@ -99,32 +102,44 @@ RUST_MACRO_INVOCATIONS = TableSchema(
 )
 ```
 
-**rust_functions** (`theauditor/indexer/schemas/rust_schema.py:49-73`):
+**rust_functions** (`theauditor/indexer/schemas/rust_schema.py:48-72`):
 ```python
 RUST_FUNCTIONS = TableSchema(
     name="rust_functions",
     columns=[
         Column("file_path", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
+        Column("end_line", "INTEGER"),
         Column("name", "TEXT", nullable=False),
+        Column("visibility", "TEXT"),
         Column("is_async", "BOOLEAN", default="0"),
+        Column("is_unsafe", "BOOLEAN", default="0"),
+        Column("is_const", "BOOLEAN", default="0"),
+        Column("is_extern", "BOOLEAN", default="0"),
+        Column("abi", "TEXT"),
         Column("return_type", "TEXT"),
-        Column("params_json", "TEXT"),  # JSON array of params
+        Column("params_json", "TEXT"),
+        Column("generics", "TEXT"),
+        Column("where_clause", "TEXT"),
     ],
+    primary_key=["file_path", "line"],
 )
 ```
 
-**bash_functions** (`theauditor/indexer/schemas/bash_schema.py`):
+**bash_functions** (`theauditor/indexer/schemas/bash_schema.py:5-21`):
 ```python
 BASH_FUNCTIONS = TableSchema(
     name="bash_functions",
     columns=[
         Column("file", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
+        Column("end_line", "INTEGER", nullable=False),
         Column("name", "TEXT", nullable=False),
-        Column("body_start", "INTEGER"),
-        Column("body_end", "INTEGER"),
+        Column("style", "TEXT", nullable=False, default="'posix'"),
+        Column("body_start_line", "INTEGER", nullable=True),
+        Column("body_end_line", "INTEGER", nullable=True),
     ],
+    primary_key=["file", "name", "line"],
 )
 ```
 
@@ -200,7 +215,7 @@ RUST_ATTRIBUTES = TableSchema(
 - Extension filtering via `files.ext` JOIN is consistent with existing pattern
 - Avoids N+1 queries to language-specific tables
 
-**Implementation** (`theauditor/commands/blueprint.py:335-375`):
+**Implementation** (`theauditor/commands/blueprint.py:342-404`):
 ```sql
 -- Add these CASE clauses to existing query in _get_naming_conventions()
 -- Go functions (snake_case for private, PascalCase for exported)
@@ -228,14 +243,17 @@ SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' THEN 1 ELSE 0 END) AS go_fun
 
 ### Decision 3: Use `go_routes` table for Go handler detection
 
-**What:** Query existing `go_routes` table for Go web framework handlers.
+**What:** Query `go_routes` table for Go web framework handlers.
 
 **Why:**
-- Table already exists with framework, method, path, handler_func columns
-- Populated during Go extraction phase
-- No need for complex param-type pattern matching
+- Table schema exists with framework, method, path, handler_func columns
+- Clean query pattern, no complex param-type matching needed
 
-**Implementation** (`theauditor/context/query.py:1439-1478`):
+**BLOCKER:** `go_routes` table is NOT currently populated:
+- `theauditor/ast_extractors/go_impl.py` has NO `extract_go_routes()` function
+- Must implement Go route extraction before this works (see BLOCKER 2 in proposal.md)
+
+**Implementation** (`theauditor/context/query.py:1375-1478`):
 ```python
 if ext == "go":
     cursor.execute(
@@ -276,7 +294,7 @@ if ext == "go":
 - Go main packages, web handlers are being reported as dead code
 - Rust main.rs, route handlers are being reported as dead code
 
-**Implementation** (`theauditor/context/deadcode_graph.py:255-268`):
+**Implementation** (`theauditor/context/deadcode_graph.py:255-269`):
 ```python
 def _find_framework_entry_points(self) -> set[str]:
     """Query repo_index.db for framework-specific entry points."""
@@ -413,7 +431,7 @@ RUST_VALIDATION_PATTERNS = [
 - Simple, no new abstraction needed
 - Maintains single code path per language
 
-**Code location:** `theauditor/context/query.py:1439-1478`
+**Code location:** `theauditor/context/query.py:1375-1478`
 
 ---
 
@@ -424,8 +442,8 @@ RUST_VALIDATION_PATTERNS = [
 | Go/Rust tables empty | Low | No output shown | Verify extraction working in task 0.2 |
 | SQL REGEXP not supported | Low | Query fails | SQLite supports REGEXP via extension, already used for Py/JS |
 | Performance degradation | Low | Slow queries | Single JOIN query, not N+1 pattern |
-| go_routes not populated | Medium | Fall back to param detection | Use go_func_params as secondary source |
-| rust_attributes missing | HIGH | Rust detection fails | BLOCKER - must implement first |
+| go_routes not populated | HIGH | Go detection fails | BLOCKER 2 - must implement route extraction first |
+| rust_attributes missing | HIGH | Rust detection fails | BLOCKER 1 - must implement first |
 
 ---
 
