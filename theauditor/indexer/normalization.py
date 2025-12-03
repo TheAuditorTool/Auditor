@@ -78,7 +78,7 @@ def normalize_python_routes(db_path: str) -> int:
     conn.close()
 
     if os.environ.get("THEAUDITOR_DEBUG") or promoted > 0:
-        logger.error(f"[Normalization] Successfully promoted {promoted} Python routes.")
+        logger.info(f"[Normalization] Successfully promoted {promoted} Python routes.")
 
     return promoted
 

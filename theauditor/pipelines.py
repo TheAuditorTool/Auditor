@@ -60,6 +60,53 @@ def get_command_timeout(cmd: list[str]) -> int:
     return DEFAULT_TIMEOUT
 
 
+# Regex to detect loguru-formatted output: "HH:MM:SS | LEVEL |" pattern
+_LOGURU_PATTERN = re.compile(r'^\d{2}:\d{2}:\d{2}\s*\|\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\|')
+
+
+def _format_stderr_output(stderr: str, max_chars: int = 300) -> list[str]:
+    """Format stderr for display, detecting loguru-formatted output.
+
+    If stderr contains loguru-formatted lines (HH:MM:SS | LEVEL |),
+    print them directly without "Error:" prefix since they're already formatted.
+    Otherwise, use "Error:" prefix for raw error messages.
+
+    Returns list of formatted lines ready for renderer.on_log().
+    """
+    if not stderr or not stderr.strip():
+        return []
+
+    lines = stderr.strip().split('\n')
+    output: list[str] = []
+    char_count = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Check if this line is loguru-formatted
+        if _LOGURU_PATTERN.match(line):
+            # Already formatted by loguru - print with indent, no "Error:" prefix
+            formatted = f"  {line}"
+        else:
+            # Raw error message - add "Error:" prefix
+            formatted = f"  Error: {line}"
+
+        # Truncate if we've exceeded max chars
+        if char_count + len(formatted) > max_chars:
+            remaining = max_chars - char_count
+            if remaining > 20:
+                output.append(formatted[:remaining] + "...")
+            output.append("  [dim]... see .pf/pipeline.log for full error[/dim]")
+            break
+
+        output.append(formatted)
+        char_count += len(formatted)
+
+    return output
+
+
 def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> list[str]:
     """Extract and format key output from phase stdout.
 
@@ -542,6 +589,7 @@ async def run_full_pipeline(
 
         current_phase = 0
         failed_phases = 0
+        failed_phase_names: list[str] = []  # Track which phases failed
         phases_with_warnings = 0
         pipeline_start = time.time()
 
@@ -643,10 +691,15 @@ async def run_full_pipeline(
 
         phase_num = renumber_phases(final_commands, phase_num)
 
-        # Recalculate total_phases based on what actually runs
-        sequential_count = len(foundation_commands) + len(data_prep_commands) + len(final_commands)
-        track_count = len(track_phase_numbers)
-        total_phases = sequential_count + track_count
+        # Recalculate total_phases - count ALL commands, not tracks as single phases
+        total_phases = (
+            len(foundation_commands) +
+            len(data_prep_commands) +
+            len(track_a_commands) +
+            len(track_b_commands) +
+            len(track_c_commands) +
+            len(final_commands)
+        )
 
         if index_only:
             total_phases = len(foundation_commands) + len(data_prep_commands)
@@ -761,6 +814,7 @@ async def run_full_pipeline(
                         log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                 else:
                     failed_phases += 1
+                    failed_phase_names.append(phase_name)
                     renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
                     log_lines.append(f"[FAILED] {phase_name} failed (exit code {result.exit_code})")
 
@@ -776,11 +830,9 @@ async def run_full_pipeline(
                         pass
 
                     if result.stderr:
-                        error_msg = f"  Error: {result.stderr[:200]}"
-                        if len(result.stderr) > 200:
-                            error_msg += "... [see pipeline.log for full error]"
-                        renderer.on_log(error_msg, is_error=True)
-                        log_lines.append(error_msg)
+                        for error_line in _format_stderr_output(result.stderr):
+                            renderer.on_log(error_line, is_error=True)
+                            log_lines.append(error_line)
 
                     renderer.on_log("[bold red]Foundation stage failed - stopping pipeline[/bold red]", is_error=True)
                     log_lines.append("[CRITICAL] Foundation stage failed - stopping pipeline")
@@ -864,17 +916,16 @@ async def run_full_pipeline(
                             log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                     else:
                         failed_phases += 1
+                        failed_phase_names.append(phase_name)
                         renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
                         log_lines.append(
                             f"[FAILED] {phase_name} failed (exit code {result.exit_code})"
                         )
 
                         if result.stderr:
-                            error_msg = f"  Error: {result.stderr[:200]}"
-                            if len(result.stderr) > 200:
-                                error_msg += "... [see pipeline.log for full error]"
-                            renderer.on_log(error_msg, is_error=True)
-                            log_lines.append(error_msg)
+                            for error_line in _format_stderr_output(result.stderr):
+                                renderer.on_log(error_line, is_error=True)
+                                log_lines.append(error_line)
 
                         renderer.on_log("[bold red]Data preparation stage failed - stopping pipeline[/bold red]", is_error=True)
                         log_lines.append("[CRITICAL] Data preparation stage failed - stopping pipeline")
@@ -882,6 +933,7 @@ async def run_full_pipeline(
 
                 except Exception as e:
                     failed_phases += 1
+                    failed_phase_names.append(phase_name)
                     renderer.on_log(f"[bold red]FAILED[/bold red]  {phase_name}: {e}", is_error=True)
                     log_lines.append(f"[FAILED] {phase_name} failed: {e}")
 
@@ -1281,13 +1333,21 @@ async def run_full_pipeline(
                         short_name = phase["name"].split(". ", 1)[-1] if ". " in phase["name"] else phase["name"]
                         renderer.on_log(f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s[/dim]{phase_findings}")
 
-                # Show Track A (taint) details from stdout
+                # Show Track A (taint) details from stdout - formatted like Track B
                 elif summary.get("stdout"):
                     for line in summary["stdout"].strip().split("\n"):
-                        if line.strip():
-                            # Colorize numbers in cyan, keep rest dim
-                            colored_line = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', line.strip())
-                            renderer.on_log(f"    [dim]{colored_line}[/dim]")
+                        text = line.strip()
+                        if not text:
+                            continue
+                        # Format: "    Label: value" with cyan numbers, dim prefix
+                        if ":" in text:
+                            label, value = text.split(":", 1)
+                            # Colorize numbers in value
+                            colored_value = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', value)
+                            renderer.on_log(f"    [dim]{label}:[/dim]{colored_value}")
+                        else:
+                            # Header line like "Taint analysis completed"
+                            renderer.on_log(f"    [dim]{text}[/dim]")
 
                 # Show error for failed tracks
                 if not summary["success"] and summary.get("stderr"):
@@ -1389,6 +1449,7 @@ async def run_full_pipeline(
                         log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
                 else:
                     failed_phases += 1
+                    failed_phase_names.append(phase_name)
                     renderer.on_phase_failed(phase_name, result.stderr, result.exit_code)
                     log_lines.append(f"[FAILED] {phase_name} failed (exit code {result.exit_code})")
 
@@ -1404,11 +1465,9 @@ async def run_full_pipeline(
                         pass
 
                     if result.stderr:
-                        error_msg = f"  Error: {result.stderr[:200]}"
-                        if len(result.stderr) > 200:
-                            error_msg += "... [see pipeline.log for full error]"
-                        renderer.on_log(error_msg, is_error=True)
-                        log_lines.append(error_msg)
+                        for error_line in _format_stderr_output(result.stderr):
+                            renderer.on_log(error_line, is_error=True)
+                            log_lines.append(error_line)
 
         pipeline_elapsed = time.time() - pipeline_start
         all_created_files = collect_created_files()
@@ -1442,56 +1501,7 @@ async def run_full_pipeline(
             f.write(f"Commands executed: {total_phases}\n")
             f.write(f"Failed commands: {failed_phases}\n")
 
-        def write_summary(msg):
-            renderer.on_log(msg)
-            log_lines.append(msg)
-
-        # Status header
-        write_summary("")
-        if index_only:
-            if failed_phases == 0:
-                write_summary(f"[bold green]INDEX COMPLETE[/bold green]  All {total_phases} phases successful")
-                write_summary("[dim]Database ready:[/dim] [cyan].pf/repo_index.db[/cyan] + [cyan].pf/graphs.db[/cyan]")
-                write_summary("[dim]Run 'aud full' for complete analysis (taint, patterns, fce)[/dim]")
-            else:
-                write_summary(f"[bold yellow]INDEX INCOMPLETE[/bold yellow]  {failed_phases} phases failed")
-        elif failed_phases == 0 and phases_with_warnings == 0:
-            write_summary(f"[bold green]AUDIT COMPLETE[/bold green]  All {total_phases} phases successful")
-        elif phases_with_warnings > 0 and failed_phases == 0:
-            write_summary(f"[yellow]AUDIT COMPLETE[/yellow]  {phases_with_warnings} phases completed with errors")
-        else:
-            write_summary(f"[bold yellow]AUDIT COMPLETE[/bold yellow]  {failed_phases} phases failed, {phases_with_warnings} phases with errors")
-
-        write_summary(f"[dim]Total time: {pipeline_elapsed:.1f}s ({pipeline_elapsed / 60:.1f} minutes)[/dim]")
-
-        # File stats
-        pf_files = [f for f in all_created_files if f.startswith(".pf/")]
-        docs_files = [f for f in all_created_files if f.startswith(".pf/docs/")]
-        raw_files = [f for f in all_created_files if f.startswith(".pf/raw/")]
-        root_files = [f for f in all_created_files if "/" not in f]
-
-        write_summary("")
-        write_summary(f"[bold]Files Created[/bold]  [dim]Total:[/dim] [bold]{len(all_created_files)}[/bold]  [dim].pf/:[/dim] {len(pf_files)}  [dim].pf/raw/:[/dim] {len(raw_files)}")
-
-        # Key artifacts
-        write_summary("")
-        write_summary("[bold]Key Artifacts[/bold]")
-        if index_only:
-            write_summary("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
-            write_summary("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
-            write_summary("  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
-        else:
-            write_summary("  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
-            write_summary("  [cyan].pf/allfiles.md[/cyan]       [dim]Complete file list[/dim]")
-            write_summary("  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
-            write_summary("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
-            write_summary("  [cyan].pf/raw/patterns.json[/cyan] [dim]Pattern detection results[/dim]")
-            write_summary("  [cyan].pf/risk_scores.json[/cyan]  [dim]Risk analysis[/dim]")
-
-        write_summary("")
-        write_summary("[dim]File list saved to[/dim] [cyan].pf/allfiles.md[/cyan]")
-        write_summary(f"[dim]Full log saved to[/dim] [cyan]{log_file_path}[/cyan]")
-
+        # Summary display moved to full.py for proper ordering after Live table
         all_created_files.append(str(allfiles_path))
         all_created_files.append(str(log_file_path))
 
@@ -1531,11 +1541,14 @@ async def run_full_pipeline(
         return {
             "success": failed_phases == 0 and phases_with_warnings == 0,
             "failed_phases": failed_phases,
+            "failed_phase_names": failed_phase_names,
             "phases_with_warnings": phases_with_warnings,
             "total_phases": total_phases,
             "elapsed_time": pipeline_elapsed,
             "created_files": all_created_files,
             "log_lines": log_lines,
+            "log_file_path": str(log_file_path),
+            "index_only": index_only,
             "findings": {
                 "critical": critical_findings,
                 "high": high_findings,
