@@ -90,7 +90,7 @@ vector_density = vectors_present / 4  # 3/4 = 0.75 (3-vector convergence)
 | **Risk Sources** | 7 | findings_consolidated, taint_flows, *_findings |
 | **Context: Process** | 4 | code_diffs, code_snapshots, refactor_* |
 | **Context: Structural** | 6 | cfg_*, complexity data |
-| **Context: Framework** | 29 | react_*, angular_*, vue_*, prisma_* |
+| **Context: Framework** | 36 | react_*, angular_*, vue_*, prisma_*, graphql_*, sequelize_*, bullmq_*, express_* |
 | **Context: Security** | 6 | jwt_patterns, sql_queries, api_endpoints |
 | **Context: Language** | 86 | go_*, rust_*, python_*, bash_* |
 | **Context: Core** | 79 | symbols, imports, refs, calls |

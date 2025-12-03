@@ -1,8 +1,9 @@
 # Due Diligence: add-polyglot-planning
 
 **Reviewed**: 2025-12-03
+**Last Flight Check**: 2025-12-03 (second pass)
 **Reviewer**: Claude (Opus 4.5)
-**Verdict**: ~~NEEDS WORK~~ → **PASS** (Fixed 2025-12-03)
+**Verdict**: **PASS** (Updated 2025-12-03)
 
 ---
 
@@ -251,3 +252,70 @@ The proposal is now IRONCLAD:
 2. ~~Re-run `/check` after fixes~~ DONE - PASS
 3. Consider adding a "Last Verified" timestamp to proposals
 4. For future proposals: run verification immediately after creation before context drift occurs
+
+---
+
+## Flight Check #2 (2025-12-03)
+
+### New Findings
+
+#### 1. BLOCKER 2 (Go Routes) Is Now RESOLVED
+**Discovery:** Go route extraction was implemented after original due diligence.
+
+**Evidence:**
+- `go_routes` table has 5 rows (all gin framework)
+- Extractor exists at `theauditor/indexer/extractors/go.py:106-131`
+- Functions: `_detect_routes()`, `_detect_web_framework()`, `_get_framework_route_patterns()`
+- Frameworks supported: gin, echo, fiber, chi, gorilla
+
+**Impact:** Tasks 3.1, 4.1-4.3, 5.1-5.2 are now UNBLOCKED.
+
+#### 2. Boundaries Architecture Changed
+**Discovery:** `boundaries.py` refactored to delegate pattern.
+
+**Old structure:**
+```
+theauditor/commands/boundaries.py (all logic)
+```
+
+**New structure:**
+```
+theauditor/commands/boundaries.py (thin CLI wrapper)
+theauditor/boundaries/boundary_analyzer.py (entry point + control detection)
+theauditor/boundaries/distance.py (distance calculation)
+```
+
+**Impact:** All Task 5.x file references updated.
+
+### Fixes Applied (Flight Check #2)
+
+1. **proposal.md:**
+   - Marked BLOCKER 2 as RESOLVED with implementation location
+   - Updated section 3 to remove BLOCKER 2 dependency
+   - Updated section 5 to reference `boundary_analyzer.py`
+   - Updated affected code list
+
+2. **tasks.md:**
+   - Added "Unblocked" section for Go tasks
+   - Marked Task 0.2 as DONE with verification results
+   - Updated all Task 5.x file references to `boundary_analyzer.py`
+
+### Verified Still Valid
+
+| Blocker | Status | Evidence |
+|---------|--------|----------|
+| BLOCKER 1 (rust_attributes) | Still blocked | `grep "rust_attributes"`: No matches |
+| BLOCKER 2 (unified tables) | Still blocked | `symbols: .go=0, .rs=0, .sh=0` |
+
+### Line Number Verification
+
+All line numbers verified accurate against current codebase:
+- `blueprint.py:342` - `_get_naming_conventions()`
+- `blueprint.py:1318` - `_get_dependencies()`
+- `query.py:1375` - `get_file_framework_info()`
+- `deadcode_graph.py:237` - `_find_decorated_entry_points()`
+- `deadcode_graph.py:255` - `_find_framework_entry_points()`
+
+### Final Verdict
+
+**PASS** - Ticket is now ironclad and ready for implementation.

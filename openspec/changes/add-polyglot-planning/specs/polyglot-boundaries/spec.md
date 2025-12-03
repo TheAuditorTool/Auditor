@@ -59,7 +59,7 @@ Rust entry point patterns:
 - **AND** entry_file shows the Rust file path
 - **AND** route path is extracted from attribute args
 
-**DEPENDS ON:** `rust_attributes` table (from polyglot-planning task 0.3)
+**DEPENDS ON:** `rust_attributes` table (BLOCKER 1 - Task 0.3)
 
 #### Scenario: Axum handler detected as entry point
 
@@ -153,12 +153,12 @@ Rust multi-tenant patterns:
 
 ## Implementation Location
 
-**Primary file:** `theauditor/commands/boundaries.py`
+**Primary file:** `theauditor/boundaries/boundary_analyzer.py`
 
 **Functions to add/modify:**
-- `_get_entry_points()` - Add Go/Rust route queries
-- `_get_control_points()` - Add Go/Rust validation pattern detection
-- `_calculate_distance()` - Ensure call graph traversal works for Go/Rust
+- `analyze_input_validation_boundaries()` - Add Go/Rust route queries to entry point detection
+- Add Go/Rust validation pattern detection to `VALIDATION_PATTERNS` or create language-specific lists
+- `find_all_paths_to_controls()` in `distance.py` - Ensure call graph traversal works for Go/Rust
 
 **Tables to query:**
 | Language | Entry Point Table | Purpose |

@@ -48,7 +48,7 @@ This proposal covers polyglot support for ALL affected commands:
 
 ### 3. Explain Framework Info (`query.py:1375-1478`)
 - **MODIFY** `get_file_framework_info()` to include Go/Rust handlers
-- Go: Query `go_routes` table (REQUIRES BLOCKER 2 - route extraction)
+- Go: Query `go_routes` table (extraction already implemented)
 - Rust: Query `rust_attributes` for `#[get]`, `#[post]` macros (REQUIRES BLOCKER 1)
 - Detect Go web frameworks: gin, echo, chi, fiber, net/http
 - Detect Rust web frameworks: actix-web, axum, rocket
@@ -62,8 +62,8 @@ This proposal covers polyglot support for ALL affected commands:
   - `rust_functions` for Rust main functions
 - **ADD** Bash shebang detection for executable scripts
 
-### 5. Boundaries Entry Point Detection (`boundaries.py`)
-- **MODIFY** entry point detection to query `go_routes`, `rust_attributes`
+### 5. Boundaries Entry Point Detection (`boundaries/boundary_analyzer.py`)
+- **MODIFY** `analyze_input_validation_boundaries()` to query `go_routes`, `rust_attributes`
 - **ADD** Go validation pattern detection (ShouldBindJSON, validator.Struct)
 - **ADD** Rust validation pattern detection (web::Json extractors, Validate derive)
 - **ADD** Go/Rust multi-tenant boundary detection
@@ -81,18 +81,15 @@ This proposal covers polyglot support for ALL affected commands:
 - `rust_macro_invocations` only captures macro calls like `println!()`
 - Route attributes like `#[get("/users")]` are `attribute_item` nodes in tree-sitter
 - **Required:** Create `rust_attributes` table and extraction function
-- **Blocks:** Tasks 3.2 (explain), 4.x (deadcode), 5.x (boundaries)
+- **Blocks:** Tasks 3.2 (explain), 4.4-4.6 (deadcode Rust), 5.3-5.6 (boundaries Rust)
 
-### BLOCKER 2: Go Route Extraction Missing
-- **File:** `theauditor/ast_extractors/go_impl.py` (single file, 1372 lines)
-- **Issue:** No `extract_go_routes()` function exists
-- `go_routes` table schema exists but is never populated during indexing
-- **Verified:** File contains `extract_go_functions`, `extract_go_methods`, `extract_go_goroutines` - NO route extraction
-- **Required:** Implement Go route extraction for Gin/Echo/Chi/Gorilla frameworks
-- **Blocks:** Tasks 3.1 (explain Go), 4.x (deadcode Go), 5.x (boundaries Go)
-- **Effort:** 2-3 hours
+### ~~BLOCKER 2: Go Route Extraction Missing~~ RESOLVED
+- **Status:** IMPLEMENTED as of 2025-12-03
+- **Location:** `theauditor/indexer/extractors/go.py:106-131`
+- **Verification:** `go_routes` table has 5 gin routes populated
+- **Frameworks supported:** gin, echo, fiber, chi, gorilla
 
-### BLOCKER 3: Unified Table Population (Task 0.5)
+### BLOCKER 2: Unified Table Population (Task 0.5)
 - Go/Rust/Bash extractors populate language-specific tables but NOT unified `symbols`/`refs` tables
 - **Verification results:**
   ```
@@ -115,11 +112,11 @@ This proposal covers polyglot support for ALL affected commands:
   - `theauditor/commands/blueprint.py` (2 functions)
   - `theauditor/context/query.py` (1 function)
   - `theauditor/context/deadcode_graph.py` (3 functions)
-  - `theauditor/commands/boundaries.py` (3+ functions)
+  - `theauditor/boundaries/boundary_analyzer.py` (entry point + control detection)
   - `theauditor/indexer/schemas/infrastructure_schema.py` (new table)
   - `theauditor/indexer/schemas/go_schema.py` (new table)
   - `theauditor/indexer/schemas/rust_schema.py` (new table + rust_attributes)
-  - `theauditor/ast_extractors/go_impl.py` (unified table population + route extraction)
+  - `theauditor/indexer/extractors/go.py` (unified table population)
   - `theauditor/ast_extractors/rust_impl.py` (unified table population + attribute extraction)
   - `theauditor/ast_extractors/bash_impl.py` (unified table population)
 - **Risk:** LOW - additive changes only, no breaking changes

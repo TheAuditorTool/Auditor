@@ -203,8 +203,8 @@ Tables without file/path columns: 26
 Table Categories:
   Risk Sources: 7 tables
   Context: Process: 4 tables
-  Context: Structural: 15 tables
-  Context: Framework: 29 tables
+  Context: Structural: 6 tables
+  Context: Framework: 36 tables
   Context: Security: 6 tables
   Context: Language: 86 tables
   Context: Other: 79 tables
