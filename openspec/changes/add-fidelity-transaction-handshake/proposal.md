@@ -60,22 +60,35 @@ Replace simple `{table: count}` with `{table: {tx_id, columns, count, bytes}}`:
 | `theauditor/indexer/fidelity.py` | Upgrade `reconcile_fidelity()` for rich tokens |
 | `theauditor/indexer/fidelity_utils.py` | **NEW** - `FidelityToken` helper class |
 | `theauditor/indexer/storage/__init__.py` | DataStorer.store() returns rich receipts |
-| `theauditor/ast_extractors/python_impl.py` | Generate rich manifests (currently at line 1023) |
-| `theauditor/indexer/extractors/javascript.py` | Generate rich manifests (currently at line 728) |
+| `theauditor/ast_extractors/python_impl.py` | Generate rich manifests |
+| `theauditor/indexer/extractors/javascript.py` | Pass through Node manifests |
+| `theauditor/ast_extractors/javascript/src/fidelity.ts` | **NEW** - Node-side manifest generation |
 
-### Anchored to Existing Code
+### Anchored to Existing Code (VERIFIED 2025-12-03)
 
-**Current manifest generation** (`javascript.py:711-728`):
+**Current manifest generation** (`javascript.py:420-439`):
 ```python
+manifest = {}
+total_items = 0
+for key, value in result.items():
+    if key.startswith("_"):
+        continue
+    if not isinstance(value, (list, dict)):
+        continue
+    count = len(value)
+    if count > 0:
+        manifest[key] = count
+        total_items += count
+
 manifest["_total"] = total_items
 manifest["_timestamp"] = datetime.utcnow().isoformat()
 manifest["_file"] = file_info.get("path", "unknown")
 result["_extraction_manifest"] = manifest
 ```
 
-**Current receipt generation** (`storage/__init__.py:67-70`, within `store()` method at lines 32-75):
+**Current receipt generation** (`storage/__init__.py:129-132`, inside `process_key()` helper):
 ```python
-if isinstance(data, list):
+if isinstance(data, (list, dict)):
     receipt[data_type] = len(data)
 else:
     receipt[data_type] = 1 if data else 0
@@ -90,79 +103,88 @@ for table in sorted(tables):
         errors.append(f"{table}: extracted {extracted} -> stored 0 (100% LOSS)")
 ```
 
-### Relationship to Active Changes
-
-- **`refactor-extraction-zero-fallback`**: Complementary - removes deduplication fallbacks
-- **`new-architecture-js`**: REQUIRED DEPENDENCY - Node extractors must generate manifests at source
-- This proposal: Extends fidelity from counts to full transaction handshake
+**Current orchestrator reconciliation call** (`orchestrator.py:807-811`):
+```python
+if manifest:
+    try:
+        reconcile_fidelity(
+            manifest=manifest, receipt=receipt, file_path=file_path, strict=True
+        )
+```
 
 ---
 
-## POLYGLOT ASSESSMENT - CRITICAL
+## POLYGLOT ASSESSMENT - UNBLOCKED
 
-### The Parity Problem
+### Architecture Status (VERIFIED 2025-12-03)
 
-**Python**: Ironclad. Python extractor (`python_impl.py`) generates manifests directly from extraction output. Fidelity catches any Python-side data loss.
+**The `new-architecture-js` ticket is COMPLETE.** The Node extraction pipeline has been fully modernized:
 
-**Node**: WEAK. Node extractors (`ast_extractors/javascript/*.js`) output raw JSON. The Python orchestrator (`javascript.py`) builds manifests AFTER receiving Node output. This means:
+| Feature | Old (Feared) | Current (Reality) |
+|---------|--------------|-------------------|
+| Code location | Python strings (`js_helper_templates.py`) | TypeScript `src/` directory |
+| Build system | Runtime JS concatenation | esbuild bundle (`dist/extractor.cjs`) |
+| Validation | None | Zod schemas (`src/schema.ts`) |
+| Output | stdout JSON (fragile) | File-based I/O (`outputPath`) |
+| Logging | `console.log` pollution | Pino to stderr (`src/utils/logger.ts`) |
+
+### Logging Infrastructure
+
+**Python side** (`theauditor/utils/logging.py`):
+- Loguru with Pino-compatible NDJSON output
+- Rich integration via `swap_to_rich_sink()` for Live displays
+- Request ID correlation via `THEAUDITOR_REQUEST_ID`
+- `get_subprocess_env()` for passing correlation to Node
+
+**Node side** (`src/utils/logger.ts`):
+- Pino writing to stderr (fd 2), preserving stdout for data
+- Same `THEAUDITOR_REQUEST_ID` environment variable
+- Matched log format for unified viewing
+
+**This means fidelity error messages will render correctly through the Rich pipeline UI.**
+
+### Current Node Architecture (Clean)
 
 ```
-Node extractor silently drops data → Python sees truncated JSON →
-Python builds manifest from truncated data → Fidelity passes →
-DATA LOSS UNDETECTED
-```
-
-### Current Architecture (Fragile)
-
-```
-Node Extractor (10 JS files)
-    ↓ raw JSON (no manifest)
-Python Orchestrator (javascript.py)
-    ↓ builds manifest from whatever arrived
+src/main.ts (entry point)
+    ↓ extracts data via TypeScript extractors
+    ↓ sanitizes virtual Vue paths
+    ↓ validates via Zod (ExtractionReceiptSchema)
+    ↓ writes to outputPath file
+javascript.py (Python orchestrator)
+    ↓ reads output file
+    ↓ currently builds manifest FROM Node output
 reconcile_fidelity()
     ↓ compares manifest to receipt
-    ✓ PASSES (but Node lost data silently)
 ```
 
-### Required Architecture (Ironclad)
+### Required Architecture (Phase 5)
 
 ```
-Node Extractor (bundled TypeScript)
-    ↓ JSON + _extraction_manifest (generated inside Node)
-Python Orchestrator (javascript.py)
-    ↓ passes through Node's manifest
+src/main.ts (entry point)
+    ↓ extracts data via TypeScript extractors
+    ↓ sanitizes virtual Vue paths
+    ↓ attachManifest() ← NEW: generates manifest INSIDE Node
+    ↓ validates via Zod
+    ↓ writes to outputPath file
+javascript.py (Python orchestrator)
+    ↓ reads output file
+    ↓ detects Node-generated manifest, passes through
 reconcile_fidelity()
     ↓ compares Node's manifest to receipt
-    ✗ FAILS if Node's output doesn't match what Storage received
+    ↓ CATCHES Node-side data loss
 ```
 
-### What This Means for This Ticket
+### Value Delivery Timeline
 
-**Phase 1-4**: Python-side only. Infrastructure + Python extractor upgrade.
-
-**Phase 5 (NEW)**: Node-side manifest generation. BLOCKED by `new-architecture-js` ticket which:
-1. Converts fragile JS concatenation to TypeScript bundle
-2. Adds Zod schema validation inside Node
-3. Generates `_extraction_manifest` BEFORE JSON output
-
-**Value Delivery Timeline**:
 | Phase | Scope | Value |
 |-------|-------|-------|
-| 1-3 | Infrastructure | Enables rich tokens (no detection yet) |
-| 4 | Python extractor | Python fidelity fully operational |
-| 5 | Node extractor | Node fidelity fully operational (REQUIRES new-architecture-js) |
+| 1-2 | Infrastructure + reconcile_fidelity | Detection logic ready |
+| 3 | Storage rich receipts | Receipt side ready |
+| 4 | Python extractor + JS orchestrator | **Python fidelity fully operational** |
+| 5 | Node-side manifest (`src/fidelity.ts`) | **Full polyglot parity** |
 
-### Blocking Relationship
-
-```
-add-fidelity-transaction-handshake (Phase 1-4)
-    ↓ can run independently
-new-architecture-js
-    ↓ must complete first
-add-fidelity-transaction-handshake (Phase 5)
-    ↓ Node-side manifest generation
-FULL PARITY ACHIEVED
-```
+**ALL PHASES ARE NOW UNBLOCKED.**
 
 ---
 
@@ -174,12 +196,14 @@ FULL PARITY ACHIEVED
 | Receipt format breaks fidelity | LOW | MEDIUM | Same backward compat pattern |
 | Performance overhead | LOW | LOW | UUID + column list is ~100 bytes |
 | Byte size false positives | MEDIUM | LOW | Use as warning, not hard fail |
-| **Node fidelity incomplete** | **HIGH** | **HIGH** | **Phase 5 blocked until new-architecture-js completes** |
+| Node TypeScript changes break build | LOW | MEDIUM | `npm run typecheck` before build |
 
 ### Rollback Strategy
 
 ```bash
 git checkout HEAD -- theauditor/indexer/fidelity.py
 git checkout HEAD -- theauditor/indexer/storage/__init__.py
+git checkout HEAD -- theauditor/ast_extractors/javascript/src/
 rm theauditor/indexer/fidelity_utils.py  # New file
+cd theauditor/ast_extractors/javascript && npm run build  # Rebuild bundle
 ```
