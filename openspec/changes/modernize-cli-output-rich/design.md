@@ -91,7 +91,12 @@ class RichCommand(click.Command):
         if sections.get("summary"):
             console.print(f"\n{sections['summary'].strip()}\n")
 
-        # AI Assistant Context (panel)
+        # Description (expanded paragraph)
+        if sections.get("description"):
+            console.print(sections["description"].strip())
+            console.print()
+
+        # AI Assistant Context (panel - key section for AI tools)
         if sections.get("ai_assistant_context"):
             panel = Panel(
                 sections["ai_assistant_context"].strip(),
@@ -100,7 +105,7 @@ class RichCommand(click.Command):
             )
             console.print(panel)
 
-        # Examples (code block style)
+        # Examples (code block style with syntax highlighting)
         if sections.get("examples"):
             console.print("\n[bold]Examples:[/bold]")
             for line in sections["examples"].strip().split("\n"):
@@ -111,12 +116,77 @@ class RichCommand(click.Command):
                 else:
                     console.print(f"  {line}")
 
-        # Related commands (table)
+        # Common Workflows (named scenarios)
+        if sections.get("common_workflows"):
+            console.print("\n[bold]Common Workflows:[/bold]")
+            for line in sections["common_workflows"].strip().split("\n"):
+                if line.strip().endswith(":") and not line.strip().startswith("aud"):
+                    console.print(f"\n  [cyan]{line.strip()}[/cyan]")
+                elif line.strip().startswith("aud "):
+                    console.print(f"    [green]{line.strip()}[/green]")
+                else:
+                    console.print(f"    {line}")
+
+        # Output Files (file paths with descriptions)
+        if sections.get("output_files"):
+            console.print("\n[bold]Output Files:[/bold]")
+            for line in sections["output_files"].strip().split("\n"):
+                if line.strip():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2:
+                        console.print(f"  [cyan]{parts[0]}[/cyan]  {parts[1]}")
+                    else:
+                        console.print(f"  {line}")
+
+        # Performance (timing expectations)
+        if sections.get("performance"):
+            console.print("\n[bold]Performance:[/bold]")
+            for line in sections["performance"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [dim]{line.strip()}[/dim]")
+
+        # Exit Codes (meaningful codes for scripting)
+        if sections.get("exit_codes"):
+            console.print("\n[bold]Exit Codes:[/bold]")
+            for line in sections["exit_codes"].strip().split("\n"):
+                if line.strip():
+                    if "=" in line:
+                        code, desc = line.split("=", 1)
+                        console.print(f"  [yellow]{code.strip()}[/yellow] = {desc.strip()}")
+                    else:
+                        console.print(f"  {line}")
+
+        # Related Commands (cross-references)
         if sections.get("related_commands"):
             console.print("\n[bold]Related Commands:[/bold]")
             for line in sections["related_commands"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  [dim]{line.strip()}[/dim]")
+
+        # See Also (manual references)
+        if sections.get("see_also"):
+            console.print("\n[bold]See Also:[/bold]")
+            for line in sections["see_also"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [cyan]{line.strip()}[/cyan]")
+
+        # Troubleshooting (problem -> solution format)
+        if sections.get("troubleshooting"):
+            console.print("\n[bold]Troubleshooting:[/bold]")
+            for line in sections["troubleshooting"].strip().split("\n"):
+                if line.strip().startswith("->"):
+                    console.print(f"    [green]{line.strip()}[/green]")
+                elif line.strip():
+                    console.print(f"  [yellow]{line.strip()}[/yellow]")
+
+        # Note (important caveats)
+        if sections.get("note"):
+            console.print()
+            console.print(Panel(
+                sections["note"].strip(),
+                title="[bold yellow]Note[/bold yellow]",
+                border_style="yellow",
+            ))
 
     def _render_options(self, console: Console, ctx):
         """Render options in a clean table format."""

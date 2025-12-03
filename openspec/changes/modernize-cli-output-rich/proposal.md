@@ -1,14 +1,22 @@
-# Proposal: Modernize CLI Output with Rich Formatting
+# Proposal: CLI 2.0 Modernization - Rich Frontend + Complete Help System
 
 ## Why
 
-TheAuditor's main `aud --help` looks spectacular with Rich panels, tables, and color themes. But every subcommand help (e.g., `aud taint-analyze --help`) is a wall of poorly-wrapped plaintext that makes you want to die.
+TheAuditor's CLI help system is broken at every level. This isn't just "add Rich formatting" - it's a complete modernization of how the tool documents itself.
 
 **The Problem:**
-- Main help: Beautiful Rich-formatted dashboard with categorized panels
+- Main help: Beautiful Rich-formatted dashboard (the ONE good part)
 - Subcommand help: Click's default plaintext dump with horrible line wrapping
-- Manual entries: Basic ASCII box formatting, no Rich
-- Content: Much of the text is outdated from 5+ architecture rewrites - describes features that don't exist or uses sterile language that doesn't reflect what the tool actually does
+- Manual entries (`aud manual`): Only ~20% complete, ASCII boxes, no Rich
+- Content: Outdated garbage from 5+ architecture rewrites - describes features that don't exist, uses sterile dev-speak nobody understands
+- Cross-references: Non-existent - help doesn't link to manual, manual doesn't link to commands
+- Audience mismatch: Written for humans, but AI runs this tool
+
+**Critical insight: This help system is FOR AI, not humans.** Claude Code and other AI assistants are the primary users. Every `--help` and `aud manual` entry must be:
+- Actionable (AI can execute based on reading it)
+- Accurate (examples actually work, descriptions match reality)
+- Cross-referenced (stuck on a command? manual has deep explanation)
+- Not hallucinated dev-dump notes
 
 **Current State:**
 ```
@@ -25,22 +33,28 @@ aud manual taint    -> ASCII boxes, no syntax highlighting (MEH)
 
 ## Scope
 
-This proposal covers CLI output modernization across **36 command files** and **16 manual entries**:
+This proposal covers CLI output modernization across **34 command files** and **16 manual entries**:
 
 | Category | Files | Current State | Target State |
 |----------|-------|---------------|--------------|
-| Command docstrings | 36 files | Click plaintext | Rich-formatted sections |
+| Command docstrings | 34 files | Click plaintext | Rich-formatted sections |
 | Manual entries | 16 entries | ASCII boxes | Rich panels + syntax highlighting |
 | Option descriptions | ~200 options | Terse/outdated | Clear, accurate |
 | Content accuracy | All text | 5+ rewrites behind | Reflects current architecture |
 
-**In Scope:**
-- Create `RichCommand` class for subcommand help formatting
-- Migrate all 36 command files to structured Rich help
-- Update 16 manual entries with Rich formatting
-- Grammar/style cleanup pass on all text
-- Update outdated descriptions to match current tool behavior
-- Standardize section headers (AI CONTEXT, EXAMPLES, OPTIONS, etc.)
+**In Scope (per command):**
+1. **Rich formatting** - Add `cls=RichCommand` to decorator
+2. **Content rewrite** - Rewrite docstring from scratch if needed (not just reformat)
+3. **Manual entry** - Create/update corresponding `aud manual <topic>` entry
+4. **Cross-references** - `--help` says "See: aud manual X", manual says "Command: aud X"
+5. **Verification** - Test that examples actually work, descriptions match reality
+6. **AI-first language** - Written for AI assistants to understand and execute
+
+**Deliverables:**
+- 34 command files with Rich-formatted, accurate, AI-friendly help
+- ~30+ manual entries (up from current ~20% coverage to 100%)
+- Bidirectional cross-references throughout
+- Zero hallucinated or outdated content
 
 **Out of Scope:**
 - JSON/machine output formats (already work fine)
@@ -69,7 +83,7 @@ class RichCommand(click.Command):
         # Render with Rich panels/tables
 ```
 
-### 2. Standardize Docstring Format (All 36 Commands)
+### 2. Standardize Docstring Format (All 34 Commands)
 
 **DEFINE** canonical docstring structure:
 
@@ -94,7 +108,7 @@ RELATED COMMANDS:
 """
 ```
 
-### 3. Migrate Command Files (36 files)
+### 3. Migrate Command Files (34 files)
 
 **MODIFY** each command file to use new format:
 
@@ -164,17 +178,17 @@ db.execute(query)  [red]# SINK: SQL injection![/red]
 | File | Decorator Line | Subcommands |
 |------|----------------|-------------|
 | graph.py | 12 | build, build-dfg, analyze, query, viz |
-| session.py | 22 | analyze, list, inspect, report, activity |
-| planning.py | 46 | (invoke_without_command) |
-| terraform.py | 16 | analyze, scan |
+| session.py | 22 | analyze, report, inspect, activity, list |
+| planning.py | 46 | init, show, list, add-phase, add-task, add-job, update-task, verify-task, archive, rewind, checkpoint, show-diff, validate, setup-agents |
+| terraform.py | 16 | provision, analyze, report |
 | cfg.py | 12 | analyze, viz |
-| tools.py | 185 | (subcommands TBD) |
-| workflows.py | 20 | (subcommands TBD) |
-| metadata.py | 9 | (subcommands TBD) |
+| tools.py | 185 | list, check, report |
+| workflows.py | 20 | analyze |
+| metadata.py | 9 | churn, coverage, analyze |
 | cdk.py | 16 | analyze |
-| graphql.py | 12 | (subcommands TBD) |
+| graphql.py | 12 | build, query, viz |
 
-### Standalone Commands (26 files - need RichCommand)
+### Standalone Commands (24 files - need RichCommand)
 
 | File | Decorator Line | Priority |
 |------|----------------|----------|
@@ -235,7 +249,7 @@ db.execute(query)  [red]# SINK: SQL injection![/red]
 ### Phase 6: Final Polish (1 file + review)
 - _archive.py (hidden)
 - Consistency review, grammar check, example verification
-- **Verify**: All 36 files complete, no regressions
+- **Verify**: All 34 files complete, no regressions
 
 ---
 
@@ -261,9 +275,9 @@ db.execute(query)  [red]# SINK: SQL injection![/red]
 **Infrastructure (create new class):**
 - `theauditor/cli.py:140` - Add RichCommand class after RichGroup (lines 24-138)
 
-**Primary (36 command files in `theauditor/commands/`):**
+**Primary (34 command files in `theauditor/commands/`):**
 - 10 group commands (need RichGroup for group + RichCommand for subcommands)
-- 26 standalone commands (need RichCommand)
+- 24 standalone commands (need RichCommand)
 - See Complete File Inventory above for exact line numbers
 
 **Manual entries (content in `theauditor/commands/manual.py`):**
@@ -272,7 +286,7 @@ db.execute(query)  [red]# SINK: SQL injection![/red]
 
 **Key locations:**
 - Existing RichGroup pattern: `cli.py:24-138`
-- AUDITOR_THEME: `pipeline/ui.py:8-21`
-- Console instance: `pipeline/ui.py:24`
+- AUDITOR_THEME: `pipeline/ui.py:10-24`
+- Console instance: `pipeline/ui.py:27`
 
-**Total estimated changes:** ~3,000 lines modified/reformatted across 37 files
+**Total estimated changes:** ~3,000 lines modified/reformatted across 35 files
