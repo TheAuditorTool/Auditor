@@ -91,23 +91,16 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             skipped_count += 1
 
     if archived_count > 0:
-        console.print(
-            f"\\[ARCHIVE] Archived {archived_count} items to {archive_dest}", highlight=False
-        )
+        logger.info(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
         if preserved_count > 0:
-            console.print(
-                f"\\[ARCHIVE] Preserved {preserved_count} cache directories for reuse",
-                highlight=False,
-            )
+            logger.info(f"[ARCHIVE] Preserved {preserved_count} cache directories for reuse")
         if skipped_count > 0:
-            console.print(
-                f"\\[ARCHIVE] Skipped {skipped_count} items due to errors", highlight=False
-            )
+            logger.warning(f"[ARCHIVE] Skipped {skipped_count} items due to errors")
     else:
         if preserved_count > 0:
-            console.print("\\[ARCHIVE] No artifacts to archive (only caches remain)")
+            logger.info("[ARCHIVE] No artifacts to archive (only caches remain)")
         else:
-            console.print("\\[ARCHIVE] No artifacts archived (directory was empty)")
+            logger.info("[ARCHIVE] No artifacts archived (directory was empty)")
 
     metadata = {
         "run_type": run_type,

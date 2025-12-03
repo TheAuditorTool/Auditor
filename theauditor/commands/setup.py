@@ -4,6 +4,9 @@ import platform
 from pathlib import Path
 
 import click
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from theauditor.pipeline.ui import console
 
@@ -192,44 +195,86 @@ def setup_ai(target, sync, dry_run, show_versions):
     if not target_dir.exists():
         raise click.ClickException(f"Target directory does not exist: {target_dir}")
 
-    console.print(f"\n{'=' * 60}", highlight=False)
-    console.print("AI Development Setup - Zero-Optional Installation")
-    console.print(f"{'=' * 60}", highlight=False)
-    console.print(f"Target:  {target_dir}", highlight=False)
-    console.print(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}", highlight=False)
-    console.print(f"{'=' * 60}\n", highlight=False)
+    # Modern header with Rich Panel
+    mode_style = "yellow" if dry_run else "green"
+    mode_text = "DRY RUN" if dry_run else "EXECUTE"
+
+    header_content = Text()
+    header_content.append("Target:  ", style="dim")
+    header_content.append(str(target_dir), style="cyan")
+    header_content.append("\nMode:    ", style="dim")
+    header_content.append(mode_text, style=f"bold {mode_style}")
+
+    console.print()
+    console.print(Panel(
+        header_content,
+        title="[bold blue]TheAuditor[/bold blue] [dim]AI Development Setup[/dim]",
+        subtitle="[dim]Zero-Optional Installation[/dim]",
+        border_style="blue",
+        padding=(1, 2),
+    ))
 
     if dry_run:
-        console.print("DRY RUN - Plan of operations:")
-        console.print(f"1. Create/verify venv at {target_dir}/.auditor_venv", highlight=False)
-        console.print("2. Install TheAuditor (editable) into venv")
-        console.print("3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
-        console.print("\nNo files will be modified.")
+        plan_table = Table(show_header=False, box=None, padding=(0, 2))
+        plan_table.add_column("Step", style="cyan", width=4)
+        plan_table.add_column("Action", style="white")
+
+        plan_table.add_row("1.", f"Create/verify venv at [cyan]{target_dir}/.auditor_venv[/cyan]")
+        plan_table.add_row("2.", "Install TheAuditor [dim](editable)[/dim] into venv")
+        plan_table.add_row("3.", "Install JS/TS analysis tools [dim](ESLint, TypeScript, etc.)[/dim]")
+
+        console.print()
+        console.print(Panel(
+            plan_table,
+            title="[bold yellow]DRY RUN[/bold yellow] [dim]Plan of Operations[/dim]",
+            subtitle="[dim]No files will be modified[/dim]",
+            border_style="yellow",
+            padding=(1, 1),
+        ))
         return
 
     if show_versions:
         from theauditor.commands.tools import detect_all_tools
 
         results = detect_all_tools()
-        console.print("Tool versions:", highlight=False)
 
         python_found = sum(1 for t in results["python"] if t.available)
         node_found = sum(1 for t in results["node"] if t.available)
         rust_found = sum(1 for t in results["rust"] if t.available)
 
-        console.print(f"  Python tools: {python_found}/{len(results['python'])} found", highlight=False)
-        console.print(f"  Node tools: {node_found}/{len(results['node'])} found", highlight=False)
-        console.print(f"  Rust tools: {rust_found}/{len(results['rust'])} found", highlight=False)
+        # Summary counts
+        summary = Text()
+        summary.append("Python: ", style="dim")
+        summary.append(f"{python_found}/{len(results['python'])}", style="green" if python_found else "red")
+        summary.append("  Node: ", style="dim")
+        summary.append(f"{node_found}/{len(results['node'])}", style="green" if node_found else "red")
+        summary.append("  Rust: ", style="dim")
+        summary.append(f"{rust_found}/{len(results['rust'])}", style="green" if rust_found else "red")
+
+        console.print()
+        console.print(Panel(summary, title="[bold]Tool Versions[/bold]", border_style="blue"))
 
         for category, tools_list in results.items():
-            console.print(f"\n  [{category.upper()}]", highlight=False)
+            tools_table = Table(show_header=False, box=None, padding=(0, 2))
+            tools_table.add_column("Tool", style="white", width=20)
+            tools_table.add_column("Version", style="cyan")
+            tools_table.add_column("Source", style="dim")
+
             for tool in tools_list:
+                status_style = "green" if tool.available else "red"
                 status = tool.display_version
-                source_tag = f" ({tool.source})" if tool.available and tool.source != "system" else ""
-                console.print(f"    {tool.name}: {status}{source_tag}", highlight=False)
+                source_tag = tool.source if tool.available and tool.source != "system" else ""
+                tools_table.add_row(
+                    tool.name,
+                    f"[{status_style}]{status}[/{status_style}]",
+                    source_tag
+                )
+
+            console.print(Panel(tools_table, title=f"[bold]{category.upper()}[/bold]", border_style="dim"))
         return
 
-    console.print("Step 1: Setting up Python virtual environment...", end="")
+    console.print()
+    console.print("[bold cyan]Step 1:[/bold cyan] Setting up Python virtual environment...")
     console.print()
 
     try:
@@ -238,24 +283,31 @@ def setup_ai(target, sync, dry_run, show_versions):
         if not success:
             raise click.ClickException(f"Failed to setup venv at {venv_path}")
 
-        is_windows = platform.system() == "Windows"
-        check_mark = "[OK]" if is_windows else "✓"
+        # Build summary table
+        summary_table = Table(show_header=False, box=None, padding=(0, 2))
+        summary_table.add_column("Status", style="green")
+        summary_table.add_column("Item", style="white")
 
-        console.print(f"\n{'=' * 60}", highlight=False)
-        console.print("Setup Complete - Summary:")
-        console.print(f"{'=' * 60}", highlight=False)
-        console.print(
-            f"{check_mark} Sandboxed environment configured at: {target_dir}/.auditor_venv",
-            highlight=False,
+        summary_table.add_row(
+            "[bold green]OK[/bold green]",
+            f"Sandboxed environment: [cyan]{target_dir}/.auditor_venv[/cyan]"
         )
-        console.print(
-            f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools",
-            highlight=False,
+        summary_table.add_row(
+            "[bold green]OK[/bold green]",
+            f"JS/TS tools: [cyan]{target_dir}/.auditor_venv/.theauditor_tools[/cyan]"
         )
-        console.print(
-            f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)",
-            highlight=False,
+        summary_table.add_row(
+            "[bold green]OK[/bold green]",
+            "Professional linters: [dim]ruff, mypy, black, ESLint, TypeScript[/dim]"
         )
+
+        console.print()
+        console.print(Panel(
+            summary_table,
+            title="[bold green]Setup Complete[/bold green]",
+            border_style="green",
+            padding=(1, 1),
+        ))
 
     except Exception as e:
         raise click.ClickException(f"Setup failed: {e}") from e

@@ -149,6 +149,7 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         super().__init__(context)
         self.needs_logger_import = False
         self.needs_traceback_cleanup = False
+        self.needs_console_cleanup = False  # Track if console import should be removed
         self.in_debug_guard = False
         self.transform_count = 0  # Track actual number of transformations
 
@@ -345,9 +346,14 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
                         return None  # Skip - likely a progress bar
 
         # ---------------------------------------------------------------------
-        # AUDIT FIX 2: Detect file= argument
+        # AUDIT FIX 2: Detect file= argument and Rich-specific kwargs
         # ---------------------------------------------------------------------
         has_stderr = False
+        # Rich-specific kwargs to ignore (they don't apply to loguru)
+        rich_only_kwargs = {
+            "highlight", "markup", "style", "justify", "overflow",
+            "no_wrap", "emoji", "width", "crop", "soft_wrap", "new_line_start"
+        }
         for arg in print_call.args:
             if arg.keyword and arg.keyword.value == "file":
                 # Check for sys.stderr match
@@ -360,7 +366,10 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
                     # CRITICAL: Custom file handle detected (not stderr)
                     # e.g. print("data", file=audit_log) - cannot migrate safely
                     return None
-                break
+            # Handle Rich's stderr=True (same as file=sys.stderr)
+            elif arg.keyword and arg.keyword.value == "stderr":
+                if m.matches(arg.value, m.Name("True")):
+                    has_stderr = True
 
         # Analyze the first argument for a tag
         first_arg = print_call.args[0].value
@@ -417,11 +426,16 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         # print("[TAG] msg", var1, var2)
         if len(print_call.args) > 1:
             for arg in print_call.args[1:]:
-                # Filter out keyword args (file=sys.stderr, flush=True, end="", sep=" ")
-                # These are print()-specific and would crash Loguru or be misinterpreted
+                # Filter out keyword args:
+                # - print()-specific: file=sys.stderr, flush=True, end="", sep=" "
+                # - Rich-specific: highlight=, markup=, style=, etc.
+                # These would crash Loguru or be misinterpreted
                 if arg.keyword is None:
                     # Create fresh Arg to strip trailing comma metadata
                     log_args.append(cst.Arg(value=arg.value))
+                elif arg.keyword.value in rich_only_kwargs:
+                    # Skip Rich-specific kwargs silently
+                    continue
 
         # Handle case where tag stripping left us with nothing: print("[TAG]")
         if not log_args and tag_to_strip:
@@ -603,7 +617,18 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
             if new_call:
                 return new_call
 
-        # 2. Handle traceback.print_exc() -> logger.exception("")
+        # 2. Handle console.print() -> logger.level()
+        # This migrates Rich console.print() calls to loguru for consistent formatting
+        if m.matches(
+            updated_node.func,
+            m.Attribute(value=m.Name("console"), attr=m.Name("print"))
+        ):
+            new_call = self._convert_print_to_logger(updated_node)
+            if new_call:
+                self.needs_console_cleanup = True
+                return new_call
+
+        # 3. Handle traceback.print_exc() -> logger.exception("")
         # This captures the current exception with full stack trace
         if m.matches(
             updated_node.func,
@@ -639,6 +664,13 @@ class PrintToLoguruCodemod(VisitorBasedCodemodCommand):
         # are commonly used for other things (sys.exit, os.path, etc.)
         if self.needs_traceback_cleanup:
             RemoveImportsVisitor.remove_unused_import(self.context, "traceback")
+
+        # CLEANUP: Remove console import if we converted all console.print() calls
+        # The console import comes from theauditor.pipeline.ui
+        if self.needs_console_cleanup:
+            RemoveImportsVisitor.remove_unused_import(
+                self.context, "theauditor.pipeline.ui", "console"
+            )
 
         return updated_node
 
