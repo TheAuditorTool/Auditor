@@ -31,7 +31,7 @@ This proposal covers polyglot support for ALL affected commands:
 
 ## What Changes
 
-### 1. Blueprint Naming Conventions (`blueprint.py:332-394`)
+### 1. Blueprint Naming Conventions (`blueprint.py:342-404`)
 - **MODIFY** `_get_naming_conventions()` to include Go, Rust, Bash
 - Add extension mappings: `.go`, `.rs`, `.sh`
 - Query `symbols` table with file extension filtering (existing pattern)
@@ -39,23 +39,23 @@ This proposal covers polyglot support for ALL affected commands:
 - Rust: snake_case functions, PascalCase types
 - Bash: snake_case functions, SCREAMING_CASE constants
 
-### 2. Blueprint Dependencies (`blueprint.py:1264-1366`)
+### 2. Blueprint Dependencies (`blueprint.py:1318-1420`)
 - **CREATE** `cargo_package_configs` table in `infrastructure_schema.py`
 - **CREATE** `go_module_configs` table in `go_schema.py`
 - **WIRE** Cargo.toml and go.mod parsing to database storage during indexing
 - **MODIFY** `_get_dependencies()` to query new tables
 - Add `cargo` and `go` to `by_manager` dict
 
-### 3. Explain Framework Info (`query.py:1439-1478`)
+### 3. Explain Framework Info (`query.py:1375-1478`)
 - **MODIFY** `get_file_framework_info()` to include Go/Rust handlers
-- Go: Query existing `go_routes` table (already populated by extractor)
-- Rust: Query `rust_attributes` for `#[get]`, `#[post]` macros
+- Go: Query `go_routes` table (REQUIRES BLOCKER 2 - route extraction)
+- Rust: Query `rust_attributes` for `#[get]`, `#[post]` macros (REQUIRES BLOCKER 1)
 - Detect Go web frameworks: gin, echo, chi, fiber, net/http
 - Detect Rust web frameworks: actix-web, axum, rocket
 
-### 4. Deadcode Entry Point Detection (`deadcode_graph.py:237-268`)
-- **MODIFY** `_find_decorated_entry_points()` to query Go/Rust tables
-- **MODIFY** `_find_framework_entry_points()` to include:
+### 4. Deadcode Entry Point Detection (`deadcode_graph.py:237-269`)
+- **MODIFY** `_find_decorated_entry_points()` (lines 237-253) to query Go/Rust tables
+- **MODIFY** `_find_framework_entry_points()` (lines 255-269) to include:
   - `go_routes` for Go web handlers
   - `rust_attributes` for Rust route attributes
   - `go_functions` for Go main functions
@@ -83,7 +83,16 @@ This proposal covers polyglot support for ALL affected commands:
 - **Required:** Create `rust_attributes` table and extraction function
 - **Blocks:** Tasks 3.2 (explain), 4.x (deadcode), 5.x (boundaries)
 
-### BLOCKER 2: Unified Table Population (Task 0.5)
+### BLOCKER 2: Go Route Extraction Missing
+- **File:** `theauditor/ast_extractors/go_impl.py` (single file, 1372 lines)
+- **Issue:** No `extract_go_routes()` function exists
+- `go_routes` table schema exists but is never populated during indexing
+- **Verified:** File contains `extract_go_functions`, `extract_go_methods`, `extract_go_goroutines` - NO route extraction
+- **Required:** Implement Go route extraction for Gin/Echo/Chi/Gorilla frameworks
+- **Blocks:** Tasks 3.1 (explain Go), 4.x (deadcode Go), 5.x (boundaries Go)
+- **Effort:** 2-3 hours
+
+### BLOCKER 3: Unified Table Population (Task 0.5)
 - Go/Rust/Bash extractors populate language-specific tables but NOT unified `symbols`/`refs` tables
 - **Verification results:**
   ```
@@ -110,9 +119,9 @@ This proposal covers polyglot support for ALL affected commands:
   - `theauditor/indexer/schemas/infrastructure_schema.py` (new table)
   - `theauditor/indexer/schemas/go_schema.py` (new table)
   - `theauditor/indexer/schemas/rust_schema.py` (new table + rust_attributes)
-  - `theauditor/ast_extractors/go/` (unified table population)
-  - `theauditor/ast_extractors/rust/` (unified table population)
-  - `theauditor/ast_extractors/bash/` (unified table population)
+  - `theauditor/ast_extractors/go_impl.py` (unified table population + route extraction)
+  - `theauditor/ast_extractors/rust_impl.py` (unified table population + attribute extraction)
+  - `theauditor/ast_extractors/bash_impl.py` (unified table population)
 - **Risk:** LOW - additive changes only, no breaking changes
 - **Dependencies:** Relies on Go/Rust/Bash extractors populating language-specific tables (already done)
 

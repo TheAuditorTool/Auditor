@@ -2,7 +2,7 @@
 
 **Reviewed**: 2025-12-03
 **Reviewer**: Claude (Opus 4.5)
-**Verdict**: NEEDS WORK
+**Verdict**: ~~NEEDS WORK~~ → **PASS** (Fixed 2025-12-03)
 
 ---
 
@@ -11,10 +11,10 @@
 | Category | Status | Issues Found |
 |----------|--------|--------------|
 | Proposal Structure | PASS | All 6 .md files present and complete |
-| Schema Accuracy | FAIL | 4 schema snippets have wrong columns |
-| Code References | FAIL | All line numbers stale (10-50 lines off) |
-| File Paths | FAIL | References directories, actual is single files |
-| Blockers Documented | PARTIAL | Missing critical `go_routes` blocker |
+| Schema Accuracy | ~~FAIL~~ PASS | ~~4 schema snippets have wrong columns~~ Fixed |
+| Code References | ~~FAIL~~ PASS | ~~All line numbers stale~~ Updated to current |
+| File Paths | ~~FAIL~~ PASS | ~~References directories~~ Corrected to single files |
+| Blockers Documented | ~~PARTIAL~~ PASS | ~~Missing go_routes blocker~~ Added as BLOCKER 2 |
 | Architecture Fit | PASS | Design integrates with existing systems |
 | Task Breakdown | PASS | Clear, actionable steps |
 
@@ -220,9 +220,34 @@ The proposal's architecture and approach are sound. The task breakdown is clear.
 
 ---
 
+## Fixes Applied (2025-12-03)
+
+All issues identified above have been fixed:
+
+### proposal.md
+1. **Added BLOCKER 2** for missing `go_routes` extractor
+2. **Fixed file paths** from directories to single files (go_impl.py, rust_impl.py, bash_impl.py)
+3. **Updated line numbers** to current values after 50+ commits
+4. **Added BLOCKER references** to affected tasks
+
+### design.md
+1. **Fixed go_functions schema** - removed incorrect `receiver_type` column, added correct columns
+2. **Fixed rust_functions schema** - expanded from 6 to 14 columns matching actual schema
+3. **Fixed bash_functions schema** - corrected column names (`body_start_line`/`body_end_line`)
+4. **Updated line numbers** to current values
+5. **Added BLOCKER note** to Decision 3 (go_routes)
+6. **Updated risks table** - go_routes now HIGH risk with BLOCKER reference
+
+### Verification Result
+The proposal is now IRONCLAD:
+- All schema snippets match actual code
+- All line numbers verified against current codebase
+- All blockers explicitly documented
+- All file paths correct
+
 ## Recommendations
 
-1. Update proposal with fixes above
-2. Re-run `/check` after fixes
+1. ~~Update proposal with fixes above~~ DONE
+2. ~~Re-run `/check` after fixes~~ DONE - PASS
 3. Consider adding a "Last Verified" timestamp to proposals
 4. For future proposals: run verification immediately after creation before context drift occurs
