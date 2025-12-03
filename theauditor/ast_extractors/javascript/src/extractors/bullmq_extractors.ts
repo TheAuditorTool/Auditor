@@ -1,5 +1,5 @@
 import * as ts from "typescript";
-import type { BullMQQueue, BullMQWorker } from "../schema";
+import type { BullMQQueue, BullMQWorker } from "../schema.js";
 
 interface ExtractBullMQResult {
   bullmq_queues: BullMQQueue[];

@@ -6,6 +6,7 @@ from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import build_file_context
 from theauditor.ast_extractors.python_impl import extract_all_python_data
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
@@ -47,15 +48,17 @@ class PythonExtractor(BaseExtractor):
         if not context:
             return self._empty_result()
 
+        # 1. Get base extraction data (ignore any stale manifest from python_impl)
         result = extract_all_python_data(context)
 
+        # 2. Add resolved_imports (additional data not available in python_impl)
         resolved = self._resolve_imports_from_context(file_info, context)
         if resolved:
             result["resolved_imports"] = resolved
-            # Update manifest to include resolved_imports (added after manifest was built)
-            if "_extraction_manifest" in result:
-                result["_extraction_manifest"]["resolved_imports"] = len(resolved)
-                result["_extraction_manifest"]["_total"] += len(resolved)
+
+        # 3. LATE BINDING: Generate manifest LAST after ALL data is assembled
+        # This uses the polymorphic FidelityToken that handles both lists and dicts
+        result = FidelityToken.attach_manifest(result)
 
         return result
 

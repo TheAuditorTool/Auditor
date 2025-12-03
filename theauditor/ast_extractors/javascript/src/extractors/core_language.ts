@@ -1,5 +1,5 @@
 import type * as ts from "typescript";
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger.js";
 import type {
   Function as IFunction,
   Class as IClass,
@@ -12,7 +12,7 @@ import type {
   ClassDecorator as IClassDecorator,
   ClassDecoratorArg as IClassDecoratorArg,
   ClassProperty as IClassProperty,
-} from "../schema";
+} from "../schema.js";
 
 interface ExtractFunctionsResult {
   functions: IFunction[];

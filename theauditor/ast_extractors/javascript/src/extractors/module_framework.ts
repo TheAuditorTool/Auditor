@@ -6,7 +6,7 @@ import type {
   ImportStyleName as IImportStyleName,
   EnvVarUsage as IEnvVarUsage,
   ORMRelationship as IORMRelationship,
-} from "../schema";
+} from "../schema.js";
 
 interface ExtractImportsResult {
   imports: IImport[];
@@ -628,7 +628,7 @@ export function extractImportStyles(
   const resolveModulePath = (modulePath: string): string | null => {
     if (!program || !sourceFile) return null;
 
-    const resolvedModule = program.getResolvedModule(sourceFile, modulePath, undefined);
+    const resolvedModule = (program as any).getResolvedModule?.(sourceFile, modulePath, undefined);
 
     if (resolvedModule?.resolvedFileName) {
       let resolved = resolvedModule.resolvedFileName;

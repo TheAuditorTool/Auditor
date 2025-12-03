@@ -4,18 +4,19 @@ import * as os from "os";
 import * as crypto from "crypto";
 import { pathToFileURL } from "url";
 
-import * as core from "./extractors/core_language";
-import * as flow from "./extractors/data_flow";
-import * as mod from "./extractors/module_framework";
-import * as sec from "./extractors/security_extractors";
-import * as fw from "./extractors/framework_extractors";
-import * as seq from "./extractors/sequelize_extractors";
-import * as bull from "./extractors/bullmq_extractors";
-import * as ang from "./extractors/angular_extractors";
-import * as cfg from "./extractors/cfg_extractor";
+import * as core from "./extractors/core_language.js";
+import * as flow from "./extractors/data_flow.js";
+import * as mod from "./extractors/module_framework.js";
+import * as sec from "./extractors/security_extractors.js";
+import * as fw from "./extractors/framework_extractors.js";
+import * as seq from "./extractors/sequelize_extractors.js";
+import * as bull from "./extractors/bullmq_extractors.js";
+import * as ang from "./extractors/angular_extractors.js";
+import * as cfg from "./extractors/cfg_extractor.js";
 
-import { ExtractionReceiptSchema } from "./schema";
+import { ExtractionReceiptSchema } from "./schema.js";
 import { z } from "zod";
+import { attachManifest } from "./fidelity.js";
 
 let parseVueSfc: any = null;
 let compileVueScript: any = null;
@@ -419,7 +420,7 @@ async function main(): Promise<void> {
         continue;
       }
 
-      let compilerOptions: import("typescript").CompilerOptions;
+      let compilerOptions!: import("typescript").CompilerOptions;
       let program: import("typescript").Program;
 
       const vueContentMap = new Map<string, string>();
@@ -584,7 +585,7 @@ async function main(): Promise<void> {
           const func_param_decorators = funcData.func_param_decorators;
 
           const functionParamsMap = new Map<string, Array<{ name: string }>>();
-          func_params.forEach((p) => {
+          func_params.forEach((p: { function_name: string; param_name: string }) => {
             if (!functionParamsMap.has(p.function_name)) {
               functionParamsMap.set(p.function_name, []);
             }
@@ -674,7 +675,7 @@ async function main(): Promise<void> {
             filePath,
             program,
             sourceFile,
-            ts,
+            ts as any,
             resolvedProjectRoot,
           );
           const importStyles = importStyleData.import_styles;
@@ -915,8 +916,11 @@ async function main(): Promise<void> {
     // Sanitize virtual Vue paths before validation
     const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
 
+    // Attach fidelity manifests (generated INSIDE Node)
+    const withManifest = attachManifest(sanitizedResults);
+
     try {
-      const validated = ExtractionReceiptSchema.parse(sanitizedResults);
+      const validated = ExtractionReceiptSchema.parse(withManifest);
       fs.writeFileSync(outputPath, JSON.stringify(validated, null, 2), "utf8");
       console.error("[BATCH DEBUG] Output validated and written successfully");
     } catch (e) {

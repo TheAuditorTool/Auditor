@@ -56,8 +56,28 @@ class CoreStorage(BaseStorage):
         """
         self._valid_construct_ids.clear()
 
-    def _store_imports(self, file_path: str, imports: list, jsx_pass: bool):
+    def _store_imports(self, file_path: str, imports, jsx_pass: bool):
         """Store imports/references."""
+
+        # FIX: Handle dicts (refs/resolved_imports) properly
+        if isinstance(imports, dict):
+            logger.debug(f"Processing {len(imports)} ref entries for {file_path}")
+            for name, resolved_path in imports.items():
+                # Normalize path for Graph Builder
+                resolved = resolved_path.replace("\\", "/") if resolved_path else ""
+
+                try:
+                    self.db_manager.add_ref(file_path, "ref", resolved, None)
+                    self.counts["refs"] += 1
+                except sqlite3.IntegrityError as e:
+                    logger.critical(
+                        f"FK VIOLATION in add_ref (dict): src={file_path!r}, "
+                        f"target={resolved!r} -- {e}"
+                    )
+                    raise
+            return
+
+        # Legacy list handling
         logger.debug(f"Processing {len(imports)} imports for {file_path}")
         for import_item in imports:
             if isinstance(import_item, dict):

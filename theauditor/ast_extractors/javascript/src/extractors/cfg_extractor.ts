@@ -4,7 +4,7 @@ import type {
   CFGEdge,
   CFGBlockStatement,
   Function as IFunction,
-} from "../schema";
+} from "../schema.js";
 
 interface ExtractCFGResult {
   cfg_blocks: CFGBlock[];

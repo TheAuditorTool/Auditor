@@ -62,6 +62,7 @@ class JavaScriptBuildGuard:
             self.js_project_path / "src" / "extractors" / "module_framework.ts",
             self.js_project_path / "src" / "extractors" / "security_extractors.ts",
             self.js_project_path / "src" / "extractors" / "sequelize_extractors.ts",
+            self.js_project_path / "src" / "fidelity.ts",
         ]
 
         for file_path in sorted(watch_files):
